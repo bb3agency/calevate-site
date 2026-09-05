@@ -91,7 +91,9 @@ nginx (host) ── admin.calevate.tech ─┐
    │
 Docker Compose (project: calevate): api · voice-runtime · workers · redis
 Host: PostgreSQL 16 · pm2 (web) · certbot · GitHub Actions runner
-           (pgvector only if the D-28 bake-off fails — it is contingency, not the plan)
+           (with the pgvector EXTENSION — required since D-502, not contingency: two
+            migrations refuse without it. `apt install postgresql-16-pgvector`, then
+            `CREATE EXTENSION vector` as a superuser in the app database.)
 Object storage: Cloudflare R2 (recordings, raw payloads, exports) — location hint `apac`
 ```
 
@@ -108,7 +110,9 @@ Object storage: Cloudflare R2 (recordings, raw payloads, exports) — location h
 ## 2. VPS baseline (once per VPS — raghava §2 verbatim)
 
 Packages: Docker Engine + Compose plugin (v2.24+ for `!reset`), **nginx ≥1.25.1**, certbot,
-PostgreSQL 16 (pgvector optional — D-28 contingency), Node 22 **plus pnpm via corepack**
+PostgreSQL 16 **with pgvector, which is no longer optional** — migration `dc1aaeeeff02` does
+`CREATE EXTENSION vector` and REFUSES with the statement to run if the role may not (the extension
+is not `trusted`, so it needs a superuser once per database). Node 22 **plus pnpm via corepack**
 (for web builds + pm2; see §7a — prefer building in CI), ~~Python is NOT needed on the
 host (api/workers run containerized; builds happen in Docker)~~ — **struck by D-188, see
 below**, jq, `systemd-timesyncd`
@@ -1022,6 +1026,11 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
      switching to `smtp` during a Resend outage must not need a deploy. The api/worker
      hosts read it from the store; the database host reads it from its own
      `EnvironmentFile` alongside the key.
+   - `NOTIFICATIONS_REPLY_TO` — defaults to `calevate.voice@gmail.com`, the mailbox the
+     published legal documents name. The platform cannot SEND from it (the provider
+     refuses an unverified sender domain, and a public webmail domain can never be
+     verified), so this is the header that gets a client's reply to a mailbox somebody
+     reads. Change it and `apps/web/src/lib/legal/placeholders.ts` together — D-518.
    - `NOTIFICATIONS_FROM` — defaults to `support@calevate.tech`. It is also the alert
      sender, deliberately: one address, because a client who allowlists one and not the
      other has half a channel.

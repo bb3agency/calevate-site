@@ -147,10 +147,16 @@ def test_nothing_can_ask_the_engines_knowledge_base_a_question() -> None:
 
     FLOWS §7 promised "3 canned questions answered from new content" as a step of the
     publish. Retrieval happens inside the ENGINE (D-33/TRD §6.2), and our whole KB surface
-    on `VoiceEngine` is ingestion and bookkeeping — attach, detach, list. There is no
-    method that takes a question, so a per-publish verification of what the agent can
-    RETRIEVE is not something this repository can write. The only instrument is a live
-    PSTN call, which is pilot gate 8's `probe_telugu_retrieval`.
+    on `VoiceEngine` is ingestion and bookkeeping — attach, detach, list, and (D-519)
+    list what the ACCOUNT holds. There is no method that takes a question, so a
+    per-publish verification of what the agent can RETRIEVE is not something this
+    repository can write. The only instrument is a live PSTN call, which is pilot gate
+    8's `probe_telugu_retrieval`.
+
+    `list_account_kb` was added for the orphan sweep and does NOT weaken this: it asks
+    the engine what objects exist on the shared account, which is bookkeeping of exactly
+    the same kind as `list_kb` — one enumerates what an agent references, the other what
+    the account holds. Neither carries a question or returns retrieved text.
 
     This fails the day the Protocol grows a retrieval method. That is the day the step
     becomes buildable, and the day FLOWS §7's paragraph has to be rewritten rather than
@@ -161,7 +167,7 @@ def test_nothing_can_ask_the_engines_knowledge_base_a_question() -> None:
         for name, _ in inspect.getmembers(VoiceEngine, inspect.isfunction)
         if "kb" in name or "knowledge" in name
     }
-    assert kb_methods == {"attach_kb", "detach_kb", "list_kb"}, (
+    assert kb_methods == {"attach_kb", "detach_kb", "list_kb", "list_account_kb"}, (
         f"`VoiceEngine` now carries {sorted(kb_methods)}. If one of them can ASK the "
         "knowledge base something, FLOWS §7's regression-smoke paragraph is obsolete — "
         "build the step and delete the paragraph, do not leave both."
@@ -204,13 +210,14 @@ async def _forget_the_handle(tenant_id: uuid.UUID, agent_id: uuid.UUID, name: st
 
     This is the state a version published before `_remember_engine_kb_ref` existed is in:
     live in our tables, attached on the engine, and unaddressable. Reproduced by removing
-    the key rather than by patching the reader, because the refusal under test is a
-    statement about the ROW.
+    the CLAIM ROW (`engine_kb_routes`, D-519 — it was a JSONB key on `kb_documents` before
+    that) rather than by patching the reader, because the refusal under test is a
+    statement about the row.
     """
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "UPDATE kb_documents SET meta = coalesce(meta, '{}'::jsonb) - 'engine_kb_ref' "
+                "DELETE FROM engine_kb_routes "
                 "WHERE source_id IN (SELECT id FROM kb_sources WHERE agent_id = :a "
                 "AND name = :n AND is_active = true)"
             ),

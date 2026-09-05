@@ -191,6 +191,12 @@ class Agent(PKMixin, TimestampMixin, Base):
             "length(btrim(recording_notice_line)) > 0",
             name="ck_agents_recording_notice_nonempty",
         ),
+        # The third sentence, mandatory ON FILE for the two above's reason: turning memory
+        # on must never be the moment somebody discovers there is nothing to say (D-507).
+        CheckConstraint(
+            "length(btrim(caller_memory_notice_line)) > 0",
+            name="ck_agents_caller_memory_notice_nonempty",
+        ),
         # The cost-runaway guard's range. NULL is admitted EXPLICITLY (it is the "use
         # the platform default" sentinel), not by the accident that a NULL-returning
         # CHECK passes. Migration a4e7b2c95d18.
@@ -293,6 +299,10 @@ class Agent(PKMixin, TimestampMixin, Base):
     # to answer for as the Principal Entity.
     ai_disclosure_line: Mapped[str] = mapped_column(Text, nullable=False)
     recording_notice_line: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Sentence three (D-507). NO `*_enabled` TWIN, deliberately: it is spoken exactly when
+    #: `caller_memory_enabled` below is on, so "remembers a caller without saying so" is
+    #: not a state this schema can hold. See `calevate_shared.engine.DisclosurePosture`.
+    caller_memory_notice_line: Mapped[str] = mapped_column(Text, nullable=False)
     # Default TRUE on both: an agent nobody has decided about discloses. A default of
     # false would make an omission — a forgotten column in an INSERT, a row created by a
     # future importer — silently produce the posture with the legal exposure.
@@ -301,6 +311,18 @@ class Agent(PKMixin, TimestampMixin, Base):
     )
     recording_notice_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default="true"
+    )
+    # MAY THIS AGENT REMEMBER ITS CALLERS ACROSS CALLS? (D-503, migration c6b1f0d47e83.)
+    #
+    # DEFAULT FALSE — DELIBERATELY THE OPPOSITE OF THE TWO TOGGLES ABOVE, and by the same
+    # rule rather than in spite of it. Those default TRUE because the posture an omission
+    # must not produce is "does not disclose". Here the posture an omission must not produce
+    # is "remembers": a forgotten column in an INSERT, a future importer, or a restore from
+    # a dump written before this column existed must all yield an agent that keeps no
+    # cross-call profile of the people who ring it. The safe default is whichever one a
+    # silence should mean, and it is not the same value on every column.
+    caller_memory_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false"
     )
     status: Mapped[str] = mapped_column(String, nullable=False, server_default="draft")
     engine: Mapped[str] = mapped_column(String, nullable=False, server_default="fake")

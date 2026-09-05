@@ -27,7 +27,9 @@ import {
   DANGER_BUTTON,
   formatCount,
   formatIST,
+  istDateStamp,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import {
   DELETION_REQUEST_LIST_LIMIT,
   downloadJson,
@@ -43,6 +45,8 @@ import { lookup } from "@/lib/lookup";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import { type Session } from "@/lib/api/client";
 import { useClientSession } from "@/lib/api/session";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * Data rights (DPDP §11, SEC-COMP §4) — the screen for the two requests a data principal
@@ -131,6 +135,76 @@ function useSubjectExportAccess(session: Session): { allowed: boolean; reason: s
 
 export default function DataRightsPage() {
   const session = useClientSession();
+  /*
+   * The SAME read `RegisterCard` makes, shared through the query cache rather than
+   * fetched twice. Declared here and not in the card for the reason `settings/models`
+   * gives: child effects commit before their parent's, so the innermost registration
+   * wins — one declaration per screen, and it belongs where the launcher is wanted on
+   * every state including the loading and failed ones.
+   */
+  const requests = useDeletionRequests(session);
+
+  /*
+   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * ## Nothing here is writable, and nothing personal leaves
+   *
+   * The two boxes on this screen take a phone number, and what they do with it is build a
+   * file containing everything this account holds about that person, or erase them. Those
+   * are the two acts on this console with a statutory clock and no undo, and they are
+   * addressed at a named human being — so neither box is declared at all, and the phrase
+   * ERASE the erasure form makes a person type is the ceremony this deliberately leaves
+   * alone. Filling in either from a model's guess is not a feature.
+   *
+   * ## The register IS declared, because the numbers in it are already one-way hashed
+   *
+   * `subject_ref` is a hash, not a number, and the screen says so — but even that is not
+   * sent: the assistant is told how many requests there are and how they are progressing,
+   * which is what an owner answering a regulator's question needs, and the register
+   * itself stays on the screen.
+   *
+   * §52 IS CARRIED INTO THE FACT rather than flattened: "this account has been asked to
+   * erase nobody" is an answer a client could repeat to a regulator, and "we could not
+   * read the register" is not. The assistant must not be able to confuse them either.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/data-rights",
+    title: "Data rights",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: requests.data
+          ? "the erasure register below has loaded"
+          : requests.error
+            ? "the register failed to load — this is NOT evidence that nobody has asked to be erased"
+            : "still loading",
+      },
+      ...(requests.data
+        ? [
+            { key: "requests_total", label: "Erasure requests on the register", value: String(requests.data.length) },
+            {
+              key: "requests_pending",
+              label: "Of those, still running",
+              value: String(requests.data.filter((request) => request.status === "pending").length),
+            },
+            {
+              key: "requests_completed",
+              label: "Of those, completed",
+              value: String(requests.data.filter((request) => request.status === "completed").length),
+            },
+            {
+              key: "requests_with_certificate",
+              label: "Requests with an erasure certificate on file",
+              value: String(requests.data.filter((request) => request.has_certificate).length),
+            },
+          ]
+        : []),
+    ],
+    apply: noFill,
+  });
 
   return (
     <div className="space-y-5 pb-12">
@@ -159,8 +233,7 @@ function SubjectExportCard({ session }: { session: Session }) {
   const access = useSubjectExportAccess(session);
   const exportDocument = useSubjectExport(session);
   const [phone, setPhone] = useState("");
-
-  const ready = phone.trim().length >= 8;
+  const valid = useFormValidation();
 
   return (
     <Card title="What we hold about a person">
@@ -176,20 +249,24 @@ function SubjectExportCard({ session }: { session: Session }) {
 
       <form
         className="mt-3 space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault();
+        noValidate
+        onSubmit={valid.onSubmit(() => {
           exportDocument.mutate(phone.trim());
-        }}
+        })}
       >
         <Field
           id="subject-export-phone"
           label="Their phone number"
-          hint="Ten digits, or the full number starting with +. It is sent in the request body and never appears in a web address."
+          hint="Ten digits, or the full number starting with +. We send it privately — it never appears in the web address at the top of your browser, and never in your history."
         >
           <input
+            {...valid.field(
+              "phone",
+              "Enter their phone number.",
+              "subject-export-phone-hint",
+            )}
             required
             id="subject-export-phone"
-            aria-describedby="subject-export-phone-hint"
             value={phone}
             onChange={(e) => {
               setPhone(e.target.value);
@@ -204,12 +281,15 @@ function SubjectExportCard({ session }: { session: Session }) {
             disabled={!access.allowed}
             className={`${FIELD} font-mono`}
           />
+          {valid.error("phone")}
         </Field>
 
         <button
           type="submit"
           title={access.reason ?? undefined}
-          disabled={!access.allowed || !ready || exportDocument.isPending}
+          /* `ready` (eight digits) is not repeated here: the field answers it in a
+             sentence, and a dead button said nothing. */
+          disabled={!access.allowed || exportDocument.isPending}
           className={PRIMARY_BUTTON_SM}
         >
           <FileDown aria-hidden className="h-4 w-4" />
@@ -278,8 +358,10 @@ function SubjectExportCard({ session }: { session: Session }) {
                 downloadJson(
                   exportDocument.data,
                   // Named for the day, never for the number (hard rule 6): filenames end
-                  // up in mail clients, chat threads and shared folders.
-                  `subject-access-export-${new Date().toISOString().slice(0, 10)}.json`,
+                  // up in mail clients, chat threads and shared folders. The IST day —
+                  // `toISOString()` is still on yesterday until 05:30 IST, and this is a
+                  // statutory record whose date somebody may later have to place.
+                  `subject-access-export-${istDateStamp()}.json`,
                 )
               }
               className={`${SECONDARY_BUTTON_SM} mt-3`}
@@ -304,8 +386,17 @@ function ErasureCard({ session }: { session: Session }) {
   // is the feature rather than the obstacle (deletion_routes.py says so).
   const access = useWriteAccess(session, "org:manage", "file an erasure request");
   const file = useFileErasure(session);
+  // The TARGET check (ux-audit DR-1 🔒): the typed ERASE confirms intent, but a
+  // transposed digit in a ten-digit mobile passes every check on this form and erases a
+  // different real customer, irreversibly. This reuses the subject-export read — the
+  // same POST the card above makes — and renders ONLY its counts, so the owner sees
+  // whose record is about to be destroyed before arming it. Gated on the export
+  // permission; a session without it keeps the typed confirmation alone.
+  const previewAccess = useSubjectExportAccess(session);
+  const preview = useSubjectExport(session);
 
   const [phone, setPhone] = useState("");
+  const valid = useFormValidation();
   const [confirmation, setConfirmation] = useState("");
 
   const armed = phone.trim().length >= 8 && confirmation === ERASE_CONFIRMATION;
@@ -338,17 +429,18 @@ function ErasureCard({ session }: { session: Session }) {
 
         <form
           className="mt-3 space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
+          noValidate
+          onSubmit={valid.onSubmit(() => {
             file.mutate(phone.trim(), {
               onSuccess: () => {
                 // The filed request arrives from the register, which the mutation
                 // invalidates — nothing is remembered here.
                 setPhone("");
                 setConfirmation("");
+                preview.reset();
               },
             });
-          }}
+          })}
         >
           {/* Not "Their phone number", which the export field above already carries: two
               controls with one accessible name is a screen reader announcing the erasure
@@ -360,11 +452,16 @@ function ErasureCard({ session }: { session: Session }) {
             hint="Check it twice. We erase whoever this number belongs to, and there is no undo."
           >
             <input
+              {...valid.field("phone", "Enter the number to erase.", "erasure-phone-hint")}
               required
               id="erasure-phone"
-              aria-describedby="erasure-phone-hint"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => {
+                setPhone(e.target.value);
+                // A count fetched for the previous number, standing beside a changed
+                // one, is the wrong person's record vouching for this one.
+                preview.reset();
+              }}
               minLength={8}
               maxLength={20}
               inputMode="tel"
@@ -372,7 +469,59 @@ function ErasureCard({ session }: { session: Session }) {
               disabled={!access.allowed}
               className={`${FIELD} font-mono`}
             />
+            {valid.error("phone")}
           </Field>
+
+          {previewAccess.allowed && phone.trim().length >= 8 && (
+            <div>
+              {preview.data === undefined && (
+                <button
+                  type="button"
+                  onClick={() => preview.mutate(phone.trim())}
+                  disabled={preview.isPending}
+                  className={SECONDARY_BUTTON_SM}
+                >
+                  {preview.isPending ? "Checking…" : "Check whose record this is first"}
+                </button>
+              )}
+              {preview.error != null && <ProblemNotice error={preview.error} />}
+              {preview.data !== undefined && preview.error == null && (
+                <p className="text-sm text-ink" aria-live="polite">
+                  {preview.data.counts.calls +
+                    preview.data.counts.leads +
+                    preview.data.counts.transcript_turns +
+                    preview.data.counts.consent_records ===
+                  0 ? (
+                    <>
+                      We hold <span className="font-semibold">nothing</span> for this
+                      number. If you expected a record, check the digits — this is the
+                      strongest sign they are wrong.
+                    </>
+                  ) : (
+                    <>
+                      We hold{" "}
+                      <span className="font-semibold tabular-nums">
+                        {formatCount(preview.data.counts.calls)}
+                      </span>{" "}
+                      call(s),{" "}
+                      <span className="font-semibold tabular-nums">
+                        {formatCount(preview.data.counts.transcript_turns)}
+                      </span>{" "}
+                      transcript turn(s),{" "}
+                      <span className="font-semibold tabular-nums">
+                        {formatCount(preview.data.counts.leads)}
+                      </span>{" "}
+                      CRM record(s) and{" "}
+                      <span className="font-semibold tabular-nums">
+                        {formatCount(preview.data.counts.consent_records)}
+                      </span>{" "}
+                      consent record(s) for this number. All of it will be erased.
+                    </>
+                  )}
+                </p>
+              )}
+            </div>
+          )}
 
           <Field id="erasure-confirmation" label={`Type ${ERASE_CONFIRMATION} to confirm`}>
             <input

@@ -87,9 +87,19 @@ from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
 from apps.workers.action_audit import record_action_invocation
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import issue_one_time_charges
+from apps.workers.callbacks import book_requested_callback, cancel_requested_callback
+from apps.workers.caller_embeddings import CALLER_EMBED_MINUTES, embed_caller_chunks
+from apps.workers.caller_memory_distil import (
+    DISTIL_MINUTE as CALLER_MEMORY_DISTIL_MINUTE,
+)
+from apps.workers.caller_memory_distil import (
+    distil_caller_memories,
+)
 from apps.workers.campaign_dispatch import TICK_SECONDS, dispatch_campaign_tick
+from apps.workers.copilot_memory import DISTILL_MINUTE, distil_copilot_memories
 from apps.workers.dial_recall import recall_queued_dials
 from apps.workers.dispatcher import (
+    ERASURE_PROBE_MINUTE,
     dispatch_outbox,
     report_overdue_erasures,
     report_stalled_pipeline,
@@ -105,6 +115,9 @@ from apps.workers.kb_aggregation import (
     DIGEST_WEEKDAY,
     send_agent_knowledge_digests,
 )
+from apps.workers.kb_embeddings import EMBED_MINUTES, embed_knowledge_chunks
+from apps.workers.kb_gloss import GLOSS_MINUTES, write_knowledge_glosses
+from apps.workers.kb_orphans import ORPHAN_SWEEP_HOUR, ORPHAN_SWEEP_MINUTE, sweep_kb_orphans
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.optout import record_in_call_optout
@@ -123,6 +136,8 @@ from apps.workers.retention import (
     prune_reliability_tables,
 )
 from apps.workers.tls_expiry import check_tls_expiry
+from apps.workers.topup_settlement import SETTLEMENT_MINUTES, sweep_topup_settlement
+from apps.workers.wallet_alerts import notify_low_balance
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 
 log = get_logger(__name__)
@@ -190,6 +205,22 @@ FUNCTIONS: list[Any] = [
         # tick while the dials already queued at the vendor ring anyway, with every screen
         # reporting the number suppressed.
         recall_dials_for_dnc,
+        # D-514. The in-call call-back pair. voice-runtime acks the caller in
+        # milliseconds and queues one of these; unregistered, the agent has told somebody
+        # on the phone "I have booked that for Tuesday at four", arq drops the name, the
+        # row walks into the DLQ and NOTHING ELSE recovers it — there is no post-call pass
+        # behind a call-back the way there is behind an opt-out. That is the sharpest
+        # version of the `check_job_wiring` shape in this list: a promise made to a person.
+        book_requested_callback,
+        cancel_requested_callback,
+        # THE EMPTY-WALLET WARNING (2 Sep 2026). Published by `billing.service.record_entry`
+        # in the same transaction as the ledger entry that crossed the line, so an
+        # unregistered name here is not a dormant feature: the outbox marks the row
+        # `published`, arq drops the job with a warning nothing reads, and a client's
+        # outgoing calls stop with no notice at all — which is precisely the founder's
+        # stated failure ("a client whose phone stops being answered because a top-up
+        # lapsed is a client who leaves"). `check_job_wiring` shape 3.
+        notify_low_balance,
     )
 ]
 
@@ -222,6 +253,45 @@ CRON_JOBS = [
     # that gives up on its first transient database error is silent for exactly as long
     # as the incident it exists to report. Half an hour of that is not free.
     cron(traced_job(report_stalled_pipeline), minute={5, 35}, max_tries=WORKER_MAX_TRIES),
+    # THE COPILOT'S SEMANTIC DISTILLATION (migration d4a9c17e6b02). Hourly at :25, which is
+    # clear of the poller (:00/:10/...), `report_stalled_pipeline` (:05/:35) and
+    # `reconcile_outstanding_calls` (:15/:45), so no two O(tenants) fan-outs share a minute.
+    #
+    # A CRON AND NOT AN ENQUEUE, deliberately: an enqueue per copilot turn would be a paid
+    # model call per turn, which is the cost this whole job exists to keep OFF the live
+    # path. `copilot_memory.MAX_GROUPS_PER_TICK` times 24 is therefore the most calls this
+    # feature can make in a day, and the cadence IS the spend rate.
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason — `cron()` defaults it to 1 and
+    # `WorkerSettings.max_tries` does not reach a function carrying its own. Retrying is
+    # safe: the job is idempotent on `copilot_memories.distilled_at`, stamped in the same
+    # transaction as the rows it produced, so a re-run finds nothing rather than paying
+    # twice for the same conversation.
+    cron(
+        traced_job(distil_copilot_memories),
+        minute={DISTILL_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # CROSS-CALL MEMORY: what a finished call taught us about the PERSON who rang (D-513).
+    # Hourly at :50, clear of every other O(tenants) fan-out in this list, and the ceiling
+    # (`caller_memory_distil.MAX_CALLS_PER_TICK`) is per tick — so the cadence IS the spend
+    # rate, exactly as for its sibling above.
+    #
+    # IT COSTS NOTHING ON A DEPLOYMENT WHERE NOBODY HAS SWITCHED THE FEATURE ON, which is
+    # every deployment by default: discovery starts from `agents.caller_memory_enabled`, so
+    # a fleet with the switch everywhere off makes zero model calls and the tick is one
+    # indexed read per tenant.
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason. Retrying is safe: the job is
+    # idempotent on `calls.caller_memory_state`, stamped in the same transaction as the
+    # memory rows it produced, so a re-run finds nothing rather than paying twice for the
+    # same conversation — and the state carries the "read it, owed nothing" answer that a
+    # `source_call_id` alone could not express.
+    cron(
+        traced_job(distil_caller_memories),
+        minute={CALLER_MEMORY_DISTIL_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # THE OTHER HALF OF THE GUARANTEE (D-242). `reconcile_executions` above can only see
     # what `list_executions` returns, and that listing is filtered on when an execution
     # was CREATED — so a call that runs longer than the 30-minute window has fallen out of
@@ -257,7 +327,17 @@ CRON_JOBS = [
     # is enqueued once, in the request's own transaction, with no poller behind it — so
     # the alarm going quiet on a transient database error is the whole failure, not a
     # delay in reporting it.
-    cron(traced_job(report_overdue_erasures), minute={25}, max_tries=WORKER_MAX_TRIES),
+    #
+    # THE MINUTE COMES FROM THE MODULE (`ERASURE_PROBE_MINUTE`) and is no longer :25,
+    # which is `DISTILL_MINUTE`: the two heaviest hourly fan-outs were starting together
+    # every hour, and this one has a wall-clock budget that a neighbour competing for the
+    # pool spends on waiting. `dispatcher.ERASURE_PROBE_MINUTE` carries the argument and
+    # `tests/job_registration_test.py` is the guard that keeps it true.
+    cron(
+        traced_job(report_overdue_erasures),
+        minute={ERASURE_PROBE_MINUTE},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # THE FIVE-MINUTE FX PULL. The rate every dollar of vendor cost is converted at, kept
     # current without a restart (`apps/workers/fx_pull.py` argues the source, the cadence
     # and the failure ladder). Registered from the job's own `PULL_MINUTES` so the schedule
@@ -403,9 +483,14 @@ CRON_JOBS = [
     # publishes — so a source edited in the vendor's dashboard, or a publish that committed
     # there and rolled back here, stayed invisible for months rather than minutes.
     #
-    # HOURLY rather than the agent sweep's half-hourly, and 15 agents rather than 25: the
-    # round trip is dearer, because `bolna.list_kb` pulls the WHOLE account's knowledge
-    # list and filters it to one agent on our side. `apps/workers/kb_reconciliation.py`
+    # HOURLY rather than the agent sweep's half-hourly, and 15 agents rather than 25,
+    # sized against the dearest round trip the PORT allows — an engine whose `list_kb`
+    # pulls the whole account's knowledge list and filters it on our side. That is no
+    # longer what the primary adapter does (D-488: it reads the agent's own `vector_ids`,
+    # one GET, the same price as the agent sweep's), and the bound is deliberately NOT
+    # loosened for it: the next adapter may be the dear kind, and a limit relaxed to fit
+    # today's cheapest engine is a limit discovered in production by tomorrow's.
+    # `apps/workers/kb_reconciliation.py`
     # carries the arithmetic and asserts at import that a tick's worst case fits inside the
     # interval, which is what lets it skip the Redis lease the campaign tick needs —
     # `minute` therefore comes FROM the module, because two places writing "hourly" is how
@@ -417,6 +502,86 @@ CRON_JOBS = [
     cron(
         traced_job(sweep_kb_drift),
         minute=set(KB_SWEEP_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE ACCOUNT-LEVEL KNOWLEDGE SWEEP (D-519), and it is the sweep above's blind spot
+    # rather than a duplicate of it. That one reads what an AGENT references and therefore
+    # cannot see an object no agent references — which is what every failure in this
+    # feature leaves behind, on an account shared by every tenant, holding a client's
+    # uploaded document with nothing at the vendor saying whose it is.
+    #
+    # DAILY rather than hourly, and one vendor call per tick. `list_account_kb` walks an
+    # account-wide listing that grows with every source every client has ever published —
+    # the dearest read in the adapter, and the one the drift sweep's batch size exists to
+    # avoid making per agent. The residue it finds is made by crashes and by hand; none of
+    # its verdicts becomes more actionable for being eight hours fresher.
+    #
+    # 04:40 because the hours around it are taken (03:17 expiry, 03:40 retention, 04:05
+    # the TLS probe, :23 of every hour the KB drift sweep), and `hour`/`minute` come FROM
+    # the module for its neighbours' reason.
+    #
+    # `max_tries` EXPLICIT: `cron()` defaults it to 1, and the failure this job is most
+    # likely to suffer is a slow vendor listing — precisely the one that must not be
+    # allowed to mean "nothing to report until tomorrow".
+    cron(
+        traced_job(sweep_kb_orphans),
+        hour=set(ORPHAN_SWEEP_HOUR),
+        minute=set(ORPHAN_SWEEP_MINUTE),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE ENGLISH GLOSS SWEEP. Not a drift sweep — it is INGESTION, finishing a chunk that
+    # arrived without the one derived field retrieval needs. `apps/workers/kb_gloss.py`
+    # carries the measurement: a Tenglish question (the form Saaras returns, so the form
+    # production actually produces) retrieves a Telugu-script chunk at recall@1 0.250
+    # unaided and 0.750 with the gloss, and on this repo's token-overlap ranker it retrieves
+    # nothing at all. An unregistered cron here is not a dormant feature: every chunk stays
+    # `pending` forever, `search_knowledge` silently keeps answering nothing to half its
+    # questions, and the column reads as shipped in every review.
+    #
+    # `minute` comes FROM the module for its neighbours' reason — two places writing "twice
+    # hourly" is how the module's own clearance argument stops being true. `max_tries`
+    # EXPLICIT because `cron()` defaults it to 1 and `WorkerSettings.max_tries` does not
+    # reach a function registered here; the tick's own failure is a worklist read, which is
+    # exactly the kind a retry fixes.
+    cron(
+        traced_job(write_knowledge_glosses),
+        minute=set(GLOSS_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE EMBEDDING SWEEP (D-502). The gloss sweep's sibling on the same table and the
+    # second half of ingestion: the publish transaction writes `kb_chunks.tsv`, this buys
+    # the vector beside it. An unregistered cron here is not a dormant feature — every
+    # published chunk stays `pending` for ever, the dashboard's knowledge search answers
+    # from its keyword arm alone while every screen reports a hybrid store, and the column
+    # reads as shipped in review. It runs AFTER the gloss in the same half-hour (:08 against
+    # :12) and skips chunks whose gloss is still pending, so a Telugu chunk is embedded with
+    # its English retrieval key rather than without it.
+    #
+    # `minute` comes FROM the module for its neighbours' reason — two places writing "twice
+    # hourly" is how the module's own clearance argument stops being true. `max_tries`
+    # EXPLICIT because `cron()` defaults it to 1 and `WorkerSettings.max_tries` does not
+    # reach a function registered here; the tick's own failure is a worklist read, which is
+    # exactly the kind a retry fixes.
+    cron(
+        traced_job(embed_knowledge_chunks),
+        minute=set(EMBED_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE CALLER-DATA INGESTION SWEEP (D-503) — the same job one corpus over: it projects
+    # what a client's CALLERS said into `caller_chunks` and buys the vector beside it. An
+    # unregistered cron here is not a dormant feature but a broken one that reads as shipped:
+    # every projection stays `pending` for ever, the CRM and transcript search screens answer
+    # from their keyword arm alone while every surface reports a hybrid store, and nothing
+    # anywhere says so.
+    #
+    # `minute` comes FROM the module for its neighbours' reason — two places writing "twice
+    # hourly" is how the module's own clearance argument (:13 and :43 are the last minutes no
+    # other O(tenants) fan-out uses) stops being true. `max_tries` EXPLICIT because `cron()`
+    # defaults it to 1 and `WorkerSettings.max_tries` does not reach a function registered
+    # here; the tick's own failure is a worklist read, which is exactly the kind a retry fixes.
+    cron(
+        traced_job(embed_caller_chunks),
+        minute=set(CALLER_EMBED_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE COMPLIANCE-FLAG SWEEP. The third drift-shaped gap and the one with a regulator
@@ -457,6 +622,21 @@ CRON_JOBS = [
         traced_job(issue_one_time_charges),
         hour={2},
         minute={5},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE PAYMENT WEBHOOK THAT NEVER ARRIVES. Every other alarm on the top-up path fires
+    # from inside the webhook handler and therefore needs the delivery to reach us first;
+    # a webhook registered against the wrong hostname trips none of them, and the first
+    # notice was the client saying they had paid. This sweep is the only reader of
+    # `topup_attempts` that pages anybody (`apps/workers/topup_settlement.py` carries the
+    # whole argument, including why it cannot reconcile against the provider).
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1, and a
+    # money watch that gave up on its first database blip would leave every payment
+    # unwatched for the half-hour with every screen green.
+    cron(
+        traced_job(sweep_topup_settlement),
+        minute=set(SETTLEMENT_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
 ]

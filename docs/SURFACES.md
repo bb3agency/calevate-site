@@ -99,6 +99,15 @@ Lands M2 (D-39: schema in M1, surface when a user needs it). These are **additio
 same client app** — a self-serve org is the same `organizations` row with a different
 `plan_tier`, so nothing forks.
 
+⚠ **"SELF-SERVE-ONLY" IS THE WRONG NAME FOR THE WALLET HALF SINCE D-521**, and the heading
+below is kept only because the acquisition motion it names is unchanged. The BILLING motion
+moved underneath it: `prepaid` is now the default tier, every existing account was migrated
+to it, and `managed` is the deliberate exception an operator sets for a client invoiced on a
+retainer. So the **credit wallet, the top-up flow and the runway framing are what nearly
+every client sees**, not a screen reserved for unattended signups — while the KYC gate and
+the first-campaign hold, which really are about a stranger signing up, still apply to
+`self_serve`/`trial` only. Read the two questions separately (DATA-MODEL §2).
+
 **Self-serve-only screens**
 - **Sign-up + org create**: email/password or Google (FLOWS §2), slug validated against
   `reserved_slugs`.
@@ -231,8 +240,8 @@ Client realm (`/c/<slug>/…`)
   §2b "needs attention" queue, shipped) · **the AGENTS CONSOLE** — three screens, no longer
   a read-only roster (D-440). **`/agents`** is the roster grouped by state: *working right
   now* (`published` AND `status = live`, the server's own two-part test), *not working*,
-  and the archive, which is a SECOND request because `GET /v1/agents` deliberately excludes
-  it. Each row carries how many numbers the agent answers in parallel
+  and the archive — headed **Deleted** since D-527 — which is a SECOND request because
+  `GET /v1/agents` deliberately excludes it. Each row carries how many numbers the agent answers in parallel
   (`inbound_number_count` — the one honest per-agent deployment fact; outbound concurrency
   is an account-level pool and no per-agent number could be true) and its lifetime call
   figures from `GET /v1/agents/stats`. **`/agents/new`** builds one: name, direction,
@@ -244,7 +253,9 @@ Client realm (`/c/<slug>/…`)
   may run / most one call can cost" (`null` `worst_case_call_cost_inr` renders as "we
   cannot say yet", never ₹0), the D-163 notice switches, the capture columns, its knowledge
   (`POST /v1/kb/sources`, filed against that agent with no picker), and switch
-  on/off/archive/restore on `org:manage`. The **precedence rule** and lane table
+  on/off/delete/restore on `org:manage` — **delete is the client's word for `archive`
+  (D-527)**, it is offered on every row of the ROSTER as well as here, and a WORKING agent
+  is refused (`agent_is_live`) until it is switched off. The **precedence rule** and lane table
   (`GET /v1/agents/lanes`) stay on the roster: they are a property of the platform, not of
   an agent. Apply and Undo are still deliberately absent: both are admin-realm, because the
   staged SCRIPT is authored admin-realm — as are the extraction schema and the voice

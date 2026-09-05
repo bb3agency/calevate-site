@@ -30,6 +30,7 @@ from apps.api.core import loadshed
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.workers import dial_recall
+from calevate_shared.engine import RecallOutcome
 from sqlalchemy import text
 
 _TENANTS: list[uuid.UUID] = []
@@ -81,10 +82,11 @@ async def _tenant_with_dials(dials: list[dict[str, Any]]) -> tuple[uuid.UUID, li
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, status, engine, engine_agent_ref, "
-                "created_at, updated_at) VALUES (:id, :tid, 'Rec', 'outbound', 'Idi AI "
-                "assistant.', 'Idi AI assistant.', 'This call is being recorded.', 'live', "
-                "'fake', :ref, now(), now())"
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, status, "
+                "engine, engine_agent_ref, created_at, updated_at) VALUES (:id, :tid, 'Rec', "
+                "'outbound', 'Idi AI assistant.', 'Idi AI assistant.', 'This call is being "
+                "recorded.', 'I keep a short note of what you ask about.', 'live', 'fake', "
+                ":ref, now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id, "ref": ref},
         )
@@ -124,22 +126,44 @@ async def _tenant_with_dials(dials: list[dict[str, Any]]) -> tuple[uuid.UUID, li
 
 
 class _StubEngine:
-    """The engine as this job uses it: credentials, a name, and a stop that can refuse."""
+    """The engine as this job uses it: credentials, a name, and a stop that can refuse.
+
+    **IT RETURNS A `RecallOutcome`, AND IT USED TO RETURN `None`** — which is exactly why
+    no test here could see that the job counted a dial the vendor said was ALREADY RINGING
+    as one it had stopped. A stub written to the old signature keeps passing while the port
+    it stands in for has grown a verdict, and the tests then prove the stub, not the code.
+    `already_running` is the interesting set: it does NOT raise, because the vendor
+    answering "that one left the queue" is a normal answer, not a failure of ours.
+    """
 
     name = "fake"
 
-    def __init__(self, *, refuse: set[str] | None = None, credentials: bool = True) -> None:
+    def __init__(
+        self,
+        *,
+        refuse: set[str] | None = None,
+        already_running: set[str] | None = None,
+        unknown: set[str] | None = None,
+        credentials: bool = True,
+    ) -> None:
         self.stopped: list[str] = []
         self._refuse = refuse or set()
+        self._already_running = already_running or set()
+        self._unknown = unknown or set()
         self._credentials = credentials
 
     def holds_credentials(self) -> bool:
         return self._credentials
 
-    async def end_call(self, call_id: str) -> None:
+    async def end_call(self, call_id: str) -> RecallOutcome:
         if call_id in self._refuse:
             raise RuntimeError("vendor refused")
         self.stopped.append(call_id)
+        if call_id in self._already_running:
+            return RecallOutcome.ALREADY_RUNNING
+        if call_id in self._unknown:
+            return RecallOutcome.UNKNOWN
+        return RecallOutcome.PREVENTED
 
 
 async def _dials_for(tenant_id: uuid.UUID) -> list[dial_recall.QueuedDial]:
@@ -324,3 +348,76 @@ async def test_an_engine_with_no_credentials_says_so_rather_than_nothing(
 
     assert await dial_recall.recall_queued_dials({}) == "skipped_no_credentials"
     assert ("WORKER_TERMINAL", "dial_recall_impossible") in fired
+
+
+async def test_a_dial_the_vendor_says_is_already_ringing_is_not_reported_as_stopped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE COUNT AN OPERATOR READS MID-INCIDENT MUST NOT INCLUDE A PHONE THAT IS RINGING.
+
+    `end_call` returns a verdict and `ALREADY_RUNNING` arrives as a NORMAL RETURN, not an
+    exception — the vendor telling us the dial had already left the queue is an answer, not
+    a failure of ours. The job counted every non-raising stop as `stopped`, so the one
+    control whose purpose is to say how many lines are still live under-reported them, in
+    the exact direction this module's own docstring says not to be wrong in.
+
+    D-428's best-effort posture is untouched by this and is why the job still does not
+    retry: best-effort is a decision about BEHAVIOUR, not a licence to discard a verdict
+    the adapter already adjudicated and we already paid a round trip for.
+
+    FAILS IF: the job stops reading `RecallOutcome`, or folds a non-PREVENTED verdict back
+    into the stopped count.
+    """
+    ringing = f"ex-{uuid.uuid4().hex[:8]}"
+    quiet = f"ex-{uuid.uuid4().hex[:8]}"
+    # `call_ids` comes back in the order the dials were given, so index 0 is the ringing
+    # one. The ALARM names call ids, not engine refs — the operator chasing this looks the
+    # call up in our console, not in the vendor's.
+    _, call_ids = await _tenant_with_dials([{"engine_call_id": ringing}, {"engine_call_id": quiet}])
+    engine = _StubEngine(already_running={ringing})
+    monkeypatch.setattr(dial_recall, "get_engine", lambda: engine)
+    fired: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(
+        dial_recall,
+        "alert",
+        lambda stage, code, **kw: fired.append((stage, code, str(kw.get("detail", "")))),
+    )
+
+    summary = await dial_recall.recall_queued_dials({})
+
+    # Both were ASKED — the ringing one is not a failure to reach the vendor.
+    assert {ringing, quiet} <= set(engine.stopped)
+    # ...and exactly one was PREVENTED. Membership rather than equality on the counts is
+    # not available here, so the assertion is on this run's own summary string.
+    assert "still_live=1" in summary, summary
+    assert "prevented=" in summary and "still_live=0" not in summary
+
+    unstopped = [f for f in fired if f[1] == "dial_recall_unstopped"]
+    assert unstopped, "a line the halt did not stop raised no alarm"
+    detail = unstopped[0][2]
+    assert "were NOT stopped" in detail
+    assert str(call_ids[0]) in detail, "the alarm must name the call an operator has to chase"
+    assert str(call_ids[1]) not in detail, "a dial that WAS cancelled must not be chased"
+
+
+async def test_an_unknown_verdict_counts_as_not_stopped_rather_than_as_stopped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Silence is not a denial that the phone rang.
+
+    `UNKNOWN` is the vendor accepting the stop and saying nothing about what it caught.
+    Folding it in with `PREVENTED` would be the comfortable answer and is the unearned
+    claim `RecallOutcome` exists to stop; folding it in with `ALREADY_RUNNING` is the
+    honest one, because the question an operator is asking is binary — can I say this line
+    is quiet, or not.
+    """
+    silent = f"ex-{uuid.uuid4().hex[:8]}"
+    await _tenant_with_dials([{"engine_call_id": silent}])
+    engine = _StubEngine(unknown={silent})
+    monkeypatch.setattr(dial_recall, "get_engine", lambda: engine)
+    monkeypatch.setattr(dial_recall, "alert", lambda *a, **k: None)
+
+    summary = await dial_recall.recall_queued_dials({})
+
+    assert silent in engine.stopped
+    assert "still_live=0" not in summary, summary

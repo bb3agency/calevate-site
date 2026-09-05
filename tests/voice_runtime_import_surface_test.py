@@ -42,6 +42,8 @@ import sys
 import tempfile
 import uuid
 from collections.abc import AsyncIterator, Callable
+from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -57,6 +59,13 @@ ENGINE_EGRESS_IP = "198.51.100.7"
 EDGE_PROXY_IP = "127.0.0.1"
 HOOK = "/hooks/v1/engine/bolna"
 TOOL = "/tools/v1/bolna/opt-out"
+BOOK = "/tools/v1/bolna/callback"
+CANCEL_CALLBACK = "/tools/v1/bolna/callback/cancel"
+
+#: A date the booking endpoint will accept as "far enough ahead", computed rather than
+#: written down: a literal would silently start failing `too_soon` the day it passed, and
+#: the branch this drive exists to reach would go unmeasured with nothing going red.
+_SOON = (datetime.now(UTC) + timedelta(days=3)).strftime("%Y-%m-%d")
 
 # --- the boot graph ----------------------------------------------------------
 
@@ -373,9 +382,43 @@ async def _drive(http: AsyncClient, tag: str) -> None:
     await http.post(TOOL, json={"reason": "no id"}, headers=headers)  # 422
     await http.post(TOOL, json=tool, headers=headers)  # 202
 
+    # THE CALL-BACK PAIR (D-514), every branch, for this function's own reason: the
+    # booking endpoint's THREE outcomes are all reached by ordinary conversation rather
+    # than by error, so leaving two of them undriven would watch the path a caller almost
+    # never takes and miss the two they do. `resolve_slot` is the only computation this
+    # service performs before deferring, and an import reached from inside it — a date
+    # parser somebody thought would be more forgiving — is exactly what this measures.
+    await http.post(BOOK, json={"execution_id": f"exec_{tag}"})  # 401
+    await http.post(BOOK, json={"execution_id": f"exec_{tag}"}, headers=headers)  # unreadable
+    await http.post(
+        BOOK,
+        json={"execution_id": f"exec_{tag}", "callback_date": _SOON, "callback_time": "04:00"},
+        headers=headers,
+    )  # outside calling hours
+    await http.post(
+        BOOK,
+        json={"execution_id": f"exec_{tag}", "callback_date": _SOON, "callback_time": "16:00"},
+        headers=headers,
+    )  # needs confirmation
+    await http.post(
+        BOOK,
+        json={
+            "execution_id": f"exec_{tag}",
+            "callback_date": _SOON,
+            "callback_time": "16:00",
+            "confirmed": True,
+        },
+        headers=headers,
+    )  # 202
+    await http.post(CANCEL_CALLBACK, json={"execution_id": f"exec_{tag}"}, headers=headers)  # 202
+
     await _hang_up_mid_body(HOOK)  # 400: ClientDisconnect out of the stream
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(webhook_routes, "_BODY_DEADLINE_S", 0.05)
+        patch.setattr(
+            webhook_routes,
+            "WEBHOOK_ACK",
+            replace(webhook_routes.WEBHOOK_ACK, body_deadline_s=0.05),
+        )
         await http.post(HOOK, content=_trickle(), headers=headers)  # 408
         patch.setattr(webhook_routes, "claim_inbox_event", _conflict)
         await http.post(HOOK, json=body, headers=headers)  # 409 from the inbox

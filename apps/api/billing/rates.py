@@ -230,6 +230,29 @@ ROUNDING = ROUND_HALF_UP
 #: The USD/INR rate every published vendor list price in this repository is struck at.
 #: RBI reference, 16 Aug 2026.
 #:
+#: ⚠ **EVIDENCE CLASS: REPORTED, NOT READ, AND IT REACHES `unit_cost_paid`.** No session can
+#: re-fetch it: `www.rbi.org.in` is refused by this container's egress proxy on CONNECT (the
+#: same measurement `apps/workers/fx_pull.py` records for every FX host it tried). So this is
+#: a figure a past session wrote down, and hard rule 11 is explicit that a value already in
+#: this repo is not evidence of itself. It is called out HERE rather than left implied
+#: because of where it ends up: `_usd_mtok_to_inr_ktok` converts BOTH the catalogue card and
+#: an operator's attested USD invoice figure, so `llm_inr_per_ktok` — the one door to
+#: `usage_events.unit_cost_paid` for a dashboard assist — is this constant multiplied by an
+#: attested price. Attesting the price does not attest the rate that converts it.
+#:
+#: WHAT THAT COSTS AND WHAT IT DOES NOT. It cannot mis-bill a CLIENT for calling: nothing on
+#: the invoice is priced from it (`usage_summary` prices minutes at the plan's own rupee
+#: rate). What it does move is money WE absorb and the rupee allowance the client is measured
+#: against — a rate that has drifted 5% makes every assist read 5% cheap or dear against
+#: `AI_QUOTA_INR`, in the same direction for every tenant, silently.
+#:
+#: WHAT CLOSES IT, and it is not a live read: the FX store this repository already runs
+#: (`ops/fx_rates`, a published FBIL reference, plausibility-banded and age-bounded) holds a
+#: rate an operator can quote, so the fix is an OPERATOR-ATTESTED strike rate beside the
+#: attested prices — the same seam, one more field — decided by the founder, since which
+#: instant a list price is struck at is a pricing decision and not a refactor. Deliberately
+#: NOT `Settings.usd_inr_rate` and NOT the live quote, for the reason directly below.
+#:
 #: NOT `Settings.usd_inr_rate`, and the distinction is why this is a named constant. That
 #: field is the rate a CALL's engine cost is converted at, stamped into `usage_events
 #: .meta` at capture so a ledger row can always be re-derived (`engine/bolna.py`). This
@@ -981,7 +1004,22 @@ def committed_plan_margin(
 #: the meter's `charge_for_call`, the runway framing and `billing.service
 #: .calling_revenue_inr` — and a fourth tier added to one of them and not the others is a
 #: wallet that stops draining.
-PREPAID_TIERS: Final = ("self_serve", "trial")
+#:
+#: ⚠ **`prepaid` JOINED IT WITH D-521, WHICH IS ALSO WHEN THIS SET STOPPED BEING THE
+#: EXCEPTION.** It is now what a new account gets (`tenancy/models.DEFAULT_PLAN_TIER`)
+#: and what every existing account was migrated to (`a8d3f61c04e7`); `managed` is the
+#: deliberate exception an operator sets for a client invoiced on a retainer. Nothing
+#: reading this tuple had to change for that — every one of them asks "does this account
+#: pay from a wallet", which is exactly what membership here means, and the answer simply
+#: became yes for most tenants.
+#:
+#: **IT IS NO LONGER THE SAME SET AS `compliance/service.SELF_SERVE_TIERS`**, which used
+#: to be an alias of this name. That one answers a different question — "did a stranger
+#: sign this account up unattended?" — and keeps its two members, because `prepaid` is a
+#: tier an OPERATOR creates for a client they have met. Aliasing them again would put the
+#: subscriber-KYC dial gate (D-47) and the first-campaign hold (D-51) in front of every
+#: client on the platform, which is not what either control is for.
+PREPAID_TIERS: Final = ("prepaid", "self_serve", "trial")
 
 
 def prepaid_billed_inr(*, minutes: Decimal, self_serve_rate: Decimal) -> Decimal:

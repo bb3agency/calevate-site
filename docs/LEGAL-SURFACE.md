@@ -5,13 +5,14 @@ Every obligation below names the instrument it comes from and the code, schema, 
 blueprint line that creates it for us. Where we do not satisfy it, the row says so and
 names what would.
 
-> ⚠ **{{PENDING LEGAL REVIEW}}** — the public documents this analysis produced
-> (`apps/web/src/lib/legal/`, served at `/legal/*`) have **not been reviewed by an advocate
-> qualified in India**. They carry a visible draft banner that must be deliberately removed
-> (`PENDING_LEGAL_REVIEW` in `apps/web/src/lib/legal/placeholders.ts`), and
-> `tests/legal.test.tsx` fails if the banner is turned off without also deleting the
-> assertion that guards it. Nothing on `/legal/*` may be shown to a client, a regulator or
-> a payment gateway before that review.
+> **PUBLISHED 2 SEPTEMBER 2026.** The public documents this analysis produced
+> (`apps/web/src/lib/legal/`, served at `/legal/*`) are in force. They were reviewed by a
+> lawyer and taken out of draft on the founder's instruction of that date; every
+> `{{TOKEN}}` in them was filled first, the draft banner is gone, and
+> `PENDING_LEGAL_REVIEW` in `apps/web/src/lib/legal/placeholders.ts` is off with
+> `apps/api/legal/catalogue.py` mirroring it. `tests/legal.test.tsx` now asserts the
+> published state — no banner on any document, and no unresolved token anywhere — so a
+> ninth document carrying a new blank fails the suite rather than reaching a reader.
 
 ---
 
@@ -110,6 +111,25 @@ and escalation numbers** and is flagged "never log it" in `apps/api/tenancy/mode
 `kyc_records` carries `CHECK (document_ref !~ '^[0-9]{12}$')` — a deliberate backstop so an
 Aadhaar number cannot be stored in a business-registry field. Good control; noted as such.
 
+**⚠ A CATEGORY WAS ADDED ON 31 AUG 2026 AND NO PUBLISHED DOCUMENT MENTIONED IT UNTIL
+1 SEPT 2026 — `copilot_memories` (migration `d4a9c17e6b02`).** The in-app assistant now
+persists (a) one row per answered question — what a client USER asked and what the model
+answered — and (b) `semantic` rows: durable facts about the client's business that
+`apps/workers/copilot_memory.py` distils out of a run of those episodes on an hourly cron,
+by reading them back to a language model. `apps/api/copilot/__init__.py` said in capitals
+that *"NOTHING IN THIS PACKAGE PERSISTS ANYTHING"* and `CopilotPanel.tsx` told the user
+*"it never saves anything"*; both were corrected in code, and this is the legal half of the
+same correction. Rows are per `tenant_id` AND per `user_id` (RLS answers the first, an
+explicit predicate the second), redacted through `workers.redaction.redact` before they
+reach a column, capped at 2,000 characters, swept on a `copilot_memory` retention category
+at **180 days** (`scripts/seed.py:104`), and DELETEd unconditionally by
+`retention.execute_tenant_erasure`. **The limit that matters legally is stated in
+`memory.py`'s own docstring and is now stated to clients too**: `redact()` recognises
+IDENTIFIERS and not PROPER NOUNS, so a staff member who types a customer's first name into
+a question leaves that name in a durable row — and `execute_deletion_request` (the DATA
+PRINCIPAL's erasure) has no arm over this table, so the 180-day clock and offboarding are
+the only mechanisms that reach it. See F-16.
+
 ### 2.3 Website visitors
 
 **Nothing beyond request logs.** `apps/web/src/app/layout.tsx` mounts no analytics and no
@@ -145,7 +165,7 @@ s.43A + SPDI Rules 2011 remain operative (§3.3). Sources §9.
 | DP-6 | Right to correction | DPDP §12(1) | **PARTIAL** | A lead is editable by the client. There is **no correction path for a transcript or a recording**, and none is offered on the certificate. Arguably right (a recording is a record of an event, not an assertion) but it is undecided rather than reasoned. What closes it: a founder + counsel decision recorded in ROADMAP §6. |
 | DP-7 | Right to nominate | DPDP §13 | **UNMET** | Nothing in the product models a nominee. Low urgency (substantive commencement May 2027) but it is a gap, and it is the client's obligation, not ours — so what closes it is a sentence in the client's notice, not code. |
 | DP-8 | Grievance redressal within a published timeline, ≤90 days | Rule 14(3) | **PARTIAL** | `/legal/grievance` now publishes 2 business days to acknowledge, 15–30 days to resolve. There is **no grievance intake surface, no ticket record and no clock in the product** — it is an email address. What closes it: either a mailbox + a written procedure (sufficient at this size), or a `grievances` table. Say which; do not leave it implied. |
-| DP-9 | Publish the business contact of the person answering data-principal questions, and repeat it in every reply | Rule 9 | **PARTIAL** | Published as `{{DATA_PROTECTION_CONTACT_NAME/EMAIL}}` on `/legal/privacy` §14 and `/legal/grievance` §1. The "repeat it in every reply" half is a process nobody has written. |
+| DP-9 | Publish the business contact of the person answering data-principal questions, and repeat it in every reply | Rule 9 | **PARTIAL** | `DATA_PROTECTION_CONTACT_NAME` and `_EMAIL` carry values since 2 Sep 2026, so the contact publishes on `/legal/privacy` §14 and `/legal/grievance` §1. The "repeat it in every reply" half is still a process nobody has written, which is what keeps this partial. |
 | DP-10 | Reasonable security safeguards: encryption/masking, access control, logs+monitoring, retained **one year**, continuity | Rule 6 | **CLOSED (stated policy), 24 Aug 2026** | Everything in §4 below is real, and the one leg that was unevidenced — log retention — is now a stated policy in `docs/OPERATIONS.md` §4.1. Two record classes, governed separately: **`audit_log`** (and every append-only ledger in `db/registry.APPEND_ONLY_TABLES`) is INSERT-only under a DB trigger with no sweep row against it, so it is **retained indefinitely, never expired — ≥1 year by construction** and now stated as such rather than inferred; **application logs** (structured JSON on stdout + Sentry events) carry a **365-day** period set at the host log sink (journald / shipper index / Sentry project retention). Application logs are NOT written to object storage — there is no `logs/` prefix in `infra/object-lifecycle/policy.json` and nothing in the app puts them there — so this closes as an OPERATIONS-stated policy, **not** a lifecycle rule (a lifecycle rule over a bucket that holds no logs would be theatre). The 365-day floor is DPDP Rule 6's "one year"; CERT-In's shorter-but-stricter 180-days-in-India log rule (S-7) is satisfied within it on days, with its Indian-jurisdiction condition flagged in §4.1 for when a host is provisioned. |
 | DP-11 | Data-processor contract imposing equivalent safeguards | §8(2), Rule 6(f) | **MET as text, UNMET as practice** | `/legal/dpa` is that contract, and Annex B is the equivalent-safeguards clause. **Downward**: we owe the same to *our* sub-processors, and **no vendor contract has been signed** — the Bolna residency commitment is an unrun pilot gate (`evidence/bolna-pilot-scorecard.md` is an empty template). |
 | DP-12 | Breach notification: Board without delay, detailed report ≤72h, affected principals with no threshold | Rule 7 | **MET as procedure; one lookup outstanding** | D-179: `runbooks/data-breach-notification.md` (the three clocks, the role split, the scope walk, the sign-off), `apps/api/compliance/breach.py` (the Rule 7 content, refused if an element is missing or a phone number is present) and `scripts/breach_notice.py`. The 48-hour DPA promise is pinned by test across the DPA, the runbook and the notice. **Outstanding: the Board's own reporting channel** — a lookup nobody has done, recorded in the runbook's §7 rather than left to be discovered mid-incident — and counsel's review of the wording. |
@@ -179,7 +199,7 @@ obligations commence **13 May 2027**; until then s.43A and the SPDI Rules 2011 a
 | # | Obligation | Status | What closes it |
 |---|---|---|---|
 | S-1 | Publish a privacy policy on the website (Rule 4) | **MET as of this change** | `/legal/privacy`. There was no privacy policy on the site at all before it. |
-| S-2 | Designate a Grievance Officer and **publish their name** and contact (Rule 5(9)); redress in one month | **PARTIAL** | Published as `{{GRIEVANCE_OFFICER_NAME}}`. **A placeholder is not a designation** — this is UNMET until a person is appointed. It is the single cheapest unmet obligation on this page. |
+| S-2 | Designate a Grievance Officer and **publish their name** and contact (Rule 5(9)); redress in one month | **MET** | A person was appointed on 2 Sep 2026 and `GRIEVANCE_OFFICER_NAME` carries the name, so `/legal/grievance` §1 publishes it beside the designation and the mailbox. ⚠ A FIRST NAME ONLY, which is what the founder supplied — a full name is a materially stronger artefact for a display obligation that asks for the NAME, and the entry in `placeholders.ts` is where the surname goes. |
 | S-3 | Reasonable security practices; ISO 27001 is the safe harbour (Rule 8) | **PARTIAL** | We hold **no certification of any kind**. Rule 8 also admits a "comprehensive documented information security programme"; `docs/SECURITY-COMPLIANCE.md` §5 plus DPA Annex B is the closest thing and is not yet a formal ISMS document. |
 | S-4 | Consent before collecting sensitive personal data | **PARTIAL** | Health/financial detail volunteered on a call is SPDI. Disclosed in `/legal/privacy` §3.3 and DPA Annex A; the *consent* is the client's to obtain. |
 | S-5 | **Transfer of SPDI outside India (rule 7): comparable protection at the destination, PLUS consent or necessity for performance of a contract** | **MET on the necessity leg; UNEVIDENCED on the protection leg** | This is the transfer test that is ACTUALLY IN FORCE, and the tree cited DPDP §16 instead — a section that commences 13 May 2027 (DP-17). Necessity is straightforward: the service IS the calls, and the calls run on these suppliers. Comparable protection is a judgement per vendor against its own published terms, and **F-10 records that no sub-processor agreement has been signed**, so the leg has no evidence behind it beyond those terms. What closes it: F-10, and counsel confirming the judgement is one we may make ourselves. Stated to clients in `/legal/dpa` clause 9 since 22 Aug 2026. |
@@ -191,7 +211,7 @@ obligations commence **13 May 2027**; until then s.43A and the SPDI Rules 2011 a
 | # | Obligation | Status | Notes |
 |---|---|---|---|
 | C-1 | Display legal name, office address, website and customer-care + grievance-officer contact | **PARTIAL** | Now on `/legal/*` as placeholders. **The site footer carries none of it** — see FOLLOW-UP-1. |
-| C-2 | Acknowledge a complaint in 48h, redress in one month | **MET as published, UNMET as process** | See DP-8. |
+| C-2 | Acknowledge a complaint in 48h, redress in one month | **PARTIAL as published, UNMET as process — this row said "MET as published" and the published figure does not meet the 48h leg** | See DP-8. What `/legal/grievance` §2 publishes is **2 business days** to acknowledge — which across a weekend can exceed 48 CALENDAR hours — and 15 business days / 30 days to resolve (inside the one-month leg). Whether the E-Commerce Rules even reach a B2B SaaS is unanalysed and is printed with an "if" on the page itself, routed to the advocate; since 31 Aug 2026 the page states the business-days/48-hours arithmetic instead of claiming every commitment sits inside every limit, and `tests/legal.test.tsx` pins that. Closing the 48h leg for real is a founder decision (commit to 48 calendar hours) or the advocate's finding that the Rules do not apply. |
 | C-3 | No misleading claims about the service | **CLOSED** | See F-1 — the claim was removed and `publicLanding.test.tsx` bans its return. |
 | C-4 | Applicability | Calevate sells B2B, and CPA excludes purchases for a "commercial purpose" — but a sole proprietor buying to earn a livelihood by self-employment is a consumer. Given the target market (Indian SMBs, many proprietorships) **assume the Act applies** and do not draft as if it does not. `/legal/terms` §16 carries an express carve-out. |
 
@@ -735,10 +755,14 @@ the notice must be displayed — each named in the draft's own "still to be comp
 list rather than guessed at. Rendering it on the onboarding wizard's last step is the web
 surface's, not this change's.
 
-### F-9 — No Grievance Officer, no data-protection contact, no entity. **EXTERNAL, and cheapest first.**
+### F-9 — No Grievance Officer, no data-protection contact, no entity. **CLOSED 2 Sep 2026.**
 
-S-2 and DP-9 are unmet not for want of code but for want of a name. Appointing a person costs
-nothing and closes two statutory obligations in two instruments.
+S-2 and DP-9 were unmet not for want of code but for want of a name; appointing a person cost
+nothing and closed two statutory obligations in two instruments. A person was appointed and
+both contacts publish. The entity half closed with the Udyam registration (25 Aug 2026), whose
+certificate supplies the name, registration number, principal place of business and phone the
+documents now identify the supplier by. ⚠ What is still open is a SURNAME: the published name
+is a first name only.
 
 ### F-10 — Sub-processor contracts: none signed, downward flow-through unevidenced.
 
@@ -761,7 +785,7 @@ DPAs — Microsoft, Google (for Sheets lead delivery, D-23), Resend, Sentry, Clo
 hosting provider all publish one — and record the Bolna residency term in the contract before
 flipping `ENGINE=bolna`.
 
-### F-11 — ~~The published sub-processor list and cookie table named vendors we do not use, and repeated a residency claim §4 had withdrawn.~~ **CLOSED on the copy, 20 Aug 2026. The MECHANISM that let it happen is still open.**
+### F-11 — ~~The published sub-processor list and cookie table named vendors we do not use, and repeated a residency claim §4 had withdrawn.~~ **CLOSED on the copy, 20 Aug 2026, AND on the mechanism, 27 Aug 2026** *(this heading said the mechanism was still open after its own closing paragraph below said it was not — reconciled 31 Aug 2026).*
 
 **The finding as recorded.** Everything else in this document described the sub-processors
 correctly; the documents a client would actually be handed did not, and those are the ones
@@ -792,7 +816,7 @@ us, and states the real lifetimes (`authn/sessions.REALM_TIMEOUTS`: client 12 h 
 in evidence, not proved by a build check"*. **If that change is abandoned before it lands,
 this finding returns exactly as written above.**
 
-**⚠ AND THE ONE TEST OVER THIS SURFACE CURRENTLY REQUIRES THE FALSE DISCLOSURE.**
+**~~⚠ AND THE ONE TEST OVER THIS SURFACE CURRENTLY REQUIRES THE FALSE DISCLOSURE.~~ RESOLVED — kept as found (20 Aug 2026); verified fixed 31 Aug 2026: the test now derives its vendor list from `SUBPROCESSOR_NAMES`, asserts Microsoft by name, and bans Clerk both as an identity and as a table row (see the mechanism paragraph below).**
 `apps/web/tests/legal.test.tsx` ("keeps the sub-processor register as the only copy of the
 vendor list") loops over `["Bolna", "Sarvam", "Clerk", "Cloudflare", "Resend", "Razorpay"]`
 and asserts the register **contains** each one. With Clerk correctly removed from
@@ -987,6 +1011,89 @@ now carries a fourth bullet saying so, and saying that each such change is audit
 which it is: both doors of that route call `write_audit` with the value and whether it
 moved.
 
+### F-16 — The in-app assistant became an agent, gained a memory, and no published document said so. **CLOSED on the client-facing copy, 1 Sept 2026. Two mechanism halves are open and each has a named owner.**
+
+**What was wrong, and it is the omission shape rather than the misstatement shape** — which
+is why nothing failed. Between 31 Aug and 1 Sept 2026 the dashboard copilot changed in four
+ways that each touch a published document, and none of the eight documents, the
+sub-processor register or the retention listings mentioned any of them:
+
+1. **It persists.** `copilot_memories` (§2.2 above) — a new category of stored personal
+   data about the client's own USERS, plus model-written facts about their business. No
+   `/legal/*` page carried the category, the purpose, or the period.
+2. **It reads the tenant's records through tools.** `apps/api/copilot/tools.py` — business
+   snapshot, leads, recent calls, campaigns, agents, knowledge. Every result is `redact()`ed
+   and composed of names, statuses and counts by design, so no raw transcript and no
+   extraction payload is sent; but **lead names, redacted call summaries and knowledge
+   passages now reach the language-model provider on the dashboard leg**, and every
+   document described that leg as *"the redacted transcript and the client's own
+   configuration"*.
+3. **It proposes changes a human confirms.** `apps/api/copilot/write_tools.py` — lead
+   status, DNC addition, campaign pause, knowledge entry. A proposal is a signed
+   five-minute token and no row; `confirm()` runs the same gated service function the
+   button runs. That is a processing activity the DPA's instruction clause and Annex A
+   had no words for.
+4. **A background worker sends conversation content to a model.** `apps/workers/
+   copilot_memory.py`, hourly, on the **Azure OpenAI (East US 2)** leg —
+   `azure_credentials()` + `azure_openai_base_url(resource)`, metered through
+   `record_ai_assist_usage`. Verified by reading the module, not inferred from the package
+   name.
+
+**A fifth thing the same reading found, and it is a MISSTATEMENT rather than an omission.**
+`/legal/subprocessors` told a client that the OpenAI row served *"the dashboard assistant
+on redacted data"*. It does not and may not: `agents/llm_models.DASHBOARD_TERMS_UNREAD`
+holds `{"openai"}` and `dashboard_leg_reason` bars it, deliberately fail-closed, because
+nobody here has read that vendor's data-use position from a primary source. Google serves
+that leg only while an operator attestation stands
+(`DASHBOARD_NEEDS_DATA_USE_ATTESTATION`), and Sarvam remains the disclosed fallback — with
+NO tools, so it cannot read a client's records at all. All four rows now say which leg they
+serve and on what condition.
+
+**What was fixed, and where.** `/legal/privacy` §3.2 (the category), §6 (the purpose row),
+§8 (a new item naming exactly what the assistant sends and the corrected provider set for
+that leg), §9 (the 180-day row) and §12.4 (the erasure limit, below); `/legal/dpa`
+clause 2 (the instruction list and a bullet saying it proposes and never performs),
+clause 8 (the store, its period and its offboarding deletion), Annex A (nature of the
+processing) and Annex B.2 (the two client-side capabilities that moved); `/legal/terms` §4
+(the owner's switch and staff's use of the assistant) and §5 (reviewing a proposal before
+confirming it); `/legal/subprocessors` — four corrected rows and a new §3.5. Privacy,
+Terms, the DPA and the register all move to **revision 3, material** in
+`apps/api/legal/catalogue.py` and `apps/web/src/lib/legal/versions.ts`: a new category of
+personal data and a new processing purpose is exactly what `material=True` is for, so every
+existing acceptance is re-asked.
+
+**OPEN — mechanism half (a), and it is OURS.** `execute_deletion_request` has no
+`copilot_memories` arm, so a DATA PRINCIPAL's erasure does not search a store that can hold
+their first name for up to 180 days. `/legal/privacy` §12.4 now discloses that in terms,
+marked as the one limit **not yet on the certificate** — which means
+`apps/api/compliance/deletion.py::ERASURE_LIMITATIONS` (and its index-aligned
+`ERASURE_EXCEPTIONS` entry) must gain it, so the published list and the certificate agree
+again. SEC-COMP §4 permits WIDENING the limitations text and this is a widening. Owner: the
+compliance lane (`apps/api/compliance/` is not this lane's). **The alternative fix is
+better if it is cheap**: give the erasure a lexical search arm over `copilot_memories.content`
+the way D-179 gave it one over the knowledge base, and report a count. Either closes it;
+doing neither leaves a published document ahead of the certificate it cites.
+
+**OPEN — mechanism half (b), and it is a one-paragraph change on somebody else's screen.**
+`apps/web/src/components/copilot/CopilotPanel.tsx` was corrected for the WRITE tools — its
+empty-state copy now says a suggestion is confirmed before anything happens — but it still
+tells a person nothing about the memory: that the question they are typing is stored, per
+person, for 180 days, and read back to a model on an hourly job. That is the surface the
+data principal (here, the client's own staff member) actually reads, and a privacy notice
+they will not open does not discharge it. Owner: the copilot UI lane. One paragraph, no
+external dependency.
+
+**FLAGGED FOR COUNSEL, not answered here.** (i) The distilled `semantic` rows are
+MODEL-WRITTEN assertions about a client's business, derived from their staff's questions.
+Whether DPDP §12(1)'s correction right reaches a model-written inference about a Data
+Fiduciary's own business — and what a correction of such a row would even mean — is the
+DP-6 question one level further out, and it is not ours to settle. (ii) Whether the
+assistant's read tools change the SPDI rule 7 transfer analysis for the dashboard leg: the
+leg is redacted, but it now carries lead names and call summaries rather than
+configuration, and gate 37(a)'s answer does not reach it. (iii) Whether an owner switching
+on staff knowledge curation needs to be recorded as an instruction under DPA clause 2 in
+any form stronger than the configuration row it is.
+
 ---
 
 ## 6. What the public documents deliberately do NOT claim
@@ -1014,9 +1121,24 @@ Recorded so a later edit cannot quietly reinstate them, and each is asserted by
   recording is a switch anyone holds. Every call an agent handles is recorded; the
   toggles are about what is ANNOUNCED. (`claims no recording control the product does
   not have`)
-- **No claim that choosing a model changes what a client pays** (F-15). The figure the
-  picker shows is our own cost of the language leg; the charge is the plan's rate.
-  (`does not price the model choice as a client charge`)
+- **No claim that the model choice is priced anywhere but the plan** (F-15). ⚠ This
+  bullet used to say "no claim that choosing a model changes what a client pays", and
+  D-455 (`plans.llm_model_surcharge`) made that sentence a countdown: a plan MAY now
+  quote a per-minute surcharge, so `/legal/terms` §6.1 says the choice changes what you
+  pay ONLY if the plan says so, that no model list, setting or screen can introduce or
+  raise it, and that a model we choose for a client is never surcharged
+  (`CLIENT_CHOSEN_LLM_SOURCES` excludes `platform`). The figure the picker shows remains
+  our own cost, marked as such. (`prices the model choice as a plan term, and only as a
+  plan term` — this test replaced `does not price the model choice as a client charge`,
+  whose pinned sentence went false the moment a surcharge column existed.)
+- **No claim that the in-app assistant stores nothing, and no claim that it acts on its
+  own** (F-16). The documents say it keeps what it was asked and what it distilled, for
+  180 days, per person; and they say every change it can reach is a PROPOSAL a person
+  confirms. (`says the in-app assistant persists, and never claims it acts alone`)
+- **No claim that a provider serves the dashboard/assistant leg when it does not**
+  (F-16). The register says which provider serves which leg and on what condition — the
+  in-call leg is wider than the assistant leg, deliberately and fail-closed.
+  (`does not claim the unread-terms provider serves the in-app assistant`)
 
 ---
 
@@ -1026,16 +1148,28 @@ Declared in `apps/web/src/lib/legal/placeholders.ts`, each with what it is and w
 value comes from. `tests/legal.test.tsx` fails if a document uses an undeclared token or if a
 declared token stops being used — so this list cannot silently drift.
 
-`LEGAL_ENTITY_NAME` · `ENTITY_REGISTRATION_NUMBER` · `GSTIN` · `REGISTERED_ADDRESS` ·
-`CONTACT_PHONE` · `SUPPORT_EMAIL` · `GRIEVANCE_OFFICER_NAME` ·
+The declared set, re-read from `placeholders.ts` on 2 Sep 2026. **Every one of them now
+carries a `value`**, which is what allowed the set to be published that day — two entries
+went at the same time and both for the same reason, that nothing rendered them any more:
+`ENTITY_FORM` (the documents state no legal form) and `DLT_TELEMARKETER_ID` (our
+Telemarketer registration number reaches a client through their dashboard now, not through
+a public page). A declared token nobody renders fails `legal.test.tsx`'s two-way audit, so
+deleting them was the only way to keep it honest.
+
+`LEGAL_ENTITY_NAME` · `ENTITY_REGISTRATION_NUMBER` · `GST_STATUS` ·
+`REGISTERED_ADDRESS` · `CONTACT_PHONE` · `SUPPORT_EMAIL` · `GRIEVANCE_OFFICER_NAME` ·
 `GRIEVANCE_OFFICER_DESIGNATION` · `GRIEVANCE_OFFICER_EMAIL` ·
 `DATA_PROTECTION_CONTACT_NAME` · `DATA_PROTECTION_CONTACT_EMAIL` · `SECURITY_CONTACT_EMAIL` ·
-`JURISDICTION_CITY` · `EFFECTIVE_DATE` · `DLT_TELEMARKETER_ID` · `PRIMARY_HOSTING_LOCATION` ·
+`JURISDICTION_CITY` · `EFFECTIVE_DATE` · `PRIMARY_HOSTING_LOCATION` ·
 `REFUND_PROCESSING_DAYS` · `TERMINATION_NOTICE_DAYS` · `DATA_RETURN_WINDOW_DAYS`
+
+*(eighteen tokens, no blanks. `unresolvedPlaceholders()` computes that list rather than
+maintaining it, and `assertLegalSetPublishable` refuses to render a published document
+while it is non-empty.)*
 
 `{{PRIMARY_HOSTING_LOCATION}}` was not an administrative blank: filling it in **was** the F-1
 decision, and D-180 took it. **It is filled as of 22 Aug 2026** — it carries a `value` in
-`placeholders.ts` and the renderer substitutes it, so it is no longer one of the eighteen blanks
+`placeholders.ts` and the renderer substitutes it, so it is no longer one of the blanks
 above; the entry stays because the data centre is named in the change that provisions one.
 The mechanism is the durable part: a decided fact now reaches every document from one place, and
 `assertLegalSetPublishable` refuses to render the set if `PENDING_LEGAL_REVIEW` is ever removed
@@ -1176,7 +1310,15 @@ now traces to one of them.
    voice platform in the United States. This one is ahead of most of the list above and it is
    OPERATIONS §2 gate 37(a). Gate 38(b) is its companion: does the phased commencement leave any
    gap in the lawful basis for transfer before May 2027?
-9. **Every citation in §9** against the gazette. Several were retrieved as secondary
+9. **F-16's three questions**, each of which is a legal judgement rather than a fact
+   about the code: whether DPDP §12(1)'s correction right reaches a MODEL-WRITTEN assertion
+   about a client's own business (the distilled `semantic` rows) and what correcting one
+   would mean; whether the assistant's read tools change the SPDI rule 7 transfer analysis
+   for that leg, now that it carries lead names and redacted call summaries rather than
+   configuration; and whether an owner switching on staff knowledge curation needs
+   recording as an instruction under DPA clause 2 in any form stronger than the
+   configuration row it already is.
+10. **Every citation in §9** against the gazette. Several were retrieved as secondary
    summaries because the primary sources are unreachable from this environment. Add the DPDP
    Rules' notification date to that check: this document says 14 Nov 2025 and a later synthesis
    says 13 Nov, and neither lane could reach the gazette to settle one day. **A third search on
@@ -1199,9 +1341,69 @@ now traces to one of them.
 | FOLLOW-UP-3 | Add the 35-day backup clause to `ERASURE_LIMITATIONS` / `ERASURE_EXCEPTIONS` in `apps/api/compliance/deletion.py`, so the certificate and `/legal/privacy` §9 agree. | `apps/api` is outside this session's edit scope. |
 | ~~FOLLOW-UP-4~~ | ~~F-2 and F-3: retention categories for the engine-payload archive and for KB content~~ — **DONE (D-179)**: migration `c4d1f7b83e26`, two sweep arms, and the erasure's knowledge-base search. | Was outside the audit session's edit scope; closed in the next one. |
 | ~~FOLLOW-UP-7~~ | ~~F-11: correct `apps/web/src/lib/legal/{subprocessors,cookies}.ts` for D-410 and D-177.~~ — **DONE 20 Aug 2026** by the parallel `apps/web` session, verified by reading the files. What remains is F-11's other half. |
-| FOLLOW-UP-8 | **Bind the published sub-processor list to a constant.** One exported inventory of sub-processor identities that `apps/web/src/lib/legal/subprocessors.ts` renders and `tests/legal.test.tsx` asserts against, so a vendor added to or removed from this tree fails a test naming the legal document it did not reach. F-11's mechanism half: two vendor changes three days apart both survived in a client-facing document because nothing could see the divergence. | `apps/web/**` and `tests/legal.test.tsx` are outside this session's edit scope. **OURS, no external dependency.** |
+| ~~FOLLOW-UP-8~~ | ~~Bind the published sub-processor list to a constant.~~ — **DONE 27 Aug 2026** (verified by reading the files 31 Aug 2026): `SUBPROCESSOR_NAMES` is derived from `SUBPROCESSOR_ROWS` in `apps/web/src/lib/legal/subprocessors.ts`, and `tests/legal.test.tsx` imports it, asserts every identity reaches the rendered register, asserts Microsoft by name, bans Clerk/Vertex/Gemini as identities, and bans the DPA from restating any of them. F-11's mechanism half is closed. | Was outside the audit session's edit scope; closed by the `apps/web` lane. |
 | ~~FOLLOW-UP-6~~ **DONE 22 Aug 2026** — both callouts rewritten to say what the mechanisms do, and the two retention categories added to the `/legal/privacy` §9 table with the periods `scripts/seed.py` actually installs (90 / 365). The deliberate limit that remains — an erasure SEARCHES knowledge content and reports the count but never edits a client's own writing — is now stated as a reasoned limit rather than as a gap. | ~~**Two published callouts now UNDER-claim.** `/legal/privacy` §9 ("Two stores that no retention period reaches yet") and `/legal/dpa` §8 ("Two stores with no retention period yet") both state that the archived engine payload and knowledge content have no retention period, and privacy adds that the knowledge base "is not searched by an erasure request". D-179 made all three sentences false in the client's favour: `engine_payload` and `kb` are retention categories now, and the erasure searches and reports. Under-claiming is not a breach, which is why this is a follow-up and not a finding — but a public document that is wrong about our own controls is a defect, and the pair should be rewritten to say what the mechanisms do and what is still manual. | `apps/web/**` is outside this session's edit scope (a parallel session owns it). One callout each, in the same wording D-179 uses on the certificate.~~ |
 | FOLLOW-UP-9 | **F-15's screen half: the model picker must stop calling our cost "what you pay".** `apps/web/src/components/llmModelPicker.tsx:205` labels the model in force *"what you pay now"*; `apps/web/src/app/c/[slug]/settings/models/page.tsx:69` says *"a decision about your bill as much as about your agents"* and `:210` *"It costs ₹X a minute"*; `apps/web/src/app/c/[slug]/agents/AgentModel.tsx:157` repeats the last one. (Line numbers read 22 Aug 2026, while a parallel lane was editing the same files for availability.) `billing/rates.py` is unambiguous that nothing bills the in-call leg and that the figure is our own list-price cost; a client is charged their plan's overage rate or `self_serve_inr_per_min`, neither of which moves with the model. The figure should be labelled as what it is (our cost of the language leg, published so the choice is informed) or the sentence about the client's bill removed. | The agents/billing UI is another lane's. `/legal/terms` §6.1 now states the true position, which is the contract catching up with the screen and not a fix for it. **OURS, no external dependency.** |
 | FOLLOW-UP-10 | **F-13's mechanism half: make a change to `azure_openai_resource` invalidate the region attestation.** The console write path for that one field should refuse unless `docs/evidence/azure-deployment-attestation.json` names the new resource — the shape `scripts/check_model_lifecycle.py` already uses to consume that file. Today an operator can point the language leg at a resource in another region, and every guard, gate record and client document stays green while gate 20's reading silently describes a resource we no longer use. **And `docs/ROADMAP.md:673` (D-444) still repeats the withdrawn sentence internally** — *"no setting, console control or environment variable able to move it"* — which is where the next writer would copy it back from into client copy; correcting it is one clause and belongs to whoever owns that row. | `apps/api/core/platform_config.py` and `scripts/**` are the guards/config lane's. The client-facing copy no longer over-claims (F-13), so this is the mechanism and not a live misstatement. **OURS, no external dependency.** |
+| FOLLOW-UP-12 | **F-16(a): give the DATA-PRINCIPAL erasure an arm over `copilot_memories`, or add the limitation to the certificate.** `/legal/privacy` §12.4 now discloses that an erasure does not search what the in-app assistant remembers, and marks it as the one limit **not yet on the certificate** — so `apps/api/compliance/deletion.py::ERASURE_LIMITATIONS` plus its index-aligned `ERASURE_EXCEPTIONS` entry must gain it (a WIDENING, which SEC-COMP §4 permits), or better, the erasure gains a lexical search arm over `copilot_memories.content` the way D-179 gave it one over the knowledge base and reports a count. Doing neither leaves a published document ahead of the certificate it cites. | `apps/api/compliance/` is the compliance lane's. **OURS, no external dependency.** |
+| FOLLOW-UP-13 | **F-16(b): tell the person typing into the assistant that it remembers.** `apps/web/src/components/copilot/CopilotPanel.tsx` was corrected for the write tools ("it asks you to confirm first"), but its empty-state copy still says nothing about the memory: that the question is stored per person for 180 days and read back to a model on an hourly job. That panel is the surface the data subject actually reads; a privacy notice they will not open does not discharge it. One paragraph. | The copilot UI lane owns `apps/web/src/components/copilot/`. **OURS, no external dependency.** |
 | FOLLOW-UP-11 | **Correct `apps/api/compliance/deletion.py:62`**, which quotes the withdrawn *"90-day minimum retention of call recordings on Indian infrastructure"* from `SECURITY-COMPLIANCE.md` §1. The duration is right and the location half has no citable source (§1, 22 Aug 2026). | `apps/api` is another lane's. One docstring line. |
 | ~~FOLLOW-UP-5~~ | ~~F-6: write the breach-notification runbook section.~~ — **DONE (D-179)**: `runbooks/data-breach-notification.md`, `apps/api/compliance/breach.py` and `scripts/breach_notice.py`. What remains is the Board's own reporting channel, which is a lookup and is recorded in that runbook's §7. | Was outside the audit session's ownership; closed in the next one. |
+
+---
+
+## 12. Held checklists — two features that are IN FLIGHT and MUST NOT be described as shipped
+
+**Read the first line of each before anything else: neither exists in this tree today, and
+I verified that rather than assuming it.** `grep -rn "gloss\|translate" apps/api/kb/*.py`
+returns one unrelated comment in `patterns.py`, and `engine/bolna.py:2373` still declares
+`knowledge_base=False` with the two walls behind it. **Announcing an unshipped data flow is
+exactly as wrong as omitting a shipped one** — a sub-processor register that lists a vendor
+receiving content it has never received is a false statement to a buyer's counsel, and the
+register's own §1 Status column exists so that "built" and "processing" are never conflated.
+So nothing below is in any client-facing document, and nothing below may be put in one
+until the code merges. These are the checklists to execute IN THE SAME CHANGE that lands
+each feature — not before, not after.
+
+Both features share one property that decides most of the rows: **each adds a data flow to
+a sub-processor outside India**, which means each is a **clause 5 event** — 30 days' notice
+by email before it starts processing, a right to object on data-protection grounds, and
+termination of the affected part without penalty if we cannot offer a workaround. That
+clause costs nothing today only because no client is live (`/legal/subprocessors` §4 says
+so in terms). The first feature to merge after client #1 signs pays it.
+
+### 12.1 English-gloss translation of knowledge at ingestion
+
+*Status: NOT MERGED. Nothing below is published.*
+
+| # | What the change must do to the documents | Why |
+|---|---|---|
+| T-1 | Name the translating vendor in `SUBPROCESSOR_ROWS` — a row if it is a new company, an amended `does`/`receives` cell if it is one already on the register — with what it receives (**a client's own knowledge content**, which invites their staff names, escalation numbers and prices) and where it processes. **If the vendor's location cannot be read from a primary source, the Location cell says NOT VERIFIED**, exactly as the WhatsApp BSP row does; do not name a country we would be guessing at. | The register is the authorised list under DPA clause 5, and `SUBPROCESSOR_NAMES` is derived from it, so a vendor that does not enter here reaches no test and no document. |
+| T-2 | If the translation runs on a leg already declared (`azure_openai` / `openai` / `google` / Sarvam), say WHICH — and check it against `agents/llm_models.dashboard_leg_reason` before writing it. A leg barred from the dashboard assist for an unread data-use position is barred here for the same reason: this content is a client's own writing. | F-16's fifth finding. The register claimed a provider served a leg the code fail-closes against, and the same mistake is one line away here. |
+| T-3 | State it in `/legal/privacy` §8 as its own definitions item — a NEW cross-border flow of client content, distinct from the call legs — and in `/legal/dpa` Annex A under *Nature of the processing* (add "translation"). | §8 is where a client is told what leaves and to whom; Annex A is the operative contract description of the processing. |
+| T-4 | Decide and state whether the gloss is STORED, and if so under which `retention_policies.data_category`. A second copy of a client's knowledge with no clock is finding **F-3** repeating itself — the defect D-179 closed by adding `kb` at 365 days, and the gloss is content of the same class. If it rides the existing `kb` category, say so; if it needs its own, it needs a migration, a seed row, a sweep arm and a row in `/legal/privacy` §9. | DPDP §8(7). A store nothing expires is the exact shape of F-2 and F-3. |
+| T-5 | Say whether the erasure reaches it. If the gloss is a derived copy of knowledge content, `execute_deletion_request`'s knowledge SEARCH must cover it or the certificate's `KB_OUTCOME` count becomes an undercount — and an undercount on a certificate is worse than no count. | D-179 made the count a client-facing number; a second copy the search does not see silently falsifies it. |
+| T-6 | AUP §? / Terms §5: the client warrants the rights to knowledge content they upload. A machine translation of it is a DERIVATIVE work. Whether the existing warranty covers producing one, and who owns the gloss, is **for counsel** — flag it, do not draft an IP position. | `/legal/terms` §8 is the IP split, and it was written for content the client supplies, not content we generate from it. |
+| T-7 | Bump the revision of every document touched in `catalogue.py` AND `versions.ts`, `material=True` if a new sub-processor or a new purpose is involved (it is, on both counts), and confirm `check_docs_drift.legal_catalogue_drift()` returns `[]`. | The two mirrors are compared on every read of every gate; CI fails on drift and nothing compares the TEXT. |
+| T-8 | Add a test to `apps/web/tests/legal.test.tsx` pinning the new flow and banning the pre-merge silence from returning, in the shape the F-16 tests use. | Every load-bearing sentence in this set is pinned; an unpinned one is one edit from gone. |
+
+### 12.2 Uploading approved knowledge to the voice platform's own knowledge base, as PDFs
+
+*Status: NOT MERGED. `engine/bolna.py` declares `knowledge_base=False` and
+`require_capability` refuses at the KB publish path, so nothing reaches that vendor today.*
+
+| # | What the change must do to the documents | Why |
+|---|---|---|
+| K-1 | Amend the voice platform's register row: `receives` gains **the client's approved knowledge content, as a document**, and the row must not imply the content is transient. That vendor's row already says United States and its §3.1 caution already says why India residency is foreclosed by our BYOK posture — so this adds a NEW CATEGORY to an existing US flow rather than a new country. Say that plainly; a reader who knows the row already said "United States" will otherwise not notice the category changed. | The `receives` cell is what a client's counsel reads to decide what a vendor holds. F-12 exists because that cell was wrong about this exact vendor. |
+| K-2 | Update `/legal/privacy` §8's *"The voice platform"* item and `/legal/dpa` clause 9 in the same words. Today they cover the live audio, the transcript and the platform's copy of the recording; knowledge content is a fourth thing and is the client's own writing rather than a caller's speech. | The three documents must not disagree; cross-document drift is the defect the previous pass found repeatedly. |
+| K-3 | **The erasure and retention story is the hard one and it must be settled BEFORE the copy is written, not after.** `/legal/privacy` §9 and §12.4 and `/legal/dpa` clause 8 currently tell a client that an erasure SEARCHES knowledge content and reports a count but never edits it, *and* that the vendor's own copy is a manual step on both copies (F-3). A second engine-side copy makes that sentence load-bearing: state whether deleting our `kb_documents` row deletes the platform's document, and if the vendor's delete path is unverified, report it the way the engine-side call copy is reported — **`unconfirmed_pending_vendor_api`**, never as done. | §6 of this document already records the standing rule: no claim that the erasure reaches engine-side copies. A knowledge PDF sitting in a vendor account after an erasure is that claim's next victim. |
+| K-4 | Superseded versions expire at 365 days on the `kb` category and the sweep deliberately never deletes one **still carrying an engine handle**, because a handle against an archived source means an incomplete detach (F-3). Uploading PDFs creates exactly those handles at scale — so confirm what the sweep does with them before publishing a period, and if the answer is "they stop expiring", `/legal/privacy` §9's knowledge row is no longer true as written. | The published period must be the period that runs. F-5 is this repository's worked example of publishing a number a sweep does not honour. |
+| K-5 | If the PDF is RENDERED by us from the client's prose (the adapter comment names this as the thing it refused to invent), say who authored the document and that its content is the client's. Whether rendering a client's prose into a document format is processing "on documented instructions" within DPA clause 2 is **for counsel**, and clause 2's instruction list should probably name the upload explicitly either way. | Clause 2 is the operative instruction clause and it now enumerates configuration, model choice, the staff-curation switch and confirmed assistant proposals. An upload belongs in that enumeration or outside it, decided rather than assumed. |
+| K-6 | Check `/legal/subprocessors` §3.1's second paragraph before editing anything else: it tells a client that buying that vendor's India residency would not move our calls, *because* BYOK routes through their US servers. Using their knowledge base does not change that and must not be allowed to read as if it does. | It is the single most carefully-worded paragraph on the page and the one a prospect quotes back. |
+| K-7 | Same as T-7 and T-8: revision bump in both mirrors, `legal_catalogue_drift()` empty, and a pinning test. `material=True` — a new category of a client's own content reaching a US sub-processor is material by any reading. | Every stored acceptance names a version; a material change re-asks. |
+
+**One row is common to both and is not a document change: LEGAL-SURFACE F-10 does not move.**
+No sub-processor DPA has been signed with anybody, so both features widen a flow whose
+comparable-protection leg under SPDI rule 7 is unevidenced. That is not a reason to hold
+either feature; it IS a reason not to write a sentence that implies the flow is covered by
+a contract. Say what the register already says and no more.

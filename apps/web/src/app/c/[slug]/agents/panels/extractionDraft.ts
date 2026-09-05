@@ -145,14 +145,17 @@ export function canonical(fields: AgentExtractionField[]): string {
 
 /**
  * The first thing wrong the owner can fix without a round trip. Reserved and duplicate
- * keys are left to the server (it owns the fixed-column list), but an empty label or an
+ * keys are left to the server (it owns the fixed-column list), but a malformed id or an
  * enum with no options is a save that could only 422, so the button stays dead and says
  * why. Returns the client-side reason, or null when the list is send-able.
+ *
+ * A NAMELESS VARIABLE IS NO LONGER ONE OF THESE. "Give every variable a name before
+ * saving" was a sentence about the whole list printed under it, so an owner with nine
+ * variables was told one of them was empty and left to find which. It is answered at the
+ * row now, by the shared form validation (`components/formValidation.tsx`) that every
+ * other client form uses — one mechanism, and the message lands on the control.
  */
 export function clientValidationError(rows: DraftRow[]): string | null {
-  if (rows.some((row) => row.label.trim() === "")) {
-    return "Give every variable a name before saving.";
-  }
   if (rows.some((row) => row.isNew && !KEY_RE.test(effectiveKey(row)))) {
     return "One variable's id is not a valid name — use a letter, then letters, numbers or underscores.";
   }

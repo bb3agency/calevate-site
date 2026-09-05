@@ -32,6 +32,7 @@ import re
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -757,7 +758,7 @@ async def test_a_tool_body_above_the_cap_is_refused_at_the_tools_own_size(
 
     monkeypatch.setattr(tool_routes, "enqueue", _never)
     oversized = json.dumps({"execution_id": "exec_big", "reason": "x" * 8192}).encode()
-    assert tool_routes._MAX_TOOL_BODY < len(oversized) < webhook_routes._MAX_BODY_BYTES, (
+    assert tool_routes.TOOL_ACK.max_body_bytes < len(oversized) < webhook_routes._MAX_BODY_BYTES, (
         "the body must sit between the two caps or this test proves nothing"
     )
 
@@ -784,7 +785,14 @@ async def test_a_queue_that_does_not_answer_tells_the_agent_so_rather_than_ackin
     there is no reconciliation poller behind a tool call to notice. The transcript pass
     is the only remaining catch, and it only works if nobody was told otherwise.
     """
-    monkeypatch.setattr(tool_routes, "_DURABLE_DEADLINE_S", 0.2)
+    # `tool_routes.TOOL_ACK`, which is the name the handler resolves: the tool surface
+    # carries its own deadlines now (a two-second abandon inherited from the post-call
+    # receiver was two seconds of silence on a live call), and `from webhook_routes
+    # import TOOL_ACK` binds the object HERE, so patching it on `webhook_routes` would
+    # change nothing this handler reads.
+    monkeypatch.setattr(
+        tool_routes, "TOOL_ACK", replace(tool_routes.TOOL_ACK, durable_deadline_s=0.2)
+    )
 
     async def _stalled(job: str, payload: dict[str, Any], **kwargs: Any) -> str:
         await asyncio.sleep(5)

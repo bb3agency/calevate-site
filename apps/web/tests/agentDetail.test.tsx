@@ -70,6 +70,8 @@ function agent(over: Partial<Agent> = {}): Agent {
     ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
     ai_disclosure_enabled: true,
     recording_notice_line: "This call is being recorded.",
+    caller_memory_notice_line: "I keep a short note of what you ask about.",
+    caller_memory_enabled: false,
     recording_notice_enabled: true,
     opening_line:
       "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
@@ -462,9 +464,12 @@ describe("the numbers come from the server", () => {
 });
 
 describe("the two opening notices, and the answer neither of them reaches (D-163)", () => {
+  //: The fixture agent's opening, as the server composes it — shared by every test here so
+  //: that a case about the THIRD sentence (D-507) can say what the other two still are.
+  const OPENING =
+    "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.";
+
   it("renders the server's opening line verbatim and offers no way to reword it", async () => {
-    const OPENING =
-      "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.";
     const { container } = await renderClientPage(page, routes());
 
     await screen.findByText(`“${OPENING}”`);
@@ -473,7 +478,64 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     // rather than leaving a quoted sentence with no control beside it to read as an
     // oversight.
     expect(container.textContent).toContain("cannot be edited here");
-    expect(container.textContent).toContain("every agent must have both on file");
+    expect(container.textContent).toContain("every agent must have all of them on file");
+  });
+
+  /**
+   * The two OPENING-NOTICE switches, by name.
+   *
+   * NOT `getAllByRole("switch")`, which counts every switch on the WORKSPACE — and the
+   * workspace grew a third one when caller continuity landed (D-513/D-514), on a panel
+   * mounted directly under this one. A bare count read as "the notices panel has two
+   * switches" and actually asserted "this page has two switches", so it broke on a change
+   * that was correct. Naming them keeps the assertion on the property the test is about:
+   * these two are switchable and the memory SENTENCE is not.
+   */
+  const noticeSwitches = () =>
+    screen
+      .getAllByRole("switch")
+      .filter((el) =>
+        /Say it is an AI assistant|Say the call is being recorded/.test(
+          el.closest("label")?.textContent ?? "",
+        ),
+      );
+
+  it("says the memory sentence is spoken, and gives it no switch of its own (D-507)", async () => {
+    // An agent that remembers callers says so as a third sentence. It is bound to the
+    // MEMORY setting, so the screen shows it as a fact and must not grow a third switch —
+    // a toggle here would advertise a state ("remembers, says nothing") the product cannot
+    // be configured into.
+    const MEMORY = "I keep a short note of what you ask about.";
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1": agent({
+          caller_memory_enabled: true,
+          caller_memory_notice_line: MEMORY,
+          opening_line: `${OPENING} ${MEMORY}`,
+        }),
+      }),
+    );
+
+    await screen.findByText(`“${MEMORY}”`);
+    // TWO NOTICE SWITCHES AND NO THIRD ONE BESIDE THE SENTENCE. The workspace does carry a
+    // third switch — the caller-continuity setting this sentence FOLLOWS — and that is the
+    // point of the panel's copy: the sentence is bound to that setting rather than to one
+    // of its own, so a toggle HERE would advertise a state ("remembers, says nothing") the
+    // product cannot be configured into.
+    expect(noticeSwitches()).toHaveLength(2);
+    expect(container.textContent).toContain("This one has no switch");
+    // WHY it is being said, not just that it is: a client reading a three-sentence opening
+    // has to be able to find the setting that produced the third one.
+    expect(container.textContent).toContain("remembers what callers asked about");
+  });
+
+  it("says nothing about memory for an agent that does not remember", async () => {
+    const { container } = await renderClientPage(page, routes());
+
+    await screen.findByText(`“${OPENING}”`);
+    expect(container.textContent).not.toContain("This one has no switch");
+    expect(container.textContent).not.toContain("Say that it remembers callers");
   });
 
   it("puts the truthful-answer guarantee above the switches, in the server's words", async () => {
@@ -490,7 +552,7 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     // screen renders what the server sent rather than wording of its own.
     const promise = await screen.findByText(RULE);
     expect(container.textContent).toContain(RULE);
-    const switches = screen.getAllByRole("switch");
+    const switches = noticeSwitches();
     expect(switches).toHaveLength(2);
     // Above, not below: two switches read "off" before the guarantee is read is exactly how
     // a client concludes the opposite of what the platform enforces.
@@ -921,18 +983,35 @@ function card(title: string): HTMLElement {
   return panel as HTMLElement;
 }
 
-describe("switching an agent on, off and into the archive (D-440)", () => {
+/** A paused agent, which since D-527 is the only state a delete is offered from. */
+const SWITCHED_OFF = { "/v1/agents/agent-1": agent({ status: "paused", published: true }) };
+
+describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
   it("offers a live agent only the moves the server's transition table allows", async () => {
     await renderClientPage(page, routes());
 
     await screen.findByText("Reception");
     const panel = card("Switching it on and off");
-    // `live -> {paused, archived}` (lifecycle.AGENT_TRANSITIONS). "Switch on" is not one of
-    // them, and offering it is a click that could only ever be refused.
+    // `live -> {paused}` ONLY (lifecycle.AGENT_TRANSITIONS). "Switch on" was never one of
+    // them, and Delete stopped being one at D-527: a working agent is refused with
+    // `agent_is_live` until it is switched off, so offering it here would be a click that
+    // could only ever be refused.
     expect(within(panel).getByRole("button", { name: /Switch off/ })).toBeTruthy();
-    expect(within(panel).getByRole("button", { name: /Archive/ })).toBeTruthy();
+    expect(within(panel).queryByRole("button", { name: /Delete/ })).toBeNull();
     expect(within(panel).queryByRole("button", { name: /Switch on/ })).toBeNull();
     expect(within(panel).queryByRole("button", { name: /Bring it back/ })).toBeNull();
+  });
+
+  it("offers a switched-off agent the delete the live one could not have", async () => {
+    // The other half of the rule, and the half that makes it a two-step rather than a
+    // wall: the move the live agent was refused is right there once it is switched off.
+    await renderClientPage(page, routes(SWITCHED_OFF));
+
+    await screen.findByText("Reception");
+    const panel = card("Switching it on and off");
+    expect(within(panel).getByRole("button", { name: /Switch on/ })).toBeTruthy();
+    expect(within(panel).getByRole("button", { name: /Delete/ })).toBeTruthy();
+    expect(within(panel).queryByRole("button", { name: /Switch off/ })).toBeNull();
   });
 
   it("offers an archived agent a restore and nothing else, and says it comes back switched off", async () => {
@@ -953,15 +1032,16 @@ describe("switching an agent on, off and into the archive (D-440)", () => {
     await screen.findByText("Reception");
     const panel = card("Switching it on and off");
     expect(within(panel).getByRole("button", { name: /Bring it back/ })).toBeTruthy();
-    expect(within(panel).queryByRole("button", { name: /Archive/ })).toBeNull();
+    expect(within(panel).queryByRole("button", { name: /Delete/ })).toBeNull();
     expect(within(panel).queryByRole("button", { name: /Switch off/ })).toBeNull();
     expect(panel.textContent).toContain("comes back switched OFF");
   });
 
-  it("restates what archiving does before it does it, and only then posts", async () => {
+  it("restates what deleting does before it does it, and only then posts", async () => {
     const { calls } = await renderClientPage(
       page,
       routes({
+        ...SWITCHED_OFF,
         "POST /v1/agents/agent-1/archive": {
           agent_id: "agent-1",
           status: "archived",
@@ -974,25 +1054,27 @@ describe("switching an agent on, off and into the archive (D-440)", () => {
     await screen.findByText("Reception");
     const panel = card("Switching it on and off");
 
-    // FIRST PRESS: the consequences, no request. The one a client most needs is that
-    // nothing is deleted — an owner who believes archiving erases their call history will
-    // leave a dead agent switched off forever instead.
+    // FIRST PRESS: the consequences, no request. The one a client most needs is that the
+    // history survives — an owner who believes Delete erases their call log will leave a
+    // dead agent switched off forever instead, which is the reason the word "delete" is
+    // affordable at all (D-527).
     await act(async () => {
-      fireEvent.click(await pressable(panel, /^Archive…$/));
+      fireEvent.click(await pressable(panel, /^Delete…$/));
     });
-    expect(panel.textContent).toContain("Nothing is deleted");
+    expect(panel.textContent).toContain("stay in your call log");
     expect(panel.textContent).toContain("no longer be put on a campaign");
     expect(calls.some((call) => call.method === "POST")).toBe(false);
 
-    // SECOND PRESS: the move.
+    // SECOND PRESS: the move — still `POST /archive`, because the server's word for it
+    // has not changed and the client's label is a label.
     await act(async () => {
-      fireEvent.click(await pressable(panel, /Archive this agent/));
+      fireEvent.click(await pressable(panel, /Delete this agent/));
     });
     const posted = calls.find((call) => call.method === "POST");
     expect(posted?.path).toBe("/v1/agents/agent-1/archive");
   });
 
-  it("announces the archive consequences and leaves the keyboard on the control", async () => {
+  it("announces the delete consequences and leaves the keyboard on the control", async () => {
     /**
      * The half `tests/a11y.ts` says out loud that the axe sweep cannot see: axe checks the
      * markup that exists, never an announcement that never happens or a Tab that goes
@@ -1010,11 +1092,11 @@ describe("switching an agent on, off and into the archive (D-440)", () => {
      *    focus would fall to `<body>` and a keyboard-only owner would have to Tab back
      *    through the page to finish an action they had started.
      */
-    await renderClientPage(page, routes());
+    await renderClientPage(page, routes(SWITCHED_OFF));
     await screen.findByText("Reception");
     const panel = card("Switching it on and off");
 
-    const trigger = await pressable(panel, /^Archive…$/);
+    const trigger = await pressable(panel, /^Delete…$/);
     // Focused the way a keyboard user arrives at it, then activated. `fireEvent.click`
     // alone would prove nothing about focus: it does not move it.
     await act(async () => {
@@ -1023,9 +1105,9 @@ describe("switching an agent on, off and into the archive (D-440)", () => {
     });
 
     const announced = within(panel).getByRole("status");
-    expect(announced.textContent).toContain("Nothing is deleted");
+    expect(announced.textContent).toContain("stay in your call log");
 
-    const armed = within(panel).getByRole("button", { name: /Archive this agent/ });
+    const armed = within(panel).getByRole("button", { name: /Delete this agent/ });
     expect(document.activeElement, "the keyboard was dropped by the confirm step").toBe(armed);
 
     // And the way out is reachable too — a confirmation a keyboard user can enter and not
@@ -1034,7 +1116,7 @@ describe("switching an agent on, off and into the archive (D-440)", () => {
       fireEvent.click(within(panel).getByRole("button", { name: /Keep it/ }));
     });
     expect(within(panel).queryByRole("status")).toBeNull();
-    expect(within(panel).getByRole("button", { name: /^Archive…$/ })).toBeTruthy();
+    expect(within(panel).getByRole("button", { name: /^Delete…$/ })).toBeTruthy();
   });
 
   it("renders the server's refusal when switching on is not possible yet", async () => {

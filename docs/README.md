@@ -154,7 +154,8 @@ inputs and outputs absent a signed order form (s.6.2), which we do not have. VEN
 `GEMINI_EXTRACTION_DEFAULT is False`, so the
 first post-call extraction stays on Sarvam because it reads the raw transcript, and D-410
 does not move it. **D-04/D-20's Gemini-primary stack is superseded** · Vobiz/Exotel telephony · FastAPI + Next.js/TS ·
-Postgres 16 + RLS (pgvector is a D-28 contingency) · Redis/ARQ · first-party auth, two
+Postgres 16 + RLS + pgvector (`kb_chunks`, D-502 — an extension, not a deployable) · Redis/ARQ ·
+first-party auth, two
 realms (D-165/D-170/D-177 — Clerk is deleted) ·
 a general-purpose VPS (D-25 moved hosting off DigitalOcean; nothing is provisioned yet).
 **This line used to say "with an India-resident data plane" and that was a claim the code

@@ -110,7 +110,11 @@ from apps.api.campaigns.service import (
 # clock pin THIS check too — the campaign window and the per-dial gate must agree
 # on what time it is.
 from apps.api.compliance import service as compliance_service
-from apps.api.compliance.service import PERSON_LEVEL_REFUSALS, check_dispatch
+from apps.api.compliance.service import (
+    BIG_RED_SWITCH_RULE,
+    PERSON_LEVEL_REFUSALS,
+    check_dispatch,
+)
 from apps.api.core.alerting import (
     alert,
     record_campaign_dials,
@@ -130,6 +134,13 @@ from apps.api.db.session import tenant_session, untenanted_session
 # `engine_violations.py`'s import of `apps.api.engine.violations`.
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.api.integrations import service as integrations
+
+# The call-back pass this tick runs (D-514). NOT an arq job of its own, and the reason is
+# the shared outbound pool: a call-back and a campaign contact compete for the same ten
+# lines, and two schedulers with two opinions about that is how a receptionist stops being
+# able to answer the phone. It runs inside this tick's single-flight lease and out of this
+# tick's line budget.
+from apps.workers.callbacks import dispatch_due_callbacks
 
 log = get_logger(__name__)
 
@@ -255,6 +266,13 @@ class TenantWork(NamedTuple):
     # same relationship `engine_agent_routes` has with the tick. Migration c7e4b19d3f52
     # argues why a superset here and a subset never.
     has_due_schedule: bool
+    # A call-back that is due, or one already being dialled (D-514, migration
+    # d8f31a7c2409). A superset like `has_due_schedule` above and for the same reason —
+    # `callbacks.service` is the authority on what "due" means — and it counts `dialing`
+    # rows too, because `settle_dialled` runs inside this visit: a tenant whose last
+    # call-back of the day has just been dialled must still be visited, or the row sits at
+    # "calling now" for ever with the call long since finished.
+    has_due_callback: bool
 
 
 async def _tenants_with_work() -> list[TenantWork]:
@@ -302,13 +320,16 @@ async def _tenants_with_work() -> list[TenantWork]:
             await session.execute(
                 text(
                     "SELECT scanned_tenant_id, active_outbound, has_running_campaign, "
-                    "  has_due_schedule "
+                    "  has_due_schedule, has_due_callback "
                     "FROM dispatch_scan(:statuses, :horizon)"
                 ),
                 {"statuses": list(ACTIVE_STATUSES), "horizon": ACTIVE_CALL_HORIZON},
             )
         ).all()
-    return [TenantWork(UUID(str(row[0])), int(row[1]), bool(row[2]), bool(row[3])) for row in rows]
+    return [
+        TenantWork(UUID(str(row[0])), int(row[1]), bool(row[2]), bool(row[3]), bool(row[4]))
+        for row in rows
+    ]
 
 
 @asynccontextmanager
@@ -568,12 +589,6 @@ async def _run_tick() -> str:
                 tenant_budget -= slots
                 running.append((work.tenant_id, UUID(str(campaign_id)), slots, retry_policy or {}))
 
-    if not running:
-        # `started` is always reported, even as 0: a ternary here would add a branch to
-        # the dial path whose only job is to make a log line shorter, and the ratchet
-        # would then be policing a cosmetic decision.
-        return f"no_running_campaigns started={started}"
-
     # Rule 1+2: what is left of the shared pool after everyone's active calls.
     #
     # **THIS IS A CALLING-HOURS CONTROL, NOT AN OPTIMISATION, AND NOBODY MAY READ IT AS A
@@ -593,8 +608,37 @@ async def _run_tick() -> str:
     # being HIGHER than the account's real ceiling a compliance defect rather than a
     # throughput one, which is why that constant's comment is as long as it is.
     global_budget = max(0, pool - total_active)
+
+    # CALL-BACKS FIRST, OUT OF THE SAME POOL (D-514). Two decisions in one placement:
+    #
+    # **BEFORE the campaigns**, because a call-back is a promise made to a named person at
+    # a stated time and a campaign contact is a cold call to somebody who is not waiting.
+    # If the pool cannot serve both this tick, the one with an appointment wins — and the
+    # cost of getting that backwards is not symmetric, since a campaign contact simply
+    # dials thirty seconds later while a call-back has a two-hour grace it is burning.
+    #
+    # **AND WITH A ZERO BUDGET STILL VISITED**, which is why this runs above the
+    # `pool_saturated` return rather than below it. `dispatch_due_callbacks` settles what
+    # has finished and expires what has gone stale before it claims anything, and both of
+    # those are how a saturated pool RECOVERS. Skipping the visit because there are no
+    # lines would leave every dialled call-back sitting at "calling now" for exactly as
+    # long as the saturation lasted, which is the state that most needs clearing.
+    callbacks_dialled = 0
+    for work in tenants:
+        if not work.has_due_callback:
+            continue
+        outcome = await dispatch_due_callbacks(work.tenant_id, max(0, global_budget))
+        callbacks_dialled += outcome["dialled"]
+        global_budget = max(0, global_budget - outcome["dialled"])
+
+    if not running:
+        # `started` is always reported, even as 0: a ternary here would add a branch to
+        # the dial path whose only job is to make a log line shorter, and the ratchet
+        # would then be policing a cosmetic decision.
+        return f"no_running_campaigns started={started} callbacks={callbacks_dialled}"
+
     if global_budget == 0:
-        return f"pool_saturated active={total_active}"
+        return f"pool_saturated active={total_active} callbacks={callbacks_dialled}"
 
     dialled, blocked, exhausted = 0, 0, 0
     served: set[UUID] = set()
@@ -661,7 +705,7 @@ async def _run_tick() -> str:
         record_campaign_dials(dialled=dialled, blocked=blocked)
     return (
         f"dialled={dialled} blocked={blocked} exhausted={exhausted} "
-        f"started={started} starved={len(starved)}"
+        f"started={started} starved={len(starved)} callbacks={callbacks_dialled}"
     )
 
 
@@ -743,6 +787,24 @@ async def _dispatch_for_campaign(
 
     async with tenant_session(tenant_id) as session:
         await _reap_stuck_dialing(session, campaign_id, tenant_id=tenant_id)
+
+        # **FINISHING IS NOT DIALLING, AND IT MUST NOT SIT BEHIND THE DIAL GATE.** This
+        # runs BEFORE the two campaign-level gates below, and that ordering is the whole
+        # fix: both of them `return` early, so a campaign with nothing left to dial whose
+        # paperwork lapsed after its last call never reached the completion check at the
+        # bottom of this function — for ever. The reachable sequence is ordinary and needs
+        # nobody to make a mistake: the last contact settles at 23:55, the national DND
+        # scrub expires at midnight IST (`preference_scrub.scrub_expiry`), and from the
+        # next tick on `dispatch_blockers` refuses the campaign every thirty seconds. The
+        # campaign stays `running` on the client's screen with zero contacts left, and
+        # `campaign.completed` — which a client can subscribe an endpoint or a spreadsheet
+        # to — never fires. Nothing re-scrubs a list that has nothing left to dial, so the
+        # blocker never clears on its own either.
+        #
+        # It is also the cheap order: a finished campaign now costs one count instead of
+        # the entity/template/number/scrub reads it can no longer act on.
+        if await _settle_finished_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id):
+            return {"dialled": 0, "blocked": 0, "exhausted": 0}
 
         # THE STANDING COMPLIANCE GATE (hard rule 5), asked in the SAME transaction
         # that claims the contacts, so a registration revoked a moment ago cannot slip
@@ -852,6 +914,38 @@ async def _dispatch_for_campaign(
                 blocked += 1
                 continue
 
+            # THE BIG RED SWITCH, READ PAST THE CACHE — and this is the ONE place in the
+            # tree that has to force it. `check_dispatch` asks the same question three
+            # lines below, but through `loadshed.get_platform_status()`, whose first layer
+            # is a 5-SECOND IN-PROCESS MEMO. The halt is written by
+            # `ops.routes.set_platform` in the API process, which clears its OWN memo and
+            # writes through Redis; THIS process's memo is untouched and keeps answering
+            # "running" until it ages out. The tick primes that memo at `_run_tick`, so a
+            # switch thrown just after a tick started is invisible to every contact of the
+            # batch it already claimed.
+            #
+            # Those seconds are not a rounding error on this path, and they are worse than
+            # the general staleness bound `loadshed` reasons about. `dial_recall` — the job
+            # that pulls dials back out of the vendor's queue — is enqueued on the halt's
+            # `false -> true` edge and scans ONCE. A dial this loop places after that scan
+            # is never recalled by anything: it sits in a queue we cannot see and rings.
+            # So the halt is the one rule here where a stale read costs an unrecallable
+            # phone call rather than a late refusal.
+            #
+            # ONE indexed read on `platform_state` per contact, in a loop bounded by the
+            # outbound pool (`_outbound_pool()`), on a path that already makes an engine
+            # round trip per iteration. It is a depth-2 nesting like the gate's own cold-memo
+            # read (`scripts/check_session_nesting.py` names that chain), not a new depth.
+            #
+            # Refused under the gate's OWN rule name so the metric, the runbook query and
+            # `_refuse_contact`'s settle/retry decision cannot tell the two reads apart —
+            # a contact stopped by the switch goes back on the ladder either way, because
+            # `big_red_switch` is not in `PERSON_LEVEL_REFUSALS`.
+            if (await get_platform_status(force_refresh=True)).outbound_halted:
+                await _refuse_contact(session, contact_id, rule=BIG_RED_SWITCH_RULE)
+                blocked += 1
+                continue
+
             # THE per-dial gate (hard rule 5). This tick is "the next dispatch tick"
             # DNC additions must precede. Its DNC read is uncached and per contact, so
             # an opt-out committed by another connection while this batch is mid-flight
@@ -926,37 +1020,54 @@ async def _dispatch_for_campaign(
             dialled += 1
 
     async with tenant_session(tenant_id) as session:
-        # Campaign auto-complete: nothing pending and nothing dialing left.
-        remaining = (
-            await session.execute(
-                text(
-                    "SELECT count(*) FROM campaign_contacts WHERE campaign_id = :cid "
-                    "AND status IN ('pending', 'dialing')"
-                ),
-                {"cid": campaign_id},
-            )
-        ).scalar()
-        if not remaining:
-            # `complete_or_rearm`, not an UPDATE to 'completed': a campaign carrying a
-            # REPEAT is not finished when this run is, it is waiting for its next
-            # occurrence — and `due_schedules`/`dispatch_scan()` only look at `scheduled`,
-            # so completing it would silently retire the repeat after one run. What the
-            # column means stays `campaigns.scheduling`'s question.
-            settled = await complete_or_rearm(session, campaign_id=campaign_id)
-            if settled == "completed":
-                # IN THIS TRANSACTION, beside the status write that justifies it — the
-                # transactional-outbox property (BACKEND-PATTERNS §4) that makes "the
-                # campaign completed but the CRM never heard" and "the CRM heard about a
-                # completion that rolled back" both unrepresentable. A tick that dies
-                # between the UPDATE and the enqueue rolls both back and the next tick
-                # re-completes the campaign, because `complete_or_rearm` is a CAS off
-                # `running`.
-                await emit_campaign_completed(session, tenant_id=tenant_id, campaign_id=campaign_id)
-                log.info("campaign_completed", extra={"campaign_id": str(campaign_id)})
-            elif settled == "scheduled":
-                log.info("campaign_recurrence_rearmed", extra={"campaign_id": str(campaign_id)})
+        await _settle_finished_campaign(session, tenant_id=tenant_id, campaign_id=campaign_id)
 
     return {"dialled": dialled, "blocked": blocked, "exhausted": exhausted}
+
+
+async def _settle_finished_campaign(
+    session: AsyncSession, *, tenant_id: UUID, campaign_id: UUID
+) -> bool:
+    """Campaign auto-complete: nothing pending and nothing dialing left. True if settled.
+
+    ONE WRITER, TWO CALLERS — the top of `_dispatch_for_campaign` (so a finished campaign
+    is settled even when a gate below would refuse to dial it) and the bottom (so the tick
+    that empties the list closes it out). Two copies of this block would be two answers to
+    "is this campaign over", and the version that had to be added second is exactly the
+    one a reader would not know to keep in step.
+
+    `complete_or_rearm`, not an UPDATE to 'completed': a campaign carrying a REPEAT is not
+    finished when this run is, it is waiting for its next occurrence — and
+    `due_schedules`/`dispatch_scan()` only look at `scheduled`, so completing it would
+    silently retire the repeat after one run. What the column means stays
+    `campaigns.scheduling`'s question. It is a CAS off `running`, so a campaign somebody
+    paused or cancelled between the tick's read and this statement settles nothing and
+    returns False.
+    """
+    remaining = (
+        await session.execute(
+            text(
+                "SELECT count(*) FROM campaign_contacts WHERE campaign_id = :cid "
+                "AND status IN ('pending', 'dialing')"
+            ),
+            {"cid": campaign_id},
+        )
+    ).scalar()
+    if remaining:
+        return False
+    settled = await complete_or_rearm(session, campaign_id=campaign_id)
+    if settled == "completed":
+        # IN THIS TRANSACTION, beside the status write that justifies it — the
+        # transactional-outbox property (BACKEND-PATTERNS §4) that makes "the campaign
+        # completed but the CRM never heard" and "the CRM heard about a completion that
+        # rolled back" both unrepresentable. A tick that dies between the UPDATE and the
+        # enqueue rolls both back and the next tick re-completes the campaign, because
+        # `complete_or_rearm` is a CAS off `running`.
+        await emit_campaign_completed(session, tenant_id=tenant_id, campaign_id=campaign_id)
+        log.info("campaign_completed", extra={"campaign_id": str(campaign_id)})
+    elif settled == "scheduled":
+        log.info("campaign_recurrence_rearmed", extra={"campaign_id": str(campaign_id)})
+    return settled is not None
 
 
 # The `data` keys a `campaign.completed` outbound event carries (docs/WEBHOOKS.md §1.2),

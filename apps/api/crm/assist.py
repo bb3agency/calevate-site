@@ -99,6 +99,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import record_ai_assist_usage
+from apps.api.billing.platform_ai import record_platform_ai_usage
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -132,6 +133,92 @@ ASSIST_FEATURE_SCRIPT_DRAFT: Final = "script_draft"
 #: first surface here that can spend on SEVERAL model turns for one user action, which is
 #: precisely the row an operator will want to be able to isolate.
 ASSIST_FEATURE_COPILOT: Final = "copilot"
+
+#: `usage_events.meta.feature` for the copilot's SEMANTIC DISTILLATION worker
+#: (`apps/workers/copilot_memory.py`) — the hourly job that reads a finished console
+#: conversation back to a model and extracts durable facts about the business.
+#:
+#: A FOURTH name, and the split matters more here than between the three above: this is the
+#: only AI spend on the platform that NO CLIENT ACTION TRIGGERS. It runs on a cron, against
+#: a budget this product sets, and an operator asking "what did we spend on the client's
+#: behalf versus what did they ask for" cannot answer it if background work is filed under
+#: the interactive surface's name. It is metered (hard rule 7 — a call that spent our
+#: credential is recorded) and it is metered SEPARATELY.
+ASSIST_FEATURE_COPILOT_MEMORY: Final = "copilot_memory_distillation"
+
+#: `usage_events.meta.feature` for the KB ENGLISH GLOSS worker (`apps/workers/kb_gloss.py`)
+#: — the sweep that writes a short English rendering beside each approved Telugu-script
+#: knowledge chunk so a Tenglish question can retrieve it (`apps/api/kb/gloss.py`).
+#:
+#: A FIFTH name, and it is `copilot_memory_distillation`'s argument applied a second time:
+#: this is background spend that NO CLIENT ACTION TRIGGERS. An operator asking "what did we
+#: spend on the client's behalf versus what did they ask for" cannot answer it if a sweep's
+#: translations are filed under an interactive surface. It is also the only AI spend whose
+#: quantity is a function of how much knowledge a client UPLOADS rather than of how much
+#: they USE, which is a different curve and one an operator will want to see on its own.
+ASSIST_FEATURE_KB_GLOSS: Final = "kb_gloss"
+
+#: `platform_ai_usage.meta.feature` for the ADMIN-REALM COPILOT (D-499) — the assistant an
+#: operator or superadmin uses inside the admin console, and inside a D-22 view-as session.
+#:
+#: A SIXTH name, and the FIRST one that is not a `usage_events.meta.feature` at all: this is
+#: the only surface here whose payer is the PLATFORM rather than a tenant, so its rows land
+#: in `platform_ai_usage` (`billing/platform_ai.py`) and no client's ceiling moves. The
+#: founder's sentence is the whole of the reason — *"You never charge a client for your own
+#: support work"* — and it is why an operator asking the assistant while VIEWING a client
+#: files under this name too, not under `copilot`.
+#:
+#: The name says the realm rather than the screen, deliberately. `copilot` already names
+#: "the floating assistant that answers about a screen", and the question an operator asks
+#: the ledger is not "which admin screen" but "what did the admin console cost us this
+#: month, and who spent it" — which is `admin_user_id` + this one feature name, not a family
+#: of per-screen names nobody would keep in step.
+ASSIST_FEATURE_ADMIN_COPILOT: Final = "admin_copilot"
+
+#: `platform_ai_usage.meta.feature` for the CALLER-DATA INGESTION SWEEP (D-503) — the cron
+#: that buys one vector per chunk of what a client's callers said, so those conversations can
+#: be searched by meaning.
+#:
+#: A SEVENTH name, and the SECOND that is not a `usage_events.meta.feature`: **the payer is
+#: the PLATFORM.** That is a departure from where the sibling KB ingestion sweep meters
+#: (`retrieval/embedding.ASSIST_FEATURE_KB_EMBED`, on the tenant's own ledger) and it is the
+#: departure the founder asked for. D-502 could not make it because
+#: `platform_ai.record_platform_ai_usage` required an `admin_user_id` and a cron has no
+#: operator; `system_actor` (migration `c6b1f0d47e83`) is what closes that, so this spend
+#: lands where the decision said it should.
+#:
+#: WHY THE PLATFORM AND NOT THE CLIENT, said once here because it is a pricing decision and
+#: not a plumbing one: ingestion is a cost of OUR feature existing. Its quantity is a
+#: function of how many calls a client takes, which is the thing they already pay per minute
+#: for — billing them a second time for indexing the same conversation would charge them
+#: twice for one event, and a client who never opens the search screen would pay for a
+#: capability they never used. The QUERY side is theirs and stays theirs
+#: (`ASSIST_FEATURE_CALL_SEARCH`, `ASSIST_FEATURE_LEAD_SEARCH`): a person clicked.
+ASSIST_FEATURE_CALLER_EMBED: Final = "caller_embed"
+
+#: `usage_events.meta.feature` for the CROSS-CALL MEMORY DISTILLER (D-513) — the cron that
+#: reads a finished call and writes down what the business should remember about the person
+#: who rang (`apps/workers/caller_memory_distil.py`).
+#:
+#: An EIGHTH name, and it lands on the CLIENT's ledger rather than the platform's — which is
+#: the opposite of `ASSIST_FEATURE_CALLER_EMBED` directly above, so the difference is worth
+#: stating rather than leaving to be inferred from which function it is passed to.
+#:
+#: The founder's decision, and the ground is the one `ASSIST_FEATURE_CALLER_EMBED` itself
+#: names: ingestion is a cost of OUR feature existing and every client pays it whether or
+#: not they use the search. Cross-call memory is the opposite on both counts. It is OFF by
+#: default, it is switched on by a deliberate act of the client's (`org:manage`, plus a
+#: per-tenant attestation), and it produces a capability their callers hear on the phone.
+#: A client who has not switched it on is charged nothing at all, because no model call is
+#: made for them — which is what makes charging the ones who did switch it on fair rather
+#: than a tax.
+#:
+#: THE CONSEQUENCES OF THE TENANT LEDGER ARE THE POINT, not a side effect: the spend appears
+#: on the client's bill, in the spend board beside every other assist, and — the one that
+#: matters operationally — **the spend cap can stop it**. A background job that could not be
+#: stopped by the client's own ceiling would be the one AI surface on this platform with no
+#: brake (`billing/ai_quota.record_ai_assist_usage` is that brake, and it is the one door).
+ASSIST_FEATURE_CALLER_MEMORY: Final = "caller_memory_distillation"
 
 
 class MeterableAssist(Protocol):
@@ -425,8 +512,115 @@ async def meter_assist(
     return AssistMetering(metered=metered.recorded, cost_inr=metered.cost_inr)
 
 
+async def meter_platform_assist(
+    session: AsyncSession,
+    *,
+    admin_user_id: UUID,
+    viewing_tenant_id: UUID | None,
+    ref: str,
+    result: MeterableAssist,
+    feature: str = ASSIST_FEATURE_ADMIN_COPILOT,
+    model: str | None = None,
+) -> AssistMetering:
+    """`meter_assist` for the surface whose payer is the PLATFORM (D-499).
+
+    THE SAME THREE OUTCOMES, decided the same way and for the same reasons — read
+    `meter_assist` above for the arguments, which are not restated here because restating
+    them is how two meters come to disagree about what a missing `usage` block means:
+
+    * **Sarvam** — D-36 prices the leg at zero, so there is no quantity to state and
+      nothing is written. A `qty = 0` row would be a FABRICATED quantity on an append-only
+      ledger (D-140), indistinguishable from a real one.
+    * **A paid leg that returned no `usage`** — a METERING OUTAGE. Alerted, never
+      estimated. It matters MORE here than on the tenant ledger, not less: the platform
+      brake is the ONLY ceiling this surface has (`platform_ai.require_platform_ai`), so
+      spend it cannot see is spend with no bound at all.
+    * **An unrecognised provider** — recorded as free, loudly. The closed set is closed
+      for `meter_assist`'s reason and the hole opens on the same day, in the same file.
+
+    WHAT IS DIFFERENT IS ONLY THE PAYER, and that is the whole point of it being a separate
+    function rather than a flag on `meter_assist`: the tenant meter's signature REQUIRES a
+    `tenant_id` and writes a table whose RLS depends on one, so "the same function with the
+    tenant left out" is not a shape that exists. The alerts carry `admin_user_id` in the
+    tenant's place so an operator reading either alarm knows immediately which bill is
+    affected.
+
+    Never raises for an ordinary outcome, for `meter_assist`'s reason: it runs after the
+    provider has been paid, and a metered answer undone by a failure to talk about it is a
+    money hole rather than a tidy rollback.
+    """
+    model = model or get_settings().azure_openai_model
+    usage = result.usage
+    if usage is None:
+        if result.capability.provider in (AZURE_PROVIDER, GOOGLE_PROVIDER):
+            alert(
+                "CORE_LOGIC",
+                "admin_ai_assist_unmeterable",
+                detail=(
+                    "A paid ADMIN-console assist carried no usage block, so it could not be "
+                    "metered: this is spend on our own key that the platform brake cannot "
+                    "see, and the admin realm has no other ceiling. Nothing was estimated. "
+                    "Check whether the provider has stopped sending the block before the "
+                    "month's real spend outruns PLATFORM_AI_BRAKE_INR."
+                ),
+                provider=str(result.capability.provider),
+                # Ids, a model name and a feature name. No operator name, no question, no
+                # answer — and never the key (hard rule 6).
+                admin_user_id=str(admin_user_id),
+                ref=ref,
+                model=model,
+                feature=feature,
+            )
+        elif result.capability.provider == SARVAM_PROVIDER:
+            log.info(
+                "admin_ai_assist_unmetered_fallback",
+                extra={
+                    "admin_user_id": str(admin_user_id),
+                    "ref": ref,
+                    "provider": result.capability.provider,
+                    "fallback_reason": result.capability.fallback_reason,
+                    "feature": feature,
+                },
+            )
+        else:
+            alert(
+                "CORE_LOGIC",
+                "admin_ai_assist_unknown_provider",
+                detail=(
+                    "An ADMIN-console assist was answered by a provider this meter does not "
+                    "know how to price, so it was recorded as free. If that provider is "
+                    "paid, this is spend on our own key invisible to the platform brake. "
+                    "Teach crm/assist.py::meter_platform_assist about it, or confirm it "
+                    "belongs in the free bucket."
+                ),
+                admin_user_id=str(admin_user_id),
+                ref=ref,
+                model=model,
+                feature=feature,
+                provider=str(result.capability.provider),
+            )
+        return AssistMetering(metered=False, cost_inr=Decimal("0"))
+
+    metered = await record_platform_ai_usage(
+        session,
+        admin_user_id=admin_user_id,
+        viewing_tenant_id=viewing_tenant_id,
+        ref=ref,
+        tokens_in=usage.prompt_tokens,
+        tokens_out=usage.output_tokens,
+        model=model,
+        feature=feature,
+    )
+    return AssistMetering(metered=metered.recorded, cost_inr=metered.cost_inr)
+
+
 __all__ = [
+    "ASSIST_FEATURE_ADMIN_COPILOT",
+    "ASSIST_FEATURE_CALLER_EMBED",
+    "ASSIST_FEATURE_CALLER_MEMORY",
     "ASSIST_FEATURE_COPILOT",
+    "ASSIST_FEATURE_COPILOT_MEMORY",
+    "ASSIST_FEATURE_KB_GLOSS",
     "ASSIST_FEATURE_RESUMMARISE",
     "ASSIST_FEATURE_SCRIPT_DRAFT",
     "AssistMetering",
@@ -434,5 +628,6 @@ __all__ = [
     "MeterableAssist",
     "load_assist_source",
     "meter_assist",
+    "meter_platform_assist",
     "transcript_for_model",
 ]

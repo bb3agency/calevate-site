@@ -34,7 +34,7 @@ from apps.api.compliance.service import check_dispatch
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
-from tests.conftest import accept_agreements, arm_agent_for_outbound
+from tests.conftest import accept_agreements, arm_agent_for_outbound, fund_wallet
 
 _INDIA = "+919876500001"
 
@@ -63,6 +63,10 @@ async def _tenant_agent(*, direction: str = "outbound") -> tuple[uuid.UUID, uuid
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
     await accept_agreements(uuid.UUID(str(created["id"])))
+    # And credit, for the same reason and in the same shape (D-521): `prepaid` is the
+    # default motion now, so an unfunded tenant is refused `no_credits` on every
+    # outbound dial and this file would report that in place of what it is about.
+    await fund_wallet(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = uuid.UUID(str(created["id"])), uuid.UUID(str(created["agent_id"]))
     async with tenant_session(tenant_id) as session:
         await session.execute(

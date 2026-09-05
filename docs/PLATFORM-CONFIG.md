@@ -206,6 +206,20 @@ CREATE TABLE platform_model_prices (
     source_note         text        NOT NULL,     -- the invoice/console the figure was read off
     PRIMARY KEY (model, effective_from)
 );
+
+-- The published SELF-SERVE list rate, effective-dated (D-492). Same family, same shape:
+-- a price change is a new dated row, never an edit, so a closed month resolves the rate it
+-- was struck at. See the note below and migration d3b81f5c02ae.
+CREATE TABLE platform_list_rates (
+    rate_key       text        NOT NULL,     -- the Settings field it dates; today only
+                                             -- 'self_serve_inr_per_min'
+    effective_from timestamptz NOT NULL,     -- when this figure becomes the published rate
+    inr_amount     numeric(12,4) NOT NULL CHECK (inr_amount > 0),
+    recorded_by    uuid        NOT NULL REFERENCES admin_users(id),
+    recorded_at    timestamptz NOT NULL DEFAULT now(),
+    source_note    text        NOT NULL,     -- the operator's reason for the change
+    PRIMARY KEY (rate_key, effective_from)
+);
 ```
 
 **`platform_secrets` is append-only and joins the hard-rule-4 family** (`usage_events`,
@@ -235,6 +249,24 @@ read its price first-hand, so `billing/rates.llm_price_is_billable` treats it as
 off the verified catalogue figure — which is why the panel shows Azure offerable with no
 row here. It is NOT tenant-scoped and carries no `tenant_id`, exempted in
 `check_rls_coverage` with a written reason like its siblings.
+
+**`platform_list_rates` is what stops a CLOSED month being re-priced by a later rate
+move** (D-492). `self_serve_inr_per_min` is what the platform charges a prepaid client for
+a calling minute, and `platform_settings` is keyed by `key` — so changing it OVERWRITES the
+row and the store that holds the price cannot say what the price WAS. Two money readers
+needed exactly that and were reading today's figure for a month already charged at another
+one: `billing/service.calling_revenue_inr` on a settled statement (client-reachable at
+`GET /usage?month=`) and `workers/pipeline` on a call that settles after the IST month
+rolls. This table is the effective-dated home; `platform_settings` keeps its own job, which
+is what the platform charges RIGHT NOW, and the ops config route appends a dated row here in
+the SAME transaction as the setting it changes. `billing/list_rates.self_serve_rate_at(
+session, at=…)` is the only reader, resolved at `billing/plans.month_pricing_instant` by
+every caller. **It ships EMPTY and there is no backfill** (hard rule 11): nobody ever
+recorded when the price last moved, so the reader falls back to the live `Settings` value
+when no row covers the instant — for those months the current rate is the only rate we know,
+and dating today's figure to the beginning of time would assert a claim nobody here can make.
+History accrues from the first console price change after it landed. Not tenant-scoped, no
+`tenant_id`, exempted in `check_rls_coverage` with a written reason like its siblings.
 
 **How an attested price reaches billing** is the seam the catalogue lane defined
 (`billing/rates.install_llm_price_attestations`, `agents/llm_models

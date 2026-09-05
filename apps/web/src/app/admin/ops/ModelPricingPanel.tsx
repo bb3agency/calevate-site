@@ -29,6 +29,7 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import {
   MonoValue,
   TypeToConfirm,
@@ -351,17 +352,18 @@ function AttestForm({
   // still goes on the wire, set inside `useAttestModelPrice`; conflating the two is how a
   // copy change would quietly become an API change.
   const word = "CONFIRM";
-  const ready =
-    inputUsd.trim().length > 0 &&
-    outputUsd.trim().length > 0 &&
-    sourceNote.trim().length >= 3 &&
-    confirmMatches(confirm, word);
+  const valid = useFormValidation();
+  // The three answers moved OUT of `ready` and onto the controls, where a press can say
+  // which one is missing. A button that goes dead because a box three rows up is empty is
+  // a refusal with no words in it. What stays is the typed confirmation — a gate, not an
+  // answer on the form.
+  const ready = confirmMatches(confirm, word);
 
   return (
     <form
       className="space-y-3"
-      onSubmit={(e) => {
-        e.preventDefault();
+      noValidate
+      onSubmit={valid.onSubmit(() => {
         if (!ready || save.isPending) return;
         save.mutate(
           {
@@ -373,7 +375,7 @@ function AttestForm({
           },
           { onSuccess: onDone },
         );
-      }}
+      })}
     >
       {save.error && <WriteFailure error={save.error} actionLabel="Confirm price" />}
 
@@ -382,6 +384,8 @@ function AttestForm({
           Input price (US$ per million tokens)
         </span>
         <input
+          {...valid.field("inputUsd", "Enter the input price you were billed.")}
+          required
           value={inputUsd}
           onChange={(e) => setInputUsd(e.target.value)}
           // `text`, not `number`: a number input hands JS a float, and money must reach the
@@ -390,6 +394,7 @@ function AttestForm({
           placeholder={`${price.reference_input_usd_per_mtok} (recorded — check against your invoice)`}
           className={`${FIELD} font-mono`}
         />
+        {valid.error("inputUsd")}
         <span className={FIELD_HINT}>
           {price.reference_verified
             ? "This recorded price came directly from the vendor."
@@ -402,22 +407,29 @@ function AttestForm({
           Output price (US$ per million tokens)
         </span>
         <input
+          {...valid.field("outputUsd", "Enter the output price you were billed.")}
+          required
           value={outputUsd}
           onChange={(e) => setOutputUsd(e.target.value)}
           inputMode="decimal"
           placeholder={`${price.reference_output_usd_per_mtok} (recorded — check against your invoice)`}
           className={`${FIELD} font-mono`}
         />
+        {valid.error("outputUsd")}
       </label>
 
       <label className="block">
         <span className={FIELD_LABEL}>Source</span>
         <input
+          {...valid.field("sourceNote", "Say where you read this figure.")}
+          required
+          minLength={3}
           value={sourceNote}
           onChange={(e) => setSourceNote(e.target.value)}
           placeholder="e.g. Azure invoice 2026-08, or openai.com/api/pricing read today"
           className={FIELD}
         />
+        {valid.error("sourceNote")}
         <span className={FIELD_HINT}>
           Where you read this figure. Saved with your confirmed price, so a
           later reader knows who read it and from where.

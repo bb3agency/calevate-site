@@ -1750,3 +1750,32 @@ async def test_a_unit_type_cannot_be_both_client_billed_and_platform_absorbed() 
 
     # And the real pair is clean — the invariant that runs at import.
     assert_units_are_disjoint(CLIENT_BILLED_UNIT_TYPES, PLATFORM_ABSORBED_UNIT_TYPES)
+
+
+def test_the_conftest_fixture_pins_the_implicit_clock_and_only_the_implicit_clock() -> None:
+    """The fixture that stops the suite caring what time it is — asserted, not assumed.
+
+    `tests/conftest.py::_ist_month_boundary_is_pinned` exists because a 42-minute coverage
+    run rolled across 00:00 IST on 31 Aug 2026 and returned `27 failed` across five files,
+    none of which was a defect. It pins the IMPLICIT clock read and delegates an EXPLICIT
+    `now=` to the real implementation, so the boundary itself is still tested (the cases
+    just above this one) while no other test can be answered by the calendar.
+
+    THE CONTROL IS A MONTH THAT IS GENUINELY OVER. `month_is_ending` documents that it is
+    True for a month already past — so an unpinned implicit read of a historical month
+    returns True on any day, which makes this assertion meaningful whenever it is run
+    rather than only during the one hour a month that produced the incident.
+
+    FAILS IF: the fixture is deleted (the historical month reads True again), or if it is
+    replaced by a blunt stub that also swallows `now=` — which would silently turn the
+    boundary tests above into tautologies, a worse defect than the one it fixed.
+    """
+    from datetime import datetime as dt
+
+    from apps.api.billing.plans import IST
+
+    past = "2020-01"
+    # Implicit: pinned, even though this month ended years ago.
+    assert ai_quota.month_is_ending(past) is False
+    # Explicit: still the real answer, so the edge is still under test.
+    assert ai_quota.month_is_ending(past, now=dt(2026, 8, 31, 23, 50, tzinfo=IST)) is True

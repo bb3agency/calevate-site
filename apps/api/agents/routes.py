@@ -45,21 +45,18 @@ until someone regenerates them (`pnpm gen:api`) — deliberately not done here.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, get_args
+from typing import Annotated, get_args
 from uuid import UUID
 
-from calevate_shared.engine import DisclosurePosture, compose_opening_line
-from calevate_shared.extraction import ExtractionField, OutcomeTag
+from calevate_shared.extraction import OutcomeTag
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi import status as http_status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents import lifecycle
+from apps.api.agents import lifecycle, roster
 from apps.api.agents.llm_models import (
-    LlmModelSource,
-    resolve_llm_model,
     validate_llm_model,
 )
 from apps.api.agents.models import (
@@ -68,7 +65,13 @@ from apps.api.agents.models import (
     AgentDirection,
     AgentStatus,
 )
-from apps.api.agents.publishing import audit_action_for, set_disclosure_posture
+from apps.api.agents.publishing import (
+    CALLER_MEMORY_ATTESTATION,
+    audit_action_for,
+    set_caller_memory,
+    set_disclosure_posture,
+)
+from apps.api.agents.schemas import AgentOut
 from apps.api.agents.service import publish_agent
 
 # The languages the product sells, imported rather than respelled: this repo already
@@ -100,152 +103,12 @@ Session = Annotated[AsyncSession, Depends(db)]
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
 
 
-class AgentOut(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    id: UUID
-    name: str
-    #: TYPED, not `str` (D-440). Both columns carry a CHECK constraint rendered from these
-    #: exact Literals (`agents/models.py`), `tests/orm_schema_fidelity_test.py` proves the
-    #: constraint is really in the database, and a generated TypeScript client that gets a
-    #: union here can exhaustively switch on it instead of comparing strings. A row that
-    #: somehow held anything else fails serialization loudly, which is the same trade
-    #: `_load_agent`'s direction TypeGuard makes and for the same reason: a status the
-    #: platform has never heard of, on an agent answering a client's phone, is not a thing
-    #: to render.
-    direction: AgentDirection
-    #: `live` IS "active" and `paused` IS "inactive" — the labels are the UI's, the
-    #: vocabulary is the database's, and `agents/models.AgentStatus` argues why they differ.
-    status: AgentStatus
-    #: Set only while `status == "archived"`; a CHECK constraint holds the pair together.
-    archived_at: datetime | None
-    language_primary: str
-    # THE LEGACY BUNDLE, kept on the wire for step 1 of D-163's two-step deprecation:
-    # both sentences joined whatever the toggles say. Read it as "the notices this agent
-    # HAS", never as "what it says" — `opening_line` below is what it says.
-    disclosure_line: str
-    # THE SPLIT (D-163). Shown to the client verbatim: they are legally the Principal
-    # Entity, so they need to be able to read what their agent announces — and, now that
-    # each half is theirs to switch off, to see the two halves separately.
-    ai_disclosure_line: str
-    ai_disclosure_enabled: bool
-    recording_notice_line: str
-    recording_notice_enabled: bool
-    #: What a caller actually hears first, composed by the server from the two toggles.
-    #: Empty string = this agent volunteers neither notice and opens on its script.
-    #: Composed here rather than left to the screen because a UI that re-joined the two
-    #: sentences itself would be a second implementation of a compliance rule.
-    opening_line: str
-    #: The one sentence no toggle reaches, in words a client can read. Server-composed for
-    #: the same reason the lane table's `why` strings are: a screen that paraphrases this
-    #: is a screen that can accidentally promise the opposite.
-    truthful_answer_rule: str = TRUTHFUL_ANSWER_PROMISE
-    engine: str
-    published: bool
-    #: HOW MANY LINES THIS AGENT ANSWERS IN PARALLEL — the honest per-agent deployment
-    #: fact, and deliberately the only one (D-440). Inbound concurrency is a per-number
-    #: binding at the engine and the vendor documents no inbound limit, so a live agent
-    #: bound to three numbers picks up three simultaneous calls. OUTBOUND concurrency is
-    #: not a property of an agent at all: it is an account-level pool shared by every
-    #: campaign on the platform (`workers/campaign_dispatch.py`), so there is no per-agent
-    #: number that could be true, and this response does not invent one.
-    #:
-    #: Counts the numbers BOUND to the agent in our records. A non-live agent shows its
-    #: bindings too — they are what activating it would start answering — and the engine
-    #: is told to release them on deactivate and archive.
-    inbound_number_count: int
-    #: WHAT WAS CHOSEN ON THIS AGENT, and `null` means "inherit the account's default"
-    #: rather than "no model" (D-454). It is deliberately not the same field as
-    #: `llm_model_effective` below: a screen that showed only the effective value could
-    #: not tell an owner whether clearing this input would change anything.
-    llm_model: str | None
-    #: WHAT WILL ACTUALLY RUN, after `agent -> organization -> platform`. Never null:
-    #: there is always an answer, and the field that says WHERE it came from is beside it
-    #: so the screen never has to present a platform default as the client's own choice.
-    llm_model_effective: str
-    #: Which rung supplied `llm_model_effective`. A closed vocabulary, so a generated
-    #: client can switch on it exhaustively (`agents/llm_models.LlmModelSource`).
-    llm_model_source: LlmModelSource
-    extraction_fields: list[ExtractionField] = []
-
-
 class PublishOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     agent_id: UUID
     engine_agent_ref: str
     status: str
-
-
-#: The roster query, spelled once and reached from both routes below (D-302).
-#:
-#: It used to live inside `list_agents`, and `get_agent` CALLED THAT HANDLER and filtered
-#: the result in Python — "RLS-scoped; small list per tenant in v1", said the comment.
-#: Bounding the list turned that belief into a defect a reader could see: with a `LIMIT`
-#: on the roster, the 201st agent of an account would be a 404 on its own detail route,
-#: found by nothing except the person whose screen it is. Asking for the one row by id is
-#: also the query that should always have been here — one indexed lookup instead of a
-#: scan of every agent plus their extraction schemas, on the route a dashboard opens most.
-#:
-#: The inbound-number count is a CORRELATED SUBQUERY rather than a fourth join, because
-#: `phone_numbers` is one-to-many against `agents` while `extraction_schemas` is joined by
-#: primary key: a `LEFT JOIN ... GROUP BY` would multiply every agent by its numbers and
-#: then need every selected column in the grouping key, including the schema's JSONB. The
-#: subquery is one index lookup on `phone_numbers.agent_id` per row of a per-tenant list
-#: this route already bounds at 200.
-_AGENT_ROSTER = (
-    "SELECT a.id, a.name, a.direction, a.status, a.language_primary, "
-    "a.disclosure_line, a.engine, a.engine_agent_ref, es.fields, "
-    "a.ai_disclosure_line, a.ai_disclosure_enabled, "
-    "a.recording_notice_line, a.recording_notice_enabled, a.archived_at, "
-    "(SELECT count(*) FROM phone_numbers pn WHERE pn.agent_id = a.id), "
-    # The two rungs of the model fallback that live in the database (D-454). Joined
-    # rather than fetched per row: `organizations` is one PK lookup and RLS makes it the
-    # caller's own row, and resolving the fallback from two statements would let an
-    # account default change land between them — a roster whose rows disagree about which
-    # model the account runs.
-    "a.llm_model, o.default_llm_model "
-    "FROM agents a LEFT JOIN extraction_schemas es ON es.id = a.extraction_schema_id "
-    "LEFT JOIN organizations o ON o.id = a.tenant_id "
-    "WHERE a.deleted_at IS NULL"
-)
-
-
-def _agent_out(r: Any) -> AgentOut:
-    # Through the ONE resolver (`agents/llm_models.py`), so the roster, the detail route
-    # and the config the engine is actually sent cannot disagree about which model an
-    # agent runs or which level chose it.
-    resolved = resolve_llm_model(agent_model=r[15], organization_model=r[16])
-    return AgentOut(
-        id=r[0],
-        name=r[1],
-        direction=r[2],
-        status=r[3],
-        language_primary=r[4],
-        disclosure_line=r[5],
-        engine=r[6],
-        published=bool(r[7]),
-        extraction_fields=[ExtractionField.model_validate(f) for f in (r[8] or [])],
-        ai_disclosure_line=r[9],
-        ai_disclosure_enabled=bool(r[10]),
-        recording_notice_line=r[11],
-        recording_notice_enabled=bool(r[12]),
-        archived_at=r[13],
-        inbound_number_count=int(r[14]),
-        llm_model=r[15],
-        llm_model_effective=resolved.model,
-        llm_model_source=resolved.source,
-        # Through the ONE composer, so the roster, the publish path and the engine
-        # cannot disagree about what this agent opens with (D-163).
-        opening_line=compose_opening_line(
-            DisclosurePosture(
-                ai_disclosure_line=str(r[9]),
-                ai_disclosure_enabled=bool(r[10]),
-                recording_notice_line=str(r[11]),
-                recording_notice_enabled=bool(r[12]),
-            )
-        ),
-    )
 
 
 @router.get(
@@ -265,48 +128,20 @@ def _agent_out(r: Any) -> AgentOut:
 )
 async def list_agents(
     session: Session,
-    # Bounded (D-302). An agent list is short in every account we have, and "short in
-    # every account we have" is exactly the assumption that stops being true without
-    # anyone editing this file — each row here carries the agent's whole extraction
-    # schema, so the response grows in two dimensions at once.
-    limit: int = Query(200, ge=1, le=200),
+    # Bounded (D-302), at the service's own ceiling rather than at a number retyped here:
+    # the query and its bound moved together, and two spellings of a page limit is how a
+    # route comes to promise a page the reader will not serve.
+    limit: int = Query(roster.AGENT_ROSTER_LIMIT, ge=1, le=roster.AGENT_ROSTER_LIMIT),
     status: AgentStatus | None = Query(None),
     _: Principal = Depends(requires("agents:read")),
 ) -> list[AgentOut]:
-    """One roster query, one optional bucket (D-440).
+    """One roster query, one optional bucket (D-440) — `service.list_agents`, which is
+    where the ordering and the archive default are argued.
 
-    THE DEFAULT HIDES THE ARCHIVE, and that is the one surprising thing here. Every other
-    filter in this repo defaults to "no filter"; this one cannot, because the set it would
-    include is the only unbounded one — a client who retires an agent a month for two years
-    has an archive longer than the `LIMIT`, and the agents they actually use would fall off
-    the end of their own roster with nothing on the screen to say so. The description says
-    it in the OpenAPI so the UI does not have to discover it.
-
-    `ORDER BY` is by status bucket first and creation second, so the archive — when it is
-    asked for — reads newest-retirement-first and the working roster keeps the stable order
-    it had. `archived_at DESC NULLS LAST` does both in one clause: it is NULL for every
-    non-archived row, which leaves those rows to the second key.
+    THE DEFAULT HIDES THE ARCHIVE, and the `description` above says so in the OpenAPI so
+    the UI does not have to discover it.
     """
-    rows = (
-        await session.execute(
-            text(
-                f"{_AGENT_ROSTER} "
-                # Two spellings of one parameter, and neither is caller text: the
-                # filter applies when it is given, and the `IS NULL` arm is what "no
-                # bucket asked for" means. An f-string branch here would be two SQL
-                # statements to keep in step (`scripts/check_raw_sql.py`).
-                #
-                # CAST because the parameter's only other appearance is compared to a
-                # `character varying` column, which leaves `$1 IS NULL` with no type to
-                # infer and makes Postgres refuse the whole statement as ambiguous.
-                "AND (CAST(:status AS text) IS NULL AND a.status <> 'archived' "
-                "OR a.status = CAST(:status AS text)) "
-                "ORDER BY a.archived_at DESC NULLS LAST, a.created_at LIMIT :limit"
-            ),
-            {"limit": limit, "status": status},
-        )
-    ).all()
-    return [_agent_out(r) for r in rows]
+    return await roster.list_agents(session, limit=limit, status=status)
 
 
 class AgentStatsOut(BaseModel):
@@ -428,15 +263,10 @@ async def get_agent(
 ) -> AgentOut:
     """ONE row, by id, under the caller's own RLS session — so a neighbour's agent id and
     an id nobody minted are the same 404 (hard rule 1)."""
-    row = (
-        await session.execute(
-            text(f"{_AGENT_ROSTER} AND a.id = :aid"),
-            {"aid": agent_id},
-        )
-    ).first()
-    if row is None:
+    agent = await roster.agent_by_id(session, agent_id)
+    if agent is None:
         raise ProblemError.not_found("Agent")
-    return _agent_out(row)
+    return agent
 
 
 # --- the agent's life: create, edit, activate, deactivate, archive, restore (D-440) ----
@@ -588,12 +418,10 @@ async def _agent_row(session: AsyncSession, agent_id: UUID) -> AgentOut:
     `GET` cannot disagree about a single field — the generated disclosure sentences and the
     server-composed `opening_line` are not in the body at all.
     """
-    row = (
-        await session.execute(text(f"{_AGENT_ROSTER} AND a.id = :aid"), {"aid": agent_id})
-    ).first()
-    if row is None:  # pragma: no cover - written in this transaction, under this session
+    agent = await roster.agent_by_id(session, agent_id)
+    if agent is None:  # pragma: no cover - written in this transaction, under this session
         raise ProblemError.not_found("Agent")
-    return _agent_out(row)
+    return agent
 
 
 @router.post(
@@ -785,12 +613,15 @@ async def deactivate_agent_route(
     "/v1/agents/{agent_id}/archive",
     response_model=AgentLifecycleOut,
     openapi_extra=permission_meta("org:manage"),
-    summary="Retire the agent (draft, active or inactive -> archived)",
+    summary="Retire the agent — the console's Delete (draft or inactive -> archived)",
     description=(
         "An archived agent is never dialled and cannot be given to a campaign. It is NOT "
         "deleted: the agent, its scripts and every call it ever took stay readable, and "
-        "it can be restored. Archiving an active agent also releases the numbers it was "
-        "answering."
+        "it can be restored. Archiving releases any numbers the agent was answering.\n\n"
+        "**An ACTIVE agent is refused with `agent_is_live` (409).** Switching off is a "
+        "separate, deliberate decision (D-527): the client console shows this move as "
+        "Delete on every row of the roster, and no single click there may take a working "
+        "phone line down. Deactivate first, then archive."
     ),
 )
 async def archive_agent_route(
@@ -1028,6 +859,130 @@ async def set_disclosure(
         recording_notice_enabled=result.recording_notice_enabled,
         opening_line=result.opening_line,
         engine_synced=result.engine_synced,
+    )
+
+
+class CallerMemoryIn(BaseModel):
+    """Switch caller continuity on or off for one agent.
+
+    ONE BOOLEAN AND NOT A PAIR, unlike `DisclosureIn` above, and the difference is the
+    decision rather than the shape of the screen: remembering a caller and rescheduling a
+    call-back are "two linked abilities, always on or off together" (D-513), so there is
+    one column and there is nothing here for a second field to name. A client who could
+    switch one off and keep the other would keep the ability that REUSES what was
+    remembered while withdrawing the one their callers were told about.
+
+    `accept` is the client saying yes to the sentence the refusal handed them. It is only
+    read the FIRST time an account switches this on: the attestation is about the
+    business, so it is asked once and then stands
+    (`organizations.caller_memory_attested_at`).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool
+    #: True = "I confirm the statement you showed me." Ignored when switching OFF, and
+    #: ignored on an account that has already confirmed it — a permission is asked for
+    #: when the risk is taken, not every time it is exercised.
+    accept: bool = False
+
+
+class CallerMemoryOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID
+    enabled: bool
+    #: What callers now hear first. When this is on it GAINS the sentence telling them a
+    #: short note is kept; when it goes off it loses it. Shown rather than described, so
+    #: the screen and the phone line cannot say different things.
+    opening_line: str
+    #: Did the voice platform get the change? False on an agent that is not live yet.
+    engine_synced: bool
+    #: When this business confirmed what its calls collect. Null until they have.
+    attested_at: datetime | None = None
+    #: Who confirmed it, by name — so a second agent being switched on without being
+    #: asked again is explicable on the screen rather than surprising. Null when nobody
+    #: has confirmed, and when the person who did has since left the account.
+    attested_by_name: str | None = None
+    #: The statement a client confirms to switch this on, so the screen renders the same
+    #: words the refusal does.
+    attestation: str = CALLER_MEMORY_ATTESTATION
+
+
+@router.patch(
+    "/v1/agents/{agent_id}/caller-memory",
+    response_model=CallerMemoryOut,
+    openapi_extra=permission_meta("org:manage"),
+    summary="Let an agent remember returning callers, and book call-backs",
+    description=(
+        "Two abilities, always on or off together. Your agents remember the people they "
+        "have spoken to and can greet a returning caller with what they asked about last "
+        "time; and when someone asks to be called back at a particular time, that "
+        "follow-up is booked for exactly then and dials with everything already "
+        "learned.\n\n"
+        "Off unless you switch it on. Switched on, the agent says at the start of every "
+        "call that a short note is kept — that sentence cannot be switched off "
+        "separately.\n\n"
+        "What is kept is a short note of what the caller wanted, what happened, and any "
+        "preference they stated, such as the language they like or when they prefer to "
+        "be called. It is used only for that person's own future calls with you, is "
+        "never shared, and is deleted after 180 days or sooner if they ask.\n\n"
+        "The first time anyone in your account switches this on you are asked to confirm "
+        "what these calls collect. Some kinds of business cannot use it at all.\n\n"
+        "Applies immediately: a live agent is updated on the voice platform in the same "
+        "transaction, so the screen never claims something the phone line is not doing."
+    ),
+)
+async def set_caller_memory_route(
+    agent_id: UUID,
+    payload: CallerMemoryIn,
+    session: Session,
+    request: Request,
+    principal: Principal = Depends(requires("org:manage")),
+) -> CallerMemoryOut:
+    """`org:manage`, for `set_disclosure` above's reason and one more of its own.
+
+    The disclosure switches are the client's legal exposure to carry as Principal Entity.
+    This one is that AND a durable-data decision: switching it on starts writing a record
+    about their callers that a DPDP request will one day be answered about, and the
+    account attests to what those calls collect in the same act. `agents:write` is
+    admin-only, so it would have meant us deciding to keep notes on a client's callers on
+    their behalf — which is the one shape of this feature nobody could defend.
+
+    THE AUDIT ROW NAMES THE DIRECTION IN ITS `action`, for `audit_action_for`'s reason:
+    `write_audit` does not persist summaries, so "who switched caller memory on, and
+    when" has to be in a column to survive in the hash-chained ledger. One row per flip
+    that actually moved — a re-assertion of the state the agent is already in writes none.
+    """
+    assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    result = await set_caller_memory(
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        enabled=payload.enabled,
+        # THE ACTOR, ONLY WHEN THEY ACCEPTED. Passing the principal unconditionally would
+        # record an attestation for a client who never saw the sentence — the request
+        # that switches memory on WITHOUT `accept` is exactly the one that must be
+        # refused so the screen can show it to them.
+        attested_by=principal.user_id if payload.accept else None,
+    )
+    if not result.unchanged:
+        await write_audit(
+            session,
+            action=f"agent.caller_memory_{'enabled' if result.enabled else 'disabled'}",
+            actor=principal,
+            tenant_id=principal.tenant_id,
+            object_type="agent",
+            object_id=str(agent_id),
+            ip=client_request_ip(request),
+            summary={"engine_synced": result.engine_synced},
+        )
+    return CallerMemoryOut(
+        agent_id=result.agent_id,
+        enabled=result.enabled,
+        opening_line=result.opening_line,
+        engine_synced=result.engine_synced,
+        attested_at=result.attested_at,
+        attested_by_name=result.attested_by_name,
     )
 
 

@@ -19,6 +19,7 @@ import {
   Skeleton,
   formatINR,
   formatIST,
+  istInputToInstant,
 } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
 import { useCopilotSurface } from "@/lib/copilot/registry";
@@ -252,8 +253,8 @@ const COPILOT_FIELDS: readonly FlatFieldSpec<keyof Draft & string>[] = [
   { id: "terms-concurrency", key: "concurrency_ceiling", label: "Concurrent calls", type: "number", help: "Engine capacity for this account." },
   { id: "terms-cap-spend", key: "hard_cap_spend_inr", label: "Spend ceiling (₹ / month)", type: "text", help: "OUR ceiling. Empty means no ceiling — their dialling is unlimited." },
   { id: "terms-cap-min", key: "hard_cap_minutes", label: "Minute ceiling (/ month)", type: "number", help: "OUR ceiling. Empty means no ceiling." },
-  { id: "terms-from", key: "effective_from", label: "In effect from", type: "date", help: "A `datetime-local` value (YYYY-MM-DDTHH:MM). Empty = now." },
-  { id: "terms-to", key: "effective_to", label: "Until", type: "date", help: "Empty = until further notice." },
+  { id: "terms-from", key: "effective_from", label: "In effect from (IST)", type: "date", help: "A `datetime-local` value (YYYY-MM-DDTHH:MM) read as Indian Standard Time, never as the viewer's clock. Empty = now." },
+  { id: "terms-to", key: "effective_to", label: "Until (IST)", type: "date", help: "A `datetime-local` value (YYYY-MM-DDTHH:MM) read as Indian Standard Time. Empty = until further notice." },
 ];
 
 function initialDraft(row: PlanRow | null): Draft {
@@ -282,13 +283,24 @@ function count(value: string): number | null {
   return trimmed === "" ? null : Number(trimmed);
 }
 
-/** `datetime-local` gives a local wall-clock string; the API takes an instant. */
-function instant(value: string): string | null {
-  const trimmed = value.trim();
-  if (trimmed === "") return null;
-  const parsed = new Date(trimmed);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
-}
+/**
+ * `datetime-local` gives a wall-clock string with no zone in it; the API takes an instant.
+ *
+ * WHICH wall clock is the whole of it, and this used to read the BROWSER's — the exact
+ * defect `components/ui.tsx::formatISTInput` documents. These two fields decide the
+ * instant from which a rate card, an included-minutes allowance and a hard spend cap take
+ * effect, and the rows below render them back with `formatIST`. So an operator on a
+ * laptop still set to a US zone typed "09:00" meaning IST, saw "09:00" read back as IST,
+ * and had recorded 20:30 IST — a billing boundary eleven and a half hours from the one
+ * they agreed, in the direction that silently bills a client on the wrong terms.
+ *
+ * `istInputToInstant` is this console's one answer to it (already used by `/admin/ops`
+ * for the registrar date, and the same +05:30 `campaigns.ts::scheduleStartAt` writes in);
+ * it also returns `null` for a half-typed field rather than a guess, which `new Date()`
+ * did not. The labels below say IST, because the doctrine there is explicit that an
+ * unlabelled field meaning something other than the machine's clock is worse than the bug.
+ */
+const instant = istInputToInstant;
 
 function toPayload(draft: Draft): CommercialTermsIn {
   return {
@@ -374,6 +386,11 @@ function RecordForm({
 
       <form
         className="mt-4 space-y-4"
+        // These forms carry no rule the browser can refuse — only `maxLength`, which
+        // it enforces by not accepting the keystroke — and their own refusals are
+        // already written in our words beside each control. `noValidate` so a rule
+        // added here later cannot quietly be answered in the browser's language.
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
           save.mutate({
@@ -513,9 +530,9 @@ function RecordForm({
             />
           </Field>
           <Field
-            label="In effect from"
+            label="In effect from (IST)"
             id="terms-from"
-            hint="Empty = now, and since forever for anything already billed."
+            hint="Indian Standard Time, whatever this machine's clock is set to. Empty = now, and since forever for anything already billed."
           >
             <input
               id="terms-from"
@@ -527,9 +544,9 @@ function RecordForm({
             />
           </Field>
           <Field
-            label="Until"
+            label="Until (IST)"
             id="terms-to"
-            hint="Empty = until further notice. An end date with no successor leaves the account with no rate and no ceiling from that instant."
+            hint="Indian Standard Time, whatever this machine's clock is set to. Empty = until further notice. An end date with no successor leaves the account with no rate and no ceiling from that instant."
           >
             <input
               id="terms-to"

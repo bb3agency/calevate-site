@@ -47,11 +47,24 @@
  * So it is fetched from a click, once per document, and its failure is a sentence rather
  * than a dead button (`checkoutUnavailableProblem`).
  *
- * `infra/nginx/snippets/calevate-headers.conf` sets no Content-Security-Policy (stated
- * there as a decision), so nothing at the edge has to learn about this origin. Its
- * `X-Frame-Options: DENY` and `Cross-Origin-Opener-Policy: same-origin` are unaffected:
- * Checkout renders an iframe INSIDE our page and opens no cross-origin window handle we
- * hold a reference to.
+ * ## The Content-Security-Policy already covers this, and this line used to say there was
+ * none
+ *
+ * `infra/nginx/snippets/calevate-headers.conf` sets no CSP — stated there as a decision,
+ * because a nonce-based policy belongs in the tier that mints the nonce — and this comment
+ * stopped one sentence short of the truth: the APP tier does serve one
+ * (`lib/security/csp.ts`, emitted per request by `middleware.ts`), and it already names
+ * this origin twice. `script-src` carries `https://checkout.razorpay.com` so the tag below
+ * may execute, and `frame-src` carries it plus `https://api.razorpay.com` because Checkout
+ * renders its own iframe inside our page. So adding the payment window needs NO change to
+ * the policy, and nothing here is a reason to widen one.
+ *
+ * It is `Content-Security-Policy-Report-Only` today, so a mistake in it surfaces as a
+ * report rather than as a client's dashboard going white — which also means the policy is
+ * not what would stop this script if it were wrong. The edge headers are unaffected either
+ * way: `X-Frame-Options: DENY` and `Cross-Origin-Opener-Policy: same-origin` both hold,
+ * because Checkout renders INSIDE our page and opens no cross-origin window handle we keep
+ * a reference to.
  */
 
 import { ApiProblem } from "@/lib/api/client";

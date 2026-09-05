@@ -21,7 +21,7 @@ from apps.api.ingest.service import normalize_phone
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, fund_wallet
 
 SECRET = "ingest-secret-for-tests"
 
@@ -58,6 +58,10 @@ async def _tenant_with_ingest(
     # fixture without this makes `check_dispatch` report `agreements_not_accepted` in
     # place of the ingest rule (`dnc`, `destination_not_india`) under test.
     await accept_agreements(uuid.UUID(str(tenant_id)))
+    # And credit, for the same reason and in the same shape (D-521): `prepaid` is the
+    # default motion now, so an unfunded tenant is refused `no_credits` on every
+    # outbound dial and this file would report that in place of what it is about.
+    await fund_wallet(uuid.UUID(str(tenant_id)))
     webhook_id = uuid.uuid4()
     ref = f"fakeagent_ing_{uuid.uuid4().hex[:8]}"
 

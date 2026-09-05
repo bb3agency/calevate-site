@@ -127,7 +127,10 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
     does:
       "Speech recognition and voice synthesis during the call, the first pass " +
       "that extracts fields from the transcript, and the standby for the " +
-      "dashboard assistant if the primary model is unavailable.",
+      "in-app assistant if no other provider can answer. On that standby leg " +
+      "it answers in prose only: it is not given the assistant's look-up tools, " +
+      "so it cannot read a client's leads, calls or campaigns, and it cannot " +
+      "fill in a form or propose a change.",
     receives:
       "Call audio and the raw, unredacted transcript. This is the one path that " +
       "must see raw text: a callback-number field needs the actual digits.",
@@ -154,8 +157,12 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
     vendor: "Microsoft — Azure OpenAI",
     does:
       "Both language-model legs when the client runs an Azure model: the model " +
-      "that holds the conversation during a call, and the dashboard assistant " +
-      "a client triggers from their own screen. A client may instead choose a " +
+      "that holds the conversation during a call, and the in-app assistant " +
+      "a client's own people open from their dashboard. It is also the leg the " +
+      "in-app assistant falls back to for a client whose own model runs with a " +
+      "provider we cannot yet use for that assistant, and the leg the hourly job " +
+      "uses that distils durable business facts out of past assistant " +
+      "conversations. A client may instead choose a " +
       "model from another provider (see the OpenAI and Google — Gemini API " +
       "rows), and then that provider handles the language leg in this vendor's " +
       "place. So the choice is a choice of provider and place, not only of " +
@@ -164,9 +171,18 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
     receives:
       "On the call leg, the conversation as it happens — everything the caller " +
       "says, turn by turn, as it is said. On the dashboard leg, the redacted " +
-      "transcript and the client's own configuration, never raw personal data. " +
-      "The two legs see very different things and are listed separately for " +
-      "that reason.",
+      "transcript of a call a client asks us to re-read for them; what a client's " +
+      "user types into the in-app assistant, plus what the assistant looks up in that " +
+      "client's own account to answer them: lead names and statuses, recent " +
+      "calls with their already-redacted summaries, campaign and agent names, " +
+      "counts, and the client's own knowledge content. This cell used to say " +
+      "the dashboard leg received the redacted transcript and the client's " +
+      "configuration and nothing else; that was written before the assistant " +
+      "could look anything up, and it is corrected rather than left to run in " +
+      "our favour. What is still true, and is enforced rather than promised: " +
+      "phone numbers reach it as markers, and no raw transcript and no " +
+      "extraction payload is sent on this leg at all. The two legs see very " +
+      "different things and are listed separately for that reason.",
     location:
       "United States — East US 2, by configuration. This cell has moved twice " +
       "and both steps are kept rather than overwritten: until 19 August 2026 " +
@@ -191,15 +207,19 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
     names: ["OpenAI"],
     vendor: "OpenAI",
     does:
-      "An alternative provider for the two language-model legs, reached when a " +
-      "client chooses one of its models. It does the same job as the Azure " +
-      "OpenAI row above — the model that holds the conversation during a call, " +
-      "and the dashboard assistant on redacted data — for the calls that run " +
-      "on it.",
+      "An alternative provider for the IN-CALL language-model leg, reached when " +
+      "a client chooses one of its models: the model that holds the " +
+      "conversation during a call. It does NOT serve the in-app assistant, and " +
+      "this row said it did until 1 September 2026. The reason is ours and not " +
+      "theirs: nobody here has read this provider's published position on what " +
+      "it may do with what an API sends it, this provider's own pages cannot be " +
+      "reached from our build environment, and an unread position is not a " +
+      "permission — so the assistant for a client on one of its models is " +
+      "answered by the Azure OpenAI row above, and the screen says so.",
     receives:
-      "On the call leg, the conversation as it happens, turn by turn. On the " +
-      "dashboard leg, the redacted transcript and the client's own " +
-      "configuration, never raw personal data. Never the recording.",
+      "On the call leg, the conversation as it happens, turn by turn. Nothing " +
+      "from the in-app assistant reaches it, because it does not serve that " +
+      "leg. Never the recording.",
     location: "United States. This provider's API offers no Indian region to request.",
     status:
       "Client-selectable. Reached only when a client picks one of this " +
@@ -209,15 +229,25 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
     names: ["Google"],
     vendor: "Google — Gemini API",
     does:
-      "An alternative provider for the two language-model legs, reached when a " +
-      "client chooses one of its Gemini models. This is a separate Google " +
+      "An alternative provider for the in-call language-model leg, reached when " +
+      "a client chooses one of its Gemini models, and for the in-app assistant " +
+      "for such a client — but only while we hold a recorded confirmation that " +
+      "our own account with this provider is on a plan under which it does not " +
+      "train on what is submitted, and that nothing on that account has opted " +
+      "our content back into the terms that would. Without that confirmation " +
+      "the assistant for such a client is answered by the Azure OpenAI row " +
+      "above instead, and the screen says so. This is a separate Google " +
       "service from the Sheets API below: once a Gemini model is selectable, a " +
       "model request does reach Google again, which is why the Sheets row no " +
       "longer says none does.",
     receives:
       "On the call leg, the conversation as it happens, turn by turn. On the " +
-      "dashboard leg, the redacted transcript and the client's own " +
-      "configuration, never raw personal data. Never the recording.",
+      "assistant leg, where it serves it, the same things the Azure OpenAI row " +
+      "lists: the redacted transcript of a call a client asks us to re-read, " +
+      "what a client's user types, and the names, statuses, counts, " +
+      "redacted call summaries and knowledge content the assistant looks up to " +
+      "answer them. Never a raw transcript, an extraction payload, a raw phone " +
+      "number, or the recording.",
     location:
       "Google, global. This provider's developer API names no region we can " +
       "request, so we cannot pin where it processes and do not claim to.",
@@ -539,7 +569,7 @@ export const SUBPROCESSORS: LegalDocument = {
     },
     {
       id: "cautions",
-      heading: "3. Four things a careful reader should know",
+      heading: "3. Five things a careful reader should know",
       subsections: [
         {
           id: "bolna-residency",
@@ -802,6 +832,57 @@ export const SUBPROCESSORS: LegalDocument = {
                 "able to find where in that vendor's console the 30-day content " +
                 "retention is actually changed, so we do not claim to have changed it " +
                 "and we do not describe a control we have not found.",
+            },
+          ],
+        },
+        {
+          id: "in-app-assistant",
+          heading: "3.5 What the in-app assistant sends out, and what it keeps",
+          blocks: [
+            {
+              kind: "para",
+              text:
+                "Section 3 was headed \u201cfour things\u201d until 1 September 2026 and " +
+                "this is the fifth, added because the assistant inside a client's " +
+                "dashboard changed shape and no page a client reads said so. It used to " +
+                "do two things: answer questions about the screen in front of it, and " +
+                "fill in that screen's fields. It now also looks things up in the " +
+                "client's own account — their leads, their recent calls, their " +
+                "campaigns, their agents, counts describing how the business is doing, " +
+                "and their own knowledge content — and it can propose a small set of " +
+                "changes for a person to confirm.",
+            },
+            {
+              kind: "para",
+              text:
+                "What that means for this page is a change to what the language-model " +
+                "provider on the assistant leg receives, and the rows above have been " +
+                "corrected to say it: what a person types, plus names, statuses, counts " +
+                "and already-redacted call summaries from the account. A phone number " +
+                "reaches that provider as a marker rather than as digits, and no raw " +
+                "transcript and no extracted-field payload is sent on this leg at all — " +
+                "those are properties of the code rather than instructions in a prompt, " +
+                "which matters because a prompt is not an access control. Which " +
+                "providers may serve this leg is narrower than which may run a call: a " +
+                "provider serves it only where somebody here has read that provider's " +
+                "own published position on training with what it receives, and, where " +
+                "the answer depends on which plan our account is on, recorded that " +
+                "answer against the account. One offered provider fails that test today " +
+                "and its row says so.",
+            },
+            {
+              kind: "para",
+              text:
+                "The assistant also now keeps something, and the product's own code and " +
+                "its own on-screen wording both said it kept nothing until this was " +
+                "corrected. It stores what a client's user asked and what it answered, " +
+                "per person, and an hourly job reads a run of those back to a language " +
+                "model to distil short durable facts about the business. Identifiers are " +
+                "stripped before anything is written; that pass catches numbers, not " +
+                "names. Those records are deleted after 180 days and entirely when an " +
+                "account closes. Section 3.2 of the Privacy Policy describes them, " +
+                "section 9 carries the period, and section 12.4 states the one thing an " +
+                "erasure request does not do with them.",
             },
           ],
         },

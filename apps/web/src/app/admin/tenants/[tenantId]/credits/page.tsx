@@ -515,6 +515,11 @@ function RecordPanel({
 
       <form
         className="mt-4 space-y-4"
+        // These forms carry no rule the browser can refuse — only `maxLength`, which
+        // it enforces by not accepting the keystroke — and their own refusals are
+        // already written in our words beside each control. `noValidate` so a rule
+        // added here later cannot quietly be answered in the browser's language.
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
           save.mutate(
@@ -837,6 +842,7 @@ function CorrectionPanel({
       ) : (
         <form
           className="mt-4 space-y-4"
+          noValidate
           onSubmit={(event) => {
             event.preventDefault();
             if (entry === null) return;
@@ -1212,6 +1218,7 @@ function RestatementPanel({
 
       <form
         className="mt-4 space-y-4"
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
           if (payment === null) return;

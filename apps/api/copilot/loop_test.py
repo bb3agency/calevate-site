@@ -8,7 +8,9 @@ the model said", which is the one thing no test can obtain honestly.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import uuid
 from collections.abc import AsyncIterator, Callable, Sequence
 from typing import Any
 
@@ -16,7 +18,9 @@ import httpx
 import pytest
 from calevate_shared.engine import GOOGLE_DIRECT_MODELS, google_openai_compat_base_url
 
-from apps.api.copilot import service
+from apps.api.copilot import navigation, service, write_tools
+from apps.api.copilot import tools as tools_module
+from apps.api.copilot.sanitize import has_invisible
 from apps.api.copilot.schemas import CopilotAskIn, CopilotFillItem
 from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
@@ -227,13 +231,72 @@ async def test_the_loop_is_capped_and_says_so_rather_than_spinning(
     events = await _drain()
 
     assert len(sent) == service.MAX_TURNS
-    said = [e.text for e in events if e.text]
-    assert said and said[-1].startswith(service.EXHAUSTED_MESSAGE)
+    # JOINED, NOT `said[-1]`. The out-of-turns message is composed as one string and can
+    # now reach the caller as more than one `text` event: `service.run_copilot`'s identity
+    # egress guard (`copilot/identity.py`) holds the sentence in flight, so a message whose
+    # authored detail follows a full stop is released in two pieces. What is promised to a
+    # person is the ANSWER, which is what the route concatenates and what this reads.
+    said = "".join(e.text for e in events if e.text)
+    assert said.startswith(service.EXHAUSTED_MESSAGE)
     # The reason travels with it: "narrow the request" is unhelpful advice to somebody
     # whose real problem is that the field is read-only.
-    assert "`status` is not writable" in said[-1]
+    assert "`status` is not writable" in said
     assert not [e.fill for e in events if e.fill]
     assert events[-1].spend is not None
+
+
+async def test_the_azure_turn_requests_the_output_ceiling(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every streamed turn carries `MAX_ANSWER_TOKENS` — the spend valve.
+
+    FAILS IF: the cap stops reaching `chat.stream`. Without it the only brake on a model
+    that keeps talking is `TOTAL_BUDGET_S` — 90 seconds of PAID output tokens, per turn.
+    """
+    kwargs_seen: list[dict[str, Any]] = []
+
+    def _stream(
+        leg: chat.ChatLeg, messages: Sequence[Any], **kwargs: Any
+    ) -> AsyncIterator[chat.StreamEvent]:
+        kwargs_seen.append(kwargs)
+
+        async def _iterate() -> AsyncIterator[chat.StreamEvent]:
+            for event in _turn(content="Nine."):
+                yield event
+
+        return _iterate()
+
+    monkeypatch.setattr(chat, "stream", _stream)
+    await _drain()
+    assert kwargs_seen and kwargs_seen[0]["max_tokens"] == service.MAX_ANSWER_TOKENS
+
+
+async def test_a_turn_cut_off_at_the_ceiling_is_logged_and_the_answer_still_lands(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """`finish_reason == "length"` is the valve FIRING — a runaway generation, cut off.
+
+    The person still gets what was said (truncated prose has already reached the screen)
+    and the run is still metered; what must not happen is silence, because a turn that HIT
+    the ceiling spent the ceiling. FAILS IF: the warning stops being emitted, or a
+    truncated turn starts being treated as an error that loses the answer.
+    """
+    truncated = [
+        chat.StreamEvent(text="Nine in the mor"),
+        chat.StreamEvent(
+            outcome=chat.ChatOutcome(
+                content="Nine in the mor",
+                finish_reason="length",
+                usage=chat.TokenUsage(prompt_tokens=100, output_tokens=service.MAX_ANSWER_TOKENS),
+            )
+        ),
+    ]
+    _scripted(monkeypatch, [truncated])
+    with caplog.at_level("WARNING"):
+        events = await _drain()
+    assert [e.text for e in events if e.text] == ["Nine in the mor"]
+    assert events[-1].spend is not None
+    assert any(record.message == "copilot_answer_truncated" for record in caplog.records)
 
 
 # --- the money -----------------------------------------------------------------------
@@ -338,6 +401,9 @@ async def test_azure_failing_before_a_single_fragment_falls_back_and_discloses(
     assert sent_messages and sent_messages[-1][-1]["role"] == "system"
     assert "NOT available to you" in str(sent_messages[-1][-1]["content"])
     assert sent_kwargs and "tools" not in sent_kwargs[-1]
+    # The spend valve travels on this leg too — `max_tokens` IS on Sarvam's own client's
+    # request body (VERIFIED-VENDOR-SDK, `workers/chat.py`), unlike `tools`.
+    assert sent_kwargs[-1]["max_tokens"] == service.MAX_ANSWER_TOKENS
     spend = events[-1].spend
     assert spend is not None
     assert spend.capability.provider == extraction_module.SARVAM_PROVIDER
@@ -346,6 +412,46 @@ async def test_azure_failing_before_a_single_fragment_falls_back_and_discloses(
     disclosure = service.disclosure_for(spend.capability)
     assert disclosure is not None
     assert disclosure.endswith(service.FALLBACK_NO_TOOLS_NOTE)
+
+
+async def test_the_fallback_leg_is_told_it_cannot_open_a_screen(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-524 GAVE THE PROMPT A CAPABILITY THE FALLBACK LEG DOES NOT HAVE.
+
+    `prompt.SYSTEM_PROMPT` job 5 and `screens.render_directory` tell the model — on EVERY
+    leg, because they are the cached prefix — that it can take somebody to another screen.
+    The fallback leg carries no tools at all, so without `open_screen` in the correction it
+    is the failure `_NO_TOOL_NOTE` exists to stop, one tool along: a model that says it has
+    opened a screen and opened nothing, or that refuses a screen the directory above it says
+    exists. The person-facing disclosure owes them the same fact.
+    """
+    monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
+
+    sent_messages: list[list[dict[str, Any]]] = []
+
+    async def _complete(
+        leg: chat.ChatLeg, messages: Sequence[Any], **kwargs: Any
+    ) -> chat.ChatOutcome:
+        sent_messages.append([dict(message) for message in messages])
+        return chat.ChatOutcome(content="Credits & billing is under Settings & account.")
+
+    monkeypatch.setattr(chat, "stream", _failing_stream(httpx.ConnectError("azure is down")))
+    monkeypatch.setattr(chat, "complete", _complete)
+
+    events = await _drain()
+
+    correction = str(sent_messages[-1][-1]["content"])
+    assert navigation.OPEN_SCREEN_TOOL_NAME in correction
+    # Not merely "you have no tool" — the directory it read a moment ago is still true, and
+    # the one answer it must not give is that the screen does not exist.
+    assert "must not say the screen does not exist" in correction
+
+    spend = events[-1].spend
+    assert spend is not None
+    disclosure = service.disclosure_for(spend.capability)
+    assert disclosure is not None
+    assert "open another screen" in disclosure
 
 
 async def test_azure_failing_after_a_fragment_does_not_restart_on_the_fallback(
@@ -458,6 +564,10 @@ async def test_the_gemini_leg_fills_a_field_non_streamed_on_the_accounts_own_mod
     assert leg.url == f"{google_openai_compat_base_url()}/chat/completions"
     # Tools were sent (field-filling works), and no `stream` — this is `chat.complete`.
     assert "tools" in calls[0]["kwargs"]
+    # NO `max_tokens` on this leg, deliberately: whether Gemini's OpenAI-compat surface
+    # accepts the key is UNVERIFIED from this container (`service.MAX_ANSWER_TOKENS`'s
+    # note), and an unsupported key is a 400 that kills a working leg.
+    assert "max_tokens" not in calls[0]["kwargs"]
     assert [e.fill for e in events if e.fill] == [
         (CopilotFillItem(field_id="open", value="09:00"),)
     ]
@@ -489,3 +599,641 @@ async def test_the_gemini_leg_answers_in_prose_when_the_model_calls_no_tool(
     assert spend.capability.provider == extraction_module.GOOGLE_PROVIDER
     # No usage block: unknown cost, never zero — `meter_assist` records it unmetered, loudly.
     assert spend.usage is None
+
+
+# --- the read tools: results feed back, and the loop CONTINUES (phase 1) -----------------
+#
+# The seam here is `tools.run_read_tool`, one layer below the loop — the same choice this
+# file makes for the provider. What the tools actually return, whose rows they can see and
+# who may run them is `copilot/tools_test.py`'s subject, against a real database; what is
+# faked here is only "the lookup answered", which is the one thing this file is about.
+
+TOOL_CONTEXT = tools_module.ToolContext(
+    tenant_id=uuid.UUID("00000000-0000-7000-8000-000000000001"), role="owner"
+)
+
+
+def _tool_turn(*calls: tuple[str, str], content: str = "") -> list[chat.StreamEvent]:
+    """One faked model turn that calls N tools, by (name, arguments)."""
+    tool_calls = tuple(
+        chat.ToolCall(id=f"call-{index}", name=name, arguments=arguments)
+        for index, (name, arguments) in enumerate(calls)
+    )
+    return [
+        *([chat.StreamEvent(text=content)] if content else []),
+        chat.StreamEvent(
+            outcome=chat.ChatOutcome(
+                content=content, tool_calls=tool_calls, finish_reason="tool_calls"
+            )
+        ),
+    ]
+
+
+def _fake_tools(monkeypatch: pytest.MonkeyPatch, answers: dict[str, str]) -> list[dict[str, Any]]:
+    """Replace the tool runner with a lookup table, recording every invocation."""
+    seen: list[dict[str, Any]] = []
+
+    async def _run(name: str, arguments: str, *, context: Any, registry: Any = None) -> str:
+        # `registry` is the REALM's read-tool set (D-499). Recorded rather than ignored so a
+        # test that cares which realm the loop ran under can assert on it; the substitution
+        # itself does not need one, because this fake IS the lookup table.
+        seen.append(
+            {"name": name, "arguments": arguments, "context": context, "registry": registry}
+        )
+        return answers.get(name, f"no answer scripted for {name}")
+
+    monkeypatch.setattr(tools_module, "run_read_tool", _run)
+    return seen
+
+
+async def _drain_with_tools(payload: CopilotAskIn = PAYLOAD) -> list[service.CopilotEvent]:
+    return [event async for event in service.run_copilot(payload, tool_context=TOOL_CONTEXT)]
+
+
+async def test_every_request_offers_the_write_tool_and_every_read_tool(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The array is composed once and does not vary — not by screen, not by tenant, not by
+    role (`service.tool_array`, and `tools_test` pins the byte-identity). Here we only prove
+    the loop actually SENDS it: a registry nothing offers is a registry the model cannot
+    use."""
+    kwargs_seen: list[dict[str, Any]] = []
+
+    def _stream(
+        leg: chat.ChatLeg, messages: Sequence[Any], **kwargs: Any
+    ) -> AsyncIterator[chat.StreamEvent]:
+        kwargs_seen.append(kwargs)
+
+        async def _iterate() -> AsyncIterator[chat.StreamEvent]:
+            for event in _turn(content="Nine."):
+                yield event
+
+        return _iterate()
+
+    monkeypatch.setattr(chat, "stream", _stream)
+    await _drain_with_tools()
+    names = [tool["function"]["name"] for tool in kwargs_seen[0]["tools"]]
+    assert names[0] == "set_fields"
+    # Every family the registry composes actually reaches the wire: a read tool the loop
+    # never sends is a question the model cannot answer, and a write tool it never sends
+    # is a change it cannot offer.
+    assert set(names) >= tools_module.READ_TOOL_NAMES
+    assert {schema["function"]["name"] for schema in write_tools.write_tool_schemas()} <= set(names)
+
+
+async def test_a_read_tool_result_is_fed_back_and_the_model_then_answers_in_prose(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE BEHAVIOURAL CHANGE OF PHASE 1. Before this, a turn that produced no `set_fields`
+    call ENDED the loop — so a lookup would have been a tool call nobody answered and an
+    answer nobody wrote. Now the result goes back as a `role: "tool"` message and the model
+    gets another turn to use it.
+
+    FAILS IF: the loop goes back to ending on "no set_fields call", which turns every
+    business question into silence."""
+    _fake_tools(monkeypatch, {"business_snapshot": "Last 30 days: 12 calls, 8 connected."})
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("business_snapshot", '{"days": 30}')),
+            _turn(content="You've had 12 calls and 8 connected."),
+        ],
+    )
+    events = await _drain_with_tools()
+
+    assert len(sent) == 2
+    # The second turn carries the assistant's own tool call AND our result — an orphan
+    # tool message (or an orphan tool CALL) is rejected by the provider.
+    roles = [message["role"] for message in sent[1]]
+    assert roles[-2:] == ["assistant", "tool"]
+    assert sent[1][-2]["tool_calls"][0]["function"]["name"] == "business_snapshot"
+    assert "12 calls, 8 connected" in str(sent[1][-1]["content"])
+    assert [e.text for e in events if e.text] == ["You've had 12 calls and 8 connected."]
+    assert events[-1].spend is not None
+
+
+async def test_two_read_tools_chain_inside_one_answer(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SEARCH → READ → ANSWER, which is the shape `MAX_TURNS` was raised for. The second
+    lookup is chosen AFTER the first result is in the message list, which a single round of
+    parallel calls cannot express."""
+    seen = _fake_tools(
+        monkeypatch,
+        {"leads_search": "1 leads with status hot:\n- Ramesh", "calls_recent": "1 calls:\n- 90s"},
+    )
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("leads_search", '{"status": "hot", "limit": null}')),
+            _tool_turn(("calls_recent", '{"limit": 5}')),
+            _turn(content="Ramesh is your only hot lead; his last call ran 90s."),
+        ],
+    )
+    events = await _drain_with_tools()
+
+    assert len(sent) == 3
+    assert [call["name"] for call in seen] == ["leads_search", "calls_recent"]
+    # The chain is visible in the message list the LAST turn was sent: both results are
+    # there, in order.
+    contents = [str(message.get("content")) for message in sent[2]]
+    assert any("Ramesh" in content for content in contents)
+    assert any("90s" in content for content in contents)
+    assert [e.text for e in events if e.text] == [
+        "Ramesh is your only hot lead; his last call ran 90s."
+    ]
+
+
+async def test_independent_calls_in_one_turn_are_all_run_and_all_answered(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two lookups with no ordering between them are one turn, not two. Each gets its own
+    `role: "tool"` message keyed by the id the model issued — a provider rejects the next
+    request if an issued call has no result."""
+    _fake_tools(monkeypatch, {"leads_search": "leads here", "calls_recent": "calls here"})
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("leads_search", "{}"), ("calls_recent", "{}")),
+            _turn(content="Both look fine."),
+        ],
+    )
+    await _drain_with_tools()
+
+    tool_messages = [message for message in sent[1] if message["role"] == "tool"]
+    assert [message["tool_call_id"] for message in tool_messages] == ["call-0", "call-1"]
+    assert [message["content"] for message in tool_messages] == ["leads here", "calls here"]
+
+
+async def test_more_lookups_than_the_per_turn_cap_are_refused_with_a_sentence(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A turn asking for a dozen lookups has stopped answering a question, and each one is a
+    database round trip against a shared pool. The extras are REFUSED rather than dropped:
+    a dropped call is an issued `tool_call_id` with no result, which the provider rejects."""
+    seen = _fake_tools(monkeypatch, {"calls_recent": "calls here"})
+    over = tools_module.MAX_CALLS_PER_TURN + 2
+    # DISTINCT ARGUMENTS, so the CAP is what this test measures. Six identical calls are
+    # deduplicated before the cap is reached (`_run_read_tools`), which is a different
+    # rule with its own test below.
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(*(("calls_recent", json.dumps({"limit": n})) for n in range(over))),
+            _turn(content="Done."),
+        ],
+    )
+    await _drain_with_tools()
+
+    assert len(seen) == tools_module.MAX_CALLS_PER_TURN
+    tool_messages = [message for message in sent[1] if message["role"] == "tool"]
+    assert len(tool_messages) == over, "every issued call is answered, including the refused"
+    assert "Not run" in str(tool_messages[-1]["content"])
+
+
+async def test_the_tool_context_the_route_built_is_what_the_tool_is_run_under(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """WHO IS ASKING reaches the tool, because that is what scopes the RLS session and what
+    the permission check judges. A loop that dropped it would run every lookup unscoped —
+    which `tools.run_read_tool` refuses, so the symptom would be a copilot that can never
+    look anything up rather than a leak; both are defects and this is the one that catches
+    them."""
+    seen = _fake_tools(monkeypatch, {"leads_search": "leads here"})
+    _scripted(monkeypatch, [_tool_turn(("leads_search", "{}")), _turn(content="Done.")])
+    await _drain_with_tools()
+
+    assert seen[0]["context"] == TOOL_CONTEXT
+
+
+async def test_a_turn_that_asks_for_a_write_and_a_lookup_is_still_the_write(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`set_fields` KEEPS ITS SEMANTICS EXACTLY: one call honoured, one fill, one Undo, loop
+    over. It is checked first, so a mixed turn resolves the way it did before the read tools
+    existed — the read results would have nowhere to go once the fill has been emitted, and
+    a second round after the person has been shown a change is the very thing
+    `test_a_valid_set_fields_stops_the_loop_immediately` forbids."""
+    seen = _fake_tools(monkeypatch, {"leads_search": "leads here"})
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(
+                ("leads_search", "{}"),
+                ("set_fields", json.dumps({"items": [{"field_id": "open", "value": "09:00"}]})),
+            ),
+            _turn(content="should never run"),
+        ],
+    )
+    events = await _drain_with_tools()
+
+    assert len(sent) == 1
+    assert seen == [], "no lookup runs once the fill has been decided"
+    assert [e.fill for e in events if e.fill] == [
+        (CopilotFillItem(field_id="open", value="09:00"),)
+    ]
+
+
+async def test_a_model_that_only_ever_looks_things_up_still_ends_with_a_sentence(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The cap is what stops a lookup loop being a spinner that never stops. FAILS IF:
+    `MAX_TURNS` stops bounding the read path — the script here looks things up forever, so
+    an unbounded loop hangs rather than fails, which is why the CALL COUNT is asserted."""
+    _fake_tools(monkeypatch, {"calls_recent": "calls here"})
+    sent = _scripted(
+        monkeypatch,
+        [_tool_turn(("calls_recent", "{}")) for _ in range(service.MAX_TURNS + 2)],
+    )
+    events = await _drain_with_tools()
+
+    assert len(sent) == service.MAX_TURNS
+    # JOINED, NOT `said[-1]`. The out-of-turns message is composed as one string and can
+    # now reach the caller as more than one `text` event: `service.run_copilot`'s identity
+    # egress guard (`copilot/identity.py`) holds the sentence in flight, so a message whose
+    # authored detail follows a full stop is released in two pieces. What is promised to a
+    # person is the ANSWER, which is what the route concatenates and what this reads.
+    assert "".join(e.text for e in events if e.text).startswith(service.EXHAUSTED_MESSAGE)
+    assert events[-1].spend is not None
+
+
+async def test_the_exhaustion_message_is_stripped_and_the_model_cannot_pad_it(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The one text event this module ASSEMBLES rather than forwards.
+
+    Every other fragment is stripped as it leaves `turn`; this one is built after the loop
+    and quotes `field_id`s the MODEL wrote, so it needs both halves of the egress rule.
+
+    FAILS IF: the strip is dropped (a tag-block character reaches the panel, where the
+    preview a person approves and the string behind it can differ), or if the model's own
+    id stops being bounded (it is quoted into the next turn's prompt AND onto the screen,
+    so an unbounded one is a model that can paste a wall of text into somebody's panel).
+    """
+    padded = "z" * 5_000
+    refusal = _turn(
+        arguments=json.dumps(
+            {"items": [{"field_id": f"status\U000e0041{padded}", "value": "live"}]}
+        )
+    )
+    _scripted(monkeypatch, [refusal for _ in range(service.MAX_TURNS + 2)])
+    events = await _drain()
+
+    # JOINED, NOT `said[-1]`. The out-of-turns message is composed as one string and can
+    # now reach the caller as more than one `text` event: `service.run_copilot`'s identity
+    # egress guard (`copilot/identity.py`) holds the sentence in flight, so a message whose
+    # authored detail follows a full stop is released in two pieces. What is promised to a
+    # person is the ANSWER, which is what the route concatenates and what this reads.
+    said = "".join(e.text for e in events if e.text)
+    assert said.startswith(service.EXHAUSTED_MESSAGE)
+    assert not has_invisible(said)
+    # Bounded, and bounded well under what the model sent — a real field id is 200 long
+    # (`schemas._MAX_ID`), so nothing legitimate is being cut here.
+    assert len(said) < len(padded)
+
+
+# --- a turn that produced no answer (the contentless candidate) --------------------------
+
+
+def _contentless(finish_reason: str | None = "stop") -> list[chat.StreamEvent]:
+    """A turn that says NOTHING and asks for nothing — the shape Gemini's own docs warn
+    about (a candidate with no content) and the one Azure returns on a content filter."""
+    return [
+        chat.StreamEvent(
+            outcome=chat.ChatOutcome(
+                content="",
+                tool_calls=(),
+                finish_reason=finish_reason,
+                usage=chat.TokenUsage(prompt_tokens=900, output_tokens=0),
+            )
+        )
+    ]
+
+
+async def test_a_lookup_followed_by_a_contentless_turn_still_answers(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE OBSERVED DEFECT. `business_snapshot` ran, its card rendered, and the turn ended
+    with no assistant text at all — the person asked a question and got a debug card."""
+    _fake_tools(monkeypatch, {"business_snapshot": "Last 7 days: 0 calls, 0 connected."})
+    sent = _scripted(
+        monkeypatch,
+        [_tool_turn(("business_snapshot", '{"days": 7}')), _contentless()],
+    )
+    events = await _drain_with_tools()
+
+    assert len(sent) == 2
+    said = [e.text for e in events if e.text]
+    assert said, "a turn that spent a tool call must never end without a sentence"
+    assert events[-1].spend is not None
+
+
+async def test_a_turn_stopped_by_a_content_filter_says_so(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _scripted(monkeypatch, [_contentless(finish_reason="content_filter")])
+    events = await _drain()
+    said = [e.text for e in events if e.text]
+    assert said and "filter" in said[-1].lower()
+    assert events[-1].spend is not None
+
+
+async def test_a_turn_that_never_reported_an_outcome_ends_with_a_sentence(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stream that ended without its terminal frame. It used to `break` into the
+    out-of-turns message, which blames a turn limit the run never reached."""
+    _scripted(monkeypatch, [[]])
+    events = await _drain()
+    said = [e.text for e in events if e.text]
+    assert said and not said[-1].startswith(service.EXHAUSTED_MESSAGE)
+    assert events[-1].spend is not None
+
+
+async def test_the_fallback_leg_answering_nothing_still_says_something(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
+    monkeypatch.setattr(chat, "stream", _failing_stream(httpx.ConnectError("azure is down")))
+
+    async def _complete(*args: Any, **kwargs: Any) -> chat.ChatOutcome:
+        return chat.ChatOutcome(content="", finish_reason="stop")
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    events = await _drain()
+    assert [e.text for e in events if e.text], "the fallback must not be silent either"
+    assert events[-1].spend is not None
+
+
+# --- lookups that would burn the run --------------------------------------------------
+
+
+async def test_an_identical_repeated_lookup_is_refused_rather_than_run_again(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A model that asks for the same lookup with the same arguments turn after turn spends
+    a paid round trip and a database read to learn nothing. It is told it already has the
+    answer, which is what makes the loop converge on a sentence instead of on `MAX_TURNS`.
+
+    FAILS IF: the (tool, arguments) memory stops crossing turns — the symptom is a run that
+    reads the same rows six times and ends in the exhaustion message."""
+    seen = _fake_tools(monkeypatch, {"business_snapshot": "Last 7 days: 0 calls."})
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("business_snapshot", '{"days": 7}')),
+            _tool_turn(("business_snapshot", '{"days": 7}')),
+            _turn(content="You had no calls last week."),
+        ],
+    )
+    events = await _drain_with_tools()
+
+    assert len(seen) == 1, "the second identical lookup never reaches the database"
+    tool_messages = [message for message in sent[2] if message["role"] == "tool"]
+    assert "already ran this exact lookup" in str(tool_messages[-1]["content"])
+    # Still ONE result per issued call id — a provider rejects the next request if an
+    # issued call has no answer at all.
+    assert [message["tool_call_id"] for message in tool_messages] == ["call-0", "call-0"]
+    assert [e.text for e in events if e.text] == ["You had no calls last week."]
+    # And the person sees it as a step, refused rather than silently missing.
+    assert [step.status for step in (e.step for e in events if e.step)][-1] == "refused"
+
+
+async def test_a_lookup_that_hangs_is_stopped_and_answered_with_a_sentence(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nothing else bounds a read tool: this deployment sets no `statement_timeout`, so one
+    lookup against a lock could eat the whole of `TOTAL_BUDGET_S` and turn a question into
+    "the assistant stopped part-way". A stopped lookup is a sentence the model can act on.
+
+    FAILS IF: `READ_TOOL_BUDGET_S` stops being applied — the test then hangs rather than
+    failing, which is why the budget is monkeypatched down rather than waited out.
+    """
+    monkeypatch.setattr(service, "READ_TOOL_BUDGET_S", 0.01)
+
+    async def _hang(name: str, arguments: str, *, context: Any, registry: Any = None) -> str:
+        await asyncio.sleep(10)
+        raise AssertionError("the read tool must have been cut off")
+
+    monkeypatch.setattr(tools_module, "run_read_tool", _hang)
+    sent = _scripted(
+        monkeypatch,
+        [_tool_turn(("business_snapshot", "{}")), _turn(content="I couldn't read that.")],
+    )
+    events = await _drain_with_tools()
+
+    assert len(sent) == 2
+    tool_messages = [message for message in sent[1] if message["role"] == "tool"]
+    assert "took too long" in str(tool_messages[-1]["content"])
+    assert [step.status for step in (e.step for e in events if e.step)][-1] == "failed"
+    assert [e.text for e in events if e.text] == ["I couldn't read that."]
+
+
+async def test_each_lookup_of_a_batch_is_timed_on_its_own_clock(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The panel's elapsed number is what a person is trying to find out. Frames built after
+    the batch finished reported every call as taking as long as the slowest."""
+    slow = asyncio.Event()
+
+    async def _run(name: str, arguments: str, *, context: Any, registry: Any = None) -> str:
+        if name == "calls_recent":
+            await slow.wait()
+            return "calls here"
+        slow.set()
+        await asyncio.sleep(0.05)
+        return "leads here"
+
+    monkeypatch.setattr(tools_module, "run_read_tool", _run)
+    _scripted(
+        monkeypatch,
+        [_tool_turn(("calls_recent", "{}"), ("leads_search", "{}")), _turn(content="Done.")],
+    )
+    events = await _drain_with_tools()
+
+    done = [e.step for e in events if e.step and e.step.status == "done"]
+    by_tool = {step.tool: step.elapsed_ms for step in done}
+    assert by_tool["calls_recent"] is not None and by_tool["leads_search"] is not None
+    assert by_tool["calls_recent"] < by_tool["leads_search"]
+
+
+async def test_a_lookup_that_answers_nothing_is_still_answered(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An empty `role: "tool"` message is silence one layer down — some providers reject
+    one outright, and every model reads it as "nothing happened"."""
+    _fake_tools(monkeypatch, {"business_snapshot": "   "})
+    sent = _scripted(
+        monkeypatch,
+        [_tool_turn(("business_snapshot", "{}")), _turn(content="I couldn't read that.")],
+    )
+    await _drain_with_tools()
+
+    tool_messages = [message for message in sent[1] if message["role"] == "tool"]
+    assert "came back with nothing" in str(tool_messages[-1]["content"])
+
+
+async def test_the_gemini_leg_returning_a_contentless_candidate_still_answers(
+    google_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE TRAP GOOGLE'S OWN DOCS DESCRIBE: `thinkingBudget: 0` turns thinking off on 2.5
+    flash and flash-lite, but Gemini 3 Flash models "do not support full thinking-off", so a
+    candidate can come back with no content at all (CLAUDE.md — which is why every
+    `gemini-3.*` is `selectable=False`). On a phone call that is dead air; here it was a
+    turn that ended in silence."""
+    _scripted_complete(
+        monkeypatch,
+        [chat.ChatOutcome(content="", finish_reason=None, usage=None)],
+    )
+    events = await _drain_google()
+
+    assert [e.text for e in events if e.text] == [service.NO_ANSWER_MESSAGE]
+    assert events[-1].spend is not None
+
+
+async def test_a_turn_that_spent_the_whole_ceiling_saying_nothing_says_that(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`finish_reason == "length"` with NO content is not the truncation the loop already
+    logs: there, prose reached the screen and was cut off, which the person can see. Here
+    the whole of `MAX_ANSWER_TOKENS` was paid for and not a word arrived."""
+    _scripted(monkeypatch, [_contentless(finish_reason="length")])
+    events = await _drain()
+    assert [e.text for e in events if e.text] == [service.TRUNCATED_MESSAGE]
+    assert events[-1].spend is not None
+
+
+# --- opening a screen (D-524) -------------------------------------------------------------
+#
+# The loop's half of navigation: it is a THIRD tool family beside the fill and the actions,
+# it goes round again like a Tier 1 action (the destination is settled; what is left is the
+# sentence), it is capped at one per answer, and it may not share a turn with a fill — which
+# is not tidiness but the hazard itself, since moving away throws an unsaved form out.
+
+
+async def test_asking_to_be_taken_to_billing_opens_calling_credit(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE TRANSCRIPT THIS FEATURE EXISTS FOR — "take me to billing page", answered with a
+    screen change instead of "I cannot take you to the billing page".
+
+    FAILS IF: the navigate frame stops being emitted, or the loop ends at the tool call and
+    the person is moved with nothing said."""
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("open_screen", '{"screen": "billing"}')),
+            _turn(content="Opening Credits & billing for you."),
+        ],
+    )
+    events = await _drain_with_tools()
+
+    moved = [event.navigate for event in events if event.navigate is not None]
+    assert len(moved) == 1
+    assert moved[0].screen == "Credits & billing"
+    assert moved[0].route == "/c/{slug}/billing"
+    # THE LOOP WENT ROUND, and the server's own sentence is what it went round WITH.
+    assert len(sent) == 2
+    tool_messages = [message for message in sent[1] if message["role"] == "tool"]
+    assert "OPENING Credits & billing" in str(tool_messages[-1]["content"])
+    assert "not that they have arrived" in str(tool_messages[-1]["content"])
+    assert [event.text for event in events if event.text] == ["Opening Credits & billing for you."]
+
+
+async def test_a_screen_the_person_cannot_open_is_refused_and_the_model_is_told_why(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Navigating somebody into a refusal is worse than not navigating. The refusal goes
+    BACK to the model, which is what lets the answer be "AI help is the account owner's"
+    rather than an interrupted stream.
+
+    AI help and not Invoice, which this used to use: Invoice is a TAB of Credits & billing
+    now (D-525), a screen staff can open, so asking for it by that word correctly opens
+    the hub. AI help is the last client screen that refuses at the door, which is exactly
+    what this test needs one of.
+    """
+    staff = tools_module.ToolContext(tenant_id=TOOL_CONTEXT.tenant_id, role="staff")
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("open_screen", '{"screen": "AI help"}')),
+            _turn(content="AI help is your owner's screen."),
+        ],
+    )
+    events = [event async for event in service.run_copilot(PAYLOAD, tool_context=staff)]
+
+    assert [event.navigate for event in events if event.navigate is not None] == []
+    tool_messages = [message for message in sent[1] if message["role"] == "tool"]
+    assert "NOBODY was moved" in str(tool_messages[-1]["content"])
+    assert "account owner" in str(tool_messages[-1]["content"])
+    refused = [event.step for event in events if event.step and event.step.status == "refused"]
+    assert refused and refused[0].tool == "open_screen"
+
+
+async def test_one_answer_opens_at_most_one_screen(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A second destination in one answer is a flicker through a screen nobody read and a
+    back button that no longer returns where the person expects."""
+    _scripted(
+        monkeypatch,
+        [
+            _tool_turn(("open_screen", '{"screen": "Leads"}')),
+            _tool_turn(("open_screen", '{"screen": "Campaigns"}')),
+            _turn(content="I've opened Leads."),
+        ],
+    )
+    events = await _drain_with_tools()
+
+    moved = [event.navigate for event in events if event.navigate is not None]
+    assert [frame.screen for frame in moved] == ["Leads"]
+
+
+async def test_a_turn_that_fills_a_field_and_opens_a_screen_does_neither(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE HAZARD, AS A TEST. A fill writes into the form on the screen the person is
+    standing on and nothing saves it; navigating away in the same breath would discard those
+    values as its first act. Both are refused together and the model spends one turn
+    separating them."""
+    sent = _scripted(
+        monkeypatch,
+        [
+            _tool_turn(
+                ("set_fields", json.dumps({"items": [{"field_id": "open", "value": "09:00"}]})),
+                ("open_screen", '{"screen": "Leads"}'),
+            ),
+            _turn(content="I've set the opening time."),
+        ],
+    )
+    events = await _drain_with_tools()
+
+    assert [event.fill for event in events if event.fill is not None] == []
+    assert [event.navigate for event in events if event.navigate is not None] == []
+    tool_messages = [message for message in sent[1] if message["role"] == "tool"]
+    assert "would be lost by the move" in str(tool_messages[-1]["content"])
+
+
+async def test_the_admin_realm_is_offered_no_way_to_open_a_client_screen(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`screens.py` is the CLIENT console's inventory and there is no admin one, so the tool
+    is not in that realm's array — and a model that names it anyway is told there is no such
+    tool rather than being silently ignored."""
+    client = [tool["function"]["name"] for tool in service.tool_array("client")]
+    admin = [tool["function"]["name"] for tool in service.tool_array("admin")]
+    assert "open_screen" in client
+    assert "open_screen" not in admin
+
+    _fake_tools(monkeypatch, {})
+    sent = _scripted(
+        monkeypatch,
+        [_tool_turn(("open_screen", '{"screen": "Leads"}')), _turn(content="I cannot do that.")],
+    )
+    events = [
+        event
+        async for event in service.run_copilot(PAYLOAD, realm="admin", tool_context=TOOL_CONTEXT)
+    ]
+
+    assert [event.navigate for event in events if event.navigate is not None] == []
+    assert any(message["role"] == "tool" for message in sent[1])

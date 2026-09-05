@@ -117,12 +117,23 @@ async def test_publishing_a_new_version_leaves_exactly_one_copy_on_the_engine() 
 
 
 async def test_the_superseded_version_is_withdrawn_before_the_new_one_is_pushed() -> None:
-    """Ordering, asserted rather than assumed.
+    """Ordering, asserted rather than assumed — **AND IT REVERSED IN D-488.**
 
-    Attach-then-detach has a window in which both versions answer, and if the detach
-    then fails the window never closes — that is the defect, reached by a different
-    road. Detach-first trades it for a shorter window with NO copy attached, which
-    degrades to T4 ("I don't know") rather than to a wrong answer.
+    This clause used to assert `["detach", "attach"]` and its docstring argued for it:
+    attach-first has a window in which both versions answer, detach-first trades it for a
+    window with NO copy attached, and degrading to T4 ("I don't know") beats degrading to
+    a wrong answer. **The trade was priced on an attach that was one call.** It is not one
+    call on a real engine: it is a document upload plus an indexing wait the vendor
+    publishes no bound for, so detach-first takes a client's knowledge away for MINUTES on
+    every republish — every caller in that window told "I don't know" because somebody
+    corrected a price.
+
+    So the window moved rather than closed, and what this clause now pins is the shape of
+    the window: an OVERLAP of one detach round trip, not a gap of an indexing wait. The
+    "if the detach then fails the window never closes" objection is answered separately
+    and by code rather than by ordering — `_undo_attach` removes what the publish added,
+    and `test_a_failed_detach_refuses_the_publish_and_leaves_the_old_version_live` proves
+    the engine is left holding exactly the previously approved version.
     """
     tenant_id, agent_id = await _tenant_with_published_agent()
     await _publish_new_version(tenant_id, agent_id, "Hours", "Open 9am to 8pm.")
@@ -131,20 +142,22 @@ async def test_the_superseded_version_is_withdrawn_before_the_new_one_is_pushed(
     calls: list[str] = []
     real_attach, real_detach = engine.attach_kb, engine.detach_kb
 
-    async def _spy_attach(ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
+    async def _spy_attach(ref: EngineAgentRef, source: KBSourceRef, **kwargs: Any) -> EngineKBRef:
         calls.append("attach")
-        return await real_attach(ref, source)
+        return await real_attach(ref, source, **kwargs)
 
-    async def _spy_detach(ref: EngineAgentRef, kb: EngineKBRef) -> None:
+    async def _spy_detach(ref: EngineAgentRef, kb: EngineKBRef, **kwargs: Any) -> None:
         calls.append("detach")
-        await real_detach(ref, kb)
+        await real_detach(ref, kb, **kwargs)
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(engine, "attach_kb", _spy_attach)
         patch.setattr(engine, "detach_kb", _spy_detach)
         await _publish_new_version(tenant_id, agent_id, "Hours", "Open 10am to 6pm.")
 
-    assert calls == ["detach", "attach"], "both versions were live at the same time"
+    assert calls == ["attach", "detach"], (
+        "the agent was left with no copy of this source for the length of an upload"
+    )
 
 
 async def test_a_rollback_restores_exactly_one_version_on_the_engine() -> None:
@@ -210,6 +223,14 @@ async def test_a_failed_detach_refuses_the_publish_and_leaves_the_old_version_li
     as long as the engine is unwell; the cost of the alternative is a wrong answer the
     client is contractually held to.
 
+    **WHAT CHANGED IN D-488 IS THE WORK THE REFUSAL HAS TO DO, NOT THE DECISION.** While
+    the publish detached first, a refusal here cost nothing — nothing had been attached
+    yet, so "try again" was free. Now the new copy is already up when the detach fails, so
+    refusing means UNDOING it (`_undo_attach`) before raising. The assertions below are the
+    same ones and they are stronger for it: exactly one version attached, and it is the
+    one the client previously approved. An implementation that raised without compensating
+    would leave two.
+
     `pytest.raises` sits OUTSIDE the session so the transaction unwinds the way it does
     in production — a half-applied publish committing would be its own bug.
     """
@@ -218,8 +239,32 @@ async def test_a_failed_detach_refuses_the_publish_and_leaves_the_old_version_li
     v2 = await _submit_and_approve(tenant_id, agent_id, "Fees", "A consultation costs 800 rupees.")
 
     engine = get_engine()
+    real_detach = engine.detach_kb
+    refused: list[str] = []
+
+    async def _refuses_the_withdrawal_only(
+        ref: EngineAgentRef, kb: EngineKBRef, **kwargs: Any
+    ) -> None:
+        # THE FIRST DETACH ONLY, and the narrowness is the test rather than a convenience.
+        # Under attach-first there are TWO detaches on this path: the withdrawal of the
+        # superseded version, and `_undo_attach`'s removal of the copy this publish added.
+        # Refusing both is a different scenario — the engine is refusing everything, the
+        # agent ends up holding both versions, and
+        # `test_an_attach_that_cannot_be_undone_leaves_a_loud_trail` is where that is
+        # pinned. What THIS clause asserts is the ordinary case: the withdrawal fails, the
+        # compensation works, and the client is left with exactly what they approved.
+        if not refused:
+            refused.append(kb)
+            raise ProblemError(
+                kind="dependency",
+                code="engine_rejected",
+                title="Voice engine said no",
+                detail="The platform refused.",
+            )
+        await real_detach(ref, kb, **kwargs)
+
     with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(engine, "detach_kb", _refuses("engine_rejected"))
+        patch.setattr(engine, "detach_kb", _refuses_the_withdrawal_only)
         with pytest.raises(ProblemError) as raised:
             async with tenant_session(tenant_id) as session:
                 await kb_service.publish_source(session, tenant_id=tenant_id, source_id=v2)
@@ -236,14 +281,18 @@ async def test_a_failed_detach_refuses_the_publish_and_leaves_the_old_version_li
     assert await _live_versions(tenant_id, agent_id, "Fees") == [1], "our tables moved anyway"
 
 
-async def test_a_failed_attach_puts_the_withdrawn_version_back() -> None:
-    """The other side of detach-first: the gap must close.
+async def test_a_failed_attach_leaves_the_previous_version_untouched() -> None:
+    """The other side of the order, and D-488 turned it from a repair into an invariant.
 
-    Between the detach and the attach the agent knows nothing about this source. If the
-    attach fails there, walking away would leave a client with an agent that has lost
-    knowledge they never asked to remove — the outage the refusal above is designed to
-    avoid. The previous version's text is still in our tables and still approved, so it
-    goes back.
+    This clause used to be `test_a_failed_attach_puts_the_withdrawn_version_back`: under
+    detach-first the agent knew nothing about this source between the two calls, so a
+    failed attach there had to RE-ATTACH the previous version, and the test proved that
+    restoration happened. Attach-first deletes the whole failure mode. Nothing has been
+    withdrawn when the attach runs, so a refusal leaves the previously approved version
+    exactly where it was — no compensation to write, and none to get wrong.
+
+    That is the stronger property and it is asserted the same way: the engine holds one
+    version, it is the old one, our tables did not move, and the publish is recoverable.
     """
     tenant_id, agent_id = await _tenant_with_published_agent()
     await _publish_new_version(tenant_id, agent_id, "Hours", "Open 9am to 8pm daily.")
@@ -253,11 +302,10 @@ async def test_a_failed_attach_puts_the_withdrawn_version_back() -> None:
     real_attach = engine.attach_kb
 
     async def _rejects_only_the_new_version(
-        ref: EngineAgentRef, source: KBSourceRef
+        ref: EngineAgentRef, source: KBSourceRef, **kwargs: Any
     ) -> EngineKBRef:
         # The engine refusing ONE document — a parse failure, a size limit, a
-        # multilingual-mode rejection. The restore of the previous version is a
-        # different document, and must still be allowed to land.
+        # multilingual-mode rejection.
         if source.kb_id == str(v2):
             raise ProblemError(
                 kind="dependency",
@@ -265,7 +313,7 @@ async def test_a_failed_attach_puts_the_withdrawn_version_back() -> None:
                 title="Voice engine said no",
                 detail="The platform refused this document.",
             )
-        return await real_attach(ref, source)
+        return await real_attach(ref, source, **kwargs)
 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(engine, "attach_kb", _rejects_only_the_new_version)
@@ -276,7 +324,9 @@ async def test_a_failed_attach_puts_the_withdrawn_version_back() -> None:
     ref = await _engine_ref(tenant_id, agent_id)
     attached = _attached(ref)
     assert len(attached) == 1, "the engine was left holding the wrong number of versions"
-    assert "9am to 8pm" in attached[0].text, "the withdrawn version was not put back"
+    assert "9am to 8pm" in attached[0].text, (
+        "the previously approved version was disturbed by a publish that never succeeded"
+    )
     assert await _live_versions(tenant_id, agent_id, "Hours") == [1]
 
     # And the failure is recoverable rather than terminal: once the engine accepts
@@ -286,17 +336,23 @@ async def test_a_failed_attach_puts_the_withdrawn_version_back() -> None:
     assert await _live_versions(tenant_id, agent_id, "Hours") == [2]
 
 
-async def test_an_engine_that_refuses_everything_leaves_a_loud_trail(
+async def test_an_attach_that_cannot_be_undone_leaves_a_loud_trail(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """The residual worst case, stated rather than hidden.
+    """The residual worst case, stated rather than hidden — **AND IT MOVED IN D-488.**
 
-    Detach-first means there is one arrangement of failures — the detach accepted, then
-    every attach refused — where the agent ends up with no copy of this source. Nothing
-    in-process can fix that: the engine is refusing the very call the repair needs. What
-    it must not do is end quietly, so the restore attempt logs at ERROR with the source
-    id (ids only — hard rule 6), which is what an operator gets paged on and what tells
-    them which client to look at.
+    Under detach-first the worst arrangement was "detach accepted, every attach refused",
+    which left the agent with NO copy of this source and logged `kb_left_detached`. That
+    arrangement no longer exists: nothing is withdrawn until the new copy is up, so an
+    engine refusing every attach simply refuses the publish and changes nothing.
+
+    The worst case is now its mirror. The attach SUCCEEDS, a detach then fails, and the
+    compensating removal of the copy we just added fails too — so the agent is left
+    holding both versions and can answer from either. Nothing in-process can fix it: the
+    engine is refusing the very call the repair needs. What it must not do is end quietly,
+    so `_undo_attach` logs `kb_left_attached` at ERROR with the source id (ids only —
+    hard rule 6), which is what an operator gets paged on and what tells them which client
+    to look at. `runbooks/kb-out-of-sync.md` names this origin and its repair.
     """
     tenant_id, agent_id = await _tenant_with_published_agent()
     await _publish_new_version(tenant_id, agent_id, "Fees", "A consultation costs 500 rupees.")
@@ -307,14 +363,16 @@ async def test_an_engine_that_refuses_everything_leaves_a_loud_trail(
         pytest.MonkeyPatch.context() as patch,
         caplog.at_level("ERROR", logger="apps.api.kb.service"),
     ):
-        patch.setattr(engine, "attach_kb", _refuses("engine_rejected"))
+        # Every detach refused: the superseded copy will not come down, and neither will
+        # the compensating removal of the one just attached.
+        patch.setattr(engine, "detach_kb", _refuses("engine_rejected"))
         with pytest.raises(ProblemError):
             async with tenant_session(tenant_id) as session:
                 await kb_service.publish_source(session, tenant_id=tenant_id, source_id=v2)
 
-    left_detached = [r for r in caplog.records if r.message == "kb_left_detached"]
-    assert left_detached, "an agent was left with no knowledge base and nobody was told"
-    assert getattr(left_detached[-1], "source_id", None), "the alert does not name the source"
+    left_attached = [r for r in caplog.records if r.message == "kb_left_attached"]
+    assert left_attached, "an agent was left answering from two versions and nobody was told"
+    assert getattr(left_attached[-1], "source_id", None), "the alert does not name the source"
     # Our tables did not move, so the recovery is a re-publish once the engine is back —
     # not a hand-repair of rows.
     assert await _live_versions(tenant_id, agent_id, "Fees") == [1]
@@ -335,7 +393,7 @@ async def test_a_live_version_we_cannot_address_blocks_the_publish() -> None:
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "UPDATE kb_documents SET meta = coalesce(meta, '{}'::jsonb) - 'engine_kb_ref' "
+                "DELETE FROM engine_kb_routes "
                 "WHERE source_id IN (SELECT id FROM kb_sources WHERE agent_id = :a "
                 "AND name = 'Fees' AND is_active = true)"
             ),

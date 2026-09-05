@@ -19,11 +19,13 @@ import type { LegalDocument } from "./types";
  * parties clause from the Terms, which until 26 August 2026 described a company that
  * does not exist (`docs/legal/LEGAL-OPS-PLAYBOOK.md:16`, `:80-96`). A processing
  * contract that does not say who the processor is fails at the first thing rule 6 of the
- * DPDP Rules 2025 is read for, so clause 1 now names the supplier and its form. The
- * DPDP Act's definitions turn on "person", not on "company", so the substantive
- * obligations are unchanged — which is the point worth stating, because a client's
- * natural worry about a non-corporate supplier is that the controls are lighter. Clause
- * 3 answers it with the assurance and not with our staffing: the controls bind EVERY
+ * DPDP Rules 2025 is read for, so clause 1 IDENTIFIES the supplier — name, registration
+ * number, principal place of business — and states no legal form at all. It used to
+ * state one, and explain at length that the DPDP Act's definitions turn on "person"
+ * rather than "company" so nothing was owed differently; that narration went on
+ * 2 September 2026 (the founder's decision), and what it was defending is better said by
+ * the obligations themselves, which is where clause 1 now points. Clause
+ * 3 answers the same worry with the assurance and not with our staffing: the controls bind EVERY
  * operator account without exception, which is a property of the code — MFA is required
  * by REALM (`authn/routes.py:298`, `service.MFA_REQUIRED_REALMS`), not by who the
  * operator is. That bullet used to name the headcount ("one individual … the proprietor
@@ -59,17 +61,13 @@ export const DPA: LegalDocument = {
         {
           kind: "para",
           text:
-            "In this Addendum \"we\" means {{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}}, and " +
-            "\"you\" means the client named on the account. The Processor is therefore " +
-            "not a company but an individual carrying on business under that name, and " +
-            "that individual and the business are the same legal person. The Digital " +
-            "Personal Data Protection Act 2023 defines a Data Processor as a PERSON who " +
-            "processes personal data on a Data Fiduciary's behalf, so the form changes " +
-            "who signs and changes nothing about what is owed: every obligation below — " +
-            "the security measures in Annex B, the 48-hour breach clock in clause 7, " +
-            "the audit right in clause 10 — binds that individual exactly as it would " +
-            "bind a company, and clause 14.1 of the Terms of Service records that his " +
-            "liability is personal and is not bounded by a company's assets.",
+            "In this Addendum \"we\" means {{LEGAL_ENTITY_NAME}} (Udyam registration " +
+            "number {{ENTITY_REGISTRATION_NUMBER}}, principal place of business " +
+            "{{REGISTERED_ADDRESS}}), and \"you\" means the client named on the " +
+            "account. Every obligation below — the security measures in Annex B, the " +
+            "48-hour breach clock in clause 7, the audit right in clause 10 — binds us, " +
+            "and clause 14 of the Terms of Service is the only thing that limits what we " +
+            "owe you under them.",
         },
         {
           kind: "para",
@@ -106,8 +104,11 @@ export const DPA: LegalDocument = {
             "We process your callers' personal data only on your documented instructions, " +
             "and for no other purpose. Your instructions are: these documents, the " +
             "configuration you set in the product (your agents, their prompts, your " +
-            "extraction schema, your retention periods, your integrations, and which " +
-            "of the AI models we run your agents use), and any " +
+            "extraction schema, your retention periods, your integrations, which " +
+            "of the AI models we run your agents use, and which of your own people you " +
+            "allow to curate the knowledge your agents answer from), the changes one of " +
+            "your people confirms in the product — including a change the in-app " +
+            "assistant proposed and they accepted — and any " +
             "further written instruction we accept.",
         },
         {
@@ -135,6 +136,14 @@ export const DPA: LegalDocument = {
               "carries the detail; if a no-training commitment on that leg is a condition " +
               "of your signing, tell us before you sign.",
             "We do not pool it across clients, sell it, or share it for anyone's marketing.",
+            "The in-app assistant we provide inside your dashboard reads your account to " +
+              "answer your own people's questions about it, and it can PROPOSE a small " +
+              "set of changes — a lead's status, adding a number to your suppression " +
+              "list, pausing a campaign, adding an entry to your knowledge. It never " +
+              "makes one: a proposal is shown to the person who asked, and it is their " +
+              "confirmation, subject to the same permission checks and the same " +
+              "compliance gates as the equivalent button, that carries it out. Anything " +
+              "it does on your account is therefore your instruction and not ours.",
             "If we believe an instruction of yours breaks the law, we will tell you and " +
               "may decline to act on it. Several such refusals are automatic — the " +
               "compliance gates described in the Acceptable Use Policy — and they are not " +
@@ -348,6 +357,21 @@ export const DPA: LegalDocument = {
             "instruction, and on our own initiative if you give none. The end-of-engagement " +
             "erasure has its own certificate, which enumerates what it does not erase " +
             "rather than leaving it to inference.",
+        },
+        {
+          kind: "para",
+          text:
+            "The in-app assistant keeps its own record of what your people asked it and " +
+            "the business facts it distilled from those conversations. Those records are " +
+            "about your users rather than about your callers, so they sit outside this " +
+            "Addendum's subject matter — but they are stated here because they are new, " +
+            "because they are personal data of your people, and because you should not " +
+            "have to find them in a release note. Identifiers are stripped before they " +
+            "are written, they are held per person, they are deleted after 180 days on " +
+            "the same nightly job as everything else, and every one of them is deleted " +
+            "when your account is closed. Section 9 of the Privacy Policy carries the " +
+            "period alongside the others, and section 12.4 states the one thing an " +
+            "erasure request does not do with them.",
         },
         {
           kind: "callout",
@@ -638,7 +662,13 @@ export const DPA: LegalDocument = {
                 "generating conversational responses; transcription; redaction; extraction " +
                 "of Client-defined fields; storage; retrieval; display; export and " +
                 "delivery to Client-configured destinations; suppression-list management; " +
-                "metering; erasure.",
+                "metering; erasure. It also includes the in-app assistant inside the " +
+                "Client's dashboard, which reads the Client's own records — leads, " +
+                "calls, campaigns, agents and knowledge content — to answer the " +
+                "questions the Client's own users put to it, and which proposes changes " +
+                "for one of those users to confirm. That leg sees names, statuses, " +
+                "counts and already-redacted call summaries; it is not given raw " +
+                "transcripts, raw numbers or extraction payloads.",
             ],
             [
               "Purpose",
@@ -721,6 +751,14 @@ export const DPA: LegalDocument = {
                   "containing unredacted data. The endpoint-to-permission map is asserted " +
                   "at start-up in four directions, including that every declared permission " +
                   "is actually held by some role.",
+                "Two capabilities inside a Client account are stated separately because " +
+                  "they moved. Staff may open the in-app assistant, which spends the " +
+                  "account's AI allowance and is therefore treated as a change-making " +
+                  "permission rather than a read. Staff may curate the knowledge the " +
+                  "Client's agents answer from ONLY in an account whose owner has " +
+                  "switched that on; it is off for every account until an owner turns " +
+                  "it on, staff cannot turn it on for themselves, and an operator " +
+                  "viewing the account cannot turn it on either.",
                 "Operator access to a client account is read-only, requires a short-lived " +
                   "signed grant bound to that operator and that client, is revoked " +
                   "instantly by sign-out or role change, and is audited twice.",

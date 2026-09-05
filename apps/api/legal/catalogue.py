@@ -23,14 +23,17 @@ mechanical, and it is the half that matters most today.
 THE VERSION CARRIES THE REVIEW STATE, WHICH IS WHY THE FLIP NEEDS NO SPECIAL CASE
 --------------------------------------------------------------------------------
 
-`apps/web/src/lib/legal/placeholders.ts` sets `PENDING_LEGAL_REVIEW = true`: these
-documents have not been through legal review and nearly every fact in them — the
-supplier's registered name, its GSTIN, the named Grievance Officer, the DLT telemarketer
-id — is still a visible blank. LEGAL-OPS-PLAYBOOK.md:481 is blunt about what that means
-commercially: *"Templates + draft banner are not a defence."*
+The set was published on 2 September 2026. Until then `apps/web/src/lib/legal/
+placeholders.ts` carried a pending-review constant, the documents showed a draft banner,
+and nearly every fact in them — the supplier's name, the named Grievance Officer, the
+principal place of business — was a visible blank; LEGAL-OPS-PLAYBOOK.md:481 is blunt
+about what that was worth commercially: *"Templates + draft banner are not a defence."*
+Every one of those blanks was filled before the flip, and the bundle's own
+`assertLegalSetPublishable` refuses to render a document if one is not.
 
-So acceptance is built in full and is PROVISIONAL, and the review state is part of the
-version string rather than a flag beside it:
+An acceptance taken in that period is PROVISIONAL, and the review state is part of the
+version string rather than a flag beside it, which is why a stored row still says which
+of the two it was:
 
     revision "1", pending review   ->  "1+pre-review"
     revision "1", reviewed         ->  "1"
@@ -70,8 +73,10 @@ from dataclasses import dataclass
 #: here and the drift guard fails CI if the two ever disagree. That is deliberately a
 #: LOUD coupling — flipping it publishes eight legal documents and invalidates every
 #: acceptance in the ledger, which is a change that should cost a diff on both sides with
-#: a name on it.
-PENDING_LEGAL_REVIEW = True
+#: a name on it. It was flipped on 2 September 2026, on the founder's instruction given
+#: after a lawyer's review of the set, and with every placeholder in the bundle filled
+#: first (the bundle's own `assertLegalSetPublishable` refuses the render otherwise).
+PENDING_LEGAL_REVIEW = False
 
 #: The suffix a pre-review version carries. A separator that cannot occur in a revision
 #: id, so `_split` is unambiguous.
@@ -109,10 +114,10 @@ class LegalDocumentSpec:
     revisions: tuple[Revision, ...]
     #: The date the document starts binding, ISO-8601, or None while it has none.
     #:
-    #: None for every document today, and that is a FACT rather than a gap in this file:
-    #: `{{EFFECTIVE_DATE}}` is an unfilled placeholder in the bundle, so the documents
-    #: carry no effective date and the screen says so. Inventing one here would be a date
-    #: the published page does not show (hard rule 11).
+    #: 2 September 2026 for every document — the day the set was published. It must be
+    #: the same day the bundle's `{{EFFECTIVE_DATE}}` placeholder prints in the page
+    #: header, in that placeholder's prose spelling; a date here that the published page
+    #: does not show would be a claim nobody can check (hard rule 11).
     effective_date: str | None = None
 
     @property
@@ -169,7 +174,26 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "VENDOR is not India-only PROCESSING, and its terms permit training on "
                 "inputs and outputs absent a signed order form.",
             ),
+            Revision(
+                "3",
+                True,
+                "The in-app assistant became an agent that reads a client's own records "
+                "and proposes changes, and gained a store of what it was asked and what "
+                "it learned. A new category of stored personal data, a new processing "
+                "purpose and a widened description of what the dashboard language leg "
+                "receives; the owner's switch for staff knowledge curation stated too.",
+            ),
+            Revision(
+                "4",
+                False,
+                "Published. The set came out of draft on 2 September 2026: every "
+                "placeholder in the bundle was filled, the entity narration and the "
+                "internal blocker names came out of the prose, and the pending-review "
+                "banner came off. Non-material — nothing anybody agreed to changed "
+                "meaning, and the review-state flip re-demands the set on its own.",
+            ),
         ),
+        effective_date="2026-09-02",
     ),
     LegalDocumentSpec(
         slug="terms",
@@ -185,13 +209,44 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "VENDOR is not India-only PROCESSING, and its terms permit training on "
                 "inputs and outputs absent a signed order form.",
             ),
+            Revision(
+                "3",
+                True,
+                "The in-app assistant became an agent that reads a client's own records "
+                "and proposes changes, and gained a store of what it was asked and what "
+                "it learned. A new category of stored personal data, a new processing "
+                "purpose and a widened description of what the dashboard language leg "
+                "receives; the owner's switch for staff knowledge curation stated too.",
+            ),
+            Revision(
+                "4",
+                False,
+                "Published. The set came out of draft on 2 September 2026: every "
+                "placeholder in the bundle was filled, the entity narration and the "
+                "internal blocker names came out of the prose, and the pending-review "
+                "banner came off. Non-material — nothing anybody agreed to changed "
+                "meaning, and the review-state flip re-demands the set on its own.",
+            ),
         ),
+        effective_date="2026-09-02",
     ),
     LegalDocumentSpec(
         slug="acceptable-use",
         title="Acceptable Use",
         blocking=True,
-        revisions=(Revision("1", True, "First published draft of the client-facing legal set."),),
+        revisions=(
+            Revision("1", True, "First published draft of the client-facing legal set."),
+            Revision(
+                "2",
+                False,
+                "Published. The set came out of draft on 2 September 2026: every "
+                "placeholder in the bundle was filled, the entity narration and the "
+                "internal blocker names came out of the prose, and the pending-review "
+                "banner came off. Non-material — nothing anybody agreed to changed "
+                "meaning, and the review-state flip re-demands the set on its own.",
+            ),
+        ),
+        effective_date="2026-09-02",
     ),
     LegalDocumentSpec(
         slug="dpa",
@@ -207,7 +262,26 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "VENDOR is not India-only PROCESSING, and its terms permit training on "
                 "inputs and outputs absent a signed order form.",
             ),
+            Revision(
+                "3",
+                True,
+                "The in-app assistant became an agent that reads a client's own records "
+                "and proposes changes, and gained a store of what it was asked and what "
+                "it learned. A new category of stored personal data, a new processing "
+                "purpose and a widened description of what the dashboard language leg "
+                "receives; the owner's switch for staff knowledge curation stated too.",
+            ),
+            Revision(
+                "4",
+                False,
+                "Published. The set came out of draft on 2 September 2026: every "
+                "placeholder in the bundle was filled, the entity narration and the "
+                "internal blocker names came out of the prose, and the pending-review "
+                "banner came off. Non-material — nothing anybody agreed to changed "
+                "meaning, and the review-state flip re-demands the set on its own.",
+            ),
         ),
+        effective_date="2026-09-02",
     ),
     LegalDocumentSpec(
         slug="subprocessors",
@@ -223,25 +297,71 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "VENDOR is not India-only PROCESSING, and its terms permit training on "
                 "inputs and outputs absent a signed order form.",
             ),
+            Revision(
+                "3",
+                True,
+                "The in-app assistant became an agent that reads a client's own records "
+                "and proposes changes, and gained a store of what it was asked and what "
+                "it learned. A new category of stored personal data, a new processing "
+                "purpose and a widened description of what the dashboard language leg "
+                "receives; the owner's switch for staff knowledge curation stated too.",
+            ),
         ),
+        effective_date="2026-09-02",
     ),
     LegalDocumentSpec(
         slug="refunds",
         title="Refunds & Cancellation",
         blocking=False,
-        revisions=(Revision("1", True, "First published draft of the client-facing legal set."),),
+        revisions=(
+            Revision("1", True, "First published draft of the client-facing legal set."),
+            Revision(
+                "2",
+                False,
+                "Published. The set came out of draft on 2 September 2026: every "
+                "placeholder in the bundle was filled, the entity narration and the "
+                "internal blocker names came out of the prose, and the pending-review "
+                "banner came off. Non-material — nothing anybody agreed to changed "
+                "meaning, and the review-state flip re-demands the set on its own.",
+            ),
+        ),
+        effective_date="2026-09-02",
     ),
     LegalDocumentSpec(
         slug="grievance",
         title="Grievance Redressal",
         blocking=False,
-        revisions=(Revision("1", True, "First published draft of the client-facing legal set."),),
+        revisions=(
+            Revision("1", True, "First published draft of the client-facing legal set."),
+            Revision(
+                "2",
+                False,
+                "Published. The set came out of draft on 2 September 2026: every "
+                "placeholder in the bundle was filled, the entity narration and the "
+                "internal blocker names came out of the prose, and the pending-review "
+                "banner came off. Non-material — nothing anybody agreed to changed "
+                "meaning, and the review-state flip re-demands the set on its own.",
+            ),
+        ),
+        effective_date="2026-09-02",
     ),
     LegalDocumentSpec(
         slug="cookies",
         title="Cookies & Tracking",
         blocking=False,
-        revisions=(Revision("1", True, "First published draft of the client-facing legal set."),),
+        revisions=(
+            Revision("1", True, "First published draft of the client-facing legal set."),
+            Revision(
+                "2",
+                False,
+                "Published. The set came out of draft on 2 September 2026: every "
+                "placeholder in the bundle was filled, the entity narration and the "
+                "internal blocker names came out of the prose, and the pending-review "
+                "banner came off. Non-material — nothing anybody agreed to changed "
+                "meaning, and the review-state flip re-demands the set on its own.",
+            ),
+        ),
+        effective_date="2026-09-02",
     ),
 )
 

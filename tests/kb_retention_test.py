@@ -52,6 +52,7 @@ from apps.api.compliance.deletion_routes import ErasureProofOut
 from apps.api.compliance.export import subject_ref
 from apps.api.compliance.models import DATA_CATEGORIES
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.engine import get_engine
 from apps.workers import retention
 from apps.workers.retention import apply_retention, execute_deletion_request, sweep_tenant
 from scripts.seed import DEFAULT_RETENTION_POLICIES
@@ -121,7 +122,10 @@ async def _kb_version(
     """
     source_id, document_id = uuid.uuid4(), uuid.uuid4()
     when = datetime.now(UTC) - timedelta(days=days_ago)
-    meta = json.dumps({"engine_kb_ref": engine_kb_ref}) if engine_kb_ref else None
+    # D-519: the engine handle is a row in `engine_kb_routes`, not a JSONB key on the
+    # document. `meta` stays in the INSERT because the column still exists and the
+    # erasure test asserts the document is not rewritten.
+    meta = None
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
@@ -155,6 +159,22 @@ async def _kb_version(
                 "w": when,
             },
         )
+        if engine_kb_ref is not None:
+            await session.execute(
+                text(
+                    "INSERT INTO engine_kb_routes (engine, engine_kb_ref, tenant_id, "
+                    "agent_id, source_id, created_at, updated_at) "
+                    "VALUES (:e, :ref, :t, :a, :s, :w, :w)"
+                ),
+                {
+                    "e": get_engine().name,
+                    "ref": engine_kb_ref,
+                    "t": tenant_id,
+                    "a": agent_id,
+                    "s": source_id,
+                    "w": when,
+                },
+            )
     return source_id, document_id
 
 
@@ -167,6 +187,17 @@ async def _document(tenant_id: uuid.UUID, document_id: uuid.UUID) -> tuple[Any, 
             )
         ).first()
     return tuple(row) if row is not None else None
+
+
+async def _claimed_handle(tenant_id: uuid.UUID, source_id: uuid.UUID) -> str | None:
+    """The handle our claim row (D-519) files this source's vendor copy under."""
+    async with tenant_session(tenant_id) as session:
+        return (
+            await session.execute(
+                text("SELECT engine_kb_ref FROM engine_kb_routes WHERE source_id = :s"),
+                {"s": source_id},
+            )
+        ).scalar()
 
 
 async def _source_exists(tenant_id: uuid.UUID, source_id: uuid.UUID) -> bool:
@@ -251,10 +282,20 @@ def test_the_retention_categories_are_the_ones_the_data_model_enumerates() -> No
         "consent_log",
         "engine_payload",
         "kb",
+        # The in-app copilot's memory (migration d4a9c17e6b02) — a CATEGORY on the existing
+        # mechanism, exactly as `kb` and `engine_payload` were, rather than a second clock.
+        "copilot_memory",
+        # What an AGENT remembers about a CALLER between calls (D-507, migration
+        # e1a4d70c9b52). Added the same way and for the same kind of reason: the question
+        # "how long may we remember this person between calls" has a different answer from
+        # "how long may we keep what they said on one call", so it is a category rather
+        # than a share of the transcript's.
+        "caller_memory",
     )
     documented = DATA_MODEL.read_text(encoding="utf-8")
     assert (
-        "data_category ENUM[recording,transcript,lead,consent_log,engine_payload,kb]" in documented
+        "data_category ENUM[recording,transcript,lead,consent_log,engine_payload,kb,"
+        "copilot_memory,\n                     caller_memory]" in documented
     ), "DATA-MODEL §9 no longer enumerates the same categories the code enforces"
 
 
@@ -340,27 +381,28 @@ async def test_a_version_the_engine_still_holds_a_handle_for_is_never_deleted() 
 
     A superseded version has its engine handle CLEARED when it is detached
     (`kb/service._detach_superseded`), so a handle still recorded against an archived
-    source means a detach that never completed — the residue
-    `_reattach_after_failed_publish` documents itself as leaving. Deleting our rows then
+    source means a detach that never completed — the residue `_undo_attach` documents
+    itself as leaving (D-488 renamed it from `_reattach_after_failed_publish` when the
+    publish order reversed; the residue is unchanged). Deleting our rows then
     would destroy the only record that can address the engine's copy, which is exactly
     the D-126 defect on a different table. Those rows belong to the reconciliation sweep
     (D-158), and this arm leaves them alone however old they are.
     """
     tenant_id, agent_id = await _org()
-    _, stranded = await _kb_version(
+    stranded_source, stranded = await _kb_version(
         tenant_id,
         agent_id,
         version=1,
         days_ago=KB_TTL_DAYS * 3,
         active=False,
-        engine_kb_ref="rag_stranded_77",
+        engine_kb_ref=f"vec_stranded_{uuid.uuid4().hex[:12]}",
     )
 
     counts = await sweep_tenant(tenant_id)
 
     assert counts["kb_versions"] == 0
     survivor = await _document(tenant_id, stranded)
-    assert survivor is not None and survivor[1] == {"engine_kb_ref": "rag_stranded_77"}, (
+    assert survivor is not None and await _claimed_handle(tenant_id, stranded_source), (
         "a version whose engine copy is still attached was deleted — its handle is gone "
         "and nothing can address the copy the platform is still holding"
     )
@@ -440,13 +482,19 @@ async def test_an_erasure_finds_the_subject_in_uploaded_knowledge_and_leaves_it_
     The subject's own number is put INTO the knowledge base here, which is what a client
     produces by pasting a caller's callback number into an FAQ. The erasure runs, clears
     the call, REPORTS the document, and changes nothing about it: same content, same
-    `meta.engine_kb_ref`, same `updated_at`.
+    `updated_at`, and our claim on the vendor's copy intact.
     """
     phone = _phone()
     tenant_id, agent_id = await _org()
     body = f"{KB_BODY} Callback for Mr Ravi: {phone}."
-    _, document_id = await _kb_version(
-        tenant_id, agent_id, version=1, days_ago=30, active=True, body=body, engine_kb_ref="rag_77"
+    source_id, document_id = await _kb_version(
+        tenant_id,
+        agent_id,
+        version=1,
+        days_ago=30,
+        active=True,
+        body=body,
+        engine_kb_ref=f"vec_{uuid.uuid4().hex[:12]}",
     )
     before = await _document(tenant_id, document_id)
     await _call(tenant_id, agent_id, phone=phone)
@@ -459,7 +507,9 @@ async def test_an_erasure_finds_the_subject_in_uploaded_knowledge_and_leaves_it_
         "the erasure edited a client's knowledge document — it may report, not rewrite"
     )
     assert after is not None and phone in str(after[0])
-    assert after[1] == {"engine_kb_ref": "rag_77"}
+    assert await _claimed_handle(tenant_id, source_id) is not None, (
+        "the erasure dropped our claim on the vendor's copy — the one record that can reach it"
+    )
 
 
 async def test_the_search_matches_the_way_a_client_actually_writes_a_number() -> None:

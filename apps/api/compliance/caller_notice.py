@@ -43,6 +43,16 @@ It is not legal advice and does not become the client's notice by being generate
   sentence for each state, and the draft flags the switched-off case as something counsel
   must look at.
 
+**CROSS-CALL MEMORY IS DESCRIBED WHEN IT HAPPENS AND ONLY THEN (D-506, D-507).** The
+draft names the agents that remember callers, itemises the note, prints the period from the
+tenant's own `caller_memory` retention row, and says that those agents announce it at the
+start of the call — which they do, on no switch of their own. Two ways it can be silent,
+and both are the accurate document rather than an omission: the client has the switch off
+(every client today), or the tenant is on a vertical where `caller_memory.
+spdi_refuses_memory` refuses the write outright (D-507(b)), in which case the switch may
+read `true` and nothing is ever written. A notice describing processing that cannot happen
+is as false as one that hides processing that can.
+
 **The truthful ANSWER is not a toggle and the draft says so.** Whatever the announcement
 flags are set to, an agent always answers truthfully when a caller asks whether it is an
 AI or whether the call is recorded (hard rule 5, enforced server-side above the tenant
@@ -60,7 +70,9 @@ from calevate_shared.extraction import ExtractionField
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.compliance.caller_memory import spdi_refuses_memory
 from apps.api.core.logging import get_logger
+from apps.api.retrieval.models import RETENTION_CALLER_MEMORY
 
 log = get_logger(__name__)
 
@@ -110,6 +122,21 @@ _INHERENT: tuple[tuple[str, str], ...] = (
     ("When the call happened and how long it lasted", "call times, duration and outcome"),
 )
 
+#: WHAT CROSS-CALL MEMORY ADDS TO THE ITEMISATION (D-506), included only for a tenant that
+#: has it switched on somewhere. Written in the caller's words and not ours: "a short note
+#: of what you asked about" is what a distilled fact IS, and a caller reading "caller
+#: memory" would learn nothing. It is listed BESIDE the inherent items rather than inside
+#: them because it is precisely NOT inherent — it is the one collection on this list that a
+#: business chooses, which is why `_open_questions` also puts it in front of their counsel.
+_MEMORY_ITEM: tuple[str, str] = (
+    "A short note of what you asked about, kept after the call ends",
+    "so that if you call us again, the assistant knows what you asked about last time",
+)
+
+#: How the `caller_memory` period is labelled, named as a constant because the builder
+#: has to find that line again to decide whether it may be printed at all.
+_MEMORY_CATEGORY_LABEL = "The short note of what you asked about"
+
 #: Retention categories, in the words a caller reads. A category with no row for this
 #: tenant is omitted rather than defaulted: the draft states what THIS client's settings
 #: say, and a period nobody configured is not a period we may print.
@@ -117,6 +144,19 @@ _CATEGORY_LABELS: dict[str, str] = {
     "recording": "The recording of your call",
     "transcript": "The transcript of what was said",
     "lead": "The details noted from your call (your enquiry record)",
+    #: D-507(c) made this a real category with its own 180-day/`delete` row, and the map
+    #: is FILTERED — so a missing entry raised nothing and looked like nothing: the draft
+    #: itemised the note as something collected and then printed no period for it, which
+    #: is the one period a caller most needs. The wording is the caller's, matching the
+    #: sentence the agent speaks (`disclosure.CALLER_MEMORY_NOTICE_TEMPLATES`) — never "a
+    #: distilled fact" and never anything naming a vector.
+    #:
+    #: PRINTED ONLY FOR A TENANT THAT ACTUALLY KEEPS NOTES. `scripts/seed.py` writes this
+    #: row for EVERY organisation, so an unconditional line would tell every client's
+    #: callers how long notes about them are kept on an account that keeps none —
+    #: `_CATEGORY_LABELS`' own `consent_log` lesson pointed the other way. The filter is
+    #: in `build_caller_notice`, beside the switch that decides it.
+    RETENTION_CALLER_MEMORY: _MEMORY_CATEGORY_LABEL,
     # `consent_log` IS DELIBERATELY ABSENT, and its absence is the accurate statement.
     # The seed ships a `consent_log` retention row (2555 days) and this table used to
     # label it, so the notice printed "The record of what you agreed to: 2555 days" —
@@ -163,6 +203,17 @@ class CallerNoticeDraft:
     ai_disclosure_off: list[str] = field(default_factory=list)
     #: Same for the recording notice.
     recording_notice_off: list[str] = field(default_factory=list)
+    #: Agents that REMEMBER CALLERS ACROSS CALLS (D-506), by name. Named rather than
+    #: counted for `ai_disclosure_off`'s reason: the client's notice has to carry it, and
+    #: an operator reading "1 agent" cannot tell which conversation they are agreeing to.
+    caller_memory_on: list[str] = field(default_factory=list)
+    #: How long a caller note is kept, from this tenant's own `caller_memory` retention
+    #: row. `None` when they keep no notes (the row is filtered out of `retention` above in
+    #: the same breath) or when the account genuinely has no row for the category. The same
+    #: number the "How long we keep it" line carries, read once — the memory section states
+    #: it in place because that is where a caller is being told what the note IS, and a
+    #: reader should not have to cross-reference a list to learn how long it lasts.
+    memory_retention_days: int | None = None
     #: What only the client can answer, each as a sentence they can act on.
     open_questions: list[str] = field(default_factory=list)
     #: The rendered document. NAMED `markdown` and never `text`: `text` is this
@@ -183,13 +234,22 @@ async def _reachable_agents(session: AsyncSession) -> list[dict[str, Any]]:
     paused an agent for a week would be wrong in the under-disclosing direction, which is
     the one Rule 3 is about. Soft-deleted agents are excluded outright. RLS scopes the
     read (hard rule 1).
+
+    The join to `organizations` is an INNER one, matching
+    `caller_memory.memory_enabled`'s exactly rather than choosing its own shape: the two
+    reads answer the same question about the same tenant — may these agents remember their
+    callers — and a LEFT JOIN here would read a hidden or missing org row as "no vertical,
+    so not refused" while the write path read it as "no row, so nothing is written". That
+    divergence is the one this module cannot afford, because its output is a document the
+    client publishes.
     """
     rows = (
         await session.execute(
             text(
                 "SELECT a.id, a.name, a.ai_disclosure_enabled, a.recording_notice_enabled, "
-                "a.direction, s.fields "
-                "FROM agents a LEFT JOIN extraction_schemas s ON s.id = a.extraction_schema_id "
+                "a.direction, a.caller_memory_enabled, s.fields, o.vertical_template "
+                "FROM agents a JOIN organizations o ON o.id = a.tenant_id "
+                "LEFT JOIN extraction_schemas s ON s.id = a.extraction_schema_id "
                 "WHERE a.status IN ('live', 'paused') AND a.deleted_at IS NULL "
                 "ORDER BY a.name, a.id"
             )
@@ -202,7 +262,23 @@ async def _reachable_agents(session: AsyncSession) -> list[dict[str, Any]]:
             "ai_disclosure_enabled": bool(row[2]),
             "recording_notice_enabled": bool(row[3]),
             "direction": str(row[4]),
-            "fields": row[5] or [],
+            # D-506. A caller who is REMEMBERED ACROSS CALLS is a materially different
+            # privacy proposition from one who is not, so the itemisation Rule 3 asks for
+            # has to say it. Defaults FALSE, so for every client today this is False and
+            # the draft reads exactly as it did before.
+            #
+            # AND'ED WITH THE SPDI REFUSAL (D-507(b)), because this key means "does this
+            # agent remember its callers" and not "what does the column say". On a refused
+            # vertical `caller_memory.memory_enabled` returns False however the switch is
+            # set, so nothing is ever written — and a draft that told those callers their
+            # notes are kept would describe processing that cannot happen. Over-disclosure
+            # is not the safe direction here: a caller reading it would decline something
+            # nobody is doing, and the client would have published a false statement about
+            # their own business. The predicate is imported rather than repeated so the two
+            # answers cannot drift.
+            "caller_memory_enabled": bool(row[5])
+            and not spdi_refuses_memory(None if row[7] is None else str(row[7])),
+            "fields": row[6] or [],
         }
         for row in rows
     ]
@@ -221,6 +297,8 @@ def _collected(agents: list[dict[str, Any]]) -> list[CollectedItem]:
     the defect this whole module exists to avoid.
     """
     items = [CollectedItem(what=what, why=why) for what, why in _INHERENT]
+    if any(agent["caller_memory_enabled"] for agent in agents):
+        items.append(CollectedItem(what=_MEMORY_ITEM[0], why=_MEMORY_ITEM[1]))
     seen: set[str] = set()
     for agent in agents:
         for raw in agent["fields"]:
@@ -271,6 +349,16 @@ def _disclosure_paragraph(draft: CallerNoticeDraft) -> str:
     one that matters most is the one a generated document is most likely to get wrong: an
     agent with the announcement switched off does not say it, so the client's written
     notice is where the obligation lands.
+
+    A FOURTH SENTENCE SINCE D-507, AND IT IS NOT A FOURTH TOGGLE. An agent that remembers
+    its callers says so at the start of the call —
+    `calevate_shared.engine.compose_opening_line` appends
+    `agents.caller_memory_notice_line` third, gated on `caller_memory_enabled` and on no
+    switch of its own, so "remembers a caller without saying so" is not a state this
+    product can be configured into. The draft therefore describes it as a consequence of
+    the memory setting and never as a third announcement the client could turn off; a
+    document that implied otherwise would send them looking for a control that does not
+    exist, and a support answer would eventually invent one.
     """
     lines: list[str] = []
     if not draft.ai_disclosure_off:
@@ -293,12 +381,58 @@ def _disclosure_paragraph(draft: CallerNoticeDraft) -> str:
             f"Not all of our calls open with a recording announcement ({named}). Calls "
             "may be recorded, and this notice is where we tell you so."
         )
+    if draft.caller_memory_on:
+        named = ", ".join(draft.caller_memory_on)
+        lines.append(
+            f"The assistants that keep notes about you between calls also say so at the "
+            f"start of the call ({named}). They always do: an assistant that keeps notes "
+            'says so, and there is no separate setting for it — see "If you have called '
+            'us before" below.'
+        )
     lines.append(
         "Whatever the call opens with, if you ask the assistant whether it is an AI, or "
         "whether the call is being recorded, it will tell you the truth. That is enforced "
         "by the platform and cannot be switched off."
     )
     return "\n".join(lines)
+
+
+def _memory_paragraph(draft: CallerNoticeDraft) -> str:
+    """The cross-call memory sentence, or "" when this client does not remember callers.
+
+    EMPTY BY DEFAULT AND FOR EVERY CLIENT TODAY, which is why it is a whole section rather
+    than a clause bolted onto another one: a notice that mentions memory when there is none
+    over-discloses, and one that stays silent when there IS memory under-discloses, which
+    is the direction Rule 3 is about. The switch decides, so the document can only say what
+    the configuration does.
+
+    It names the agents, like `_disclosure_paragraph` does, because a business running a
+    receptionist that remembers and a campaign that does not is telling their callers two
+    different things and the draft must not flatten them into one.
+    """
+    if not draft.caller_memory_on:
+        return ""
+    named = ", ".join(draft.caller_memory_on)
+    kept = (
+        f"it is kept for {draft.memory_retention_days} days after the call it was taken on"
+        if draft.memory_retention_days is not None
+        else "{{ASK CALEVATE HOW LONG THESE NOTES ARE KEPT — YOUR ACCOUNT HAS NO "
+        "RETENTION SETTING FOR THEM}}"
+    )
+    return (
+        "## If you have called us before\n\n"
+        f"Some of our assistants keep a short note of what you asked about, so that the "
+        f"next time you call they already know ({named}). Those assistants tell you so at "
+        "the start of the call. It is a note of the SUBJECT — "
+        '"asked about prices", not a recording or a transcript of what you said — and '
+        f"{kept} — a clock of its own, not the one that applies to the recording or the "
+        "transcript. You can ask us to erase it with everything else, using the "
+        'contact under "Your rights".\n\n'
+        "{{YOUR ADVOCATE MUST CHECK THIS SECTION BEFORE YOU PUBLISH IT. Keeping notes "
+        "about a caller between calls is a decision you have made, not something a phone "
+        "call inherently does, and it is the part of this notice a caller is least likely "
+        "to expect.}}\n"
+    )
 
 
 def _render(draft: CallerNoticeDraft) -> str:
@@ -328,6 +462,7 @@ only on our instructions.
 
 {collected}
 
+{_memory_paragraph(draft)}
 ## Why we collect it
 
 To answer your enquiry, to do what you asked us to do on the call, to keep a record of
@@ -372,11 +507,27 @@ async def build_caller_notice(session: AsyncSession, *, tenant_id: UUID) -> Call
     explicit at the call site and can be logged, exactly as the erasure producer does.
     """
     agents = await _reachable_agents(session)
+    remembering = [a["name"] for a in agents if a["caller_memory_enabled"]]
+    retention = await _retention(session)
+    # ONE READ, ONE NUMBER. The period appears twice in the finished document — as a line
+    # in "How long we keep it" and inside the memory section that explains what the note
+    # is — and both come from this row, so they cannot disagree. And it is DROPPED
+    # entirely for a tenant that keeps no notes: the seed writes the row for every
+    # organisation, so printing it unconditionally would state a period for a collection
+    # that is not happening (see `_CATEGORY_LABELS`).
+    memory_days = next(
+        (line.days for line in retention if line.what == _MEMORY_CATEGORY_LABEL), None
+    )
+    if not remembering:
+        retention = [line for line in retention if line.what != _MEMORY_CATEGORY_LABEL]
+        memory_days = None
     draft = CallerNoticeDraft(
         collected=_collected(agents),
-        retention=await _retention(session),
+        retention=retention,
         ai_disclosure_off=[a["name"] for a in agents if not a["ai_disclosure_enabled"]],
         recording_notice_off=[a["name"] for a in agents if not a["recording_notice_enabled"]],
+        caller_memory_on=remembering,
+        memory_retention_days=memory_days,
         open_questions=_open_questions(agents),
     )
     log.info(
@@ -392,6 +543,8 @@ async def build_caller_notice(session: AsyncSession, *, tenant_id: UUID) -> Call
         retention=draft.retention,
         ai_disclosure_off=draft.ai_disclosure_off,
         recording_notice_off=draft.recording_notice_off,
+        caller_memory_on=draft.caller_memory_on,
+        memory_retention_days=draft.memory_retention_days,
         open_questions=draft.open_questions,
         markdown=_render(draft),
     )
@@ -416,6 +569,20 @@ def _open_questions(agents: list[dict[str, Any]]) -> list[str]:
         "Have your advocate check this before you publish it. Calevate generated the "
         "facts; the wording and the legal basis are yours.",
     ]
+    if any(agent["caller_memory_enabled"] for agent in agents):
+        # FIRST, ahead of the standing four, because it is the only one on this list that
+        # is about a collection the caller does not expect at all. The other questions ask
+        # a business to fill in facts about itself; this one asks whether they may lawfully
+        # do a thing they have already switched on (D-506).
+        questions.insert(
+            0,
+            "Your assistants keep notes about callers BETWEEN calls. Have your advocate "
+            "confirm you may: it is a purpose your notice has to state before you collect "
+            "for it, and it is not something a caller expects from a phone call. Ask them "
+            "specifically whether telling people in writing is enough for someone who "
+            "simply rings you and never sees this page, and whether any of the notes could "
+            "amount to health or other sensitive information.",
+        )
     if any(not agent["ai_disclosure_enabled"] for agent in agents):
         questions.insert(
             0,

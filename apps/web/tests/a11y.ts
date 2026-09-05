@@ -289,6 +289,20 @@ export function assertScreenRendered(container: Element, screen: string): void {
  * router, which is the failure mode a hand-written sweep always has.
  */
 export const UNSWEPT_SCREENS: Record<string, string> = {
+  ...Object.fromEntries(
+    ["credits", "usage", "spend", "invoice"].map((retired) => [
+      `c/[slug]/${retired}/page.tsx`,
+      // D-525 folded the four money screens into `c/[slug]/billing` and left these four
+      // files as SERVER REDIRECTS (`lib/billingRedirect.ts`) so that every link already
+      // in the world still lands on the tab it meant. A redirect renders no markup at
+      // all — `redirect()` answers the request — so there is no subtree for axe to scan,
+      // and rendering one under jsdom throws `NEXT_REDIRECT` rather than producing a
+      // page. What they redirect TO is swept: `c/[slug]/billing/page.tsx`.
+      // CLOSED BY: deleting these files, which is a decision about old links and not
+      // about accessibility.
+      "a server redirect into c/[slug]/billing (D-525) — it renders no markup to scan",
+    ]),
+  ),
   "layout.tsx": (
     "the ROOT layout renders `<html lang=\"en\">` and `<body>`, which React Testing " +
     "Library cannot mount into a container div — there is no subtree for axe to scan. " +

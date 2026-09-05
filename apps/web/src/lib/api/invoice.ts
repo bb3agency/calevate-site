@@ -29,6 +29,7 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { adminSession } from "./admin";
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
+import { istDateStamp } from "@/components/ui";
 
 type Schemas = components["schemas"];
 
@@ -95,6 +96,6 @@ export function useClientInvoice(session: Session, month?: string): UseQueryResu
  * Both screens default to this: the API bills on the IST month, so a picker on any other
  * clock would disagree with the statement it is asking for.
  */
-export function currentISTMonth(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }).slice(0, 7);
+export function currentISTMonth(at?: Date): string {
+  return istDateStamp(at).slice(0, 7);
 }

@@ -646,6 +646,7 @@ def test_a_deployment_with_no_azure_credential_at_all_stays_put(
     founder's constant along with the Vertex leg, so what turns this leg off is having no
     credential rather than a boolean somebody has to remember to flip."""
     from apps.api.agents import service
+    from apps.api.core.errors import ProblemError
 
     _configure(
         monkeypatch,
@@ -654,11 +655,17 @@ def test_a_deployment_with_no_azure_credential_at_all_stays_put(
         azure_openai_deployment=None,
     )
     assert service.in_call_llm(None) == {"llm_model": None}
-    # An EXPLICIT Azure choice still passes straight through on this arm: there is no
-    # deployment indirection, so the model identifier IS what the engine is sent.
-    assert service.in_call_llm(AZURE_OPENAI_DEFAULT_MODEL) == {
-        "llm_model": AZURE_OPENAI_DEFAULT_MODEL
-    }
+    # ⚠ AN EXPLICIT AZURE CHOICE IS NOW REFUSED HERE, AND THIS ASSERTION USED TO BE ITS
+    # OPPOSITE. The passthrough forwarded a CHOSEN model too, on the ground that with no
+    # deployment indirection the identifier IS what the engine is sent — which published an
+    # agent under a model the client had been quoted and billed for while the engine served
+    # it from its own bundled tier (`agents/llm_models.py`'s module docstring carries the
+    # vendor page). The passthrough now fires only when NOBODY chose; a choice this platform
+    # cannot address is the loud refusal, and `validate_llm_model` refuses the selection one
+    # step earlier so this arm is only reachable when config moved under a live choice.
+    with pytest.raises(ProblemError) as refused:
+        service.in_call_llm(AZURE_OPENAI_DEFAULT_MODEL)
+    assert refused.value.code == "llm_model_not_deployed"
 
 
 def test_a_fully_configured_deployment_moves_the_endpoint_and_the_model_together(
@@ -678,6 +685,13 @@ def test_a_fully_configured_deployment_moves_the_endpoint_and_the_model_together
     _configure(monkeypatch)
     monkeypatch.setattr(
         get_settings(), "azure_openai_model", AZURE_OPENAI_DEFAULT_MODEL, raising=False
+    )
+    # AND THE PLATFORM'S OWN DEFAULT IS ITS OWN SETTING: `azure_openai_model` says
+    # which model the deployment was made from, `platform_llm_model` says what an account
+    # that has chosen nothing runs. This case is about the Azure leg, so it puts the platform
+    # rung on the Azure model; the shipped default is a Google one.
+    monkeypatch.setattr(
+        get_settings(), "platform_llm_model", AZURE_OPENAI_DEFAULT_MODEL, raising=False
     )
 
     leg = service.in_call_llm(None)

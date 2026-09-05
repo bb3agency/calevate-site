@@ -94,12 +94,34 @@ async def _tenant() -> UUID:
         billing_email=None,
         language="te-IN",
         created_by=None,
+        # `managed`, named rather than inherited (D-521 moved the default to `prepaid`).
+        # Every fixture below writes a PLAN with `included_min`, an `overage_rate` and an
+        # `llm_model_surcharge`, and the assertions are that the live counter and the
+        # statement agree about those rupees. On a prepaid month the minutes are priced
+        # at the published list rate instead, so the counter and the statement would be
+        # about two different arithmetics — which is what the failure looked like.
+        plan_tier="managed",
     )
     return UUID(str(created["id"]))
 
 
 async def _plan(tenant_id: UUID, *, included: int, surcharge: Decimal | None) -> None:
+    """The plan row, and the motion that reads it.
+
+    THE TIER IS SET HERE rather than at each fixture because a `plans` row with an
+    included allowance, an overage rate and an `llm_model_surcharge` IS the invoiced
+    motion — the two facts belong together, and the tests below assert that the live
+    counter and the statement agree about those rupees. D-521 moved the platform default
+    to `prepaid`, which prices minutes at the published list rate and ignores the
+    allowance, so a fixture that took the default would have the counter and the
+    statement doing two different arithmetics. Some callers reach here already on
+    `managed`; the write is idempotent.
+    """
     async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET plan_tier = 'managed' WHERE id = :t"),
+            {"t": tenant_id},
+        )
         await session.execute(
             text(
                 "INSERT INTO plans (id, tenant_id, monthly_fee, included_min, overage_rate, "
@@ -139,10 +161,10 @@ async def _bill_minutes(
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, status, engine, created_at, "
-                "updated_at) VALUES (:a, :t, 'Surcharge', 'outbound', 'Idi AI assistant.', "
-                "'Idi AI assistant.', 'This call is being recorded.', 'live', 'fake', now(), "
-                "now())"
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, status, "
+                "engine, created_at, updated_at) VALUES (:a, :t, 'Surcharge', 'outbound', 'Idi "
+                "AI assistant.', 'Idi AI assistant.', 'This call is being recorded.', 'I keep a "
+                "short note of what you ask about.', 'live', 'fake', now(), now())"
             ),
             {"a": agent_id, "t": tenant_id},
         )
@@ -445,6 +467,10 @@ async def test_a_month_that_straddles_a_model_switch_totals_exactly() -> None:
             minutes=summary["minutes_used"],
             overage_cost_inr=summary["overage_cost_inr"],
             llm_surcharge_inr=summary["llm_surcharge_inr"],
+            # MANAGED, so the list rate is not read at all (D-492). A number nothing
+            # else in this file uses, so a managed answer that ever moved with it would
+            # be unmistakable.
+            self_serve_rate_inr_per_min=Decimal("999.00"),
         )
     ) == to_paise(Decimal("65") * OVERAGE_RATE + Decimal("25") * SURCHARGE)
 
@@ -472,10 +498,10 @@ async def _bill_seconds(tenant_id: UUID, *, seconds: int, model: str) -> None:
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, status, engine, created_at, "
-                "updated_at) VALUES (:a, :t, 'Surcharge', 'outbound', 'Idi AI assistant.', "
-                "'Idi AI assistant.', 'This call is being recorded.', 'live', 'fake', now(), "
-                "now())"
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, status, "
+                "engine, created_at, updated_at) VALUES (:a, :t, 'Surcharge', 'outbound', 'Idi "
+                "AI assistant.', 'Idi AI assistant.', 'This call is being recorded.', 'I keep a "
+                "short note of what you ask about.', 'live', 'fake', now(), now())"
             ),
             {"a": agent_id, "t": tenant_id},
         )
@@ -852,6 +878,8 @@ def test_the_month_total_is_the_three_published_components_and_nothing_else(
         minutes=Decimal("120.50"),
         overage_cost_inr=Decimal(overage),
         llm_surcharge_inr=Decimal(surcharge),
+        # MANAGED: the list rate is not read on this branch (D-492).
+        self_serve_rate_inr_per_min=Decimal("999.00"),
     )
     assert answer == Decimal(expected)
 
@@ -872,11 +900,13 @@ def test_the_client_total_and_the_admin_revenue_are_the_same_expression() -> Non
         minutes=Decimal("120.50"),
         overage_cost_inr=overage,
         llm_surcharge_inr=surcharge,
+        self_serve_rate_inr_per_min=Decimal("999.00"),
     ) == fee + calling_revenue_inr(
         plan_tier="managed",
         minutes=Decimal("120.50"),
         overage_cost_inr=overage,
         llm_surcharge_inr=surcharge,
+        self_serve_rate_inr_per_min=Decimal("999.00"),
     )
 
 
@@ -894,6 +924,7 @@ def test_the_total_is_unquantized_so_its_two_callers_can_round_once_each() -> No
         minutes=Decimal("1.00"),
         overage_cost_inr=Decimal("0.0002"),
         llm_surcharge_inr=Decimal("0.0000"),
+        self_serve_rate_inr_per_min=Decimal("999.00"),
     )
     assert answer == Decimal("0.0003"), "the fraction survives the addition"
 

@@ -109,9 +109,10 @@ async def _tenant(role: str = "owner", schema: list[dict[str, Any]] | None = Non
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, status, engine, created_at, "
-                "updated_at) VALUES (:id, :tid, 'Sales', 'inbound', 'Idi AI assistant.', 'Idi AI "
-                "assistant.', 'This call is being recorded.', 'live', 'fake', now(), now())"
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, status, "
+                "engine, created_at, updated_at) VALUES (:id, :tid, 'Sales', 'inbound', 'Idi AI "
+                "assistant.', 'Idi AI assistant.', 'This call is being recorded.', 'I keep a "
+                "short note of what you ask about.', 'live', 'fake', now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id},
         )

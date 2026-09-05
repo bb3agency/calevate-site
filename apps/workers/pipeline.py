@@ -54,6 +54,7 @@ from apps.api.billing.caps import (
     lock_tenant_spend_state,
     over_cap_sql,
 )
+from apps.api.billing.list_rates import self_serve_rate_at
 from apps.api.billing.plans import ist_billing_month, month_pricing_instant, plan_in_effect_sql
 from apps.api.billing.rates import (
     MONEY_Q,
@@ -90,11 +91,11 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.observability import set_span_attributes, span, tracing_enabled
 from apps.api.core.queue import WORKER_MAX_TRIES, enqueue, job_id_for
-from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
+from apps.api.ingest.service import normalize_phone
 from apps.api.insights import detection as gap_detection
 from apps.api.insights import service as gap_service
 from apps.api.integrations import service as integrations
@@ -115,6 +116,46 @@ from apps.workers.storage import (
 )
 
 log = get_logger(__name__)
+
+
+def _party_e164(raw: str | None) -> str | None:
+    """A vendor's spelling of a phone number, in OUR canonical form.
+
+    **THE VENDOR'S STRING WAS BEING USED AS A KEY, AND IT IS NOT ONE.** `_first_e164`
+    returns whatever the engine printed — `bolna.py` documents four different places the
+    number can arrive from and normalises none of them — and that string went straight
+    into `calls.from_e164`/`to_e164` and into `leads.phone_e164`, which is a THIRD of
+    `UNIQUE(tenant_id, phone_e164, agent_id)`. Every other producer of those columns
+    already goes through `ingest.normalize_phone` (the webhook path, `record_call_optout`,
+    `subject_phone`, the DNC and consent routes), so the engine was the one door into the
+    two tables that let an unnormalised spelling in. Three things break on it, and none
+    of them raises:
+
+    * **One caller becomes two leads.** `+919876543210` on one call and `+91 98765 43210`
+      on the next are two rows under one person, so the repeat-caller flag never flips and
+      the client's CRM shows the same customer twice.
+    * **The dial gate stops protecting them.** `compliance.check_dispatch` compares
+      `phone_e164` to `dnc_list.phone_e164` with `=`, and the DNC list is stored
+      normalised. `+91 98765 43210` passes the India-prefix check and misses the DNC row,
+      so `POST /v1/leads/{id}/call` rings a number on the do-not-call list — a TCCCPR
+      violation with a timestamp on it.
+    * **A DPDP erasure cannot find them.** `workers/retention.execute_deletion_request`
+      matches `calls.from_e164 = :phone` and `leads.phone_e164 = :phone` against the
+      normalised number on the request, so the un-normalised rows are unreachable by the
+      one query in this repository with a statutory clock on it (DPDP §12).
+
+    **IT FALLS BACK TO THE RAW STRING RATHER THAN DROPPING IT.** `normalize_phone` returns
+    None rather than guessing a country, and that refusal is right — but here the
+    alternative to a number we cannot canonicalise is NO number, which loses the call's
+    only link to its subject and the lead its only key. Keeping what the vendor said is
+    exactly today's behaviour for that case, so this function can only ever improve a
+    row, never empty one; the un-canonicalisable value stays visible in the CRM where a
+    human can see it. It never invents a country and never edits a digit.
+    """
+    if raw is None:
+        return None
+    return normalize_phone(raw) or raw
+
 
 POSTCALL_JOB = "run_post_call_pipeline"
 INGEST_JOB = "ingest_engine_event"
@@ -506,8 +547,16 @@ async def _upsert_call_row(
                     "  ended_at = COALESCE(EXCLUDED.ended_at, calls.ended_at), "
                     "  duration_s = COALESCE(EXCLUDED.duration_s, calls.duration_s), "
                     "  updated_at = now() "
-                    "WHERE calls.status NOT IN ('completed', 'failed', 'no_answer', 'busy', "
-                    "'voicemail') OR EXCLUDED.status = 'completed' "
+                    # THE CONSTANT, NOT A RETYPED COPY OF ITS FIVE MEMBERS. This clause
+                    # is what stops a late `ringing` webhook un-completing a finished
+                    # call, and it spelled the terminal set as a SQL literal while
+                    # `TERMINAL_STATUSES` was already imported at the top of this file
+                    # and bound as `:terminal` by `_OUTSTANDING_CALLS_SQL` and
+                    # `reconcile_outstanding_calls`. A sixth terminal status added to
+                    # `calevate_shared.events` would have been terminal to those two and
+                    # NOT to this one — so a stale webhook could reopen it, silently, on
+                    # the one statement that owns the call row's status.
+                    "WHERE calls.status <> ALL(:terminal) OR EXCLUDED.status = 'completed' "
                     "RETURNING id"
                 ),
                 {
@@ -516,12 +565,15 @@ async def _upsert_call_row(
                     "aid": agent_id,
                     "ecid": snapshot.engine_call_id,
                     "dir": direction,
-                    "from_e": snapshot.from_e164,
-                    "to_e": snapshot.to_e164,
+                    # CANONICAL, not the vendor's spelling — `_party_e164` says why
+                    # these two columns are keys and not free text.
+                    "from_e": _party_e164(snapshot.from_e164),
+                    "to_e": _party_e164(snapshot.to_e164),
                     "status": snapshot.status,
                     "started": snapshot.started_at,
                     "ended": snapshot.ended_at,
                     "dur": snapshot.duration_s,
+                    "terminal": sorted(TERMINAL_STATUSES),
                 },
             )
         ).first()
@@ -1013,7 +1065,12 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         )
         set_span_attributes(stage, recording_notice_filed=filed)
 
-    needs_extraction = bool(spec.fields or transcript_text)
+    # `snapshot.transcript`, NOT `transcript_text`: the two agreed until the line above
+    # started dropping wordless turns, and this one has to keep agreeing with
+    # `EXTRACTION_OWED_SQL` — whose transcript half is `EXISTS (transcript_turns)`, and
+    # a blank turn is still a row. A call that reads "not owed" here and "owed" there is
+    # a call `report_stalled_pipeline` alarms on and the poller re-drives forever.
+    needs_extraction = bool(spec.fields or snapshot.transcript)
     # THE SPAN THIS WHOLE EXERCISE IS FOR. A model round trip lives in here, and it is
     # the stage most likely to own the missing minutes — a 30s extraction timeout
     # (EXTRACTION_TIMEOUT_S) plus an ARQ retry is a lead that arrives late with nothing
@@ -1024,12 +1081,24 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
         field_count=len(spec.fields),
         input_bytes=len(transcript_text.encode("utf-8", "replace")),
     ) as stage:
-        extraction = await extract_call(spec, transcript_text) if needs_extraction else None
+        # A re-run reuses the extraction a previous run already paid for (see
+        # `_settled_extraction` for the three conditions that refuse the reuse) — the
+        # same guard-before-the-third-party shape as `_copy_recording_once`, on the
+        # other stage that pays one.
+        extraction = (
+            await _settled_extraction(tenant_id, call_id, schema_version=schema_version)
+            if needs_extraction
+            else None
+        )
+        reused = extraction is not None
+        if needs_extraction and extraction is None:
+            extraction = await extract_call(spec, transcript_text)
         set_span_attributes(
             stage,
             extract_status=(
                 "skipped" if extraction is None else ("valid" if extraction.valid else "invalid")
             ),
+            extract_reused=reused,
         )
 
     if extraction is not None:
@@ -1326,7 +1395,16 @@ async def _persist_transcript(tenant_id: UUID, call_id: UUID, snapshot: Executio
     async with tenant_session(tenant_id) as session:
         for turn in snapshot.transcript:
             redacted = redact(turn.text)
-            lines.append(f"{turn.speaker}: {turn.text}")
+            # A TURN WITH NO WORDS IN IT IS NOT A LINE OF THE EXTRACTOR'S INPUT. The row
+            # is still written — it is what the engine reported and `start_ms` on it is
+            # real — but `agent: ` with nothing after it carries no evidence, and a
+            # reading in which EVERY turn came back blank (an STT that heard only noise,
+            # a Telugu call transcribed as silence) would otherwise reach the model as a
+            # page of speaker labels and buy a chargeable round trip to read them.
+            # `extract_call` turns the resulting empty string into the schema's own
+            # verdict without a provider call.
+            if turn.text.strip():
+                lines.append(f"{turn.speaker}: {turn.text}")
             await session.execute(
                 text(
                     "INSERT INTO transcript_turns (id, tenant_id, call_id, idx, speaker, text, "
@@ -1422,6 +1500,82 @@ async def _maybe_record_opt_out(
             signal=signal,
         )
     return "recorded" if record.evidence_written else "already"
+
+
+async def _settled_extraction(
+    tenant_id: UUID, call_id: UUID, *, schema_version: int
+) -> ExtractionOutput | None:
+    """The extraction a PREVIOUS run of this pipeline already paid for, or None.
+
+    **`_copy_recording_once`'s guard, on the other stage that pays a third party.** A
+    re-entry is normal here — a webhook that arrives after the poller resolved the call
+    (D-31), an ARQ retry after a transient failure in a LATER stage, a `_pipeline_settled`
+    re-drive for a different missing artefact (`_expected_artifacts` names the cost in as
+    many words: "re-driving a whole pipeline (including a billed extraction)") — and every
+    one of them re-ran `extract_call`: a paid model round trip (the Sarvam chat leg is
+    priced per token, `billing/rates.SARVAM_LLM_INR_PER_MTOK`) whose answer the first run
+    already persisted. Reusing the stored row makes a re-drive for a missing CRM fan-out
+    cost a SELECT instead of a model call — and, the half that is not about money, makes
+    the extraction STABLE across re-drives: a model is not deterministic, so a re-run
+    could silently rewrite `data` and `calls.summary` under a lead the client had already
+    read, which is drift nobody asked for.
+
+    RECONSTRUCTED FAITHFULLY, and the field list is why that is possible: everything the
+    pipeline consumes downstream of `extract_call` — `data` (moments, the lead upsert,
+    the hot-lead alert), `valid`/`errors`/`needs_review` (the re-persist), `summary`/
+    `sentiment`/`outcome_tag` (the CRM fan-out, via `calls`) — is durable in
+    `call_extractions` and `calls`. The two fields that are NOT stored (`out_of_scope`,
+    `callback_requested`) are read by nothing in this pipeline; their defaults are what a
+    reader of the reconstructed object gets, exactly as a reader of the stored row gets
+    nothing.
+
+    THREE CONDITIONS REFUSE THE REUSE, each because a re-run is then the repair:
+
+    - **no row** — the first run never got that far, which is the re-drive's whole reason;
+    - **a different `schema_version`** — the agent's schema changed between runs, and the
+      stored answer is an answer to a different question;
+    - **`errors` carries `_model`** — the provider never answered at all (`extract_call`'s
+      ladder), so the stored row is a placeholder for the retry this run IS.
+
+    A row that is merely `valid=False` on schema grounds IS reused: the model answered,
+    the answer stood and was shown, and re-paying for a non-deterministic second opinion
+    is exactly the spend this guard exists to stop.
+    """
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT ce.data, ce.valid, ce.errors, ce.needs_review, "
+                    "       c.summary, c.sentiment, c.outcome_tag "
+                    "FROM call_extractions ce "
+                    "JOIN calls c ON c.id = ce.call_id AND c.tenant_id = ce.tenant_id "
+                    "WHERE ce.call_id = :cid AND ce.tenant_id = :tid "
+                    "  AND ce.schema_version = :ver"
+                ),
+                {"cid": call_id, "tid": tenant_id, "ver": schema_version},
+            )
+        ).first()
+    if row is None:
+        return None
+    data, valid, errors, needs_review, summary, sentiment, outcome_tag = row
+    errors = errors if isinstance(errors, dict) else {}
+    if "_model" in errors:
+        return None
+    # The same coercions `extract_call` applies to a fresh answer, so a reconstructed
+    # object and a fresh one cannot be judged by two different rules.
+    return ExtractionOutput(
+        data=data if isinstance(data, dict) else {},
+        summary=str(summary or ""),
+        sentiment=sentiment if sentiment in ("positive", "neutral", "negative") else "neutral",
+        outcome_tag=(
+            outcome_tag
+            if outcome_tag in ("resolved", "needs_follow_up", "transferred", "dropped")
+            else "resolved"
+        ),
+        valid=bool(valid),
+        errors=errors,
+        needs_review=needs_review if isinstance(needs_review, dict) else {},
+    )
 
 
 async def _persist_extraction(
@@ -1693,7 +1847,7 @@ async def _upsert_lead(
     returning customer would put the repeat-caller context injection (FLOWS §3) in front
     of a first-time caller.
     """
-    caller = snapshot.from_e164 if direction == "inbound" else snapshot.to_e164
+    caller = _party_e164(snapshot.from_e164 if direction == "inbound" else snapshot.to_e164)
     if not caller:
         return None
     lead_id = uuid7()
@@ -2292,6 +2446,21 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # about today (see the next paragraph). One spelling, `billing.plans
         # .ist_billing_month`, on the instant the ledger rows are stamped with.
         month = ist_billing_month(snapshot.ended_at or datetime.now(UTC))
+        # THE INSTANT THIS MONTH'S TERMS ARE RESOLVED AT, read ONCE and handed to both of
+        # them. The plan row below and the self-serve list rate are two terms of the same
+        # month, and taking two readings of the clock is how a call that settles across the
+        # roll gets its plan from one month and its list price from the other.
+        priced_at = month_pricing_instant(month)
+        # WHAT A MINUTE COST IN *THIS CALL'S OWN* MONTH (D-492). This was
+        # `get_settings().self_serve_inr_per_min` — the LIVE setting — in both places
+        # below, while the `llm_surcharge` added to it in the same expression was already
+        # resolved at `priced_at`. So a LATE-SETTLING call was debited at NEXT month's
+        # price and surcharged at its own: the reconciliation poller's window straddling
+        # midnight IST on the 1st, an ARQ retry ladder crossing it, or a vendor that takes
+        # minutes to price a call all land there. `billing/list_rates.py` is the one home
+        # of that number now, and `usage_summary` reads it at the same instant, so the
+        # wallet debit, this counter and the client's statement cannot disagree.
+        list_rate = await self_serve_rate_at(session, at=priced_at)
         # THE PLAN ROW IS READ ONCE HERE and used for both halves below, rather than
         # re-read under the lock: a second reading could land on a different row if an
         # operator changed the plan between the two statements — the wallet debit and the
@@ -2326,7 +2495,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                         "overage_rate, overage_rate_value, llm_model_surcharge"
                     )
                 ),
-                {"tid": tenant_id, "at": month_pricing_instant(month)},
+                {"tid": tenant_id, "at": priced_at},
             )
         ).first()
         # THE PLAN'S TERMS AS THIS CALL SEES THEM. Both rungs, not one: this counter no
@@ -2382,7 +2551,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 # the wallet drains exactly as it did before.
                 amount_inr=prepaid_billed_inr(
                     minutes=minutes,
-                    self_serve_rate=get_settings().self_serve_inr_per_min,
+                    self_serve_rate=list_rate,
                 )
                 + llm_surcharge_billed_inr(
                     minutes=minutes if llm_bucket != UNSURCHARGED_MODEL else Decimal("0"),
@@ -2425,6 +2594,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             rate=overage_rate,
             rate_value=overage_rate_value,
             llm_surcharge=llm_surcharge,
+            self_serve_rate=list_rate,
         )
         billed = increment.billed_inr
         counters = (
@@ -2527,6 +2697,7 @@ async def _counter_increment(
     rate: Decimal,
     rate_value: Decimal | None,
     llm_surcharge: Decimal | None,
+    self_serve_rate: Decimal,
 ) -> _CounterIncrement:
     """This call's contribution to the two `spend_state` counters the cap is judged on.
 
@@ -2548,7 +2719,18 @@ async def _counter_increment(
 
     PREPAID (`self_serve`, `trial`) RUPEES: every minute is charged with no allowance in
     front of it, so the accrual is the same figure `charge_for_call` was just given, from
-    the same function. Deliberately computed twice rather than threaded through as a
+    the same function, at the same `self_serve_rate`.
+
+    `self_serve_rate` IS PASSED IN RATHER THAN READ FROM `Settings` HERE (D-492), and that
+    is a money fix: this branch read the LIVE setting while the `llm_surcharge` beside it in
+    the same expression had already been resolved at the month's pricing instant, so a call
+    that settled after the IST month rolled was debited at NEXT month's price. The caller
+    resolves it once from `billing/list_rates.self_serve_rate_at` at `month_pricing_instant`
+    and hands the SAME figure to `charge_for_call` and to this function — the two are still
+    computed twice on purpose (see the paragraph below), but they can no longer be computed
+    from two different rates.
+
+    Deliberately computed twice rather than threaded through as a
     variable — the two are the same NUMBER but not the same FACT, and a future tier with
     a wallet discount would want the debit and the accrual to diverge without either
     quietly following the other. It is emphatically NOT the ledger's increment: a call is
@@ -2602,7 +2784,7 @@ async def _counter_increment(
             # actually taken off it, to the paisa.
             billed_inr=prepaid_billed_inr(
                 minutes=minutes,
-                self_serve_rate=get_settings().self_serve_inr_per_min,
+                self_serve_rate=self_serve_rate,
             )
             + llm_surcharge_billed_inr(
                 minutes=minutes if llm_model_bucket != UNSURCHARGED_MODEL else Decimal("0"),

@@ -82,8 +82,9 @@ thing an end date must prevent.
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import UUID
+from zoneinfo import ZoneInfo
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -93,9 +94,32 @@ from apps.api.core.logging import get_logger
 
 log = get_logger(__name__)
 
-# India has no DST, so the billing offset is a constant and not a zoneinfo lookup —
-# the same +05:30 `billing.service._IST_MONTH` adds in SQL, as a Python tzinfo.
-IST = timezone(timedelta(hours=5, minutes=30))
+# THE BILLING MONTH'S TIMEZONE, BY NAME AND NEVER BY A FIXED OFFSET.
+#
+# ⚠ **THIS WAS `timezone(timedelta(hours=5, minutes=30))`, AND ITS COMMENT DESCRIBED CODE
+# THAT NO LONGER EXISTED.** It read "the same +05:30 `billing.service._IST_MONTH` adds in
+# SQL" — but `_IST_MONTH` stopped adding an interval precisely because doing so was a
+# correctness bug (`billing/service.py` carries the three-timezone measurement); it is
+# `AT TIME ZONE 'Asia/Kolkata'`, a NAMED zone. So the two halves of "which billing month
+# is this instant in" — the SQL one that stamps `ai_quota`'s counter out of `RETURNING`,
+# and this one, which builds the window every money rollup filters on — were resolving the
+# same question through two different definitions of IST, and `ist_month_window` below
+# said in its own docstring that it did not ("built in IST and converted, never by adding
+# +05:30").
+#
+# They agree today and would stop agreeing the moment India adopted DST, in the direction
+# that costs: the zone follows a rule change and a hardcoded offset does not, so a call at
+# the boundary would be in one month according to the counter and another according to the
+# panel, the invoice and the cap. `agents/business_hours.py` already argues this for the
+# calling window in as many words ("IST — `Asia/Kolkata`, by name, never by a fixed
+# offset") and names billing months as a reason; this is that rule arriving on the module
+# that actually decides them. Nothing moves today — the offsets are identical — which is
+# what makes it safe to make the two spellings one.
+#
+# The literal rather than an import: `crm/performance.IST_ZONE` holds the same string, and
+# billing may not import crm (the layering runs the other way). `agents/business_hours.py`
+# spells it directly for the same reason.
+IST = ZoneInfo("Asia/Kolkata")
 
 # The SQL literal for "now", for the callers that price the present. Named so a reader
 # of `CAPS_CTE` can see WHICH instant is being resolved at, rather than finding a bare
@@ -228,7 +252,8 @@ def ist_month_window(month: str) -> tuple[datetime, datetime]:
 
     The bounds are built in IST and converted, never by adding `+05:30`: an offset is a
     fact about today and a zone is a fact about the calendar (the module docstring and
-    `agents/business_hours.py` both make this call the same way).
+    `agents/business_hours.py` both make this call the same way). That sentence was
+    ASPIRATIONAL until `IST` stopped being a fixed offset — see the constant.
     """
     year, mon = parse_billing_month(month)
     start = datetime(year, mon, 1, tzinfo=IST)

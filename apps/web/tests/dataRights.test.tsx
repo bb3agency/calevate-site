@@ -80,6 +80,10 @@ function completedRequest(): DeletionRequest {
         transcript_turns_erased: 34,
         call_extractions_erased: 2,
         recordings_within_trai_floor: 1,
+        // Required on the wire since the caller-chunk erasure landed on the proof. Numeric
+        // means the store was searched; `null` (a proof predating it) means it could not be.
+        caller_vectors_erased: 27,
+        caller_memories_erased: 3,
         // Required on the wire since the recording-hold fields landed on the proof;
         // added by the slice that regenerated the client, so the fixture is a shape the
         // server can actually send.
@@ -244,6 +248,38 @@ describe("data rights — filing an erasure", () => {
     // Irreversible and therefore idempotent on the wire: a double-click must not file two.
     expect(filed?.headers["Idempotency-Key"]).toBeTruthy();
     for (const call of view.calls) expect(call.url).not.toContain("9876543210");
+  });
+
+  it("offers a target check before erasing — whose record the digits point at (DR-1)", async () => {
+    const view = await render({ [EXPORT_PATH]: EXPORT_DOCUMENT, [LIST_PATH]: [] });
+
+    type(/Number to erase permanently/, PHONE);
+    // The typed ERASE confirms INTENT; this button confirms TARGET.
+    fireEvent.click(screen.getByRole("button", { name: /Check whose record this is first/ }));
+
+    await screen.findByText(/All of it will be erased/);
+    const previewCall = view.calls.find(
+      (call) => call.path === "/v1/compliance/subject-export" && call.method === "POST",
+    );
+    expect(previewCall?.body).toBe(JSON.stringify({ phone: PHONE }));
+
+    // Changing the number withdraws the previous person's counts — a count standing
+    // beside a different number is the wrong person's record vouching for this one.
+    type(/Number to erase permanently/, "+919876543299");
+    expect(screen.queryByText(/All of it will be erased/)).toBeNull();
+  });
+
+  it("says so in words when the target check finds nothing — the strongest sign of a typo", async () => {
+    await render({
+      [EXPORT_PATH]: {
+        ...EXPORT_DOCUMENT,
+        counts: { leads: 0, calls: 0, transcript_turns: 0, consent_records: 0, recordings_available: 0 },
+      },
+      [LIST_PATH]: [],
+    });
+    type(/Number to erase permanently/, PHONE);
+    fireEvent.click(screen.getByRole("button", { name: /Check whose record this is first/ }));
+    await screen.findByText(/check the digits/);
   });
 
   it("shows the certificate with what survived the erasure, not only what it cleared", async () => {

@@ -1,0 +1,332 @@
+"""The embedding vocabulary: which model, how wide, what it costs, and what it refuses.
+
+WHY THIS IS ITS OWN MODULE AND NOT A CONSTANT IN THE ADAPTER. Three surfaces need the same
+four facts and must never disagree about them: the migration that sizes the column, the
+sweep that fills it, and the retriever that embeds a question to compare against it. A
+vector written at one width and searched at another is not an error Postgres reports — it
+is `ERROR: different vector dimensions` on the lucky path and a silently wrong ranking on
+the unlucky one — so the width has one author.
+
+THE MODEL AND THE WIDTH, VERIFIED AT SOURCE. `text-embedding-3-small` is one of the three
+identifiers the vendor's own OpenAPI enumerates for `POST /embeddings`, and the same schema
+carries the `dimensions` request field: *"The number of dimensions the resulting output
+embeddings should have. Only supported in `text-embedding-3` and later models."*
+(VERIFIED-VENDOR-SPEC: `openai/openai-openapi` `openapi.yaml` @ `master`, `CreateEmbedding
+Request`, lines 34336-34358, fetched from `raw.githubusercontent.com` on 1 September 2026.)
+
+**THAT FIELD IS WHY `EMBEDDING_DIMS` IS SENT RATHER THAN ASSUMED, AND IT IS ALSO THE EXIT
+CLAUSE.** This repository has not read a vendor page stating the model's NATIVE width, and
+`platform.openai.com` and `azure.microsoft.com` are both egress-blocked from this container
+(measured 1 Sep 2026), so "1536 is the default" would be a claim with no source behind it
+(hard rule 11). Instead the request NAMES the width it wants and `check_width` refuses
+anything else, so the number in the column type is the number we asked for rather than a
+number we believed. The same field is what makes a later narrowing free: these models are
+Matryoshka-style, so 512 or 768 is a re-request, not a re-embedding — the property that
+keeps a move to a managed vendor cheap, since the vendor is handed whatever width we choose
+at export time.
+
+WHAT THIS MODULE DOES NOT DECIDE: whether a client may search (that is
+`retrieval/service.get_retriever`), what a chunk is (`kb/service.chunk_text`), and what a
+token costs (`billing/rates.llm_inr_per_ktok` — the one door to `unit_cost_paid`).
+"""
+
+from __future__ import annotations
+
+from typing import Final
+from uuid import UUID
+
+import httpx
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from apps.api.billing.ai_quota import new_assist_ref, record_ai_assist_usage
+from apps.api.billing.rates import llm_price_is_billable
+from apps.api.core.logging import get_logger
+from apps.api.core.settings import get_settings
+from apps.workers import chat
+from apps.workers.chat import ChatLeg
+from apps.workers.extraction import azure_credentials
+
+log = get_logger(__name__)
+
+#: The model, spelled as the wire spells it. Metered under this name — never under the
+#: Azure DEPLOYMENT id, which is an operator's free choice and which
+#: `billing/rates.llm_inr_per_ktok` publishes no price for (the D-410/D-417 distinction
+#: `workers/kb_gloss.py` already makes on the chat leg).
+EMBEDDING_MODEL: Final = "text-embedding-3-small"
+
+#: The width every vector in `kb_chunks.embedding` has, sent as the request's `dimensions`
+#: and re-checked on the way back. 1536 because it is the width the column was built at and
+#: the width the bake-off's plan analysis transfers to; the value is OURS, requested
+#: explicitly, not a vendor default this repository has read.
+#:
+#: Under pgvector's own limit for an HNSW index on `vector` (2,000 dimensions) with room to
+#: spare, which is what lets the index exist at all at this width.
+EMBEDDING_DIMS: Final = 1536
+
+#: `usage_events.meta.feature` for INGESTION embedding — the sweep that vectorises approved
+#: chunks (`apps/workers/kb_embeddings.py`).
+#:
+#: `crm/assist.ASSIST_FEATURE_KB_GLOSS`'s argument, applied a second time and for the same
+#: reason: this is background spend that NO CLIENT ACTION TRIGGERS, its quantity is a
+#: function of how much knowledge a client UPLOADS rather than of how much they USE, and an
+#: operator asking "what did we spend on the client's behalf" cannot answer it if a sweep is
+#: filed under an interactive surface. It is deliberately NOT the same name as the gloss:
+#: the two run on the same corpus and the same trigger but at different unit prices, and one
+#: name would make the two curves unseparable in the only ledger that has them.
+ASSIST_FEATURE_KB_EMBED: Final = "kb_embed"
+
+#: `usage_events.meta.feature` for QUERY-TIME embedding — one vector per dashboard search.
+#:
+#: A SEPARATE NAME FROM INGESTION, and the split is the point rather than bookkeeping
+#: neatness. Ingestion is paid once per chunk and is bounded by what a client uploads; this
+#: is paid once per QUESTION and is bounded by how much they use the assistant. They are two
+#: different cost curves on one model, and an operator sizing either one needs to see it
+#: alone. (Who ultimately PAYS for the query side is an open founder question; until it is
+#: answered this lands on the tenant's AI ceiling like every other thing their own click
+#: caused, which is the existing rule rather than a new one.)
+ASSIST_FEATURE_KB_SEARCH: Final = "kb_search_embedding"
+
+#: `usage_events.meta.feature` for QUERY-TIME embedding of a search over PAST CALLS —
+#: `retrieval/caller_search.py`, reached from the copilot's `search_calls` tool.
+#:
+#: **ITS OWN NAME, AND THE SPLIT IS THE SAME ARGUMENT AS THE ONE ABOVE, NOT A NEW ONE.**
+#: `kb_search_embedding` is a question asked of what a client PUBLISHED; this is a question
+#: asked of what their callers SAID. They are two corpora, two access-control stories and
+#: two cost curves — a client who never uploads knowledge can still search a year of calls,
+#: and an operator sizing either curve needs to see it alone. One name would make the two
+#: unseparable in the only ledger that has them, which is exactly why ingestion and query
+#: were split in the first place.
+#:
+#: It bills the CLIENT's AI quota, like every other thing their own click caused: the
+#: search is a person on the dashboard asking a question, not a background sweep.
+ASSIST_FEATURE_CALL_SEARCH: Final = "call_search_embedding"
+
+#: `usage_events.meta.feature` for QUERY-TIME embedding of a search over LEADS —
+#: `crm/lead_search.py`, reached from the Leads screen and from the copilot's
+#: `leads_semantic_search` tool.
+#:
+#: A THIRD NAME, for the second of the two reasons the first split was made rather than
+#: for a new one. The corpora differ (what a client PUBLISHED, what their callers SAID,
+#: what the agent CAPTURED as a CRM record) and so do the curves: lead search is bounded by
+#: how many leads an account has and is asked by a salesperson working a list, while call
+#: search is bounded by call volume and is asked by an owner reviewing a week. An operator
+#: sizing either cannot do it from a merged number, and a client disputing a bill is owed
+#: the surface their click was on.
+#:
+#: It bills the CLIENT's AI quota, exactly as the other two query-time names do: a person
+#: on the dashboard typed a question. INGESTION of these same leads is the platform's spend
+#: and is metered by the shared sweep under its own name — one claim, one price check.
+ASSIST_FEATURE_LEAD_SEARCH: Final = "lead_search_embedding"
+
+#: Wall clock for one embedding request. Nobody is waiting on the sweep; the dashboard
+#: search is, which is why this is short — a hung provider costs a slow tool call, not a
+#: hung copilot turn.
+EMBED_TIMEOUT_S: Final = 20.0
+
+#: The most texts one request carries. The vendor's own schema bounds `input` at 2,048
+#: array items (`openapi.yaml`, `CreateEmbeddingRequest`, read 1 Sep 2026); this is far
+#: below it because the thing being bounded here is not the vendor's limit but OUR blast
+#: radius — one failed request re-does at most this many chunks on the next tick, and one
+#: request's tokens are one `usage_events` row.
+EMBED_BATCH: Final = 32
+
+
+def embedding_price_is_billable() -> bool:
+    """May an embedding's cost reach `unit_cost_paid`? **THIS IS HARD RULE 7's PRE-FLIGHT.**
+
+    Asked BEFORE a provider is called, never after, and that ordering is the whole value of
+    the function. `record_ai_assist_usage` derives the price from the model and RAISES for a
+    model nobody priced — correct, and fatal in a worker: the raise rolls back the
+    transaction that also holds the state change, so the chunk returns to `pending` and the
+    next tick pays the provider again to reach the same raise. An unpriced embedding leg
+    would therefore buy vectors for ever and record none of them. Checking first turns that
+    loop into one log line and no spend.
+
+    `billing/rates.llm_price_is_billable` is asked rather than a second rule written here:
+    it is total, never raises, and already encodes the only two grounds this repository
+    accepts (an operator attested it, or the catalogue figure was read from the vendor).
+    Neither ground is met for this model by any constant in this tree — no embedding price
+    has been read from a vendor page here, and none is invented — so today this is True only
+    once an operator has entered the figure from their own Azure invoice
+    (`ops/model_pricing.set_model_price`).
+    """
+    return llm_price_is_billable(EMBEDDING_MODEL)
+
+
+def embedding_leg() -> ChatLeg | None:
+    """Where an embedding request goes, or None when this deployment cannot make one.
+
+    THE SAME RESOURCE, REGION AND CREDENTIAL AS EVERY OTHER LANGUAGE CALL (D-410/D-449), so
+    this adds NO sub-processor: `extraction.azure_credentials()` is the one reader of the
+    three Azure credential fields and `calevate_shared.engine.azure_openai_base_url` is the
+    one endpoint builder `scripts/check_model_residency.py` grants the host literal to.
+
+    **THE DEPLOYMENT IS ITS OWN FIELD AND CANNOT BE THE CHAT ONE.** On Azure a model is
+    served under a deployment id an operator chose, and an embedding model is a different
+    deployment from a chat model however they are named — posting `text-embedding-3-small`
+    input to the chat deployment is a 400 at best. So `azure_openai_embedding_deployment`
+    is read here and the chat deployment returned by `azure_credentials()` is deliberately
+    discarded.
+
+    Returns None rather than raising for `azure_credentials`' reason: a deployment with no
+    embedding deployment configured runs every other queue and every other tier, and this is
+    a configuration state an operator already sees rather than an incident.
+    """
+    credentials = azure_credentials()
+    if credentials is None:
+        return None
+    resource, api_key, _chat_deployment = credentials
+    deployment = (get_settings().azure_openai_embedding_deployment or "").strip()
+    if not deployment:
+        return None
+    # Imported here rather than at module scope only so the residency check's one-builder
+    # rule reads at the call site; there is no cycle to avoid.
+    from calevate_shared.engine import azure_openai_base_url
+
+    return ChatLeg(
+        url=f"{azure_openai_base_url(resource)}/embeddings",
+        api_key=api_key,
+        wire_model=deployment,
+        dialect="openai",
+    )
+
+
+async def embed_query_vector(
+    session: AsyncSession, *, tenant_id: UUID, question: str, feature: str
+) -> list[float] | None:
+    """One QUESTION as a vector, metered — or None, and then the dense arm is skipped.
+
+    **ONE IMPLEMENTATION FOR EVERY SEARCH SURFACE, and that is the point of it living here
+    rather than in an adapter.** Three surfaces now buy a question vector (knowledge, past
+    calls, leads) and every one of them has the same four obligations in the same order:
+    check the price BEFORE the provider is called, find the leg, meter what was bought
+    whether or not it was usable, and refuse a width the column cannot hold. Three copies
+    of that would be three places to get hard rule 7 right; they differ only in the
+    `feature` name the spend is filed under, which is therefore the only parameter.
+
+    **THE PRICE IS CHECKED BEFORE THE PROVIDER IS CALLED (hard rule 7).** Buying an
+    embedding this repository cannot price would either write a made-up `unit_cost_paid` on
+    an append-only row or record nothing at all; both are worse than answering from the
+    sparse arm. `embedding_price_is_billable` is total and never raises, so this is a branch
+    and not a failure.
+
+    Returning None on EVERY failure — no price, no leg, a provider error, a width the column
+    will not hold — is deliberate. A dashboard question is not the place to surface a
+    provider outage as an exception: the sparse arm still answers, the person still gets
+    rows, and the operator gets the log line.
+
+    HARD RULE 6: `feature` and an exception's TYPE, never the question and never a
+    provider's error body — which quotes the request, and the request is a person's own
+    words about their caller.
+    """
+    if not embedding_price_is_billable():
+        log.info("query_embedding_unpriced", extra={"model": EMBEDDING_MODEL, "feature": feature})
+        return None
+    leg = embedding_leg()
+    if leg is None:
+        log.info("query_embedding_no_provider", extra={"feature": feature})
+        return None
+    try:
+        outcome = await chat.embed(
+            leg, [question], dimensions=EMBEDDING_DIMS, timeout_s=EMBED_TIMEOUT_S
+        )
+    except (httpx.HTTPError, TimeoutError) as failure:
+        log.warning(
+            "query_embedding_failed",
+            extra={"feature": feature, "error": type(failure).__name__},
+        )
+        return None
+
+    # METERED WHETHER OR NOT THE VECTOR IS USABLE. We paid for the turn; a refused width is
+    # our problem, not a discount. `tokens_out=0` is the truth about an embedding rather
+    # than a default — the vendor's `usage` block has no output half at all.
+    if outcome.usage is not None:
+        await record_ai_assist_usage(
+            session,
+            tenant_id=tenant_id,
+            ref=new_assist_ref(),
+            tokens_in=outcome.usage.prompt_tokens,
+            tokens_out=0,
+            model=EMBEDDING_MODEL,
+            feature=feature,
+        )
+    vector = outcome.vectors[0] if outcome.vectors else None
+    if vector is None or len(vector) != EMBEDDING_DIMS:
+        log.warning(
+            "query_embedding_width",
+            extra={
+                "feature": feature,
+                "want": EMBEDDING_DIMS,
+                "got": 0 if vector is None else len(vector),
+            },
+        )
+        return None
+    return list(vector)
+
+
+#: The declared width of a projection's `embedding` column, read from the catalogue.
+#:
+#: `atttypmod` IS the dimension count for a pgvector `vector` column — pgvector stores the
+#: declared width there directly rather than with an offset (MEASURED-HERE 1 Sep 2026:
+#: `kb_chunks.embedding` reports `atttypmod = 1536` and `format_type` renders
+#: `vector(1536)`). `to_regclass` rather than a cast so a table this deployment does not
+#: have answers None instead of raising `UndefinedTable` inside a sweep.
+_COLUMN_WIDTH_SQL: Final = (
+    "SELECT atttypmod FROM pg_attribute "
+    "WHERE attrelid = to_regclass(:table) AND attname = 'embedding' AND NOT attisdropped"
+)
+
+
+async def stored_vector_width(session: AsyncSession, *, table: str) -> int | None:
+    """How wide `<table>.embedding` actually is, or None when it cannot be read.
+
+    **WHY A SWEEP HAS TO ASK THIS BEFORE IT SPENDS (hard rule 7).** `EMBEDDING_DIMS` sizes
+    the column in a migration and is sent as the request's `dimensions`, so the two agree
+    only while the constant and the applied schema were deployed together. Change the
+    constant alone — the exact move the Matryoshka narrowing above invites, since it is
+    "free" at the provider — and the sweep's staleness clause re-claims every `ready` row,
+    buys a vector for each of them, and the UPDATE fails with `DataError: expected 1536
+    dimensions`. That raise rolls back the claim AND the `usage_events` row written beside
+    it, so the tick pays the provider, records nothing, changes nothing, and does it again
+    on the next tick for ever. Reproduced before it was guarded
+    (`tests/kb_embedding_sweep_test.py::test_a_width_the_column_cannot_hold_is_refused_
+    before_anything_is_bought`).
+
+    It is the catalogue and not a constant because a constant compared against itself
+    proves nothing: the fact that matters is what the DATABASE will accept, and only the
+    database has it.
+
+    A catalogue read, so it needs no tenancy and sees no client data — which is why the
+    callers take it on whatever session they already hold.
+    """
+    width = (await session.execute(text(_COLUMN_WIDTH_SQL), {"table": table})).scalar()
+    return None if width is None else int(width)
+
+
+def vector_literal(vector: list[float] | None) -> str | None:
+    """A vector as the text form `CAST(:q AS vector)` accepts, or None.
+
+    psycopg renders a Python list as a Postgres ARRAY, which the `vector` type will not
+    accept; the type's own text form is the bracketed literal. Spelled once here because
+    every adapter that passes a question vector into a `text()` statement needs it and a
+    second spelling is a silent `DataError` on one of them.
+    """
+    return None if vector is None else "[" + ",".join(map(repr, vector)) + "]"
+
+
+__all__ = [
+    "ASSIST_FEATURE_CALL_SEARCH",
+    "ASSIST_FEATURE_KB_EMBED",
+    "ASSIST_FEATURE_KB_SEARCH",
+    "ASSIST_FEATURE_LEAD_SEARCH",
+    "EMBEDDING_DIMS",
+    "EMBEDDING_MODEL",
+    "EMBED_BATCH",
+    "EMBED_TIMEOUT_S",
+    "embed_query_vector",
+    "embedding_leg",
+    "embedding_price_is_billable",
+    "stored_vector_width",
+    "vector_literal",
+]

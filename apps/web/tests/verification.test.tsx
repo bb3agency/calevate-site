@@ -76,6 +76,8 @@ const PE_ACTIVE: PeRegistration = {
   registered_at: "2026-01-05T06:00:00Z",
   verified_at: "2026-02-01T06:00:00Z",
   is_active: true,
+  calevate_tm_id: "1234567890123456789",
+  calevate_tm_active: true,
 };
 
 const SCREEN = /Indian telecom rules/;

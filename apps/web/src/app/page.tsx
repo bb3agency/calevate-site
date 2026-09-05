@@ -59,7 +59,7 @@ import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
  *
  * - **No prices, with ONE deliberate exception.** D-11's managed pricing is negotiated
  *   per client, so no plan price appears. The exception is the ROI calculator (section
- *   03): it shows the published self-serve rate (`self_serve_inr_per_min`, ₹5/min) as the
+ *   06): it shows the published self-serve rate (`self_serve_inr_per_min`, ₹5/min) as the
  *   INPUT to a comparison the buyer drives with their own numbers — a tool, not a tag. A
  *   fixed "₹X/month" would still be the quote nobody can honour; a figure the buyer sets
  *   and checks is not. `publicLanding.test.tsx` scopes its price/percent bans off that one
@@ -84,11 +84,35 @@ import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
  *
  * ## The redesign, section by section — each reads from a shipped surface
  *
- * Structure: hero (+ the one animated call→row figure), a proof strip, "how it works"
- * (three steps), capabilities, verticals, languages, the compliance band (the genuinely
- * differentiating part — four invariants enforced on the dispatch path, hard rule 5, not
- * a policy page), the data section (residency, told straight), the quality report, the
- * FAQ, the two doors, and a closing invitation. Verticals' field lists are COPIED from
+ * Structure: hero (+ the one animated call→row figure), then ten numbered bands, then the
+ * two doors and a closing invitation.
+ *
+ * **THE BAND ORDER IS THE OBJECTION ORDER, and that is why it changed.** It used to run
+ * how-it-works → what-it-does → qualification → cost → verticals → Telugu → compliance →
+ * data → quality → questions, which put the two bands that answer "is this even for me?"
+ * — Telugu, and the field list for the reader's own trade — at positions 06 and 05, after
+ * the cost tool. For the buyer this page is written for, a clinic or property office in
+ * Andhra Pradesh or Telangana, "will it actually handle my callers, in my language, for
+ * my kind of business" is not the sixth question. It is the first one, and a reader who
+ * has not had it answered does not care what the thing costs. So the order is now:
+ *
+ *   01 how it works · 02 what it does · 03 Telugu-first · 04 your line of work ·
+ *   05 where your team's time goes · 06 what it costs · 07 the Indian rules ·
+ *   08 your customers' data · 09 the quality report · 10 questions
+ *
+ * — identity and fit, then value, then the objections a sceptic raises once they want it
+ * to be true (is it legal, who sees my customers' numbers, what if it is bad at the job),
+ * then the residual questions. 05 and 06 stay adjacent because the qualification section's
+ * closing line hands directly to the calculator, and 07 stays the dark brand band because
+ * it is the genuinely differentiating part — four invariants enforced on the dispatch
+ * path, hard rule 5, not a policy page.
+ *
+ * The band backgrounds alternate strictly (tinted, plain, tinted …) after the reorder.
+ * They did not before: capabilities, qualification and cost were three untinted bands in a
+ * row separated by nothing but a hairline, which is why the middle of the page read as one
+ * undifferentiated scroll.
+ *
+ * Verticals' field lists are COPIED from
  * `scripts/seed.py`'s `VERTICAL_TEMPLATES` label-for-label; which two have a scenario
  * suite is stated, not implied (`tests/fixtures/golden_transcripts.json` carries `cl_*`
  * and `re_*` only). Languages names three because three is what the product offers
@@ -125,7 +149,37 @@ import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
  * below keep their own `max-w-2xl` regardless of what this does. What the extra room buys
  * is a hero that fills its screen and cards that are not postage stamps on a monitor.
  */
-const SHELL = "mx-auto w-full max-w-6xl px-6 xl:max-w-7xl 2xl:max-w-[90rem]";
+const SHELL =
+  "mx-auto w-full max-w-6xl px-5 sm:px-6 xl:max-w-7xl 2xl:max-w-[90rem]";
+
+/**
+ * THE THREE SPACING TOKENS THIS PAGE IS ALLOWED TO USE, and why they are constants
+ * rather than eleven copies of the same utility string.
+ *
+ * The page had drifted into ad-hoc spacing — three card paddings (`p-5`, `p-6`,
+ * `p-8 sm:p-12`), two grid gaps (`gap-4` everywhere and `gap-6` in the steps alone), two
+ * heading-row gaps (`gap-6` and `gap-8`) and two illustration widths (`w-36 lg:w-48` and
+ * `w-40 lg:w-52`) — none of it deliberate, all of it visible as bands that do not line up
+ * with each other. Every one of those is now one of the three names below, so the next
+ * person edits the rhythm in one place instead of adding a fourth spelling of it.
+ *
+ * The values are the Tailwind scale, not new numbers: this page has no design tokens of
+ * its own and inventing some would be a second system beside the one `globals.css`
+ * already defines.
+ *
+ * `SECTION` steps DOWN on a phone (64px, not 80px). Eleven bands at `py-20` spent 1,760px
+ * of a 360px-wide reader's scroll on nothing, and vertical air is the one thing a phone
+ * has least of; the desktop rhythm is unchanged from `lg`.
+ *
+ * `CARD` pads by 20px on a phone rather than 24px, for `tests/responsive.test.ts`'s
+ * reason: inside a `px-5` shell, a flat `p-6` spent 88px of a 360px viewport on gutter
+ * before any words. That gate only reaches the console's `Card` primitive, so the marketing
+ * cards were never caught by it — the finding is the same one and so is the remedy.
+ */
+const SECTION = "py-16 sm:py-20 lg:py-24";
+const CARD = "rounded-2xl border border-line bg-surface p-5 sm:p-6";
+/** The grid under a band's heading block. One gap, one top margin, everywhere. */
+const GRID = "mt-10 grid gap-4 sm:mt-12";
 
 /** A capability, stated as the behaviour a caller or a client would observe. */
 const CAPABILITIES: { icon: typeof PhoneIncoming; title: string; body: string }[] = [
@@ -138,8 +192,15 @@ const CAPABILITIES: { icon: typeof PhoneIncoming; title: string; body: string }[
   {
     icon: Megaphone,
     title: "It calls your list back",
+    /*
+     * "Paste in", not "upload": there is no file input anywhere in this console
+     * (`grep 'type="file"' apps/web/src` returns nothing) — a campaign's contacts go in
+     * through a textarea that takes CSV or one number per line
+     * (`app/c/[slug]/campaigns/page.tsx`). Naming the control the buyer will actually
+     * meet costs the sentence nothing.
+     */
     body:
-      "Upload a list. It works through it, retries the no-answers, and stops when you say.",
+      "Paste in a list. It works through it, retries the no-answers, and stops when you say.",
   },
   {
     icon: Table2,
@@ -161,9 +222,27 @@ const CAPABILITIES: { icon: typeof PhoneIncoming; title: string; body: string }[
   },
   {
     icon: Database,
+    /*
+     * WHAT THIS CARD MAY CLAIM, and why it no longer says "upload your price list".
+     *
+     * In-call retrieval is T0 and nothing else (`docs/TRD.md:948`): the facts a person
+     * approves are compiled into the agent's own prompt at publish time. There is no
+     * document-backed retrieval to promise — the engine's built-in KB is off
+     * (`apps/api/engine/bolna.py:2484`, `knowledge_base=False`) and `attach_kb` refuses
+     * with "the voice platform's knowledge base accepts documents, not text"
+     * (`bolna.py:3536`) — and the submit endpoint takes TEXT only: `kind="url"` and
+     * `kind="file"` are declared on the wire and REFUSED by the service
+     * (`apps/api/kb/routes.py:44`). So a buyer who read "upload your price list" would
+     * arrive at a console with no upload control at all.
+     *
+     * What is true is better than what was claimed, and is what the card says instead:
+     * the facts are built INTO the agent, so the answer is immediate, and a person
+     * approves every word first.
+     */
     title: "Your knowledge, under your control",
     body:
-      "Upload your price list. Nothing goes live until a person approves it.",
+      "Your prices, timings and answers are built into the agent. Nothing reaches a " +
+      "caller until a person approves it.",
   },
 ];
 
@@ -361,7 +440,7 @@ const STEPS: { icon: typeof PhoneCall; step: string; title: string; body: string
     // true), so this describes what a new agent does rather than a guarantee. The
     // guarantee is in the compliance band below and is about the ANSWER, not the opening.
     body:
-      "Someone rings, or the agent works through a list you uploaded. It opens by saying " +
+      "Someone rings, or the agent works through a list you gave it. It opens by saying " +
       "it is an AI by default, and answers from what you approved.",
   },
   {
@@ -384,6 +463,36 @@ function Eyebrow({ index, children }: { index: string; children: ReactNode }) {
     </p>
   );
 }
+
+/**
+ * ONE DOOR, ONE NAME FOR IT.
+ *
+ * `/signup` was reached from this page under four different labels — "Get a workspace"
+ * in the header, "Get a workspace" in the hero, "How to get one" in the doors card and
+ * "Start a conversation" at the foot. Four names for one destination is the drift
+ * CLAUDE.md's "one way per problem" rule is about, and on a landing page it costs
+ * something specific: a reader cannot tell whether these are four things or one, so the
+ * repetition that should build confidence reads as clutter instead.
+ *
+ * The wording follows GOV.UK's button guidance — "write button text in sentence case,
+ * describing the action it performs" (alphagov/govuk-design-system `main`,
+ * `src/components/button/index.md`, read 1 Sep 2026). When `self_serve_signup_enabled`
+ * is off — the default, and what these tests run against — the action genuinely IS a
+ * conversation: `/signup` explains that accounts are opened by hand and hands over the
+ * contact address. "Get a workspace" named a noun the reader does not have yet;
+ * "workspace" is also SaaS vocabulary, and this page is written for a clinic owner.
+ *
+ * The doors card keeps "How to get one" because it answers the question its own heading
+ * asks ("Not a client yet"), and `publicLanding.test.tsx` pins it.
+ */
+const CTA_LABEL = SIGNUP_OPEN ? "Create a workspace" : "Talk to us about your calls";
+/**
+ * The header's copy of it. Shorter for a measured reason rather than a stylistic one:
+ * `MarketingAccountNav` records that the logo + "Sign in" + this button row was 374px of
+ * content in a 320px viewport before it was tightened, so the header is the one place a
+ * five-word label cannot go.
+ */
+const CTA_LABEL_SHORT = SIGNUP_OPEN ? "Create a workspace" : "Talk to us";
 
 const CTA_PRIMARY =
   "group inline-flex items-center gap-2 rounded-full bg-brand-strong px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app";
@@ -412,7 +521,7 @@ export default function Home() {
                 the API. It renders the signed-out header until that lands, and never the
                 other way round. */}
             <MarketingAccountNav
-              signupLabel={SIGNUP_OPEN ? "Create a workspace" : "Get a workspace"}
+              signupLabel={CTA_LABEL_SHORT}
             />
           </div>
         </header>
@@ -428,7 +537,7 @@ export default function Home() {
               <div className="mk-blob mk-blob--b mk-float--slow absolute -top-16 right-[-6rem] h-96 w-96" />
             </div>
 
-            <div className={`${SHELL} relative pt-16 pb-10 sm:pt-24`}>
+            <div className={`${SHELL} relative pt-10 pb-10 sm:pt-20 lg:pt-24`}>
               {/* Decorative isometric accent in the headline's right margin. Only from `xl`,
                   where the `max-w-4xl` headline leaves clear space; below that it is absent
                   so it can never crowd the copy or push the hero wider. */}
@@ -448,7 +557,14 @@ export default function Home() {
                 </p>
                 <h1
                   data-hero-item
-                  className="mt-6 max-w-4xl text-5xl leading-[1.02] font-semibold tracking-tight text-balance text-ink sm:text-6xl lg:text-7xl 2xl:max-w-5xl 2xl:text-[5.25rem]"
+                  /*
+                   * 40px ON A PHONE, NOT 48px. At `text-5xl` inside a 320px content box
+                   * this headline set to four lines and pushed the audience sentence and
+                   * the call to action off a 640px screen — the one thing a hero may not
+                   * do. It steps back to the original scale from `sm`, where the room
+                   * exists; nothing above `sm` changes.
+                   */
+                  className="mt-5 max-w-4xl text-[2.5rem] leading-[1.05] font-semibold tracking-tight text-balance text-ink sm:mt-6 sm:text-6xl sm:leading-[1.02] lg:text-7xl 2xl:max-w-5xl 2xl:text-[5.25rem]"
                 >
                   Never lose a{" "}
                   <span className="relative inline-block">
@@ -460,13 +576,33 @@ export default function Home() {
                   </span>{" "}
                   to a call you couldn&apos;t take.
                 </h1>
-                <p data-hero-item className="mt-6 max-w-2xl text-lg text-pretty text-ink-muted sm:text-xl">
+                {/*
+                 * WHAT IT IS, THEN WHO IT IS FOR — BOTH ABOVE THE BUTTON.
+                 *
+                 * The audience sentence used to be the LAST thing in the hero, below the
+                 * call to action and below the three-item list, so on a phone the one
+                 * reader this page is written for ("I run a clinic in Guntur") had to
+                 * scroll past the button to find out the page was addressed to them.
+                 * Nothing was added and nothing was reworded: the two sentences were
+                 * already here, in the wrong order.
+                 *
+                 * They stay TWO paragraphs at two sizes rather than one merged one. Merged
+                 * at `text-lg` the pair ran to six lines on a 360px screen and pushed the
+                 * button to the fold; split, the value proposition keeps the large type
+                 * and the audience reads as the supporting line it is — which is also the
+                 * honest hierarchy, since one is the offer and the other is a qualifier.
+                 */}
+                <p data-hero-item className="mt-5 max-w-2xl text-lg text-pretty text-ink-muted sm:text-xl">
                   An AI receptionist that answers your callers and chases your leads — in
                   Telugu, Hindi or English.
                 </p>
-                <div data-hero-item className="mt-9 flex flex-wrap items-center gap-3">
+                <p data-hero-item className="mt-3 max-w-2xl text-sm text-pretty text-ink-faint">
+                  Built Telugu-first for clinics, property offices and coaching centres across
+                  Andhra Pradesh and Telangana.
+                </p>
+                <div data-hero-item className="mt-7 flex flex-wrap items-center gap-3">
                   <Link href="/signup" className={CTA_PRIMARY}>
-                    {SIGNUP_OPEN ? "Create a workspace" : "Get a workspace"}
+                    {CTA_LABEL}
                     <ArrowRight
                       aria-hidden
                       className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
@@ -476,9 +612,18 @@ export default function Home() {
                     See how it works
                   </Link>
                 </div>
-                {/* Honest positioning, not a metric: who this was built for, and three
-                    behaviours each mapped to a shipped feature — no count, no logo wall. */}
-                <ul data-hero-item className="mt-9 flex flex-wrap gap-x-6 gap-y-3">
+                {/*
+                 * Three behaviours, each mapped to a shipped feature — no count, no logo
+                 * wall, and no number of any kind. This is the only thing this page has in
+                 * the slot a landing page normally fills with borrowed proof, and it is
+                 * deliberately a restatement of what the product does rather than a claim
+                 * about how well it does it.
+                 *
+                 * `sm:flex-row`: as a wrapping row at 360px the three items broke into
+                 * three ragged lines with the ticks at different left edges. A list is a
+                 * list on a phone.
+                 */}
+                <ul data-hero-item className="mt-7 flex flex-col gap-y-2.5 sm:flex-row sm:flex-wrap sm:gap-x-6 sm:gap-y-3">
                   {[
                     "Picks up when you can't",
                     "Follows up on your list",
@@ -487,7 +632,7 @@ export default function Home() {
                     <li key={claim} className="flex items-center gap-2 text-sm font-medium text-ink-muted">
                       <span
                         aria-hidden
-                        className="flex h-5 w-5 items-center justify-center rounded-full bg-brand-soft text-brand-strong"
+                        className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong"
                       >
                         <Check className="h-3 w-3" />
                       </span>
@@ -495,10 +640,6 @@ export default function Home() {
                     </li>
                   ))}
                 </ul>
-                <p data-hero-item className="mt-6 max-w-2xl text-sm text-ink-faint">
-                  Built Telugu-first for clinics, property offices and coaching centres across
-                  Andhra Pradesh and Telangana.
-                </p>
               </HeroStagger>
 
               <div className="relative mt-16">
@@ -514,7 +655,7 @@ export default function Home() {
 
           {/* --- How it works ------------------------------------------------------ */}
           <section id="how" className="scroll-mt-20 border-t border-line bg-surface/40">
-            <div className={`${SHELL} py-20 sm:py-24`}>
+            <div className={`${SHELL} ${SECTION}`}>
               <div className="flex items-center justify-between gap-6">
                 <Reveal className="min-w-0 flex-1">
                   <Eyebrow index="01">How it works</Eyebrow>
@@ -526,13 +667,13 @@ export default function Home() {
                     portrait phone keeps the full width the heading needs. */}
                 <IsoCallStack className="hidden w-36 shrink-0 sm:block lg:w-48" />
               </div>
-              <ol className="mt-12 grid gap-6 sm:grid-cols-3">
+              <ol className={`${GRID} sm:grid-cols-3`}>
                 {STEPS.map(({ icon: Icon, step, title, body }, index) => (
                   <Reveal
                     as="li"
                     key={step}
                     delay={index * 0.08}
-                    className="relative rounded-2xl border border-line bg-surface p-6"
+                    className={`relative ${CARD}`}
                   >
                     <div className="flex items-center justify-between">
                       <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
@@ -550,7 +691,7 @@ export default function Home() {
 
           {/* --- Capabilities ------------------------------------------------------ */}
           <section className="border-t border-line">
-            <div className={`${SHELL} py-20 sm:py-24`}>
+            <div className={`${SHELL} ${SECTION}`}>
               <div className="flex items-center justify-between gap-6">
                 <Reveal className="min-w-0 flex-1">
                   <Eyebrow index="02">What it does</Eyebrow>
@@ -559,15 +700,15 @@ export default function Home() {
                   </h2>
                 </Reveal>
                 {/* Leads moving through the campaign pipeline. Decorative; `sm`+ only. */}
-                <IsoPipeline className="hidden w-40 shrink-0 sm:block lg:w-52" />
+                <IsoPipeline className="hidden w-36 shrink-0 sm:block lg:w-48" />
               </div>
-              <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <div className={`${GRID} sm:grid-cols-2 lg:grid-cols-3`}>
                 {CAPABILITIES.map(({ icon: Icon, title, body }, index) => (
                   <Reveal
                     as="section"
                     key={title}
                     delay={(index % 3) * 0.06}
-                    className="group rounded-2xl border border-line bg-surface p-6 transition-colors hover:border-brand/40"
+                    className={`group ${CARD} transition-colors hover:border-brand/40`}
                   >
                     <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-brand-strong transition-transform group-hover:scale-105">
                       <Icon aria-hidden className="h-5 w-5" />
@@ -580,89 +721,78 @@ export default function Home() {
             </div>
           </section>
 
-          {/* --- Qualification layer ------------------------------------------------ */}
-          {/*
-           * The reframe the cost section then puts numbers to: not "AI instead of your
-           * staff", but "AI does the triage your staff should never have been doing".
-           * See `QUALIFICATION` above for the shipped surface behind each card and for
-           * why no conversion statistic appears anywhere in it.
-           */}
-          <section id="qualify" className="scroll-mt-20 border-t border-line">
-            <div className={`${SHELL} py-20 sm:py-24`}>
-              <Reveal>
-                <Eyebrow index="03">Where your team&apos;s time goes</Eyebrow>
-                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
-                  Your salespeople should be closing, not finding out who is interested
-                </h2>
-                <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-                  Most of a telecalling day is spent on people who were never going to buy —
-                  and you only know which ones those were after the call. Sales teams that
-                  can afford it split the job in two: one person qualifies, another closes.
-                  Calevate is the first half. It takes the first call to every enquiry and
-                  every name on your list, works out who is worth a conversation, and hands
-                  your people the shortlist.
-                </p>
-              </Reveal>
-              <div className="mt-12 grid gap-4 lg:grid-cols-3">
-                {QUALIFICATION.map(({ icon: Icon, title, body }, index) => (
-                  <Reveal
-                    as="section"
-                    key={title}
-                    delay={index * 0.08}
-                    className="rounded-2xl border border-line bg-surface p-6"
+          {/* --- Languages --------------------------------------------------------- */}
+          <section className="border-t border-line bg-surface/40">
+            <div className={`${SHELL} ${SECTION}`}>
+              <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
+                <Reveal>
+                  <Eyebrow index="03">Telugu-first</Eyebrow>
+                  <h2 className="mt-4 text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
+                    Telugu first, and not as a setting somebody remembered at the end
+                  </h2>
+                  <p className="mt-4 max-w-xl text-base text-pretty text-ink-muted">
+                    Your callers do not switch to English for your convenience, and a
+                    receptionist who makes them is one they hang up on. This was built for
+                    Andhra Pradesh and Telangana before it was built for anywhere else.
+                  </p>
+                  {/* Authentic Telugu, warm rather than decorative-only: the language the
+                      agent greets a caller in. `lang` so a screen reader announces it right. */}
+                  <p
+                    lang="te"
+                    className="mt-8 text-4xl font-semibold text-brand-strong dark:text-brand-bright"
                   >
-                    <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
-                      <Icon aria-hidden className="h-5 w-5" />
+                    నమస్కారం
+                    <span className="ml-3 align-middle text-base font-normal text-ink-faint">
+                      — how a call opens
                     </span>
-                    <h3 className="mt-5 text-[17px] font-semibold text-ink">{title}</h3>
-                    <p className="mt-1.5 text-sm text-pretty text-ink-muted">{body}</p>
-                  </Reveal>
-                ))}
+                  </p>
+                </Reveal>
+                <Reveal delay={0.08} as="section">
+                  <dl className="grid gap-4">
+                    {[
+                      {
+                        term: "Telugu is where an agent starts",
+                        detail:
+                          "A newly created agent is a Telugu agent until somebody changes " +
+                          "it. That is the default in the database, not a suggestion in a guide.",
+                      },
+                      {
+                        term: "Hindi and English are the other two",
+                        detail:
+                          "Three languages are offered, and only three, because those are " +
+                          "the ones we are willing to put a client's callers in front of.",
+                      },
+                      {
+                        term: "The whole agent moves with the language",
+                        detail:
+                          "The opening line that says it is an AI, the script and the " +
+                          "material it answers from are all in the language it speaks.",
+                      },
+                    ].map(({ term, detail }) => (
+                      <div
+                        key={term}
+                        className={CARD}
+                      >
+                        <dt className="text-[17px] font-semibold text-ink">{term}</dt>
+                        <dd className="mt-1.5 text-sm text-pretty text-ink-muted">{detail}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                  <p className="mt-6 max-w-xl text-sm text-ink-faint">
+                    We publish no score for how well it understands any of them, because a
+                    number we cannot show you the working for is worth nothing. What we do
+                    publish, for your own agent, is the report further down.
+                  </p>
+                </Reveal>
               </div>
-              <Reveal delay={0.2}>
-                <p className="mt-8 max-w-2xl text-sm text-ink-faint">
-                  This is not your team replaced. It is the part of their day that was never
-                  selling. What stays theirs is the conversation where somebody decides —
-                  and after that, the only thing holding you back is how fast you can look
-                  after the customers you have won. The section below lets you put your own
-                  numbers on that.
-                </p>
-              </Reveal>
-            </div>
-          </section>
-
-          {/* --- ROI calculator ---------------------------------------------------- */}
-          {/*
-           * The one place a price appears (see `roiCalculator.tsx` for why the page's
-           * no-prices rule makes an exception for a tool the buyer drives). It turns the
-           * core sales argument — AI versus hiring telecallers — into something a prospect
-           * checks with their own numbers, at our published self-serve rate.
-           */}
-          <section id="cost" className="scroll-mt-20 border-t border-line">
-            <div className={`${SHELL} py-20 sm:py-24`}>
-              <Reveal>
-                <Eyebrow index="04">What it costs</Eyebrow>
-                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
-                  Do the maths against hiring, with your own numbers
-                </h2>
-                <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-                  A telecaller costs far more than the salary in the job ad, and a desk sits
-                  idle on a quiet day. Put in what your line handles and see the comparison —
-                  every assumption on both sides is yours to change. Two comparisons, and
-                  which one is honest depends on the call: Calevate answering the calls
-                  outright, or Calevate taking the first call so your team only holds the
-                  conversations worth holding.
-                </p>
-              </Reveal>
-              <RoiCalculator />
             </div>
           </section>
 
           {/* --- Verticals --------------------------------------------------------- */}
-          <section id="verticals" className="scroll-mt-20 border-t border-line bg-surface/40">
-            <div className={`${SHELL} py-20 sm:py-24`}>
+          <section id="verticals" className="scroll-mt-20 border-t border-line">
+            <div className={`${SHELL} ${SECTION}`}>
               <Reveal>
-                <Eyebrow index="05">Made for your line of work</Eyebrow>
+                <Eyebrow index="04">Made for your line of work</Eyebrow>
                 <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
                   It starts with the questions your line of work actually asks
                 </h2>
@@ -672,13 +802,13 @@ export default function Home() {
                   and then you change them, because the columns are yours rather than ours.
                 </p>
               </Reveal>
-              <div className="mt-12 grid gap-4 sm:grid-cols-2">
+              <div className={`${GRID} sm:grid-cols-2`}>
                 {VERTICALS.map(({ icon: Icon, name, fields, suite }, index) => (
                   <Reveal
                     as="section"
                     key={name}
                     delay={(index % 2) * 0.06}
-                    className="rounded-2xl border border-line bg-surface p-6"
+                    className={CARD}
                   >
                     <div className="flex items-center gap-3">
                       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
@@ -721,70 +851,157 @@ export default function Home() {
             </div>
           </section>
 
-          {/* --- Languages --------------------------------------------------------- */}
-          <section className="border-t border-line">
-            <div className={`${SHELL} py-20 sm:py-24`}>
-              <div className="grid gap-12 lg:grid-cols-[0.9fr_1.1fr] lg:items-center">
-                <Reveal>
-                  <Eyebrow index="06">Telugu-first</Eyebrow>
-                  <h2 className="mt-4 text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
-                    Telugu first, and not as a setting somebody remembered at the end
-                  </h2>
-                  <p className="mt-4 max-w-xl text-base text-pretty text-ink-muted">
-                    Your callers do not switch to English for your convenience, and a
-                    receptionist who makes them is one they hang up on. This was built for
-                    Andhra Pradesh and Telangana before it was built for anywhere else.
-                  </p>
-                  {/* Authentic Telugu, warm rather than decorative-only: the language the
-                      agent greets a caller in. `lang` so a screen reader announces it right. */}
-                  <p
-                    lang="te"
-                    className="mt-8 text-4xl font-semibold text-brand-strong dark:text-brand-bright"
+          {/* --- Qualification layer ------------------------------------------------ */}
+          {/*
+           * The reframe the cost section then puts numbers to: not "AI instead of your
+           * staff", but "AI does the triage your staff should never have been doing".
+           * See `QUALIFICATION` above for the shipped surface behind each card and for
+           * why no conversion statistic appears anywhere in it.
+           */}
+          <section id="qualify" className="scroll-mt-20 border-t border-line bg-surface/40">
+            <div className={`${SHELL} ${SECTION}`}>
+              <Reveal>
+                <Eyebrow index="05">Where your team&apos;s time goes</Eyebrow>
+                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
+                  Your salespeople should be closing, not finding out who is interested
+                </h2>
+                <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+                  Most of a telecalling day is spent on people who were never going to buy —
+                  and you only know which ones those were after the call. Sales teams that
+                  can afford it split the job in two: one person qualifies, another closes.
+                  Calevate is the first half. It takes the first call to every enquiry and
+                  every name on your list, works out who is worth a conversation, and hands
+                  your people the shortlist.
+                </p>
+              </Reveal>
+              <div className={`${GRID} lg:grid-cols-3`}>
+                {QUALIFICATION.map(({ icon: Icon, title, body }, index) => (
+                  <Reveal
+                    as="section"
+                    key={title}
+                    delay={index * 0.08}
+                    className={CARD}
                   >
-                    నమస్కారం
-                    <span className="ml-3 align-middle text-base font-normal text-ink-faint">
-                      — how a call opens
+                    <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
+                      <Icon aria-hidden className="h-5 w-5" />
                     </span>
-                  </p>
-                </Reveal>
-                <Reveal delay={0.08} as="section">
-                  <dl className="grid gap-4 sm:grid-cols-1">
-                    {[
-                      {
-                        term: "Telugu is where an agent starts",
-                        detail:
-                          "A newly created agent is a Telugu agent until somebody changes " +
-                          "it. That is the default in the database, not a suggestion in a guide.",
-                      },
-                      {
-                        term: "Hindi and English are the other two",
-                        detail:
-                          "Three languages are offered, and only three, because those are " +
-                          "the ones we are willing to put a client's callers in front of.",
-                      },
-                      {
-                        term: "The whole agent moves with the language",
-                        detail:
-                          "The opening line that says it is an AI, the script and the " +
-                          "material it answers from are all in the language it speaks.",
-                      },
-                    ].map(({ term, detail }) => (
-                      <div
-                        key={term}
-                        className="rounded-2xl border border-line bg-surface p-5"
-                      >
-                        <dt className="text-[17px] font-semibold text-ink">{term}</dt>
-                        <dd className="mt-1.5 text-sm text-pretty text-ink-muted">{detail}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                  <p className="mt-6 max-w-xl text-sm text-ink-faint">
-                    We publish no score for how well it understands any of them, because a
-                    number we cannot show you the working for is worth nothing. What we do
-                    publish, for your own agent, is the report further down.
-                  </p>
-                </Reveal>
+                    <h3 className="mt-5 text-[17px] font-semibold text-ink">{title}</h3>
+                    <p className="mt-1.5 text-sm text-pretty text-ink-muted">{body}</p>
+                  </Reveal>
+                ))}
               </div>
+              <Reveal delay={0.2}>
+                <p className="mt-8 max-w-2xl text-sm text-ink-faint">
+                  This is not your team replaced. It is the part of their day that was never
+                  selling. What stays theirs is the conversation where somebody decides —
+                  and after that, the only thing holding you back is how fast you can look
+                  after the customers you have won. The section below lets you put your own
+                  numbers on that.
+                </p>
+              </Reveal>
+            </div>
+          </section>
+
+          {/* --- ROI calculator ---------------------------------------------------- */}
+          {/*
+           * The one place a price appears (see `roiCalculator.tsx` for why the page's
+           * no-prices rule makes an exception for a tool the buyer drives). It turns the
+           * core sales argument — AI versus hiring telecallers — into something a prospect
+           * checks with their own numbers, at our published self-serve rate.
+           */}
+          <section id="cost" className="scroll-mt-20 border-t border-line">
+            <div className={`${SHELL} ${SECTION}`}>
+              <Reveal>
+                <Eyebrow index="06">What it costs</Eyebrow>
+                <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
+                  Do the maths against hiring, with your own numbers
+                </h2>
+                <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+                  A telecaller costs far more than the salary in the job ad, and a desk sits
+                  idle on a quiet day. Put in what your line handles and see the comparison —
+                  every assumption on both sides is yours to change. Two comparisons, and
+                  which one is honest depends on the call: Calevate answering the calls
+                  outright, or Calevate taking the first call so your team only holds the
+                  conversations worth holding.
+                </p>
+              </Reveal>
+              <RoiCalculator />
+
+              {/*
+               * THE SAME DOOR, OFFERED AGAIN AT THE ONE POINT ON THE PAGE WHERE THE READER
+               * HAS JUST DONE WORK.
+               *
+               * The page previously carried the call to action twice — in the hero and at
+               * the very foot — with nine bands and the whole cost tool in between. A
+               * reader who typed their own call volume into the calculator, saw a number
+               * they liked, and then had to scroll past compliance, data, quality and ten
+               * questions to find a way to act on it is the ordinary way a long page loses
+               * someone who was already convinced.
+               *
+               * This is NOT a fourth call to action competing with three others — GOV.UK's
+               * rule is against multiple DIFFERENT default buttons ("having more than one
+               * main call to action reduces their impact, and makes it harder for users to
+               * know what to do next", alphagov/govuk-design-system `main`,
+               * `src/components/button/index.md`, read 1 Sep 2026), and every primary
+               * button on this page is now one action, one destination and one label
+               * (`CTA_LABEL`). It is the same offer, repeated where it is relevant.
+               *
+               * ## The three lines under it are risk reversal, and each is a shipped fact
+               *
+               * A page with no social proof to lean on — there is no client #1 in
+               * production, so testimonials, counts and logos are all fabrications this
+               * page refuses (see this file's header) — has to reduce the perceived cost of
+               * saying yes instead of borrowing someone else's confidence. The honest way
+               * to do that is to name what the buyer keeps control of:
+               *
+               *  - approval before anything is answerable — the T0 mechanism the capability
+               *    card and the FAQ answer both describe at length (`apps/api/agents/t0.py`,
+               *    `kb_sources` review states);
+               *  - the campaign launch gate — a campaign is a draft until a person launches
+               *    it (`apps/api/campaigns/service.py`);
+               *  - the pause, which stops the next dispatch tick — the FAQ's own answer.
+               *
+               * They are compressed restatements, deliberately: this is the decision point,
+               * and a reader deciding here should not have to have read all three of the
+               * places that state them in full. Nothing new is claimed.
+               */}
+              <Reveal as="section" delay={0.1} className={`mt-10 ${CARD} sm:mt-12`}>
+                <h3 className="text-xl font-semibold tracking-tight text-balance text-ink sm:text-2xl">
+                  Worth a conversation?
+                </h3>
+                <p className="mt-3 max-w-2xl text-base text-pretty text-ink-muted">
+                  Those figures came out of what you typed, not out of a claim we made. If
+                  the shape of it works for your business, the next step is a short
+                  conversation — we build the agent with you, and you hear exactly what it
+                  will say before it ever picks up.
+                </p>
+                <div className="mt-6 flex flex-wrap items-center gap-3">
+                  <Link href="/signup" className={CTA_PRIMARY}>
+                    {CTA_LABEL}
+                    <ArrowRight
+                      aria-hidden
+                      className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
+                    />
+                  </Link>
+                </div>
+                <ul className="mt-6 grid gap-2.5 border-t border-line pt-5 sm:grid-cols-3">
+                  {[
+                    "You approve every word before it goes live",
+                    "Nothing dials anybody until you launch it",
+                    "Pause it from your dashboard whenever you want",
+                  ].map((promise) => (
+                    <li key={promise} className="flex items-start gap-2 text-sm text-ink-muted">
+                      <span
+                        aria-hidden
+                        className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong"
+                      >
+                        <Check className="h-3 w-3" />
+                      </span>
+                      {promise}
+                    </li>
+                  ))}
+                </ul>
+              </Reveal>
             </div>
           </section>
 
@@ -797,8 +1014,8 @@ export default function Home() {
            * the four cards below are the four dispatch-path invariants (hard rule 5).
            */}
           <section className="border-t border-line bg-brand-deep text-white">
-            <div className={`${SHELL} py-20 sm:py-24`}>
-              <div className="flex items-center justify-between gap-8">
+            <div className={`${SHELL} ${SECTION}`}>
+              <div className="flex items-center justify-between gap-6">
                 <Reveal className="min-w-0 flex-1">
                   <p className="flex items-center gap-3 text-xs font-semibold tracking-[0.18em] text-brand-bright uppercase">
                     <span className="font-mono text-white/70">07</span>
@@ -818,13 +1035,13 @@ export default function Home() {
                     this band; decorative, `sm`+ only. */}
                 <IsoShield className="hidden w-36 shrink-0 sm:block lg:w-48" />
               </div>
-              <div className="mt-12 grid gap-4 sm:grid-cols-2">
+              <div className={`${GRID} sm:grid-cols-2`}>
                 {COMPLIANCE.map(({ icon: Icon, title, body }, index) => (
                   <Reveal
                     as="section"
                     key={title}
                     delay={(index % 2) * 0.06}
-                    className="rounded-2xl border border-white/15 bg-white/5 p-6 backdrop-blur-sm"
+                    className="rounded-2xl border border-white/15 bg-white/5 p-5 backdrop-blur-sm sm:p-6"
                   >
                     <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-brand-bright">
                       <Icon aria-hidden className="h-5 w-5" />
@@ -839,7 +1056,7 @@ export default function Home() {
 
           {/* --- Data ------------------------------------------------------------- */}
           <section className="border-t border-line">
-            <div className={`${SHELL} py-20 sm:py-24`}>
+            <div className={`${SHELL} ${SECTION}`}>
               <div className="flex items-center justify-between gap-6">
                 <Reveal className="min-w-0 flex-1">
                   <Eyebrow index="08">Your customers&apos; data</Eyebrow>
@@ -847,10 +1064,13 @@ export default function Home() {
                     Where it runs, and who can see what
                   </h2>
                 </Reveal>
-                {/* The layered T0–T4 knowledge base. Decorative; `sm`+ only. */}
+                {/* Decorative only, `sm`+ and `aria-hidden`. It is a stack of slabs and
+                    carries no label — deliberately, since TRD §6's T0–T4 tiers are not a
+                    shipped stack: in-call retrieval is T0 alone (docs/TRD.md:948). A
+                    diagram that named the tiers would be a claim. */}
                 <IsoKnowledge className="hidden w-36 shrink-0 sm:block lg:w-48" />
               </div>
-              <div className="mt-12 grid gap-4 lg:grid-cols-3">
+              <div className={`${GRID} lg:grid-cols-3`}>
                 {[
                   {
                     icon: Globe,
@@ -921,7 +1141,7 @@ export default function Home() {
                     as="section"
                     key={term}
                     delay={index * 0.08}
-                    className="rounded-2xl border border-line bg-surface p-6"
+                    className={CARD}
                   >
                     <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
                       <Icon aria-hidden className="h-5 w-5" />
@@ -943,7 +1163,7 @@ export default function Home() {
 
           {/* --- Quality ----------------------------------------------------------- */}
           <section id="quality" className="scroll-mt-20 border-t border-line bg-surface/40">
-            <div className={`${SHELL} py-20 sm:py-24`}>
+            <div className={`${SHELL} ${SECTION}`}>
               <Reveal>
                 <Eyebrow index="09">Held to a report</Eyebrow>
                 <h2 className="mt-4 max-w-3xl text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
@@ -956,13 +1176,13 @@ export default function Home() {
                   dashboard, and it is allowed to say bad news.
                 </p>
               </Reveal>
-              <div className="mt-12 grid gap-4 sm:grid-cols-3">
+              <div className={`${GRID} sm:grid-cols-3`}>
                 {QUALITY.map(({ term, detail }, index) => (
                   <Reveal
                     as="section"
                     key={term}
                     delay={index * 0.08}
-                    className="rounded-2xl border border-line bg-surface p-6"
+                    className={CARD}
                   >
                     <span className="font-mono text-sm font-semibold text-brand-strong dark:text-brand-bright">
                       {String(index + 1).padStart(2, "0")}
@@ -977,7 +1197,7 @@ export default function Home() {
 
           {/* --- Questions --------------------------------------------------------- */}
           <section id="faq" className="scroll-mt-20 border-t border-line">
-            <div className={`${SHELL} py-20 sm:py-24`}>
+            <div className={`${SHELL} ${SECTION}`}>
               <Reveal>
                 <Eyebrow index="10">Questions</Eyebrow>
                 <h2 className="mt-4 text-3xl font-semibold tracking-tight text-balance text-ink sm:text-4xl">
@@ -994,11 +1214,11 @@ export default function Home() {
 
           {/* --- Doors + closing invitation --------------------------------------- */}
           <section className="border-t border-line bg-surface/40">
-            <div className={`${SHELL} py-20 sm:py-24`}>
+            <div className={`${SHELL} ${SECTION}`}>
               <div className="grid gap-4 sm:grid-cols-2">
                 <Reveal
                   as="section"
-                  className="rounded-2xl border border-line bg-surface p-6"
+                  className={CARD}
                 >
                   <h2 className="text-[17px] font-semibold text-ink">Already a client</h2>
                   <p className="mt-1.5 text-sm text-pretty text-ink-muted">
@@ -1038,7 +1258,7 @@ export default function Home() {
                 <Reveal
                   as="section"
                   delay={0.06}
-                  className="rounded-2xl border border-line bg-surface p-6"
+                  className={CARD}
                 >
                   <h2 className="text-[17px] font-semibold text-ink">
                     {SIGNUP_OPEN ? "New here" : "Not a client yet"}
@@ -1081,7 +1301,7 @@ export default function Home() {
               <Reveal
                 as="section"
                 delay={0.08}
-                className="relative mt-4 overflow-hidden rounded-2xl border border-line bg-surface p-8 sm:p-12"
+                className="relative mt-4 overflow-hidden rounded-2xl border border-line bg-surface p-6 sm:p-10 lg:p-12"
               >
                 <div
                   aria-hidden
@@ -1097,7 +1317,7 @@ export default function Home() {
                 </p>
                 <div className="mt-8 flex flex-wrap items-center gap-3">
                   <Link href="/signup" className={CTA_PRIMARY}>
-                    {SIGNUP_OPEN ? "Create a workspace" : "Start a conversation"}
+                    {CTA_LABEL}
                     <ArrowRight
                       aria-hidden
                       className="h-4 w-4 transition-transform group-hover:translate-x-0.5"
@@ -1124,24 +1344,39 @@ export default function Home() {
           the surface a data principal is told to look at. `slug` is documented as stable
           for exactly this reason, so iterating is safe as well as shorter.
         */}
-        <footer className="border-t border-line px-6 py-10">
-          <div className={`${SHELL} flex flex-col gap-5 px-0`}>
+        <footer className="border-t border-line">
+          <div className={`${SHELL} flex flex-col gap-5 py-10`}>
             {/* The tagline lockup, and this is the one place it belongs: a footer is
                 where a signature reads as a signature rather than as a second headline. */}
             <div className="flex items-center">
               <BrandLockup height={52} />
             </div>
             <nav aria-label="Legal">
+              {/*
+               * `inline-block py-1`: see `lib/legal/document.tsx`'s table of contents
+               * for the argument, and `tests/responsive.test.ts`'s "a navigation
+               * link's tap target", which pins this exact shape — and which reads the
+               * twelve lines after the `href`, so this note lives out here rather than
+               * between the two attributes it is about. These eight were an 11px-tall
+               * target in a wrapped list, the shortest in the product, and this is the
+               * footer a payment aggregator's reviewer clicks through.
+               *
+               * `touch:py-3.5` IS THE ADDITION. `py-1` puts a 16px line box in a 24px
+               * target, which clears WCAG 2.2 SC 2.5.8's AA minimum and is still a poor
+               * box for a thumb; 14px either side makes it 44px, the SC 2.5.5
+               * (Enhanced) size the Understanding document recommends for important
+               * links (w3c/wcag `main`, `understanding/22/target-size-minimum.html`,
+               * quoted in UX-DOCTRINE §8.5). `touch:` is the `pointer: coarse` variant
+               * declared in globals.css, so desktop density is untouched — the same
+               * trade every shared control class in this repo makes. Padding rather
+               * than `min-h-11` so the label stays centred in its box.
+               */}
               <ul className="flex flex-wrap gap-x-5 gap-y-2 text-xs">
                 {LEGAL_DOCUMENTS.map((doc) => (
                   <li key={doc.slug}>
                     <Link
                       href={`/legal/${doc.slug}`}
-                      // `inline-block py-1`: see `lib/legal/document.tsx`'s table of
-                      // contents for the argument. These eight were an 11px-tall target
-                      // in a wrapped list — the shortest in the product — and this is the
-                      // footer a payment aggregator's reviewer clicks through.
-                      className="inline-block py-1 text-ink-faint underline-offset-4 hover:text-ink hover:underline"
+                      className="inline-block py-1 text-ink-faint underline-offset-4 hover:text-ink hover:underline touch:py-3.5"
                     >
                       {doc.title}
                     </Link>

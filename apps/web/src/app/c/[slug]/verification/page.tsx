@@ -22,6 +22,8 @@ import {
 } from "@/lib/api/dltRegistration";
 import type { Session } from "@/lib/api/client";
 import { useClientSession } from "@/lib/api/session";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * Business verification — the page somebody opens because their calls stopped.
@@ -112,6 +114,88 @@ const LIST = "space-y-3 text-sm text-ink-muted";
 
 export default function VerificationPage() {
   const session = useClientSession();
+  /*
+   * THE SAME TWO READS THE SECTIONS BELOW MAKE, and not a third round trip: TanStack
+   * dedupes by query key, so calling the hooks here shares the sections' own answers.
+   * Declaring the surface in the page rather than inside the two children is what keeps
+   * the launcher on screen while they are loading and after either has failed — the
+   * child effects commit first, so a child declaration would also shadow the other's.
+   */
+  const kyc = useKycRecord(session);
+  const dlt = usePeRegistration(session);
+
+  /*
+   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * READ-ONLY: nothing on this screen is editable by anyone in the client realm — both
+   * verdicts are recorded by Calevate, which is the point of them.
+   *
+   * `signatory_name` and `document_ref` are on the payload and are NOT declared: the
+   * first names a human being and the second identifies their identity document, which
+   * is the densest personal data this account holds about its own owner. The STATUS of
+   * each is what a person on this screen is asking about, and it identifies nobody.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/verification",
+    title: "Verification",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "kyc_state",
+        label: "Has the business-verification record loaded?",
+        value: kyc.data ? "yes" : kyc.error ? "no — it failed to load" : "still loading",
+      },
+      ...(kyc.data
+        ? [
+            {
+              key: "kyc_verified",
+              label: "Is the business behind this account verified?",
+              value: kyc.data.is_verified ? "yes" : "no",
+            },
+            { key: "kyc_status", label: "Verification status", value: kyc.data.status ?? "nothing submitted" },
+            { key: "kyc_entity_type", label: "Kind of business recorded", value: kyc.data.entity_type ?? "none recorded" },
+            { key: "kyc_document_kind", label: "Kind of document on file", value: kyc.data.document_kind ?? "none" },
+            { key: "kyc_submitted_at", label: "Submitted (UTC)", value: kyc.data.submitted_at ?? "never" },
+            { key: "kyc_verified_at", label: "Verified (UTC)", value: kyc.data.verified_at ?? "not verified" },
+            {
+              key: "kyc_rejection_reason",
+              label: "Why it was rejected, if it was",
+              value: kyc.data.rejection_reason ?? "not rejected",
+            },
+            {
+              key: "number_purchase_available",
+              label: "May this account be given a phone number yet?",
+              value: kyc.data.number_purchase_available ? "yes" : "no",
+            },
+          ]
+        : []),
+      {
+        key: "dlt_state",
+        label: "Has the DLT registration record loaded?",
+        value: dlt.data ? "yes" : dlt.error ? "no — it failed to load" : "still loading",
+      },
+      ...(dlt.data
+        ? [
+            {
+              key: "dlt_recorded",
+              label: "Is a DLT registration on file?",
+              value: dlt.data.recorded ? "yes" : "no",
+            },
+            { key: "dlt_active", label: "Is it active?", value: dlt.data.is_active ? "yes" : "no" },
+            { key: "dlt_status", label: "Registration status", value: dlt.data.status ?? "none" },
+            {
+              key: "dlt_tm_link_status",
+              label: "Is Calevate linked as the telemarketer on it?",
+              value: dlt.data.tm_link_status ?? "not stated",
+            },
+            { key: "dlt_registered_at", label: "Registered (UTC)", value: dlt.data.registered_at ?? "never" },
+            { key: "dlt_verified_at", label: "Verified (UTC)", value: dlt.data.verified_at ?? "not verified" },
+          ]
+        : []),
+    ],
+    apply: noFill,
+  });
 
   return (
     <div className="space-y-5 pb-12">
@@ -354,8 +438,49 @@ function DltStatuses({ registration }: { registration: PeRegistration }) {
               ? "Ask your account manager where this authorisation stands."
               : "This authorisation follows the registration above; there is nothing to authorise until that exists.")}
         </dd>
+        <CalevateTelemarketerId registration={registration} />
       </div>
     </dl>
+  );
+}
+
+/**
+ * Calevate's OWN telemarketer registration number, shown to the client who needs it.
+ *
+ * The authorisation above is made BY THE CLIENT on the registrar's portal — `TM_LINK_COPY`
+ * says so in as many words — and the portal asks for the telemarketer's registration
+ * number. So the client needs ours, and until 2 September 2026 the only place it appeared
+ * was `/legal/acceptable-use`, as `{{DLT_TELEMARKETER_ID}}` in a public legal document.
+ * That is the wrong surface twice over: an operational identifier published to the open
+ * web, and a client hunting a legal page for a number they need while filling in a form.
+ * It is on this screen instead, behind a session, beside the sentence that asks for it.
+ *
+ * `calevate_tm_id` comes off `GET /v1/compliance/dlt-registration` and is sourced from
+ * `platform_state`, which an operator writes in the ops console — never hard-coded here.
+ * A missing id is a state, not an error: the registration itself is not through, which is
+ * the platform-wide blocker the campaign screen renders as its own notice, and the honest
+ * sentence is that there is nothing to authorise against yet rather than a blank.
+ */
+function CalevateTelemarketerId({ registration }: { registration: PeRegistration }) {
+  const id = (registration.calevate_tm_id ?? "").trim();
+  if (id === "") {
+    return (
+      <dd className="mt-1 text-ink-muted">
+        Our own telemarketer registration is not through yet, so there is nothing for you
+        to authorise against on the registrar&apos;s portal. That holds up outbound
+        campaigns for every Calevate account at once and there is nothing at your end that
+        clears it. Calls coming IN are unaffected.
+      </dd>
+    );
+  }
+  return (
+    <dd className="mt-1 text-ink-muted">
+      The registrar asks for the telemarketer&apos;s registration number when you make that
+      authorisation. Ours is <span className="font-mono text-ink">{id}</span>
+      {registration.calevate_tm_active
+        ? "."
+        : " — though our registration is not active yet, so the authorisation cannot complete until it is."}
+    </dd>
   );
 }
 
@@ -501,6 +626,13 @@ function describeVerification(record: KycRecord): string {
  * self-serve and trial plans" to a managed client costs them a moment; telling a
  * managed client their outbound calling has stopped when it has not costs them a day.
  *
+ * WHICH WAY ROUND THE SENTENCE GOES CHANGED WITH THE MOTION, though the fact behind it
+ * did not. The claim read "stopped on self-serve and trial accounts" — our own tier names,
+ * and phrased as though the gate were the exception. Every account is now prepaid unless
+ * an operator deliberately puts it on a retainer, so the gate is what almost every reader
+ * is under: it is stated as the rule, with the managed account as the carve-out, and in
+ * words rather than in plan tiers. The API's scoping is unchanged.
+ *
  * The icons carry the direction of the call, which is the whole distinction the list is
  * making and the one a worried client skims for.
  */
@@ -515,7 +647,7 @@ function WhatItAffects() {
         </Affected>
         <Affected
           icon={PhoneOutgoing}
-          claim="Outgoing calls: stopped on self-serve and trial accounts."
+          claim="Outgoing calls: stopped, unless yours is an account we run for you."
         >
           Campaigns will not launch and one-off outbound calls are refused, naming this
           verification as the reason. Accounts we set up and manage for you are not gated

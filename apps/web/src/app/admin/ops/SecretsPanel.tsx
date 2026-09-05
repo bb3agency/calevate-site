@@ -28,6 +28,7 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import {
   KeyField,
   MonoValue,
@@ -349,13 +350,17 @@ function SecretForm({
   const save = useSetSecret();
 
   const word = secret.key.toUpperCase();
-  const ready = value.length > 0 && reason.trim().length >= 3 && confirmMatches(confirm, word);
+  const valid = useFormValidation();
+  // The key and the reason are answered AT their controls now, so an operator who presses
+  // Install with an empty box is told which box. The typed confirmation stays here: it is
+  // a gate on the act, not an answer on the form.
+  const ready = confirmMatches(confirm, word);
 
   return (
     <form
       className="mt-3 space-y-3 border-t border-line pt-3"
-      onSubmit={(e) => {
-        e.preventDefault();
+      noValidate
+      onSubmit={valid.onSubmit(() => {
         if (!ready || save.isPending) return;
         save.mutate(
           { key: secret.key, value, reason: reason.trim() },
@@ -370,7 +375,7 @@ function SecretForm({
             },
           },
         );
-      }}
+      })}
     >
       {save.error && (
         <WriteFailure
@@ -396,6 +401,9 @@ function SecretForm({
       <KeyField
         id={`secret-value-${secret.key}`}
         label={secret.installed ? "New key" : "Key"}
+        required
+        control={valid.track("value", "Paste the key from your vendor's dashboard.")}
+        error={valid.message("value")}
         value={value}
         onChange={(next) => {
           setValue(next);
@@ -412,6 +420,7 @@ function SecretForm({
       <label className="block">
         <span className={FIELD_LABEL}>Reason</span>
         <input
+          {...valid.field("reason", "Say why this key is being stored.")}
           required
           minLength={3}
           maxLength={500}
@@ -420,6 +429,7 @@ function SecretForm({
           placeholder="e.g. 'rotating after the vendor's breach notice'"
           className={FIELD}
         />
+        {valid.error("reason")}
       </label>
 
       <TypeToConfirm
@@ -671,6 +681,10 @@ export function KeyManagementPanel({
 
         <form
           className="space-y-3"
+          // No constraint attributes on this one — the only gate is the typed word, which
+          // is not a rule about an answer — but `noValidate` all the same, so no later
+          // edit can quietly hand this form back to the browser.
+          noValidate
           onSubmit={(e) => {
             e.preventDefault();
             // THE DOUBLE-FIRE GUARD, and it is a REF rather than either the button's

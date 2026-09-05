@@ -108,11 +108,25 @@ TENANT_SLUG = "sunrise-dental"
 TENANT_VERTICAL = "clinic"
 TENANT_LANGUAGE = "en-IN"
 
-#: `managed` rather than a self-serve tier, because that is the pilot motion (D-34
-#: motion 1) and because the self-serve tiers put a wallet balance in front of every
-#: dial — a seeded stack whose first campaign refuses `wallet_empty` is a support
-#: question rather than a demo.
-TENANT_PLAN_TIER = "managed"
+#: ⚠ **`prepaid`, AND THIS SAID `managed` UNTIL D-521.** The old note argued that a
+#: wallet-gated demo "refuses on every dial and is a support question rather than a demo"
+#: — which was true, and which stopped being a reason the moment prepaid became what every
+#: real account is. A seed that demonstrates the ONE motion the product no longer creates
+#: is how the credits screen came to be tested by nobody: the founder opened it on a real
+#: account and read "this account is invoiced, not prepaid", which is the defect D-521 was
+#: raised for. The wallet objection is answered by seeding a balance instead
+#: (`_ensure_opening_credit`), not by seeding the wrong tier.
+TENANT_PLAN_TIER = "prepaid"
+
+#: What the demo wallet starts with, and its ledger key. ₹5,000 buys 1,000 minutes at the
+#: ₹5.00 list rate — enough that no demo dial is refused `no_credits` and small enough to
+#: look like a real first top-up rather than a number nobody chose. `reason="topup"` is
+#: honest HERE and only here: this is a fictional tenant on a developer's machine, and the
+#: entry says a top-up happened because in the story the seed tells, one did. The
+#: production migration deliberately writes NO ledger row for exactly the opposite reason
+#: (`a8d3f61c04e7` — money a client did not pay is not a migration's to grant).
+SEED_OPENING_CREDIT_INR = Decimal("5000.00")
+SEED_CREDIT_REF = "seed-dev-opening-balance"
 
 
 @dataclass(frozen=True, slots=True)
@@ -419,6 +433,40 @@ async def _activate(tenant_id: UUID) -> None:
         await session.commit()
 
 
+async def _ensure_opening_credit(tenant_id: UUID) -> Decimal:
+    """Put a balance in the demo tenant's wallet, once, and return what it holds.
+
+    Idempotent through the ledger's OWN key rather than through an `if` here:
+    `find_entry_by_ref` takes the per-tenant advisory lock and asks whether this
+    `(reason, ref)` pair has already been written, which is the same mechanism the
+    Razorpay receiver uses so a re-run cannot double a balance. `credit_ledger` is
+    append-only (hard rule 4) — a seed that inserted blindly would leave a developer's
+    wallet growing ₹5,000 per `make db-reset` with no way to take it back out.
+
+    D-521 is why this exists at all: the seeded tenant is `prepaid` now, and a prepaid
+    tenant with no credit has every demo dial refused `no_credits`.
+    """
+    from apps.api.billing.service import find_entry_by_ref, get_balance, record_entry
+    from apps.api.db.session import tenant_session
+
+    async with tenant_session(tenant_id) as session:
+        existing = await find_entry_by_ref(
+            session, tenant_id=tenant_id, reason="topup", ref=SEED_CREDIT_REF
+        )
+        if existing is not None:
+            return (await get_balance(session, tenant_id=tenant_id)).amount_inr
+        balance = await record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=SEED_OPENING_CREDIT_INR,
+            reason="topup",
+            ref=SEED_CREDIT_REF,
+            meta={"source": "seed_dev"},
+        )
+        await session.commit()
+        return balance.amount_inr
+
+
 def _redacted(value: str) -> str:
     from apps.api.core.logging import redact_text
 
@@ -717,6 +765,10 @@ async def _run() -> str:
 
     await _ensure_prompt(tenant_id, agent_id)
     agent_status = await _publish(tenant_id, agent_id)
+    # BEFORE the calls, because `_seed_calls` writes usage rows that debit this wallet:
+    # a demo whose first charge lands on an empty balance is one the ledger records as a
+    # negative, which is a story about an overdrawn client rather than a working one.
+    balance = await _ensure_opening_credit(tenant_id)
     calls = await _seed_calls(tenant_id=tenant_id, agent_id=agent_id, owner_user_id=owner_id)
 
     return "\n".join(
@@ -724,6 +776,7 @@ async def _run() -> str:
             "seeded a local development stack",
             "",
             f"  tenant   {TENANT_NAME} ({TENANT_SLUG})  id={tenant_id}  tier={TENANT_PLAN_TIER}",
+            f"  wallet   INR {balance} (prepaid; top-ups on /c/{TENANT_SLUG}/credits)",
             f"  agent    {agent_id}  status={agent_status}",
             f"  calls    +{calls} this run ({len(DEMO_CALLS)} defined, re-runs add none)",
             "",

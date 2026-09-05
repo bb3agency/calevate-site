@@ -143,7 +143,21 @@ def reset_schema() -> None:
             conn.execute(text("CREATE SCHEMA public"))
             # The two grants `scripts/dev_bootstrap.sh` makes, restated because the drop
             # took them with it. Quoted identifier: the role name comes from a DSN.
-            conn.execute(text(f'GRANT ALL ON SCHEMA public TO "{role}"'))
+            #
+            # SKIPPED WHEN THE ROLE DOES NOT EXIST YET, which is the state of a genuinely
+            # fresh cluster: `calevate_app` is created by the FIRST migration
+            # (`05bba2f3c19c`), and this target runs before `alembic upgrade head`. So on a
+            # database nobody has migrated — a new developer's first `make db-reset`, or a
+            # rebuilt local server — the grant failed with `role does not exist` and took
+            # the whole reset with it, before the migration that would have created the
+            # role ever ran. The migration re-grants after creating it, so nothing is lost
+            # by skipping here; what is gained is that the chicken-and-egg case reads as a
+            # no-op instead of as a wall.
+            exists = conn.execute(
+                text("SELECT 1 FROM pg_roles WHERE rolname = :role"), {"role": role}
+            ).first()
+            if exists is not None:
+                conn.execute(text(f'GRANT ALL ON SCHEMA public TO "{role}"'))
             conn.execute(text("GRANT ALL ON SCHEMA public TO PUBLIC"))
         print(f"db-reset: schema public dropped and recreated on {database} (granted to {role})")
     finally:

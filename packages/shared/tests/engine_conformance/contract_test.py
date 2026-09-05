@@ -10,6 +10,7 @@ Run: `make conformance` (or `uv run pytest -m conformance`).
 
 from __future__ import annotations
 
+import hashlib
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -602,9 +603,10 @@ async def test_agent_read_back_answers_or_declines_the_kb_reference_question(
         # handle", and an engine that holds no agent record of ours has no object to ask.
         # `get_agent` refuses by name there rather than answering `readable=False`.
         return
-    ref = await engine.create_agent(_agent_config(engine))
+    cfg = _agent_config(engine)
+    ref = await engine.create_agent(cfg)
     handle = await engine.attach_kb(
-        ref, KBSourceRef(kb_id="kb_readback", title="Fees", text="A consultation costs 500.")
+        ref, _kb_source("kb_readback", "Fees", "A consultation costs 500."), agent=cfg
     )
     snapshot = await engine.get_agent(ref)
 
@@ -620,7 +622,7 @@ async def test_agent_read_back_answers_or_declines_the_kb_reference_question(
         "just attached to this agent is not among them — so a dangling handle would be "
         "just as invisible"
     )
-    await engine.detach_kb(ref, handle)
+    await engine.detach_kb(ref, handle, agent=cfg)
     after = await engine.get_agent(ref)
     assert after.references_kb(handle) is False, (
         "the agent still references the detached knowledge base (D-41): `detach_kb` is a "
@@ -968,6 +970,33 @@ async def test_unknown_vendor_status_degrades_to_failed(engine: VoiceEngine) -> 
     assert event.status == "failed"
 
 
+#: The smallest thing that is unambiguously a PDF. The conformance stub asserts the file
+#: part starts with it, which is what stops an adapter passing the KB clauses while
+#: uploading the approved TEXT — the exact body shape D-354 found on the wire.
+#:
+#: Rendering a real one here would put a document format in the conformance suite, which
+#: is the sibling module's job and nobody else's. What this fixture stands for is "the
+#: publisher handed us bytes", and the bytes only have to be recognisable.
+_STUB_PDF = b"%PDF-1.4\n% conformance fixture, not a rendering\n%%EOF\n"
+
+
+def _kb_source(kb_id: str, title: str, text: str, *, language: str = "te-IN") -> KBSourceRef:
+    """One approved source as the publisher hands it over: text AND a rendered document.
+
+    Both, always. An engine that ingests text reads `text`; one that ingests files reads
+    `document`; and a clause that supplied only one of them would silently exempt half
+    the adapters from the half of the contract that applies to them.
+    """
+    return KBSourceRef(
+        kb_id=kb_id,
+        title=title,
+        text=text,
+        language=language,
+        document=_STUB_PDF,
+        content_sha256=hashlib.sha256(_STUB_PDF).hexdigest(),
+    )
+
+
 async def test_attach_kb_accepts_our_source_ref_and_returns_a_handle(
     engine: VoiceEngine,
 ) -> None:
@@ -980,10 +1009,10 @@ async def test_attach_kb_accepts_our_source_ref_and_returns_a_handle(
     """
     if not engine.capabilities.knowledge_base:
         return  # covered instead by the refusal clause for KB-less engines
-    ref = await _agent_ref(engine)
+    cfg = _agent_config(engine)
+    ref = await _agent_ref(engine, cfg)
     handle = await engine.attach_kb(
-        ref,
-        KBSourceRef(kb_id="kb_1", title="Clinic hours", text="Mon-Sat 9am-8pm", language="te-IN"),
+        ref, _kb_source("kb_1", "Clinic hours", "Mon-Sat 9am-8pm"), agent=cfg
     )
     assert isinstance(handle, str) and handle, "an attached source must be addressable"
 
@@ -1010,19 +1039,20 @@ async def test_detach_kb_actually_removes_exactly_the_source_it_names(
     """
     if not engine.capabilities.knowledge_base:
         return  # covered instead by the refusal clause for KB-less engines
-    ref = await _agent_ref(engine)
+    cfg = _agent_config(engine)
+    ref = await _agent_ref(engine, cfg)
     superseded = await engine.attach_kb(
-        ref, KBSourceRef(kb_id="kb_detach_v1", title="Fees", text="A consultation costs 500.")
+        ref, _kb_source("kb_detach_v1", "Fees", "A consultation costs 500."), agent=cfg
     )
     kept = await engine.attach_kb(
-        ref, KBSourceRef(kb_id="kb_detach_other", title="Parking", text="Parking is free.")
+        ref, _kb_source("kb_detach_other", "Parking", "Parking is free."), agent=cfg
     )
     assert superseded != kept, "two sources must not share one handle — one cannot be removed"
     assert {superseded, kept} <= set(await engine.list_kb(ref)), (
         "an attached source must be visible to `list_kb`, or a detach can never be proven"
     )
 
-    await engine.detach_kb(ref, superseded)
+    await engine.detach_kb(ref, superseded, agent=cfg)
 
     remaining = await engine.list_kb(ref)
     assert superseded not in remaining, (
@@ -1030,6 +1060,68 @@ async def test_detach_kb_actually_removes_exactly_the_source_it_names(
         "still what the agent answers from"
     )
     assert kept in remaining, "detach removed a source it was not asked to remove"
+
+
+async def test_the_account_listing_sees_what_no_agent_references(
+    engine: VoiceEngine,
+) -> None:
+    """`list_account_kb` must see an object `list_kb` cannot — that is its whole job.
+
+    D-519. Every failure this feature can suffer leaves the same residue: an object the
+    ACCOUNT holds that no agent references — a create whose response was lost, a crash
+    between the upload and the agent write, a COMMIT that failed after a successful
+    attach, a cleanup that itself failed, an agent deleted while it still referenced
+    knowledge. `list_kb` reads the AGENT, so every one of those is invisible to it, and
+    an adapter that answered this method from the agent's own references would pass every
+    other clause in this file while making the orphan report structurally incapable of
+    finding anything.
+
+    Staged with the one such state a conformance test can produce without breaking the
+    transport: an agent is deleted while it still holds an attached document. WHAT
+    HAPPENS TO THE VENDOR'S OBJECT THEN IS UNKNOWN on the primary engine and is
+    OPERATIONS §2 gate 43f, so this clause asserts NEITHER branch — it asserts the
+    property that is true under both: whatever the account still holds, this method
+    reports, and it never reports an object as attached to an agent that is gone.
+    """
+    if not engine.capabilities.knowledge_base:
+        return  # covered instead by the refusal clause for KB-less engines
+    cfg = _agent_config(engine)
+    ref = await _agent_ref(engine, cfg)
+    handle = await engine.attach_kb(
+        ref, _kb_source("kb_account", "Fees", "A consultation costs 500."), agent=cfg
+    )
+
+    listing = await engine.list_account_kb()
+    assert listing.complete, "the account listing was truncated on an account with one object"
+    assert handle in {obj.handle for obj in listing.objects}, (
+        "an attached document is not in the account listing, so the orphan report can "
+        "never see one that stops being attached"
+    )
+
+    await engine.delete_agent(ref)
+
+    assert handle not in set(await _kb_of_deleted_agent(engine, ref)), (
+        "a deleted agent still references the knowledge it held"
+    )
+    # THE ACCOUNT LISTING MUST STILL ANSWER, and that is the assertion. Whether the object
+    # survived its agent is the vendor's business and neither branch is asserted; what is
+    # refused is an adapter that answers this method FROM the agent — such an adapter
+    # raises here (the agent is a phantom) or reports an empty account, and either way the
+    # orphan report can never see the residue it exists for.
+    final = await engine.list_account_kb()
+    assert final.complete, "the account listing stopped being answerable once an agent went"
+
+
+async def _kb_of_deleted_agent(engine: VoiceEngine, ref: str) -> list[str]:
+    """What `list_kb` says about an agent that no longer exists: nothing, or a refusal.
+
+    Both are correct — the Protocol lets `get_agent` raise on a phantom — and the caller
+    above needs the distinction flattened, because its subject is the ACCOUNT listing.
+    """
+    try:
+        return await engine.list_kb(ref)
+    except Exception:
+        return []
 
 
 async def test_a_detach_that_did_not_happen_is_reported_rather_than_swallowed(
@@ -1050,10 +1142,11 @@ async def test_a_detach_that_did_not_happen_is_reported_rather_than_swallowed(
     """
     if not engine.capabilities.knowledge_base:
         return  # covered instead by the refusal clause for KB-less engines
-    ref = await _agent_ref(engine)
+    cfg = _agent_config(engine)
+    ref = await _agent_ref(engine, cfg)
     reported: Exception | None = None
     try:
-        await engine.detach_kb(ref, "kb_this_engine_never_issued")
+        await engine.detach_kb(ref, "kb_this_engine_never_issued", agent=cfg)
     except Exception as exc:  # adapters raise our ProblemError; the type is theirs
         reported = exc
     assert reported is not None, (
@@ -1374,12 +1467,14 @@ async def test_an_engine_without_a_knowledge_base_refuses_all_three_kb_methods(
     """
     if engine.capabilities.knowledge_base:
         return
-    ref = await _agent_ref(engine)
-    source = KBSourceRef(kb_id="kb_absent", title="Fees", text="A consultation costs 500.")
+    cfg = _agent_config(engine)
+    ref = await _agent_ref(engine, cfg)
+    source = _kb_source("kb_absent", "Fees", "A consultation costs 500.")
     for label, call in (
-        ("attach_kb", lambda: engine.attach_kb(ref, source)),
-        ("detach_kb", lambda: engine.detach_kb(ref, "kb_anything")),
+        ("attach_kb", lambda: engine.attach_kb(ref, source, agent=cfg)),
+        ("detach_kb", lambda: engine.detach_kb(ref, "kb_anything", agent=cfg)),
         ("list_kb", lambda: engine.list_kb(ref)),
+        ("list_account_kb", engine.list_account_kb),
     ):
         refusal: Exception | None = None
         try:
@@ -2026,6 +2121,38 @@ async def test_a_success_the_adapter_cannot_read_never_becomes_an_answer(
         assert code == "engine_bad_response", (
             f"a 200 carrying {label} surfaced as {code!r} — an adapter that answers an "
             "unreadable success with a VALUE fabricates a call record"
+        )
+        assert kind == "dependency"
+
+
+async def test_a_redirect_is_never_treated_as_an_answer(
+    ladder: Callable[[VendorHandler], VoiceEngine],
+) -> None:
+    """A 3xx is a status BELOW 400, which is how it got in.
+
+    No adapter here follows redirects (httpx defaults `follow_redirects` to False), so a
+    301/302/307/308 arrives as an ordinary response carrying a `Location` and, usually, no
+    body at all — and a ladder that asks "is this >= 400?" reads that as the vendor having
+    done what it was asked. Measured on this tree before the rung existed: a 302 on the
+    execution route produced `engine_call_id=''`, `status='failed'`, no cost and no
+    transcript, which is the same fabricated record the unreadable-success clause above
+    exists to prevent, reached by a status that clause never touched.
+
+    Following it is not the fix and is not permitted: 307/308 re-send the request BODY, so
+    an edge misconfiguration in front of `POST /call` would dial one contact twice, and a
+    cross-host redirect strips the `Authorization` header on the way. A redirect off an API
+    root the adapter pins is a moved API or an intermediary, and either is an operator's
+    problem that they can only act on if somebody reports it.
+    """
+    for status in (301, 302, 307, 308):
+
+        def handler(request: httpx.Request, code: int = status) -> httpx.Response:
+            return httpx.Response(code, headers={"Location": "https://elsewhere.example/v1"})
+
+        code, kind = _refusal(await _refused(ladder(handler), what=f"a {status} redirect"))
+        assert code == "engine_bad_response", (
+            f"a {status} surfaced as {code!r} — an adapter that reads a redirect as a "
+            "successful answer reports a call record the vendor never sent"
         )
         assert kind == "dependency"
 

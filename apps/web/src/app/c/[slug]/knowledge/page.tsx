@@ -21,10 +21,17 @@ import {
   formatCount,
   formatIST,
 } from "@/components/ui";
-import { useWriteAccess } from "@/lib/api/hooks";
+import { useFormValidation } from "@/components/formValidation";
+import { useWriteAccess, type WriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useAgents } from "@/lib/api/agents";
-import { useKbChunks, useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
+import {
+  useKbChunks,
+  useKbSources,
+  useSetStaffCuration,
+  useStaffCuration,
+  useSubmitKnowledge,
+} from "@/lib/api/kb";
 import { lookup } from "@/lib/lookup";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
@@ -61,10 +68,17 @@ import { useVerticalExamples } from "@/lib/useVerticalExamples";
  * The screen renders no `<h1>`: the shell prints the page title from the nav list
  * (layout.tsx), and a second "Knowledge base" beside it is a visible duplicate.
  *
- * Submitting is `kb:write`, which `staff` does not hold and which an impersonating
- * operator is refused (D-22) — so the control is disabled WITH the reason rather than
- * left to answer 403. Reading (`agents:read`) stays open, which is the whole point of
- * "view as client": support can see the knowledge base they are being asked about.
+ * Submitting is `kb:write`, and an impersonating operator is refused it (D-22) — so the
+ * control is disabled WITH the reason rather than left to answer 403. Reading
+ * (`agents:read`) stays open, which is the whole point of "view as client": support can
+ * see the knowledge base they are being asked about.
+ *
+ * **`staff` HOLDING `kb:write` IS NOW AN ACCOUNT-BY-ACCOUNT ANSWER, AND THIS DOCSTRING
+ * USED TO SAY IT NEVER DID.** Since the founder's "give the staff perms allowing option to
+ * owner", a staff member holds it exactly when their own owner has switched staff curation
+ * on (`apps/api/kb/curation.py`), and `/v1/me` reports the EFFECTIVE set — so
+ * `useWriteAccess` enables this form for them with no special case here. The switch itself
+ * is `StaffCurationSwitch` at the foot of this file.
  */
 
 interface StatusCopy {
@@ -117,8 +131,24 @@ export default function KnowledgePage() {
    */
   const write = useWriteAccess(session, "kb:write", "add knowledge to this account");
 
+  /**
+   * THE OWNER'S SWITCH: may this account's `staff` members curate knowledge at all.
+   *
+   * Off for every account until an owner turns it on. Reading it is `org:read` so a staff
+   * member is TOLD why the form above is closed to them; changing it is `org:manage`, so
+   * `curationWrite` disables the control for everyone else — including a view-as operator,
+   * because flipping a permission switch is itself a mutation (D-22).
+   *
+   * NOTE the interaction with `write` above and why nothing here duplicates it: `/v1/me`
+   * reports the EFFECTIVE permission set, so a staff member in a switched-on account
+   * already receives `kb:write` and `useWriteAccess` enables the form on its own. This
+   * control decides the switch; it does not gate the form.
+   */
+  const curationWrite = useWriteAccess(session, "org:manage", "change who may add knowledge");
+
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
+  const valid = useFormValidation();
   const [agentId, setAgentId] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
   const chunks = useKbChunks(session, selected);
@@ -175,7 +205,7 @@ export default function KnowledgePage() {
         label: "What it should know",
         type: "textarea",
         value: body,
-        help: "Prose, in the language the agent answers in. It is split into chunks and retrieved during calls.",
+        help: "Prose, in the language the agent answers in. Once it is approved it becomes part of what the agent already knows when it picks up.",
       },
       {
         id: "kb-agent",
@@ -204,12 +234,22 @@ export default function KnowledgePage() {
 
   return (
     <div className="space-y-5 pb-12">
+      {/* WHAT THIS SCREEN MAY PROMISE (`docs/TRD.md:948`): in-call retrieval is T0 and
+          nothing else — approved facts are compiled into the agent's own prompt at
+          publish time (`apps/api/agents/t0.py`). The agent does not read a document and
+          does not look anything up while a caller is on the line, so the copy says
+          "part of what it already knows" rather than anything retrieval-shaped. It is
+          the faster arrangement, not the poorer one, and it is written that way.
+          `tests/knowledgeApproval.test.tsx` pins the sentence and bans the shapes. */}
       <p className="text-sm text-ink-muted">
-        What your agent knows. Everything you add is reviewed by your account manager
-        before it goes live.
+        What your agent knows. Everything you add is reviewed by your account manager,
+        and once it is approved it becomes part of what the agent already knows when it
+        picks up — hours, address, prices, the questions you get asked every day.
       </p>
 
       <RestrictionNote reason={write.reason} />
+
+      <StaffCurationSwitch write={curationWrite} />
 
       {sources.error && <ProblemNotice error={sources.error} onRetry={() => sources.refetch()} />}
       {/* Without this the form simply refused to submit and never said why: no agent
@@ -222,8 +262,8 @@ export default function KnowledgePage() {
           <Card title="Add knowledge">
             <form
               className="space-y-3"
-              onSubmit={(e) => {
-                e.preventDefault();
+              noValidate
+              onSubmit={valid.onSubmit(() => {
                 if (!selectedAgentId) return;
                 submit.mutate(
                   { agentId: selectedAgentId, name, body },
@@ -234,7 +274,7 @@ export default function KnowledgePage() {
                     },
                   },
                 );
-              }}
+              })}
             >
               {hasNoAgents && (
                 <p className="rounded-lg border border-line bg-app px-3 py-2 text-xs text-ink-muted">
@@ -272,6 +312,7 @@ export default function KnowledgePage() {
               )}
 
               <input
+                {...valid.field("title", "Say what this is about.")}
                 /* The copilot field id — what the "filled" outline is drawn on. The
                    control is named by its own `aria-label`, so nothing else needs it. */
                 id="kb-title"
@@ -283,7 +324,9 @@ export default function KnowledgePage() {
                 placeholder={`What is this about? e.g. ${eg.knowledgeTitle}`}
                 className="w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint"
               />
+              {valid.error("title")}
               <textarea
+                {...valid.field("body", "Write what the agent should say.")}
                 id="kb-body"
                 required
                 minLength={10}
@@ -298,15 +341,21 @@ export default function KnowledgePage() {
                 }
                 className="w-full rounded-md border border-line bg-surface px-3 py-2 text-sm text-ink placeholder:text-ink-faint"
               />
-              {/* Chunking is paragraph-aware, so telling the client that changes how they
-                  write — and better input is cheaper than better retrieval. */}
+              {valid.error("body")}
+              {/* Chunking is paragraph-aware, so telling the client that changes how
+                  they write — and what they write is what the agent carries verbatim,
+                  so better input is the only lever there is. */}
               <p className="text-xs text-ink-muted">
                 Submitting a topic that already exists creates a new version; the previous
                 one stays until this is approved.
               </p>
               <button
                 type="submit"
-                disabled={!write.allowed || submit.isPending || !selectedAgentId || body.length < 10}
+                /* The length rule is not repeated here — pressing now answers in words
+                   instead of the button going quietly dead at nine characters. Having no
+                   agent to teach IS still a dead button, because that one is not about
+                   an answer the person can correct on this form. */
+                disabled={!write.allowed || submit.isPending || !selectedAgentId}
                 /* The reason travels WITH the control as well as sitting at the top of
                    the screen: `RestrictionNote` is above the fold on a phone only by
                    luck, and a dead button with the explanation off-screen is the 403 we
@@ -398,12 +447,33 @@ export default function KnowledgePage() {
                             ) : chunks.data.length ? (
                               <div className="space-y-2">
                                 {chunks.data.map((chunk) => (
-                                  <p
+                                  <div
                                     key={chunk.idx}
                                     className="rounded-md border border-line bg-surface p-2 text-xs text-ink-muted"
                                   >
-                                    {chunk.content}
-                                  </p>
+                                    {/* The client's OWN words, at whatever length and in
+                                        whatever script they typed them. A price list or a
+                                        URL with no space in it walked this card off the
+                                        side of a phone; `break-words` is the only thing
+                                        between an unbroken token and a sideways page. */}
+                                    <p className="break-words">{chunk.content}</p>
+                                    {/* THE GLOSS, AND IT IS LABELLED AS A MACHINE'S WORK.
+                                        It is a SEARCH AID, not something the agent says:
+                                        it exists so a caller who asks in Telugu typed in
+                                        English letters can still be found the answer
+                                        above. Showing it unlabelled beside the client's
+                                        own approved words would read as their words, so
+                                        the label is part of the feature rather than
+                                        decoration. */}
+                                    {chunk.gloss ? (
+                                      <p className="mt-2 break-words border-t border-line pt-2 text-ink-faint">
+                                        <span className="font-medium">
+                                          Auto-translated for search
+                                        </span>{" "}
+                                        — not spoken by your agent. {chunk.gloss}
+                                      </p>
+                                    ) : null}
+                                  </div>
                                 ))}
                               </div>
                             ) : (
@@ -438,11 +508,15 @@ export default function KnowledgePage() {
  *     is_active  →  "Live"       (a caller hears this now)
  *     otherwise  →  status copy  ("In review", "Approved, not live yet", …)
  *
- * `approved` is NOT `live`. Between them sit the version bump, the embeddings, the T0
- * recompile and the engine KB sync (FLOWS §7), any of which can still be outstanding —
- * so a badge keyed on `status === "approved"` tells a client the agent is saying
- * something no caller will hear, and they stop chasing the publish. Both fields are on
- * every row, so `tsc` catches nothing here; tests/knowledgeApproval.test.tsx does.
+ * `approved` is NOT `live`. Between them sit the version bump and the T0 recompile that
+ * splices the fact into the agent's own prompt (FLOWS §7), either of which can still be
+ * outstanding — so a badge keyed on `status === "approved"` tells a client the agent is
+ * saying something no caller will hear, and they stop chasing the publish. Both fields
+ * are on every row, so `tsc` catches nothing here; tests/knowledgeApproval.test.tsx does.
+ *
+ * There is no engine-side KB sync in that list, and there used to be: the engine's
+ * built-in knowledge base is off and `attach_kb` refuses
+ * (`apps/api/engine/bolna.py:2484,3536`). Publishing means the prompt, and nothing else.
  *
  * `SourceOut.status` is plain `string` on the wire, so the copy lookup fails VISIBLE: an
  * unnameable status renders as itself, because a client whose submission is stuck in an
@@ -475,5 +549,61 @@ function SourceBadge({ source }: { source: { status: string; is_active: boolean 
       <Icon className="h-3 w-3" />
       {copy.label}
     </span>
+  );
+}
+
+
+/**
+ * WHO ON THIS TEAM MAY ADD KNOWLEDGE — the owner's switch.
+ *
+ * Rendered where the capability it governs lives rather than buried in account settings,
+ * so the person reading "only owners can add knowledge here" is one control away from
+ * changing it. Shown to everyone (`org:read`) and writable only by an owner
+ * (`org:manage`), which also means a D-22 view-as operator sees it read-only: flipping a
+ * permission switch is itself a mutation.
+ *
+ * **ITS OWN COMPONENT SO THE UNREAD STATES CAN BE THEIR OWN RETURNS.** Written inline it
+ * read `curation.data?.staff_may_curate_knowledge ?? false`, and `surfaceStatesGuard`
+ * failed it for the right reason: that fallback renders "Off" — a definite claim about
+ * this account's permissions — while the request is still in flight or after it has
+ * failed. "Off" and "we could not find out" are different answers, and only one of them
+ * was earned. After the two early returns TypeScript narrows `data`, so the fallback is
+ * gone rather than hidden.
+ */
+function StaffCurationSwitch({ write }: { write: WriteAccess }) {
+  const session = useClientSession();
+  const curation = useStaffCuration(session);
+  const setCuration = useSetStaffCuration(session);
+
+  if (curation.isPending) return <Skeleton rows={1} label="Checking who may add knowledge…" />;
+  if (curation.isError) {
+    return <ProblemNotice error={curation.error} onRetry={() => curation.refetch()} />;
+  }
+
+  const on = curation.data.staff_may_curate_knowledge;
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-line bg-surface px-3 py-2">
+        <div className="text-sm">
+          <span className="font-medium">Let staff add knowledge</span>
+          <span className="block text-ink-muted">
+            {on
+              ? "Team members with the staff role can add knowledge for review. They still cannot approve it."
+              : "Only owners can add knowledge on this account. Everything added is reviewed before it goes live either way."}
+          </span>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={on}
+            disabled={!write.allowed || setCuration.isPending}
+            onChange={(e) => setCuration.mutate(e.target.checked)}
+          />
+          <span>{on ? "On" : "Off"}</span>
+        </label>
+      </div>
+      <RestrictionNote reason={write.reason} />
+      {setCuration.error && <ProblemNotice error={setCuration.error} />}
+    </div>
   );
 }

@@ -12,7 +12,10 @@ happens anyway.
    which creates a new `rag_id` every time and de-duplicates nothing. Two copies
    attached, one handle recorded: the older one can never be addressed again, is
    retrievable by the agent forever, and is billed forever. The trigger is a
-   double-clicked Publish button or a retry after a timeout.
+   double-clicked Publish button or a retry after a timeout. Since the renderer seam was
+   wired, the re-upload guard short-circuits this for UNCHANGED content — the two cases
+   are now separate clauses below, because "the guard fired" and "the withdrawal fired"
+   are different properties and a single test could pass while either one was broken.
 
 2. **The engine accepted the work and our transaction did not commit.** The publish
    runs inside the caller's transaction, so a commit failure after a successful attach
@@ -88,18 +91,28 @@ class _Spy:
     def __init__(self) -> None:
         self.calls: list[tuple[str, str]] = []
 
-    def install(self, patch: pytest.MonkeyPatch) -> None:
+    def install(self, patch: pytest.MonkeyPatch, *, mints_fresh_handles: bool = False) -> None:
+        """`mints_fresh_handles` makes the fake behave like a CREATE-only engine.
+
+        The fake files attachments under OUR `kb_id`, so re-attaching one source replaces
+        it and hands back the same handle. A real knowledge base has no update route: every
+        attach is a new object with a new id, and the copy it replaced stays until somebody
+        deletes it. Filing under a distinct id per call reproduces that, which is the only
+        way a clause about re-publishing the SAME source can see the second copy at all.
+        """
         engine = get_engine()
         real_attach, real_detach = engine.attach_kb, engine.detach_kb
 
-        async def attach(ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
-            handle = await real_attach(ref, source)
+        async def attach(ref: EngineAgentRef, source: KBSourceRef, **kwargs: Any) -> EngineKBRef:
+            if mints_fresh_handles:
+                source = source.model_copy(update={"kb_id": f"{source.kb_id}#{len(self.calls)}"})
+            handle = await real_attach(ref, source, **kwargs)
             self.calls.append(("attach", handle))
             return handle
 
-        async def detach(ref: EngineAgentRef, kb: EngineKBRef) -> None:
+        async def detach(ref: EngineAgentRef, kb: EngineKBRef, **kwargs: Any) -> None:
             self.calls.append(("detach", kb))
-            await real_detach(ref, kb)
+            await real_detach(ref, kb, **kwargs)
 
         patch.setattr(engine, "attach_kb", attach)
         patch.setattr(engine, "detach_kb", detach)
@@ -113,14 +126,23 @@ class _Spy:
 # --------------------------------------------------------------------------------
 
 
-async def test_republishing_the_live_version_withdraws_its_own_copy_first() -> None:
-    """A publish attaches at most one copy of a source, and never over an old one.
+async def test_republishing_unchanged_content_calls_the_vendor_not_at_all() -> None:
+    """THE RE-UPLOAD GUARD, and it only started working when the renderer seam was wired.
 
-    Asserted on the call sequence rather than on the fake's store, because the fake is
-    the one adapter that would survive the bug: it keys its store on our `kb_id`, so a
-    second attach silently replaces the first. `POST /knowledgebase` does not. The
-    invariant our code owes the engine is "nothing of this source is attached when I
-    attach", and only the sequence shows whether we honoured it.
+    This clause used to assert `["attach", "detach"]` for this exact scenario, and it was
+    right to at the time: `_render_document` resolved a renderer that did not exist, so
+    the digest was `None`, so `unchanged` could never be true and EVERY republish uploaded
+    a fresh copy and withdrew the old one. That is two vendor calls, a new billed object
+    and an indexing wait, to end up exactly where we started.
+
+    With the renderer wired the digest is real, and a republish of byte-identical content
+    is now what the guard's own comment always claimed it was: nothing. Double-clicked
+    Publish, a retry after a timeout, and FLOWS §7's rollback onto the version already
+    live all cost zero vendor calls.
+
+    `mints_fresh_handles=True` is kept deliberately. It makes the fake behave like a
+    CREATE-only engine, so if the guard ever stops firing this test fails LOUDLY with a
+    second copy rather than passing on the fake's de-duplication.
     """
     tenant_id, agent_id = await _tenant_with_published_agent()
     source_id = await _publish_new_version(
@@ -131,19 +153,71 @@ async def test_republishing_the_live_version_withdraws_its_own_copy_first() -> N
 
     spy = _Spy()
     with pytest.MonkeyPatch.context() as patch:
-        spy.install(patch)
+        spy.install(patch, mints_fresh_handles=True)
         await _publish(tenant_id, source_id)
 
-    assert spy.kinds() == ["detach", "attach"], (
-        "re-publishing an already-live source attached a second copy without "
-        "withdrawing the first — on the real engine that copy is unaddressable and "
-        "billed forever"
+    assert spy.kinds() == [], (
+        "re-publishing byte-identical content reached the vendor — the re-upload guard "
+        "is not firing, and on a CREATE-only engine every republish mints a billed copy"
     )
-    assert spy.calls[0][1] == first_handle, "the wrong handle was withdrawn"
+    ref = await _engine_ref(tenant_id, agent_id)
+    assert len(await get_engine().list_kb(ref)) == 1
+    assert await _recorded_handle(tenant_id, source_id) == first_handle
+
+
+async def test_republishing_changed_content_withdraws_its_own_copy_after_attaching() -> None:
+    """A publish leaves at most one copy of a source attached, and never two.
+
+    The property this file was written for, moved onto the case that still reaches the
+    vendor: the content actually changed, so the guard correctly does NOT skip, and the
+    old copy must be withdrawn — on the real engine it is unaddressable and billed forever
+    otherwise.
+
+    **THE FAKE IS THE ONE ADAPTER THAT WOULD SURVIVE THIS BUG, so it is made to behave
+    like the engine that would not.** It keys its store on OUR `kb_id`, so a second attach
+    silently REPLACES the first and returns the same handle; `POST /knowledgebase` mints a
+    new object every time and de-duplicates nothing, because there is no update route on
+    that object.
+
+    **THE ORDER IS `attach` THEN `detach` SINCE D-488, AND THIS USED TO ASSERT THE
+    REVERSE.** What it protects is unchanged: exactly one copy afterwards, the OLD handle
+    withdrawn, and the recorded handle equal to the one now attached. What changed is that
+    the withdrawal happens second, because a real attach is an upload plus an indexing
+    wait and detaching first would blank the agent for the whole of it.
+    """
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    source_id = await _publish_new_version(
+        tenant_id, agent_id, "Fees", "A consultation costs 500 rupees."
+    )
+    first_handle = await _recorded_handle(tenant_id, source_id)
+    assert first_handle
+
+    # The approved text moves under the same source row — a curation edit, not a new
+    # version. This is what makes the render produce different bytes and therefore a
+    # different digest, which is the ONLY thing that should send us back to the vendor.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "UPDATE kb_documents SET content = :c, updated_at = now() "
+                "WHERE source_id = :s AND idx = 0"
+            ),
+            {"c": "A consultation costs 750 rupees.", "s": source_id},
+        )
+
+    spy = _Spy()
+    with pytest.MonkeyPatch.context() as patch:
+        spy.install(patch, mints_fresh_handles=True)
+        await _publish(tenant_id, source_id)
+
+    assert spy.kinds() == ["attach", "detach"], (
+        "re-publishing changed content did not withdraw the copy it replaced — "
+        "on the real engine that copy is unaddressable and billed forever"
+    )
+    assert spy.calls[1][1] == first_handle, "the wrong handle was withdrawn"
 
     ref = await _engine_ref(tenant_id, agent_id)
     assert len(await get_engine().list_kb(ref)) == 1
-    assert await _recorded_handle(tenant_id, source_id) == spy.calls[1][1]
+    assert await _recorded_handle(tenant_id, source_id) == spy.calls[0][1]
 
 
 async def test_a_first_publish_withdraws_nothing() -> None:
@@ -506,13 +580,15 @@ async def test_a_source_deleted_mid_publish_is_refused_and_the_attach_is_undone(
     engine_ref = await _engine_ref(tenant_id, agent_id)
     real_attach = engine.attach_kb
 
-    async def attach_then_delete(ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
+    async def attach_then_delete(
+        ref: EngineAgentRef, source: KBSourceRef, **kwargs: Any
+    ) -> EngineKBRef:
         """The vendor takes the document; the sweep's transaction commits a moment later.
 
         A separate session is what makes this the real race rather than a self-delete:
         under READ COMMITTED the publisher's next statement sees the committed DELETE.
         """
-        handle = await real_attach(ref, source)
+        handle = await real_attach(ref, source, **kwargs)
         async with tenant_session(tenant_id) as sweeper:
             await sweeper.execute(text("DELETE FROM kb_sources WHERE id = :sid"), {"sid": doomed})
         return handle

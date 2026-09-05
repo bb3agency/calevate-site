@@ -453,6 +453,22 @@ class CreditLedgerEntry(PKMixin, Base):
     the real writers cannot mint a duplicate key. What the index adds is protection from
     a FUTURE writer that forgets the lock — which is the failure mode an advisory lock
     can never cover, since it is only as good as every caller remembering it.
+
+    **`refund` HAS THAT BACKSTOP GAP TODAY, AND IT IS NAMED HERE RATHER THAN LEFT TO BE
+    REDISCOVERED.** Five reasons exist; three are covered by the index above and `bonus`
+    by `ux_credit_ledger_bonus_ref` (migration c3a9f1e6b820, partial on
+    `reason = 'bonus'`). `refund` is covered by NEITHER, and it is not keyless — a
+    `payments.credit_refund` row carries the PROVIDER'S REFUND ID as its `ref`, which is
+    a perfectly good unique key (partial refunds carry different refund ids, so they
+    separate exactly as two top-ups do). The reason for the gap is chronological, not
+    principled: `f9c2b41a8e57` predates the refund writer. Nothing is loose today —
+    `credit_refund` takes `lock_tenant_credits` BEFORE its `find_entry_by_ref` and is the
+    only writer of the reason — so the exposure is precisely the one the paragraph above
+    says the index exists for, and no more. Closing it is a partial unique index on
+    `(tenant_id, ref) WHERE reason = 'refund' AND ref IS NOT NULL`, in its own migration.
+    `tests/credit_ledger_unique_index_test.py` carries both halves: the pin that refund is
+    absent from the older predicate, and the pin that its rows really do carry a ref — the
+    fact whose earlier denial is what let this look harmless.
     """
 
     __tablename__ = "credit_ledger"
@@ -537,6 +553,292 @@ class PlatformAiSpend(Base):
     spend_inr: Mapped[Decimal] = mapped_column(MONEY, nullable=False, server_default="0")
     requests: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class PlatformAiUsage(PKMixin, Base):
+    """One metered unit of AI spend the PLATFORM paid for, with no tenant behind it (D-499).
+
+    THE SECOND AI LEDGER, and it exists because the first one has a tenant in its primary
+    key. `usage_events` is FORCE RLS'd and tenant-scoped; an operator asking the admin
+    copilot a question has no tenant at all, so their spend has exactly three possible
+    homes and two of them are wrong — a client's ledger (which is charging somebody for our
+    own support work), nowhere (hard rule 7, in as many words), or here.
+
+    SAME UNITS, SAME SCALE, SAME `ref` DISCIPLINE as the tenant ledger, deliberately:
+    `AI_ASSIST_UNIT_TYPES` on both, `MONEY` on both, and a server-minted `assist:<uuid>`
+    key on both — enforced HERE by `ck_platform_ai_usage_ref_shape` in the database as
+    well as by `ai_quota._ASSIST_REF_RE` in Python, because `ref` is the meter's off
+    switch and a caller-chosen key is a way to spend our credential for free.
+
+    `admin_user_id` is the attribution `usage_events` has no equivalent for. A tenant's
+    assist is the tenant's, whichever member clicked; here the payer is the platform, so
+    the operator is the only answer to "who spent this" worth recording.
+
+    `viewing_tenant_id` IS NOT A PAYER and nothing prices it. It records the account an
+    operator had open — a tenant admin page, or a D-22 view-as session — so "what did we
+    spend supporting this client" is a query rather than an archaeology. SET NULL on
+    delete: platform accounting outlives the account it was about.
+
+    Append-only (migration `f2c81a4d05e7`, `db/registry.APPEND_ONLY_TABLES`). Unlike
+    `PlatformAiSpend` above — which is a COUNTER and re-derivable — this is the ledger the
+    counter is derived from, so hard rule 4 binds it exactly as it binds `usage_events`.
+    """
+
+    __tablename__ = "platform_ai_usage"
+
+    #: WHO SPENT IT, when a person did. NULLABLE since migration `c6b1f0d47e83`, paired
+    #: with `system_actor` under `ck_platform_ai_usage_one_actor` so EXACTLY ONE of the two
+    #: is always present. The property this column was defending is unchanged and is stated
+    #: on its own migration comment — "a row of our own spend nobody can be asked about is
+    #: the one shape this ledger must not be able to hold". That is about ACCOUNTABILITY,
+    #: not about a human: a named cron is answerable in exactly the way an anonymous NULL is
+    #: not, and a background sweep that spends our key had no honest home here before.
+    admin_user_id: Mapped[UUID | None] = mapped_column(ForeignKey("admin_users.id"))
+    #: The JOB that spent it, when no operator did — `caller_embed`, and whatever joins it.
+    #: A NAME and never a fabricated user id: inventing an operator on an APPEND-ONLY ledger
+    #: is a lie that can never afterwards be corrected (hard rule 4), which is why D-502
+    #: reported this gap rather than papering over it and why this closes it with a column
+    #: instead of a placeholder uuid.
+    system_actor: Mapped[str | None] = mapped_column(Text)
+    viewing_tenant_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("organizations.id", ondelete="SET NULL")
+    )
+    unit_type: Mapped[str] = mapped_column(Text, nullable=False)
+    qty: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    unit_cost_paid: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    ref: Mapped[str] = mapped_column(Text, nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    #: Ids, a model name and a feature name. Never a prompt and never an answer (rule 6).
+    meta: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+    __table_args__ = (
+        CheckConstraint("qty >= 0", name="qty_not_negative"),
+        CheckConstraint("unit_cost_paid >= 0", name="cost_not_negative"),
+        CheckConstraint(
+            "ref ~ '^assist:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'",
+            name="ref_shape",
+        ),
+        # EXACTLY ONE ACTOR — an operator or a named job, never both and never neither.
+        CheckConstraint(
+            "(admin_user_id IS NOT NULL) <> (system_actor IS NOT NULL)", name="one_actor"
+        ),
+        Index("ux_platform_ai_usage_unit_ref", "unit_type", "ref", unique=True),
+        Index(
+            "ix_platform_ai_usage_occurred",
+            text("occurred_at DESC"),
+            "admin_user_id",
+        ),
+    )
+
+
+class PlatformListRate(Base):
+    """One published list rate, and the instant it came into force (D-492).
+
+    THE SELF-SERVE MINUTE PRICE ACQUIRES A VALID TIME. `Settings.self_serve_inr_per_min` is
+    one number with no history — `platform_settings` is keyed by `key`, so an operator's
+    change OVERWRITES the row — and two money readers were asking it a question it cannot
+    answer: `billing/service.calling_revenue_inr` re-priced a CLOSED month's minutes at
+    today's setting, and `workers/pipeline` debited a LATE-SETTLING call at next month's.
+    A row here says what the rate was, from when.
+
+    APPEND-ONLY (hard rule 4) and effective-dated, which here is one property: a correction
+    is a NEW row at a distinct `effective_from`, never an edit, so a statement re-rendered a
+    year later resolves the figure it was struck at. The trigger is the blanket
+    `calevate_forbid_mutation` with no carve-out — unlike `platform_secrets`, nothing in this
+    table ever needs an in-place edit.
+
+    NOT tenant-scoped and never will be: one published price for the whole self-serve motion
+    at an instant, and a MANAGED client's price is their `plans` row rather than this. It is
+    `platform_*`-named for the family it belongs to and registered in
+    `db/registry.RLS_EXEMPT_TENANT_COLUMNS` with that as the written reason (the RLS sweep's
+    rule 7a REQUIRES a `platform_*` table to appear there).
+
+    Declared as an ORM model so `Base.metadata` knows about it and `check_rls_coverage` can
+    compare the live schema against it; `billing/list_rates.py` is the reader and the writer,
+    and it uses SQL text like every other money reader in this package.
+    """
+
+    __tablename__ = "platform_list_rates"
+
+    #: WHICH published rate this row dates — the name of the `Settings` field it mirrors, so
+    #: nothing has to guess the relation. Text and not an enum for `platform_model_prices
+    #: .model`'s reason: a figure read back for a historical statement must resolve even for
+    #: a key this build no longer carries. Today there is exactly one,
+    #: `billing/list_rates.SELF_SERVE_PER_MIN`.
+    rate_key: Mapped[str] = mapped_column(Text, primary_key=True)
+    #: The instant this figure becomes the published rate. Part of the PK with `rate_key`, so
+    #: two writes at one instant collide rather than silently both existing. Resolution at
+    #: instant T is this key's row with the greatest `effective_from <= T`
+    #: (`ix_platform_list_rates_key`).
+    effective_from: Mapped[datetime] = mapped_column(primary_key=True)
+    #: INR, at `MONEY`'s scale — `usage_events.unit_cost_paid`'s storage precision, which is
+    #: also what `billing/rates.prepaid_billed_inr` quantizes a wallet debit at, so the rate
+    #: and the debit derived from it round in one place. NUMERIC, never a float.
+    inr_amount: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    #: The operator whose console write published it. NOT NULL, referencing `admin_users`
+    #: exactly as `platform_settings.updated_by` does: every row here was typed by a person.
+    recorded_by: Mapped[UUID] = mapped_column(ForeignKey("admin_users.id"), nullable=False)
+    recorded_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    #: WHY the price moved, in the operator's words — the `reason` the ops console already
+    #: requires for the setting change this row dates.
+    source_note: Mapped[str] = mapped_column(Text, nullable=False)
+
+
+class RefundIntent(PKMixin, Base):
+    """A refund this platform has COMMITTED TO ASKING THE PROVIDER FOR, written before
+    the ask (D-511).
+
+    **WHY A CLAIM TABLE AND NOT A READ OF `credit_ledger`.** The refund ceiling — "the
+    refunds of one payment may not add up to more than the payment" — used to be checked
+    against the `refund` rows already on the wallet. That check is correct and it was in
+    the wrong place: `issue_tenant_refund` read it inside one `tenant_session`, and
+    `pg_advisory_xact_lock` is released by that transaction's COMMIT, so the lock was gone
+    before the provider was called. Two operators refunding ₹2,000 and ₹1,000 against a
+    ₹2,500 top-up at the same moment both read "nothing refunded yet", both passed the
+    ceiling, and both issued a provider refund — ₹500 returned that the client never paid,
+    as two compensating entries an append-only ledger cannot take back (hard rule 4). The
+    sequential case was closed; the concurrent one was not, and the comment on the route
+    said otherwise.
+
+    A ledger row cannot close it, because the money movement it records does not exist
+    yet: the provider has not been called, and the refund id the entry is keyed on is the
+    provider's answer. So the claim is its own fact, taken and COMMITTED before the
+    network call, and the ceiling is checked against claims rather than against
+    settlements. Nothing else reads this table; `credit_ledger` remains the record of
+    money.
+
+    **NOT append-only, deliberately, and it must never join
+    `db/registry.APPEND_ONLY_TABLES`.** It is a claim, in the sense
+    `outbox_messages`/`webhook_inbox_events` are (BACKEND-PATTERNS §4): a claim whose
+    provider call then FAILED has to be released, or a transient 502 would permanently
+    shrink what a client can be refunded. `payments.release_refund_claim` is that DELETE
+    and it is the only one.
+
+    `refund_key` is `payments.refund_idempotency_key(payment_id, amount)` — the very key
+    sent to the provider — so the unique index and the provider's own idempotency collapse
+    the SAME set of requests: a second click on one refund is one row here and one refund
+    there. That is what lets the route keep treating a repeat of an amount already claimed
+    as a replay rather than as a breach of the ceiling.
+    """
+
+    __tablename__ = "refund_intents"
+    __table_args__ = (
+        # A refund of nothing, or of a negative amount, is not a refund. The route
+        # refuses both; this is the database saying so where a future writer cannot
+        # forget it.
+        CheckConstraint("amount_inr > 0", name="amount_positive"),
+        # THE claim. One row per (tenant, provider idempotency key) — so a re-click, a
+        # retried request and two concurrent identical asks are one claim, and the loser
+        # of the race blocks on the index rather than adding to the total.
+        Index("ux_refund_intents_tenant_key", "tenant_id", "refund_key", unique=True),
+        # The ceiling's own read: everything claimed against one payment.
+        Index("ix_refund_intents_tenant_payment", "tenant_id", "payment_ref", unique=False),
+    )
+
+    # No `index=True`: both composites above lead with this column (the argument
+    # `one_time_charges` records).
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: The provider payment this refund is against — the same value `credit_ledger`
+    #: carries as a `topup` row's `ref`.
+    payment_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    #: `payments.refund_idempotency_key(payment_id, amount)`. Stored rather than derived
+    #: on read so the unique index is over the exact string the provider was given.
+    refund_key: Mapped[str] = mapped_column(Text, nullable=False)
+    #: INR, NUMERIC never float (hard rule 7), at the ledger's own storage scale so a
+    #: claim and the compensating entry it becomes are the same number.
+    amount_inr: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    #: WHEN the claim was taken, which is `created_at` and nothing else. There is
+    #: deliberately no second `claimed_at` beside it: a claim exists from the instant it
+    #: is written, so the two would be one moment stored twice — a column nothing reads,
+    #: which `scripts/check_half_wired.py` refuses, correctly, and which it caught here.
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+#: The three states a self-serve top-up attempt can be in, and the CHECK the database
+#: renders from them (`ck_topup_attempts_status_enum`, migration e9b24c73f105).
+#:
+#: There is deliberately no `pending` and no `cancelled`. "Pending" is `created` plus the
+#: passage of time, and a clock stored in a status column is a row that goes wrong
+#: whenever nothing has run recently — the screen decides how old is old. "Cancelled"
+#: would be the browser's word for closing a window, and the browser is not a source of
+#: truth about a payment (`billing/payment_routes.py`).
+TOPUP_ATTEMPT_STATUSES: tuple[str, ...] = ("created", "captured", "failed")
+
+
+class TopUpAttempt(PKMixin, TimestampMixin, Base):
+    """A self-serve top-up that was STARTED — whatever became of it.
+
+    **WHY THIS IS NOT `credit_ledger` AND MUST NEVER BECOME IT.** The wallet is the
+    ledger; nothing on this row is money and nothing here is ever summed into a balance.
+    What this records is the state of an ATTEMPT at the provider, which is exactly the
+    thing a ledger of completed movements cannot hold: a declined card moves no money, so
+    it has no entry, so a client came back to a screen that looked as though they had
+    never tried. That silence is what this closes.
+
+    So it is UPDATEd in place and is deliberately absent from
+    `db/registry.APPEND_ONLY_TABLES`. Hard rule 4 protects the assertions that add up to a
+    balance; an attempt's status is not one of them, and the asymmetry is the whole reason
+    for a separate table — a lost UPDATE here costs a stale word on a screen and can never
+    cost or double a rupee. The append-only record of a captured payment already exists,
+    one table over, keyed on the provider's payment id.
+
+    **`idempotency_records` was considered first and cannot do this.** Its `scope_key` is
+    an HMAC fingerprint with no `tenant_id`, so it carries no RLS policy and cannot be read
+    back per tenant, and it expires in about 24 hours — shorter than some payments take to
+    settle, and far shorter than a client's memory of having paid.
+
+    **ONCE-NESS IS THE RECEIPT.** `payments.topup_receipt` derives it server-side from
+    (tenant, amount, a 15-minute window), which is the same key the intent route claims its
+    idempotency under — so the double click that produces one order also produces one row
+    here, held by `ux_topup_attempts_tenant_receipt` rather than by both writers
+    remembering to look first.
+    """
+
+    __tablename__ = "topup_attempts"
+    __table_args__ = (
+        CheckConstraint("amount_inr > 0", name="amount_positive"),
+        CheckConstraint(f"status IN {TOPUP_ATTEMPT_STATUSES!r}", name="status_enum"),
+        Index("ux_topup_attempts_tenant_receipt", "tenant_id", "receipt", unique=True),
+        # The webhook's read: a captured or failed event names an order id. NOT unique —
+        # a deployment that cannot create orders writes NULL here, and many NULLs are not
+        # a conflict in Postgres, but the uniqueness that matters is on the receipt above
+        # rather than on a subtlety a reader would have to know.
+        Index("ix_topup_attempts_tenant_order", "tenant_id", "provider_order_id"),
+        # The screen's read — newest first for one tenant. `text()` because the DESC is
+        # the point and autogenerate cannot diff expression indexes; migration
+        # e9b24c73f105 is the source of truth for its existence, exactly as
+        # `ix_credit_ledger_tenant_recent` records above.
+        Index(
+            "ix_topup_attempts_tenant_recent",
+            "tenant_id",
+            text("created_at DESC"),
+            text("id DESC"),
+        ),
+    )
+
+    # No `index=True`: all three composites above lead with this column, so a
+    # single-column index on it is a strict prefix that no query can use.
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: OUR reference (`payments.topup_receipt`). The client sees this one, and it is what a
+    #: bank transfer quotes on a deployment that cannot take a card.
+    receipt: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The provider's order id, NULL when this deployment holds no API secret and nothing
+    #: was created (`payment_capability().creates_orders`).
+    provider_order_id: Mapped[str | None] = mapped_column(Text)
+    #: The provider's payment id once one exists — the same string the `credit_ledger`
+    #: top-up carries as its `ref`, which is what lets one screen show an attempt beside
+    #: the credit it became without either table knowing about the other.
+    provider_payment_id: Mapped[str | None] = mapped_column(Text)
+    #: INR, NUMERIC never float (hard rule 7), at the ledger's own storage scale.
+    amount_inr: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    #: The catalogue pack this attempt priced, or NULL for a free-form amount.
+    pack_id: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str] = mapped_column(Text, nullable=False, server_default="created")
 
 
 # Referenced (not yet modeled — M2): invoices, engine_capacity.

@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
@@ -47,6 +47,7 @@ function tenant(): TenantSummary {
     name: "Sri Traders",
     slug: "sri-traders",
     status: "active",
+    plan_tier: "prepaid",
     vertical_template: "clinic",
     live_agents: 1,
     calls_7d: 0,
@@ -247,6 +248,73 @@ describe("the commercials screen", () => {
       expect(container.textContent).toContain("already the terms in effect");
     });
     expect(container.textContent).toContain("no audit row was added");
+  });
+
+  /**
+   * WHEN THE TERMS TAKE EFFECT IS AN INSTANT, AND IT MUST NOT MOVE WITH THE OPERATOR.
+   *
+   * These two fields decide the moment a rate card, an included-minutes allowance and a
+   * hard spend cap start applying, and the history table right beneath them reads the
+   * result back with `formatIST`. They were parsed with `new Date(<datetime-local>)`,
+   * which is the VIEWER's clock — the exact defect `components/ui.tsx::formatISTInput`
+   * documents at length and which `campaigns.ts::scheduleStartAt` writes the offset in to
+   * avoid. So an operator on a laptop still set to a US zone typed 09:00 meaning IST, saw
+   * 09:00 read back as IST, and had recorded a billing boundary hours away from the one
+   * they agreed. D-22's view-as makes a non-IST machine a real session, not a hypothetical.
+   *
+   * `TZ` is forced rather than assumed because the property under test is precisely "the
+   * answer does not move with the viewer" — asserting it in one zone would pass on the
+   * old code wherever CI happened to be running.
+   */
+  it("sends the effective window as IST, whatever zone the operator's machine is in", async () => {
+    const originalTz = process.env.TZ;
+    try {
+      for (const zone of ["UTC", "America/Los_Angeles", "Pacific/Auckland"]) {
+        // One mounted form per iteration: RTL's auto-cleanup is per TEST, so without
+        // this the second zone's `getByLabelText` sees two of every field.
+        cleanup();
+        process.env.TZ = zone;
+        const { calls } = await render({
+          [`POST ${TERMS_PATH}`]: {
+            plan_id: "p",
+            changed: true,
+            superseded_plan_id: null,
+            state: "set",
+          },
+        });
+
+        fireEvent.change(await screen.findByLabelText(/In effect from/), {
+          target: { value: "2026-09-01T09:00" },
+        });
+        fireEvent.change(screen.getByLabelText(/Until/), {
+          target: { value: "2026-12-31T23:59" },
+        });
+        fireEvent.click(screen.getByRole("button", { name: /Record new terms/ }));
+
+        await waitFor(() => {
+          expect(calls.some((c) => c.method === "POST" && c.path === TERMS_PATH)).toBe(true);
+        });
+        const body = JSON.parse(
+          calls.find((c) => c.method === "POST" && c.path === TERMS_PATH)?.body ?? "{}",
+        );
+        // 09:00 IST === 03:30Z, and 23:59 IST === 18:29Z the same day.
+        expect(body.effective_from, `effective_from in ${zone}`).toBe("2026-09-01T03:30:00.000Z");
+        expect(body.effective_to, `effective_to in ${zone}`).toBe("2026-12-31T18:29:00.000Z");
+      }
+    } finally {
+      if (originalTz === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTz;
+    }
+  });
+
+  it("says on the label that the window is IST, since the field cannot carry a zone", async () => {
+    const { container } = await render();
+    await screen.findByLabelText(/In effect from \(IST\)/);
+    await screen.findByLabelText(/Until \(IST\)/);
+    // The doctrine in `components/ui.tsx` is explicit that the label is part of the
+    // contract: a field quietly meaning something other than the machine's clock, with
+    // nothing on screen saying so, is worse than the bug it fixes.
+    expect(container.textContent).toContain("Indian Standard Time");
   });
 
   it("disables the write, with its reason, for a session that may not make it", async () => {

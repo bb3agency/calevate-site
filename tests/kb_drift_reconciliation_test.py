@@ -54,6 +54,7 @@ from arq import Retry
 from calevate_shared.engine import EngineAgentRef, EngineKBRef, KBSourceRef
 from sqlalchemy import text
 from tests.conftest import accept_agreements
+from tests.kb_workflow_test import give_agent_a_script
 
 FEES = "A consultation costs 500 rupees and is payable at reception."
 HOURS = "The clinic is open from 9am to 8pm, Monday to Saturday."
@@ -74,14 +75,16 @@ class RecordingEngine(FakeEngine):
         super().__init__(**kw)
         self.calls: list[tuple[str, str]] = []
 
-    async def attach_kb(self, ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
-        handle = await super().attach_kb(ref, source)
+    async def attach_kb(
+        self, ref: EngineAgentRef, source: KBSourceRef, **kwargs: Any
+    ) -> EngineKBRef:
+        handle = await super().attach_kb(ref, source, **kwargs)
         self.calls.append(("attach_kb", handle))
         return handle
 
-    async def detach_kb(self, ref: EngineAgentRef, kb: EngineKBRef) -> None:
+    async def detach_kb(self, ref: EngineAgentRef, kb: EngineKBRef, **kwargs: Any) -> None:
         self.calls.append(("detach_kb", kb))
-        await super().detach_kb(ref, kb)
+        await super().detach_kb(ref, kb, **kwargs)
 
     async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
         self.calls.append(("list_kb", ref))
@@ -229,6 +232,11 @@ async def _agent_with_knowledge(
             text("UPDATE agents SET engine_agent_ref = :r WHERE id = :a"),
             {"r": ref, "a": agent_id},
         )
+    # A SCRIPT, even though this fixture deliberately leaves `status` alone: the publish
+    # path below resolves the agent's publishable configuration because an attach is an
+    # agent write on a control-plane engine (D-488), and an agent with no script is not
+    # publishable. See `give_agent_a_script` for why the fixture is what was wrong.
+    await give_agent_a_script(uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id)))
     async with untenanted_session() as session:
         await session.execute(
             text(

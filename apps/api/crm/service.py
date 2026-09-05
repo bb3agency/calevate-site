@@ -29,7 +29,7 @@ from apps.api.billing.caps import read_spend_counters
 from apps.api.core.errors import ProblemError
 from apps.api.core.spreadsheet_safety import disarm_for_csv
 from apps.api.crm import columns as lead_column_registry
-from apps.api.crm.attention import BLOCK_REMEDIES
+from apps.api.crm.attention import block_remedy
 from apps.api.crm.performance import IST_DAY_SQL, IST_HOUR_SQL, IST_TODAY_SQL
 from apps.api.crm.schemas import (
     MAX_BULK_LEADS,
@@ -438,18 +438,43 @@ async def lead_columns(
 
 # The lead row's columns, in `_lead_out`'s order, and the join that names its owner.
 #
-# `memberships` carries the join rather than `users` directly, and that is the whole
-# tenancy control on this line: `users` is a GLOBAL table with no RLS (DATA-MODEL §2 —
-# identity crosses tenants), so `JOIN users ON users.id = l.assigned_to` would happily
-# print a stranger's name. `memberships` IS force-RLS'd on `tenant_id`, so a row this
-# tenant may not see resolves to NULL and `LeadOut.assigned_to_name` says so.
+# `memberships` carries the join rather than `users` directly: `users` is a GLOBAL table
+# with no RLS (DATA-MODEL §2 — identity crosses tenants), so
+# `JOIN users ON users.id = l.assigned_to` would happily print a stranger's name.
+# `memberships` is FORCE-RLS'd, so a person this tenant may not see resolves to NULL and
+# `LeadOut.assigned_to_name` says so.
+#
+# **`m.tenant_id = l.tenant_id` IS THE SECOND HALF, and this comment used to assert the
+# first half was all of it.** It said `memberships` is "force-RLS'd on `tenant_id`", full
+# stop. That is not what the policy says: migration `8c31d0f4ab27` widened it to
+# `tenant_id = app.tenant_id OR user_id = app.user_id`, deliberately, so that a session can
+# answer "which tenants may I enter" before it has a tenant. Under that second arm the
+# requesting user's own membership rows in EVERY tenant they belong to are visible, and a
+# `LEFT JOIN` with no tenant predicate multiplies against them — one lead assigned to the
+# person reading the page would come back once per account that person holds, spending the
+# page's `LIMIT` on duplicates and writing the same contact into `export.csv` that many
+# times.
+#
+# **THAT IS NOT REACHABLE TODAY, and the reason is a fact about a DIFFERENT module.**
+# `app.user_id` is set in exactly one place — `db.session.user_session`, the pre-tenant
+# identity lookup — and never inside `tenant_session`, so the second arm evaluates against
+# NULL and is inert on every request that reaches this SQL (verified: `app.user_id` has one
+# writer in the tree). The predicate is here because that is a property of the session
+# plumbing, not of this query, and it is the sort of fact a future `tenant_session` that
+# carries the caller's identity would silently take away.
+# `tests/lead_owner_join_tenancy_test.py` sets the GUC by hand to hold the join to it
+# either way.
+#
+# Spelled `m.tenant_id = l.tenant_id` rather than against the GUC because it states that
+# these two rows belong together, which is true whatever the session is scoped to.
+
 _LEAD_COLUMNS = (
     "l.id, l.phone_e164, l.name, l.status, l.source, l.data, l.schema_version, "
     "l.call_count, l.is_repeat_caller, l.last_call_id, l.created_at, l.updated_at, "
     "l.assigned_to, owner.name AS assigned_to_name"
 )
 _LEAD_OWNER_JOIN = (
-    "LEFT JOIN memberships m ON m.user_id = l.assigned_to "
+    "LEFT JOIN memberships m ON m.user_id = l.assigned_to AND m.tenant_id = l.tenant_id "
     "LEFT JOIN users owner ON owner.id = m.user_id"
 )
 
@@ -618,6 +643,64 @@ async def list_leads_page(
         )
     ).all()
     return LeadPage(items=[_lead_out(r) for r in rows], total=total, status_counts=counts)
+
+
+async def leads_ranked_by_id(
+    session: AsyncSession,
+    *,
+    lead_ids: Sequence[UUID],
+    status: str | None = None,
+    search: str | None = None,
+    agent_id: UUID | None = None,
+    assigned_to: UUID | None = None,
+    field_filters: FieldFilters | None = None,
+) -> list[LeadOut]:
+    """These leads, in the order they were given, with the Leads screen's filters applied.
+
+    THE HYDRATION HALF OF SEMANTIC SEARCH (`crm/lead_search.py`). The ranking comes from
+    the caller-chunk store, which knows about vectors and nothing about a client's screen;
+    this turns a ranked list of ids back into rows.
+
+    **`_lead_scope` IS REUSED RATHER THAN RE-STATED, and that is the whole design.** Every
+    filter the list, the facet counts and the CSV export honour is honoured here by
+    construction — a semantic search inside "hot leads assigned to me" is those leads
+    ranked, not a second definition of what the set is. A filter added to that function
+    reaches this surface with no change here, which is the property the alternative (a
+    hand-written WHERE clause for search) would have quietly lost.
+
+    ORDER IS THE CALLER'S, restored by `array_position` over the ids: an RRF score is not a
+    column of `leads` and re-sorting by `updated_at` would throw the ranking away. A lead
+    the filters excluded is simply absent, which is why the caller ranks deeper than it
+    displays and reports what it actually got rather than promising `k` rows.
+    """
+    if not lead_ids:
+        return []
+    params: dict[str, Any] = {"ids": list(lead_ids)}
+    clauses = _lead_scope(
+        params,
+        search=search,
+        agent_id=agent_id,
+        assigned_to=assigned_to,
+        field_filters=field_filters,
+    )
+    clauses.append("l.id = ANY(:ids)")
+    if status:
+        clauses.append("l.status = :status")
+        params["status"] = status
+    rows = (
+        await session.execute(
+            text(
+                f"SELECT {_LEAD_COLUMNS} FROM leads l {_LEAD_OWNER_JOIN} "
+                f"WHERE {' AND '.join(clauses)} "
+                # `array_position` and not a CASE ladder: the ids arrive as a bound array
+                # and their POSITION in it is the rank, so the ordering needs no value
+                # spliced into the statement (hard rule 1's neighbour, D-172).
+                "ORDER BY array_position(CAST(:ids AS uuid[]), l.id)"
+            ),
+            params,
+        )
+    ).all()
+    return [_lead_out(r) for r in rows]
 
 
 @dataclass(frozen=True, slots=True)
@@ -1731,7 +1814,7 @@ def _project_event(
     `_timeline_uuid`. Nothing is passed through, and an event this build does not
     recognise gets an honest, contentless line rather than being dropped: a client
     reading their own history must not silently lose a row because we shipped a
-    producer before we shipped its copy (`attention.BLOCK_REMEDIES` makes the same
+    producer before we shipped its copy (`attention.block_remedy` makes the same
     choice for a rule whose remedy has not been written yet).
     """
     if event_type == "status_change":
@@ -1761,16 +1844,13 @@ def _project_event(
 
     if event_type == "note":
         if _code(payload, "kind") == "blocked":
-            # The SAME copy deck the needs-attention queue renders, so a client reading
-            # "why was this not called?" in two places is told one thing. Imported at
-            # module scope again: this was a function-local import only because
-            # `crm.attention` imported `mask_phone` from here, and that function is gone.
+            # The SAME FUNCTION the needs-attention queue renders through, so a client
+            # reading "why was this not called?" in two places is told one thing — and
+            # so the un-copied case is handled once. Both sites used to inline
+            # `BLOCK_REMEDIES.get(rule, f"Blocked by the {rule} rule.")`, which is two
+            # spellings of one decision AND put a wire name on a client's screen.
             rule = _code(payload, "rule") or "unknown"
-            return (
-                "Call blocked",
-                BLOCK_REMEDIES.get(rule, f"Blocked by the {rule} rule."),
-                None,
-            )
+            return ("Call blocked", block_remedy(rule), None)
         return ("Note", None, None)
 
     if event_type == "notification":
@@ -2352,6 +2432,7 @@ __all__ = [
     "lead_facets",
     "lead_phone",
     "lead_timeline",
+    "leads_ranked_by_id",
     "link_callback",
     "list_calls",
     "list_leads",

@@ -393,6 +393,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "smtp_username": AppliesRule(LIVE),
     "smtp_use_tls": AppliesRule(LIVE),
     "notifications_from": AppliesRule(LIVE),
+    "notifications_reply_to": AppliesRule(LIVE),
     "alerts_email": AppliesRule(LIVE),  # core/alerting, per alert
     # workers/tls_expiry reads it inside the daily cron, so the next run uses the new
     # value with no restart.
@@ -495,6 +496,32 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # model the deployment does not run prices something nobody is calling, which is a
     # wrong invoice rather than an outage and therefore the failure that hides longest.
     "azure_openai_model": AppliesRule(LIVE),
+    # WHICH MODEL EVERYBODY RUNS WHEN NOBODY CHOSE — the platform rung, across all three
+    # legs. LIVE and genuinely so on the surfaces a person watches: the settings screen
+    # resolves it per request, so "the model we run by default" moves within one poll. ⚠ A
+    # LIVE AGENT MOVES ON ITS NEXT PUBLISH, not on the poll — `_to_config` resolves this rung
+    # at publish time — which is the same shape `azure_openai_deployments` carries and is why
+    # that one is NEEDS_REPUBLISH. It is classified LIVE anyway because the two are not the
+    # same promise: an entry in that map decides WHICH DEPLOYMENT an agent is addressed by
+    # and can leave a published agent calling a different model than the console reports,
+    # while this one only decides what an account inherits — no agent that has ever been
+    # published is silently mismatched by it, and the account-default writer re-publishes the
+    # agents it moves.
+    "platform_llm_model": AppliesRule(LIVE),
+    # The EMBEDDING deployment (D-502). LIVE, and genuinely so: unlike the three chat
+    # deployment fields above, this value is never published into an agent's engine record —
+    # it is read per request by `retrieval/embedding.embedding_leg` and per tick by the
+    # ingestion sweep, so a correction takes effect within one poll interval with nothing to
+    # re-publish. Pointing it at a deployment that does not serve an embedding model is a
+    # 400 on every embedding call, visible at once in `kb_embed_provider_failed`.
+    "azure_openai_embedding_deployment": AppliesRule(LIVE),
+    # Which retrieval store answers a cold lookup (D-502). LIVE because
+    # `retrieval/service.get_retriever` is called per request and holds no state — which is
+    # what makes this the OFF SWITCH for the store: an operator who sees knowledge search
+    # misbehaving sets it back to `compiled-facts` and the next request is served from the
+    # compiled block, with no deploy and nothing to unwind. It does not touch the call path
+    # under any value.
+    "retrieval_provider": AppliesRule(LIVE),
     # A MARKED ASSUMPTION, live on purpose (D-404's mechanism, D-410's provider). It names
     # which entry in the engine's credential store the LLM key is written to; our default
     # is derived from the vendor's naming rule rather than read from their docs, and the
@@ -534,6 +561,10 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "redirect errors until every server process is restarted.",
     ),
     # Read at the point of use, per call or per request.
+    # Read per request, inside the handler, from the settings snapshot
+    # (`compliance/caller_data_routes._authorized`) — nothing captures it at boot, so a
+    # rotation is in force on the next inbound call.
+    "bolna_caller_data_token": AppliesRule(LIVE),
     "sarvam_api_key": AppliesRule(LIVE),  # workers/extraction.get_extractor(), per job
     # ⚠ THIS COMMENT SAID "nothing sends it anywhere" AND THAT HAS BEEN FALSE SINCE D-456.
     # It described the state D-127/D-410 left — the AI Studio Developer API disqualified,

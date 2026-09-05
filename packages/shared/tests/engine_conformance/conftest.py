@@ -173,20 +173,34 @@ BOLNA_SATURATION_ROWS = bolna_module._LISTING_PAGE_SIZE * bolna_module._LISTING_
 def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.Response]:
     """A stub of their API, built fresh per engine so each test gets clean vendor state.
 
-    What the agent store deliberately does NOT contain: any knowledge-base reference
-    inside the agent object. Nothing in Bolna's published documentation says the agent
-    carries one or what it would be called (`BolnaEngine.get_agent`), so inventing a
-    `rag_id` field here would make the suite assert our own guess back at us. The Bolna
-    adapter therefore reports `knowledge_base_refs_readable=False` through this stub, and
-    the contract clause treats that as the honest "cannot tell" it is — D-41's question
-    is settled at pilot gate 8, not in a fixture.
+    **THE AGENT STORE NOW CARRIES THE KNOWLEDGE REFERENCE, AND THIS DOCSTRING USED TO SAY
+    IT DELIBERATELY DID NOT (D-488).** It read: "Nothing in Bolna's published
+    documentation says the agent carries one or what it would be called ... inventing a
+    `rag_id` field here would make the suite assert our own guess back at us." The mirror
+    says where it lives — `tasks[].tools_config.llm_agent.llm_config.vector_store
+    .provider_config.vector_ids` (`bolna-findings/mirror/pages/api-reference/agent/v2/
+    get.md:806-817,1164-1195`) — so it is no longer a guess, and NOT modelling it would
+    make every KB clause pass vacuously. The stub stores what a `PUT` sends and returns it
+    on a `GET`, which is the whole mechanism `attach_kb`/`detach_kb`/`list_kb` rest on.
+
+    THE `PUT` REPLACES THE WHOLE OBJECT, exactly as the vendor documents (*"replaces the
+    entire agent configuration"*, `.../agent/v2/patch_update.md:9`). That is not a detail
+    of the fixture: it is what makes `update_agent`'s read-then-write provable here — an
+    adapter that stopped preserving the vector ids would wipe the agent's knowledge on the
+    next republish, and this stub is where that is caught.
 
     The knowledge-base routes are STATEFUL on purpose. A stub that answered every
     `POST /knowledgebase` with the same `rag_id` and every `DELETE` with 200 would let
     an adapter that never detaches anything sail through the suite — the exact defect
-    the KB clause exists to catch. So this keeps a store: creates mint distinct ids,
-    the listing reflects it, and deleting an id the store does not hold 404s, which is
-    what their `rag_id`-addressed CRUD API (TRD §5) does.
+    the KB clause exists to catch. So this keeps a store: creates mint distinct ids and a
+    distinct `vector_id`, the listing reflects it, and deleting an id the store does not
+    hold 404s, which is what their `rag_id`-addressed CRUD API does.
+
+    IT ANSWERS THE FIRST READ WITH `processing`, ON PURPOSE. Their create response says
+    *"Initially the status would be `processing`"* and carries no `vector_id`
+    (`.../knowledgebase/create.md:105-127`), and an adapter that returned on the create
+    would have uploaded a document nothing can retrieve from. Making the FIRST
+    `GET /knowledgebase/{rag_id}` say `processing` is what forces the wait to exist.
     """
     #: The numbers this stub has been asked to dial, so each dial gets its own execution
     #: id. See the `POST /call` branch.
@@ -233,6 +247,11 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
     providers: dict[str, dict[str, str]] = {
         "SARVAM": {"provider_id": "prov_sarvam", "provider_name": "SARVAM"}
     }
+    #: `rag_id -> row`, the account's knowledge bases. `reads` counts how many times each
+    #: has been read back, so the first look can answer `processing` and the second
+    #: `processed` — see the docstring.
+    knowledge: dict[str, dict[str, Any]] = {}
+    reads: dict[str, int] = {}
 
     def agent_id_for(body: dict[str, Any]) -> str:
         config = body.get("agent_config") or {}
@@ -241,6 +260,62 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
 
     def handler(request: httpx.Request) -> httpx.Response:
         path = request.url.path
+        if path == "/knowledgebase" and request.method == "POST":
+            # MULTIPART, AND THE ASSERTIONS ARE THE POINT. The route takes a file or a
+            # url and never JSON, so a stub that accepted anything would let the body that
+            # shipped before D-354 — `{agent_id, name, text}` — pass again.
+            assert request.headers["content-type"].startswith("multipart/form-data"), (
+                "`POST /knowledgebase` is multipart/form-data, not JSON"
+            )
+            body = request.content
+            assert b'name="file"' in body, "the upload must carry a `file` part"
+            assert b'name="url"' not in body, "`file` or `url`, never both"
+            assert b"%PDF" in body, "the file part must be the rendered document"
+            assert b'name="language_support"' in body, (
+                "`language_support` is fixed at upload and cannot be changed later"
+            )
+            rag_id = f"rag_{len(knowledge) + 1}"
+            knowledge[rag_id] = {
+                "rag_id": rag_id,
+                "file_name": "calevate-kb.pdf",
+                "vector_id": f"vec_{len(knowledge) + 1}",
+                "status": "processing",
+                "language_support": "multilingual",
+            }
+            reads[rag_id] = 0
+            # NO `vector_id` ON THE CREATE RESPONSE, which is what their spec declares
+            # (`create.md:105-127`) and what makes the follow-up GET load-bearing.
+            return httpx.Response(
+                200,
+                json={
+                    "rag_id": rag_id,
+                    "file_name": "calevate-kb.pdf",
+                    "source_type": "pdf",
+                    "status": "processing",
+                    "language_support": "multilingual",
+                },
+            )
+        if path == "/knowledgebase/all" and request.method == "GET":
+            # A BARE ARRAY: `KnowledgebaseList` is `type: array` of `Knowledgebase`
+            # (`get_knowledgebases.md:47-51`), which the adapter reads through
+            # `vendor_request`'s top-level-array wrapper.
+            return httpx.Response(200, json=list(knowledge.values()))
+        if path.startswith("/knowledgebase/") and request.method == "GET":
+            rag_id = path.rsplit("/", 1)[-1]
+            row = knowledge.get(rag_id)
+            if row is None:
+                return httpx.Response(404, json={"error": "unknown knowledgebase"})
+            reads[rag_id] += 1
+            if reads[rag_id] > 1:
+                row["status"] = "processed"
+            return httpx.Response(200, json=row)
+        if path.startswith("/knowledgebase/") and request.method == "DELETE":
+            rag_id = path.rsplit("/", 1)[-1]
+            if knowledge.pop(rag_id, None) is None:
+                # Their delete must 404 an id we never issued, or `detach_kb` can never
+                # be shown to have removed anything.
+                return httpx.Response(404, json={"error": "unknown knowledgebase"})
+            return httpx.Response(200, json={"message": "success", "state": "deleted"})
         if path == "/providers" and request.method == "GET":
             # `provider_value` comes back MASKED, exactly as their `Provider` schema shows
             # (`example: xxxxxxxaz`). Modelling the mask is the point: an adapter that

@@ -2,10 +2,10 @@
 
 The self-serve motion already has a wallet (`credit_ledger`), a list rate
 (`self_serve_inr_per_min`, ₹5.00/min) and a top-up path (Razorpay → `billing/payments.py`).
-A credit pack is a PRICING SHAPE on top of that path, modelled on Outpero's packs: the
-client pays a fixed amount, and a larger amount buys proportionally MORE calling because it
-grants BONUS credits on top of the paid ones. The list rate never changes; the bonus is the
-only thing that moves the effective per-minute price down.
+A credit pack is a PRICING SHAPE on top of that path: the client pays a fixed amount, and a
+larger amount buys proportionally MORE calling because it grants BONUS credits on top of the
+paid ones. The list rate never changes; the bonus is the only thing that moves the
+effective per-minute price down.
 
 THE MODEL, in one paragraph
 ---------------------------
@@ -74,6 +74,13 @@ CREDIT_INR: Final[Decimal] = Decimal("1")
 # auditor reading the row knows it was a pack bonus and which pack funded it.
 PACK_BONUS_META_KIND: Final[str] = "credit_pack_bonus"
 
+# The `meta.kind` on the entry that takes a pack bonus BACK when the purchase that earned it
+# is refunded. Its own kind rather than a flag on the grant's, because the grant row is on an
+# append-only ledger and cannot be annotated (hard rule 4) — and because "how much of this
+# pack's bonus has already been reversed" has to be a query, which it is only if the rows
+# that reverse it are recognisable without reading their sign.
+PACK_BONUS_CLAWBACK_META_KIND: Final[str] = "credit_pack_bonus_clawback"
+
 
 @dataclass(frozen=True, slots=True)
 class CreditPack:
@@ -120,16 +127,34 @@ class CreditPack:
         return self.paid_credits + self.bonus_credits
 
 
-#: THE RATE CARD. Amounts mirror Outpero's packs; bonuses are founder-approved and capped so
-#: every pack clears `MIN_GROSS_MARGIN` at the cost floor (see the guard). The ₹50,000 pack
-#: takes 8% — the margin-safe end of the approved "8-9%" range: at 9% its effective rate
-#: (₹4.587) dips below the 20%-margin line at a ₹3.70 cost floor, so 8% is the cap the
-#: invariant permits and the guard enforces.
+#: THE RATE CARD. Bonuses are founder-approved and capped so every pack clears
+#: `MIN_GROSS_MARGIN` at the cost floor (see the guard). The ₹50,000 pack takes 8% — the
+#: margin-safe end of the approved "8-9%" range: at 9% its effective rate (₹4.587) dips
+#: below the 20%-margin line at a ₹3.70 cost floor, so 8% is the cap the invariant permits
+#: and the guard enforces.
+#:
+#: THE AMOUNTS ARE A ₹2,000 FLOOR AND ROUND RUNGS (D-526, 4 Sep 2026). The founder's
+#: instruction was "start the pricing from 2k minimum and then also give talktime
+#: accordingly and the max we can go is 50k", so the entry rung is ₹2,000 and the top rung
+#: stays ₹50,000. Two properties are deliberate:
+#:
+#: * **The bonus percentages did NOT move (0/3/5/7/8).** They are the margin model — the
+#:   effective rate is `list_rate / (1 + bonus)` and nothing else — so changing one changes
+#:   what we earn per rupee. Only the founder moves those; a ladder redesign moves amounts.
+#:   Because they held, every effective rate is byte-identical to the launch table
+#:   (₹5.00 · ₹4.85 · ₹4.76 · ₹4.67 · ₹4.63) and the approved-table guard re-scores unchanged.
+#: * **Round amounts, not charm prices.** The previous rungs (₹1,499/₹2,999/₹9,999/₹24,999)
+#:   were lifted from Outpero's card; the founder asked us not to copy their pricing
+#:   psychology. Round rungs also make the two numbers a client actually reasons about —
+#:   the effective rate and the talk time — hold-in-your-head values (₹2,000 → 400 min,
+#:   ₹50,000 → 10,800 min) instead of 617.794. A side effect worth having: every bonus is
+#:   now an exact whole rupee (0 · 150 · 500 · 1,750 · 4,000), so no pack's `bonus_credits`
+#:   leans on `MONEY_Q` rounding to land in the ledger.
 PACK_CATALOGUE: Final[tuple[CreditPack, ...]] = (
-    CreditPack(pack_id="starter", amount_inr=Decimal("1499"), bonus_pct=Decimal("0")),
-    CreditPack(pack_id="growth", amount_inr=Decimal("2999"), bonus_pct=Decimal("3")),
-    CreditPack(pack_id="scale", amount_inr=Decimal("9999"), bonus_pct=Decimal("5")),
-    CreditPack(pack_id="pro", amount_inr=Decimal("24999"), bonus_pct=Decimal("7")),
+    CreditPack(pack_id="starter", amount_inr=Decimal("2000"), bonus_pct=Decimal("0")),
+    CreditPack(pack_id="growth", amount_inr=Decimal("5000"), bonus_pct=Decimal("3")),
+    CreditPack(pack_id="scale", amount_inr=Decimal("10000"), bonus_pct=Decimal("5")),
+    CreditPack(pack_id="pro", amount_inr=Decimal("25000"), bonus_pct=Decimal("7")),
     CreditPack(pack_id="max", amount_inr=Decimal("50000"), bonus_pct=Decimal("8"), best_value=True),
 )
 
@@ -182,6 +207,7 @@ def pack_gross_margin_ratio(
 __all__ = [
     "CREDIT_INR",
     "MIN_GROSS_MARGIN",
+    "PACK_BONUS_CLAWBACK_META_KIND",
     "PACK_BONUS_META_KIND",
     "PACK_CATALOGUE",
     "CreditPack",

@@ -56,7 +56,9 @@ dev residue would be a cutoff that protects nothing.
 
 from __future__ import annotations
 
+import ast
 import importlib.util
+import inspect
 import uuid
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
@@ -66,6 +68,7 @@ from types import ModuleType
 import pytest
 from alembic.config import Config
 from alembic.script import ScriptDirectory
+from apps.api.billing import payments
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from scripts.reconcile_credit_ledger import LEDGER_UNIQUE_INDEX_CUTOFF
@@ -240,8 +243,86 @@ def test_the_key_carries_reason_and_the_predicate_carries_all_three() -> None:
     assert "ref IS NOT NULL" in create
     assert "reason IN ('topup', 'usage', 'adjustment')" in create
     assert "'refund'" not in create, (
-        "refund has no writer, every refund row carries a NULL ref, and several partial "
-        "refunds against one payment reference would be legitimate"
+        # THIS MESSAGE USED TO SAY "refund has no writer, every refund row carries a NULL
+        # ref". BOTH HALVES ARE NOW FALSE and the test below is what stops them coming
+        # back: `payments.credit_refund` is a writer, and it passes the PROVIDER'S REFUND
+        # ID as `ref` under `reason='refund'`. The third clause of the old message —
+        # "several partial refunds against one payment reference would be legitimate" —
+        # was true and is not an argument against this key: partial refunds carry
+        # different REFUND ids, so `(tenant_id, 'refund', ref)` separates them exactly as
+        # it separates two top-ups.
+        #
+        # So refund is absent from this predicate because THIS MIGRATION PREDATES THE
+        # REFUND WRITER, not because the key would be wrong.
+        #
+        # THAT RESIDUAL IS NOW CLOSED, and this comment used to end by naming it as open.
+        # `ux_credit_ledger_refund_ref` (migration `817842cf3b97`) is the partial unique
+        # index this paragraph asked for, in the exact shape `ux_credit_ledger_bonus_ref`
+        # took for the sibling reason. This assertion still holds and still should: it is
+        # about THIS migration's predicate, and the widening correctly went into a
+        # migration of its own rather than an edit of a shipped one (hard rule 8).
+        # `test_the_refund_key_is_enforced_by_the_database` below is what proves the new
+        # index actually bites, rather than merely existing.
+        "refund is absent from this migration's predicate because the migration predates "
+        "the refund writer, NOT because the key would be wrong — it is covered by "
+        "`ux_credit_ledger_refund_ref` in migration 817842cf3b97, which is where a "
+        "widening belongs (hard rule 8), never an edit of this shipped one"
+    )
+
+
+def test_a_refund_carries_a_non_null_ref_so_the_backstop_gap_is_real() -> None:
+    """The fact the guard above used to deny, pinned so it cannot be denied again.
+
+    The assertion next door reads `"'refund'" not in create`, and its old justification
+    was that refund rows carry no `ref` — i.e. that there is nothing for a unique index to
+    key on. If that were true the absence would be harmless and there would be no residual
+    to name. It is not true, and this test is what makes the difference visible: a single
+    grep for `reason="refund"` in `billing/payments.py` finds a writer handing over the
+    provider's refund id.
+
+    Read from the WRITER'S OWN SOURCE rather than by executing a refund, deliberately.
+    Driving one needs a signed provider envelope and a captured payment, and all of that is
+    already covered behaviourally in `razorpay_events_test.py`; what is NOT covered
+    anywhere is the schema-shaped claim this file makes about which reasons carry a key.
+    That claim is about what the writer passes, so what the writer passes is what is read.
+
+    **BY AST, AND ONLY THE `record_entry` CALL — a substring search over the function is
+    not strong enough, which was measured rather than assumed.** `credit_refund` mentions
+    `ref=refund.refund_id` three times: once on the INSERT and twice on `find_entry_by_ref`
+    (the dedupe lookup and the read-back). A version of this test that grepped the
+    function body therefore stayed GREEN when the write itself was changed to `ref=None`
+    — the two lookups alone satisfied it. Only the writing call says anything about what
+    lands in the column, so only the writing call is inspected.
+    """
+    write = next(
+        (
+            node
+            for node in ast.walk(ast.parse(inspect.getsource(payments.credit_refund)))
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "record_entry"
+        ),
+        None,
+    )
+    assert write is not None, (
+        "`credit_refund` no longer appends through `record_entry` — that function is the "
+        "ONE writer of this ledger (`billing/service.py`), so a refund reaching the table "
+        "another way is a bigger finding than the one this test was written for"
+    )
+    passed = {kw.arg: kw.value for kw in write.keywords}
+
+    reason = passed.get("reason")
+    assert isinstance(reason, ast.Constant) and reason.value == "refund", (
+        "`credit_refund` no longer writes under reason='refund' — if that is deliberate, "
+        "the guard above can go back to saying refund has no writer; if the reason moved, "
+        "point this test and that guard at the new one"
+    )
+    ref = passed.get("ref")
+    assert isinstance(ref, ast.Attribute) and ref.attr == "refund_id", (
+        "a refund ledger row must carry the provider's refund id as its `ref`: that pair "
+        "IS the idempotency key `credit_refund` dedupes on, and the guard above depends "
+        "on it being non-NULL to be describing a real backstop gap rather than a harmless "
+        "absence"
     )
 
 

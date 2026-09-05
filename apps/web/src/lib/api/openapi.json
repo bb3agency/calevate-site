@@ -278,6 +278,66 @@
         "title": "AdjustmentOut",
         "type": "object"
       },
+      "AdminCopilotAskIn": {
+        "additionalProperties": false,
+        "description": "`POST /v1/admin/copilot/ask` \u2014 the client body plus WHICH ACCOUNT IS OPEN (D-499).\n\n`tenant_id` is the account whose admin page the operator is looking at, or null on a\nplatform screen. It scopes three things and nothing else: which tenant the account read\ntools run under, which tenant's live business state is composed, and which memories are\neligible for recall (`copilot/admin_memory.py`).\n\n**IT IS NOT AN AUTHORIZATION INPUT AND IT IS NOT A PAYER.** The payer is always the\nplatform ledger \u2014 an operator never spends a client's allowance (D-499) \u2014 so no body\nfield here can move anyone's bill. And it widens nothing: every route serving this\npermission is admin-realm, and both admin roles hold `admin:tenants`, so an operator\nnaming an account here reaches exactly what the console's own tenant page would show\nthem. It is still validated to be a real, undeleted account before it is used, because\na silently-ignored id would let a screen believe it had scoped the assistant when it\nhad not.\n\n**INSIDE A VIEW-AS SESSION THE HEADER WINS.** `Principal.tenant_id` from an\nimpersonation grant is proven by a second factor and audited; this field is a claim in a\nbody. The route takes the principal's when there is one and never reconciles the two.",
+        "properties": {
+          "facts": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CopilotFact"
+            },
+            "maxItems": 50,
+            "title": "Facts",
+            "type": "array"
+          },
+          "fields": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CopilotField"
+            },
+            "maxItems": 200,
+            "title": "Fields",
+            "type": "array"
+          },
+          "history": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/CopilotTurn"
+            },
+            "maxItems": 10,
+            "title": "History",
+            "type": "array"
+          },
+          "question": {
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "screen": {
+            "$ref": "#/components/schemas/CopilotScreen"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
+          }
+        },
+        "required": [
+          "screen",
+          "question"
+        ],
+        "title": "AdminCopilotAskIn",
+        "type": "object"
+      },
       "AdminMeOut": {
         "additionalProperties": false,
         "description": "The admin realm's own identity document.\n\n`MeOut` (tenancy/routes.py) minus everything that is a property of a TENANT. There\nis no `organization`, because an admin principal resolved without\n`X-Impersonate-Org` has no tenant at all; and no `impersonating`, because a console\nscreen that had to enter a client to ask who it was is precisely the shape this\nroute removes. What is left \u2014 the role and the permission set \u2014 is the whole of what\nthe console legitimately needs to preview its own gates.",
@@ -472,6 +532,14 @@
             ],
             "title": "Archived At"
           },
+          "caller_memory_enabled": {
+            "title": "Caller Memory Enabled",
+            "type": "boolean"
+          },
+          "caller_memory_notice_line": {
+            "title": "Caller Memory Notice Line",
+            "type": "string"
+          },
           "direction": {
             "enum": [
               "inbound",
@@ -582,6 +650,8 @@
           "ai_disclosure_enabled",
           "recording_notice_line",
           "recording_notice_enabled",
+          "caller_memory_notice_line",
+          "caller_memory_enabled",
           "opening_line",
           "engine",
           "published",
@@ -2293,6 +2363,84 @@
         "title": "CallbackOut",
         "type": "object"
       },
+      "CallerMemoryIn": {
+        "additionalProperties": false,
+        "description": "Switch caller continuity on or off for one agent.\n\nONE BOOLEAN AND NOT A PAIR, unlike `DisclosureIn` above, and the difference is the\ndecision rather than the shape of the screen: remembering a caller and rescheduling a\ncall-back are \"two linked abilities, always on or off together\" (D-513), so there is\none column and there is nothing here for a second field to name. A client who could\nswitch one off and keep the other would keep the ability that REUSES what was\nremembered while withdrawing the one their callers were told about.\n\n`accept` is the client saying yes to the sentence the refusal handed them. It is only\nread the FIRST time an account switches this on: the attestation is about the\nbusiness, so it is asked once and then stands\n(`organizations.caller_memory_attested_at`).",
+        "properties": {
+          "accept": {
+            "default": false,
+            "title": "Accept",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled"
+        ],
+        "title": "CallerMemoryIn",
+        "type": "object"
+      },
+      "CallerMemoryOut": {
+        "additionalProperties": false,
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "attestation": {
+            "default": "I confirm that these calls do not collect health, medical, financial, biometric or other sensitive personal data about callers, that my business is the Data Fiduciary for these callers, and that my own privacy notice tells them we keep a short note of what they ask about. I understand that my agents will say so at the start of every call, that notes are kept for 180 days, and that a caller may ask for theirs to be erased.",
+            "title": "Attestation",
+            "type": "string"
+          },
+          "attested_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested At"
+          },
+          "attested_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested By Name"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "engine_synced": {
+            "title": "Engine Synced",
+            "type": "boolean"
+          },
+          "opening_line": {
+            "title": "Opening Line",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "enabled",
+          "opening_line",
+          "engine_synced"
+        ],
+        "title": "CallerMemoryOut",
+        "type": "object"
+      },
       "CallerNoticeOut": {
         "additionalProperties": false,
         "description": "The draft, structured and rendered.\n\nBoth halves ship on purpose: a screen renders the structure into its own layout, and\n`notice_markdown` is what a client actually pastes into their website. Rebuilding the prose on\nthe client side would put the wording \u2014 the part counsel reviews \u2014 outside the thing\nthat was reviewed.",
@@ -2826,6 +2974,28 @@
           "content": {
             "title": "Content",
             "type": "string"
+          },
+          "gloss": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gloss"
+          },
+          "gloss_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gloss Model"
           },
           "idx": {
             "title": "Idx",
@@ -3665,6 +3835,58 @@
         "title": "CopilotAskIn",
         "type": "object"
       },
+      "CopilotConfirmIn": {
+        "additionalProperties": false,
+        "description": "`POST /v1/copilot/confirm`. ONE FIELD, and that is the security property.\n\nEvery parameter of the action is inside the signed token, so there is nothing here for\na caller to tamper with: no lead id, no status, no campaign. A body that also carried\nthe target would be a body that could disagree with the description the person read.\n\nThe bound is generous against a JWT carrying a small `args` object \u2014 this is not a\nlength a legitimate client approaches, it is the wall in front of a caller feeding the\nverifier megabytes.",
+        "properties": {
+          "token": {
+            "maxLength": 4096,
+            "minLength": 1,
+            "title": "Token",
+            "type": "string"
+          }
+        },
+        "required": [
+          "token"
+        ],
+        "title": "CopilotConfirmIn",
+        "type": "object"
+      },
+      "CopilotConfirmOut": {
+        "additionalProperties": false,
+        "description": "What the confirmed change did.\n\n`applied` is False when the world was ALREADY in the requested state \u2014 a real outcome,\nnot a failure (D-65's distinction, which `set_campaign_status` and the lead executor\nboth make). `detail` is the sentence to show; it says which of the two happened,\nbecause \"nothing changed, it was already paused\" is the answer a person needs when\nthey are watching calls go out.",
+        "properties": {
+          "applied": {
+            "title": "Applied",
+            "type": "boolean"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "object_id": {
+            "title": "Object Id",
+            "type": "string"
+          },
+          "object_type": {
+            "title": "Object Type",
+            "type": "string"
+          },
+          "tool": {
+            "title": "Tool",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tool",
+          "object_type",
+          "object_id",
+          "applied",
+          "detail"
+        ],
+        "title": "CopilotConfirmOut",
+        "type": "object"
+      },
       "CopilotFact": {
         "additionalProperties": false,
         "description": "One read-only fact about the screen that is not a form control.",
@@ -3822,6 +4044,7 @@
           },
           "route": {
             "maxLength": 200,
+            "pattern": "^/[^\\x00-\\x1f\\x7f]*$",
             "title": "Route",
             "type": "string"
           },
@@ -4998,9 +5221,8 @@
         "description": "`extra=\"forbid\"` so a caller cannot smuggle a second selector \u2014 a lead id, a\nnarrower `scope` \u2014 into a request whose whole security argument is \"one phone\nnumber\". `scope` in particular is refused rather than ignored: the worker honours no\nnarrower scope, so accepting one would record a promise nothing keeps.",
         "properties": {
           "phone": {
-            "maxLength": 20,
+            "maxLength": 32,
             "minLength": 8,
-            "pattern": "^\\+[1-9]\\d{7,18}$",
             "title": "Phone",
             "type": "string"
           }
@@ -5492,6 +5714,52 @@
         "title": "DncEntryOut",
         "type": "object"
       },
+      "DrawdownOut": {
+        "additionalProperties": false,
+        "description": "WHERE THE MONEY WENT, over the same window the runway was measured on.\n\nEvery figure is POSITIVE and its direction is in the field name, never in a sign \u2014 a\nscreen that had to decide whether `-340.00` was a debit or a correction of one is a\nscreen that will eventually decide wrong.\n\nTHERE IS NO MESSAGING BUCKET, and that is deliberate rather than missing: nothing on\nthis platform debits the wallet for a WhatsApp message or an SMS, so a \"Messaging\"\nrow reading \u20b90.00 would be a category invented to look complete, and a client reading\nit would reasonably conclude they are being charged for messages.",
+        "properties": {
+          "added_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Added Inr",
+            "type": "string"
+          },
+          "adjustments_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Adjustments Inr",
+            "type": "string"
+          },
+          "ai_assist_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Ai Assist Inr",
+            "type": "string"
+          },
+          "calls_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Calls Inr",
+            "type": "string"
+          },
+          "refunded_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Refunded Inr",
+            "type": "string"
+          },
+          "spent_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Spent Inr",
+            "type": "string"
+          }
+        },
+        "required": [
+          "calls_inr",
+          "ai_assist_inr",
+          "adjustments_inr",
+          "spent_inr",
+          "added_inr",
+          "refunded_inr"
+        ],
+        "title": "DrawdownOut",
+        "type": "object"
+      },
       "EnableIn": {
         "additionalProperties": false,
         "properties": {
@@ -5943,6 +6211,28 @@
             "title": "Call Extractions Erased",
             "type": "integer"
           },
+          "caller_memories_erased": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Memories Erased"
+          },
+          "caller_vectors_erased": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Vectors Erased"
+          },
           "calls": {
             "items": {
               "type": "string"
@@ -6014,7 +6304,9 @@
           "recordings_within_trai_floor",
           "recordings_destroyed",
           "recording_hold_until",
-          "knowledge_base_documents_matched"
+          "knowledge_base_documents_matched",
+          "caller_vectors_erased",
+          "caller_memories_erased"
         ],
         "title": "ErasureScopeOut",
         "type": "object"
@@ -6363,12 +6655,13 @@
       },
       "ExtractionSchemaIn": {
         "additionalProperties": false,
-        "description": "The whole new ordered field list. `extra=\"forbid\"` on every field\n(`ExtractionField`), so an unknown key on a variable is a 422 rather than a silently\ndropped edit.",
+        "description": "The whole new ordered field list. `extra=\"forbid\"` on every field\n(`ExtractionField`), so an unknown key on a variable is a 422 rather than a silently\ndropped edit.\n\n`max_length` HERE and not on `ExtractionField`/`ExtractionSchemaSpec`, deliberately.\nThose two models also parse what is ALREADY STORED (`_read_current`, `crm.service.\nlead_columns`, `crm/lead_chunks._fields_for`), and a ceiling added to a read model is a\nceiling that turns every row written before it existed into a 500 on the client's own\nLeads screen. A bound belongs on the write, where the person who can act on it is\nholding the form.",
         "properties": {
           "fields": {
             "items": {
               "$ref": "#/components/schemas/ExtractionField"
             },
+            "maxItems": 50,
             "title": "Fields",
             "type": "array"
           }
@@ -9468,6 +9761,18 @@
             ],
             "title": "Agent Id"
           },
+          "ask": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ask"
+          },
           "assigned_to": {
             "anyOf": [
               {
@@ -9564,6 +9869,11 @@
           "offset": {
             "title": "Offset",
             "type": "integer"
+          },
+          "semantic_truncated": {
+            "default": false,
+            "title": "Semantic Truncated",
+            "type": "boolean"
           },
           "status_counts_matching_search": {
             "additionalProperties": {
@@ -9727,6 +10037,18 @@
               }
             ],
             "title": "Agent Id"
+          },
+          "ask": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ask"
           },
           "assigned_to": {
             "anyOf": [
@@ -10232,6 +10554,31 @@
           "reversible_inr"
         ],
         "title": "LedgerEntryOut",
+        "type": "object"
+      },
+      "LedgerOut": {
+        "additionalProperties": false,
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/WalletEntryOut"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "payments": {
+            "items": {
+              "$ref": "#/components/schemas/WalletPaymentOut"
+            },
+            "title": "Payments",
+            "type": "array"
+          }
+        },
+        "required": [
+          "entries",
+          "payments"
+        ],
+        "title": "LedgerOut",
         "type": "object"
       },
       "LegSummary": {
@@ -11910,6 +12257,21 @@
         "additionalProperties": false,
         "description": "This tenant's Principal Entity registration, as the platform last verified it.\n\nEvery field except `recorded` and `is_active` is nullable, because all of them are\ngenuinely absent before ops files anything. `is_active` is computed server-side for\nthe same reason `TmRegistrationOut.is_live` is: \"is `submitted` good enough\" is a\nquestion the console must not answer for itself, and this response and the launch\ngate must never disagree about it.",
         "properties": {
+          "calevate_tm_active": {
+            "title": "Calevate Tm Active",
+            "type": "boolean"
+          },
+          "calevate_tm_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Calevate Tm Id"
+          },
           "entity_name": {
             "anyOf": [
               {
@@ -11995,7 +12357,9 @@
           "entity_name",
           "registered_at",
           "verified_at",
-          "is_active"
+          "is_active",
+          "calevate_tm_id",
+          "calevate_tm_active"
         ],
         "title": "PeRegistrationOut",
         "type": "object"
@@ -12525,6 +12889,68 @@
           "margin"
         ],
         "title": "PlanRowOut",
+        "type": "object"
+      },
+      "PlanTierIn": {
+        "additionalProperties": false,
+        "properties": {
+          "plan_tier": {
+            "enum": [
+              "managed",
+              "prepaid"
+            ],
+            "title": "Plan Tier",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_tier",
+          "reason"
+        ],
+        "title": "PlanTierIn",
+        "type": "object"
+      },
+      "PlanTierOut": {
+        "additionalProperties": false,
+        "properties": {
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "plan_tier": {
+            "title": "Plan Tier",
+            "type": "string"
+          },
+          "previous_plan_tier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Previous Plan Tier"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "plan_tier",
+          "previous_plan_tier",
+          "changed"
+        ],
+        "title": "PlanTierOut",
         "type": "object"
       },
       "PlatformStateIn": {
@@ -13340,6 +13766,89 @@
           "next_step"
         ],
         "title": "ReadinessRowOut",
+        "type": "object"
+      },
+      "ReceiptOut": {
+        "additionalProperties": false,
+        "description": "A RECEIPT for one payment. It is NOT a tax invoice and never says it is.\n\nThe business is not registered for GST and is not required to be at present turnover\n(`docs/legal/LEGAL-OPS-PLAYBOOK.md` \u00a74), so `gst.supplier_identity().is_registered` is\nfalse on every deployment: there is no GSTIN to print, no tax is charged, and CGST\ns.32 forbids an unregistered person collecting any. `document_type` is therefore\n`receipt` \u2014 an acknowledgement that money was received \u2014 and the console renders its\nheading from THIS field, never from a literal, exactly as the monthly statement does.\nNothing here carries a tax head, a rate, or an estimate of one.",
+        "properties": {
+          "amount_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount Inr",
+            "type": "string"
+          },
+          "document_type": {
+            "title": "Document Type",
+            "type": "string"
+          },
+          "entries": {
+            "title": "Entries",
+            "type": "integer"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "organization_billing_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Billing Email"
+          },
+          "organization_name": {
+            "title": "Organization Name",
+            "type": "string"
+          },
+          "payment_ref": {
+            "title": "Payment Ref",
+            "type": "string"
+          },
+          "received_at": {
+            "format": "date-time",
+            "title": "Received At",
+            "type": "string"
+          },
+          "supplier_address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Address"
+          },
+          "supplier_legal_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Supplier Legal Name"
+          }
+        },
+        "required": [
+          "document_type",
+          "payment_ref",
+          "amount_inr",
+          "received_at",
+          "entries",
+          "supplier_legal_name",
+          "supplier_address",
+          "organization_name",
+          "organization_billing_email",
+          "note"
+        ],
+        "title": "ReceiptOut",
         "type": "object"
       },
       "RecordAlertOptInIn": {
@@ -14284,6 +14793,71 @@
         "title": "RotateSecretOut",
         "type": "object"
       },
+      "RunwayOut": {
+        "additionalProperties": false,
+        "description": "How long the balance lasts \u2014 and, when it may not be said, WHY not.\n\n`days` is null on every basis but `projected`, and `basis` carries which reason.\n\"We have not been watching you long enough to tell\" and \"you are not spending\nanything\" are different sentences to an owner deciding whether to top up, and a\nscreen that collapsed them into a blank would answer neither.\n\nNO DEFAULTS on any field, for `TopUpIntentOut.provider_order_id`'s reason: a Pydantic\ndefault generates an OPTIONAL property in the TypeScript client, and `days: null`\n(we will not put a number on it) must stay distinguishable from `undefined` (the\nserver did not say).",
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "beyond_horizon": {
+            "title": "Beyond Horizon",
+            "type": "boolean"
+          },
+          "daily_burn_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Burn Inr"
+          },
+          "days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          },
+          "history_days": {
+            "title": "History Days",
+            "type": "integer"
+          },
+          "max_days": {
+            "title": "Max Days",
+            "type": "integer"
+          },
+          "min_history_days": {
+            "title": "Min History Days",
+            "type": "integer"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "basis",
+          "days",
+          "daily_burn_inr",
+          "history_days",
+          "beyond_horizon",
+          "window_days",
+          "min_history_days",
+          "max_days"
+        ],
+        "title": "RunwayOut",
+        "type": "object"
+      },
       "SaveScriptIn": {
         "additionalProperties": false,
         "properties": {
@@ -14637,6 +15211,105 @@
           "first_dial_not_before"
         ],
         "title": "ScheduleOut",
+        "type": "object"
+      },
+      "ScheduledCallbackOut": {
+        "additionalProperties": false,
+        "description": "One promise. Instants are UTC on the wire and rendered in IST by the browser \u2014\nthe repo convention, and the reason this model carries no formatted string: a time\nformatted on the server is a time formatted in the server's idea of the day.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "explanation": {
+            "title": "Explanation",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_call_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Call Id"
+          },
+          "lead_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Id"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "phone_e164": {
+            "title": "Phone E164",
+            "type": "string"
+          },
+          "requested_at": {
+            "format": "date-time",
+            "title": "Requested At",
+            "type": "string"
+          },
+          "settled_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Settled At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "agent_id",
+          "lead_id",
+          "phone_e164",
+          "requested_at",
+          "status",
+          "attempts",
+          "explanation",
+          "last_call_id",
+          "settled_at",
+          "note"
+        ],
+        "title": "ScheduledCallbackOut",
         "type": "object"
       },
       "ScriptOut": {
@@ -15514,6 +16187,36 @@
         "title": "SpendOut",
         "type": "object"
       },
+      "StaffCurationIn": {
+        "additionalProperties": false,
+        "description": "The whole of the resource, which is what makes this a PUT rather than a PATCH \u2014\n`LlmDefaultIn`'s argument, one field further down.",
+        "properties": {
+          "staff_may_curate_knowledge": {
+            "title": "Staff May Curate Knowledge",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "staff_may_curate_knowledge"
+        ],
+        "title": "StaffCurationIn",
+        "type": "object"
+      },
+      "StaffCurationOut": {
+        "additionalProperties": false,
+        "description": "Whether this account's staff may curate knowledge.\n\nA DECLARED model rather than a bare mapping, for the reason `admin/routes.KbReviewOut`\ngives: `scripts/check_redaction_exposure.py` walks response models and is structurally\nblind to a route that declares none, and the generated TS client renders a mapping as\nan index signature the frontend then hand-types.",
+        "properties": {
+          "staff_may_curate_knowledge": {
+            "title": "Staff May Curate Knowledge",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "staff_may_curate_knowledge"
+        ],
+        "title": "StaffCurationOut",
+        "type": "object"
+      },
       "StaffMember": {
         "additionalProperties": false,
         "description": "`pronunciation` is not decoration \u2014 PROMPT-GUIDE \u00a73 requires proper nouns to be\nspelled phonetically in [T0 FACTS], because a mispronounced doctor's name is the\nfirst thing a caller notices.",
@@ -15728,6 +16431,60 @@
         "title": "SubjectExportCallOut",
         "type": "object"
       },
+      "SubjectExportCampaignContactOut": {
+        "additionalProperties": false,
+        "description": "This number on a client's uploaded calling list, whether or not it was ever called.\n\nPresent for `SubjectExportDoNotCallOut`'s reason, and the case is starker: \u00a712 erases\n`campaign_contacts` and \u00a711 reported it nowhere, so a person whose number a client\nuploaded and who NEVER CALLED was told we hold nothing about them. They are the least\nlikely of anyone to know otherwise, having had no contact through which to find out.\n\n`has_custom_fields` rather than the fields themselves: `campaign_contacts.custom` holds\nwhatever columns the client uploaded as merge variables, in shapes we do not model. The\nboolean tells the subject such data exists so they can ask for it specifically \u2014 the\nsame halfway house as `recording_available` and `evidence_recorded`.",
+        "properties": {
+          "added_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Added At"
+          },
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "campaign_name": {
+            "title": "Campaign Name",
+            "type": "string"
+          },
+          "has_custom_fields": {
+            "title": "Has Custom Fields",
+            "type": "boolean"
+          },
+          "last_attempt_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Attempt At"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "campaign_name",
+          "status",
+          "attempts",
+          "last_attempt_at",
+          "has_custom_fields",
+          "added_at"
+        ],
+        "title": "SubjectExportCampaignContactOut",
+        "type": "object"
+      },
       "SubjectExportConsentOut": {
         "additionalProperties": false,
         "description": "One consent-ledger entry. `evidence_recorded` is a boolean for the same reason\nthe recording is: the evidence is a transcript SPAN, raw by construction, and it\nstays behind the audited raw-transcript path.",
@@ -15799,6 +16556,10 @@
             "title": "Calls",
             "type": "integer"
           },
+          "campaign_contacts": {
+            "title": "Campaign Contacts",
+            "type": "integer"
+          },
           "consent_records": {
             "title": "Consent Records",
             "type": "integer"
@@ -15811,6 +16572,10 @@
             "title": "Recordings Available",
             "type": "integer"
           },
+          "remembered_facts": {
+            "title": "Remembered Facts",
+            "type": "integer"
+          },
           "transcript_turns": {
             "title": "Transcript Turns",
             "type": "integer"
@@ -15821,7 +16586,9 @@
           "calls",
           "transcript_turns",
           "consent_records",
-          "recordings_available"
+          "recordings_available",
+          "campaign_contacts",
+          "remembered_facts"
         ],
         "title": "SubjectExportCountsOut",
         "type": "object"
@@ -15921,9 +16688,8 @@
         "description": "`extra=\"forbid\"` so a caller cannot smuggle a second selector (a lead id, a\ntenant slug) into a request whose whole security argument is \"one phone number\".",
         "properties": {
           "phone": {
-            "maxLength": 20,
+            "maxLength": 32,
             "minLength": 8,
-            "pattern": "^\\+[1-9]\\d{7,18}$",
             "title": "Phone",
             "type": "string"
           }
@@ -16060,6 +16826,13 @@
             "title": "Calls",
             "type": "array"
           },
+          "campaign_contacts": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportCampaignContactOut"
+            },
+            "title": "Campaign Contacts",
+            "type": "array"
+          },
           "consent": {
             "items": {
               "$ref": "#/components/schemas/SubjectExportConsentOut"
@@ -16101,6 +16874,13 @@
             "title": "Phone E164",
             "type": "string"
           },
+          "remembered": {
+            "items": {
+              "$ref": "#/components/schemas/SubjectExportRememberedOut"
+            },
+            "title": "Remembered",
+            "type": "array"
+          },
           "transcripts": {
             "items": {
               "$ref": "#/components/schemas/SubjectExportTranscriptOut"
@@ -16118,9 +16898,38 @@
           "transcripts",
           "consent",
           "do_not_call",
+          "campaign_contacts",
+          "remembered",
           "counts"
         ],
         "title": "SubjectExportOut",
+        "type": "object"
+      },
+      "SubjectExportRememberedOut": {
+        "additionalProperties": false,
+        "description": "A fact one of this account's agents had remembered about the subject (D-506/D-507).\n\nTHE SENTENCE ITSELF IS DISCLOSED, unlike a campaign's `custom` fields, and the\ndifference is who wrote it: `custom` is the client's data about the person, while this\nis OUR distilled sentence about them. A subject access request is precisely the\ninstrument for reading what a company has written down about you.\n\nNothing writes these yet \u2014 the producer is unbuilt and `agents.caller_memory_enabled`\ndefaults false \u2014 so this list is empty on every account today. It is modelled anyway,\nbecause a disclosure that silently lags a new store is the exact defect that made this\ndocument incomplete in the first place.",
+        "properties": {
+          "fact": {
+            "title": "Fact",
+            "type": "string"
+          },
+          "occurred_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Occurred At"
+          }
+        },
+        "required": [
+          "fact",
+          "occurred_at"
+        ],
+        "title": "SubjectExportRememberedOut",
         "type": "object"
       },
       "SubjectExportTranscriptOut": {
@@ -16647,6 +17456,28 @@
             ],
             "title": "Call Extractions Erased"
           },
+          "caller_memories_erased": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Memories Erased"
+          },
+          "caller_vectors_erased": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caller Vectors Erased"
+          },
           "calls_erased": {
             "anyOf": [
               {
@@ -16733,7 +17564,9 @@
           "campaign_contacts_erased",
           "recordings_destroyed",
           "recordings_within_trai_floor",
-          "webhook_bodies_erased"
+          "webhook_bodies_erased",
+          "caller_vectors_erased",
+          "caller_memories_erased"
         ],
         "title": "TenantErasureScopeOut",
         "type": "object"
@@ -16958,6 +17791,10 @@
             "title": "Name",
             "type": "string"
           },
+          "plan_tier": {
+            "title": "Plan Tier",
+            "type": "string"
+          },
           "slug": {
             "title": "Slug",
             "type": "string"
@@ -16989,6 +17826,7 @@
           "leads",
           "last_call_at",
           "capped",
+          "plan_tier",
           "holds"
         ],
         "title": "TenantSummary",
@@ -17384,6 +18222,56 @@
           "config"
         ],
         "title": "ToolOut",
+        "type": "object"
+      },
+      "TopUpAttemptOut": {
+        "additionalProperties": false,
+        "description": "A payment that was STARTED \u2014 including the ones that went nowhere.\n\nTHE POINT OF THIS LIST is the rows a ledger cannot hold. A declined card moves no\nmoney, so it has no `credit_ledger` entry, so before it existed a client whose payment\nfailed came back to a screen indistinguishable from one they had never touched.",
+        "properties": {
+          "amount_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount Inr",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "outcome": {
+            "title": "Outcome",
+            "type": "string"
+          },
+          "pack_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pack Id"
+          },
+          "receipt": {
+            "title": "Receipt",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "title": "Started At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "receipt",
+          "amount_inr",
+          "pack_id",
+          "outcome",
+          "started_at"
+        ],
+        "title": "TopUpAttemptOut",
         "type": "object"
       },
       "TopUpCapabilityOut": {
@@ -18376,6 +19264,164 @@
         "title": "VoiceStateOut",
         "type": "object"
       },
+      "WalletEntryOut": {
+        "additionalProperties": false,
+        "description": "One line of the wallet, as its owner reads it.\n\nDeliberately NOT `credit_routes.LedgerEntryOut` \u2014 and named apart from it for a\nsecond, mechanical reason: two different schemas under one name make FastAPI emit\nfully-qualified component names for BOTH, which would rename the admin console's\ngenerated type out from under `lib/api/credits.ts`. That one carries `reversible_inr`,\nwhich exists so an OPERATOR can be offered a correction with a ceiling on it. It is\nmeaningless to a client, and publishing it here would invite a screen to render a\ncontrol this realm does not have.",
+        "properties": {
+          "balance_after_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Balance After Inr",
+            "type": "string"
+          },
+          "delta_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Delta Inr",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "occurred_at": {
+            "format": "date-time",
+            "title": "Occurred At",
+            "type": "string"
+          },
+          "payment_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Payment Ref"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ref"
+          }
+        },
+        "required": [
+          "id",
+          "delta_inr",
+          "reason",
+          "ref",
+          "balance_after_inr",
+          "occurred_at",
+          "payment_ref"
+        ],
+        "title": "WalletEntryOut",
+        "type": "object"
+      },
+      "WalletOut": {
+        "additionalProperties": false,
+        "description": "Everything the credits screen needs about the money, in one read.",
+        "properties": {
+          "balance_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Balance Inr",
+            "type": "string"
+          },
+          "drawdown": {
+            "$ref": "#/components/schemas/DrawdownOut"
+          },
+          "is_low": {
+            "title": "Is Low",
+            "type": "boolean"
+          },
+          "low_balance_threshold_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Low Balance Threshold Inr",
+            "type": "string"
+          },
+          "minutes_left": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minutes Left"
+          },
+          "outbound_stopped": {
+            "title": "Outbound Stopped",
+            "type": "boolean"
+          },
+          "prepaid": {
+            "title": "Prepaid",
+            "type": "boolean"
+          },
+          "runway": {
+            "$ref": "#/components/schemas/RunwayOut"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "prepaid",
+          "balance_inr",
+          "is_low",
+          "low_balance_threshold_inr",
+          "outbound_stopped",
+          "runway",
+          "minutes_left",
+          "drawdown"
+        ],
+        "title": "WalletOut",
+        "type": "object"
+      },
+      "WalletPaymentOut": {
+        "additionalProperties": false,
+        "description": "One payment, as the wallet holds it \u2014 the line a receipt is issued against.",
+        "properties": {
+          "credited_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Credited Inr",
+            "type": "string"
+          },
+          "entries": {
+            "title": "Entries",
+            "type": "integer"
+          },
+          "first_at": {
+            "format": "date-time",
+            "title": "First At",
+            "type": "string"
+          },
+          "payment_ref": {
+            "title": "Payment Ref",
+            "type": "string"
+          }
+        },
+        "required": [
+          "payment_ref",
+          "credited_inr",
+          "entries",
+          "first_at"
+        ],
+        "title": "WalletPaymentOut",
+        "type": "object"
+      },
       "WebhookAck": {
         "additionalProperties": false,
         "properties": {
@@ -19179,6 +20225,60 @@
           "admin"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/copilot/ask": {
+      "post": {
+        "description": "The admin console's own assistant. Answers about the screen the operator is on, about\nPLATFORM state (the client roster, the triage board, whether outbound dialling is halted,\nwhether our telemarketer registration is live, how much of this month's AI budget is\nspent), about the ONE account named in `tenant_id` when one is open, and about Calevate's\nown runbooks \u2014 every one of those by calling a read tool, never from memory.\n\n`tenant_id` is the account whose admin page is open, or null. It scopes the account tools,\nthe live-state block and memory recall. Inside a view-as session it is ignored in favour of\nthe impersonated account, which is proven by the grant rather than claimed in a body.\n\nStreams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents \u2014\n`text`, `fill`, `step`, `proposal`, `action`, `done`, `error`. A `proposal` is NOT a\nchange and, in this realm today, neither a `proposal` nor an `action` will be offered: the\nwrite tools need an account-scoped identity that an admin session does not carry, and\ninside a view-as session they are refused outright because impersonation is read-only.\n\n**BILLING: this never touches a client's AI allowance.** Operator spend is metered to the\nplatform's own ledger under the cost name `admin_copilot`. It is still bounded by the\nplatform-wide AI brake, which pauses this console's assistant exactly as it pauses every\nclient's.\n\nRequires `copilot:admin` \u2014 held by operators and superadmins.",
+        "operationId": "ask_admin_copilot_v1_admin_copilot_ask_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminCopilotAskIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "itemSchema": {
+                  "properties": {
+                    "data": {
+                      "type": "string"
+                    },
+                    "event": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "retry": {
+                      "minimum": 0,
+                      "type": "integer"
+                    }
+                  },
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Ask the admin console's assistant \u2014 streamed, metered to the platform",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:admin"
       }
     },
     "/v1/admin/impersonation-grants": {
@@ -20238,7 +21338,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/extraction-schema": {
       "put": {
-        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).",
+        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).\n\nAt most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.",
         "operationId": "admin_set_extraction_schema_v1_admin_tenants__tenant_id__agents__agent_id__extraction_schema_put",
         "parameters": [
           {
@@ -20299,7 +21399,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {
       "get": {
-        "description": "No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's\nscope directly rather than opening the cross-tenant directory it does not need.",
+        "description": "No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's\nscope directly rather than opening the cross-tenant directory it does not need.\n\nAudited (D-482 L-1): the intake sheet is free-text onboarding prose that can carry\nincidental staff PII, which is exactly the class of read the DPDP trail must hold.",
         "operationId": "read_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_get",
         "parameters": [
           {
@@ -22315,6 +23415,57 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/plan-tier": {
+      "post": {
+        "description": "Sets `organizations.plan_tier`. `prepaid` is the default every account is created on (D-521): its calling is paid from a credit balance and `compliance.check_dispatch` refuses `no_credits` when that balance is empty. `managed` is for a client genuinely billed on a plan retainer \u2014 it has no wallet, the credits screen says so, and nothing stops their dialling for want of credit. **Setting `prepaid` on an account with no credit stops its OUTBOUND calling at the next dial**; inbound answering is unaffected either way. Idempotent: setting the tier an account is already on returns 200, `changed: false`, and writes no audit row. 404 means no such client.",
+        "operationId": "set_tenant_plan_tier_v1_admin_tenants__tenant_id__plan_tier_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlanTierIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanTierOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Move a client between billing motions \u2014 prepaid credit or invoiced retainer",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/refunds": {
       "post": {
         "description": "Issues a refund at the provider and records it as a compensating credit_ledger entry (append-only, negative delta). Idempotent on a derived key so a double click issues one refund. Omit amount_inr for a full refund of the payment's top-up, or send a smaller amount for a partial refund.",
@@ -23298,7 +24449,7 @@
     },
     "/v1/agents/{agent_id}/archive": {
       "post": {
-        "description": "An archived agent is never dialled and cannot be given to a campaign. It is NOT deleted: the agent, its scripts and every call it ever took stay readable, and it can be restored. Archiving an active agent also releases the numbers it was answering.",
+        "description": "An archived agent is never dialled and cannot be given to a campaign. It is NOT deleted: the agent, its scripts and every call it ever took stay readable, and it can be restored. Archiving releases any numbers the agent was answering.\n\n**An ACTIVE agent is refused with `agent_is_live` (409).** Switching off is a separate, deliberate decision (D-527): the client console shows this move as Delete on every row of the roster, and no single click there may take a working phone line down. Deactivate first, then archive.",
         "operationId": "archive_agent_route_v1_agents__agent_id__archive_post",
         "parameters": [
           {
@@ -23330,7 +24481,58 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Retire the agent (draft, active or inactive -> archived)",
+        "summary": "Retire the agent \u2014 the console's Delete (draft or inactive -> archived)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/caller-memory": {
+      "patch": {
+        "description": "Two abilities, always on or off together. Your agents remember the people they have spoken to and can greet a returning caller with what they asked about last time; and when someone asks to be called back at a particular time, that follow-up is booked for exactly then and dials with everything already learned.\n\nOff unless you switch it on. Switched on, the agent says at the start of every call that a short note is kept \u2014 that sentence cannot be switched off separately.\n\nWhat is kept is a short note of what the caller wanted, what happened, and any preference they stated, such as the language they like or when they prefer to be called. It is used only for that person's own future calls with you, is never shared, and is deleted after 180 days or sooner if they ask.\n\nThe first time anyone in your account switches this on you are asked to confirm what these calls collect. Some kinds of business cannot use it at all.\n\nApplies immediately: a live agent is updated on the voice platform in the same transaction, so the screen never claims something the phone line is not doing.",
+        "operationId": "set_caller_memory_route_v1_agents__agent_id__caller_memory_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallerMemoryIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallerMemoryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Let an agent remember returning callers, and book call-backs",
         "tags": [
           "agents"
         ],
@@ -23513,7 +24715,7 @@
     },
     "/v1/agents/{agent_id}/extraction-schema": {
       "get": {
-        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).",
+        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).\n\nAt most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.",
         "operationId": "get_extraction_schema_v1_agents__agent_id__extraction_schema_get",
         "parameters": [
           {
@@ -23552,7 +24754,7 @@
         "x-calevate-permission": "org:read"
       },
       "put": {
-        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).",
+        "description": "The variables this agent captures from a call and writes into its leads \u2014 the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` \u2014 why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.\n\nSaving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).\n\nAt most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.",
         "operationId": "set_extraction_schema_v1_agents__agent_id__extraction_schema_put",
         "parameters": [
           {
@@ -25223,6 +26425,287 @@
         "x-calevate-permission": "billing:read"
       }
     },
+    "/v1/billing/wallet": {
+      "get": {
+        "description": "The prepaid wallet as its owner reads it. `outbound_stopped` is the dial gate's own verdict, asked rather than re-derived \u2014 inbound calls are never stopped by a balance. `runway.days` is null whenever a projection may not honestly be asserted, and `runway.basis` says which reason.",
+        "operationId": "read_wallet_summary_v1_billing_wallet_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Balance, how long it lasts, and where the money went",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "wallet:read"
+      }
+    },
+    "/v1/billing/wallet/ledger": {
+      "get": {
+        "description": "Every movement on the wallet \u2014 payments, call usage, pack bonuses, operator corrections and refunds \u2014 newest first. `payments` carries one line per payment on the page, which is what a receipt is issued against.",
+        "operationId": "read_wallet_ledger_v1_billing_wallet_ledger_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LedgerOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The wallet's entries, newest first, with the payments behind them",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "wallet:read"
+      }
+    },
+    "/v1/billing/wallet/receipts/{payment_ref}": {
+      "get": {
+        "description": "An acknowledgement that money was received against this reference. The business is not registered for GST, so no tax is charged and no tax invoice can be issued; `document_type` says what this document is and the console renders its heading from that field.",
+        "operationId": "read_payment_receipt_v1_billing_wallet_receipts__payment_ref__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "payment_ref",
+            "required": true,
+            "schema": {
+              "title": "Payment Ref",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReceiptOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "A receipt for one payment \u2014 NOT a tax invoice",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "wallet:read"
+      }
+    },
+    "/v1/billing/wallet/topups": {
+      "get": {
+        "description": "A declined card moves no money, so it has no ledger entry. This is the list that shows it happened, so a client whose payment failed does not come back to a screen indistinguishable from one they never touched.",
+        "operationId": "read_topup_attempts_v1_billing_wallet_topups_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TopUpAttemptOut"
+                  },
+                  "title": "Response Read Topup Attempts V1 Billing Wallet Topups Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Payments that were started \u2014 including the ones that failed or never landed",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "wallet:read"
+      }
+    },
+    "/v1/callbacks": {
+      "get": {
+        "description": "Every time a caller asked to be rung back at a particular time, and what happened to that promise. Most recent first.\n\nSet `open_only` to see just the ones still to come.",
+        "operationId": "list_callbacks_v1_callbacks_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "open_only",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Open Only",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ScheduledCallbackOut"
+                  },
+                  "title": "Response List Callbacks V1 Callbacks Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The call-backs your agents promised",
+        "tags": [
+          "callbacks"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
+    "/v1/callbacks/{callback_id}": {
+      "delete": {
+        "description": "Stops a call-back that has not gone out yet. A call-back that is already being placed cannot be stopped here \u2014 the phone may already be ringing \u2014 and one that has already ended stays as it ended.",
+        "operationId": "cancel_callback_v1_callbacks__callback_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "callback_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Callback Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledCallbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Call off a promised call-back",
+        "tags": [
+          "callbacks"
+        ],
+        "x-calevate-permission": "leads:dispatch"
+      },
+      "get": {
+        "operationId": "get_callback_v1_callbacks__callback_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "callback_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Callback Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduledCallbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One promised call-back",
+        "tags": [
+          "callbacks"
+        ],
+        "x-calevate-permission": "leads:read"
+      }
+    },
     "/v1/calls": {
       "get": {
         "operationId": "get_calls_v1_calls_get",
@@ -26318,7 +27801,7 @@
     },
     "/v1/compliance/dlt-registration": {
       "get": {
-        "description": "What the DLT registrar holds for this business, as the platform last verified it. Read-only: registrations are recorded by Calevate operations against the registrar, never by the client. A business with nothing filed yet gets `recorded: false` and a 200.",
+        "description": "What the DLT registrar holds for this business, as the platform last verified it, plus Calevate's own Telemarketer registration number, which the client needs in order to authorise us on the registrar's portal. Read-only: registrations are recorded by Calevate operations against the registrar, never by the client. A business with nothing filed yet gets `recorded: false` and a 200.",
         "operationId": "read_registration_v1_compliance_dlt_registration_get",
         "responses": {
           "200": {
@@ -26587,7 +28070,7 @@
     },
     "/v1/copilot/ask": {
       "post": {
-        "description": "Answers a question about the screen the caller is on, and can fill that screen's form\nfields. Streams `text/event-stream`:\n\n* `event: text` \u00b7 `data: {\"delta\": \"...\"}` \u2014 one fragment of the answer.\n* `event: fill` \u00b7 `data: {\"items\": [{\"field_id\": \"...\", \"value\": ...}]}` \u2014 at most one\n  per response. Every item has been re-validated server-side against the `fields` this\n  request declared: a field that is not `writable`, a `select` value outside its own\n  `options`, or a wrong type refuses the WHOLE fill. Write these into local form state,\n  highlight them, and offer one Undo; nothing is saved until the user presses Save.\n* `event: done` \u00b7 `data: {\"disclosure\": null|\"...\", \"metered\": true}` \u2014 `disclosure` is\n  non-null when a substitute model answered and MUST be shown.\n* `event: error` \u00b7 `data: {problem+json}` \u2014 a refusal that happened after the stream\n  opened. Permission, rate-limit and request-validation refusals arrive as ordinary\n  problem+json responses with their real status instead.\n\nNothing is stored. `history` is the whole memory of the conversation and dies with the\nrequest. Metered against the account's AI allowance and refused before a token is spent\nwhen that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).\nRequires `org:manage`.",
+        "description": "Answers a question about the screen the caller is on, answers questions about the\naccount's own business by reading it (calls, leads, campaigns, agents, performance \u2014\nread-only, under the caller's own permissions and RLS scope), can fill that screen's\nform fields, and can open another screen of the console. Streams `text/event-stream`:\n\n* `event: text` \u00b7 `data: {\"delta\": \"...\"}` \u2014 one fragment of the answer.\n* `event: fill` \u00b7 `data: {\"items\": [{\"field_id\": \"...\", \"value\": ...}]}` \u2014 at most one\n  per response. Every item has been re-validated server-side against the `fields` this\n  request declared: a field that is not `writable`, a `select` value outside its own\n  `options`, or a wrong type refuses the WHOLE fill. Write these into local form state,\n  highlight them, and offer one Undo; nothing is saved until the user presses Save.\n* `event: proposal` \u00b7 `data: {\"token\": \"...\", \"tool\": \"...\", \"title\": \"...\",\n  \"summary\": \"...\", \"object_type\": \"...\", \"object_id\": \"...\", \"current\": \"...\",\n  \"proposed\": \"...\", \"cost\": null|\"...\", \"reversal\": \"...\", \"expires_at\": \"...\"}` \u2014 at most\n  one per response, and it is NOT a change. NOTHING HAS HAPPENED. This is a **Tier 2**\n  action: one that reaches a caller or spends money, and therefore needs a person. Show\n  `title`, `summary`, the `current` \u2192 `proposed` pair, `cost` when it is non-null and\n  `reversal` always, and a Confirm button that posts `token` back, unchanged, to\n  `POST /v1/copilot/confirm`. Doing nothing is a valid answer and leaves the world\n  untouched; the token stops working at `expires_at`.\n* `event: action` \u00b7 `data: {\"tool\": \"...\", \"title\": \"...\", \"detail\": \"...\",\n  \"object_type\": \"...\", \"object_id\": \"...\", \"applied\": true, \"reversal\": \"...\",\n  \"where\": \"...\"}` \u2014 a **Tier 1** action that **has already happened**: reversible, reaching\n  no caller, spending nothing. Render it as a RECEIPT and never as an offer \u2014 there is no\n  token and no button. `reversal` says whether and how it can be taken back and `where`\n  says where the result now lives; both are the server's own words. `applied: false` means\n  the world was already in that state.\n* `event: navigate` \u00b7 `data: {\"tool\": \"open_screen\", \"screen\": \"...\", \"route\": \"...\",\n  \"where\": \"...\", \"detail\": \"...\", \"reversal\": \"...\"}` \u2014 OPEN THIS SCREEN. At most one per\n  response. A **Tier 1** frame: reversible (the back button), reaching no caller, spending\n  nothing, so there is no token and no Confirm button \u2014 render it as a RECEIPT beside the\n  answer, exactly like `action`. It is the one frame on this stream the browser must ACT\n  on, and the only one where the server has decided WHERE but not WHEN.\n  * `route` is a route TEMPLATE carrying a literal `{slug}` (`/c/{slug}/billing`) and is a\n    constant read out of the server's own screen inventory \u2014 never assembled, and never\n    anything the model wrote (the tool it comes from takes a screen NAME). Substitute your\n    own slug, CHECK the result against your own navigation list, and refuse anything that\n    is not in it; then change route with the app's own router. Never a full page load and\n    never an external address.\n  * **ASK BEFORE YOU MOVE IF THE SCREEN BEING LEFT MAY HOLD UNSAVED WORK.** The server\n    knows a form exists; only you know whether it is dirty, and a half-typed campaign\n    discarded by a screen change is work this assistant destroyed without asking. Prefer\n    asking when you cannot tell.\n  * `screen` and `where` are the console's own words for the destination and are what a\n    person is told and a screen reader announces. `route` is never rendered or spoken.\n* `event: step` \u00b7 `data: {\"id\": \"...\", \"tool\": \"...\", \"status\":\n  \"running\"|\"done\"|\"refused\"|\"failed\", \"args\": \"...\", \"detail\": null|\"...\",\n  \"elapsed_ms\": null|123}` \u2014 one tool call as it happens, two frames per call sharing an\n  `id`: `running` when it starts, then one terminal frame with `elapsed_ms`. Purely\n  observational \u2014 dropping every one of them loses no outcome \u2014 and safe to render live so\n  a person can see which of their data was read and how long it took.\n* `event: done` \u00b7 `data: {\"disclosure\": null|\"...\", \"metered\": true}` \u2014 `disclosure` is\n  non-null when a substitute model answered and MUST be shown.\n* `event: error` \u00b7 `data: {problem+json}` \u2014 a refusal that happened after the stream\n  opened. Permission, rate-limit and request-validation refusals arrive as ordinary\n  problem+json responses with their real status instead.\n\n`history` is what the browser replays and it still dies with the request \u2014 the server keeps\nno thread. What IS kept is one redacted, capped memory row per answered question\n(`copilot_memories`), which the assistant recalls on later questions from the same person;\nit expires on the account's own `copilot_memory` retention policy and is destroyed by\noffboarding. Metered against the account's AI allowance and refused before a token is spent\nwhen that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).\nRequires `copilot:use` \u2014 held by owners and staff.",
         "operationId": "ask_copilot_v1_copilot_ask_post",
         "requestBody": {
           "content": {
@@ -26636,7 +28119,46 @@
         "tags": [
           "copilot"
         ],
-        "x-calevate-permission": "org:manage"
+        "x-calevate-permission": "copilot:use"
+      }
+    },
+    "/v1/copilot/confirm": {
+      "post": {
+        "description": "Carry out the change the assistant proposed, after the person confirmed it.\n\nPost back the `token` from an `event: proposal` frame, **unchanged**. The body carries\nnothing else: the account, the person, the tool and every argument are inside the token's\nsignature, so there is nothing here a browser could edit and nothing a page could invent.\n\nA token works ONCE and only for the account and the person it was minted for, and it stops\nworking five minutes after it was issued. Every refusal is a 403 with the same shape \u2014\nalready confirmed, expired, tampered with, or minted elsewhere are deliberately not told\napart, so this endpoint cannot be used to learn which half of a token is wrong.\n\nThe change runs through exactly the service function the equivalent button on the screen\ncalls, so every refusal that button can get, this can get: `409` when a campaign is not\nrunning, `404` when nothing of yours has that id. `applied: false` with a `200` is a real\nanswer \u2014 the world was already in that state and nothing was written.\n\nEvery change writes an `audit_log` row naming the person who confirmed it.\nRequires `copilot:use`, and the tool's own permission on top of it.",
+        "operationId": "confirm_copilot_proposal_v1_copilot_confirm_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CopilotConfirmIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CopilotConfirmOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Do the change the assistant proposed \u2014 once, for the person who confirmed it",
+        "tags": [
+          "copilot"
+        ],
+        "x-calevate-permission": "copilot:use"
       }
     },
     "/v1/dashboard": {
@@ -26819,6 +28341,96 @@
           "compliance"
         ],
         "x-calevate-permission": "leads:dispatch"
+      }
+    },
+    "/v1/engine/caller-data/{engine}": {
+      "get": {
+        "description": "The voice platform calls this when an inbound call arrives and puts the answer into the agent's instructions for that one call. It answers with nothing at all for a caller the agent has not spoken to, for an agent whose account has not switched caller continuity on, and whenever the lookup cannot be completed in time \u2014 a returning caller is then greeted normally, which is the right way for this to fail.",
+        "operationId": "caller_data_v1_engine_caller_data__engine__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "engine",
+            "required": true,
+            "schema": {
+              "title": "Engine",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "contact_number",
+            "required": true,
+            "schema": {
+              "maxLength": 32,
+              "title": "Contact Number",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "maxLength": 128,
+              "title": "Agent Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "execution_id",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 128,
+              "title": "Execution Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "authorization",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "title": "Response Caller Data V1 Engine Caller Data  Engine  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Engine-called: what this agent remembers about the caller now ringing",
+        "tags": [
+          "in-call-tools"
+        ]
       }
     },
     "/v1/integrations/credentials": {
@@ -27507,6 +29119,71 @@
           "knowledge-base"
         ],
         "x-calevate-permission": "agents:read"
+      }
+    },
+    "/v1/kb/staff-curation": {
+      "get": {
+        "operationId": "get_staff_curation_v1_kb_staff_curation_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffCurationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether this account lets its staff members curate knowledge",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "put": {
+        "description": "Off for every account until its owner turns it on. Switching it on lets members with the `staff` role submit knowledge for review and dismiss or teach a knowledge gap \u2014 and nothing else. It does not let them approve or publish anything: a staff-submitted source lands in the same review queue an owner's does, and still needs approval before an agent can say a word of it.",
+        "operationId": "set_staff_curation_v1_kb_staff_curation_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StaffCurationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StaffCurationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Let this account's staff curate knowledge, or stop letting them",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/knowledge-gaps": {

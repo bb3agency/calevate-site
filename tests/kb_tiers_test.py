@@ -33,6 +33,8 @@ the marker instead of leaving a comment that outlives the thing it describes.
 
 from __future__ import annotations
 
+import io
+import tokenize
 import uuid
 from pathlib import Path
 
@@ -146,9 +148,27 @@ VOICE_RUNTIME_ROUTES: frozenset[tuple[str, str]] = frozenset(
         ("GET", "/healthz/ready"),
         # The post-call engine webhook receiver (hard rule 3's 500ms).
         ("POST", "/hooks/v1/engine/{engine}"),
-        # The ONE in-call tool endpoint (SEC-COMP §2.3's opt-out, D-56). It is the only
-        # thing on the audio path today and it retrieves nothing.
+        # The in-call opt-out (SEC-COMP §2.3, D-56). It retrieves nothing.
         ("POST", "/tools/v1/{engine}/opt-out"),
+        # THE CALL-BACK PAIR (D-514), ADDED DELIBERATELY AND NOT DRIFTED INTO — which is
+        # what this set exists to force, and this comment is the entry it demands.
+        #
+        # NEITHER RETRIEVES ANYTHING, which is the question D-33 asks of a new route on
+        # this path. `callback` does exactly one piece of work before it defers: two
+        # `strptime` calls and three comparisons over short strings
+        # (`calevate_shared.calling_window.resolve_slot`) — no IO, no database, no model,
+        # nothing that could grow into a lookup. `callback/cancel` computes nothing at all.
+        # The reason that arithmetic is allowed here rather than in the worker behind it is
+        # measurable and not stylistic: the caller is on the line being told whether we may
+        # ring them at ten at night, and a refusal that arrives after they hang up is not a
+        # refusal — it is a promise we cannot keep.
+        #
+        # THE COST THIS SET CHARGES IS PAID: `tests/callback_tool_test.py` drives both, and
+        # both are driven in `voice_runtime_import_surface_test._drive` so the ban on
+        # `httpx`, `apps.api.kb` and every model SDK is enforced ACROSS a request on them
+        # and not only at boot.
+        ("POST", "/tools/v1/{engine}/callback"),
+        ("POST", "/tools/v1/{engine}/callback/cancel"),
     }
 )
 
@@ -204,6 +224,26 @@ def test_in_call_retrieval_is_not_reimplemented_on_our_side() -> None:
 # --- T4: a prompt instruction whose measurement has no producer ----------------------
 
 
+def _without_comments(source: str) -> str:
+    """`source` with `#` comments removed, so a CROSS-REFERENCE is not read as a producer.
+
+    The guard below is text-based on purpose — it must catch a table named inside a raw
+    SQL string, which no import graph would show. But that made it fire on
+    `crm/lead_projection.py`, which merely cites `kb_retrieval_logs` in prose to explain
+    why it reuses that table's vocabulary. A comment cannot write a row, so dropping
+    comments removes false positives without weakening the property: a string literal, an
+    identifier and a docstring all still count.
+    """
+    out: list[str] = []
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+            if tok.type != tokenize.COMMENT:
+                out.append(tok.string)
+    except (tokenize.TokenError, IndentationError, SyntaxError):
+        return source  # unparseable: fall back to the blunt match rather than pass blindly
+    return "\n".join(out)
+
+
 def _app_sources_naming(table: str) -> list[str]:
     """Files under apps/ that name a table, excluding the two places every table is
     named for structural reasons: its ORM model and the model registry."""
@@ -215,7 +255,7 @@ def _app_sources_naming(table: str) -> list[str]:
     for path in (REPO_ROOT / "apps").rglob("*.py"):
         if "__pycache__" in path.parts or path in excluded:
             continue
-        if table in path.read_text(encoding="utf-8"):
+        if table in _without_comments(path.read_text(encoding="utf-8")):
             hits.append(str(path.relative_to(REPO_ROOT)))
     return hits
 

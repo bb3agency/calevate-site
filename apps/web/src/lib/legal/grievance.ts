@@ -21,46 +21,43 @@ import type { LegalDocument } from "./types";
  * gazette (docs/LEGAL-SURFACE.md §9, item 9).
  *
  * Publishing the LONGEST of the three would be lawful and would be a worse product. So the
- * page states one commitment — the shortest — and shows the statutory outer limits beside
- * it, so a reader can see both what we promise and what we could get away with.
+ * page states one commitment and shows the statutory outer limits beside it, so a reader
+ * can see both what we promise and what we could get away with. One caveat §2's second
+ * warning callout now states instead of glossing (31 Aug 2026 — this comment used to call
+ * our commitment "the shortest", which row 1 falsifies): the acknowledgement commitment is
+ * 2 BUSINESS days, which across a weekend can pass the E-Commerce Rules' 48 CALENDAR hours
+ * — so if those Rules reach us, the statutory limit governs acknowledgement, and the page
+ * says so rather than claiming every figure sits inside every limit.
  *
- * ## Rewritten 26 August 2026: there is no company behind this page
+ * ## What this page says about the supplier, and what it deliberately does not
  *
- * The founder confirmed it, and `docs/legal/LEGAL-OPS-PLAYBOOK.md` settles the shape:
- * `:16` — Calevate is a "product / trade name, not a separate company"; `:82` — "You and
- * the business are the same legal person". This page had been written as though a
- * complainant were writing to an organisation with desks in it. Three consequences, and
- * each is a sentence a complainant can act on rather than an internal detail:
+ * The page had been written as though a complainant were writing to an organisation with
+ * desks in it, and the correction of 26 August 2026 over-corrected: it explained at
+ * length what the supplier IS — a sole proprietorship, no company, no board — and carried
+ * a paragraph on section 43A of the IT Act 2000 arguing that the shape is not an
+ * exemption. All of that is gone as of 2 September 2026, on the founder's decision. None
+ * of it was wrong; all of it was the wrong register for a page a complainant reads, and
+ * the substance survives without it:
  *
  * 1. **The three published contacts are not three desks.** Three instruments each demand
  *    a published contact, so three rows stay — but a page implying three desks would send
- *    a complainant hunting for the right one, and there is no wrong one to pick. The
- *    prose says that much and stops there: how many people read those mailboxes is the
- *    business's own composition, it is owed to nobody, and a complainant's next move does
- *    not change with the answer (26 Aug 2026 — the founder's instruction that these
- *    documents stop narrating our staffing and scale).
- * 2. **There is nothing above the person named.** No board, no head office, no second
- *    tier. That is worth SAYING, because the ordinary next move when a company's
- *    grievance officer does not answer is to escalate internally, and here that move does
- *    not exist — section 5 is the real one and it is external.
- * 3. **`{{GRIEVANCE_OFFICER_DESIGNATION}}` cannot be "Director".** Nobody holds that
- *    office. `placeholders.ts` records "Proprietor" as the designation for this shape.
+ *    a complainant hunting for the right one, and there is no wrong one to pick. How many
+ *    people read those mailboxes is the business's own composition, it is owed to nobody,
+ *    and a complainant's next move does not change with the answer.
+ * 2. **There is nothing above the person named**, and the callout in section 1 still says
+ *    so — because the ordinary next move when a grievance officer does not answer is to
+ *    escalate internally, and here that move does not exist. What it no longer does is
+ *    explain the constitution of the business as the reason; the reader needs the fact,
+ *    not the cause.
+ * 3. **`{{GRIEVANCE_OFFICER_DESIGNATION}}` is "Grievance Officer"** — the office held,
+ *    not a rank in a hierarchy, and `{{GRIEVANCE_OFFICER_NAME}}` is the appointed person
+ *    — a name, which is what the two instruments below actually require.
  *
- * ## Being a sole proprietorship is not an exemption, and the page says why
- *
- * The obvious reading of "we are a sole proprietor" is that the corporate data-security
- * duties do not apply. They do. Section 43A of the Information Technology Act 2000 — the
- * section the SPDI Rules 2011 are made under, and the operative privacy law until 13 May
- * 2027 — carries its own Explanation defining "body corporate" as "any company and
- * includes a firm, sole proprietorship or other association of individuals engaged in
- * commercial or professional activities". ⚠ EVIDENCE CLASS: the bare-act text was read on
- * 26 Aug 2026 through a web search that returned the Explanation verbatim from bare-act
- * sources; `indiacode.nic.in`, `indiankanoon.org` and `meity.gov.in` are ALL egress-blocked
- * from this environment, so the section could not be opened directly and this is a
- * REPORTED reading rather than a page a session opened. It is stated in the prose because
- * a reader who concludes the opposite concludes it in our favour, which is the direction
- * this document set is written against — but re-verify it against the instrument before
- * relying on it commercially, per hard rule 11.
+ * The one thing that may never be written here in place of the deleted narration is the
+ * opposite claim: no incorporation, no CIN, no "registered office", no director. The
+ * documents identify the supplier by name, registration number and principal place of
+ * business — the items rule 4 of the Consumer Protection (E-Commerce) Rules 2020 requires
+ * displayed — and state no legal form at all.
  *
  * ## What the redressal process actually is, said out loud (DP-8)
  *
@@ -84,12 +81,17 @@ import type { LegalDocument } from "./types";
  * `placeholders.ts` carries the same distinction so the next editor does not put the
  * postal line back.
  *
- * ## The name is still a blank, and that is an unmet obligation rather than a formatting gap
+ * ## The name is published, and what it still lacks is a surname
  *
- * `docs/LEGAL-SURFACE.md` S-2 puts it exactly: "A placeholder is not a designation — this
- * is UNMET until a person is appointed", and F-9 records it as EXTERNAL and the cheapest
- * unmet obligation on the page. Nothing here may invent one (`placeholders.ts:1-14`). The
- * appointment must be recorded in writing before the pending-review banner comes off.
+ * `docs/LEGAL-SURFACE.md` S-2 put it exactly while it was blank: "A placeholder is not a
+ * designation — this is UNMET until a person is appointed", and F-9 recorded it as the
+ * cheapest unmet obligation on the page. A person was appointed on 2 September 2026 and
+ * the name is published. ⚠ It is a FIRST NAME ONLY, which is what the founder supplied:
+ * rule 5(9) of the SPDI Rules 2011 and rule 4(6) of the Consumer Protection (E-Commerce)
+ * Rules 2020 both require the NAME to be published, and a full name is a materially
+ * stronger artefact than a first name. Nothing here may invent the rest of it
+ * (`placeholders.ts:1-14`); it goes in that file's `GRIEVANCE_OFFICER_NAME` entry when the
+ * founder gives it, and reaches this page from there.
  */
 export const GRIEVANCE: LegalDocument = {
   slug: "grievance",
@@ -110,8 +112,7 @@ export const GRIEVANCE: LegalDocument = {
           kind: "para",
           text:
             "Three published contacts, because three different instruments each require " +
-            "one. They are not three desks, and Calevate is a product operated by " +
-            "{{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}}. Pick whichever fits and do not " +
+            "one. They are not three desks. Pick whichever fits and do not " +
             "spend a minute choosing — there is no wrong one, and no complaint is turned " +
             "away for arriving at the wrong address.",
         },
@@ -152,9 +153,10 @@ export const GRIEVANCE: LegalDocument = {
             "By telephone: {{CONTACT_PHONE}}. We do not operate a postal complaints " +
             "channel — the mailboxes above and that number are how a complaint reaches " +
             "us, and we would rather say so than offer a channel we do not service. " +
-            "The supplier's principal place of business is {{REGISTERED_ADDRESS}}; " +
-            "it identifies who you are dealing with and is where a legal notice is " +
-            "served, not a place to send a complaint to.",
+            "Calevate is operated by {{LEGAL_ENTITY_NAME}} (Udyam registration number " +
+            "{{ENTITY_REGISTRATION_NUMBER}}), principal place of business " +
+            "{{REGISTERED_ADDRESS}}; that address identifies who you are dealing with " +
+            "and is where a legal notice is served, not a place to send a complaint to.",
         },
         {
           kind: "callout",
@@ -162,9 +164,9 @@ export const GRIEVANCE: LegalDocument = {
           title: "There is no internal escalation above the person named here",
           text:
             "Worth knowing before you plan your next move. The usual escalation when a " +
-            "company's grievance officer does not answer is to write to someone more " +
-            "senior. There is no such tier here: the supplier is a sole proprietorship, " +
-            "so the person named above is the business rather than a first level of it. " +
+            "grievance officer does not answer is to write to someone more senior. " +
+            "There is no such tier here: the person named above is the last word " +
+            "inside Calevate, not a first level of it. " +
             "If we do not put your complaint right, the next step is not further up this " +
             "page; it is section 5, and section 5 is outside Calevate altogether.",
         },
@@ -239,10 +241,15 @@ export const GRIEVANCE: LegalDocument = {
             "for the purpose of those Rules is a real question and not one we are going " +
             "to answer in our own favour, in either direction, in a document about how " +
             "we handle your complaint. It is on the list for the advocate whose review " +
-            "these documents are waiting on. Nothing about the middle column depends on " +
-            "the answer: the commitments there are ours, they are shorter than every " +
-            "limit in the right-hand column, and rule 5(9) of the 2011 rules — which " +
-            "does bind us — already sets a one-month clock on its own.",
+            "these documents are waiting on. The commitments in the middle column are " +
+            "ours and stand whatever the answer, and rule 5(9) of the 2011 rules — " +
+            "which does bind us — already sets a one-month clock on its own. One piece " +
+            "of arithmetic we would rather point out than leave you to do: our " +
+            "acknowledgement commitment is counted in business days, and two business " +
+            "days spanning a weekend can pass the 48-hour mark — so if the E-Commerce " +
+            "Rules do reach us, the statutory 48 hours is the acknowledgement limit " +
+            "that governs, not our published figure. That question, too, is on the " +
+            "advocate's list rather than resolved here.",
         },
         {
           kind: "callout",
@@ -358,21 +365,7 @@ export const GRIEVANCE: LegalDocument = {
                 "about personal data is made under the Information Technology Act 2000 " +
                 "and the 2011 rules made under it, which is exactly why the Grievance " +
                 "Officer named above is the first step and why we publish their name " +
-                "rather than a role title. One thing that changes nothing, stated " +
-                "because it looks as though it should: the 2011 rules bind a \"body " +
-                "corporate\", and section 43A of that Act — the section they are made " +
-                "under — defines the term in its own Explanation as \"any company and " +
-                "includes a firm, sole proprietorship or other association of " +
-                "individuals engaged in commercial or professional activities\". " +
-                "Calevate being a sole proprietorship rather than a company is therefore " +
-                "not an exemption from anything on this page, and we would rather you " +
-                "read that from us than have to look it up. Section 43A itself is not " +
-                "where this page's commitments come from and we are not going to imply " +
-                "that it is: all it does on its own is make a body corporate liable to " +
-                "compensate someone where it was negligent in maintaining reasonable " +
-                "security practices for SENSITIVE personal data and that negligence " +
-                "caused a wrongful loss or a wrongful gain. It is a remedy for one kind " +
-                "of failure, not the source of a duty to answer you.",
+                "rather than a role title.",
             },
             {
               term: "Unsolicited or unlawful commercial calls",

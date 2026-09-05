@@ -192,9 +192,10 @@ class ResendTransport:
 
     name = "resend"
 
-    def __init__(self, api_key: str, sender: str) -> None:
+    def __init__(self, api_key: str, sender: str, reply_to: str | None = None) -> None:
         self._api_key = api_key
         self._sender = sender
+        self._reply_to = reply_to
 
     def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
         # IMPORTED HERE, NOT AT MODULE SCOPE, and it is load-bearing rather than a style
@@ -221,6 +222,11 @@ class ResendTransport:
         # HTML-only message, which is the one a plain-text client shows as nothing at all.
         if html is not None:
             payload["html"] = html
+        # ONLY WHEN SET, rather than always writing the From address into it. A Reply-To
+        # identical to From is a header that says nothing and that some clients surface as
+        # a separate line, so the absent case must stay absent (D-518).
+        if self._reply_to:
+            payload["reply_to"] = self._reply_to
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
@@ -392,6 +398,7 @@ class SmtpTransport:
         password: str | None,
         sender: str,
         use_tls: bool = True,
+        reply_to: str | None = None,
     ) -> None:
         self._host = host
         self._port = port
@@ -399,10 +406,13 @@ class SmtpTransport:
         self._password = password
         self._sender = sender
         self._use_tls = use_tls
+        self._reply_to = reply_to
 
     def send(self, *, to: str, subject: str, body: str, html: str | None = None) -> bool:
         message = EmailMessage()
         message["From"] = self._sender
+        if self._reply_to:
+            message["Reply-To"] = self._reply_to
         message["To"] = to
         message["Subject"] = subject
         message.set_content(body)
@@ -551,12 +561,15 @@ def get_transport() -> Transport:
     # this read cannot be empty. Spelled with a fallback anyway only where mypy needs the
     # narrowing, never as a second rule about what the sender is.
     sender = settings.notifications_from or ""
+    # Not defaulted to `sender`: see `notifications_reply_to` in config.py for why an
+    # unset value must stay unset rather than echo the From address.
+    reply_to = (settings.notifications_reply_to or "").strip() or None
 
     if provider == EMAIL_PROVIDER_RESEND:
         api_key = settings.resend_api_key
         if api_key is None:  # unreachable; the resolver already refused it by this name
             return NullTransport(reason=NO_RESEND_API_KEY_REASON)
-        return ResendTransport(api_key=api_key, sender=sender)
+        return ResendTransport(api_key=api_key, sender=sender, reply_to=reply_to)
 
     if provider == EMAIL_PROVIDER_SMTP:
         host = settings.smtp_host
@@ -569,6 +582,7 @@ def get_transport() -> Transport:
             password=settings.smtp_password,
             sender=sender,
             use_tls=settings.smtp_use_tls,
+            reply_to=reply_to,
         )
 
     # No provider named, and the resolver allowed it: APP_ENV=local, the dev sink.

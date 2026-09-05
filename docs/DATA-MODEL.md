@@ -1,4 +1,4 @@
-# Calevate — Data Model (Postgres 16; pgvector is a D-28 contingency, not the plan)
+# Calevate — Data Model (Postgres 16 + pgvector; the `vector` extension is REQUIRED since D-502)
 
 Version 1.0 · Conventions: snake_case; every table has id UUID PK (uuid_v7), created_at,
 updated_at; every tenant-scoped table has tenant_id UUID NOT NULL REFERENCES organizations(id)
@@ -22,9 +22,18 @@ CREATE POLICY tenant_isolation ON t
 ```
 organizations(id, name, slug UNIQUE CHECK (slug ~ '^[a-z0-9-]{3,40}$') IMMUTABLE-by-trigger,
   status ENUM[prospect,onboarding,active,suspended,churned], vertical_template TEXT,
-  plan_tier ENUM[managed,self_serve,trial] NOT NULL DEFAULT 'managed',   -- D-34/D-39
+  plan_tier ENUM[managed,prepaid,self_serve,trial] NOT NULL DEFAULT 'prepaid',
+                                                          -- D-34/D-39, D-521 (default)
     -- which MOTION this org belongs to, not a feature flag: it decides whether credits
-    -- gate dispatch (compliance gate) and whether the self-serve screens render
+    -- gate dispatch (compliance gate) and whether the self-serve screens render.
+    -- The four names answer TWO questions and the pairs are NOT the same set:
+    --   pays from a wallet   -> prepaid, self_serve, trial  (billing/rates.PREPAID_TIERS)
+    --   opened by a stranger -> self_serve, trial           (compliance.SELF_SERVE_TIERS,
+    --                                                        the KYC dial gate D-47 and
+    --                                                        the first-campaign hold D-51)
+    -- `prepaid` (D-521) is what every new account gets and what every existing account
+    -- was migrated to (a8d3f61c04e7); `managed` is invoiced on a retainer and is set
+    -- deliberately by an operator (POST /v1/admin/tenants/{id}/plan-tier).
   billing_email, created_by, deleted_at)
   -- NOBODY HARD-DELETES THIS ROW, and since migration d1b8f30c94a7 the table says so.
   -- `tenant_isolation` is FOR ALL and `WITH CHECK` is not consulted on DELETE, so `USING`
@@ -100,6 +109,13 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
   -- `calevate_shared.engine.TRUTHFUL_ANSWER_DIRECTIVE`, which is deliberately not data.
   ai_disclosure_line TEXT NOT NULL CHECK (length(btrim(ai_disclosure_line)) > 0),
   recording_notice_line TEXT NOT NULL CHECK (length(btrim(recording_notice_line)) > 0),
+  caller_memory_notice_line TEXT NOT NULL             -- D-507, migration e1a4d70c9b52
+    CHECK (length(btrim(caller_memory_notice_line)) > 0),
+  -- SENTENCE THREE HAS NO `*_enabled` COLUMN, and that is the decision rather than an
+  -- omission: it is spoken exactly when `caller_memory_enabled` is true, so "remembers a
+  -- caller and does not say so" is not a state this schema can hold. The two above are
+  -- independently switchable (D-163) because their obligations hold whatever this product
+  -- is configured to do; this one exists only because a switch we record is on.
   ai_disclosure_enabled BOOL NOT NULL DEFAULT true,
   recording_notice_enabled BOOL NOT NULL DEFAULT true,
   disclosure_line TEXT NOT NULL,  -- LEGACY: the two sentences joined, whatever the
@@ -324,8 +340,12 @@ dlt_templates(id, tenant_id, kind ENUM[voice], classification, body TEXT,
 > to persist mid-call. Its durable residue lands in the tables we already have via the
 > post-call pipeline: `calls` (summary, sentiment, outcome_tag), `transcript_turns`,
 > `call_extractions` → `leads` (H2).
-> Cross-call caller memory (H3) lives in the managed service, keyed back to our rows by
-> provider ids in `meta`. See TRD §6.1 — do not add a "conversation state" table.
+> Cross-call caller memory (H3) is `caller_memories` + the `caller_memory` scope of
+> `caller_chunks` (D-503), in OUR Postgres. ⚠ This line used to read "lives in the managed
+> service, keyed back to our rows by provider ids in `meta`" — written under D-28, which
+> D-502 reversed: there is no managed vector service. The instruction it carried is
+> UNCHANGED and still binding — do not add a "conversation state" table; H1 has no table at
+> all, because the engine holds the running dialogue and discards it at hangup.
 
 ```
 kb_sources(id, tenant_id, agent_id, kind ENUM[file,url,text,call_corpus], name, uri,
@@ -339,21 +359,134 @@ kb_sources(id, tenant_id, agent_id, kind ENUM[file,url,text,call_corpus], name, 
   -- still cannot reach an agent.
 kb_documents(id, tenant_id, source_id, idx INT, title, content TEXT, meta JSONB,
   UNIQUE(source_id, idx))          -- idx = chunk order; the chunks ARE the document
-  -- meta is where provider-side ids live (see the D-28 note above). Specifically
-  -- `meta->>'engine_kb_ref'` on idx = 0 holds the ENGINE's handle for this source's
-  -- attached copy — a source is pushed to the engine as one document, so the handle
-  -- hangs off its first chunk. Without it a published version cannot be withdrawn
-  -- (D-41); it is cleared on detach, because a handle left behind after the engine copy
-  -- is gone would make the NEXT publish refuse for a reason that is no longer true.
-kb_chunks(id, tenant_id, agent_id, document_id, content TEXT, tsv tsvector,
-  embedding vector(1024), embed_model TEXT, embed_version TEXT,
-  chunk_meta JSONB, version INT, is_active BOOL)
--- INDEX: HNSW ON kb_chunks USING hnsw(embedding vector_cosine_ops); GIN(tsv);
---        (tenant_id, agent_id, is_active) btree.
+  -- meta held the provider-side ids until D-519 and NO LONGER DOES: `engine_kb_ref` and
+  -- `engine_kb_digest` moved to `engine_kb_routes` (migration f1c9e0a73b46), which
+  -- migrates the values across and clears the keys. Do not write them here again.
+engine_kb_routes(engine, engine_kb_ref, tenant_id, agent_id, source_id, digest,
+  created_at, updated_at,
+  PRIMARY KEY (engine, engine_kb_ref), UNIQUE (source_id, engine))
+  -- THE CLAIM THAT TIES ONE VENDOR KNOWLEDGE BASE TO ONE TENANT. We run one engine
+  -- account for every tenant and the vendor's knowledge base is an ACCOUNT-level object
+  -- with no owner field, so this row is the only thing that says whose it is. Without it
+  -- a published version cannot be withdrawn (D-41) and no erasure path can find it.
+  -- `engine_kb_ref` is the handle the AGENT references (Bolna: the vector id), never the
+  -- id the vendor's DELETE route takes — that one is recovered inside the adapter.
+  -- The PK is the uniqueness that matters: two sources may not claim one vendor object.
+  -- Globally readable + FORCEd tenant_isolation for writes, exactly like
+  -- engine_agent_routes and for the same reason (the orphan question is cross-tenant);
+  -- registered in RLS_EXEMPT_TENANT_COLUMNS with that reason.
+  -- NO foreign key to kb_sources ON PURPOSE: the claim must OUTLIVE our own rows, or a
+  -- retention expiry or a tenant erasure would delete the only record that can address
+  -- the vendor's copy at the moment we promise a client it is gone.
+  -- The row is deleted on detach, because a claim on an object we no longer believe
+  -- exists is exactly what the orphan sweep must not see.
+kb_chunks(id, tenant_id, agent_id, source_id, document_id, tsv tsvector,
+  embedding vector(1536), embed_model TEXT, embed_dim INT, embed_state TEXT,
+  chunk_meta JSONB, version INT, is_active BOOL)   -- BUILT (D-502, migration dc1aaeeeff02)
+-- INDEX: HNSW ON kb_chunks USING hnsw(embedding vector_cosine_ops) WITH (m=16,
+--        ef_construction=64), built CONCURRENTLY; GIN(tsv);
+--        (tenant_id, agent_id, is_active) btree; (tenant_id) WHERE embed_state='pending'.
+-- FORCEd RLS `tenant_isolation`, in the same migration (hard rule 1).
+-- FOUR DELTAS FROM THE CONTINGENCY SPEC ABOVE, each with a reason:
+--  * NO `content` COLUMN. The client's prose lives once, on kb_documents, reached through
+--    document_id. A second copy doubles what retention and backups pay for, gives a DPDP
+--    erasure two rows to find, and lets a correction to one diverge from the other. What is
+--    stored here is DERIVED and reconstructible, which is what makes the migration
+--    reversible without loss.
+--  * `vector(1536)` NOT `vector(1024)`: the width text-embedding-3-small is ASKED for
+--    (`retrieval/embedding.EMBEDDING_DIMS`, sent as the request's `dimensions`), not a
+--    vendor default anyone here has read. Not `halfvec`: that type needs pgvector 0.7.0 and
+--    this server has 0.6.0 — and quantisation belongs in the INDEX (pgvector's own
+--    half-precision indexing) rather than in a lossy column, which is also what keeps an
+--    export to a managed vendor full-fidelity.
+--  * `embed_state` replaces `embed_version`: it is the ingestion sweep's IDEMPOTENCY KEY
+--    (pending/ready/refused), and `embedding IS NULL` cannot say "we asked and the answer
+--    was unusable" — kb_documents.gloss_state's argument, one table over.
+--  * `source_id` is denormalised beside `document_id`, because provenance on a result is
+--    the SOURCE's own name — what the client called the thing they uploaded.
+caller_chunks(id, tenant_id, subject_kind ENUM[lead,call_turn,call_summary,caller_memory],
+  subject_id UUID, idx INT, call_id UUID NULL, agent_id UUID, subject_ref TEXT,
+  subject_ref_kek_id INT, first_turn_idx INT NULL, last_turn_idx INT NULL,
+  retention_category ENUM[transcript,lead], occurred_at TIMESTAMPTZ, tsv tsvector,
+  embedding vector(1536), embed_model TEXT, embed_dim INT, embed_state TEXT,
+  content_sha256 TEXT, scrubbed_at TIMESTAMPTZ NULL)  -- BUILT (D-503, migration c6b1f0d47e83)
+-- `kb_chunks` above, pointed at a DATA PRINCIPAL's words instead of a client's own
+-- document. Same column types, same indexes (HNSW m=16/ef_construction=64 CONCURRENTLY,
+-- GIN(tsv), a partial index on the pending backlog), same FORCEd RLS, same "no content"
+-- rule. THE DIFFERENCE IS THE ERASURE SEAM, and it is the whole reason this is a second
+-- table rather than three more columns:
+--  * `kb_chunks` erases by CASCADE, which is sound ONLY because retention really DELETEs a
+--    kb_sources row. A DPDP erasure does NOT delete a call — it scrubs it in place and
+--    keeps the row as billing evidence (usage_events references it, FK RESTRICT) — so a
+--    cascade on call_id NEVER FIRES. `retrieval/caller_erasure.py` is the explicit arm,
+--    called from execute_deletion_request, execute_tenant_erasure and the nightly sweep.
+--  * A SCRUBBED ROW IS KEPT AND EMPTIED, never deleted: the ingestion sweep discovers
+--    un-projected subjects, so a deleted row would be re-projected next tick and a vector
+--    re-bought for text the erasure had just destroyed. `scrubbed_at` is the tombstone and
+--    `ck_caller_chunks_forgotten_has_no_keys` makes "no vector AND no lexemes" a database
+--    constraint rather than a convention in a worker.
+--  * `subject_ref` is `compliance/caller_ref`'s KEYED MAC of (tenant, E.164) under a
+--    PLATFORM_KEK-derived key — NOT export.subject_ref, which is unsalted over a ~10^9
+--    space and takes no tenant into the input. `subject_ref_kek_id` bounds the ring walk an
+--    erasure does, so a KEK rotation cannot hide a row from a §12 request.
+--  * ONE TABLE, THREE SCOPES. `subject_id` is an IDEMPOTENCY KEY and never a foreign key:
+--    a transcript chunk windows several turns (which retention may DELETE), a lead yields
+--    several chunks from one payload, and a caller memory derives from no single row.
+--  * `retention_category` is set by the projection registry from
+--    `retrieval/models.SUBJECT_RETENTION`, so a scope cannot file a caller's sentence on
+--    the 1095-day CRM clock by calling itself a lead. Both values are real
+--    `retention_policies` categories with real sweep arms; there is no new category.
+caller_memories(id, tenant_id, agent_id, subject_ref TEXT, subject_ref_kek_id INT,
+  fact TEXT, source_call_id UUID NULL, occurred_at TIMESTAMPTZ,
+  scrubbed_at TIMESTAMPTZ NULL)  -- BUILT (D-503, migration c6b1f0d47e83)
+-- The SOURCE caller_chunks projects for the caller_memory scope, because a content-free
+-- projection cannot be a distilled fact's home. FORCEd RLS; `source_call_id` is PROVENANCE
+-- with ON DELETE SET NULL and is explicitly NOT the erasure path (the row outlives the call
+-- it was learned on, which is the feature); `occurred_at` comes from the source call's end
+-- and NOT created_at, or a backfill would restart every caller's retention clock. Gated by
+-- `agents.caller_memory_enabled`, DEFAULT FALSE — the opposite of the disclosure toggles,
+-- because the posture a silence must not produce here is "remembers".
+-- ITS PRODUCER AND ITS SWITCH LANDED IN D-513: `calls.caller_memory_state`
+-- (pending|remembered|nothing|skipped, migration a1f6c30d92be) is the distiller's
+-- idempotency marker, and the THIRD value is why it exists — `source_call_id` can record
+-- that a call produced a fact and can never record that a call was read and owed nothing,
+-- which is what most calls owe, so without it a retry re-buys the same answer.
+-- `organizations.caller_memory_attested_at`/`_attested_by` is the per-tenant permission
+-- the enable route requires: on the ORGANISATION because the attested fact is about the
+-- business, so a client with four agents answers once.
+
+scheduled_callbacks(id, tenant_id, agent_id, source_call_id UUID NULL,
+  source_execution_id TEXT, lead_id UUID NULL, phone_e164 TEXT,
+  requested_at TIMESTAMPTZ, booked_at TIMESTAMPTZ,
+  status ENUM[scheduled,dialing,completed,cancelled,refused,missed,failed],
+  attempts INT, next_attempt_at TIMESTAMPTZ NULL,
+  last_refusal_rule TEXT NULL, last_refusal_reason TEXT NULL,
+  last_call_id UUID NULL, settled_at TIMESTAMPTZ NULL,
+  note TEXT NULL, language TEXT NULL)  -- BUILT (D-514, migration d8f31a7c2409)
+-- "Ring me back Tuesday at four", booked by the in-call tool and dialled by the campaign
+-- tick through `dispatch_call` — the one outbound entry point, which is what makes a
+-- call-back inherit the DLT header, the A/B arm and cross-call memory without knowing they
+-- exist. FORCEd RLS.
+-- THE IDENTITY IS `(tenant_id, source_execution_id)`, not the call: the `calls` row is
+-- written by the status webhook and may not exist when the promise is made, so
+-- `source_call_id` is a nullable POINTER. The upsert is guarded by `booked_at` rather than
+-- DO NOTHING, because "make it five, not four" is an ordinary sentence and two jobs racing
+-- must land on the caller's LATER word.
+-- `requested_at` IS WHAT THE CALLER WAS TOLD AND NEVER MOVES. A transient refusal defers
+-- `next_attempt_at`; the first draft moved `requested_at` and the two-hour staleness cutoff
+-- then receded by five minutes every five minutes, which is the livelock class
+-- `tests/dispatch_refusal_settlement_test.py` exists for.
+-- FIVE OF THE SEVEN STATUSES ARE ENDINGS, and `last_refusal_reason` carries the compliance
+-- gate's OWN client-facing sentence for the two that are refusals — so the client's screen
+-- says why a call they were promised did not happen, in the words the dial button would
+-- have shown them.
 kb_retrieval_logs(id, tenant_id, call_id, query, tier ENUM[t0,t1,t2,t3,t4],
   top_score REAL, latency_ms INT)   -- powers knowledge-gap reports
-  -- `top_ids UUID[]` was specified here and is NOT in the shipped table: it would point
-  -- at kb_chunks rows, which D-28 made contingency. Add it with the chunks, or not at all.
+  -- `top_ids UUID[]` was specified here and is NOT in the shipped table. Its stated
+  -- condition — "add it with the chunks" — is now MET (D-502), but the blocker was never
+  -- the chunks: this table still has no producer and cannot have one (see
+  -- `apps/api/kb/models.py::KbRetrievalLog`), because the retrieval whose outcome it would
+  -- log happens inside the engine. Add it with a PRODUCER, or not at all.
 ```
 
 ## 8. Billing & Metering (append-only)
@@ -617,12 +750,14 @@ consent_ledger(id, tenant_id, call_id, phone_e164,
   -- (`MESSAGING_CONSENT_VALIDITY_DAYS`) so a stale opt-in stops authorising messages
   -- while remaining in the ledger as evidence of what happened.
 retention_policies(id, tenant_id,
-  data_category ENUM[recording,transcript,lead,consent_log,engine_payload,kb],
+  data_category ENUM[recording,transcript,lead,consent_log,engine_payload,kb,copilot_memory,
+                     caller_memory],
   ttl_days INT CHECK (ttl_days >= 90 WHERE data_category='recording'),   -- TRAI 90-day floor
   action ENUM[delete,anonymize])
   -- SEEDED defaults (`scripts/seed.DEFAULT_RETENTION_POLICIES`): recording 90/delete,
   -- transcript 365/anonymize, lead 1095/anonymize, consent_log 2555/anonymize,
-  -- engine_payload 90/delete, kb 365/delete. These
+  -- engine_payload 90/delete, kb 365/delete, copilot_memory 180/delete,
+  -- caller_memory 180/delete (D-507). These
   -- do NOT match the numbers SEC-COMP §4 prints — see the open question recorded there;
   -- the DPA quotes the doc and the sweep obeys these rows.
   -- engine_payload and kb are D-179 (migration c4d1f7b83e26), and each gave a clock to a
@@ -630,6 +765,13 @@ retention_policies(id, tenant_id,
   -- `calls.engine_payload_ref`'s archived vendor document, and SUPERSEDED knowledge-base
   -- versions. `action` is not read on either — an opaque vendor document and a chunk of
   -- prose have no anonymized form — so an `anonymize` row on those two destroys.
+  -- copilot_memory is the in-app assistant's memory (migration d4a9c17e6b02): what a
+  -- client's own STAFF asked the copilot, and the facts a background worker distilled out
+  -- of it. `action` is not read there either, for the `kb` reason. 180 days, shorter than
+  -- the transcript clock, because nothing depends on the rows — they are working context,
+  -- regenerated by use, and the client bought none of it. Deliberately ABSENT from
+  -- `compliance/caller_notice._CATEGORY_LABELS`: that generates a document for the
+  -- client's CALLERS, who are not the subject of this data.
   -- `campaign_contact` is deliberately NOT here: an uploaded contact list has no clock
   -- either, and how long a client's own list is kept is a DPA commitment whose number is
   -- the founder's (`tests/dpdp_known_gaps_test.py` probes this constraint to hold that

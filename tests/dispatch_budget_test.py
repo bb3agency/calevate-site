@@ -49,7 +49,7 @@ from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import ACTIVE_STATUSES, TenantWork
 from calevate_shared.engine import CallContext
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, fund_wallet
 from tests.national_dnd_test import record_test_scrub
 
 
@@ -105,6 +105,10 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
     await accept_agreements(uuid.UUID(str(created["id"])))
+    # And credit, for the same reason and in the same shape (D-521): `prepaid` is the
+    # default motion now, so an unfunded tenant is refused `no_credits` on every
+    # outbound dial and this file would report that in place of what it is about.
+    await fund_wallet(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     ref = f"fakeagent_budg_{uuid.uuid4().hex[:8]}"
     async with tenant_session(tenant_id) as session:
@@ -333,7 +337,7 @@ async def test_the_shared_pool_is_spent_once_and_the_second_campaign_waits(
     monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10)
     # pool = 10 - max(4, 10*0.3) = 6, and five of those lines are already busy
     # platform-wide, so exactly one dial may be placed this tick.
-    _pin_scan(monkeypatch, [TenantWork(tenant_id, 5, True, False)])
+    _pin_scan(monkeypatch, [TenantWork(tenant_id, 5, True, False, False)])
 
     outcome = await campaign_dispatch._run_tick()
 
@@ -395,13 +399,13 @@ async def test_a_tenant_that_gets_no_line_before_the_budget_runs_out_is_reported
     # the tenant holding those five is ahead in the spend order.
     _pin_scan(
         monkeypatch,
-        [TenantWork(first_id, 5, True, False), TenantWork(second_id, 0, True, False)],
+        [TenantWork(first_id, 5, True, False, False), TenantWork(second_id, 0, True, False, False)],
     )
     fired = _capture_alert_details(monkeypatch)
 
     outcome = await campaign_dispatch._run_tick()
 
-    assert outcome.endswith("starved=1"), outcome
+    assert " starved=1" in outcome, outcome
     assert outcome.startswith("dialled=1 "), (
         "the tick looks healthy from its dial count alone — that is the whole problem"
     )
@@ -478,7 +482,7 @@ async def test_a_ceiling_above_the_pool_does_not_let_one_tenant_claim_lines_that
     monkeypatch.setattr(campaign_dispatch, "PLATFORM_LINES_TOTAL", 10)
     pool = campaign_dispatch._outbound_pool()
     assert pool == 6, pool
-    _pin_scan(monkeypatch, [TenantWork(tenant_id, 0, True, False)])
+    _pin_scan(monkeypatch, [TenantWork(tenant_id, 0, True, False, False)])
 
     handed: list[int] = []
 
@@ -523,11 +527,11 @@ async def test_a_campaign_paused_between_the_scan_and_the_budget_read_is_not_dia
             session, campaign_id=campaign_id, to_status="paused", from_statuses=("running",)
         )
     # The scan's answer, as it was a moment BEFORE the pause committed.
-    _pin_scan(monkeypatch, [TenantWork(tenant_id, 0, True, False)])
+    _pin_scan(monkeypatch, [TenantWork(tenant_id, 0, True, False, False)])
 
     outcome = await campaign_dispatch._run_tick()
 
-    assert outcome == "no_running_campaigns started=0", outcome
+    assert outcome == "no_running_campaigns started=0 callbacks=0", outcome
     assert await _calls_placed(tenant_id) == 0, "a paused campaign dials nobody"
     assert await _contacts(tenant_id, campaign_id) == [("pending", 0)]
 

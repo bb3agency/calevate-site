@@ -418,12 +418,44 @@ async def test_every_derived_copy_is_governed_by_a_category_a_tenant_actually_ha
         }
 
     assert set(retention.DERIVED_COPIES) <= categories
-    assert retention.DERIVED_COPIES["transcript"] == ("calls.summary",)
+    assert retention.DERIVED_COPIES["transcript"] == (
+        "calls.summary",
+        # The knowledge-gap quote columns hold the caller's own sentences, copied out of
+        # `transcript_turns.text_redacted` by the gap detector. They were in NO category,
+        # which is exactly the condition this test names: a copy nothing expires. Filed
+        # under `transcript` because that is the category owning the words they came from,
+        # not a fifth category — see this test's own docstring on why a fifth is a
+        # migration rather than a constant.
+        "knowledge_gap_occurrences.question_redacted",
+        "knowledge_gaps.example_question_redacted",
+        # THE VECTOR AND THE LEXEMES (D-503). `caller_chunks` stores no content and is
+        # still a copy of the transcript: an embedding is derived from the text by a
+        # deterministic function of it and is substantially invertible, and `tsv` is
+        # literally the caller's words as lexemes.
+        #
+        # `caller_memories.fact` AND the caller-memory scope's chunks were HERE until
+        # D-507, on the argument that a memory is distilled from what the caller said —
+        # plus this test's own point, that a fifth category is a migration and a number the
+        # founder has to give. Both halves of that were answered (180/`delete`, migration
+        # `e1a4d70c9b52`), which left the argument's weakest half standing alone: the
+        # PURPOSE of a memory is to outlive the call, so the call's clock was the wrong one
+        # rather than a convenient one. They are asserted under `caller_memory` below.
+        "caller_chunks.tsv+embedding (transcript scopes)",
+    )
+    assert retention.DERIVED_COPIES["caller_memory"] == (
+        "caller_chunks.tsv+embedding (caller memory scope)",
+        "caller_memories.fact",
+    )
     assert retention.DERIVED_COPIES["lead"] == (
         "call_extractions.data",
         # The delivered webhook body (D-23): the client's CRM payload in object storage,
         # governed by the `lead` policy the tenant already has.
         "webhook_deliveries.payload_ref",
+        # The same projection table under the CRM clock: a lead's chunks are the same class
+        # of thing as `call_extractions.data`. One table, two clocks, decided by the row's
+        # own `retention_category` — which the projection registry sets from
+        # `models.SUBJECT_RETENTION`, so a scope cannot choose its own.
+        "caller_chunks.tsv+embedding (lead scope)",
     )
 
 

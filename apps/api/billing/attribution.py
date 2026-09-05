@@ -98,6 +98,8 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.list_rates import self_serve_rate_at
+from apps.api.billing.plans import month_pricing_instant
 from apps.api.billing.rates import PREPAID_TIERS
 
 # IMPORTED, PRIVATE NAMES AND ALL, exactly as `billing/cost_unit.py` imports `_ROW_COST_SQL`
@@ -577,6 +579,14 @@ async def period_attribution(
             minutes=Decimal(str(usage["minutes_used"])),
             overage_cost_inr=Decimal(str(usage["overage_cost_inr"])),
             llm_surcharge_inr=Decimal(str(usage["llm_surcharge_inr"])),
+            # THE MONTH'S OWN LIST RATE (D-492), at the same pricing instant
+            # `usage_summary` above resolved the plan's rungs at. Without it this page
+            # would itemise a closed month at TODAY's price while the wallet entries it is
+            # attributing were debited at that month's — the itemisation and its own
+            # residual would then disagree with the ledger they are read against.
+            self_serve_rate_inr_per_min=await self_serve_rate_at(
+                session, at=month_pricing_instant(period)
+            ),
         )
     )
     charges, basis, residual_reason = await _allocate_charges(

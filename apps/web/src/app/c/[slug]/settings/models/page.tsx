@@ -28,6 +28,8 @@ import {
   type OrganizationLlmDefaults,
 } from "@/lib/api/llmModels";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * THE AI MODEL A CLIENT'S AGENTS THINK WITH — the organisation-wide default.
@@ -73,6 +75,71 @@ export default function ModelsPage({ params }: { params: Promise<{ slug: string 
   const { slug } = use(params);
   const session = useClientSession();
   const state = useOrganizationLlmDefaults(session);
+
+  /*
+   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * ## Declared HERE and not in `OrganizationDefault`, where the picker lives
+   *
+   * `registry.ts` keeps a stack and the innermost registration wins — and child effects
+   * commit before their parent's, so a surface declared in the child would be shadowed by
+   * one declared here. One of the two, therefore, and it is this one: the child renders
+   * only after the read lands, so a declaration down there would leave the launcher
+   * missing on the loading screen and on the failed one, which are the two screens a
+   * person is most likely to be asking a question from.
+   *
+   * ## And nothing is writable
+   *
+   * Choosing the model is a per-minute CHARGE on every call this account makes
+   * (`client_surcharge_inr_per_minute`, D-455). It is one click behind an explicit Save,
+   * and it is not an act to hand to an assistant. The catalogue IS declared, with each
+   * option's surcharge, so "which of these is cheaper" is answerable without the
+   * assistant being able to act on the answer.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/settings/models",
+    title: "Which AI model your agents use",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: state.data
+          ? "the model settings below have loaded"
+          : state.error != null
+            ? "the settings failed to load, so no model is named on screen"
+            : "still loading",
+      },
+      ...(state.data
+        ? [
+            {
+              key: "account_choice",
+              label: "The model this account has chosen",
+              value: state.data.default_llm_model ?? "none — it follows the Calevate default",
+            },
+            {
+              key: "effective_default",
+              label: "The model agents actually run on unless given their own",
+              value: state.data.effective_default,
+            },
+            {
+              key: "options",
+              label: "Models on offer, and what each adds per minute (INR)",
+              value: state.data.available
+                .map(
+                  (option) =>
+                    `${option.model} (${option.provider}): ${option.client_surcharge_inr_per_minute} per minute${
+                      option.is_platform_default ? ", the Calevate default" : ""
+                    }${option.is_available ? "" : ` — unavailable: ${option.unavailable_reason ?? "no reason given"}`}`,
+                )
+                .join("; "),
+            },
+          ]
+        : []),
+    ],
+    apply: noFill,
+  });
 
   return (
     <div className="max-w-2xl space-y-5 pb-12">
@@ -145,6 +212,20 @@ function OrganizationDefault({
   const changed = selected !== defaults.default_llm_model;
 
   const platformDefault = platformDefaultOption(defaults.available);
+  /*
+   * IS THE MODEL IN FORCE ONE THIS PLATFORM CAN ACTUALLY RUN RIGHT NOW?
+   *
+   * A real state and not a defensive one: the platform default is a live setting and its
+   * leg's credential and price are live properties of the deployment (server-side,
+   * `agents/llm_models.offerable_models()`), so a default can be named on this screen
+   * before the key that runs it is installed. When that happens the inherit row's
+   * "Today that is X" and the panel's "In force now: X" are both TRUE about which model we
+   * intend and FALSE about which one answers the call — the account falls back to our
+   * standard model until the leg is switched on. Saying so is the whole point of this
+   * screen; the alternative is a client reading a model name their calls are not running.
+   */
+  const inForceOption = modelOption(defaults.available, defaults.effective_default);
+  const inForceBlocked = inForceOption ? unavailableReason(inForceOption) !== null : false;
   // WHAT THE MODEL IN FORCE ACTUALLY ADDS, which is not the same as what its catalogue
   // row would cost to choose: an account following the platform default is never
   // surcharged (`lib/api/llmModels.ts::inForceSurcharge` holds the rule once).
@@ -181,9 +262,11 @@ function OrganizationDefault({
     {
       value: null,
       label: "Use the Calevate default",
-      detail: platformDefault
-        ? `Today that is ${platformDefault.model}. If we change it, your agents follow.`
-        : "Whatever model we run by default, including after we change it.",
+      detail: !platformDefault
+        ? "Whatever model we run by default, including after we change it."
+        : unavailableReason(platformDefault) !== null
+          ? `Today that is ${platformDefault.model}, and it is not switched on for your account yet — your agents run our standard model until it is.`
+          : `Today that is ${platformDefault.model}. If we change it, your agents follow.`,
       // FOLLOWING THE PLATFORM DEFAULT IS NEVER SURCHARGED, whatever model it resolves
       // to today or tomorrow: a surcharge is the price of an upgrade the client asked
       // for, and this row is the client asking for nothing (the server's own rule —
@@ -218,6 +301,7 @@ function OrganizationDefault({
       <Card title="The model your agents use">
         <form
           className="space-y-5"
+          noValidate
           onSubmit={(event) => {
             event.preventDefault();
             if (!changed) return;
@@ -236,6 +320,13 @@ function OrganizationDefault({
               {defaults.default_llm_model === null
                 ? "You have not picked a model, so your agents run on the one Calevate uses by default."
                 : "You picked this model for your account."}
+              {/* The model named above is the one we INTEND to run; this says when it is
+                  not the one answering yet. Same sentence the picker's rows carry, because
+                  it is the same fact and the same one action. */}
+              {inForceBlocked && (
+                <> It is not switched on for your account yet, so your calls run our
+                standard model until it is — ask your Calevate team to enable it.</>
+              )}
               {inForceSurchargeInr !== null ? (
                 // WHAT IT ADDS TO THEIR BILL, in words for the zero case, because "₹0.00
                 // a minute" is a rupee amount of nothing and "no extra charge" is the
@@ -317,15 +408,15 @@ function OrganizationDefault({
                 price of a minute" would expect the wrong number on their statement. */}
             A model&apos;s figure is ADDED to your plan&apos;s per-minute rate, for the
             minutes your agents run it — your plan&apos;s own rate does not change. It
-            appears on your invoice as its own line, naming the model. What you are
-            actually billed for the month is on your{" "}
+            appears on your statement as its own line, naming the model. What you are
+            actually billed for the month is on the{" "}
             <Link
-              href={href(`/c/${slug}/usage`)}
+              href={href(`/c/${slug}/billing?tab=usage`)}
               className="font-medium underline underline-offset-2 hover:text-ink"
             >
-              Usage
-            </Link>{" "}
-            screen.
+              Usage tab of Credits &amp; billing
+            </Link>
+            .
           </li>
           <li className="flex gap-2">
             <Info aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />

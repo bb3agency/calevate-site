@@ -151,10 +151,12 @@ async def _agent(tenant_id: uuid.UUID, *, direction: str = "outbound") -> uuid.U
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, status, language_primary, "
-                "disclosure_line, ai_disclosure_line, recording_notice_line, created_at, "
-                "updated_at) VALUES (:id, :tid, 'Gate agent', :dir, 'live', 'te-IN', 'This is an "
-                "AI assistant and this call is recorded.', 'This is an AI assistant and this call "
-                "is recorded.', 'This call is being recorded.', now(), now())"
+                "disclosure_line, ai_disclosure_line, recording_notice_line, "
+                "caller_memory_notice_line, created_at, updated_at) VALUES (:id, :tid, 'Gate "
+                "agent', :dir, 'live', 'te-IN', 'This is an AI assistant and this call is "
+                "recorded.', 'This is an AI assistant and this call is recorded.', 'This call "
+                "is being recorded.', 'I keep a short note of what you ask about.', now(), "
+                "now())"
             ),
             {"id": agent_id, "tid": tenant_id, "dir": direction},
         )

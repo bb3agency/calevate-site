@@ -43,10 +43,13 @@ export interface LiveState {
 export function liveState(agent: Agent): LiveState {
   if (agent.status === ARCHIVED_STATUS) {
     return {
-      label: "Archived",
+      // "Deleted", the console's word for this state since D-527 — the badge, the section
+      // heading and the button that produced it have to be one word or an owner cannot
+      // connect them. The detail keeps the sentence that makes the word honest.
+      label: "Deleted",
       tone: "border-line bg-app text-ink-muted",
       detail:
-        "Retired. It takes no calls and makes none. The calls it already handled are still in your call log.",
+        "It takes no calls and makes none. The calls it already handled are still in your call log.",
     };
   }
   if (!agent.published) {
@@ -61,7 +64,8 @@ export function liveState(agent: Agent): LiveState {
     return {
       label: "Paused",
       tone: NOTICE_TONES.warn,
-      detail: "Switched off for now. No calls are being answered or made by this agent.",
+      detail:
+        "Switched off for now. No calls are being answered or made by this agent.",
     };
   }
   if (agent.status === "live") {

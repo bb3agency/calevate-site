@@ -4,7 +4,7 @@ import type { LegalDocument } from "./types";
  * The privacy notice. Every factual claim below traces to code, schema or a blueprint
  * document, and `docs/LEGAL-SURFACE.md` carries the trace for each one.
  *
- * Three rules were applied while writing it, and they are what make it different from a
+ * Five rules were applied while writing it, and they are what make it different from a
  * template:
  *
  * 1. **Nothing is claimed that the code does not do.** The retention periods are the
@@ -44,7 +44,7 @@ import type { LegalDocument } from "./types";
  *    — read by the founder 27 Aug 2026 and relayed). ⚠ `sarvam.ai` and `docs.sarvam.ai`
  *    remain egress-blocked from this container; the evidence came by another route and a
  *    fetch from here will still fail.
- * 5. **The training promise is NARROWED to what we can keep, not softened.** "We do not
+ * 3. **The training promise is NARROWED to what we can keep, not softened.** "We do not
  *    use client or caller data to train or fine-tune any model — ours or a vendor's" was
  *    a promise about other companies' conduct that one of them does not make. Sarvam ToS
  *    v2.0 (effective 29 July 2026) s.17.5 permits it to use inputs, outputs and usage data
@@ -54,21 +54,23 @@ import type { LegalDocument } from "./types";
  *    instrument that displaces it — we have none. So OUR undertaking stands unqualified
  *    and the VENDOR position is stated rather than promised away, in §6 here, clause 2 of
  *    the DPA and §3.4 of the sub-processor register.
- * 3. **The Data Fiduciary named in §1 is a PERSON, not a company, and §1 says so.**
- *    Corrected 26 August 2026. The notice opened "Calevate is a product of X … mean that
- *    company", which was false in a way that matters here more than in most documents: a
- *    privacy notice's first job is to identify the Data Fiduciary a reader is dealing
- *    with, and the reader was being pointed at a corporate body that does not exist.
- *    `docs/legal/LEGAL-OPS-PLAYBOOK.md:16` — Calevate is a "product / trade name, not a
- *    separate company"; `:82` — "You and the business are the same legal person"; `:94`
- *    permits contracting under the trade name, which is the founder's decision and is why
- *    `{{LEGAL_ENTITY_NAME}}` resolves to "Calevate". `{{ENTITY_FORM}}` carries the rest,
- *    so no document has to guess what kind of person is on the other side of it.
- *    The consequence a reader can act on is unlimited personal liability (playbook §3),
- *    and it is stated rather than left as an inference from "sole proprietorship" — it is
- *    the one thing that makes this shape STRONGER for a complainant, and burying it would
- *    be as dishonest as the corporate framing it replaces.
- * 4. **The AI-disclosure paragraph describes the toggle, not an always-on greeting.**
+ * 4. **§1 IDENTIFIES the Data Fiduciary and does not NARRATE it.** The notice once opened
+ *    "Calevate is a product of X … mean that company", naming a corporate body that does
+ *    not exist; the correction of 26 August 2026 replaced that with a paragraph about
+ *    what kind of legal person the supplier is and what follows from it, and a callout
+ *    headed "The Data Fiduciary here is a person, not a company". Both are gone (2 Sep
+ *    2026, the founder's decision). A privacy notice's first job is to say WHO the reader
+ *    is dealing with and where to reach them, and §1 does that with the three items the
+ *    Consumer Protection (E-Commerce) Rules 2020 actually require displayed — the name
+ *    (`{{LEGAL_ENTITY_NAME}}`, which the Udyam certificate carries as the enterprise
+ *    name), the registration number and the principal place of business. It makes no
+ *    statement about the supplier's legal FORM, because none of those rules asks for one
+ *    and a document that editorialises about its own author's constitution reads as a
+ *    draft. What it must never do instead is claim an incorporation that has not
+ *    happened: there is no assertion anywhere in this set that Calevate is a company, a
+ *    private limited or the holder of a CIN, and `tests/legal.test.tsx` fails on the
+ *    shapes of all three.
+ * 5. **The AI-disclosure paragraph describes the toggle, not an always-on greeting.**
  *    Whether the agent announces itself at the start of a call is the client's setting;
  *    that it answers truthfully when asked is enforced server-side and cannot be
  *    overridden by a client's script. The obligation to disclose sits with the client as
@@ -92,40 +94,11 @@ export const PRIVACY_POLICY: LegalDocument = {
         {
           kind: "para",
           text:
-            "Calevate is a product operated by {{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}} " +
-            "(Udyam registration number {{ENTITY_REGISTRATION_NUMBER}}), whose principal " +
+            "Calevate is a product operated by {{LEGAL_ENTITY_NAME}} (Udyam " +
+            "registration number {{ENTITY_REGISTRATION_NUMBER}}), whose principal " +
             "place of business is {{REGISTERED_ADDRESS}}. In this notice \"we\", \"us\" and " +
             "\"Calevate\" mean that business; \"you\" means whichever of the three groups " +
             "below you fall into.",
-        },
-        {
-          kind: "callout",
-          tone: "note",
-          title: "The Data Fiduciary here is a person, not a company",
-          text:
-            "There is no company behind Calevate and no parent organisation. A sole " +
-            "proprietorship has no legal identity separate from the individual who runs " +
-            "it, so the trade name above is a name that a sole proprietor contracts " +
-            "under, and " +
-            "every duty in this notice is owed to you by that person. Two things follow " +
-            "that are yours rather than ours: the liability behind those duties is " +
-            "personal and unlimited, with none of the shelter a limited company would " +
-            "give — and there is nobody above the contacts in section 14 to escalate to " +
-            "internally, which is why the grievance page sends you outside Calevate " +
-            "instead. Being a sole proprietorship is not an exemption from anything on " +
-            "this page. The privacy rules operative in India today — the 2011 " +
-            "sensitive-personal-data rules — are made under section 43A of the " +
-            "Information Technology Act 2000 and bind a \"body corporate\", and that " +
-            "section's own Explanation defines the term to include a sole " +
-            "proprietorship. What section 43A itself does is narrower than it is often " +
-            "made to sound, and we would rather say which: it makes a body corporate " +
-            "liable to pay compensation where it was negligent in implementing and " +
-            "maintaining reasonable security practices for SENSITIVE personal data and " +
-            "that negligence caused someone a wrongful loss or someone else a wrongful " +
-            "gain. It is not the source of the duties in this notice — those come from " +
-            "the 2011 rules, and from the Digital Personal Data Protection Act 2023 " +
-            "when its substantive parts commence (section 12.1) — and nothing here " +
-            "relies on it for authority.",
         },
         {
           kind: "para",
@@ -322,6 +295,33 @@ export const PRIVACY_POLICY: LegalDocument = {
                   detail:
                     "Minutes used, charges, credits, top-ups and invoices. Payments are " +
                     "taken by a payment gateway; card numbers never reach us.",
+                },
+                {
+                  term:
+                    "What you ask the in-app assistant, and what it remembers about your " +
+                    "business",
+                  detail:
+                    "The dashboard carries an assistant you can open on any screen. Until " +
+                    "recently it kept nothing at all, and this notice did not mention it " +
+                    "because there was nothing to mention. That has changed and the " +
+                    "change is stated here rather than left for you to discover: it now " +
+                    "keeps a record of what you asked it and what it answered, and an " +
+                    "hourly background job reads a run of those records back to a " +
+                    "language model to distil short, durable facts about how your " +
+                    "business works, so it does not have to be told the same thing every " +
+                    "week. Both kinds of record are held per person and per account — a " +
+                    "colleague's conversation is not shown to you and yours is not shown " +
+                    "to them. Before anything is written we run the same redaction pass " +
+                    "the rest of the product uses, so phone numbers, email addresses, " +
+                    "Aadhaar, PAN, card numbers and one-time passwords are replaced with " +
+                    "markers rather than stored. That pass recognises identifiers and " +
+                    "not names: if you type a customer's first name into a question, " +
+                    "that name can remain in the record, which is why these records " +
+                    "expire on their own clock (section 9) and why closing an account " +
+                    "deletes every one of them outright. The assistant also looks things " +
+                    "up in your own account to answer you — your leads, calls, " +
+                    "campaigns, agents and knowledge content — and section 8 says where " +
+                    "that goes.",
                 },
               ],
             },
@@ -639,6 +639,19 @@ export const PRIVACY_POLICY: LegalDocument = {
               "Client users and their callers",
               "Contract, and the client's instruction.",
             ],
+            [
+              "Running the in-app assistant a client opens from their own dashboard: " +
+                "answering their questions about their own account, filling in the " +
+                "fields on the screen they are looking at, proposing changes they then " +
+                "confirm, and keeping what it learned so the next conversation starts " +
+                "further along.",
+              "Client users, and their callers' records where the client asks a question " +
+                "about them",
+              "Performance of our contract with the client for their own account data, " +
+                "and the client's own instruction for anything it looks up about their " +
+                "callers. It proposes; a person confirms; nothing it suggests takes " +
+                "effect on its own.",
+            ],
           ],
         },
         {
@@ -697,9 +710,10 @@ export const PRIVACY_POLICY: LegalDocument = {
             "This section is written narrowly on purpose, and so is what it says about " +
             "the law. Section 16 of the DPDP Act permits transfer outside India except " +
             "to countries the Central Government notifies as restricted, and no such " +
-            "list has been notified — but that section does not commence until 13 May " +
-            "2027, so it is the absence of a restriction rather than a permission you " +
-            "can point at today. Until then the Information Technology Act 2000 and the " +
+            "list has been notified — but that section does not commence until the " +
+            "middle of May 2027 (section 12.1 explains why we give that as a period " +
+            "rather than a day), so it is the absence of a restriction rather than a " +
+            "permission you can point at today. Until then the Information Technology Act 2000 and the " +
             "2011 sensitive-personal-data rules govern, and they do carry a transfer " +
             "test: comparable protection at the destination, plus either consent or " +
             "necessity for a contract. The Data Processing Addendum sets out how we meet " +
@@ -754,12 +768,21 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "and we have withdrawn the sentence that implied otherwise rather than " +
                 "qualifying it. Section 3.4 of the sub-processor page sets out what that " +
                 "vendor's terms permit. The language model on both AI legs — " +
-                "the model that holds the conversation during a call, and the dashboard " +
-                "assistant that works on redacted data — runs on one of several " +
+                "the model that holds the conversation during a call, and the in-app " +
+                "assistant a client opens from their own dashboard — runs on one of " +
+                "several " +
                 "providers you can choose between: Microsoft's Azure OpenAI service " +
                 "(configured for the East US 2 region, in the United States, and the one " +
                 "we run by default), OpenAI (the United States), or Google's Gemini API " +
-                "(which names no region we can request). Read that at the speed the call " +
+                "(which names no region we can request). Not all three serve both legs, " +
+                "and that is a limit of ours rather than of theirs: the in-app assistant " +
+                "runs only on a provider whose published position on training with what " +
+                "it receives someone here has actually read and, where the answer turns " +
+                "on which plan our own account is on, recorded against that account. " +
+                "OpenAI is not one of them today, so a client whose agents run an " +
+                "OpenAI model still gets the assistant, answered by the provider we run " +
+                "by default, and the screen tells them so rather than leaving them to " +
+                "assume. Read that at the speed the call " +
                 "runs at: on the in-call leg what you say leaves India as text on every " +
                 "turn, as you say it, because the model has to answer you in the " +
                 "conversation rather than after it. It is not a batch that goes abroad " +
@@ -786,6 +809,31 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "provider's console and filed as dated evidence, not proved by a build " +
                 "check. The other providers place their processing on their own terms. " +
                 "See the sub-processor page, section 3.2.",
+            },
+            {
+              term:
+                "What the in-app assistant sends to a language model, which is more than " +
+                "it used to be",
+              detail:
+                "This notice used to describe the dashboard side of the language leg as " +
+                "the redacted transcript and the client's own configuration, and that " +
+                "was accurate when the assistant could do nothing but read the screen in " +
+                "front of it. Both of those still reach it — a client can ask us to " +
+                "re-read a call for them, and that sends the redacted transcript. What " +
+                "is new is that the assistant now looks things up in the account to " +
+                "answer: the " +
+                "client's leads, their recent calls, their campaigns, their agents, a " +
+                "count-based summary of how the business is doing, and their own " +
+                "knowledge content. What goes to the model from those look-ups is names, " +
+                "statuses, counts and the already-redacted summary of a call — a phone " +
+                "number reaches it as a marker and never as digits, and no raw " +
+                "transcript and no extracted field payload is sent at all. What a person " +
+                "types into the assistant goes too, and so, on the hourly job described " +
+                "in section 3.2, does a run of earlier questions and answers, read back " +
+                "to the model to distil durable facts. All of it runs on the same " +
+                "language-model providers described above and in the same places. It is " +
+                "still true that the raw transcript is never part of it; it is no longer " +
+                "true that only configuration is.",
             },
             {
               term: "The application and the database",
@@ -898,6 +946,15 @@ export const PRIVACY_POLICY: LegalDocument = {
               "Deleted. The version currently in use is never expired by this — a " +
                 "client's live answer material is theirs and stays until they change " +
                 "it — so the clock runs only on versions no screen shows.",
+            ],
+            [
+              "What the in-app assistant remembers — a client user's questions and " +
+                "answers, and the business facts distilled from them",
+              "180 days",
+              "Deleted. Shorter than the transcript clock on purpose: nothing depends on " +
+                "these records, they are rebuilt by ordinary use, and no client bought " +
+                "them. Closing an account deletes every one of them at once, without " +
+                "waiting for this clock.",
             ],
             [
               "Consent, opt-out and audit records",
@@ -1186,7 +1243,9 @@ export const PRIVACY_POLICY: LegalDocument = {
             {
               kind: "para",
               text:
-                "Every certificate we issue states these limits. They are listed here so " +
+                "Every certificate we issue states these limits, with the single " +
+                "exception marked below, which is new and is being added to the " +
+                "certificate. They are listed here so " +
                 "that nobody has to file a request to find out.",
             },
             {
@@ -1218,6 +1277,15 @@ export const PRIVACY_POLICY: LegalDocument = {
                   "is told how many of their documents mention you, and removing them is " +
                   "manual work on their side.",
                 "Backups age out on their own 35-day cycle.",
+                "NOT YET ON THE CERTIFICATE, and stated here rather than held back until " +
+                  "it is: an erasure does not search what the in-app assistant remembers. " +
+                  "Those records are a client's own staff asking questions about their " +
+                  "own console, and identifiers are stripped from them before they are " +
+                  "written — but the pass that strips them recognises phone numbers and " +
+                  "document numbers, not names, so a first name typed into a question can " +
+                  "survive in one. They are deleted at 180 days whether or not anybody " +
+                  "asks, and entirely when the account closes. We would rather tell you " +
+                  "that the erasure does not reach them than let the list imply it does.",
               ],
             },
           ],
@@ -1266,7 +1334,8 @@ export const PRIVACY_POLICY: LegalDocument = {
             {
               term: "Who you are dealing with",
               detail:
-                "{{LEGAL_ENTITY_NAME}}, {{ENTITY_FORM}}, principal place of business " +
+                "{{LEGAL_ENTITY_NAME}}, Udyam registration number " +
+                "{{ENTITY_REGISTRATION_NUMBER}}, principal place of business " +
                 "{{REGISTERED_ADDRESS}}. Telephone {{CONTACT_PHONE}}. That address " +
                 "identifies the Data Fiduciary; we do not operate a postal channel.",
             },

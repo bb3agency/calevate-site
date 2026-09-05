@@ -3,11 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import FleetSpendPage from "@/app/admin/spend/page";
 import TenantSpendPage from "@/app/admin/tenants/[tenantId]/spend/page";
-import ClientSpendPage from "@/app/c/[slug]/spend/page";
 import type { Me } from "@/lib/api/client";
 import type { FleetSpend, Spend, TenantSpend } from "@/lib/api/spend";
 
 import { renderAdminRoute } from "./adminRoute";
+import { renderBillingHub } from "./billingHub";
 import { problem, renderClientPage, stillLoading } from "./harness";
 
 /**
@@ -45,14 +45,14 @@ const ME: Me = {
   impersonating: false,
   // `billing:read` is what `GET /v1/billing/spend` requires — owners hold it, staff do
   // not (SEC-COMP §5).
-  permissions: ["org:read", "billing:read"],
+  permissions: ["org:read", "wallet:read", "billing:read"],
   realm: "client",
   role: "owner",
   user_id: "user_1",
   organization: null,
 };
 
-const STAFF: Me = { ...ME, role: "staff", permissions: ["org:read"] };
+const STAFF: Me = { ...ME, role: "staff", permissions: ["org:read", "wallet:read"] };
 
 const IST_MONTH = new Date()
   .toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
@@ -174,7 +174,95 @@ function tileValue(container: HTMLElement, label: string): string {
   return term?.nextElementSibling?.textContent ?? "";
 }
 
-const clientPage = <ClientSpendPage params={Promise.resolve({ slug: "acme" })} />;
+/**
+ * WHAT THE HUB AROUND THIS PANEL READS. The per-agent breakdown is the second half of the
+ * Usage tab of `/c/{slug}/billing` now (D-525), so the screen also reads the month's
+ * totals, the spending limit, the wallet, its history and the pack rate card — whatever
+ * tab is open. Routed with the emptiest honest answer, because an unrouted request throws
+ * in this harness: a hole in a test's premise should say so rather than render an error
+ * state that happens to contain the string it was looking for.
+ */
+function clientRoutes(over: Record<string, unknown> = {}) {
+  return {
+    "/v1/me": ME,
+    [CLIENT_ROUTE]: CLIENT_SPEND,
+    "/v1/usage": HUB_USAGE,
+    "/v1/billing/caps": HUB_CAPS,
+    "/v1/billing/wallet": HUB_WALLET,
+    "/v1/billing/wallet/ledger?limit=50": { entries: [], payments: [] },
+    "/v1/billing/topups/packs": { list_rate_inr_per_min: "8.00", packs: [] },
+    ...over,
+  };
+}
+
+/** An INVOICED account with no month's charges of its own: this file is about the
+ *  breakdown, and a balance or a second set of totals in every assertion below would be
+ *  noise `tests/usage.test.tsx` and `tests/credits.test.tsx` already own. */
+const HUB_WALLET = {
+  tenant_id: "o1",
+  prepaid: false,
+  balance_inr: "0.00",
+  is_low: false,
+  low_balance_threshold_inr: "200.00",
+  outbound_stopped: false,
+  runway: {
+    basis: "empty",
+    days: null,
+    daily_burn_inr: null,
+    history_days: 0,
+    beyond_horizon: false,
+    window_days: 30,
+    min_history_days: 7,
+    max_days: 365,
+  },
+  minutes_left: null,
+  drawdown: {
+    calls_inr: "0.00",
+    ai_assist_inr: "0.00",
+    adjustments_inr: "0.00",
+    spent_inr: "0.00",
+    added_inr: "0.00",
+    refunded_inr: "0.00",
+  },
+};
+
+const HUB_USAGE = {
+  month: IST_MONTH,
+  plan_tier: "managed",
+  calls: 0,
+  minutes_used: "0.0000",
+  included_minutes: 0,
+  minutes_left: null,
+  month_charges_inr: "0.00",
+  monthly_fee_inr: null,
+  overage_minutes: "0.0000",
+  overage_minutes_premium: "0.0000",
+  overage_minutes_value: "0.0000",
+  overage_cost_inr: "0.00",
+  overage_rate_inr: "0.0000",
+  overage_rate_value_inr: null,
+  llm_surcharge_inr: "0.00",
+  llm_surcharge_minutes: "0.0000",
+  llm_surcharge_rate_inr: null,
+  llm_surcharge_models: [],
+  capped: false,
+  cap_minutes: null,
+  credit_balance_inr: null,
+};
+
+const HUB_CAPS = {
+  capped: false,
+  month: IST_MONTH,
+  minutes_used: "0.0",
+  spend_used_inr: "0.00",
+  client_cap_minutes: null,
+  client_cap_spend_inr: null,
+  plan_cap_minutes: null,
+  plan_cap_spend_inr: null,
+  effective_cap_minutes: null,
+  effective_cap_spend_inr: null,
+};
+
 const tenantPage = <TenantSpendPage params={Promise.resolve({ tenantId: "t1" })} />;
 
 const CLIENT_ROUTE = `/v1/billing/spend?month=${IST_MONTH}`;
@@ -183,10 +271,10 @@ const FLEET_ROUTE = `/v1/admin/spend?month=${IST_MONTH}`;
 
 describe("the client's spend screen", () => {
   it("prints the server's rupee digits, grouped Indian-style and never parsed", async () => {
-    const { container } = await renderClientPage(clientPage, {
-      "/v1/me": ME,
-      [CLIENT_ROUTE]: CLIENT_SPEND,
-    });
+    const { container } = await renderBillingHub(clientRoutes({
+    "/v1/me": ME,
+    [CLIENT_ROUTE]: CLIENT_SPEND
+    }), "Usage");
 
     await screen.findByText(LAKHS_RENDERED);
     const text = container.textContent ?? "";
@@ -198,7 +286,7 @@ describe("the client's spend screen", () => {
     // Asserted on the TILE by its own label: the agent row below carries the same string,
     // so a bare `toContain` was answered by the table and would have passed over a parsed
     // headline figure (`String(Number("42.5000"))` is "42.5").
-    expect(tileValue(container, "Minutes used")).toBe("42.5000");
+    expect(tileValue(container, `Minutes used · ${IST_MONTH}`)).toBe("42.5000");
   });
 
   it("carries no cost or margin, even when the payload does", async () => {
@@ -218,10 +306,10 @@ describe("the client's spend screen", () => {
       margin_pct: "70.61",
       by_agent: [{ ...CLIENT_SPEND.by_agent[0], cost_inr: "300000.00", margin_inr: "715850.00" }],
     };
-    const { container } = await renderClientPage(clientPage, {
-      "/v1/me": ME,
-      [CLIENT_ROUTE]: spiked,
-    });
+    const { container } = await renderBillingHub(clientRoutes({
+    "/v1/me": ME,
+    [CLIENT_ROUTE]: spiked
+    }), "Usage");
 
     await screen.findByText(LAKHS_RENDERED);
     const text = container.textContent ?? "";
@@ -244,26 +332,32 @@ describe("the client's spend screen", () => {
     // call is what it took off the balance; on a managed plan it is that call's share of a
     // month priced as a whole, and labelling one as the other is a claim the server never
     // made.
-    const { container } = await renderClientPage(clientPage, {
-      "/v1/me": ME,
-      [CLIENT_ROUTE]: CLIENT_SPEND,
-    });
+    const { container } = await renderBillingHub(clientRoutes({
+    "/v1/me": ME,
+    [CLIENT_ROUTE]: CLIENT_SPEND
+    }), "Usage");
     await screen.findByText(LAKHS_RENDERED);
     expect(container.textContent).toContain("Each call's share of this month");
+  });
 
-    const { container: prepaid } = await renderClientPage(clientPage, {
+  it("calls a prepaid debit what it is, rather than a share of a month", async () => {
+    /* Its own test rather than a second render inside the one above. `screen` queries the
+       whole document and RTL does not unmount between renders, so two hubs in one test
+       body means two tab strips and `findByRole("tab", { name: "Usage" })` matching both —
+       a failure about the harness, on an assertion about money. */
+    const { container } = await renderBillingHub(clientRoutes({
       "/v1/me": ME,
       [CLIENT_ROUTE]: { ...CLIENT_SPEND, charge_basis: "wallet_debit" },
-    });
-    await screen.findAllByText(LAKHS_RENDERED);
-    expect(prepaid.textContent).toContain("What each call took off your balance");
+    }), "Usage");
+    await screen.findByText(LAKHS_RENDERED);
+    expect(container.textContent).toContain("What each call took off your balance");
   });
 
   it("explains a residual rather than letting the columns quietly disagree", async () => {
-    const { container } = await renderClientPage(clientPage, {
-      "/v1/me": ME,
-      [CLIENT_ROUTE]: CLIENT_SPEND,
-    });
+    const { container } = await renderBillingHub(clientRoutes({
+    "/v1/me": ME,
+    [CLIENT_ROUTE]: CLIENT_SPEND
+    }), "Usage");
     await screen.findByText(LAKHS_RENDERED);
     // The server's own subtraction, printed — not one this screen performed. The float
     // answer to the same question is 50.09999999997672, which renders ₹50.09.
@@ -276,45 +370,56 @@ describe("the client's spend screen", () => {
   it("says nothing at all about a residual the server calls zero", async () => {
     // `residual_reason` is null whenever the residual IS zero. A panel that appeared anyway
     // would be an explanation of a discrepancy that does not exist.
-    const { container } = await renderClientPage(clientPage, {
-      "/v1/me": ME,
-      [CLIENT_ROUTE]: {
-        ...CLIENT_SPEND,
-        itemised_charge_inr: LAKHS,
-        itemisation_residual_inr: "0.00",
-        residual_reason: null,
-      },
-    });
+    const { container } = await renderBillingHub(clientRoutes({
+    "/v1/me": ME,
+    [CLIENT_ROUTE]: {
+    ...CLIENT_SPEND,
+    itemised_charge_inr: LAKHS,
+    itemisation_residual_inr: "0.00",
+    residual_reason: null,
+    }
+    }), "Usage");
     await screen.findByText(LAKHS_RENDERED);
     expect(container.textContent).not.toContain("add up to");
   });
 
+  /* THE TWO §52 TESTS HOLD THE REST OF THE TAB IN FLIGHT. The breakdown shares the Usage
+     tab with the month's own totals and the spending limit now (D-525), and both of those
+     legitimately print ₹0.00 on an account with no charges — so a document-wide "no ₹0.00"
+     assertion would be answered by a panel this file is not about. Parking their two reads
+     leaves the breakdown as the only thing on screen, which is what the claim is about. */
   it("shows a skeleton while the month is in flight, and no figures", async () => {
-    const { container } = await renderClientPage(clientPage, {
+    const { container } = await renderBillingHub(clientRoutes({
       "/v1/me": ME,
+      "/v1/usage": stillLoading(),
+      "/v1/billing/caps": stillLoading(),
       [CLIENT_ROUTE]: stillLoading(),
-    });
-    expect(await screen.findByText("Loading this month's spend")).toBeTruthy();
+    }), "Usage");
+    expect(await screen.findByText("Loading this month's breakdown")).toBeTruthy();
     expect(container.textContent).not.toContain("₹0.00");
   });
 
   it("refuses out loud when the month cannot be read, and prints no ₹0.00", async () => {
-    const { container } = await renderClientPage(clientPage, {
+    const { container } = await renderBillingHub(clientRoutes({
       "/v1/me": ME,
+      "/v1/usage": stillLoading(),
+      "/v1/billing/caps": stillLoading(),
       [CLIENT_ROUTE]: problem(503, {
         title: "Spend is unavailable",
         // `ProblemNotice` prints the problem's `detail` — `ApiProblem.message` is
         // `detail ?? title` — so this is the sentence the client actually reads.
         detail: "We could not read this month's usage.",
       }),
-    });
+    }), "Usage");
     await screen.findByText("We could not read this month's usage.");
     expect(container.textContent).not.toContain("₹0.00");
     expect(container.textContent).not.toContain("No calls this month");
   });
 
   it("tells a staff member why the screen is not theirs instead of collecting a 403", async () => {
-    const { container } = await renderClientPage(clientPage, { "/v1/me": STAFF });
+    const { container } = await renderBillingHub(clientRoutes({
+    "/v1/me": STAFF
+    }), "Usage");
     await screen.findByText(/limited to the account owner/);
     expect(container.textContent).not.toContain("₹");
     // What the refusal must NOT do is also render the API's 403 underneath it. The query is

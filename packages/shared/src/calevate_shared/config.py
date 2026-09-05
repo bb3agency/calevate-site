@@ -23,7 +23,9 @@ from pydantic_settings.sources import DotEnvSettingsSource
 from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
     AZURE_RESOURCE_PATTERN,
+    PLATFORM_DEFAULT_LLM_MODEL,
     AzureOpenAIModel,
+    LlmModelName,
 )
 
 #: Environment variables the deployment's `.env` legitimately carries FOR SOMEONE ELSE.
@@ -360,6 +362,21 @@ class Settings(BaseSettings):
     bolna_webhook_source_ips: str = Field(
         default=",".join(sorted(DEFAULT_BOLNA_SOURCE_IPS)), max_length=1024
     )
+    #: The Bearer token the engine presents when it asks us who is ringing (D-513).
+    #:
+    #: On an INBOUND call the engine holds the number and we hold the memory, so it fetches
+    #: caller details from `GET /v1/engine/caller-data/{engine}` at call setup and injects
+    #: the answer into the agent's prompt. Their console takes a Bearer token for that
+    #: endpoint and stores it (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/
+    #: agent-setup/inbound-tab.md:38-42,63,78`, read 2 Sep 2026) — so the value is one WE
+    #: choose and paste into their agent, not one they issue.
+    #:
+    #: ABSENT ⇒ THE ENDPOINT ANSWERS NOBODY, which is the safe reading of an unconfigured
+    #: credential rather than an outage: a deployment that has not been wired to the engine
+    #: simply greets every inbound caller generically, exactly as it does today. It is NOT
+    #: `bolna_api_key` reused — that key authenticates US to THEM and would be travelling in
+    #: the opposite direction, so a leak of one would be a leak of the other.
+    bolna_caller_data_token: str | None = Field(default=None, max_length=256)
     # Bolna quotes cost in USD cents; the adapter converts at capture and STAMPS the rate
     # it used into usage_events.meta so any ledger row can be re-derived (hard rule 7).
     #
@@ -670,6 +687,42 @@ class Settings(BaseSettings):
     #
     # 512 characters is far above the two entries the allow-list can produce and far below
     # the megabyte a jsonb-replicated string could otherwise carry.
+    # THE EMBEDDING DEPLOYMENT — a THIRD deployment field, and it has to be one (D-502).
+    #
+    # An embedding model is served under its own Azure deployment, distinct from every chat
+    # deployment above however it is named: posting `POST /embeddings` input at a chat
+    # deployment is a 400, and posting chat messages at an embedding deployment is a 400 the
+    # other way. It therefore cannot be derived from `azure_openai_deployment` and must not
+    # be guessed from it — the same argument that gave the chat deployment its own field,
+    # applied to a different endpoint on the same resource.
+    #
+    # SAME RESOURCE, SAME REGION, SAME CREDENTIAL, so this adds NO sub-processor: it is the
+    # East US 2 resource D-449 already settled, reached through the one builder
+    # `calevate_shared.engine.azure_openai_base_url`.
+    #
+    # None until an operator creates the deployment — an EXTERNAL step, so knowledge search
+    # degrades to its sparse arm and to T0 rather than half-working
+    # (`apps/api/retrieval/service.get_retriever` says so at ERROR). Bounded to the same
+    # character class and 64-character ceiling as every other Azure deployment id here.
+    azure_openai_embedding_deployment: str | None = Field(
+        default=None, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+    )
+    # WHICH RETRIEVAL STORE ANSWERS A COLD LOOKUP (D-502). `compiled-facts` is T0 alone —
+    # what shipped while the D-28 bake-off was open — and `pgvector` adds the T3 hybrid
+    # store in the Postgres we already run.
+    #
+    # A SETTING RATHER THAN A CONSTANT because it is the seam the founder's exit clause
+    # depends on: moving to a managed vendor is a third value here plus one adapter module,
+    # with no caller touched. It is also the switch that turns the store OFF in one poll if
+    # it misbehaves, without a deploy.
+    #
+    # ⚠ IT DOES NOT TOUCH THE CALL. In-call retrieval is T0 and the engine's own KB whatever
+    # this says (`docs/evidence/kb-retrieval-bakeoff.md` §5.1, `tests/kb_tiers_test.py`).
+    #
+    # A closed `Literal` rather than a bounded string: a typo must be refused at the console
+    # and at boot, not resolved to a silent fallback, and a new store is a decision-log entry
+    # rather than a value somebody typed.
+    retrieval_provider: Literal["compiled-facts", "pgvector"] = "compiled-facts"
     azure_openai_deployments: str = Field(
         default="",
         max_length=512,
@@ -704,6 +757,38 @@ class Settings(BaseSettings):
     # the boot-time load and the console alike, and a new model is a decision-log entry
     # rather than a typo.
     azure_openai_model: AzureOpenAIModel = AZURE_OPENAI_DEFAULT_MODEL
+    # WHAT AN ACCOUNT RUNS WHEN NEITHER IT NOR ITS AGENT CHOSE — the PLATFORM rung, across
+    # all three declared legs.
+    #
+    # **IT IS NOT `azure_openai_model`, AND THIS FIELD EXISTS BECAUSE IT USED TO BE.**
+    # `agents/llm_models.platform_default_model()` read the field above, which is typed
+    # `AzureOpenAIModel` — so the platform's own default could only ever be an Azure model,
+    # on a product that declares three legs and whose founder chose a Google one
+    # (`PLATFORM_DEFAULT_LLM_MODEL`). Two different facts had one field: which model the
+    # AZURE DEPLOYMENT was made from (read by the cost model, pushed to the engine's
+    # credential store as `AZURE_OPENAI_MODEL`) and which model everybody runs by default.
+    # They are separate now, and the field above keeps its one job.
+    #
+    # `applies: live` for the same reason the field above is: nothing publishes this value on
+    # its own: `GET /v1/organization/llm-defaults` resolves it per request and `in_call_llm`
+    # resolves it at publish, so an operator changing it moves the picker's "the model we run
+    # by default" within one config poll, and moves a live agent on its next publish.
+    #
+    # ⚠ CHANGING IT DOES NOT CHANGE ANY CLIENT'S BILL. The plan rate is struck against
+    # `billing/rates.BASE_RATE_LLM_MODEL`, deliberately frozen at `AZURE_OPENAI_DEFAULT_MODEL`
+    # so that an operator's flip cannot silently re-classify what an account is charged for
+    # (D-455) — and an account that FOLLOWS the platform default is never surcharged whatever
+    # it resolves to.
+    #
+    # BOUNDED BY ITS TYPE, like the field above: `LlmModelName` is the union of the three leg
+    # Literals, so pydantic refuses an unknown identifier at the console write path, at the
+    # boot-time load and on every snapshot rebuild. It deliberately does NOT refuse a model
+    # this repository currently withholds on merit: `selectable` is a live property that a
+    # release can flip either way, and a stored value that stops validating BRICKS THE BOOT
+    # of a running deployment rather than reporting a problem. An unofferable default is
+    # reported instead, where it can be acted on — the picker marks the row unavailable with
+    # its ground, `in_call_llm` refuses the publish, and the ops console shows why.
+    platform_llm_model: LlmModelName = PLATFORM_DEFAULT_LLM_MODEL
     # WHICH ENTRY IN THE ENGINE'S CREDENTIAL STORE HOLDS THE LLM KEY (D-404, re-aimed by
     # D-410).
     #
@@ -900,6 +985,24 @@ class Settings(BaseSettings):
     #
     # 320 is the RFC 5321 maximum for an addr-spec (64 local + @ + 255 domain).
     notifications_from: str | None = Field(default="support@calevate.tech", max_length=320)
+
+    # WHERE A REPLY GOES, WHICH IS NOT WHERE THE MAIL CAME FROM (D-518).
+    #
+    # The published contact address in the legal documents is a mailbox a human actually
+    # reads; `notifications_from` is a mailbox a PROVIDER will accept as a sender. Those
+    # are different requirements and it was a mistake to assume one address could satisfy
+    # both. Resend refuses a send outright (403) when the sender's DOMAIN is unverified,
+    # and no one can verify a public webmail domain — so pointing `notifications_from` at
+    # the published mailbox would not redirect the mail, it would STOP IT, silently, for
+    # hot leads, low-balance warnings and operator alerts alike.
+    #
+    # Reply-To is the header that exists for exactly this split: the message is sent from
+    # the verified domain, and a client pressing Reply reaches the mailbox we read. Unset
+    # means no header is added and a reply goes to the From address, which is the correct
+    # behaviour for a deployment whose sender IS its read mailbox.
+    #
+    # 320 is the RFC 5321 maximum for an addr-spec (64 local + @ + 255 domain).
+    notifications_reply_to: str | None = Field(default="calevate.voice@gmail.com", max_length=320)
 
     # WHERE OPERATOR ALERTS GO (OPERATIONS §4; §8's pre-launch gate "alerts firing to
     # Sri's phone"). `apps/api/core/alerting.py` delivers through the SAME transport as

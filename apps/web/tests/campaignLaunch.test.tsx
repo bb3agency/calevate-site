@@ -97,6 +97,8 @@ const AGENT: Agent = {
   ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   ai_disclosure_enabled: true,
   recording_notice_line: "This call is being recorded.",
+  caller_memory_notice_line: "I keep a short note of what you ask about.",
+  caller_memory_enabled: false,
   recording_notice_enabled: true,
   opening_line:
     "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
@@ -233,6 +235,47 @@ describe("the launch panel with blockers outstanding", () => {
     // The rule NAME is the gate's vocabulary and must not be what the client reads.
     expect(container.textContent).not.toContain("a_gate_this_build_predates");
     expect(launchButtonDisabled()).toBe(true);
+  });
+
+  it("tells a client whose credit ran out that people ringing them still get through", async () => {
+    /*
+     * THE BLOCKER EVERY PREPAID ACCOUNT CAN MEET, and since prepaid is what an account
+     * gets unless an operator deliberately says otherwise, the one most clients will meet
+     * first. It had no copy at all, so it rendered the server's own sentence — "This
+     * account has no calling credit left." — which is true and leaves the reader with the
+     * two questions that actually matter unanswered.
+     */
+    const { container } = await openLaunchPanel(
+      check({ rule: "no_credits", reason: "This account has no calling credit left." }),
+    );
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("Your calling credit has run out");
+    // THE ORDER IS THE MITIGATION, the same way it is on the wallet's own screen: an
+    // owner who reads that outgoing calls stopped concludes the phone has stopped being
+    // answered, and that belief costs a day of missed business.
+    expect(text).toContain("People ringing you still get through");
+    // Not a queue to wait in — a two-minute fix, with the screen that does it attached.
+    expect(text).toContain("You can fix this");
+    expect(text).not.toContain("We handle this");
+    const link = screen.getByRole("link", { name: /Add calling credit/ });
+    expect(link.getAttribute("href")).toContain("/billing?tab=credits");
+    // And the gate's own name is not what the client reads.
+    expect(text).not.toContain("no_credits");
+  });
+
+  it("sends a capped account to the limit that is its own, not to an account manager", async () => {
+    const { container } = await openLaunchPanel(
+      check({ rule: "spend_cap", reason: "This account has reached its spending cap." }),
+    );
+
+    const text = container.textContent ?? "";
+    expect(text).toContain("spent up to the monthly limit");
+    expect(text).toContain("People ringing you still get through");
+    // The limit is the client's own (D-34 R-11), so the destination is their screen.
+    expect(screen.getByRole("link", { name: /monthly spending limit/ }).getAttribute("href"))
+      .toContain("/billing?tab=usage");
+    expect(text).not.toContain("spend_cap");
   });
 
   it("keeps the enum names out of the DOM for the rules it does know", async () => {

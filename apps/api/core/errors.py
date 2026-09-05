@@ -9,10 +9,17 @@ Rules that are not negotiable:
 - 429 carries `Retry-After` from the limiter.
 - 503 is the ONE status allowed to keep its detailed message (ops-UI contract).
 - Every 5xx also fires the alert path with a `failure_stage` tag (§8).
+- Every string a screen renders — `title`, `detail`, `remediation` and the sentences
+  under `fields` — is written for a person, not for an API client: no type names, no
+  status codes, no library validator text, no column names. `tests/
+  plain_language_guard_test.py` holds the line; the "Plain language" block below is
+  where the ladder's own wording lives.
 """
 
 from __future__ import annotations
 
+from collections.abc import Iterable, Mapping, Sequence
+from http import HTTPStatus
 from typing import Any, Literal, Self
 
 from fastapi import FastAPI, Request
@@ -78,30 +85,298 @@ _RETRYABLE: frozenset[ErrorKind] = frozenset({"dependency", "transient"})
 # to a client who cannot be told to "check the identifier" — and an explicit
 # `remediation=` still wins, so every sentence already written stays exactly as written.
 #
-# Each line is what the CALLER can do, never what we would do: "contact support with the
-# trace id" is an action a person can take, "the team has been alerted" is not.
+# Each line is what the READER can do, never what we would do: "give our team the support
+# reference" is an action a person can take, "the team has been alerted" is not. The
+# reference is called that, and not the trace id, because that is what the console labels
+# it and a person quoting it should not have to translate.
 _DEFAULT_REMEDIATION: dict[ErrorKind, str] = {
-    "validation": "Correct the fields named in this response and send the request again.",
-    "auth": (
-        "Sign in again — your session may have expired, or this credential is not accepted here."
-    ),
+    "validation": "Fix what is listed here, then try again.",
+    "auth": "Sign in again — your session may have ended, or this account cannot be used here.",
     "permission": (
-        "Ask an account owner for the permission this action needs, or perform it from an "
-        "account that has it."
+        "Ask an owner of the account to give you access, or do this from an account that "
+        "already has it."
     ),
-    "not_found": "Check the identifier and the account you are signed in to.",
-    "conflict": "Reload the record — something changed since you loaded it — then try again.",
-    "business_rule": "Change the request so it meets the rule described here, then try again.",
+    "not_found": "Check what you are looking for, and that you are in the right account.",
+    "conflict": "Reload the page — something changed since you opened it — then try again.",
+    "business_rule": (
+        "Change what you are doing so it fits the rule described here, then try again."
+    ),
     "dependency": (
-        "An outside service did not answer. Wait a minute and try again; if it keeps "
-        "happening, quote the trace id on this response to support."
+        "An outside service did not answer. Wait a minute and try again. If it keeps "
+        "happening, give our team the support reference shown with this message."
     ),
-    "transient": "Try again in a few seconds.",
+    "transient": "Wait a few seconds, then try again.",
     "internal": (
-        "Try again in a moment. If it keeps happening, quote the trace id on this response "
-        "to support."
+        "Try again in a moment. If it keeps happening, give our team the support reference "
+        "shown with this message."
     ),
 }
+
+
+# --- Plain language ------------------------------------------------------------------
+#
+# WHY: a live sign-in refusal was photographed reading "One or more fields are invalid. /
+# Correct the fields named in this response and send the request again. / password:
+# String should have at least 12 characters." Four failures in one box — a sentence
+# addressed to an API client, pydantic's own validator text passed through verbatim (it
+# names a TYPE), the input named in its programmatic spelling, and a 32-character support
+# reference given equal weight to the one thing the person had to do, which was use a
+# longer password.
+#
+# The standard every string below is written to: say what happened in the reader's own
+# words, say what they can do next, and never name an internal — a type, a status code,
+# an exception class, a table or a column. Sentences stay short because this is a
+# Telugu-first product and all of them get translated.
+
+#: `_`-separated tokens whose plain rendering is not their spelling. Left: what the API
+#: calls the input. Right: what a person calls it.
+_LABEL_TOKENS: dict[str, str] = {
+    "ai": "AI",
+    "api": "API",
+    "crm": "CRM",
+    "dlt": "DLT",
+    "dnc": "DNC",
+    "gstin": "GSTIN",
+    "id": "ID",
+    "ids": "IDs",
+    "kb": "knowledge base",
+    "llm": "AI model",
+    "otp": "one-time code",
+    "pan": "PAN",
+    "pe": "principal entity",
+    "sms": "SMS",
+    "stt": "speech recognition",
+    "tm": "telemarketer",
+    "tts": "voice",
+    "url": "web address",
+    "uuid": "ID",
+}
+
+#: Whole names whose humanised form would still read like a column.
+_LABEL_OVERRIDES: dict[str, str] = {
+    "body": "What you sent",
+    "e164": "Phone number",
+    "msisdn": "Phone number",
+    "slug": "Web address name",
+}
+
+#: The source fastapi prepends to every `loc`. Never part of what a person filled in.
+_LOC_SOURCES = frozenset({"body", "query", "path", "header", "cookie"})
+
+#: Pydantic's own phrasings. Our validators raise `ValueError` with sentences we wrote and
+#: those are worth showing; these openings mean the text came from the library instead, and
+#: the library writes for whoever implements the model, not for whoever fills in the form.
+_LIBRARY_PHRASINGS = (
+    "input should",
+    "string should",
+    "value is not a valid",
+    "value error",
+    "field required",
+    "extra inputs",
+    "ensure this value",
+    "unable to interpret",
+    "assertion failed",
+)
+
+
+def _humanise_token(token: str) -> str:
+    return _LABEL_TOKENS.get(token.lower(), token.lower())
+
+
+def field_label(loc: Sequence[object]) -> str:
+    """The name of an input as a person would say it, from pydantic's `loc` tuple.
+
+    There is no richer source available here. `RequestValidationError` carries locations
+    and rules, never the model, so a `Field(title=...)` cannot be reached from the
+    handler — the label is derived from the name, with the two tables above fixing the
+    tokens that derivation gets wrong. Where a raise site knows better it passes its own
+    sentence, and that always wins.
+
+    List positions are rendered as "item 3" rather than the index, and only the last two
+    names are kept: "Contact phone number", never the whole path down a nested model.
+    """
+    parts = [str(p) for p in loc]
+    if parts and parts[0] in _LOC_SOURCES:
+        parts = parts[1:]
+    if not parts:
+        return _LABEL_OVERRIDES["body"]
+    names: list[str] = []
+    for part in parts:
+        if part.isdigit():
+            # The position belongs to the thing before it: `tags.2.name` is the name of
+            # item 3, not a field called "2".
+            if names:
+                names[-1] = f"{names[-1]} item {int(part) + 1}"
+            continue
+        names.append(part)
+    if not names:
+        return _LABEL_OVERRIDES["body"]
+    tail = names[-2:]
+    words: list[str] = []
+    for name in tail:
+        override = _LABEL_OVERRIDES.get(name)
+        if override is not None:
+            words.append(override if not words else override.lower())
+            continue
+        words.extend(_humanise_token(token) for token in name.replace("-", "_").split("_") if token)
+    # `otp_code` expands to "one-time code code": the token table already spells the
+    # noun, and the name repeats it. Adjacent duplicates go.
+    spoken: list[str] = []
+    for word in " ".join(w for w in words if w).split():
+        if not spoken or spoken[-1].lower() != word.lower():
+            spoken.append(word)
+    label = " ".join(spoken).strip()
+    if not label:
+        return _LABEL_OVERRIDES["body"]
+    return label[0].upper() + label[1:]
+
+
+def _plural(count: int, singular: str) -> str:
+    return f"{count} {singular}" if count == 1 else f"{count} {singular}s"
+
+
+def _our_own_sentence(ctx: Mapping[str, Any]) -> str | None:
+    """A `ValueError` one of our validators raised, when it reads like a sentence.
+
+    Worth keeping: "Phone numbers must start with +91" is better than anything a generic
+    map can produce. Worth dropping: pydantic re-uses `value_error` for its own failures
+    (an email address is one), and those openings are the library talking.
+    """
+    raw = str(ctx.get("error") or ctx.get("reason") or "").strip()
+    if not raw or len(raw) < 8:
+        return None
+    if any(raw.lower().startswith(opening) for opening in _LIBRARY_PHRASINGS):
+        return None
+    sentence = raw[0].upper() + raw[1:]
+    return sentence if sentence.endswith((".", "?", "!")) else sentence + "."
+
+
+def _message_for(rule: str, label: str, ctx: Mapping[str, Any], msg: str) -> str:
+    """One pydantic failure as a sentence a person can act on.
+
+    Rules are matched by their machine name, never by the message text: the text is what
+    we are refusing to show, and it changes between pydantic releases anyway. Verified
+    against pydantic v2 in this repo (`string_too_short` carries `min_length`, list
+    `too_short` carries `field_type`/`min_length`, `literal_error` carries `expected`,
+    an `EmailStr` failure arrives as `value_error` with a `reason`) on 2 Sep 2026.
+    """
+    if rule == "missing":
+        # "Enter your date of birth", not "Date of birth is required" — GOV.UK's
+        # "Recover from validation errors" pattern, which this module's guard test cites
+        # as its standard: tell the person what to DO, in the words they would use. "Is
+        # required" states our constraint and leaves them to infer the action.
+        return f"Enter {label[0].lower() + label[1:]}."
+    if rule == "extra_forbidden":
+        return f"We do not use {label.lower()} here, so it cannot be saved."
+    if rule in ("string_too_short", "too_short"):
+        least = ctx.get("min_length")
+        if ctx.get("field_type") == "List":
+            return f"{label} needs at least {_plural(int(least or 1), 'item')}."
+        if least is not None:
+            return f"{label} needs to be at least {_plural(int(least), 'character')}."
+        return f"{label} is too short."
+    if rule in ("string_too_long", "too_long"):
+        most = ctx.get("max_length")
+        if ctx.get("field_type") == "List":
+            return f"{label} can have at most {_plural(int(most or 1), 'item')}."
+        if most is not None:
+            return f"{label} can be at most {_plural(int(most), 'character')}."
+        return f"{label} is too long."
+    if rule == "string_pattern_mismatch":
+        # Never the pattern itself: a regex is not something a person can read, and the
+        # raise site that cares should say what the shape is in its own words.
+        return f"{label} is not in the form we can accept."
+    if rule in ("greater_than", "greater_than_equal", "less_than", "less_than_equal"):
+        limits = {
+            "greater_than": ("more than", "gt"),
+            "greater_than_equal": ("at least", "ge"),
+            "less_than": ("less than", "lt"),
+            "less_than_equal": ("at most", "le"),
+        }
+        wording, key = limits[rule]
+        bound = ctx.get(key)
+        return (
+            f"{label} has to be {wording} {bound}."
+            if bound is not None
+            else f"{label} is out of range."
+        )
+    if rule in ("literal_error", "enum"):
+        # pydantic quotes each choice ("'a' or 'b'"); the quotes are punctuation from a
+        # repr, and the choices themselves are what the person picks between.
+        expected = str(ctx.get("expected") or "").replace("'", "").strip()
+        return (
+            f"{label} has to be one of: {expected}."
+            if expected
+            else f"{label} is not one we offer."
+        )
+    if rule.startswith(("int_", "float_", "decimal_")):
+        return f"{label} has to be a number."
+    if rule.startswith("bool_"):
+        return f"{label} has to be yes or no."
+    if rule.startswith(("date_", "datetime_", "time_", "timedelta_")):
+        return f"{label} has to be a date and time."
+    if rule.startswith("uuid_"):
+        return f"{label} is not an ID we recognise."
+    if rule.startswith("url_"):
+        return f"{label} has to be a web address starting with https://"
+    if rule == "value_error":
+        if "email address" in msg:
+            if "email" in label.lower():
+                return f"{label} has to look like name@example.com."
+            return f"{label} has to be an email address, like name@example.com."
+        return _our_own_sentence(ctx) or f"{label} is not something we can accept."
+    if rule == "json_invalid":
+        return "We could not read what was sent."
+    if rule.endswith("_type"):
+        return f"{label} is not in the form we can accept."
+    return f"{label} is not something we can accept."
+
+
+def humanise_validation_errors(
+    errors: Iterable[Mapping[str, Any]], *, drop_source: bool
+) -> list[dict[str, str]]:
+    """Pydantic's error list as our `{field, label, rule, message}` entries.
+
+    `field` stays the programmatic path — the console needs it to put the message beside
+    the right input — and `label` is the same thing in a person's spelling, so a screen
+    never has to print `password:` at somebody. `message` is ours; pydantic's `msg` is
+    read only to tell an email failure from any other `value_error`, and never rendered.
+
+    THE INPUT IS DROPPED, always (hard rule 6): pydantic v2 puts `input_value` in its own
+    string form of an error, and on the sign-in route that value is the password itself.
+
+    `drop_source` is the one difference between the two callers. Fastapi prepends
+    `"body"`/`"query"` to every `loc`; a `ValidationError` from a hand-called
+    `model_validate` does not, and stripping there would eat the top-level field name.
+    """
+    entries: list[dict[str, str]] = []
+    for err in errors:
+        loc = tuple(err.get("loc", ()))
+        rule = str(err.get("type", "invalid"))
+        ctx = err.get("ctx") or {}
+        label = field_label(loc if drop_source else ("body", *loc))
+        entries.append(
+            {
+                "field": ".".join(str(p) for p in (loc[1:] if drop_source else loc)) or "body",
+                "label": label,
+                "rule": rule,
+                "message": _message_for(rule, label, ctx, str(err.get("msg", ""))),
+            }
+        )
+    return entries
+
+
+def validation_summary(entries: Sequence[Mapping[str, str]]) -> str:
+    """What the box says above the list. One problem gets said outright; several get
+    counted and then the first two, because a wall of sentences is read as none."""
+    messages = [str(e.get("message", "")) for e in entries if e.get("message")]
+    if not messages:
+        return "Something in this form needs fixing."
+    if len(messages) == 1:
+        return messages[0]
+    if len(messages) <= 3:
+        return " ".join(messages)
+    return f"{messages[0]} {messages[1]} There are {len(messages) - 2} more to fix."
 
 
 class ProblemError(Exception):
@@ -167,8 +442,11 @@ class ProblemError(Exception):
             title=f"{what} not found",
             # No ident echo for tenant-scoped objects: under RLS "not found" and
             # "belongs to another tenant" are the same answer, deliberately.
-            detail=f"No {what.lower()} matches this request.",
-            remediation="Check the identifier and the account you are signed in to.",
+            detail=f"We could not find that {what.lower()}.",
+            remediation=(
+                "Check what you are looking for, and that you are in the right account. It "
+                "may also have been deleted."
+            ),
         )
 
     @classmethod
@@ -176,21 +454,23 @@ class ProblemError(Exception):
         return cls(
             kind="conflict",
             code=code,
-            title="Conflicting request",
+            title="We could not complete that",
             detail=detail,
             remediation=remediation,
         )
 
     @classmethod
-    def forbidden(cls, detail: str = "You do not have access to this resource.") -> Self:
-        return cls(kind="permission", code="forbidden", title="Forbidden", detail=detail)
+    def forbidden(cls, detail: str = "This account cannot open this part of Calevate.") -> Self:
+        return cls(
+            kind="permission", code="forbidden", title="You do not have access", detail=detail
+        )
 
     @classmethod
-    def unauthorized(cls, detail: str = "Authentication is required.") -> Self:
+    def unauthorized(cls, detail: str = "You need to be signed in to do this.") -> Self:
         return cls(
             kind="auth",
             code="unauthorized",
-            title="Unauthorized",
+            title="Please sign in",
             detail=detail,
             headers={"WWW-Authenticate": "Bearer"},
         )
@@ -200,7 +480,7 @@ class ProblemError(Exception):
         return cls(
             kind="business_rule",
             code=code,
-            title="Request rejected by a business rule",
+            title="We cannot do that",
             detail=detail,
             remediation=remediation,
         )
@@ -213,39 +493,38 @@ class InvalidStatusTransitionError(ProblemError):
         super().__init__(
             kind="conflict",
             code="invalid_status_transition",
-            title="Invalid status transition",
-            detail=f"A {entity} cannot move from {frm} to {to}.",
-            remediation="Reload the record — someone else may have changed it.",
+            title="That change is not possible",
+            detail=f"A {entity} cannot go from {frm} to {to}.",
+            remediation="Reload the page — someone else may have changed it.",
         )
 
 
 def validation_fields(exc: Exception) -> list[dict[str, str]]:
-    """A hand-caught pydantic `ValidationError` as our flat `{field, rule, message}` triple,
-    with the offending `input` DROPPED (hard rule 6: it can be a phone number — or, on the
-    action-config route, a credential the caller typed).
+    """A hand-caught pydantic `ValidationError` as our `{field, label, rule, message}`
+    entries, with the offending `input` DROPPED (hard rule 6: it can be a phone number —
+    or, on the action-config route, a credential the caller typed).
 
     For a service that catches `Model.model_validate(...)` and would otherwise put
     `detail=str(exc)` on a `ProblemError` — which in pydantic v2 embeds `input_value=…` and
-    round-trips the submitter's own secret back to them. This keeps the field NAMES and the
-    rule (which the submitter needs to fix their input) and discards only the value.
+    round-trips the submitter's own secret back to them.
 
-    THE FULL `loc` IS JOINED, unlike the global `RequestValidationError` handler which slices
-    `[1:]`: fastapi prepends the source (`"body"`/`"query"`) to every loc, a raw
-    `ValidationError` from `model_validate` does not — so slicing here would drop the
-    top-level field name. `errors()` exists on `pydantic.ValidationError`; anything else
-    yields one generic field rather than raising, so a caller can pass whatever it caught.
+    THE FULL `loc` IS KEPT, unlike the global `RequestValidationError` handler which drops
+    the source fastapi prepends: a raw `ValidationError` from `model_validate` has no such
+    prefix, so dropping here would eat the top-level field name. `errors()` exists on
+    `pydantic.ValidationError`; anything else yields one generic entry rather than raising,
+    so a caller can pass whatever it caught.
     """
     errors = exc.errors() if hasattr(exc, "errors") else []
     if not errors:
-        return [{"field": "body", "rule": "invalid", "message": "Invalid value"}]
-    return [
-        {
-            "field": ".".join(str(p) for p in err.get("loc", ())) or "body",
-            "rule": str(err.get("type", "invalid")),
-            "message": str(err.get("msg", "Invalid value")),
-        }
-        for err in errors
-    ]
+        return [
+            {
+                "field": "body",
+                "label": _LABEL_OVERRIDES["body"],
+                "rule": "invalid",
+                "message": "We could not read what was sent.",
+            }
+        ]
+    return humanise_validation_errors(errors, drop_source=False)
 
 
 def _problem_response(problem: dict[str, Any], headers: dict[str, str]) -> JSONResponse:
@@ -268,21 +547,17 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(RequestValidationError)
     async def _validation(request: Request, exc: RequestValidationError) -> JSONResponse:
-        # Pydantic's loc tuple → our flat {field, rule, message} triple. `input` is
-        # deliberately dropped: it can contain a phone number (hard rule 6).
-        fields = [
-            {
-                "field": ".".join(str(p) for p in err.get("loc", ())[1:]) or "body",
-                "rule": str(err.get("type", "invalid")),
-                "message": str(err.get("msg", "Invalid value")),
-            }
-            for err in exc.errors()
-        ]
+        # THE SCREEN THIS FIXES: the sign-in box that read "One or more fields are invalid /
+        # Correct the fields named in this response and send the request again / password:
+        # String should have at least 12 characters". `detail` is now the sentence itself,
+        # so a screen that renders only `title` and `detail` already says the useful thing.
+        # `input` is deliberately dropped: it can be the password (hard rule 6).
+        fields = humanise_validation_errors(exc.errors(), drop_source=True)
         problem = ProblemError(
             kind="validation",
             code="validation_failed",
-            title="Request validation failed",
-            detail="One or more fields are invalid.",
+            title="Check what you entered",
+            detail=validation_summary(fields),
             fields=fields,
         )
         return _problem_response(problem.as_problem(request.url.path), {})
@@ -301,21 +576,55 @@ def install_error_handlers(app: FastAPI) -> None:
         fallback: ErrorKind = "internal" if exc.status_code >= 500 else "business_rule"
         kind: ErrorKind = by_status.get(exc.status_code, fallback)
         # The two the ROUTER raises, which no handler is reached to explain. Their kind's
-        # floor would be wrong for both: a 404 from an unknown PATH is not "check the
-        # identifier and the account", and a 405 lands on `business_rule`'s "change the
-        # request so it meets the rule described here" when the rule is the method itself.
+        # floor would be wrong for both: a 404 from an unknown address is not "check that
+        # you are in the right account", and a 405 lands on `business_rule`'s "change what
+        # you are doing" when the thing to change is how the caller is calling.
         by_status_remediation: dict[int, str] = {
             404: (
-                "Check the URL. If it came from our own console, quote the trace id on "
-                "this response to support."
+                "Check the URL. If you got here from inside Calevate, give our team the "
+                "support reference shown with this message."
             ),
-            405: "Use the HTTP method this endpoint documents — see /docs for the schema.",
+            405: "Use the method this address accepts — /docs lists them.",
         }
+        # STARLETTE'S OWN TITLES ARE NOT SENTENCES A PERSON READS: an unknown address
+        # arrives as "Not Found", a wrong verb as "Method Not Allowed", and both were
+        # being rendered as the heading of the box. Ours replace them ONLY where the
+        # framework supplied its default phrase for the status — anything else was written
+        # by a caller who meant it, and is passed through unchanged.
+        by_status_text: dict[int, tuple[str, str]] = {
+            401: ("Please sign in", "You need to be signed in to do this."),
+            403: ("You do not have access", "This account cannot open this part of Calevate."),
+            404: ("Nothing here", "There is nothing at this address."),
+            405: ("That address does not work this way", "This address does not accept that."),
+            406: (
+                "We cannot answer in that form",
+                "This address cannot answer in the form asked for.",
+            ),
+            409: ("We could not complete that", "Something changed while this was being done."),
+            413: ("That is too big to send", "What was sent is larger than we accept."),
+            415: (
+                "We cannot read that kind of file",
+                "This address does not take that kind of file.",
+            ),
+            429: ("Too many attempts", "Too many attempts in a short time."),
+        }
+        supplied = str(exc.detail) if exc.detail is not None else ""
+        try:
+            framework_default = HTTPStatus(exc.status_code).phrase
+        except ValueError:  # a status outside the registry; whoever set it wrote the text
+            framework_default = ""
+        human = by_status_text.get(exc.status_code)
+        if exc.status_code >= 500:
+            title, detail = "Something went wrong at our end", "Something went wrong at our end."
+        elif human is not None and supplied.strip() in ("", framework_default):
+            title, detail = human
+        else:
+            title, detail = supplied, supplied
         problem = ProblemError(
             kind=kind,
             code=f"http_{exc.status_code}",
-            title=str(exc.detail) if exc.status_code < 500 else "Internal server error",
-            detail=str(exc.detail) if exc.status_code < 500 else "Something went wrong.",
+            title=title,
+            detail=detail,
             status=exc.status_code,
             remediation=by_status_remediation.get(exc.status_code),
         )
@@ -352,8 +661,8 @@ def install_error_handlers(app: FastAPI) -> None:
         problem = ProblemError(
             kind="internal",
             code="internal_error",
-            title="Internal server error",
-            detail="Something went wrong. The team has been alerted.",
+            title="Something went wrong at our end",
+            detail="Something went wrong at our end. Our team has been told about it.",
         )
         return _problem_response(problem.as_problem(request.url.path), {})
 

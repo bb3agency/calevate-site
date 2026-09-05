@@ -136,6 +136,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --all-packages --group errors
 COPY scripts scripts
 COPY .env.example .env.example
+# THE OPERATOR RUNBOOKS, because the admin copilot answers out of them (D-499,
+# `apps/api/copilot/runbooks.py`). Not documentation shipped for its own sake: it is the
+# corpus a running process reads, so leaving it out would make `search_runbooks` work in
+# every test and return nothing in production — the half-wired shape CLAUDE.md names by
+# hand. ~412 KB of markdown, after the sync for the same reason `scripts` is: it is not a
+# workspace member and copying it earlier would invalidate the install layer on every
+# runbook edit. `docs/` is deliberately NOT copied — 5.5 MB of blueprint that nothing
+# reads at runtime.
+COPY runbooks runbooks
 
 # --- runtime -------------------------------------------------------------------
 FROM python:${PYTHON_VERSION} AS runtime

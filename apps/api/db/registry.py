@@ -9,8 +9,10 @@ from apps.api.actions import models as actions_models
 from apps.api.agents import models as agents_models
 from apps.api.authn import models as authn_models
 from apps.api.billing import models as billing_models
+from apps.api.callbacks import models as callbacks_models
 from apps.api.campaigns import models as campaigns_models
 from apps.api.compliance import models as compliance_models
+from apps.api.copilot import models as copilot_models
 from apps.api.crm import models as crm_models
 from apps.api.db.base import Base
 from apps.api.flags import models as flags_models
@@ -21,6 +23,7 @@ from apps.api.legal import models as legal_models
 from apps.api.ops import models as ops_models
 from apps.api.quality import models as quality_models
 from apps.api.reliability import models as reliability_models
+from apps.api.retrieval import models as retrieval_models
 from apps.api.tenancy import models as tenancy_models
 
 __all__ = [
@@ -31,8 +34,10 @@ __all__ = [
     "agents_models",
     "authn_models",
     "billing_models",
+    "callbacks_models",
     "campaigns_models",
     "compliance_models",
+    "copilot_models",
     "crm_models",
     "flags_models",
     "insights_models",
@@ -42,6 +47,7 @@ __all__ = [
     "ops_models",
     "quality_models",
     "reliability_models",
+    "retrieval_models",
     "tenancy_models",
 ]
 
@@ -87,6 +93,19 @@ TENANT_TABLES = [
     # what this client was billed once, read by the invoice.
     "one_time_charges",
     "spend_state",
+    # A refund this platform has committed to asking the provider for, written BEFORE the
+    # ask (migration c4b8e91d7a05). Tenant money: which of this client's payments is being
+    # returned and how much. NOT append-only — a claim whose provider call failed is
+    # released, which is why it is here and not in APPEND_ONLY_TABLES.
+    "refund_intents",
+    # Self-serve top-ups that were STARTED, and what became of them (migration
+    # e9b24c73f105). Tenant money-adjacent: which of this client's payment attempts
+    # failed, which is still settling, and which became a credit. NOT append-only, and
+    # deliberately: it is a CLAIM rather than an assertion of money — the row is UPDATEd
+    # from `created` to `captured`/`failed`, it is never summed into a balance, and the
+    # append-only record of the money itself is the `credit_ledger` entry the same webhook
+    # writes. A lost UPDATE here costs a stale word on a screen; it cannot cost a rupee.
+    "topup_attempts",
     "consent_ledger",
     # The CLIENT-side WhatsApp opt-in (migration e6b2d94f31a7): our own customer's owner
     # agreeing to receive hot-lead alerts from the Calevate WABA. Tenant data — it names
@@ -163,6 +182,29 @@ TENANT_TABLES = [
     "outbound_webhooks",
     "kb_sources",
     "kb_documents",
+    # The retrieval projection (D-502, migration `dc1aaeeeff02`): one row per published
+    # chunk, holding a tsvector and an embedding and no content of its own. Tenant-scoped
+    # and FORCE-RLS'd like every other derivative of a client's knowledge — and RLS is
+    # load-bearing here rather than belt-and-braces, because a vector similarity query has
+    # no natural key to get wrong: without the policy, forgetting the tenant predicate
+    # returns a NEIGHBOUR'S nearest chunk and looks like a working search.
+    "kb_chunks",
+    # THE CALLER-DATA PROJECTION AND ITS SOURCE (D-503, migration c6b1f0d47e83).
+    # `kb_chunks` one line up is the same shape over a client's own uploaded knowledge;
+    # these two hold the same shape over a DATA PRINCIPAL's. Both get the FORCEd
+    # `tenant_isolation` policy, and the leak they defend against is the one with no shape
+    # to it: a `WHERE lead_id = ?` that leaks returns a row every screen shows as wrong,
+    # while a vector query that leaks returns the NEAREST chunk in the fleet and reads as an
+    # excellent search result.
+    "caller_chunks",
+    "caller_memories",
+    # The call-back a caller asked for on a call (D-514, migration d8f31a7c2409). Tenant
+    # data of the plainest kind — a phone number, a time we promised, and the gate's own
+    # sentence for why we could not keep it — and FORCE-RLS'd like every other row that
+    # names one of a client's callers. NOT append-only: the row IS a state machine
+    # (`scheduled -> dialing -> one of five endings`), which is what lets one promise stay
+    # one row however many times a tick claims it.
+    "scheduled_callbacks",
     "kb_retrieval_logs",
     # The stored monthly QA report (SURFACES §2) and the weekly 5% spot-check queue
     # (SURFACES §1), migration d5b8a2c60e17. Both are tenant data: the report is the
@@ -177,6 +219,13 @@ TENANT_TABLES = [
     # mutates; the immutable trail of dismiss/teach is `audit_log`.
     "knowledge_gaps",
     "knowledge_gap_occurrences",
+    # What the in-app copilot remembers, per tenant AND per user (migration d4a9c17e6b02).
+    # Tenant data of a shape nothing else here holds: prose a client's own STAFF typed about
+    # their own console, plus the facts a background worker distilled out of it. Redacted on
+    # write (`copilot/memory.redacted_content`), expired by the `copilot_memory` retention
+    # category, and DELETEd whole by tenant erasure. NOT append-only: `distilled_at` is
+    # stamped by the distillation worker, and these rows are meant to expire.
+    "copilot_memories",
 ]
 
 # Tables deliberately OUTSIDE tenant isolation, with reasons — the RLS coverage
@@ -234,6 +283,22 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "the global staleness queue nor the cross-tenant ops summary. Those three hold a "
         "verdict from a fixed six-value vocabulary and two timestamps: no source name, no "
         "chunk, and no engine handle."
+    ),
+    "engine_kb_routes": (
+        "the claim that ties ONE vendor knowledge base to one tenant (migration "
+        "f1c9e0a73b46, D-519), and the exemption is for READS ONLY on exactly "
+        "`engine_agent_routes`'s pattern — `engine_kb_routes_global_read` "
+        "(FOR SELECT USING (true)) beside a FORCEd `tenant_isolation` policy covering "
+        "INSERT/UPDATE/DELETE, so one client's session can neither delete nor re-tenant "
+        "another's claim. The read genuinely is global: we run ONE engine account for "
+        "every tenant, the vendor's knowledge base is an ACCOUNT-level object with no "
+        "owner field, and the question the orphan sweep asks — which objects on this "
+        "account does no tenant of ours claim — cannot be asked from a tenant session at "
+        "all. Keeping it here is what lets `kb_sources` and `kb_documents`, which hold "
+        "the client's actual content, stay FORCE-RLS'd with no exemption. Carries four "
+        "opaque ids, a content digest and two timestamps: no source name, no chunk, no "
+        "PII. NOT append-only — the handle is recorded on attach and the row is deleted "
+        "on detach, which is the same lifecycle the JSONB key it replaces had."
     ),
     "fx_rate_observations": (
         "platform-scoped. The published USD/INR rate this deployment pulls every five "
@@ -307,6 +372,41 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "a new effective-dated row, never an edit, so a re-rendered invoice resolves the "
         "price that was live in the month it is re-rendering."
     ),
+    "platform_ai_usage": (
+        "platform-scoped, admin realm only (D-499). The ADMIN copilot's AI spend — an "
+        "operator asking the assistant about platform state, or asking it while viewing a "
+        "client. The payer is Calevate, never the client, so there is no tenant whose row "
+        "this could be and it carries no tenant_id. `viewing_tenant_id` is CONTEXT and not "
+        "a payer: nothing prices it, it is nullable, and it is SET NULL on tenant delete. "
+        "Holds unit types, NUMERIC token quantities and INR unit costs, an operator id, a "
+        "model name and a feature name — no prompt, no answer, no PII. Append-only (see "
+        "APPEND_ONLY_TABLES): it is the ledger `platform_ai_spend` counts, so hard rule 4 "
+        "binds it exactly as it binds usage_events."
+    ),
+    "admin_copilot_memories": (
+        "platform-scoped, admin realm only (D-499). What the ADMIN copilot remembers for "
+        "one OPERATOR — the admin-realm twin of `copilot_memories`, which is tenant-scoped "
+        "and whose `user_id` is a foreign key to `users`. An operator is a row in "
+        "`admin_users` and the memory is about platform state, so there is no tenant whose "
+        "row this could be. `viewing_tenant_id` records which account was on screen when "
+        "the memory formed so a fact learned on one client's page is not recalled as a "
+        "fact about the platform; it is nullable and SET NULL on tenant delete. Content is "
+        "redacted on the way in by the same `copilot/memory.redacted_content` the client "
+        "table uses, and CASCADEs away with the operator's account."
+    ),
+    "platform_list_rates": (
+        "platform-scoped, admin realm only (PLATFORM-CONFIG §5). The self-serve list price "
+        "per calling minute, effective-dated (D-492) — ONE published price for the whole "
+        "self-serve motion at an instant, and a MANAGED client's price is their `plans` row "
+        "rather than this, so there is no tenant whose row this could be and it carries no "
+        "tenant_id. Written only from the ops config route, in the same transaction as the "
+        "`platform_settings` change it dates; every such write is step-up confirmed and "
+        "lands an audit_log row. Holds a rate key, an instant, one NUMERIC INR figure, the "
+        "operator's id and their stated reason — no PII, no credential, no tenant data. "
+        "Append-only (see APPEND_ONLY_TABLES): a price correction is a new effective-dated "
+        "row, never an edit, so a closed month's statement resolves the rate it was struck "
+        "at instead of being re-priced by every later rate move."
+    ),
     "platform_ai_spend": (
         "platform-scoped, admin realm only. The dashboard AI's monthly spend against the "
         "platform ceiling (D-127) — OUR bill to Google, not a client's, so there is no "
@@ -334,6 +434,47 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "no `tenant_id`, so the column-driven sweep never asked about it, and a reviewer "
         "looking for 'what is deliberately not tenant-isolated' would not have found the "
         "table holding references to every lead payload we have ever sent."
+    ),
+    "outbox_messages": (
+        "THE ONE THAT WAS MISSING AND MATTERED MOST, and it is the same omission "
+        "`webhook_deliveries` above records one step further in: that table holds a KEY "
+        "to a CRM body and carries fifteen lines of justification, while THIS one holds "
+        "the body ITSELF and carried none. `payload` is jsonb written by the transactional "
+        "outbox (BACKEND-PATTERNS §4), and across its producers it holds a subject's email "
+        "address beside a PLAINTEXT password-reset secret (`authn/service.py::"
+        "_enqueue_auth_email`, whose docstring records the incident where one sat here for "
+        "ninety days) and the entire outbound CRM delivery body — a lead's name, number "
+        "and extracted fields (`integrations/service.py`).\n\n"
+        "WHY IT CANNOT CARRY A TENANT PREDICATE: the row is written in the SAME "
+        "transaction as the domain write but CLAIMED by a dispatcher that has no tenant "
+        "context and must scan across every tenant to order the queue by age "
+        "(`reliability/service.py::claim_outbox_batch`). A tenant policy would make the "
+        "dispatcher unable to see the work it exists to publish, exactly as it would on "
+        "`engine_agent_routes`.\n\n"
+        "WHAT BOUNDS THE EXPOSURE, stated here rather than left to the model docstring "
+        "no guardrail reads: no client-realm route names this table, and the admin-realm "
+        "queue view (`ops/routes.py`) projects the JOB NAME and never the payload. The "
+        "secret-bearing shape is scrubbed in the SAME statement that flips the status, "
+        "not by a later sweep — `tests/outbox_payload_scrub_test.py` is the assertion, "
+        "because the ninety-day residue above is what a comment alone bought. What "
+        "remains after a successful publish is a delivered CRM body, which "
+        "`retention.prune_reliability_tables` removes on the reliability clock."
+    ),
+    "idempotency_records": (
+        "`response_payload` is jsonb holding the REPLAYED BODY of a completed mutating "
+        "request (BACKEND-PATTERNS §4), so for a client-realm route it is whatever that "
+        "route returned — a lead, a contact list, an agent — and it is therefore tenant "
+        "data held inline, registered here for `outbox_messages`' reason rather than "
+        "because it is inert.\n\n"
+        "It carries no `tenant_id` COLUMN, but it is not unscoped: `scope_key` is part of "
+        "the UNIQUE key every lookup matches on (`scope_key, route, method, "
+        "idempotency_key`), and the tenant is inside it — so one tenant's replay can never "
+        "resolve to another tenant's stored response. That is isolation by the LOOKUP KEY "
+        "rather than by a policy, which is why it needs writing down: it is a property of "
+        "how the table is queried, and RLS would not restore it if a future caller built "
+        "the key differently. `scripts/check_idempotency_scope.py` is the guardrail on "
+        "that construction. Rows are short-lived by design — `expires_at` with the "
+        "`ix_idempotency_expiry` sweep — so the body does not outlive its replay window."
     ),
     "auth_credentials": (
         "D-165's first-party password store, and it is listed here because it is NOT "
@@ -420,6 +561,11 @@ APPEND_ONLY_TABLES = [
     # answerable after the fact, and a row somebody could edit answers it with today's belief.
     "platform_dashboard_data_use",
     "platform_model_prices",
+    # The ADMIN copilot's own AI spend (D-499). Append-only for `usage_events`' reason
+    # rather than `platform_model_prices`': it is a LEDGER of money already paid to a
+    # provider, and `platform_ai_spend` is the counter derived from it. A row somebody
+    # could edit would let this month's platform brake be talked down after the fact.
+    "platform_ai_usage",
     # Acceptance of a legal document is CONTRACT FORMATION, not consent: there is no
     # withdrawal row and no status column, because a client who ends the engagement does
     # not un-accept the terms they operated under last month. An UPDATE could only ever
@@ -431,5 +577,11 @@ APPEND_ONLY_TABLES = [
     # rendered and paid last quarter, which is not a correction but a rewrite of the
     # evidence — a superseding observation is a NEW row, and the newest publication wins.
     "fx_rate_observations",
+    # The published self-serve list rate, effective-dated (D-492). Append-only for
+    # `platform_model_prices`' reason, one surface closer to the client: a closed month's
+    # statement is DERIVED, so a rate row somebody could edit would silently re-price a
+    # month the client already paid for out of their wallet. A correction is a new row at a
+    # later instant, and the blanket `calevate_forbid_mutation` applies with no carve-out.
+    "platform_list_rates",
     "legal_acceptances",
 ]

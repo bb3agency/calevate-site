@@ -21,9 +21,12 @@ import hmac
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Final, NotRequired, TypedDict, get_args
+from uuid import UUID
 
 from calevate_shared.engine import (
     E164,
+    AccountKBListing,
+    AccountKBObject,
     AgentConfig,
     AgentSnapshot,
     CallContext,
@@ -350,6 +353,9 @@ class FakeEngine:
         self._agents: dict[str, AgentConfig] = {}
         self._calls: dict[str, _StoredCall] = {}
         self._kb: dict[str, list[KBSourceRef]] = {}
+        #: The ACCOUNT's knowledge bases, which is a different object from the agent
+        #: linkage above and outlives it — see `list_account_kb` and `delete_agent`.
+        self._account_kb: dict[EngineKBRef, AccountKBObject] = {}
         #: `engine_number_ref → agent ref` — the engine's inbound routing table (D-420).
         self._inbound: dict[str, EngineAgentRef] = {}
         #: The rotating LLM credential (D-404), modelled as REPLACE-IN-PLACE — one slot,
@@ -416,12 +422,24 @@ class FakeEngine:
         self._agents[ref] = cfg
 
     async def delete_agent(self, ref: EngineAgentRef) -> None:
-        """Forget the agent AND everything hanging off it — idempotent, per the contract.
+        """Forget the agent AND its knowledge LINKAGE — but not the account's objects.
 
         `_kb` is dropped in the same act because the Protocol's "what it costs at the
         vendor" note is a real property here too: a fake that removed the agent and kept
         its attached sources would leave `list_kb(ref)` answering about an agent that no
         longer exists, which is the phantom `get_agent` raises to avoid.
+
+        **`_account_kb` IS DELIBERATELY NOT DROPPED, AND THAT IS A CHOICE THIS FAKE HAS TO
+        MAKE HONESTLY (D-519).** Whether deleting an agent also deletes the knowledge
+        bases it referenced is UNKNOWN — the primary engine's docs do not state it, and
+        OPERATIONS §2 gate 43f is the live probe that settles it. A fake must do
+        *something*, so it does the WORSE thing: the account keeps the object and it
+        becomes an orphan nothing references. Code that is correct against this fake is
+        correct under either answer, because the cascade branch only ever means our later
+        cleanup finds less than it expected — while the orphan branch means a client's
+        document lives on a shared vendor account with nothing pointing at it, which is
+        the outcome that has to be survivable. Modelling the comfortable branch would let
+        a test prove a property the vendor has never promised.
 
         `pop(..., None)` rather than `del`: deleting a ref this engine never held is the
         postcondition already satisfied, and the conformance suite deletes twice.
@@ -771,16 +789,53 @@ class FakeEngine:
     def _kb_handle(self, ref: EngineAgentRef, kb_id: str) -> EngineKBRef:
         return self._stable_id("fakekb", ref, kb_id)
 
-    async def attach_kb(self, ref: EngineAgentRef, source: KBSourceRef) -> EngineKBRef:
+    @staticmethod
+    def _claimed_source(kb_id: str) -> UUID | None:
+        """`KBSourceRef.kb_id` as a source id, or None when it is not one.
+
+        The real adapters recover this from a file name THEY wrote; this engine is handed
+        the id directly, so the only failure mode left is a caller (a test, usually)
+        passing something that is not a uuid — and inventing an attribution for it would
+        be exactly the guess `AccountKBObject.claimed_source_id` documents itself as never
+        making.
+        """
+        try:
+            return UUID(kb_id)
+        except ValueError:
+            return None
+
+    async def attach_kb(
+        self, ref: EngineAgentRef, source: KBSourceRef, *, agent: AgentConfig | None = None
+    ) -> EngineKBRef:
+        # `agent` IS IGNORED HERE, AND THAT IS THE HONEST ANSWER RATHER THAN AN OVERSIGHT
+        # (D-488). It exists for engines that hold the knowledge linkage as agent state
+        # and can only rewrite it with a full-replacement PUT; this engine's KB store is
+        # keyed on the agent ref directly, so there is no second object to keep in step.
+        # Accepting and ignoring it is what keeps the fake a fair stand-in: a fake that
+        # REQUIRED it would make the parameter look load-bearing everywhere.
         require_capability("knowledge_base", engine=self)
         attached = self._kb.get(ref, [])
         # Re-attaching the SAME source replaces it. Appending a second copy would make
         # the fake engine the one place where a duplicate is normal, and the duplicate
         # is precisely the defect the rest of this file has to be able to expose.
         self._kb[ref] = [s for s in attached if s.kb_id != source.kb_id] + [source]
-        return self._kb_handle(ref, source.kb_id)
+        handle = self._kb_handle(ref, source.kb_id)
+        # THE ACCOUNT-LEVEL OBJECT, recorded beside the linkage rather than instead of it.
+        # An attach on the primary engine is two writes to two objects (a create at the
+        # account, then a reference on the agent), and a fake with only the second half
+        # cannot express the state every failure in this feature leaves behind: an object
+        # the account holds that no agent references.
+        self._account_kb[handle] = AccountKBObject(
+            handle=handle,
+            claimed_source_id=self._claimed_source(source.kb_id),
+            state="ready",
+            created_at=datetime.now(UTC),
+        )
+        return handle
 
-    async def detach_kb(self, ref: EngineAgentRef, kb: EngineKBRef) -> None:
+    async def detach_kb(
+        self, ref: EngineAgentRef, kb: EngineKBRef, *, agent: AgentConfig | None = None
+    ) -> None:
         require_capability("knowledge_base", engine=self)
         attached = self._kb.get(ref, [])
         remaining = [s for s in attached if self._kb_handle(ref, s.kb_id) != kb]
@@ -795,6 +850,22 @@ class FakeEngine:
                 detail="The voice platform does not hold that knowledge base.",
             )
         self._kb[ref] = remaining
+        # Both halves, in the order the real detach performs them: the reference goes,
+        # then the account's object. A fake that unlinked without deleting would report an
+        # orphan on every routine republish.
+        self._account_kb.pop(kb, None)
+
+    async def list_account_kb(self) -> AccountKBListing:
+        """Every knowledge base this ACCOUNT holds, referenced or not.
+
+        Complete by construction — there is no page to miss in a dict — so `complete` is
+        True here and that is a fact rather than the optimistic default the type refuses.
+        """
+        require_capability("knowledge_base", engine=self)
+        return AccountKBListing(
+            objects=sorted(self._account_kb.values(), key=lambda o: str(o.handle)),
+            complete=True,
+        )
 
     async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
         # Refuses rather than returning `[]`. An empty list is a POSITIVE claim that the

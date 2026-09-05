@@ -40,7 +40,7 @@ from apps.api.billing.plans import IST, ist_billing_month, parse_billing_month
 from apps.api.campaigns import service as campaigns_service
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.kyc import record_kyc
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import IMPERSONATE_HEADER, IMPERSONATION_GRANT_HEADER, Principal
 from apps.api.core.deps import admin_db, db, global_db
 from apps.api.core.errors import ProblemError
@@ -172,9 +172,18 @@ class TenantSummary(BaseModel):
     leads: int
     last_call_at: datetime | None
     capped: bool
+    # Which BILLING MOTION this client is on (D-521). `prepaid` — the default — pays
+    # from a credit balance and stops dialling outbound when it is empty; `managed` is
+    # invoiced on a retainer and has no wallet at all. It is here because an operator
+    # deciding anything about an account (why are their campaigns stopped? may they top
+    # up?) needs to know which of the two they are looking at, and because the tier is
+    # now settable, which makes it a fact somebody has to be able to read back.
+    plan_tier: str
     # The human-action gates holding this client, by the gates' own rule names — the
     # flag `/v1/admin/compliance/holds` turns into a work queue. Empty for a client
-    # nobody is waiting on, and for every managed client (both controls are self-serve).
+    # nobody is waiting on, and for every client an OPERATOR created (both controls
+    # exist because an unattended signup is a stranger, so they apply to `self_serve`
+    # and `trial` only — `prepaid` and `managed` alike are outside them, D-521).
     holds: list[str]
 
 
@@ -273,11 +282,17 @@ async def list_tenants(
 async def get_tenant(
     tenant_id: UUID,
     session: AdminSession,
-    _: Principal = Depends(requires("admin:tenants", realm="admin")),
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
 ) -> TenantSummary:
     rows = await service.tenant_overview(session, tenant_id=tenant_id)
     if not rows:
         raise ProblemError.not_found("Client")
+    # D-482 L-1: a direct read of one client's record is in the ledger, like every other
+    # per-tenant admin read (coalesced — see `record_admin_tenant_read`).
+    await record_admin_tenant_read(
+        session, request=request, principal=principal, tenant_id=tenant_id
+    )
     return TenantSummary.model_validate(rows[0])
 
 
@@ -428,6 +443,7 @@ class PendingInviteOut(BaseModel):
 )
 async def list_tenant_invitations(
     tenant_id: UUID,
+    request: Request,
     # The same ceiling as the client-realm twin, `GET /v1/invitations` (D-302): one
     # question, one bound, so an operator and the client are reading the same list.
     limit: int = Query(200, ge=1, le=200),
@@ -453,7 +469,6 @@ async def list_tenant_invitations(
     nobody, next to a mint control that answers 404 for the same id
     (`assert_account_open`). One screen, two verdicts on whether the client exists.
     """
-    del principal
     from apps.api.db.session import tenant_session
     from apps.api.tenancy import members as members_service
 
@@ -461,6 +476,10 @@ async def list_tenant_invitations(
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")
         rows = await members_service.list_pending_invitations(scoped, limit=limit)
+        # D-482 L-1: the addresses holding keys to this account are the client's data.
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
     return [
         PendingInviteOut(
             id=row.id,
@@ -743,12 +762,20 @@ async def save_intake_draft(
 async def read_intake(
     tenant_id: UUID,
     agent_id: UUID,
-    _: Principal = Depends(requires("agents:read", realm="admin")),
+    request: Request,
+    principal: Principal = Depends(requires("agents:read", realm="admin")),
 ) -> IntakeStateOut:
     """No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's
-    scope directly rather than opening the cross-tenant directory it does not need."""
+    scope directly rather than opening the cross-tenant directory it does not need.
+
+    Audited (D-482 L-1): the intake sheet is free-text onboarding prose that can carry
+    incidental staff PII, which is exactly the class of read the DPDP trail must hold.
+    """
     async with tenant_session(tenant_id) as scoped:
         state = await intake.read_intake(scoped, agent_id=agent_id)
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
     return IntakeStateOut.model_validate(state)
 
 
@@ -1253,8 +1280,9 @@ class MarginOut(BaseModel):
 async def tenant_margin(
     tenant_id: UUID,
     session: AdminSession,
+    request: Request,
     month: str | None = None,
-    _: Principal = Depends(requires("billing:read", realm="admin")),
+    principal: Principal = Depends(requires("billing:read", realm="admin")),
 ) -> MarginOut:
     """Admin realm only. `unit_cost_paid` is our supplier pricing — it is the reason
     this lives here and not beside the client's usage panel.
@@ -1278,6 +1306,10 @@ async def tenant_margin(
         # land either side of a month boundary, publishing a cost total and a rung split
         # for different months on one card.
         tiers = await billing.tier_usage(scoped, tenant_id=tenant_id, month=str(margin["month"]))
+        # D-482 L-1, last in the transaction (the chain lock is held until COMMIT).
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
     del session
     flat = {k: (str(v) if isinstance(v, Decimal) else v) for k, v in margin.items()}
     # Projected through the response model's OWN field list rather than a prefix filter:
@@ -2199,7 +2231,8 @@ def _amount(value: Decimal | None) -> str | None:
 )
 async def read_commercial_terms(
     tenant_id: UUID,
-    _: Principal = Depends(requires("billing:read", realm="admin")),
+    request: Request,
+    principal: Principal = Depends(requires("billing:read", realm="admin")),
 ) -> CommercialTermsOut:
     """`billing:read`, matching the margin route — commercial terms are the same class
     of fact and an operator who may see one may see the other. It is not
@@ -2239,6 +2272,10 @@ async def read_commercial_terms(
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")
         view = await billing_terms.read_terms(scoped, tenant_id=tenant_id)
+        # D-482 L-1: what a client pays is their data; the read joins the ledger.
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
     return CommercialTermsOut(
         tenant_id=tenant_id,
         state=view.state,
@@ -2605,6 +2642,108 @@ async def set_tenant_status(
             summary={"status": payload.status, "reason": payload.reason},
         )
     return LifecycleOut(tenant_id=tenant_id, status=payload.status, changed=changed)
+
+
+class PlanTierIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # The two BILLING motions, and deliberately not the four members of the column's enum
+    # — `service.OPERATOR_SETTABLE_PLAN_TIERS` states why `self_serve` and `trial` are not
+    # an operator's to write. A `Literal` rather than a runtime check so the refusal is a
+    # 422 naming the allowed values and the console's generated client cannot offer a
+    # third.
+    plan_tier: Literal["managed", "prepaid"]
+    # Goes into the audit row verbatim, and REQUIRED in both directions. Moving a client
+    # off credit gating means Calevate carries their calling on an invoice, and moving one
+    # on to it can stop their outbound dialling within a tick — neither is a fact anyone
+    # should have to reconstruct from a timestamp.
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class PlanTierOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: UUID
+    plan_tier: str
+    # The tier that was replaced, or None when the account was already on this one —
+    # which is `changed: false` and a success, the shape `LifecycleOut` uses.
+    previous_plan_tier: str | None
+    changed: bool
+
+
+@router.post(
+    "/tenants/{tenant_id}/plan-tier",
+    response_model=PlanTierOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Move a client between billing motions — prepaid credit or invoiced retainer",
+    description=(
+        "Sets `organizations.plan_tier`. `prepaid` is the default every account is "
+        "created on (D-521): its calling is paid from a credit balance and "
+        "`compliance.check_dispatch` refuses `no_credits` when that balance is empty. "
+        "`managed` is for a client genuinely billed on a plan retainer — it has no "
+        "wallet, the credits screen says so, and nothing stops their dialling for want "
+        "of credit. **Setting `prepaid` on an account with no credit stops its OUTBOUND "
+        "calling at the next dial**; inbound answering is unaffected either way. "
+        "Idempotent: setting the tier an account is already on returns 200, "
+        "`changed: false`, and writes no audit row. 404 means no such client."
+    ),
+)
+async def set_tenant_plan_tier(
+    tenant_id: UUID,
+    payload: PlanTierIn,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+) -> PlanTierOut:
+    """The seam D-521 needs, and the reason it exists rather than being left to psql.
+
+    D-521 keeps `managed` precisely so a client who really is invoiced can be put back on
+    it, and a decision that can only be carried out by an UPDATE typed into a production
+    database is not a decision the product supports — it is one an operator performs
+    unaudited, at speed, on the wrong row. This route is `admin:tenants`, audited, names
+    the tier it replaced, and demands a reason in both directions.
+
+    **NO STEP-UP, and the line is `set_tenant_status`'s own**: a second factor confirms the
+    move that cannot be undone. Both moves here are reversible by this same route in one
+    call, neither destroys data, and the dangerous direction (`prepaid` onto an empty
+    wallet) stops OUTBOUND dialling — which the big red switch, a spend cap and a suspend
+    all do too, none of which is step-upped either. What is irreversible on this router is
+    closing an account, and that one is.
+
+    **The tier is written under a TENANT-SCOPED session, and the audit row under the admin
+    one** — the same split every write on this router uses: `organizations` is FORCE-RLS,
+    so the UPDATE must carry the tenant's own GUC to match its row at all.
+    """
+    async with tenant_session(tenant_id) as scoped:
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
+        previous = await service.set_plan_tier(
+            scoped, tenant_id=tenant_id, plan_tier=payload.plan_tier
+        )
+    if previous is not None:
+        await write_audit(
+            session,
+            action="tenant.plan_tier_set",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="organization",
+            object_id=str(tenant_id),
+            ip=client_request_ip(request),
+            # Both tiers and the operator's words: this row is the only record of WHY a
+            # business is invoiced rather than credit-gated, and `plan_tier` itself keeps
+            # no history.
+            summary={
+                "plan_tier": payload.plan_tier,
+                "previous_plan_tier": previous,
+                "reason": payload.reason,
+            },
+        )
+    return PlanTierOut(
+        tenant_id=tenant_id,
+        plan_tier=payload.plan_tier,
+        previous_plan_tier=previous,
+        changed=previous is not None,
+    )
 
 
 __all__ = ["router"]

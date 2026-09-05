@@ -55,7 +55,7 @@ from apps.api.engine import reset_engine_cache
 from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import ACTIVE_STATUSES, dispatch_campaign_tick
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, fund_wallet
 from tests.national_dnd_test import record_test_scrub
 
 # 11:00 IST on 2026-08-11 — inside the platform window, so a refusal is never the clock.
@@ -123,6 +123,10 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
     await accept_agreements(uuid.UUID(str(created["id"])))
+    # And credit, for the same reason and in the same shape (D-521): `prepaid` is the
+    # default motion now, so an unfunded tenant is refused `no_credits` on every
+    # outbound dial and this file would report that in place of what it is about.
+    await fund_wallet(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     ref = f"fakeagent_rep_{uuid.uuid4().hex[:8]}"
     async with tenant_session(tenant_id) as session:
@@ -355,6 +359,28 @@ async def test_a_repeat_outside_calling_hours_is_refused_rather_than_quietly_mov
     assert excinfo.value.code == "campaign_recurrence_outside_calling_hours"
     assert excinfo.value.status == 422
     assert await _stored(tenant_id, campaign_id) == ("draft", None), "a refusal writes nothing"
+
+
+async def test_a_repeat_at_exactly_nine_pm_is_refused_by_its_own_sentence() -> None:
+    """The half-open end (D-311), on the validation side.
+
+    This check was `window_start <= at <= window_end`, so 21:00 was accepted — while
+    `within_calling_hours` puts 21:00:00 inside the forbidden band. The refusal's own
+    wording is the proof it was wrong: it promises to reject a time at which the campaign
+    "would never dial at the time it says", and 21:00 is exactly such a time. A weekly
+    repeat armed at 21:00 fired every week and dialled nobody, for ever.
+
+    09:00 stays accepted: the lower bound is inclusive because 09:00:00 is the first
+    instant OUTSIDE the forbidden band.
+    """
+    tenant_id, campaign_id = await _ready_campaign()
+    with pytest.raises(ProblemError) as excinfo:
+        await _schedule(tenant_id, campaign_id, days=[TUESDAY], at=time(21, 0))
+    assert excinfo.value.code == "campaign_recurrence_outside_calling_hours"
+    assert await _stored(tenant_id, campaign_id) == ("draft", None), "a refusal writes nothing"
+
+    await _schedule(tenant_id, campaign_id, days=[TUESDAY], at=time(9, 0))
+    assert (await _stored(tenant_id, campaign_id))[0] == "scheduled"
 
 
 async def test_a_repeat_with_no_days_is_refused_because_it_would_never_run() -> None:

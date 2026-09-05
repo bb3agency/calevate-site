@@ -77,6 +77,7 @@ way whichever box they ticked. The sheets-specific pieces live below under
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -275,18 +276,43 @@ def verify_signature(secret: str, *, header: str, body: str, tolerance_s: int = 
 
 
 def build_envelope(
-    *, event: str, tenant_id: UUID, delivery_id: UUID, data: dict[str, Any]
+    *,
+    event: str,
+    tenant_id: UUID,
+    delivery_id: UUID,
+    data: dict[str, Any],
+    occurred_at: str | None = None,
 ) -> dict[str, Any]:
     """OUR envelope, stable across event types (D-23).
 
     `id` is the delivery id, not the object id, so a receiver deduplicating on it
     deduplicates RETRIES rather than collapsing two genuine updates to one lead.
+
+    **`created_at` IS WHEN THE EVENT HAPPENED, NOT WHEN WE MANAGED TO POST IT**, and it
+    used to be the second thing. `now()` was read HERE, in the delivery worker, which
+    made the field two wrong things at once:
+
+    * **It could not be used to order two updates to one lead.** Attempt 3 of an event
+      enqueued at 09:00 is posted at 09:03 and carried `09:03`, so a receiver applying
+      last-write-wins by timestamp would apply it AFTER an unrelated edit made at 09:01
+      and delivered first — silently reverting the client's own newer data in their CRM.
+      A receiver has no other ordering key: `delivery_id` is a uuid7 and therefore
+      time-ordered, but nothing in docs/WEBHOOKS.md says so and no client should have to
+      know our id scheme to sort their inbox.
+    * **The same delivery id carried a different body on every attempt**, so the retained
+      `sent_body` (D-23) and the copy the receiver kept could differ on a field for a
+      delivery that is by contract one delivery.
+
+    The fan-out stamps it once, in the caller's transaction, beside the `delivery_id`
+    that is minted there for the identical reason. `None` falls back to now() for the
+    outbox rows that were already queued when this changed, and for the direct callers
+    (tests, the docs' worked example) that have no enqueue moment to name.
     """
     return {
         "id": str(delivery_id),
         "event": event,
         "account_id": str(tenant_id),
-        "created_at": datetime.now(UTC).isoformat(),
+        "created_at": occurred_at or datetime.now(UTC).isoformat(),
         "data": data,
     }
 
@@ -367,6 +393,11 @@ async def enqueue_events(
     ).all()
 
     is_call_completed = event == CALL_COMPLETED_EVENT
+    # ONE reading of the clock for the whole fan-out. A bulk edit is one transaction and
+    # n events, and n endpoints each get the same event: they describe the same instant,
+    # and n clock reads would spread one edit over a few milliseconds of `created_at` for
+    # no reason a receiver could ever act on.
+    occurred_at = datetime.now(UTC).isoformat()
 
     written = 0
     for endpoint_id, mapping, inc_recording, inc_transcript, inc_raw_transcript in endpoints:
@@ -400,6 +431,10 @@ async def enqueue_events(
                     # "one forensic row per delivery" claim would be false — and a
                     # receiver deduplicating on it would treat every retry as a new event.
                     "delivery_id": str(uuid7()),
+                    # Stamped here for the SAME reason, one line up: it is when the event
+                    # happened, and a worker-side read of the clock would make it when we
+                    # managed to post it. `build_envelope` carries the argument.
+                    "occurred_at": occurred_at,
                 },
             )
             written += 1
@@ -691,20 +726,50 @@ async def deliver(
     }
     owns_client = client is None
     http = client or httpx.AsyncClient(timeout=DELIVERY_TIMEOUT_S, follow_redirects=False)
+    # `vetted.url`, not `url`: the guard parsed and judged the trimmed string, and
+    # posting to the untrimmed one would send somewhere it never looked at.
+    #
+    # `timeout=` ON THE REQUEST, for the same reason `follow_redirects` is: a
+    # caller-supplied client carries its own budget, and a delivery's deadline must not
+    # depend on how that client happened to be built.
+    request = http.build_request(
+        "POST", vetted.url, content=body, headers=headers, timeout=DELIVERY_TIMEOUT_S
+    )
     try:
-        # `vetted.url`, not `url`: the guard parsed and judged the trimmed string, and
-        # posting to the untrimmed one would send somewhere it never looked at.
-        response = await http.post(
-            vetted.url, content=body, headers=headers, follow_redirects=False
-        )
-        ok = 200 <= response.status_code < 300
+        # A WALL-CLOCK DEADLINE OVER THE WHOLE EXCHANGE, because httpx has none.
+        # `httpx.Timeout(10.0)` is four separate ten-second budgets and the READ one is
+        # the maximum wait for A CHUNK, not for the response — it restarts on every byte
+        # that arrives. Measured against a loopback socket: a receiver that answered 200,
+        # declared a hundred-megabyte body and then wrote one byte every three seconds
+        # held this function for over 45 seconds under a budget the constant above calls
+        # ten, and the only thing that would ever have stopped it is arq's 300-second
+        # `job_timeout` — which cancels the JOB, so `record_delivery` never runs and the
+        # attempt is missing from the client's own delivery screen rather than failed on
+        # it. `DELIVERY_TIMEOUT_S`'s comment already promised "slow is normal, hanging is
+        # not"; this is the line that makes that true. `tests/
+        # outbound_delivery_deadline_test.py` holds the trickling receiver and the
+        # refused one side by side, because the refused case answers instantly and
+        # passes for both.
+        async with asyncio.timeout(DELIVERY_TIMEOUT_S):
+            # `stream=True`: the ONLY thing read off this response is its status code, and
+            # `.post()` downloads the entire body before returning one. A receiver
+            # answering 200 with ten megabytes put ten megabytes into the worker's heap
+            # for nothing, and one that DECLARED a large body and went quiet turned a
+            # delivered lead into a recorded failure. Closing without reading also means a
+            # hostile receiver cannot choose how much memory this worker spends.
+            response = await http.send(request, stream=True, follow_redirects=False)
+            try:
+                status = response.status_code
+            finally:
+                await response.aclose()
+        ok = 200 <= status < 300
         return DeliveryResult(
             delivered=ok,
-            status_code=response.status_code,
-            error=None if ok else f"HTTP {response.status_code}",
+            status_code=status,
+            error=None if ok else f"HTTP {status}",
             sent_body=body,
         )
-    except httpx.HTTPError as exc:
+    except (httpx.HTTPError, TimeoutError) as exc:
         # The URL and the error TYPE are safe to log; the body never is.
         #
         # `sent_body` is reported on the FAILURE path too. "You sent us the wrong lead"

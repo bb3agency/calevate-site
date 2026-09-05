@@ -212,6 +212,11 @@ def test_the_published_webhook_url_is_a_route_voice_runtime_serves() -> None:
         "ai_disclosure_enabled": True,
         "recording_notice_line": "This call is recorded.",
         "recording_notice_enabled": True,
+        # Sentence three (D-507). On file even with memory OFF, which is the column's own
+        # rule: an agent that cannot say it is an agent that could be switched on without
+        # anybody noticing there was nothing to say.
+        "caller_memory_notice_line": "I keep a short note of what you ask about.",
+        "caller_memory_enabled": False,
         "stt_provider": "sarvam",
         "stt_model": "saaras:v2",
         # NULL at both model rungs — the state every agent is in until somebody chooses,
@@ -297,7 +302,44 @@ def test_every_edge_location_prefix_is_a_path_the_api_serves() -> None:
         )
 
 
-# --- 4. the edge must never answer a request the app was going to explain ---------------
+# --- 4. the payment webhook is on the API host, and the other one really is a 404 -------
+
+
+def test_the_razorpay_webhook_is_served_by_the_api_and_not_by_voice_runtime() -> None:
+    """The trap `runbooks/topup-payments.md` §0.4 is most afraid of, pinned to the tree.
+
+    Two hostnames of ours both begin `/hooks/v1/`, and only one of them mounts the payment
+    receiver: `billing/payment_routes.webhook_router` is on the API (`api.` → :8000),
+    while `hooks.` proxies to voice-runtime (:8100), which serves only the engine
+    callback. A webhook registered against the wrong one is not a 500 anybody sees — it is
+    a 404 in an access log on a host, while every payment silently fails to credit and the
+    client's card is debited.
+
+    Asserted in BOTH directions, because either half alone would let the trap re-open: the
+    path must be a route the API serves, AND it must not become a route voice-runtime
+    serves (a future `/hooks/v1/{something}` catch-all there would make the wrong URL start
+    answering 200, which is far worse than a 404 — it would ACK the deliveries away).
+
+    `tests/topup_settlement_test.py` is the other half of the same concern: the alarm that
+    fires when the deliveries stop arriving, whatever the reason.
+    """
+    from apps.api.billing.payment_routes import PROVIDER, webhook_router
+
+    path = f"{webhook_router.prefix}/{PROVIDER}"
+    assert path in api_paths(), (
+        f"the payment webhook path {path!r} is not mounted on the api app. The URL handed "
+        "to the payment provider names api.<domain>, so this is every top-up failing to "
+        "credit with nothing but a 404 in an access log to say so."
+    )
+    assert path not in voice_paths(), (
+        f"voice-runtime now serves {path!r}. hooks.<domain> proxies to it "
+        f"({NGINX_TEMPLATE}), so a webhook registered against the wrong hostname would "
+        "start being ACKed by a service that cannot credit anything — a silent 200 is "
+        "worse than the 404 this repository documents, because the provider stops retrying."
+    )
+
+
+# --- 5. the edge must never answer a request the app was going to explain ---------------
 
 
 @pytest.mark.parametrize("host", ["api", "app", "admin", "hooks"])

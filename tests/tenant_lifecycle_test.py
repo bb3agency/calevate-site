@@ -46,7 +46,7 @@ from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.commercial_terms_test import _make_admin, _tenant
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, fund_wallet
 
 STATUS = "/v1/admin/tenants/{tenant_id}/status"
 
@@ -108,10 +108,11 @@ async def _dialable_tenant() -> tuple[UUID, UUID]:
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, status, engine, created_at, "
-                "updated_at) VALUES (:id, :tid, 'Follow-up caller', 'outbound', 'Idi AI assistant. "
-                "Call record avutundi.', 'Idi AI assistant. Call record avutundi.', 'This call is "
-                "being recorded.', 'live', 'fake', now(), now())"
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, status, "
+                "engine, created_at, updated_at) VALUES (:id, :tid, 'Follow-up caller', "
+                "'outbound', 'Idi AI assistant. Call record avutundi.', 'Idi AI assistant. Call "
+                "record avutundi.', 'This call is being recorded.', 'I keep a short note of "
+                "what you ask about.', 'live', 'fake', now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id},
         )
@@ -126,6 +127,10 @@ async def _dialable_tenant() -> tuple[UUID, UUID]:
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
     await accept_agreements(tenant_id)
+    # And credit, for the same reason and in the same shape (D-521): `prepaid` is the
+    # default motion now, so an unfunded tenant is refused `no_credits` on every
+    # outbound dial and this file would report that in place of what it is about.
+    await fund_wallet(tenant_id)
     return tenant_id, agent_id
 
 

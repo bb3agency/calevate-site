@@ -2,36 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { use, useState, type ComponentType } from "react";
+import { use, useState } from "react";
 import {
-  Activity,
-  BarChart3,
   Bell,
-  BellRing,
-  Blocks,
-  Bot,
-  BookLock,
-  BookOpen,
-  BrainCircuit,
-  Coins,
-  FileSignature,
-  FileText,
-  GitMerge,
-  LayoutDashboard,
-  Megaphone,
   Menu,
-  MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
-  PhoneCall,
-  PhoneOff,
-  ReceiptIndianRupee,
-  ScrollText,
-  ShieldCheck,
-  Sparkles,
-  UserCog,
-  Target,
-  Users,
   X,
 } from "lucide-react";
 
@@ -51,6 +27,7 @@ import { useAgreementsReadiness } from "@/lib/api/agreements";
 import { useAttention } from "@/lib/api/attention";
 import { useMe } from "@/lib/api/hooks";
 import { ClientRealmProvider, useClientRealm } from "@/lib/api/session";
+import { clientNavigation, type NavGroup, type NavItem } from "@/lib/clientNav";
 import { currentNavItem } from "@/lib/nav";
 
 /**
@@ -64,106 +41,6 @@ import { currentNavItem } from "@/lib/nav";
  * the frontend's version of the half-wired feature `scripts/check_wiring.py` refuses
  * on the backend.
  */
-
-interface NavItem {
-  href: string;
-  label: string;
-  icon: ComponentType<{ className?: string }>;
-  /**
-   * A count the sidebar renders beside the label, or `undefined` for no badge.
-   *
-   * `navigation()` is a pure function of the slug and cannot read a query, so a badge is
-   * INJECTED by the component that has the data — see `Sidebar`. That keeps the nav
-   * structure a value the a11y sweep and `currentNavItem` can walk without a provider.
-   *
-   * `undefined` and never `?? 0`, for the bell's reason in `TopHeader`: a coalesce makes
-   * a failed read indistinguishable from an all-clear, which is the "nobody is waiting"
-   * claim §52 exists to stop the shell making.
-   */
-  badge?: number;
-}
-
-interface NavGroup {
-  /** Null for the primary group, which carries no heading. */
-  heading: string | null;
-  items: NavItem[];
-}
-
-function navigation(slug: string): NavGroup[] {
-  return [
-    {
-      heading: null,
-      items: [
-        { href: `/c/${slug}`, label: "Dashboard", icon: LayoutDashboard },
-        { href: `/c/${slug}/campaigns`, label: "Campaigns", icon: Megaphone },
-        { href: `/c/${slug}/agents`, label: "Agents", icon: Bot },
-        { href: `/c/${slug}/calls`, label: "Call logs", icon: PhoneCall },
-        { href: `/c/${slug}/leads`, label: "Leads", icon: Users },
-        { href: `/c/${slug}/knowledge`, label: "Knowledge base", icon: BookOpen },
-        { href: `/c/${slug}/performance`, label: "Performance", icon: BarChart3 },
-        { href: `/c/${slug}/quality`, label: "Quality", icon: ShieldCheck },
-      ],
-    },
-    {
-      heading: "Operations",
-      items: [
-        { href: `/c/${slug}/attention`, label: "Needs attention", icon: Target },
-        { href: `/c/${slug}/campaign-review`, label: "Campaign review", icon: FileText },
-      ],
-    },
-    {
-      heading: "Compliance & data",
-      items: [
-        // FIRST IN THIS GROUP because it gates the rest of it: until the owner has
-        // accepted, `agreements_blocker` refuses every dial and every publish, so a
-        // client working down this list would meet the refusal at the bottom instead of
-        // the door at the top. It is also the one screen that names the operational
-        // blockers (KYC, PE registration, DND scrub, first-campaign hold) somewhere other
-        // than a failed campaign launch.
-        { href: `/c/${slug}/agreements`, label: "Agreements", icon: FileSignature },
-        { href: `/c/${slug}/do-not-call`, label: "Do not call", icon: PhoneOff },
-        { href: `/c/${slug}/messaging-consent`, label: "Messaging consent", icon: MessageSquare },
-        { href: `/c/${slug}/lead-sources`, label: "Lead sources", icon: GitMerge },
-        { href: `/c/${slug}/data-rights`, label: "Data rights", icon: ScrollText },
-        { href: `/c/${slug}/caller-notice`, label: "Your privacy notice", icon: BookLock },
-      ],
-    },
-    {
-      heading: "Settings & account",
-      items: [
-        { href: `/c/${slug}/settings/team`, label: "Team", icon: UserCog },
-        // The one screen where the owner can agree to be messaged about their own
-        // account. It sits here rather than under "Compliance & data" on purpose: that
-        // group is about the client's obligations to their CUSTOMERS, and this is a
-        // setting about what we send to THEM.
-        { href: `/c/${slug}/settings/alerts`, label: "Alerts", icon: BellRing },
-        // Which AI model every agent thinks with, and what each one costs a minute. It
-        // sits in this group rather than beside "Agents" because it is an ACCOUNT-wide
-        // default that happens to be about agents — the same reason the spending limit
-        // lives under Usage rather than on each campaign. One agent can still be put on
-        // its own model, and that control is on the agent.
-        { href: `/c/${slug}/settings/models`, label: "AI model", icon: BrainCircuit },
-        { href: `/c/${slug}/integrations`, label: "Integrations", icon: Blocks },
-        { href: `/c/${slug}/usage`, label: "Usage", icon: Activity },
-        // WHERE the Usage number came from, one screen over. Usage answers "how much and
-        // how much is left"; this answers "which agent and which call", which is the
-        // question an owner asks the moment the first one has a figure in it. Its own
-        // entry rather than a panel on Usage because it is a per-call table that grows
-        // with the month, and because a client following up on a bill is looking for the
-        // word "Spend" rather than scrolling a summary screen.
-        { href: `/c/${slug}/spend`, label: "Spend", icon: Coins },
-        // What the console's AI help has used against the allowance the plan includes,
-        // and the one place a person can agree to spend money on more (D-127 G-5). It
-        // sits beside Usage rather than inside it because it is a different wallet
-        // question: Usage is what the CLIENT is billed for, this is what CALEVATE
-        // absorbs until a ceiling.
-        { href: `/c/${slug}/ai-assist`, label: "AI help", icon: Sparkles },
-        { href: `/c/${slug}/invoice`, label: "Invoice", icon: ReceiptIndianRupee },
-        { href: `/c/${slug}/verification`, label: "Verification", icon: ShieldCheck },
-      ],
-    },
-  ];
-}
 
 /**
  * The nav entry this path belongs to — the ONE answer the header title and the sidebar
@@ -202,7 +79,7 @@ function Sidebar({
   // list can disagree with the gate that refuses the dial.
   const readiness = useAgreementsReadiness(session);
   const outstanding = readiness.data?.outstanding_documents;
-  const groups = navigation(slug).map((group) => ({
+  const groups = clientNavigation(slug).map((group) => ({
     ...group,
     items: group.items.map((item) =>
       item.href.endsWith("/agreements") ? { ...item, badge: outstanding } : item,
@@ -376,7 +253,7 @@ function TopHeader({ slug, onMenuToggle }: { slug: string; onMenuToggle: () => v
   const pathname = usePathname();
   const { session, href } = useClientRealm();
   const attention = useAttention(session);
-  const title = currentItem(navigation(slug), pathname)?.label ?? "Dashboard";
+  const title = currentItem(clientNavigation(slug), pathname)?.label ?? "Dashboard";
 
   // The bell's count is the "needs attention" queue — the same number that screen
   // shows, from the same query. The design shipped it as a hardcoded 3; a badge that

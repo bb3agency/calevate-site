@@ -84,6 +84,23 @@ When it is spent the feature blocks again and the client is told the month is fi
 not offered a second modal. So the worst case for a client who mis-clicks is one block,
 and the worst case for US is the included quota plus one block per tenant.
 
+**PLUS WHATEVER IS ALREADY IN FLIGHT, AND THAT OVERSHOOT IS ACCEPTED RATHER THAN CLOSED.**
+`require_ai_assist` reads the month's spend, the caller then talks to the provider, and
+`record_ai_assist_usage` meters what came back — a check-then-spend, so N requests that pass
+the gate in the same instant all spend, and the ceiling is exceeded by up to N-1 assists.
+It is stated here because a ceiling nobody has bounded in writing reads as exact:
+
+* the OVERSHOOT IS ONE ASSIST PER CONCURRENT REQUEST — rupees, not a runaway, because every
+  one of them still lands in `usage_events` and moves the platform counter, so it is
+  measured and it is the next request that is refused;
+* the alternative was a per-tenant reservation or an advisory lock spanning the model call.
+  Both hold state across a provider request, which BACKEND-PATTERNS §5 refuses for exactly
+  this shape (a lock whose duration is a vendor's latency), and a reservation would need a
+  release path on every abandonment — a second ledger to reconcile, to save at most a few
+  rupees of an allowance we absorb anyway;
+* what genuinely must not overshoot is the PLATFORM brake, and it does not: it is bumped in
+  one statement (`bump_platform_ai_spend`) and read back, never read-modify-written.
+
 AND NOT IN THE LAST HOUR OF ONE (`LAST_SALEABLE_MINUTES`). The block expires with the
 month, so on the 31st at 23:59 it is the same bargain arithmetically and not the same
 bargain at all — and the same guard closes a race in which the debit lands under a month
@@ -199,6 +216,19 @@ log = get_logger(__name__)
 #: clears 50, which is what makes the screen and the gate agree on both models.
 AI_QUOTA_INR: Final[dict[str, Decimal]] = {
     "managed": Decimal("250.00"),
+    # ⚠ **THE SAME FIGURE AS `managed`, AND THAT IS THE DECISION RATHER THAN AN OVERSIGHT
+    # (D-521).** `prepaid` is the tier every existing account was MIGRATED to
+    # (`a8d3f61c04e7`) and the one every new account is born on, so anything smaller here
+    # would have been a migration that quietly cut a live client's included AI allowance
+    # — from ₹250 to whatever the new number was — on a change they were told was about
+    # billing motion. A silent reduction is the one thing a data migration may not do.
+    # The lookup below falls back to the TRIAL allowance for an unknown tier, so omitting
+    # the key would have cut it to ₹40 without an error anywhere.
+    #
+    # It is a product term and the founder's to move (see the note above this dict); if
+    # prepaid is meant to buy less dashboard AI than a retainer does, that is a priced
+    # decision made deliberately, not one inherited from a default.
+    "prepaid": Decimal("250.00"),
     "self_serve": Decimal("100.00"),
     "trial": Decimal("40.00"),
 }
@@ -662,6 +692,35 @@ RETURNING spend_inr
 """
 
 
+async def bump_platform_ai_spend(
+    session: AsyncSession, *, month: str, amount: Decimal, requests: int = 1
+) -> Decimal:
+    """Add one answer's cost to the month's platform total and announce a crossed line.
+
+    PUBLIC and shared by both meters (D-499): the tenant meter below and
+    `billing/platform_ai.record_platform_ai_usage`. ONE counter and ONE brake, because it
+    is one vendor key and one bill — an admin surface counting against a ceiling of its own
+    would be spend on our credential that the only ceiling we have cannot see.
+
+    One statement, so two answers landing at the same instant cannot both read a
+    pre-increment total and both write it back (BACKEND-PATTERNS §5 — the guard is IN the
+    write). Returns the total AFTER this addition, which is what makes "under before, over
+    after" decidable with no second table.
+    """
+    spend_after = Decimal(
+        str(
+            (
+                await session.execute(
+                    text(_BUMP_PLATFORM_SQL),
+                    {"month": month, "amount": amount, "requests": requests},
+                )
+            ).scalar_one()
+        )
+    )
+    _announce_platform_headroom(month=month, spend_after=spend_after, added=amount)
+    return spend_after
+
+
 def _announce_platform_headroom(*, month: str, spend_after: Decimal, added: Decimal) -> None:
     """Tell an operator on the bump that CROSSES a line, and only then.
 
@@ -784,6 +843,18 @@ def new_assist_ref() -> str:
     return f"{ASSIST_REF_PREFIX}:{uuid7()}"
 
 
+def is_assist_ref(ref: str) -> bool:
+    """Did this key come from `new_assist_ref()`?
+
+    PUBLIC because there are now two meters asking it — this module's tenant meter and
+    `billing/platform_ai.py`'s platform one (D-499) — and the answer must be the same
+    string shape for both. A second regex in the second meter is the drift class hard
+    rule 4's ledgers cannot afford: the two would agree until one of them was edited, and
+    the failure is silent (a key the other meter would have refused becomes a free assist).
+    """
+    return bool(_ASSIST_REF_RE.match(ref))
+
+
 @dataclass(frozen=True, slots=True)
 class AssistMetered:
     """What `record_ai_assist_usage` did.
@@ -844,7 +915,7 @@ async def record_ai_assist_usage(
     for every assist. Deriving the price from the model makes that row unrepresentable,
     which is the only guarantee worth having on a ledger that cannot be corrected in place.
     """
-    if not _ASSIST_REF_RE.match(ref):
+    if not is_assist_ref(ref):
         # A programming error, not a user's: raised rather than refused politely, because
         # every reachable caller mints its key from `new_assist_ref()` and one that did
         # not is a caller that has invented its own idempotency scheme.
@@ -900,17 +971,7 @@ async def record_ai_assist_usage(
         )
         return AssistMetered(recorded=False, cost_inr=Decimal("0"))
 
-    spend_after = Decimal(
-        str(
-            (
-                await session.execute(
-                    text(_BUMP_PLATFORM_SQL),
-                    {"month": landed_month, "amount": landed, "requests": 1},
-                )
-            ).scalar_one()
-        )
-    )
-    _announce_platform_headroom(month=landed_month, spend_after=spend_after, added=landed)
+    await bump_platform_ai_spend(session, month=landed_month, amount=landed)
     log.info(
         "ai_assist_metered",
         # Ids, a model name and a rupee total. No tenant name, no prompt, no output.
@@ -1215,6 +1276,8 @@ __all__ = [
     "ExtraPurchase",
     "PlatformAiSpend",
     "assist_nominal_inr",
+    "bump_platform_ai_spend",
+    "is_assist_ref",
     "ktok",
     "month_is_ending",
     "new_assist_ref",

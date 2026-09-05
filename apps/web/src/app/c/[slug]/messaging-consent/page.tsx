@@ -14,6 +14,8 @@ import {
 
 import {
   Card,
+  FIELD_INLINE,
+  FIELD_INLINE_ICON,
   MonoValue,
   NOTICE_TONES,
   ProblemNotice,
@@ -23,9 +25,12 @@ import {
   type NoticeTone,
   PRIMARY_BUTTON_SM,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 import {
   CONSENT_SOURCES,
   CONSENT_VALIDITY_DAYS,
@@ -112,19 +117,8 @@ const STATUS_COPY: Record<ConsentStatus, { label: string; hint: string }> = {
 
 const NO_STATUSES: ConsentStatus[] = ["declined", "withdrawn"];
 
-/** Form controls, once — see the same constants, and the reason they split, on the
- *  do-not-call screen. */
-/* `min-w-0 max-w-full`: an <input> with no width utility sizes to its `size`
-   attribute (~20 characters), which at the 16px this repo now gives touch devices
-   is ~256px — 2px wider than the 254px card it sits in at 320px, so it painted
-   across the border. A CAP rather than `w-full`: these sit in flex rows where a
-   forced full width would restyle the desktop console, and on desktop there is
-   room so the cap never binds. `min-w-0` because a flex item will not otherwise
-   shrink below its own min-content. */
-const FIELD_BASE =
-  "rounded-md border border-line bg-surface py-1.5 text-sm text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11";
-const FIELD = `${FIELD_BASE} px-3`;
-const FIELD_ICON = `${FIELD_BASE} pl-8 pr-3`;
+// Form controls come from ui.tsx's FIELD_INLINE / FIELD_INLINE_ICON (see the note on
+// the do-not-call screen — the local trio both screens carried is hoisted, MC-2).
 
 export default function MessagingConsentPage() {
   const session = useClientSession();
@@ -147,6 +141,10 @@ export default function MessagingConsentPage() {
   );
 
   const [lookupPhone, setLookupPhone] = useState("");
+  /* Two forms on this screen, two instances: one refusal must never mark the other's
+     field, and the ids the hook mints are per instance. */
+  const lookupValid = useFormValidation();
+  const recordValid = useFormValidation();
 
   // The recording form. `answer` is the first decision and drives everything below it.
   const [phone, setPhone] = useState("");
@@ -166,6 +164,129 @@ export default function MessagingConsentPage() {
       : (Object.keys(CONSENT_SOURCES) as ConsentSource[]);
 
   const blocked = answer === "yes" ? grantBlockReason(source, evidence, callId) : null;
+
+  /*
+   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * ## The two phone boxes leave as placeholders, and neither is writable
+   *
+   * Both hold a customer's number (D-127 G-2), so both are `personal: "phone"`. Neither
+   * is fillable, and here that is the compliance rule rather than caution: recording a
+   * consent is a statement that a NAMED PERSON said something, and an assistant that
+   * could put a number in that box could manufacture an opt-in against somebody who
+   * never gave one. The same argument bars the CALL ID, which is the evidence tying the
+   * statement to the conversation it was made in.
+   *
+   * ## What IS fillable is the shape of the answer
+   *
+   * Yes-or-no, which source, and — on a "no" — which withdrawal status. Those are three
+   * enums describing an answer a person in front of the form already has, they are the
+   * part people get wrong, and none of them is a record until Save is pressed. The source
+   * list offered is `sourceOptions`, the SAME narrowing the form renders from, so the
+   * assistant cannot pick a source that cannot carry the answer being given.
+   *
+   * The EVIDENCE fields are not declared at all: they are per-source free text ("where in
+   * the call", "document reference") and are exactly the place a caller's own words would
+   * land.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/messaging-consent",
+    title: "Messaging consent",
+    realm: "client",
+    fields: [
+      {
+        id: "consent-lookup-phone",
+        label: "Number being looked up",
+        type: "text",
+        value: lookupPhone,
+        writable: false,
+        personal: "phone",
+        help: "Typed by the reader; the assistant is told whether the box is filled in, never what is in it.",
+      },
+      {
+        id: "consent-phone",
+        label: "Number the answer is being recorded against",
+        type: "text",
+        value: phone,
+        writable: false,
+        personal: "phone",
+      },
+      {
+        id: "consent-answer",
+        label: "Did the customer agree to be messaged?",
+        type: "select",
+        value: answer,
+        options: [
+          { value: "yes", label: "Yes — they agreed" },
+          { value: "no", label: "No — they did not, or they withdrew" },
+        ],
+      },
+      {
+        id: "consent-status",
+        label: "How the consent ended, when the answer is no",
+        type: "select",
+        value: status,
+        options: NO_STATUSES.map((value) => ({ value, label: STATUS_COPY[value].label })),
+        help: "Ignored while the answer is yes — a yes is always recorded as granted.",
+      },
+      {
+        id: "consent-source",
+        label: "How they said it",
+        type: "select",
+        value: source,
+        options: sourceOptions.map((value) => ({ value, label: CONSENT_SOURCES[value].label })),
+      },
+      {
+        id: "consent-call-id",
+        label: "Call the statement was made on",
+        type: "text",
+        value: callId,
+        writable: false,
+        help: "The evidence tying the consent to the conversation. A person supplies it, from the call log.",
+      },
+    ],
+    facts: [
+      {
+        key: "status_to_be_recorded",
+        label: "What pressing Save would record",
+        value: effectiveStatus,
+      },
+      {
+        key: "call_id_required",
+        label: "Does the chosen source need a call id?",
+        value: spec.requiresCallId ? "yes" : "no",
+      },
+      {
+        key: "blocked",
+        label: "Is anything stopping this being recorded as a yes?",
+        value: blocked ?? "no",
+      },
+      {
+        key: "lookup_answered",
+        label: "Is there a lookup verdict on screen?",
+        value: consentLookup.data ? "yes — the reader can see it" : "no",
+      },
+      {
+        key: "may_record",
+        label: "May this session record what a customer said?",
+        value: write.allowed ? "yes" : `no — ${write.reason ?? "no reason given"}`,
+      },
+    ],
+    apply: (items) => {
+      for (const item of items) {
+        const value = asText(item.value);
+        if (item.field_id === "consent-answer" && (value === "yes" || value === "no")) {
+          chooseAnswer(value);
+        } else if (item.field_id === "consent-source") {
+          const next = sourceOptions.find((option) => option === value);
+          if (next !== undefined) chooseSource(next);
+        } else if (item.field_id === "consent-status") {
+          const next = NO_STATUSES.find((option) => option === value);
+          if (next !== undefined) setStatus(next);
+        }
+      }
+    },
+  });
 
   const chooseAnswer = (next: "yes" | "no") => {
     setAnswer(next);
@@ -226,10 +347,10 @@ export default function MessagingConsentPage() {
         </p>
         <form
           className="mt-3 flex flex-wrap items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
+          noValidate
+          onSubmit={lookupValid.onSubmit(() => {
             consentLookup.mutate(lookupPhone.trim());
-          }}
+          })}
         >
           {/* `min-w-0`: this wrapper is a flex item, and a flex item defaults to
               `min-width: auto` — so it took the search input's intrinsic ~256px width
@@ -238,6 +359,7 @@ export default function MessagingConsentPage() {
           <div className="relative min-w-0">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
             <input
+              {...lookupValid.field("lookupPhone", "Enter the number to check.")}
               required
               value={lookupPhone}
               onChange={(e) => {
@@ -253,12 +375,15 @@ export default function MessagingConsentPage() {
               autoComplete="off"
               placeholder="9876543210 or +919876543210"
               aria-label="Phone number to check"
-              className={`${FIELD_ICON} w-64 font-mono`}
+              className={`${FIELD_INLINE_ICON} w-64 font-mono`}
             />
+            {lookupValid.error("lookupPhone")}
           </div>
           <button
             type="submit"
-            disabled={consentLookup.isPending || lookupPhone.trim().length < 8}
+            /* The length rule is not repeated here — a button that is dead at seven
+               digits explains nothing, and pressing it now says what is wrong. */
+            disabled={consentLookup.isPending}
             className={PRIMARY_BUTTON_SM}
           >
             {consentLookup.isPending ? "Checking…" : "Check"}
@@ -290,13 +415,12 @@ export default function MessagingConsentPage() {
 
           <form
             className="mt-4 space-y-4"
-            onSubmit={(e) => {
-              e.preventDefault();
-              submit();
-            }}
+            noValidate
+            onSubmit={recordValid.onSubmit(submit)}
           >
             <Field label="Their number" htmlFor="consent-phone">
               <input
+                {...recordValid.field("phone", "Enter their number.")}
                 id="consent-phone"
                 required
                 value={phone}
@@ -309,8 +433,9 @@ export default function MessagingConsentPage() {
                 inputMode="tel"
                 autoComplete="off"
                 placeholder="9876543210 or +919876543210"
-                className={`${FIELD} w-64 font-mono`}
+                className={`${FIELD_INLINE} w-64 font-mono`}
               />
+              {recordValid.error("phone")}
             </Field>
 
             {/* The answer first: it is what decides which sources may carry it. */}
@@ -343,7 +468,7 @@ export default function MessagingConsentPage() {
                   id="consent-status"
                   value={status}
                   onChange={(e) => setStatus(e.target.value as ConsentStatus)}
-                  className={FIELD}
+                  className={FIELD_INLINE}
                 >
                   {NO_STATUSES.map((value) => (
                     <option key={value} value={value}>
@@ -360,7 +485,7 @@ export default function MessagingConsentPage() {
                 id="consent-source"
                 value={source}
                 onChange={(e) => chooseSource(e.target.value as ConsentSource)}
-                className={`${FIELD} w-full max-w-md`}
+                className={`${FIELD_INLINE} w-full max-w-md`}
               >
                 {sourceOptions.map((value) => (
                   <option key={value} value={value}>
@@ -386,7 +511,7 @@ export default function MessagingConsentPage() {
                   value={callId}
                   onChange={(e) => setCallId(e.target.value)}
                   placeholder="Call ID from the Calls page"
-                  className={`${FIELD} w-full max-w-md font-mono`}
+                  className={`${FIELD_INLINE} w-full max-w-md font-mono`}
                 />
                 <p className="mt-1 text-xs text-ink-muted">
                   {answer === "yes"
@@ -405,7 +530,7 @@ export default function MessagingConsentPage() {
                     setEvidence((prev) => ({ ...prev, [field.key]: e.target.value }))
                   }
                   placeholder={field.placeholder}
-                  className={`${FIELD} w-full max-w-md`}
+                  className={`${FIELD_INLINE} w-full max-w-md`}
                 />
                 <p className="mt-1 text-xs text-ink-muted">
                   {field.hint}
@@ -417,7 +542,10 @@ export default function MessagingConsentPage() {
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="submit"
-                disabled={record.isPending || phone.trim().length < 8 || blocked !== null}
+                /* `blocked` stays: it is a rule about WHAT may be recorded, not about
+                   an answer this form can point at. The length rule is answered at the
+                   field now. */
+                disabled={record.isPending || blocked !== null}
                 className={PRIMARY_BUTTON_SM}
               >
                 <BadgeCheck className="h-4 w-4" />

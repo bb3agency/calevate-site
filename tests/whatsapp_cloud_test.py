@@ -37,7 +37,9 @@ Run: uv run pytest -q tests/whatsapp_cloud_test.py
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -45,6 +47,7 @@ import pytest
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import JsonFormatter
 from apps.api.core.settings import get_settings
+from apps.workers import whatsapp_cloud
 from apps.workers.whatsapp import (
     NO_PHONE_ID_REASON,
     NO_TOKEN_REASON,
@@ -543,3 +546,38 @@ def test_the_live_waba_claim_is_still_false_and_this_file_cannot_close_it() -> N
     assert CLOUD_API_CONFIRMED_AGAINST_LIVE_WABA is False
     assert PROVIDER == "meta_cloud_api"
     assert CloudApiWhatsAppTransport.name == PROVIDER
+
+
+async def test_a_meta_that_never_finishes_answering_is_cut_off_not_waited_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`SEND_TIMEOUT_S` is passed to `httpx.Timeout`, which is FOUR per-phase budgets and
+    not a deadline: its READ budget is the maximum wait for A CHUNK and restarts on every
+    byte that arrives. Measured on the sibling path (`tests/
+    outbound_delivery_deadline_test.py`), that let a dribbling counterparty hold a call
+    for over 45 seconds under a "10 second" timeout.
+
+    It bites harder here than there, and that is why this test exists rather than a note:
+    `whatsapp.py` calls this INSIDE an open `tenant_session` — the atomicity its own
+    docstring argues for — so an unbounded response parks a pooled connection as well as
+    a worker slot, with arq's 300-second `job_timeout` as the only backstop.
+
+    TRANSPORT_FAILED, so the shared ladder retries: a deadline says Meta was slow, not
+    that this recipient can never be messaged.
+    """
+    monkeypatch.setattr(whatsapp_cloud, "SEND_TIMEOUT_S", 0.25)
+
+    async def never_answers(request: httpx.Request) -> httpx.Response:
+        await asyncio.sleep(30)
+        raise AssertionError("unreachable: the deadline should have fired")
+
+    started = time.monotonic()
+    result = await _transport(never_answers).send(_message())
+    elapsed = time.monotonic() - started
+
+    assert elapsed < 5.0, f"the send waited {elapsed:.1f}s on a 0.25s budget"
+    assert result.status is SendStatus.TRANSPORT_FAILED
+    assert result.retryable is True
+    # The exception TYPE, never its string: an httpx error can carry the request URL and
+    # a timeout's repr can carry the request itself, which holds the number (hard rule 6).
+    assert result.reason == "TimeoutError"

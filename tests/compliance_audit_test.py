@@ -34,6 +34,7 @@ from typing import Any
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.billing.service import current_billing_month
 from apps.api.campaigns import service as campaigns
 from apps.api.compliance.service import add_to_dnc, check_dispatch
 from apps.api.core.errors import ProblemError
@@ -43,7 +44,7 @@ from apps.api.engine import reset_engine_cache
 from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import dispatch_campaign_tick
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, fund_wallet
 from tests.national_dnd_test import record_test_scrub
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -89,6 +90,10 @@ async def _tenant(*, direction: str = "outbound") -> tuple[uuid.UUID, uuid.UUID]
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
     await accept_agreements(uuid.UUID(str(created["id"])))
+    # And credit, for the same reason and in the same shape (D-521): `prepaid` is the
+    # default motion now, so an unfunded tenant is refused `no_credits` on every
+    # outbound dial and this file would report that in place of what it is about.
+    await fund_wallet(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     ref = f"fakeagent_audit_{uuid.uuid4().hex[:8]}"
     async with tenant_session(tenant_id) as session:
@@ -410,7 +415,18 @@ async def test_a_capped_tenant_cannot_launch_a_campaign() -> None:
                 "VALUES (:tid, :month, 0, 0, 0, true, now(), now()) "
                 "ON CONFLICT (tenant_id) DO UPDATE SET capped = true"
             ),
-            {"tid": tenant_id, "month": datetime.now(UTC).strftime("%Y-%m")},
+            # THE MONTH IS ASKED THE WAY PRODUCTION ASKS IT, not re-spelled here.
+            # `compliance.spend_capped` compares the stored month against
+            # `billing.service.current_billing_month()`, which is **IST**
+            # (`plans.ist_billing_month`). Spelling it as a UTC month instead made this
+            # test write a cap for the wrong month for the 5.5 hours between 18:30 UTC —
+            # when the IST month rolls — and 00:00 UTC on the last day of every month.
+            # In that window the cap did not match, `spend_capped` correctly returned
+            # False, launch was correctly allowed, and this test failed looking exactly
+            # like a broken compliance gate. It caught a full release gate at 20:10 UTC
+            # on 31 Aug 2026; the sibling defect in the quota suites is pinned by
+            # `conftest._ist_month_boundary_is_pinned`.
+            {"tid": tenant_id, "month": current_billing_month()},
         )
         blockers = await campaigns.launch_blockers(
             session, tenant_id=tenant_id, campaign_id=campaign_id

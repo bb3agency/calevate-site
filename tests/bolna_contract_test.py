@@ -265,46 +265,465 @@ def test_a_v1_shaped_agent_is_still_readable() -> None:
     assert models.llm_model == "gpt-4.1-mini"
 
 
-# --- the knowledge base we cannot drive -------------------------------------
+# --- the knowledge base, on the wire the vendor documents (D-488) ------------
+#
+# THESE THREE CLAUSES REPLACED THREE THAT ASSERTED THE REFUSAL (D-354), and the
+# replacement is not a relaxation: what they asserted was that an absent capability
+# refuses by name, which `engine_capability_test.py` still holds for every capability
+# this engine does not have. What is asserted here instead is the thing that was missing
+# — that the requests going out are the ones the vendor's published spec accepts. The
+# conformance suite proves the SEMANTICS (attach then list shows it, detach then list does
+# not); only a mock transport can prove the BYTES, and the bytes are what D-354 found
+# wrong.
+
+_PDF = b"%PDF-1.4\n% fixture\n%%EOF\n"
 
 
-def test_the_descriptor_says_this_engine_holds_no_knowledge_base() -> None:
-    """D-354. Bolna HAS a knowledge base; what it does not have is one this port can drive.
-    `POST /knowledgebase` is multipart and takes a PDF or a URL — never our
-    `KBSourceRef.text` — and the created object carries no agent, so the link is made on
-    the AGENT's `vector_ids` by a `vector_id` this adapter never read. A descriptor that
-    said `True` was a promise three methods could not keep."""
-    assert BOLNA_CAPABILITIES.knowledge_base is False
+def _kb_source() -> KBSourceRef:
+    return KBSourceRef(
+        kb_id="kb-1",
+        title="Fees",
+        text="Consultation is 500 rupees.",
+        document=_PDF,
+        content_sha256="0" * 64,
+    )
 
 
-async def test_attaching_a_knowledge_base_refuses_by_name_and_sends_nothing() -> None:
-    """An absent capability produces a NAMED refusal, never a silent no-op and never a
-    request the vendor will reject. The second half is the one worth testing: the old body
-    was a JSON POST the route does not accept, so a 2xx was impossible and a 4xx would have
-    been read as a transient engine fault."""
-    calls: list[str] = []
+def test_the_descriptor_says_this_engine_holds_a_knowledge_base() -> None:
+    """D-488, and the value has been both things for different reasons — see the long
+    comment above `BOLNA_CAPABILITIES` before trusting either.
+
+    `True` here is the claim that the four documented routes exist and that this adapter
+    calls them as specified. It is NOT a measurement: nothing has run against a live
+    account (OPERATIONS §2 gates 41a-41f)."""
+    assert BOLNA_CAPABILITIES.knowledge_base is True
+
+
+async def test_a_knowledge_base_is_created_as_multipart_with_the_document() -> None:
+    """THE DEFECT D-354 FOUND, HELD AS A PROPERTY. The old body was a JSON POST of
+    `{agent_id, name, text}`; the route is `multipart/form-data` taking `file` (a PDF) or
+    `url` and accepting neither an agent id nor prose
+    (`bolna-findings/mirror/pages/api-reference/knowledgebase/create.md:29-80`). A 2xx was
+    impossible and the 4xx would have read as a transient engine fault.
+
+    The retrieval knobs are asserted too, because they are the only part of the chunking
+    we control and a silently dropped `language_support` cannot be corrected later: it is
+    fixed at upload (`.../getting-started/knowledge-base.md`)."""
+    seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        calls.append(request.url.path)
-        return httpx.Response(200, json={"rag_id": "kb_1"})
+        path = request.url.path
+        if path == "/knowledgebase" and request.method == "POST":
+            seen["content_type"] = request.headers["content-type"]
+            seen["body"] = request.content
+            return httpx.Response(200, json={"rag_id": "rag_1", "status": "processing"})
+        if path == "/knowledgebase/rag_1":
+            return httpx.Response(200, json={"status": "processed", "vector_id": "vec_1"})
+        if path == "/v2/agent/agent_1" and request.method == "GET":
+            return httpx.Response(200, json={"agent_id": "agent_1", "data": {}})
+        if path == "/v2/agent/agent_1" and request.method == "PUT":
+            seen["put"] = json.loads(request.content)
+            return httpx.Response(200, json={"status": "ok"})
+        raise AssertionError(f"unexpected {request.method} {path}")
+
+    handle = await _engine(handler).attach_kb("agent_1", _kb_source(), agent=_config())
+
+    assert seen["content_type"].startswith("multipart/form-data")
+    assert b"%PDF" in seen["body"], "the file part must carry the rendered document"
+    assert b'name="text"' not in seen["body"], "this route accepts no prose"
+    assert b'name="agent_id"' not in seen["body"], "this route accepts no agent id"
+    assert b"multilingual" in seen["body"], (
+        "`language_support` is fixed at upload and a Telugu-first product must ask for it"
+    )
+    assert handle == "vec_1", (
+        "the handle must be the VECTOR id — the only identifier the agent carries — or "
+        "`references_kb` compares two namespaces and reports every attachment as cleared"
+    )
+    llm_agent = seen["put"]["agent_config"]["tasks"][0]["tools_config"]["llm_agent"]
+    assert llm_agent["agent_type"] == "knowledgebase_agent", (
+        "`vector_store` lives on the `KnowledgebaseAgent` arm of the `llm_config` union; "
+        "writing it while `agent_type` still selects `simple_llm_agent` is a silent no-op"
+    )
+    assert llm_agent["llm_config"]["vector_store"]["provider_config"]["vector_ids"] == ["vec_1"]
+
+
+async def test_an_upload_that_cannot_be_attached_is_deleted_rather_than_left_billing() -> None:
+    """A knowledge base nothing references is billed for as long as the account exists.
+
+    The failure staged here is the vendor reporting `error` on the read-back, which is a
+    real verdict on a document we uploaded and must not be read as "not ready yet". What
+    matters is what happens NEXT: the half-made object is removed and the ORIGINAL failure
+    is the one reported, never the cleanup's."""
+    calls: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path))
+        if request.url.path == "/knowledgebase" and request.method == "POST":
+            return httpx.Response(200, json={"rag_id": "rag_1", "status": "processing"})
+        if request.url.path == "/knowledgebase/rag_1" and request.method == "GET":
+            return httpx.Response(200, json={"status": "error"})
+        return httpx.Response(200, json={"message": "success", "state": "deleted"})
 
     with pytest.raises(ProblemError) as raised:
-        await _engine(handler).attach_kb(
-            "agent_1", KBSourceRef(kb_id="kb-1", title="Fees", text="Consultation is 500 rupees.")
+        await _engine(handler).attach_kb("agent_1", _kb_source(), agent=_config())
+
+    assert raised.value.code == "engine_kb_processing_failed"
+    assert ("DELETE", "/knowledgebase/rag_1") in calls, (
+        "the uploaded document was left behind — an unreferenced knowledge base is a "
+        "permanent line on the bill for text no agent can reach"
+    )
+
+
+async def test_a_detach_stops_the_agent_referencing_before_it_deletes() -> None:
+    """THE ORDER IS THE ONE THING THAT CANNOT BE GOT WRONG TWICE.
+
+    Delete first and a crash before the agent write leaves the agent pointing at a vector
+    that no longer exists (D-41's dangling handle) on a live call path. Un-reference first
+    and a crash leaves an unreferenced document: money, findable, removable later."""
+    calls: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        calls.append((request.method, path))
+        if path == "/knowledgebase/all":
+            return httpx.Response(200, json=[{"rag_id": "rag_1", "vector_id": "vec_1"}])
+        if path == "/v2/agent/agent_1" and request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "agent_id": "agent_1",
+                    "data": {
+                        "tasks": [
+                            {
+                                "tools_config": {
+                                    "llm_agent": {
+                                        "llm_config": {
+                                            "vector_store": {
+                                                "provider_config": {"vector_ids": ["vec_1"]}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                },
+            )
+        return httpx.Response(200, json={"message": "success", "state": "deleted"})
+
+    await _engine(handler).detach_kb("agent_1", "vec_1", agent=_config())
+
+    ordered = [call for call in calls if call[0] in ("PUT", "DELETE")]
+    assert ordered == [("PUT", "/v2/agent/agent_1"), ("DELETE", "/knowledgebase/rag_1")], (
+        "the agent must stop referencing the knowledge base before the document is deleted"
+    )
+
+
+async def test_a_detach_of_a_handle_the_account_does_not_hold_raises() -> None:
+    """The publisher's next act is to attach a replacement, and "the old text is gone" is
+    a claim it is entitled to have proven. There is no route that reads a knowledge base
+    BY vector id, so the account listing is the evidence — and a handle absent from it is
+    the vendor's 404 by another name."""
+    with pytest.raises(ProblemError) as raised:
+        await _engine(lambda _r: httpx.Response(200, json=[])).detach_kb(
+            "agent_1", "vec_missing", agent=_config()
         )
 
-    assert raised.value.code == "engine_capability_absent"
-    assert calls == [], "a refusal must not reach the vendor at all"
+    assert raised.value.code == "engine_rejected"
 
 
-async def test_listing_knowledge_bases_refuses_rather_than_reporting_an_empty_engine() -> None:
-    """The worst of the three if it were a stub. `kb/reconciliation` reads an empty list as
-    "the engine holds no documents for this agent", which is a positive claim about a
-    system we cannot read — and it would have been made on every sweep forever, because the
-    old implementation filtered `GET /knowledgebase/all` on a `row["agent_id"]` the vendor's
-    `Knowledgebase` schema does not have."""
-    with pytest.raises(ProblemError):
-        await _engine(lambda _r: httpx.Response(200, json=[])).list_kb("agent_1")
+def _kb_page(request: httpx.Request, total: int) -> httpx.Response:
+    """One page of a `total`-object account, honouring `page_number`/`page_size`.
+
+    Offset-based, which is the vendor's own description of what these parameters do
+    (`bolna-findings/mirror/pages/api-reference/pagination.md:19-27`, the worked table)."""
+    page_number = int(request.url.params.get("page_number", "1"))
+    page_size = int(request.url.params.get("page_size", "20"))
+    start = (page_number - 1) * page_size
+    rows = [
+        {"rag_id": f"rag_{index}", "vector_id": f"vec_{index}", "status": "processed"}
+        for index in range(start, min(start + page_size, total))
+    ]
+    return httpx.Response(200, json=rows)
+
+
+async def test_a_detach_reaches_a_knowledge_base_past_the_first_listing_page() -> None:
+    """D-519. `_rag_id_of` READ ONE PAGE and answered `None` for everything after it.
+
+    One Bolna account holds every tenant's knowledge bases and every published version of
+    every named source is its own object — there is no update route
+    (`bolna-findings/mirror/pages/api-reference/knowledgebase/overview.md:11-16`) — so the
+    ceiling is a handful of documents, not a distant one. Past it the adapter said "the
+    voice platform does not hold that knowledge base" about an object it does hold, and
+    `kb/service` turned that into `kb_detach_failed` with the remediation "try publishing
+    again", which could never work: the client's knowledge froze with a message saying
+    the opposite.
+
+    120 objects with the handle on the third page. `page_size` is the vendor's stated
+    maximum of 50 (`.../pagination.md:14`), so a one-page read sees `vec_0`..`vec_49`."""
+    deleted: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == "/knowledgebase/all":
+            return _kb_page(request, total=120)
+        if path == "/v2/agent/agent_1" and request.method == "GET":
+            return httpx.Response(200, json={"agent_id": "agent_1", "data": {}})
+        if path.startswith("/knowledgebase/") and request.method == "DELETE":
+            deleted.append(path.rsplit("/", 1)[1])
+            return httpx.Response(200, json={"message": "success", "state": "deleted"})
+        return httpx.Response(200, json={"status": "ok"})
+
+    await _engine(handler).detach_kb("agent_1", "vec_101", agent=_config())
+
+    assert deleted == ["rag_101"], (
+        "the walk must reach page three: a knowledge base the account holds must not be "
+        "reported as absent because the listing was read one page deep"
+    )
+
+
+async def test_the_account_listing_attributes_objects_by_the_file_name_we_chose() -> None:
+    """D-519. The one attribution an UNRECORDED vendor object has.
+
+    Their `Knowledgebase` row carries no agent, no tenant and no owner
+    (`bolna-findings/mirror/pages/api-reference/knowledgebase/get_knowledgebases.md
+    :63-121`) and one account holds every tenant's documents, so an object whose handle
+    our tables never recorded — a create whose response was lost, a publish whose COMMIT
+    failed — would be anonymous for ever. It is not, because the file name is OURS:
+    `calevate-kb-<source id>.pdf` (`_kb_filename`), echoed back on every listing row.
+
+    Also pinned: a row still `processing` has NO `vector_id` on this vendor, and reporting
+    a handle for it would tell the orphan report an unattachable object is attachable.
+    """
+    rows = [
+        {
+            "rag_id": "rag_1",
+            "vector_id": "vec_1",
+            "file_name": "calevate-kb-0199a0b0-0000-7000-8000-000000000009.pdf",
+            "status": "processed",
+            "created_at": "2026-09-01T10:00:00Z",
+        },
+        {"rag_id": "rag_2", "file_name": "calevate-kb-nope.pdf", "status": "processing"},
+        {"rag_id": "rag_3", "vector_id": "vec_3", "file_name": "somebody.pdf", "status": "error"},
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/knowledgebase/all"
+        return httpx.Response(200, json=rows)
+
+    listing = await _engine(handler).list_account_kb()
+
+    assert listing.complete
+    claimed, pending, stranger = listing.objects
+    assert str(claimed.claimed_source_id) == "0199a0b0-0000-7000-8000-000000000009"
+    assert claimed.state == "ready" and claimed.handle == "vec_1"
+    assert pending.handle is None, (
+        "a `processing` row carries no vector id and one must not be invented for it"
+    )
+    assert pending.claimed_source_id is None, "`calevate-kb-nope.pdf` is not one of ours"
+    assert pending.state == "pending"
+    assert stranger.claimed_source_id is None, (
+        "an upload made outside this code was attributed to one of our sources"
+    )
+    assert stranger.state == "failed", (
+        "`error` is absent from their LISTING enum and is still a state their platform "
+        "has a name for; dropping it hides a failed upload on the one surface that "
+        "explains what is lying around"
+    )
+
+
+async def test_a_listing_the_walk_could_not_finish_is_not_read_as_absence() -> None:
+    """ "We could not finish looking" is not "the account does not hold it".
+
+    The vendor's listing carries no `has_more` and no `total`
+    (`.../knowledgebase/get_knowledgebases.md:29-51`), so a page that yields nothing new
+    is the only truncation signal there is. Answering `None` on it would make `detach_kb`
+    raise `engine_rejected` — a positive claim about the vendor's state — on a read that
+    did not happen, and the publisher would then be told the old copy is gone when it is
+    not. The handler below returns a full page of the SAME rows forever."""
+    page = [{"rag_id": "rag_x", "vector_id": "vec_x"} for _ in range(50)]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/knowledgebase/all":
+            return httpx.Response(200, json=page)
+        return httpx.Response(200, json={"status": "ok"})
+
+    with pytest.raises(ProblemError) as raised:
+        await _engine(handler).detach_kb("agent_1", "vec_missing", agent=_config())
+
+    assert raised.value.code == "engine_kb_listing_incomplete"
+
+
+async def test_an_agent_republish_preserves_the_knowledge_it_already_holds() -> None:
+    """WITHOUT THIS, EVERY T0 RECOMPILE WOULD DELETE A CLIENT'S KNOWLEDGE.
+
+    `PUT /v2/agent/{id}` replaces the entire configuration
+    (`.../api-reference/agent/v2/patch_update.md:9`) and `AgentConfig` carries no vector
+    ids — deliberately, so no caller can forget to populate them. `update_agent` therefore
+    reads the engine's own list back and re-sends it. `PATCH` cannot stand in: it updates
+    a closed list of attributes that does not include `tasks`, and ignores everything
+    else, so it would answer 200 and change nothing."""
+    sent: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(
+                200,
+                json={
+                    "agent_id": "agent_1",
+                    "data": {
+                        "tasks": [
+                            {
+                                "tools_config": {
+                                    "llm_agent": {
+                                        "llm_config": {
+                                            "vector_store": {
+                                                "provider_config": {"vector_ids": ["vec_kept"]}
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        ]
+                    },
+                },
+            )
+        sent.update(json.loads(request.content))
+        return httpx.Response(200, json={"status": "ok"})
+
+    await _engine(handler).update_agent("agent_1", _config())
+
+    llm_agent = sent["agent_config"]["tasks"][0]["tools_config"]["llm_agent"]
+    assert llm_agent["llm_config"]["vector_store"]["provider_config"]["vector_ids"] == [
+        "vec_kept"
+    ], "a republish dropped the agent's knowledge linkage"
+
+
+async def test_listing_reads_the_agent_rather_than_the_account_listing() -> None:
+    """THE SILENT-DRIFT BUG, HELD AS A PROPERTY. The old implementation read
+    `GET /knowledgebase/all` and kept the rows whose `agent_id` matched — a field the
+    vendor's `Knowledgebase` schema does not declare
+    (`.../knowledgebase/get_knowledgebases.md:63-121`). So every agent listed `[]` for
+    ever, and `kb/reconciliation` read that as the positive claim "the engine holds no
+    documents for this agent".
+
+    The linkage was never on the knowledge base. It is on the agent, and reading it there
+    is both correct and one round trip instead of an account-wide listing."""
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return httpx.Response(
+            200,
+            json={
+                "agent_id": "agent_1",
+                "data": {
+                    "tasks": [
+                        {
+                            "tools_config": {
+                                "llm_agent": {
+                                    "llm_config": {
+                                        "vector_store": {
+                                            "provider_config": {"vector_ids": ["vec_a", "vec_b"]}
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    ]
+                },
+            },
+        )
+
+    assert await _engine(handler).list_kb("agent_1") == ["vec_a", "vec_b"]
+    assert paths == ["/v2/agent/agent_1"], (
+        "the agent's own object is the linkage; the account listing cannot answer this"
+    )
+
+
+def _kb_stub() -> tuple[Any, dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+    """A stateful stand-in for the four knowledge routes plus the agent object.
+
+    STATEFUL, for the reason the conformance stub is: a handler that answered every POST
+    with one id and every DELETE with 200 would let an adapter that attaches nothing and
+    detaches nothing pass a lifecycle test end to end. The first read of a knowledge base
+    answers `processing`, because that is what a create returns and it is what forces the
+    wait to exist.
+    """
+    agents: dict[str, dict[str, Any]] = {"a1": {}}
+    kbs: dict[str, dict[str, Any]] = {}
+    reads: dict[str, int] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path, method = request.url.path, request.method
+        if path == "/knowledgebase" and method == "POST":
+            n = len(kbs) + 1
+            rag = f"rag_{n}"
+            kbs[rag] = {"rag_id": rag, "vector_id": f"vec_{n}", "status": "processing"}
+            reads[rag] = 0
+            return httpx.Response(200, json={"rag_id": rag, "status": "processing"})
+        if path == "/knowledgebase/all":
+            return httpx.Response(200, json=list(kbs.values()))
+        if path.startswith("/knowledgebase/") and method == "GET":
+            rag = path.rsplit("/", 1)[-1]
+            if rag not in kbs:
+                return httpx.Response(404, json={"error": "unknown knowledgebase"})
+            reads[rag] += 1
+            if reads[rag] > 1:
+                kbs[rag]["status"] = "processed"
+            return httpx.Response(200, json=kbs[rag])
+        if path.startswith("/knowledgebase/") and method == "DELETE":
+            if kbs.pop(path.rsplit("/", 1)[-1], None) is None:
+                return httpx.Response(404, json={"error": "unknown knowledgebase"})
+            return httpx.Response(200, json={"message": "success", "state": "deleted"})
+        if path.startswith("/v2/agent/") and method == "GET":
+            agent_id = path.rsplit("/", 1)[-1]
+            return httpx.Response(200, json={"agent_id": agent_id, "data": agents[agent_id]})
+        if path.startswith("/v2/agent/") and method == "PUT":
+            agents[path.rsplit("/", 1)[-1]] = json.loads(request.content)["agent_config"]
+            return httpx.Response(200, json={"message": "success", "state": "updated"})
+        raise AssertionError(f"unexpected {method} {path}")
+
+    return handler, agents, kbs
+
+
+async def test_the_whole_knowledge_lifecycle_leaves_nothing_behind() -> None:
+    """Two sources on, one superseded, both off — asserted at BOTH objects each time.
+
+    The conformance suite proves attach-then-list and detach-then-list adapter-agnostically.
+    What it cannot see is the second object: whether the DOCUMENT went with the reference.
+    An adapter that un-references and never deletes passes every clause in that suite and
+    bills the account for every version any client has ever published.
+
+    The last assertion is the one that is easy to miss. Removing the final source must put
+    the agent back on the plain arm of the `llm_config` union — a knowledge agent pointed
+    at nothing is a shape nobody documents, and it is what an adapter that only ever
+    emptied the list would leave behind.
+    """
+    handler, agents, kbs = _kb_stub()
+    engine = _engine(handler)
+
+    first = await engine.attach_kb("a1", _kb_source(), agent=_config())
+    second = await engine.attach_kb("a1", _kb_source(), agent=_config())
+    assert await engine.list_kb("a1") == [first, second]
+    assert len(kbs) == 2, "each attach is a CREATE: there is no update route on this object"
+
+    await engine.detach_kb("a1", first, agent=_config())
+    assert await engine.list_kb("a1") == [second]
+    assert len(kbs) == 1, (
+        "the reference went but the document stayed — an un-referenced knowledge base is "
+        "billed for as long as the account exists and no per-agent read can see it"
+    )
+
+    snapshot = await engine.get_agent("a1")
+    assert snapshot.references_kb(first) is False, "D-41: the detached handle still dangles"
+    assert snapshot.references_kb(second) is True
+
+    await engine.detach_kb("a1", second, agent=_config())
+    assert await engine.list_kb("a1") == [] and kbs == {}
+    llm_agent = agents["a1"]["tasks"][0]["tools_config"]["llm_agent"]
+    assert llm_agent["agent_type"] == "simple_llm_agent"
+    assert "vector_store" not in llm_agent["llm_config"]
 
 
 # --- the rotating LLM credential (D-404) ----------------------------------------
@@ -747,3 +1166,164 @@ def test_the_adapter_is_fully_migrated_off_the_deprecated_v1_agent_surface() -> 
         "TRD §3 says never to call the legacy unversioned agent paths; the v2 equivalents "
         "are `/v2/agent`, `/v2/agent/all`, `/v2/agent/{id}` and `/v2/agent/{id}/executions`."
     )
+
+
+# --- the per-language prompts a console click adds (D-494) -----------------------------
+#
+# `_agent_body` sends `multilingual_config: None` on every write and says why. That
+# defends the WRITE. The console defends nothing: `+ Add Language` on the Agent Tab is one
+# click and gives each language its own prompt editor
+# (`bolna-findings/mirror/pages/agent-setup/agent-tab.md:5,41-70`), and the platform
+# switches "the active system prompt" to it mid-call
+# (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:589-599,1064-1120`). Those
+# prompts carry no `TRUTHFUL_ANSWER_DIRECTIVE`, because nothing in this tree wrote them.
+
+
+def _multilingual_agent(*, enabled: bool, te_prompt: str | None = "మీరు ఒక మనిషి.") -> dict[str, Any]:
+    """A read-back exactly as `AgentV2` declares it, with a Telugu language tab added."""
+    entry: dict[str, Any] = {"synthesizer": {"provider": "sarvam", "provider_config": {}}}
+    if te_prompt is not None:
+        entry["system_prompt"] = te_prompt
+    return {
+        "agent_id": "a1",
+        "agent_prompts": {"task_1": {"system_prompt": "base. marker-truthful"}},
+        "tasks": [
+            {
+                "task_type": "conversation",
+                "tools_config": {
+                    "llm_agent": {"llm_config": {"model": "gpt-4o-mini"}},
+                    "multilingual_config": {
+                        "enabled": enabled,
+                        "active_language": "en",
+                        "languages": {"en": {"synthesizer": {}}, "te": entry},
+                    },
+                },
+            }
+        ],
+    }
+
+
+async def test_a_console_added_language_prompt_is_read_back_as_a_running_prompt() -> None:
+    """The floor's read-back must see EVERY prompt the engine will run.
+
+    Before `_agent_alternate_prompts`, this agent read back with a perfect
+    `system_prompt` and nothing else — so `verification.judge` scored
+    `truthful_answer_applied=True` about a string that is not in the path the moment the
+    caller speaks Telugu, and the half-hourly drift sweep agreed with it forever.
+    """
+    engine = _engine(lambda request: httpx.Response(200, json=_multilingual_agent(enabled=True)))
+    snapshot = await engine.get_agent("a1")
+
+    assert snapshot.alternate_prompts == ("మీరు ఒక మనిషి.",), (
+        "the per-language prompt the platform switches to mid-call was not read back, so "
+        "nothing in this repository can see that the agent runs a prompt with no floor"
+    )
+    assert snapshot.carries_prompt_marker("marker-truthful") is True
+    assert snapshot.every_prompt_carries("marker-truthful") is False, (
+        "the floor is absent from a prompt this agent WILL run and the verdict said yes"
+    )
+
+
+async def test_a_disabled_multilingual_config_is_not_a_running_prompt() -> None:
+    """`enabled: false` ⇒ *"the agent runs single-language and this object is ignored"*
+    (VERIFIED-VENDOR-DOCS: `.../agent/v2/get.md:594-599`).
+
+    Convicting an agent over a stored-but-disabled config would be a refusal an operator
+    cannot act on — and it is the shape that teaches people to ignore the verdict.
+    """
+    engine = _engine(lambda request: httpx.Response(200, json=_multilingual_agent(enabled=False)))
+    snapshot = await engine.get_agent("a1")
+
+    assert snapshot.alternate_prompts == ()
+    assert snapshot.every_prompt_carries("marker-truthful") is True
+
+
+async def test_a_language_tab_with_no_prompt_of_its_own_is_not_a_gap() -> None:
+    """`MultilingualLanguageEntry.system_prompt` is nullable: an entry without one falls
+    back to the base prompt on their side, so it carries the floor and is not reported."""
+    engine = _engine(
+        lambda request: httpx.Response(200, json=_multilingual_agent(enabled=True, te_prompt=None))
+    )
+    snapshot = await engine.get_agent("a1")
+
+    assert snapshot.alternate_prompts == ()
+    assert snapshot.every_prompt_carries("marker-truthful") is True
+
+
+def _speech_alerts(caplog: pytest.LogCaptureFixture) -> list[dict[str, Any]]:
+    return [
+        record.__dict__
+        for record in caplog.records
+        if record.message == "alert"
+        and record.__dict__.get("code") == "engine_agent_multilingual_speech_override"
+    ]
+
+
+async def test_a_console_added_language_voice_is_paged_on(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The OTHER half of the same click, and `AgentSnapshot` has no field for it.
+
+    `MultilingualLanguageEntry` declares `synthesizer` REQUIRED
+    (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:1064-1120`), so every
+    language added in their console brings a text-to-speech provider of its own — and
+    their own example puts `elevenlabs` on one language. `_agent_models` reads the
+    conversation task's synthesizer and nothing else, so `judge` scores `voice_applied`
+    True while a caller who switches language is answered by a voice this product never
+    published, on a speech vendor no client agreement names.
+    """
+    payload = _multilingual_agent(enabled=True, te_prompt="మీరు ఒక AI. marker-truthful")
+    entry = payload["tasks"][0]["tools_config"]["multilingual_config"]["languages"]["te"]
+    entry["synthesizer"] = {"provider": "elevenlabs", "provider_config": {"voice_id": "21m00"}}
+    entry["transcriber"] = {"provider": "deepgram", "language": "te"}
+    engine = _engine(lambda request: httpx.Response(200, json=payload))
+
+    with caplog.at_level("ERROR"):
+        snapshot = await engine.get_agent("a1")
+
+    raised = _speech_alerts(caplog)
+    assert raised, (
+        "a language tab carrying its own voice and its own transcriber raised nothing — "
+        "the caller hears a vendor nobody here chose and every read-back reads green"
+    )
+    detail = raised[0]["detail"]
+    assert "elevenlabs" in detail and "deepgram" in detail, (
+        "the alert must name the providers, or the operator cannot tell a legitimate "
+        "per-language Sarvam voice from a speech vendor no DPA of ours covers"
+    )
+    assert "te" in detail
+    # Hard rule 6: the entry's prompt is business content and the alert is a message we
+    # authored about configuration, never a copy of it.
+    assert "మీరు" not in detail
+    # The floor verdict is unchanged by any of this: it is the prompt's question.
+    assert snapshot.every_prompt_carries("marker-truthful") is True
+
+
+async def test_a_disabled_language_tab_raises_no_speech_alarm(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`enabled: false` ⇒ the object is ignored (`get.md:594-599`), so nothing is running
+    and an alarm would be a page an operator cannot act on — the shape that teaches people
+    to ignore the next one."""
+    engine = _engine(lambda request: httpx.Response(200, json=_multilingual_agent(enabled=False)))
+
+    with caplog.at_level("ERROR"):
+        await engine.get_agent("a1")
+
+    assert not _speech_alerts(caplog)
+
+
+async def test_an_agent_this_tree_published_raises_no_speech_alarm(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`_agent_body` sends `multilingual_config: None`, so the ordinary read-back of an
+    agent we published must be silent. An alarm that fires on the normal case is noise
+    with a compliance label on it."""
+    payload = _multilingual_agent(enabled=True)
+    payload["tasks"][0]["tools_config"]["multilingual_config"] = None
+    engine = _engine(lambda request: httpx.Response(200, json=payload))
+
+    with caplog.at_level("ERROR"):
+        await engine.get_agent("a1")
+
+    assert not _speech_alerts(caplog)

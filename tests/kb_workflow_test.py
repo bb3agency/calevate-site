@@ -21,6 +21,48 @@ from tests.conftest import accept_agreements
 from tests.impersonation_grant_test import view_as_headers
 
 
+async def give_agent_a_script(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> uuid.UUID:
+    """Give a fixture agent the applied script every LIVE agent really has (D-488).
+
+    **WHY EVERY KB FIXTURE NEEDS THIS, AND WHY IT IS ONE FUNCTION.**
+    `create_organization` mints the receptionist row with no `prompt_versions` row at all
+    — FLOWS §1's step-3-before-step-7 state — and the KB fixtures then wrote
+    `status = 'live'` and an `engine_agent_ref` over the top. That pair is a state
+    production cannot reach: `publish_agent` refuses an agent with no script
+    (`agents/service._assert_has_a_script`, which exists because the old default put a
+    hardcoded English sentence on a Telugu clinic's phone line), so nothing can be live
+    without one.
+
+    It became load-bearing when publishing KNOWLEDGE started needing the agent's
+    publishable configuration: on an engine that stores the knowledge linkage as agent
+    state, an attach is an agent WRITE, so the publisher resolves the same `AgentConfig` a
+    republish would send — and resolved it for an agent the fixtures had left
+    unpublishable. The fix is the fixture, not the check.
+
+    Three suites need it and it lives here once, because three copies of a fixture is how
+    two of them end up describing different agents.
+    """
+    prompt_id = uuid.uuid4()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO prompt_versions (id, tenant_id, agent_id, version, body, "
+                "created_at, updated_at) VALUES (:p, :t, :a, 1, :body, now(), now())"
+            ),
+            {
+                "p": prompt_id,
+                "t": tenant_id,
+                "a": agent_id,
+                "body": "You are the receptionist for this clinic. Answer callers' questions.",
+            },
+        )
+        await session.execute(
+            text("UPDATE agents SET system_prompt_id = :p, live_prompt_id = :p WHERE id = :a"),
+            {"p": prompt_id, "a": agent_id},
+        )
+    return prompt_id
+
+
 async def _tenant_with_published_agent() -> tuple[uuid.UUID, uuid.UUID]:
     created = await admin_service.create_organization(
         name="KB Clinic",
@@ -42,6 +84,7 @@ async def _tenant_with_published_agent() -> tuple[uuid.UUID, uuid.UUID]:
             text("UPDATE agents SET engine_agent_ref = :r, status = 'live' WHERE id = :a"),
             {"r": ref, "a": agent_id},
         )
+    await give_agent_a_script(tenant_id, agent_id)
     async with untenanted_session() as session:
         await session.execute(
             text(

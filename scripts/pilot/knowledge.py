@@ -4,14 +4,19 @@ Gate 8 is a SOFT gate that decides real architecture, so it is the one gate whos
 "inconclusive" answer costs as much as a red one. Four questions live here:
 
 1. **The two KB-lifecycle questions D-41's detach contract cannot answer from docs.**
-   Bolna's spec was found and read (D-350), and the answer retired the capability
-   (D-354): `POST /knowledgebase` is multipart taking a PDF or a URL, the knowledge-base
-   object carries no agent, and `BOLNA_CAPABILITIES.knowledge_base` is now False with all
-   three methods refusing by name. This probe therefore exercises a path the primary
-   engine declines; it stays because the port is not Bolna's and an engine that CAN hold
-   a knowledge base must still be probed the same way. Historically:
-   every BODY on the `/knowledgebase` path was a
-   hand-maintained claim (TRD §5, and the standing warning in `apps/api/engine/bolna.py`):
+   ⚠ **THIS PARAGRAPH SAID THE CAPABILITY WAS RETIRED, AND IT IS NOT (D-493).** D-350
+   found and read Bolna's spec and D-354 set `BOLNA_CAPABILITIES.knowledge_base` to
+   False; **D-488 built the real implementation and set it back to True**
+   (`apps/api/engine/bolna.py:2774`), so these probes exercise a path the primary engine
+   now SUPPORTS. What they must send changed with it, and this module did not follow:
+   `POST /knowledgebase` is multipart taking a PDF or a URL, so the source needs a
+   rendered DOCUMENT (`KbSourceInput.resolve`), and the knowledge linkage is agent state
+   written by a full-replacement PUT, so `attach_kb`/`detach_kb` need the agent's own
+   configuration — which this harness does not have and may not invent (D-493, and
+   `_ANSWERED_REFUSALS` says so to the operator instead of blaming the vendor).
+   The questions themselves are unchanged, and every BODY on the `/knowledgebase` path
+   was once a hand-maintained claim (TRD §5, and the standing warning in
+   `apps/api/engine/bolna.py`):
    (a) does `GET /knowledgebase/all` carry the AGENT LINKAGE `list_kb` filters on, and
    (b) does `DELETE /knowledgebase/{rag_id}` also clear the AGENT's reference to it?
 2. **Telugu retrieval in the multilingual KB mode** — which names Hindi and Tamil and
@@ -67,12 +72,21 @@ import contextlib
 import itertools
 import math
 import os
-from collections.abc import Awaitable, Callable, Sequence
+import uuid
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Literal, Protocol
+from typing import Any, Final, Literal, Protocol
 
+# THE PUBLISHER'S OWN CHUNKER AND RENDERER, not a second pair (CLAUDE.md: one way per
+# problem). What gate 8 attaches has to be the artefact a real publish attaches, or the
+# gate measures a document this product never sends. Neither import touches a vendor
+# shape — the chunk boundaries and the PDF are OURS, and `KBSourceRef`'s own docstring
+# puts the rendering on the publisher rather than the adapter for exactly that reason —
+# so hard rule 2 is untouched by them.
+from apps.api.kb.pdf_render import ApprovedChunk, KnowledgePdfError, render_knowledge_pdf
+from apps.api.kb.service import chunk_text
 from calevate_shared.engine import AgentSnapshot, EngineAgentRef, EngineKBRef, KBSourceRef
 from pydantic import BaseModel, ValidationError
 from pydantic import Field as PydanticField
@@ -145,32 +159,74 @@ class KbEngine(Protocol):
 _CAPABILITY_REFUSED = "engine_capability_unverified"
 
 
-def _is_capability_refusal(exc: BaseException) -> bool:
-    """Is this "the engine cannot do this", as opposed to "the attempt failed"?
-
-    THE DIFFERENCE IS WHAT THE OPERATOR DOES NEXT, WHICH IS WHY IT IS WORTH A FUNCTION.
-    A transient failure means run it again; a capability refusal means the question is
-    ANSWERED and re-running will produce the identical refusal forever. Gate 8 told a
-    human "Re-run after gate 2 passes" in both cases, which against the primary engine is
-    advice to loop indefinitely: `BOLNA_CAPABILITIES.knowledge_base` is False since D-354,
-    so `attach_kb` refuses by name before a single request goes out and no amount of
-    gate 2 will change it.
-    """
-    return getattr(exc, "code", None) == _CAPABILITY_REFUSED
-
-
 #: What to tell a human when the engine has declined rather than failed. Written once
 #: because all three KB probes hit the same wall in the same way.
+#:
+#: ⚠ THIS SENTENCE USED TO NAME THE PRIMARY ENGINE AS THE EXAMPLE, ON D-354, AND D-488
+#: REVERSED THAT — `BOLNA_CAPABILITIES.knowledge_base` is `True` again
+#: (`apps/api/engine/bolna.py:2774`) and all three methods are implemented. Repeating a
+#: superseded decision row as if it were the state of the world is exactly what hard rule
+#: 11 forbids, and here it would have sent an operator to re-point a probe that is
+#: pointed correctly. The sentence now describes the CONDITION rather than an engine.
 _CAPABILITY_REFUSED_DETAIL = (
     "the engine DECLINES this capability rather than failing at it, so this gate is "
-    "ANSWERED and re-running changes nothing. On the primary engine that is D-354: "
-    "Bolna's `POST /knowledgebase` is multipart and takes a PDF or a URL, never the "
-    "prose `KBSourceRef` carries, and a Bolna knowledge base has no agent field at all — "
-    "so the built-in could not be driven through this port even if it answered. In-call "
+    "ANSWERED and re-running changes nothing: the adapter refuses by name before a "
+    "request goes out, because its descriptor reports `knowledge_base=False`. In-call "
     "retrieval is OURS regardless (D-28's managed vector service behind the RAG tool "
     "endpoint), which is where every KB tier above T0 already lives. Re-point this probe "
     "at an engine whose descriptor reports `knowledge_base=True` to exercise it."
 )
+
+
+#: Every refusal an adapter raises that is an ANSWER rather than an attempt that failed,
+#: with what the operator must do about it.
+#:
+#: THE DIFFERENCE IS WHAT THE OPERATOR DOES NEXT, which is why this is a table rather
+#: than a branch. A transient failure means run it again; an answered refusal means the
+#: question is settled and re-running produces the identical refusal for ever. This
+#: started life as a single-code predicate that knew only the capability refusal, and the
+#: other two arrived with D-488: the day Bolna's knowledge base became real, `attach_kb`
+#: grew two preconditions this harness does not meet, and both were rendered to a human
+#: as "Re-run after gate 2 passes" — advice to loop for ever, which is the exact failure
+#: the predicate had been written to remove.
+#:
+#: THE CODES ARE MATCHED AS STRINGS, for `_CAPABILITY_REFUSED`'s reason: `KbEngine` is a
+#: three-method Protocol so these probes can run against a KB-only stub, and importing
+#: `apps.api.engine` to catch an exception class would undo that for no gain.
+_ANSWERED_REFUSALS: Final[Mapping[str, str]] = {
+    _CAPABILITY_REFUSED: _CAPABILITY_REFUSED_DETAIL,
+    "engine_kb_document_missing": (
+        "`engine_kb_document_missing` — the engine ingests FILES and was handed prose. "
+        "That is a defect in this harness, not a vendor finding: `KbSourceInput.resolve` "
+        "renders the approved text with the publisher's own renderer, so a source that "
+        "reaches the adapter without a document means the render was skipped."
+    ),
+    "engine_kb_agent_config_required": (
+        "`engine_kb_agent_config_required` — on this engine the knowledge linkage is "
+        "AGENT STATE, so attaching is a full-replacement write to the agent object and "
+        "the adapter refuses to invent a body for one (D-488). The probe has an "
+        "`agent_ref` and no configuration to go with it, and it may not make one up: "
+        "a PUT assembled here would overwrite the operator's pilot agent with a body "
+        "nobody published. THIS GATE IS BLOCKED ON THAT, NOT ON THE VENDOR — see D-493. "
+        "Re-running changes nothing."
+    ),
+}
+
+
+def inconclusive_detail_for(exc: BaseException) -> str:
+    """What to tell a human about a probe that could not run, given what refused it.
+
+    ONE renderer for both KB probes, because they hit the same wall in the same way and
+    two copies would drift the day a third code appears. An unrecognised exception keeps
+    the old sentence — a timeout, a 502 or a dropped connection genuinely IS worth
+    re-running — but its CLASS is still named, because "ProblemError" alone told an
+    operator nothing at all about which of three refusals they had hit.
+    """
+    code = getattr(exc, "code", None)
+    answered = _ANSWERED_REFUSALS.get(str(code)) if code is not None else None
+    if answered is not None:
+        return answered
+    return f"{type(exc).__name__}. Re-run after gate 2 passes."
 
 
 #: Reads back the KB handles the AGENT's own configuration references — NOT the account
@@ -334,11 +390,7 @@ async def probe_kb_agent_linkage(
         primary_handle = await engine.attach_kb(primary.ref, primary.source)
         control_handle = await engine.attach_kb(control.ref, control.source)
     except Exception as exc:
-        detail = (
-            _CAPABILITY_REFUSED_DETAIL
-            if _is_capability_refusal(exc)
-            else f"{type(exc).__name__}. Re-run after gate 2 passes."
-        )
+        detail = inconclusive_detail_for(exc)
         return ProbeOutput(
             checks=(
                 inconclusive(
@@ -527,7 +579,7 @@ async def probe_kb_delete_clears_agent_reference(
         handle = await engine.attach_kb(agent.ref, agent.source)
         await engine.detach_kb(agent.ref, handle)
     except Exception as exc:
-        cause = _CAPABILITY_REFUSED_DETAIL if _is_capability_refusal(exc) else type(exc).__name__
+        cause = inconclusive_detail_for(exc)
         return ProbeOutput(
             checks=(
                 inconclusive(
@@ -1436,6 +1488,11 @@ UNSUPPLIABLE_INSTRUMENTS_FINDING = (
 )
 
 
+#: Namespace for the deterministic `source_id` behind a probe source's chunk markers.
+#: A fixed uuid5 namespace rather than `uuid4()`: see `KbSourceInput.resolve`.
+_KB_SOURCE_NAMESPACE: Final = uuid.UUID("6f6b7a2c-6f1e-5f2b-9a3d-0c1b2a3d4e5f")
+
+
 class KbSourceInput(BaseModel):
     """A knowledge source to attach during the KB-lifecycle probes.
 
@@ -1450,6 +1507,29 @@ class KbSourceInput(BaseModel):
     text_path: str | None = None
 
     def resolve(self) -> KBSourceRef:
+        """The approved text AND the document a file-ingesting engine needs.
+
+        **THE DOCUMENT USED TO BE ABSENT, AND THAT MADE EVERY KB PROBE UNRUNNABLE AGAINST
+        THE PRIMARY ENGINE (D-493).** `KBSourceRef.document` defaults to `None` — legal,
+        and meaning "this engine takes text" — so nothing typed, nothing linted and
+        nothing tested could see the omission: `tests/pilot_knowledge_test.py` proves the
+        probes against `FakeEngine`, which ingests prose and ignores the field. The
+        adapter the RUNNER hands over (`get_engine(settings)`) is the one that refuses:
+        Bolna's `POST /knowledgebase` is multipart and takes a file, so `attach_kb`
+        raises `engine_kb_document_missing` before a request is made, and gate 8 recorded
+        it as an inconclusive row blamed on the vendor. It is D-491's defect in the
+        harness that exists to VERIFY the vendor.
+
+        Chunked and rendered by the PUBLISHER'S functions, not by a pair of this
+        module's own: what the gate uploads has to be the artefact a real publish
+        uploads, chunk boundaries and markers included, or the retrieval it measures is
+        retrieval over a document this product never sends.
+
+        `source_id` is derived from `kb_id` with uuid5 rather than minted fresh, because
+        it reaches the reader as a per-chunk marker and the digest is a re-upload guard:
+        both must be the same on a re-run of the same inputs file, and `uuid4` would make
+        every run a different document.
+        """
         if self.text is not None:
             body = self.text
         elif self.text_path is not None:
@@ -1459,7 +1539,39 @@ class KbSourceInput(BaseModel):
                 f"kb source {self.kb_id!r} carries neither `text` nor `text_path`; "
                 "attaching an empty knowledge base would measure retrieval against nothing"
             )
-        return KBSourceRef(kb_id=self.kb_id, title=self.title, text=body)
+        source_id = uuid.uuid5(_KB_SOURCE_NAMESPACE, self.kb_id)
+        chunks = [
+            ApprovedChunk(
+                source_id=source_id,
+                source_name=self.title,
+                idx=idx,
+                content=chunk,
+                # The pilot's sources ARE the approved ones — an inputs file naming
+                # unapproved text would be the operator attaching something nobody
+                # signed off, which is a different gate's question.
+                approved=True,
+                is_active=True,
+            )
+            for idx, chunk in enumerate(chunk_text(body))
+        ]
+        try:
+            rendered = render_knowledge_pdf(chunks)
+        except KnowledgePdfError as exc:
+            # A REFUSAL ABOUT THE INPUT, RAISED RATHER THAN SCORED. An empty source or one
+            # in a script the font cannot draw is a defect in the inputs file; reporting
+            # it as an inconclusive KB row would attribute the operator's typo to the
+            # vendor, which is the one thing this gate must never do.
+            raise ProbeMisuseError(
+                f"kb source {self.kb_id!r} cannot be rendered for an engine that ingests "
+                f"files: {exc}"
+            ) from exc
+        return KBSourceRef(
+            kb_id=self.kb_id,
+            title=self.title,
+            text=body,
+            document=rendered.content,
+            content_sha256=rendered.sha256,
+        )
 
 
 class AgentProbeInput(BaseModel):
@@ -1746,6 +1858,7 @@ __all__ = [
     "agent_ref_reader_from_engine",
     "build_probe_inputs",
     "inconclusive",
+    "inconclusive_detail_for",
     "load_gate8_inputs",
     "percentile",
     "probe_batch_campaign",

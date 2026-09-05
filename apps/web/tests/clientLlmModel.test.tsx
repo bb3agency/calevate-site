@@ -312,6 +312,50 @@ describe("the account's default model", () => {
     expect(container.textContent).not.toContain("₹0.0000 / min");
   });
 
+  it("says so when the model in force is one this platform cannot run yet", async () => {
+    /*
+     * THE STATE THE FOUNDER'S OWN DEPLOYMENT IS IN, and the sentence that keeps this screen
+     * honest in it. The platform default is a live setting and its leg's credential and
+     * price are live properties of the deployment, so the model we INTEND to run can be
+     * named here before the key that runs it is installed. Without this the screen said
+     * "In force now: X" and "Today that is X" while the account's calls were being answered
+     * by our standard model instead — a model name a client reads as what their callers are
+     * talking to.
+     */
+    const blockedDefault = defaults();
+    const { container } = await renderClientPage(
+      settingsPage,
+      settingsRoutes({
+        "/v1/organization/llm-defaults": {
+          ...blockedDefault,
+          available: blockedDefault.available.map((option) =>
+            option.is_platform_default
+              ? {
+                  ...option,
+                  is_available: false,
+                  unavailable_reason:
+                    "it isn't switched on for your account yet; ask your Calevate team to enable it",
+                }
+              : option,
+          ),
+        },
+      }),
+    );
+
+    await waitFor(() =>
+      expect(container.textContent).toContain(
+        "your agents run our standard model until it is",
+      ),
+    );
+    // The panel above the picker says it too, because that is where a client reads what is
+    // running right now.
+    expect(container.textContent).toContain(
+      "so your calls run our standard model until it is",
+    );
+    // And the row itself stays unpickable, with the same one action beside it.
+    expect(radio(/^gpt-4o-mini/).disabled).toBe(true);
+  });
+
   it("shows a model this platform cannot run, disabled, with the server's reason", async () => {
     // THE DEFECT THIS PINS: the picker mapped every catalogue row into a selectable radio
     // and never read `is_available`, so on the shipped deployment a client could pick
@@ -490,6 +534,8 @@ function agent(over: Partial<AgentWithLlm> = {}): AgentWithLlm {
     ai_disclosure_line: "Namaste, this is an AI assistant calling on behalf of Sri Clinic.",
     ai_disclosure_enabled: true,
     recording_notice_line: "This call is being recorded.",
+    caller_memory_notice_line: "I keep a short note of what you ask about.",
+    caller_memory_enabled: false,
     recording_notice_enabled: true,
     opening_line:
       "Namaste, this is an AI assistant calling on behalf of Sri Clinic. This call is being recorded.",

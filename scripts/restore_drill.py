@@ -239,6 +239,19 @@ _APPEND_ONLY_PROBE_SET = {
     # the constraint instead of on the trigger would report a protected ledger as
     # protected for the wrong reason (`fx_rate_observations`' own note).
     "platform_dashboard_data_use": "source_note = source_note || 'x'",
+    # D-492: not tenant-scoped either, for `platform_model_prices`' reason. `source_note`
+    # rather than `inr_amount`, which carries `ck_platform_list_rates_positive` — a probe
+    # that could fail on the constraint instead of on the trigger would report a protected
+    # ledger as protected for the wrong reason (`fx_rate_observations`' own note).
+    "platform_list_rates": "source_note = source_note || 'x'",
+    # D-499: platform-scoped for `platform_model_prices`' reason — the payer is Calevate,
+    # so there is no tenant whose row this could be and no `tenant_id` to mutate. `ref` is
+    # the safe target: `qty`/`unit_cost_paid` carry non-negative CHECKs and `ref` carries
+    # `ck_platform_ai_usage_ref_shape`, so appending to `meta` would be the only other
+    # option and a probe that failed on a CHECK would report a protected ledger as
+    # protected for the wrong reason (`fx_rate_observations`' own note). `occurred_at` has
+    # no constraint and is not part of the idempotency key.
+    "platform_ai_usage": "occurred_at = occurred_at + interval '1 second'",
 }
 
 
@@ -695,17 +708,20 @@ class RestoreDrill:
             "INSERT INTO organizations (id, name, slug, status) VALUES "
             f"('{TENANT_A}', 'Drill Tenant A', 'drill-tenant-a', 'active'), "
             f"('{TENANT_B}', 'Drill Tenant B', 'drill-tenant-b', 'active')",
-            # The three disclosure columns together (D-163): the legacy bundle plus the
-            # two halves it splits into. The drill's fixture is a real agent row and has
-            # to satisfy the same NOT NULL/non-blank constraints a client's does.
+            # The FOUR disclosure columns together (D-163, D-507): the legacy bundle, the
+            # two halves it splits into, and the memory sentence. The drill's fixture is a
+            # real agent row and has to satisfy the same NOT NULL/non-blank constraints a
+            # client's does.
             "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-            "ai_disclosure_line, recording_notice_line) VALUES "
+            "ai_disclosure_line, recording_notice_line, caller_memory_notice_line) VALUES "
             f"('{AGENT_A}', '{TENANT_A}', 'Drill A', 'inbound', "
             "'This is an AI assistant. This call is being recorded.', "
-            "'This is an AI assistant.', 'This call is being recorded.'), "
+            "'This is an AI assistant.', 'This call is being recorded.', "
+            "'I keep a short note of what you ask about.'), "
             f"('{AGENT_B}', '{TENANT_B}', 'Drill B', 'inbound', "
             "'This is an AI assistant. This call is being recorded.', "
-            "'This is an AI assistant.', 'This call is being recorded.')",
+            "'This is an AI assistant.', 'This call is being recorded.', "
+            "'I keep a short note of what you ask about.')",
             # One admin and one user per tenant, seeded ONLY because three of the eight
             # ledgers below cannot exist without them: `platform_secrets.created_by` and
             # `preference_scrub_runs.recorded_by_admin_id` point at `admin_users`, and
@@ -742,6 +758,25 @@ class RestoreDrill:
             "source_note) VALUES ('google', now(), "
             f"'{ADMIN_ID}', 'restore-drill-fixture-project', false, false, "
             "'restore-drill fixture')",
+            # D-492: one published list rate, for the same reason — `append_only_enforced`
+            # needs a row on `platform_list_rates` for its FOR EACH ROW trigger to fire
+            # against. `recorded_by` is the ADMIN_ID seeded above and the amount is inside
+            # the table's positive CHECK; the note marks it a fixture so it can never be
+            # mistaken for a real published price.
+            "INSERT INTO platform_list_rates (rate_key, effective_from, inr_amount, "
+            "recorded_by, source_note) VALUES ('self_serve_inr_per_min', now(), 6.0000, "
+            f"'{ADMIN_ID}', 'restore-drill fixture')",
+            # D-499: one metered unit of ADMIN copilot spend, for the same reason —
+            # `append_only_enforced` needs a row for its FOR EACH ROW trigger to fire
+            # against. `admin_user_id` is the ADMIN_ID seeded above; `ref` must match
+            # `ck_platform_ai_usage_ref_shape` (`assist:<uuid>`), and the uuid is fixed so
+            # the drill is deterministic. `viewing_tenant_id` is NULL because this fixture
+            # is an operator on a console screen, not one viewing an account.
+            "INSERT INTO platform_ai_usage (admin_user_id, viewing_tenant_id, unit_type, "
+            "qty, unit_cost_paid, ref, meta) VALUES ("
+            f"'{ADMIN_ID}', NULL, 'llm_tok_out', 0.0000, 0.0000, "
+            "'assist:00000000-0000-0000-0000-000000000001', "
+            '\'{"source_note": "restore-drill fixture"}\'::jsonb)',
             # D-475: one pulled rate, for the same reason — `append_only_enforced` needs a
             # row on `fx_rate_observations` for its FOR EACH ROW trigger to fire against.
             # The source is marked as a fixture so it can never be mistaken for a real
@@ -782,8 +817,10 @@ class RestoreDrill:
                 f"'self_serve_console', 'v1', '{user}')",
                 # Contract formation, not consent: this ledger has no status column
                 # and no withdrawal row, so the fixture is simply one accepted
-                # agreement. The version string carries the review state, exactly as
-                # `legal.catalogue.version_of` renders it.
+                # agreement. The version string carries the review state; `+pre-review`
+                # is deliberately a PRE-PUBLICATION acceptance — the set was published on
+                # 2 Sep 2026 and `version_of` no longer renders that suffix, but rows
+                # naming it are exactly what a restore has to carry back intact.
                 "INSERT INTO legal_acceptances (id, tenant_id, document_slug, "
                 "document_version, statement_version, accepted_by_user_id) VALUES "
                 f"('{_uuid7()}', '{tenant}', 'terms', '1+pre-review', '1+pre-review', "

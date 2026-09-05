@@ -443,7 +443,17 @@ async def test_the_table_holds_a_tenant_a_reason_and_an_instant_and_nothing_else
         "readable from any session with no tenant GUC, so anything here that names client "
         "content is a leak the model's own argument does not cover."
     )
-    assert RETENTION_WORKLIST_REASONS == (_REASON,), (
-        "a second reason is a second feeder and a second CHECK value — update the model, "
-        "the migration and then this pin"
+    # THE SECOND REASON ARRIVED, and this pin is what made it cost a visible diff — which
+    # is what it was for. `copilot_memory` (migration d4a9c17e6b02) is the in-app
+    # assistant's memory: a tenant can hold one with no published agent, exactly as it can
+    # hold a rejected knowledge source, so `engine_agent_routes` cannot name it either.
+    # Same hole, same feeder, one shared trigger function taking the reason as `TG_ARGV[0]`
+    # rather than a second near-identical one.
+    #
+    # THE COLUMN ASSERTION ABOVE IS WHAT KEEPS THIS SAFE AS THE LIST GROWS: every row here
+    # is readable from a session with no tenant GUC, and what a second reason adds is one
+    # more tenant_id — never a word of client content.
+    assert RETENTION_WORKLIST_REASONS == (_REASON, "copilot_memory"), (
+        "a new reason is a new feeder and a new CHECK value — update the model, the "
+        "migration and then this pin"
     )

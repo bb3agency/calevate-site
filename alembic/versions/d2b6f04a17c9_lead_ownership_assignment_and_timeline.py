@@ -126,7 +126,14 @@ def downgrade() -> None:
     # Before the narrower CHECK, not after: `ADD CONSTRAINT` validates, so an account
     # that has assigned a lead would otherwise make this downgrade unrunnable. The cost
     # is stated in the module docstring.
+    # The bracket (`d3b71c9a5e08`): this table is FORCE ROW LEVEL SECURITY, which
+    # subjects the OWNER to `tenant_isolation` too, and that policy is fail-closed on an
+    # unset `app.tenant_id`. Unbracketed, the statement below matches ZERO rows and
+    # reports success. Added by `e1a4d70c9b52`'s round, which hit exactly this in
+    # production; `tests/migration_rls_bracket_test.py` now fails the build on a new one.
+    op.execute("ALTER TABLE lead_events NO FORCE ROW LEVEL SECURITY")
     op.execute("DELETE FROM lead_events WHERE type = 'assignment'")
+    op.execute("ALTER TABLE lead_events FORCE ROW LEVEL SECURITY")
     op.execute(f"ALTER TABLE lead_events DROP CONSTRAINT {CONSTRAINT}")
     op.execute(
         f"ALTER TABLE lead_events ADD CONSTRAINT {CONSTRAINT} CHECK (type IN {TYPES_BEFORE})"

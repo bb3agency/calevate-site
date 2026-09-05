@@ -67,9 +67,12 @@ Their docs are no longer egress-blocked; they are mirrored under `bolna-findings
 stays open is whether `AZURE_OPENAI_API_VERSION` is real on the v1 surface — their own two
 pages disagree — gate 16f; still do not invent values. **BRD R-04's 16 Oct 2026
 retirement is gone** with the model and the date-carrying constant. Our code: admin console,
-client dashboards, schema-driven extraction + mini-CRM, RAG (managed service — D-28), metering/billing,
+client dashboards, schema-driven extraction + mini-CRM, RAG (`kb_chunks` + pgvector in our own
+Postgres — D-502 adopted the bake-off and superseded D-28's managed service; in-call retrieval is
+unchanged and stays T0 + the engine's own KB), metering/billing,
 TRAI/DLT/DPDP compliance. Stack: FastAPI + Python 3.12, Next.js 15 + TypeScript,
-Postgres 16 (RLS; pgvector only as D-28 contingency), Redis + ARQ, first-party auth
+Postgres 16 (RLS; pgvector ADOPTED per D-502 — an extension, not a deployable), Redis + ARQ,
+first-party auth
 (two realms — reaffirmed D-37). Hosting is a general-purpose Hetzner-class VPS (D-25
 superseded D-13's "DO Bangalore"; India co-location is required only for in-call-path
 services), and nothing has been deployed — `infra/` is templates nobody has applied.
@@ -133,8 +136,11 @@ make web-check                # frontend: typecheck + lint + vitest (D-53)
 5. No PII (phones, transcript text, extraction data) in logs or traces; ids only.
 6. Money = NUMERIC INR. Time = timestamptz UTC. Phone = E.164. IDs = uuid_v7.
 7. Migrations reversible; column removal is two-step across releases.
-8. Don't add: vector DBs, brokers, second backend language, new deployables — those need
-   a decision-log entry in `docs/ROADMAP.md §6` first.
+8. Don't add: a SEPARATE vector service (managed or self-hosted), brokers, a second backend
+   language, new deployables — those need a decision-log entry in `docs/ROADMAP.md §6` first.
+   ⚠ D-502 reversed the older "no pgvector" reading: an extension in the Postgres we already
+   run, back up and drill adds no deployable, no backup unit and no vendor. A second database
+   still does.
 
 ## Tempo: there is no later
 

@@ -12,6 +12,7 @@ import {
   ProblemNotice,
   RestrictionNote,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { LANGUAGE_NAMES } from "@/lib/agentState";
 import {
   useCreateAgent,
@@ -26,7 +27,7 @@ import { hasKey } from "@/lib/lookup";
 
 import { DIRECTIONS, DirectionPicker } from "../DirectionChoice";
 import { useCopilotSurface } from "@/lib/copilot/registry";
-import { asText } from "@/lib/copilot/types";
+import { asText, noFill } from "@/lib/copilot/types";
 import { CallCapField, ComplianceFloor } from "./BuildAgentForm";
 import { CreatedPanel } from "./CreatedPanel";
 
@@ -82,6 +83,7 @@ export function BuildAgent({ slug }: { slug: string }) {
   const write = useWriteAccess(session, "org:manage", "create an agent");
 
   const [name, setName] = useState("");
+  const valid = useFormValidation();
   const [direction, setDirection] = useState<AgentDirection>("inbound");
   const [language, setLanguage] = useState<AgentLanguage>("te-IN");
   const [capMinutes, setCapMinutes] = useState("");
@@ -100,12 +102,47 @@ export function BuildAgent({ slug }: { slug: string }) {
    * string into a closed union, so a model naming a language this build does not ship
    * changes nothing instead of putting an unsubmittable value in the control.
    *
-   * `null` once the agent exists — the success panel has no form on it, and a launcher
-   * over a screen with nothing to fill in is the failure the dock refuses to ship.
+   * ## ONCE THE AGENT EXISTS THIS DECLARES THE SUCCESS PANEL, AND IT USED TO DECLARE
+   * `null`
+   *
+   * The old reasoning was that "a launcher over a screen with nothing to fill in is the
+   * failure the dock refuses to ship". That is right about a launcher over a screen the
+   * assistant cannot SEE, and wrong about this one: the success panel is precisely where
+   * a first-time owner asks "so what happens now" — the gap between "created" and "able
+   * to take calls" is the thing this component's own docstring says needs explaining —
+   * and the copilot answers that from its read tools plus the facts below. A button that
+   * vanishes at the moment of a person's first question teaches the same "it is broken"
+   * lesson the dock was avoiding, from the other end.
+   *
+   * The FIELDS still go away with the form, which is the half that was actually load
+   * bearing: nothing is offered to fill, because there is nothing on screen to fill.
    */
   useCopilotSurface(
     created !== null
-      ? null
+      ? {
+          route: `/c/${slug}/agents/new`,
+          title: "Agent created",
+          realm: "client",
+          fields: [],
+          facts: [
+            { key: "just_created", label: "An agent was just created on this screen", value: "yes" },
+            { key: "agent_id", label: "Its id", value: created.id },
+            { key: "agent_name", label: "Its name", value: created.name },
+            { key: "agent_direction", label: "What it does", value: created.direction },
+            { key: "agent_language", label: "What it speaks", value: created.language_primary },
+            { key: "agent_status", label: "Its status", value: created.status },
+            {
+              key: "agent_published",
+              label: "Is it on the calling system yet?",
+              value: created.published ? "yes" : "no — it has not been published",
+            },
+          ],
+          apply: noFill,
+          // Nothing on the success panel is unsaved — the agent EXISTS. Said explicitly so
+          // the assistant can open another screen from here without asking a question that
+          // has no subject (D-524, `lib/copilot/unsaved.ts`).
+          unsaved: false,
+        }
       : {
           route: `/c/${slug}/agents/new`,
           title: "Build an agent",
@@ -159,6 +196,23 @@ export function BuildAgent({ slug }: { slug: string }) {
               }
             }
           },
+          /*
+           * IS THERE WORK HERE THAT LEAVING WOULD THROW AWAY? D-524.
+           *
+           * The assistant can now open another screen, and this is the form D-523 named as
+           * the hazard: a half-composed agent, discarded by a move nobody warned about. The
+           * SERVER cannot answer it — it is told these four fields exist, never that anybody
+           * has touched one — so the screen answers, and the browser asks before it moves.
+           *
+           * DIRTY IS "DIFFERENT FROM WHAT IT MOUNTED WITH", compared against the same
+           * initialisers the `useState` calls above use rather than a second copy of the
+           * defaults: a person who opened this screen and typed nothing has nothing to lose,
+           * and asking them anyway would train them to click through the question that
+           * matters. Declaring it also turns OFF the conservative fallback, which would
+           * otherwise ask on this screen every time because it has writable fields.
+           */
+          unsaved:
+            name !== "" || capMinutes !== "" || direction !== "inbound" || language !== "te-IN",
         },
   );
 
@@ -177,8 +231,8 @@ export function BuildAgent({ slug }: { slug: string }) {
           <Card title="Build an agent">
             <form
               className="space-y-6"
-              onSubmit={(event) => {
-                event.preventDefault();
+              noValidate
+              onSubmit={valid.onSubmit(() => {
                 create.mutate(
                   {
                     name,
@@ -190,27 +244,34 @@ export function BuildAgent({ slug }: { slug: string }) {
                   },
                   { onSuccess: (agent) => setCreated(agent) },
                 );
-              }}
+              })}
             >
-              <label className="block max-w-sm">
-                <span className={FIELD_LABEL}>What do you want to call it?</span>
-                <input
-                  /* The copilot field id, which is what the "filled" outline is drawn
-                     on. The wrapping label already associates the two. */
-                  id="new-agent-name"
-                  required
-                  minLength={2}
-                  maxLength={80}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="e.g. Front desk"
-                  className={FIELD}
-                />
-                <span className={FIELD_HINT}>
-                  Only you see this name — it is how you tell your agents apart here and on
-                  your call log. Callers never hear it.
-                </span>
-              </label>
+              {/* The message is outside the wrapping `<label>` so it describes the field
+                  rather than becoming part of its name. */}
+              <div className="max-w-sm">
+                <label className="block">
+                  <span className={FIELD_LABEL}>What do you want to call it?</span>
+                  <input
+                    {...valid.field("name", "Give this agent a name.")}
+                    /* The copilot field id, which is what the "filled" outline is drawn
+                       on. It overrides the generated one; the message is tied to the
+                       control by `aria-describedby` either way. */
+                    id="new-agent-name"
+                    required
+                    minLength={2}
+                    maxLength={80}
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    placeholder="e.g. Front desk"
+                    className={FIELD}
+                  />
+                  <span className={FIELD_HINT}>
+                    Only you see this name — it is how you tell your agents apart here and
+                    on your call log. Callers never hear it.
+                  </span>
+                </label>
+                {valid.error("name")}
+              </div>
 
               <fieldset>
                 <legend className={FIELD_LABEL}>What should it do?</legend>
@@ -255,6 +316,7 @@ export function BuildAgent({ slug }: { slug: string }) {
                 lanes={lanes}
                 value={capMinutes}
                 onChange={setCapMinutes}
+                validation={valid}
               />
 
               <ComplianceFloor />
@@ -262,7 +324,9 @@ export function BuildAgent({ slug }: { slug: string }) {
               <div className="flex flex-wrap items-center gap-3 border-t border-line pt-5">
                 <button
                   type="submit"
-                  disabled={!write.allowed || create.isPending || name.trim().length < 2}
+                  /* The name rule is NOT repeated here. A button that stays dead until
+                     the second character explains nothing; pressing it now answers. */
+                  disabled={!write.allowed || create.isPending}
                   /* The reason travels WITH the control as well as sitting at the top of
                      the screen: a dead button whose explanation is off-screen on a phone is
                      the 403 this pattern exists to avoid shipping. */

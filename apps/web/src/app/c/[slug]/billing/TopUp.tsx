@@ -1,16 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import {
   MonoValue,
   NoticeBox,
   PRIMARY_BUTTON,
-  PRIMARY_BUTTON_SM,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON,
-  ScrollRegion,
   Skeleton,
   formatCount,
   formatINR,
@@ -150,14 +148,38 @@ export function TopUp({ session }: { session: Session }) {
     /* Not an empty state and not an error: a true statement about this deployment, with
        the path that works. The server's authored reason is deliberately NOT shown — a
        client cannot act on "no_webhook_secret" and naming our missing secret is an
-       internals leak. */
+       internals leak.
+
+       THE PRICES STILL RENDER, AND THAT IS THE POINT OF THIS BRANCH RATHER THAN AN
+       ADDITION TO IT. This used to `return` here, before the rate card — so on every
+       deployment that cannot take a card (which is all of them until a provider account
+       exists) a client opened "Add credit" and found one sentence: no packs, no prices,
+       no idea what any of it costs. They cannot decide what to transfer without knowing
+       what a pack buys, so the branch that removes the BUTTON must not also remove the
+       PRICE LIST. `read_credit_packs` reads no tenant state and no provider state — the
+       catalogue is the same for everyone and is as true on a bank-transfer deployment as
+       on a card one. */
     return (
-      <div className="mt-4 border-t border-line pt-4 text-sm text-ink-muted">
-        <p>
-          We cannot take card or UPI payment on this account. To add credit, transfer the
-          amount to us by bank — talk to your account manager for the details — and the
-          credit appears here once the payment lands.
+      <div className="mt-4 space-y-4 border-t border-line pt-4">
+        <p className="text-sm text-ink-muted">
+          We cannot take card or UPI payment on this account yet. To add credit, transfer
+          the amount to us by bank — talk to your account manager for the details — and
+          the credit appears here once the payment lands. The packs below are what each
+          amount buys.
         </p>
+        {packs.isLoading && <Skeleton rows={4} />}
+        {packs.error && (
+          <ProblemNotice error={packs.error} onRetry={() => void packs.refetch()} />
+        )}
+        {packs.data && (
+          <PackChooser
+            packs={packs.data.packs}
+            payable={false}
+            disabled
+            pendingPackId={null}
+            onSelect={() => undefined}
+          />
+        )}
       </div>
     );
   }
@@ -226,23 +248,38 @@ export function TopUp({ session }: { session: Session }) {
       {packs.isLoading && <Skeleton rows={4} />}
       {packs.error && <ProblemNotice error={packs.error} onRetry={() => void packs.refetch()} />}
       {packs.data && (
-        <PacksTable
-          packs={packs.data.packs}
-          payable={payable}
-          disabled={!write.allowed || busy}
-          pendingPackId={intent.isPending ? pending : null}
-          onSelect={(packId) => {
-            setPending(packId);
-            setStage({ at: "idle" });
-            intent.mutate({ packId }, { onSuccess: onIntent });
-          }}
-        />
+        <>
+          <PackChooser
+            packs={packs.data.packs}
+            payable={payable}
+            disabled={!write.allowed || busy}
+            pendingPackId={intent.isPending ? pending : null}
+            onSelect={(packId) => {
+              setPending(packId);
+              setStage({ at: "idle" });
+              intent.mutate({ packId }, { onSuccess: onIntent });
+            }}
+          />
+          {/* ONE LINE UNDER THE PRICES, because this is the card a client compares against
+              somebody else's, and the thing that makes ours comparable is the one thing a
+              price list cannot show: every rate on it buys the SAME voice. Prices with no
+              quality attached invite the reader to assume the cheapest one is the worst.
+              `WhatCallsCost` argues it properly on the same screen; this is the sentence
+              that has to survive being read on its own, next to the number — and it is now
+              ONE sentence rather than three, because the founder's verdict on this panel
+              was that nobody reads the third. */}
+          <p className="text-sm text-ink-muted">
+            Every pack buys the same calling — the same voice on every call. A bigger pack
+            only makes each minute cheaper.
+          </p>
+        </>
       )}
 
       {/* An "other amount" for a client who wants a figure that is not a pack. Same route,
           no bonus — packs are where the volume bonus lives. */}
       <form
         className="flex flex-wrap items-center gap-2"
+        noValidate
         onSubmit={(e) => {
           e.preventDefault();
           setPending(CUSTOM);
@@ -383,15 +420,59 @@ function whileOpening(next: Stage): (current: Stage) => Stage {
 const PAYMENT_FAILED: ApiProblem = paymentFailedProblem();
 
 /**
- * The credit-pack rate card, Outpero-style: You pay / Credits / Free / Effective rate /
- * Talk time / the action. Every figure is the SERVER's — priced at the live list rate —
- * and rendered as sent (hard rule 7 reaches the browser: no decimal arithmetic on money
- * here).
+ * THE PACK CHOOSER — "how much calling do I need?", answered in that order.
  *
- * Scrolls inside its own container on narrow screens rather than forcing the page body to
- * scroll sideways. The "best value" pack is badged and row-highlighted.
+ * ## What this replaced, and why a table was the wrong shape
+ *
+ * It was a six-column table: You pay / Credits / Free / Effective rate / Talk time / the
+ * button, one row per pack, borrowed wholesale from the competitor the founder had
+ * benchmarked. Two things were wrong with it and only one of them is taste.
+ *
+ * The taste half: it was somebody else's table, and it looked it.
+ *
+ * The half that matters: **a table answers "what do these five packs cost?" and nobody
+ * arrives with that question.** They arrive with "how much calling do I need, and what
+ * does that come to?" — and a table makes the reader do the division themselves, across
+ * six columns, on a phone, before they can act. ₹4.6296/min is the unit an accountant
+ * thinks in; "about 10,800 minutes" is the unit somebody running a phone line thinks in.
+ * Both are here. The talk time leads and the rupees follow, which is the reverse of the
+ * old first column.
+ *
+ * ## What was chosen, and what was rejected
+ *
+ * - **Cards, not rows.** A row's cells are only legible beside their header, which is why
+ *   the table needed `min-w-[36rem]` and a sideways scroll on the phone this is read on.
+ *   A card carries its own labels, so it reads at 320px and wraps instead of scrolling.
+ * - **The recommendation is CARRIED by the card**, not bolted on: the best-value pack has
+ *   the brand border, the tinted ground and a full-width band across its top. The old
+ *   "BEST VALUE" pill sat in a cell of an otherwise identical row, which is the shape that
+ *   makes a reader suspect the badge is decoration.
+ * - **The bonus says what it means.** "FREE — +4,000 (8%)" is a column heading and a
+ *   number; "4,000 credits free — 8% more calling for the same money" is the sentence the
+ *   number was standing in for, and the bonus is the single most persuasive fact here.
+ * - **A minutes matcher instead of a "compare" toggle.** REJECTED: a slider (invents
+ *   precision the reader does not have and is a poor touch target), and a per-card "how
+ *   many minutes is this?" hover (unreachable on a phone, invisible to a screen reader).
+ *   What the reader can actually answer is roughly how many minutes a month they call, and
+ *   from that the pack follows — so that is the one input, it is optional, and the panel
+ *   is complete without it.
+ *
+ * ## The rules this stayed inside
+ *
+ * Every figure is the SERVER's, rendered from its digits — `formatINR` for amounts,
+ * `formatRupeeRate` for the rate (a rate is not a rupee amount and must not be rounded
+ * like one), `formatCredits` for the credit counts. No money is put through `Number` here
+ * (hard rule 7 reaches the browser). Nothing is hardcoded about how many packs exist or
+ * what they cost: the catalogue is whatever `GET /v1/billing/topups/packs` sent, in the
+ * order it sent it.
+ *
+ * The accessible name of every buy control still carries its AMOUNT, because a grid of
+ * buttons all reading "Pay" is a list of identical controls in a screen reader and the
+ * price is the only thing that tells them apart. That property is inherited from the table
+ * this replaced and is asserted in `tests/topup.test.tsx` — see the button for why it is
+ * now carried by the visible text instead of by an `aria-label`.
  */
-function PacksTable({
+function PackChooser({
   packs,
   payable,
   disabled,
@@ -404,84 +485,164 @@ function PacksTable({
   pendingPackId: string | null;
   onSelect: (packId: string) => void;
 }) {
+  const [monthly, setMonthly] = useState("");
+  // `useId` rather than a literal: this panel renders on two tabs of one hub, and two
+  // inputs sharing an id would make the second label point at the first field.
+  const fieldId = useId();
+  const wanted = wantedMinutes(monthly);
+  const match = wanted === null ? null : suggestPack(packs, wanted);
+
   return (
-    <ScrollRegion label="Prepaid credit packs">
-      <table className="w-full min-w-[36rem] border-collapse text-sm">
-        <caption className="sr-only">Prepaid credit packs</caption>
-        <thead>
-          <tr className="border-b border-line text-left text-xs uppercase tracking-wide text-ink-muted">
-            <th scope="col" className="py-2 pr-3 font-medium">
-              You pay
-            </th>
-            <th scope="col" className="py-2 pr-3 font-medium">
-              Credits
-            </th>
-            <th scope="col" className="py-2 pr-3 font-medium">
-              Free
-            </th>
-            <th scope="col" className="py-2 pr-3 font-medium">
-              Effective rate
-            </th>
-            <th scope="col" className="py-2 pr-3 font-medium">
-              Talk time
-            </th>
-            <th scope="col" className="py-2 font-medium">
-              <span className="sr-only">{payable ? "Pay" : "Select"}</span>
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {packs.map((pack) => (
-            <tr
+    <div className="space-y-3">
+      {/* Not a `<form>`: there is nothing to submit and no request behind it. The answer
+          is a rendering of the catalogue already on screen, so an Enter key that appeared
+          to "search" would be a promise of a round trip that never happens. */}
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-card border border-line bg-app px-3 py-2">
+        <label htmlFor={fieldId} className="text-sm text-ink">
+          Roughly how many minutes do you call in a month?
+        </label>
+        <input
+          id={fieldId}
+          inputMode="numeric"
+          value={monthly}
+          onChange={(event) => setMonthly(event.target.value)}
+          placeholder="600"
+          className="w-20 rounded-md border border-line bg-surface px-2 py-1 text-sm tabular-nums text-ink placeholder:text-ink-faint touch:min-h-11"
+        />
+        <span className="text-sm text-ink-muted">minutes</span>
+      </div>
+
+      {/* The live region EXISTS before it has anything to say — a `role="status"` element
+          inserted at the moment of the update is not reliably announced, because assistive
+          technology subscribes to the region rather than to the insertion. */}
+      <p role="status" className="min-h-5 text-sm text-brand-strong">
+        {monthly.trim() !== "" && wanted === null
+          ? "Enter the number of minutes as digits — 600, say."
+          : match
+            ? match.short
+              ? `About ${formatCount(wanted)} minutes a month is more than one pack. The largest is ${formatINR(match.pack.amount_inr)}, about ${formatCount(match.pack.talk_time_minutes)} minutes — add credit more than once, or talk to us about a monthly plan.`
+              : `About ${formatCount(wanted)} minutes a month? ${formatINR(match.pack.amount_inr)} covers it — about ${formatCount(match.pack.talk_time_minutes)} minutes of calling.`
+            : ""}
+      </p>
+
+      {/* A LIST, because that is what it is: a screen reader announces how many packs
+          there are before the reader commits to walking them. */}
+      <ul aria-label="Prepaid credit packs" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        {packs.map((pack) => {
+          const covers = match !== null && match.pack.pack_id === pack.pack_id;
+          return (
+            <li
               key={pack.pack_id}
-              className={`border-b border-line/60 ${pack.best_value ? "bg-brand-soft" : ""}`}
+              className={`flex flex-col overflow-hidden rounded-card border p-4 ${
+                pack.best_value ? "border-brand bg-brand-soft" : "border-line bg-surface"
+              } ${covers ? "ring-2 ring-brand" : ""}`}
             >
-              <td className="py-3 pr-3 font-semibold tabular-nums text-ink">
-                {formatINR(pack.amount_inr)}
-                {pack.best_value && (
-                  <span className="ml-2 rounded-full bg-brand-strong px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-white">
-                    Best value
-                  </span>
-                )}
-              </td>
-              <td className="py-3 pr-3 tabular-nums text-ink-muted">
-                {formatCredits(pack.total_credits)}
-              </td>
-              <td className="py-3 pr-3 tabular-nums text-ink-muted">
+              {pack.best_value && (
+                <p className="-mx-4 -mt-4 mb-3 bg-brand-strong px-4 py-1 text-[11px] font-bold uppercase tracking-wide text-white">
+                  Best value
+                </p>
+              )}
+              {covers && (
+                <p className="mb-1 text-xs font-semibold text-brand-strong">
+                  Covers your month
+                </p>
+              )}
+              <p className="text-[11px] uppercase tracking-wide text-ink-muted">About</p>
+              <p className="text-2xl font-semibold tabular-nums text-ink">
+                {formatCount(pack.talk_time_minutes)} min
+              </p>
+              <p className="text-sm text-ink-muted">
+                of calling, for{" "}
+                <strong className="font-semibold tabular-nums text-ink">
+                  {formatINR(pack.amount_inr)}
+                </strong>
+              </p>
+              <p className="mt-2 text-sm">
                 {hasNonZeroDigit(pack.bonus_pct) ? (
                   <span className="font-medium text-brand">
-                    +{formatCredits(pack.bonus_credits)} ({pack.bonus_pct}%)
+                    {formatCredits(pack.bonus_credits)} credits free — {pack.bonus_pct}% more
+                    calling for the same money
                   </span>
                 ) : (
-                  "—"
+                  <span className="text-ink-muted">
+                    Calling at the standard rate, with no bonus credit
+                  </span>
                 )}
-              </td>
-              <td className="py-3 pr-3 tabular-nums text-ink-muted">
-                {formatRupeeRate(pack.effective_rate_inr_per_min)}/min
-              </td>
-              <td className="py-3 pr-3 tabular-nums text-ink-muted">
-                ~{formatCount(pack.talk_time_minutes)} min
-              </td>
-              <td className="py-3">
-                {/* The accessible name carries the AMOUNT, because six buttons all reading
-                    "Pay" are six identically-named controls in a screen reader's list and
-                    the one thing that tells them apart is the row's price. */}
+              </p>
+              <p className="mt-1 text-xs tabular-nums text-ink-muted">
+                {formatRupeeRate(pack.effective_rate_inr_per_min)}/min ·{" "}
+                {formatCredits(pack.total_credits)} credits
+              </p>
+              {/* `mt-auto` on the WRAPPER so every button sits on the same line whatever
+                  the card above it says — a grid whose actions are at four different
+                  heights reads as four unrelated things. */}
+              <div className="mt-auto pt-4">
+                {/* THE AMOUNT IS IN THE VISIBLE LABEL, which is why there is no
+                    `aria-label` here any more and why removing it is not a regression of
+                    the property the table had. The table's cells carried the price and the
+                    button said only "Pay", so the accessible name had to be repaired with
+                    an `aria-label` — six identically-named controls in a screen reader's
+                    list otherwise. A card's button has room for the price itself, so the
+                    name is now the same string a sighted reader sees, which also keeps
+                    WCAG 2.5.3 (Label in Name) honest for voice control: "click Pay fifty
+                    thousand" hits the right one. An `aria-label` fixed at the amount while
+                    the visible text said "Working…" would break exactly that. */}
                 <button
                   type="button"
                   disabled={disabled}
-                  aria-label={`${payable ? "Pay" : "Select"} ${formatINR(pack.amount_inr)}`}
                   onClick={() => onSelect(pack.pack_id)}
-                  className={PRIMARY_BUTTON_SM}
+                  className={`${PRIMARY_BUTTON} w-full justify-center`}
                 >
-                  {pendingPackId === pack.pack_id ? "Working…" : payable ? "Pay" : "Select"}
+                  {pendingPackId === pack.pack_id
+                    ? "Working…"
+                    : payable
+                      ? `Pay ${formatINR(pack.amount_inr)}`
+                      : `Select ${formatINR(pack.amount_inr)}`}
                 </button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </ScrollRegion>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
+}
+
+/**
+ * The minutes a reader typed, or `null` if they have not typed a usable number.
+ *
+ * Digits only, and deliberately not `parseInt`: `parseInt("600 or so")` is 600, which
+ * would answer a question the reader did not ask. A count of minutes is not money, so
+ * `Number` is the right instrument here and hard rule 7 is not in play — but the guard
+ * still refuses anything that is not a plain positive integer, and caps it so a pasted
+ * essay of digits cannot produce an absurd sentence.
+ */
+function wantedMinutes(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!/^\d{1,7}$/.test(trimmed)) return null;
+  const minutes = Number(trimmed);
+  return minutes > 0 ? minutes : null;
+}
+
+/**
+ * The smallest pack whose talk time covers a month — or, when nothing does, the largest
+ * one and a flag saying so.
+ *
+ * The catalogue is sorted here rather than assumed to arrive in order: nothing in
+ * `CreditPacksOut` promises an ordering, and a chooser that silently depends on one would
+ * recommend the wrong pack the day the server sorts by anything else. `talk_time_minutes`
+ * is the server's own figure for each pack, so the comparison is between two numbers it
+ * sent and computes no price.
+ */
+function suggestPack(
+  packs: CreditPack[],
+  minutes: number,
+): { pack: CreditPack; short: boolean } | null {
+  const ascending = [...packs].sort((a, b) => a.talk_time_minutes - b.talk_time_minutes);
+  const largest = ascending[ascending.length - 1];
+  if (largest === undefined) return null;
+  const covering = ascending.find((pack) => pack.talk_time_minutes >= minutes);
+  return covering ? { pack: covering, short: false } : { pack: largest, short: true };
 }
 
 /**

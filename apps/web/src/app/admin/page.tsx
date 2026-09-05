@@ -16,6 +16,8 @@ import {
   formatIST,
 } from "@/components/ui";
 import { useTenants } from "@/lib/api/admin";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 import { holdRule } from "@/lib/api/holds";
 import { viewAsHref } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
@@ -104,6 +106,60 @@ export default function AdminClientsPage() {
   const rows = tenants.data;
   const mayCreate = useAdminAccess("admin:tenants", "create clients");
   const create = createAccess(mayCreate, tenants);
+
+  /*
+   * THE DIRECTORY, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * COUNTS ONLY, AND NOT ONE ROW. This is the console's widest cross-tenant screen — every
+   * client the platform has, on one table — so the shape of the declaration is decided by
+   * hard rule 1 rather than by what would be convenient: a roster in the prompt would put
+   * every client's name, slug and call volume into a conversation the operator is having
+   * about one of them, and the model would then answer questions about the others. The
+   * counts describe the SHAPE of what is on screen ("nine accounts, two of them held"),
+   * which is what an operator asks about here, and they identify nobody.
+   *
+   * The header sentence already refuses to print a count from a list that did not arrive,
+   * for the reason the module docstring gives, and this declaration inherits that refusal
+   * rather than restating it as a zero.
+   */
+  useCopilotSurface({
+    route: "/admin",
+    title: "Clients",
+    realm: "admin",
+    fields: [],
+    facts: rows
+      ? [
+          { key: "accounts", label: "Client accounts listed", value: String(rows.length) },
+          {
+            key: "active",
+            label: "Accounts with status active",
+            value: String(rows.filter((tenant) => tenant.status === "active").length),
+          },
+          {
+            key: "capped",
+            label: "Accounts at their spend ceiling (outbound refused pre-dispatch)",
+            value: String(rows.filter((tenant) => tenant.capped).length),
+          },
+          {
+            key: "held",
+            label: "Accounts held for a human decision",
+            value: String(rows.filter((tenant) => tenant.holds.length > 0).length),
+          },
+          {
+            key: "may_create",
+            label: "May this operator create a client",
+            value: create.allowed ? "yes" : "no",
+          },
+        ]
+      : [
+          {
+            key: "directory",
+            label: "The client directory",
+            value: tenants.error ? "could not be read" : "still loading",
+          },
+        ],
+    apply: noFill,
+  });
 
   return (
     <div className="space-y-4 pb-12">

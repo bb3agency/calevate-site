@@ -29,14 +29,18 @@
 import { useCallback, useState } from "react";
 import {
   keepPreviousData,
+  useInfiniteQuery,
   useMutation,
   useQuery,
   useQueryClient,
+  type InfiniteData,
+  type UseInfiniteQueryResult,
   type UseQueryResult,
 } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "./client";
 import type { components } from "./schema";
+import { istDateStamp } from "@/components/ui";
 
 type Schemas = components["schemas"];
 
@@ -80,11 +84,27 @@ export function useLeadTimeline(
   session: Session,
   leadId: string,
   limit = 50,
-): UseQueryResult<LeadTimeline> {
-  return useQuery({
+): UseInfiniteQueryResult<InfiniteData<LeadTimeline>> {
+  // Infinite, paged by offset, because the history used to STOP at the newest 50 with an
+  // honest sentence about an unreachable remainder (ux-audit LD4) — for a repeat caller
+  // the origin of the relationship is exactly the part that was cut off. The server
+  // validates limit at 1..100 and takes an offset; the page's LoadMore drives
+  // `fetchNextPage`. Rows are deduped by id at the render (newest-first + offset means a
+  // new event landing mid-read can shift a row across a page boundary).
+  return useInfiniteQuery({
     queryKey: ["lead-timeline", session.orgSlug, leadId, limit],
-    queryFn: () =>
-      apiRequest<LeadTimeline>(session, `/v1/leads/${leadId}/timeline${query({ limit })}`),
+    queryFn: ({ pageParam }) =>
+      apiRequest<LeadTimeline>(
+        session,
+        `/v1/leads/${leadId}/timeline${query({ limit, offset: pageParam || undefined })}`,
+      ),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => {
+      const loaded = allPages.reduce((n, page) => n + page.items.length, 0);
+      // The server's `total` is the whole history; an empty page means the offset ran
+      // off the end (rows were deleted under us) and asking again would loop.
+      return loaded < lastPage.total && lastPage.items.length > 0 ? loaded : undefined;
+    },
     enabled: Boolean(leadId),
   });
 }
@@ -233,6 +253,18 @@ export type LeadListWithColumns = Schemas["LeadListOut"];
 export interface LeadLens {
   status?: string;
   search?: string;
+  /**
+   * The SEMANTIC question — "leads who asked about a 3BHK in Gachibowli" (D-504).
+   *
+   * A second field beside `search`, not a mode on it: `search` matches a name or the last
+   * digits of a number EXACTLY, and this ranks leads by what their captured answers mean.
+   * A client must be able to combine them ("Priya, who wanted a 3BHK"), which one field
+   * with a toggle would have made unaskable.
+   *
+   * It rides in the same body for the same reason and one of its own — a question typed
+   * about a caller is a fact about that caller, and a URL is a log line.
+   */
+  ask?: string;
   assigned_to?: string;
   agent_id?: string;
   /** Extraction-schema key → selected values. OR within a key, AND across keys. */
@@ -273,6 +305,7 @@ export function lensBody(
   const scalars: Record<string, string | number | undefined> = {
     status: lens.status,
     search: lens.search,
+    ask: lens.ask,
     assigned_to: lens.assigned_to,
     agent_id: lens.agent_id,
     ...paging,
@@ -561,7 +594,9 @@ export function useExportLeads(session: Session) {
       const url = URL.createObjectURL(new Blob([BOM, csv], { type: "text/csv;charset=utf-8" }));
       const link = document.createElement("a");
       link.href = url;
-      link.download = `leads-${new Date().toISOString().slice(0, 10)}.csv`;
+      // The IST day, not the UTC one: before 05:30 IST `toISOString()` is still on
+      // yesterday, and this file is named for the day the client took it.
+      link.download = `leads-${istDateStamp()}.csv`;
       // In the document and revoked a tick later: a detached anchor is a no-op in
       // some browsers, and revoking synchronously can cancel the save.
       document.body.appendChild(link);

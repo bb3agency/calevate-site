@@ -46,6 +46,7 @@ from apps.api.billing.caps import (
     EFFECTIVE_CAP_SPEND_SQL,
     read_spend_counters,
 )
+from apps.api.billing.list_rates import self_serve_rate_at
 from apps.api.billing.models import AI_ASSIST_UNIT_TYPES
 from apps.api.billing.plans import (
     ist_billing_month,
@@ -65,6 +66,8 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
+from apps.api.reliability.service import enqueue_outbox
+from apps.api.tenancy.models import DEFAULT_PLAN_TIER
 
 log = get_logger(__name__)
 
@@ -73,6 +76,40 @@ CreditReason = Literal["topup", "usage", "adjustment", "refund", "bonus"]
 # Below this the wallet is "low" — surfaced in the UI, not enforced. Enforcement is
 # `balance > 0`; a warning band exists so a client is told before calls start failing.
 LOW_BALANCE_INR = Decimal("200.00")
+
+#: The job the ledger publishes when a debit takes a wallet ACROSS a warning line
+#: (`apps/workers/wallet_alerts.py`). Registered in `apps/workers/settings.FUNCTIONS`;
+#: `scripts/check_job_wiring.py` is the gate that the name here, the function there and
+#: the registration agree.
+LOW_BALANCE_JOB = "notify_low_balance"
+
+#: The two lines a falling balance can cross, most severe first. `empty` is the one the
+#: dial gate acts on (`compliance.service.credits_exhausted` — `balance <= 0`); `low` is
+#: the warning band above it, which enforces nothing.
+WALLET_LEVEL_EMPTY = "empty"
+WALLET_LEVEL_LOW = "low"
+
+
+def crossed_downwards(before: Decimal, after: Decimal) -> str | None:
+    """Which warning line, if any, this movement took the wallet ACROSS, going down.
+
+    A CROSSING and not a state, and that is the whole design of the low-balance alert:
+    the entry that takes a wallet from ₹250 to ₹150 is the only entry that will ever
+    report `low` for that episode, so "warn once per episode" needs no stored flag, no
+    cron sweep and no clock. Top up and fall again and it is a new crossing, which is
+    also a new thing to be told about.
+
+    `>` on the way in and `<=` on the way out for `empty`, because `<= 0` is the dial
+    gate's own condition (`Balance.is_exhausted`) and the sentence this sends is "your
+    outgoing calls have stopped". Reporting `empty` for a wallet that was already at
+    zero would mail a client every time a call metered them further into the red.
+    """
+    if before > 0 >= after:
+        return WALLET_LEVEL_EMPTY
+    if before >= LOW_BALANCE_INR > after >= 0:
+        return WALLET_LEVEL_LOW
+    return None
+
 
 # --- rounding (hard rule 7) ----------------------------------------------------
 #
@@ -231,6 +268,32 @@ async def get_balance(session: AsyncSession, *, tenant_id: UUID) -> Balance:
     return Balance(amount_inr=balance, is_low=balance < LOW_BALANCE_INR)
 
 
+def prepaid_minutes_left(*, balance: Balance, rate: Decimal) -> int | None:
+    """A prepaid wallet, priced into WHOLE MINUTES OF CALLING at the live list rate.
+
+    THE ONE PLACE that division is done, because two screens now show its answer — the
+    usage panel's "about N minutes left this month" and the credits screen's runway — and
+    a client comparing them must not be able to find them disagreeing about the same
+    wallet. It takes the rate as an argument rather than reading settings, so the caller
+    stays the one deciding WHICH rate (live vs a closed month's) and this function stays
+    a pure calculation a test can pin.
+
+    Floored, never rounded: `int()` truncates, and quoting a minute the balance does not
+    cover is the direction of error a client discovers mid-call.
+
+    `None` means "no answer", NOT "none left" — an unpriced deployment (`rate <= 0`)
+    knows nothing about runway, and printing a zero there would tell a client with money
+    in their wallet that they cannot call. Zero is reserved for the wallet that really is
+    empty, which is `<= 0` because that is `Balance.is_exhausted` and the dial gate's own
+    condition.
+    """
+    if balance.amount_inr <= 0:
+        return 0
+    if rate <= 0:
+        return None
+    return int(balance.amount_inr / rate)
+
+
 async def record_entry(
     session: AsyncSession,
     *,
@@ -290,6 +353,33 @@ async def record_entry(
             "meta": json.dumps(meta) if meta else None,
         },
     )
+    # THE WARNING, PUBLISHED IN THE SAME TRANSACTION AS THE ENTRY THAT EARNED IT.
+    #
+    # It sits here rather than in `charge_for_call` because a call is not the only thing
+    # that empties a wallet: a compensating adjustment and a refund both take credit off
+    # through this function, and a client whose calling stops because an operator
+    # corrected an over-credit has exactly as much right to be told. One writer, one
+    # place — the alternative is three callers each remembering.
+    #
+    # Through the OUTBOX and not a direct enqueue, so the promise to warn cannot outlive
+    # a rolled-back ledger row (BACKEND-PATTERNS §4). Whether this tenant HAS a wallet
+    # worth warning about, and whether anyone has agreed to be emailed, is the worker's
+    # question — deciding it here would put a tier read on the hottest money write in the
+    # product to answer a question that is still true a minute later.
+    level = crossed_downwards(current, new_balance)
+    if level is not None:
+        await enqueue_outbox(
+            session,
+            job=LOW_BALANCE_JOB,
+            payload={
+                "tenant_id": str(tenant_id),
+                "level": level,
+                # DIGITS, never a float (hard rule 7): this crosses JSONB and comes back
+                # through `json.loads`, where a JSON number would be a binary double by
+                # the time the email renders it.
+                "balance_inr": str(new_balance),
+            },
+        )
     log.info(
         "credit_entry",
         extra={"tenant_id": str(tenant_id), "reason": reason, "balance_after": str(new_balance)},
@@ -717,12 +807,25 @@ async def charge_for_call(
 
 
 async def plan_tier_of(session: AsyncSession, tenant_id: UUID) -> str:
+    """The one reader of `organizations.plan_tier`, and the answer for a row it cannot see.
+
+    THE FALLBACK IS THE PLATFORM DEFAULT, AND IT USED TO BE THE LITERAL `"managed"`
+    (D-521). No row comes back when the id names nobody OR — the case that matters —
+    when the session is scoped to a different tenant and RLS hides it. Under D-34 the
+    literal was harmless because it WAS the default: the invisible row almost certainly
+    said `managed` too. D-521 inverted that, and a stale literal would have answered
+    "invoiced" for an account that is credit-gated, which every caller reads as a
+    permission: `credits_exhausted` returns False (dial anyway, empty wallet and all),
+    `read_wallet_summary` reports no wallet, and `purchase_ai_overage` refuses a client
+    who may buy. Spelled from `DEFAULT_PLAN_TIER` so it moves with the column's own
+    server default rather than being a second opinion about it.
+    """
     tier = (
         await session.execute(
             text("SELECT plan_tier FROM organizations WHERE id = :tid"), {"tid": tenant_id}
         )
     ).scalar()
-    return str(tier or "managed")
+    return str(tier or DEFAULT_PLAN_TIER)
 
 
 # --- reporting -----------------------------------------------------------------
@@ -1568,6 +1671,19 @@ async def usage_summary(
     # any query runs — a month we cannot parse is a month we cannot pick a plan for, and
     # a 422 up front beats a ₹0.00 statement for `?month=july`.
     priced_at = month_pricing_instant(period)
+    # WHAT A MINUTE COST IN *THIS* MONTH, resolved at the same instant the plan is (D-492).
+    #
+    # This used to be `get_settings().self_serve_inr_per_min` read inside
+    # `calling_revenue_inr` — the LIVE setting, on a statement for a month that closed and
+    # was paid for out of the wallet at whatever the rate was THEN. A price change therefore
+    # re-priced every past month on this panel: measured on this tree, 14.83 minutes
+    # rendered ₹88.98 and then ₹133.47 after the rate moved 6 -> 9, against wallet debits
+    # totalling ₹89.00 that had not moved and could not.
+    #
+    # The plan's terms were already resolved at `priced_at` for exactly this reason
+    # (`billing/plans.py`), and the list price is the prepaid motion's equivalent of a plan
+    # rate — the same fact about the same month, so it is asked at the same instant.
+    list_rate = await self_serve_rate_at(session, at=priced_at)
     # THE MINUTES AND THE RUNGS COME FROM ONE READ, and it is `_tier_totals`.
     #
     # This function used to sum `telephony_s` itself, in its own query, and then read the
@@ -1706,12 +1822,16 @@ async def usage_summary(
         # (compliance/service.py §2b): a managed client is invoiced against a retainer,
         # so their wallet must not shorten their runway any more than it blocks a dial.
         balance = await get_balance(session, tenant_id=tenant_id)
-        rate = get_settings().self_serve_inr_per_min
-        if rate > 0 and balance.amount_inr > 0:
-            minutes_left = int(balance.amount_inr / rate)
-        elif balance.amount_inr <= 0:
-            # `Balance.is_exhausted` is `<= 0`, which is the gate's own condition.
-            minutes_left = 0
+        # DELIBERATELY THE LIVE RATE, NOT `list_rate` (D-492), and the split is the same
+        # one `pipeline._meter` makes between a RATE and a CAP: everything else on this
+        # panel is a fact about the month on screen, and this is a fact about what the
+        # client can still buy TODAY. The balance it divides is the current wallet, not a
+        # month-scoped figure, so pricing it at a closed month's rate would quote a runway
+        # nobody can spend. The top-up flow (`billing/payment_routes.py`) prices from the
+        # same live setting for the same reason, which is the property that has to hold.
+        minutes_left = prepaid_minutes_left(
+            balance=balance, rate=get_settings().self_serve_inr_per_min
+        )
     elif plan and plan[3] is not None:
         minutes_left = max(0, int(Decimal(str(plan[3])) - minutes))
 
@@ -1788,6 +1908,7 @@ async def usage_summary(
                 minutes=minutes,
                 overage_cost_inr=overage_cost,
                 llm_surcharge_inr=surcharge.total_inr,
+                self_serve_rate_inr_per_min=list_rate,
             )
         ),
         "cap_minutes": int(plan[3]) if plan and plan[3] is not None else None,
@@ -1805,6 +1926,7 @@ async def usage_summary(
                     minutes=minutes,
                     overage_cost_inr=overage_cost,
                     llm_surcharge_inr=surcharge.total_inr,
+                    self_serve_rate_inr_per_min=list_rate,
                 ),
             )
         ),
@@ -1818,6 +1940,7 @@ def month_charges_inr(
     minutes: Decimal,
     overage_cost_inr: Decimal,
     llm_surcharge_inr: Decimal,
+    self_serve_rate_inr_per_min: Decimal,
 ) -> Decimal:
     """EVERYTHING THIS BILLING PERIOD HAS COST THE CLIENT — the retainer plus the calling.
 
@@ -1843,6 +1966,11 @@ def month_charges_inr(
     Returning a pre-quantized figure here is the defect `calling_revenue_inr` documents at
     length one function down, on the same path.
 
+    `self_serve_rate_inr_per_min` is passed straight through to `calling_revenue_inr`,
+    which is where the argument is explained: it is the month's own list price, resolved by
+    the caller at the month's pricing instant, and it is required rather than defaulted for
+    the reason stated there.
+
     `monthly_fee_inr` is `None` — not zero — while a client is mid-onboarding with no plan
     row, which is a real state; it contributes nothing and the total is then the calling
     alone. A prepaid tenant has no retainer either, and its calling half is priced at the
@@ -1854,6 +1982,7 @@ def month_charges_inr(
         minutes=minutes,
         overage_cost_inr=overage_cost_inr,
         llm_surcharge_inr=llm_surcharge_inr,
+        self_serve_rate_inr_per_min=self_serve_rate_inr_per_min,
     )
 
 
@@ -1863,6 +1992,7 @@ def calling_revenue_inr(
     minutes: Decimal,
     overage_cost_inr: Decimal,
     llm_surcharge_inr: Decimal,
+    self_serve_rate_inr_per_min: Decimal,
 ) -> Decimal:
     """What the CLIENT owes for a whole billing period's CALLING, at their own rate.
 
@@ -1890,12 +2020,26 @@ def calling_revenue_inr(
     HERE rather than each carrying the rule. `_spend_used`'s prepaid branch was the one
     that was right, and it is what moved into this function unchanged.
 
+    **THE LIST RATE IS PASSED IN, AND THAT IS THE MONEY FIX (D-492).** This function read
+    `get_settings().self_serve_inr_per_min` — the LIVE setting — for every month it was
+    asked about, so a CLOSED month's statement was re-priced by every later rate move: the
+    same 14.83 minutes rendered ₹88.98 and then ₹133.47 after the rate went 6 -> 9, on a
+    month whose wallet debits had been taken at ₹6 and cannot change. The caller resolves
+    the figure from `billing/list_rates.self_serve_rate_at` at the month's own pricing
+    instant, exactly as it already resolved the PLAN's terms there — a list price is the
+    prepaid motion's equivalent of a plan rate, and it had been the one term in this
+    expression with no valid time. It is a required argument rather than an optional one
+    with a live default: a default is how the defect gets back in, silently, at whichever
+    call site forgets.
+
     **NOT `prepaid_billed_inr`, and the difference is the quantum.** That function prices
     ONE CALL for a ledger row and quantizes at `MONEY_Q` (the NUMERIC(12,4) storage
     scale). This is a PERIOD total whose reader quantizes it once to paise, so returning
     a pre-rounded figure here would round the same amount twice and could move a paisa.
-    Both nevertheless read the list price from the one config value the runway framing and
-    the top-up flow read, which is the property that actually has to hold.
+    Both nevertheless read the list price from the one effective-dated home
+    (`billing/list_rates.py`), which is the property that actually has to hold — and which
+    is what stopped the wallet debit and this figure from being able to disagree about what
+    a minute cost in a month that has closed.
 
     **A MANAGED tenant's answer is the overage the caller already priced**, passed in
     rather than recomputed, because `usage_summary` derived it from `overage_rungs` — the
@@ -1941,7 +2085,7 @@ def calling_revenue_inr(
     move. Neither is ours to pick.
     """
     if plan_tier in PREPAID_TIERS:
-        return get_settings().self_serve_inr_per_min * minutes + llm_surcharge_inr
+        return self_serve_rate_inr_per_min * minutes + llm_surcharge_inr
     return overage_cost_inr + llm_surcharge_inr
 
 
@@ -2136,6 +2280,14 @@ async def margin_for_tenant(
         minutes=usage["minutes_used"],
         overage_cost_inr=usage["overage_cost_inr"],
         llm_surcharge_inr=usage["llm_surcharge_inr"],
+        # THE MONTH'S OWN LIST RATE (D-492), resolved at the same instant `usage_summary`
+        # resolved the plan and its own copy of this figure at. Re-resolved here rather
+        # than threaded out through `usage_summary`'s dict because that dict is the
+        # client's panel (`UsagePanelOut`) and the list price is not a field of it — and
+        # `month` is exactly the argument that makes the two resolutions agree.
+        self_serve_rate_inr_per_min=await self_serve_rate_at(
+            session, at=month_pricing_instant(str(usage["month"]))
+        ),
     )
     margin = to_paise(revenue - cost_inr)
     pct = margin_pct(margin_inr=margin, revenue_inr=revenue)
@@ -2155,12 +2307,15 @@ __all__ = [
     "ADJUSTMENT_REF_PREFIX",
     "BASE_OVERAGE_RUNG",
     "LOW_BALANCE_INR",
+    "LOW_BALANCE_JOB",
     "PAISE",
     "PAYMENT_REF_SQL",
     "RESTATEMENT_META_KIND",
     "RESTATEMENT_REF_PREFIX",
     "ROUNDING",
     "UNSURCHARGED_MODEL",
+    "WALLET_LEVEL_EMPTY",
+    "WALLET_LEVEL_LOW",
     "Balance",
     "CorrectableEntry",
     "CreditReason",
@@ -2174,6 +2329,7 @@ __all__ = [
     "allocate_paise",
     "calling_revenue_inr",
     "charge_for_call",
+    "crossed_downwards",
     "current_billing_month",
     "find_entry_by_ref",
     "find_topup",
@@ -2185,6 +2341,7 @@ __all__ = [
     "month_charges_inr",
     "overage_rungs",
     "plan_tier_of",
+    "prepaid_minutes_left",
     "priced_llm_surcharge",
     "rate_to_display",
     "read_correctable_entry",

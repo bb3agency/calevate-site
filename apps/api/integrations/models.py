@@ -126,8 +126,15 @@ class WebhookDelivery(PKMixin, Base):
     # Outbound only (D-23): which client endpoint this attempt targeted. The delivery
     # screen scopes by it THROUGH `outbound_webhooks`, which is tenant-RLS'd, so this
     # table needs no policy of its own (migration 4be32bf3d12c).
+    # RESTRICT, NOT SET NULL. The delivery screen scopes by this column THROUGH
+    # `outbound_webhooks` (the tenant-RLS'd parent), so a NULLed `endpoint_id` is not a
+    # tidy orphan — it is a delivery attempt that has left its tenant's visibility
+    # entirely, unreachable by the screen and by anything that scopes through the parent.
+    # SET NULL turned "you cannot delete an endpoint that has delivery history" into
+    # "deleting it silently detaches that history", which is the weaker guarantee wearing
+    # the stronger one's clothes. Nullable stays: an INBOUND delivery has no endpoint.
     endpoint_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("outbound_webhooks.id", ondelete="SET NULL")
+        ForeignKey("outbound_webhooks.id", ondelete="RESTRICT")
     )
     first_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     last_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)

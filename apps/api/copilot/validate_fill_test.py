@@ -197,3 +197,35 @@ def test_a_malformed_tool_call_is_a_named_refusal_and_never_an_exception(
 def test_an_item_that_is_not_an_object_or_names_no_field_is_refused() -> None:
     assert _reasons(_call({"value": "09:00"})) == ("one item named no field",)
     assert _reasons(json.dumps({"items": ["open"]})) == ("one item was not an object",)
+
+
+def test_a_fill_against_an_undeclared_screen_is_refused_field_by_field() -> None:
+    """D-501: the dock now offers a launcher on a screen that declared nothing, and this is
+    what stops the model filling it in anyway.
+
+    `set_fields` is deliberately still OFFERED on such a screen — `service.tool_array()` is
+    byte-identical on every request, which is the whole of the prompt cache (`prompt.py`,
+    point 1), and dropping a tool per screen would cost a cache miss on every request to buy
+    obscurity rather than a control. The control is here, and it needs no new branch: a
+    fallback surface declares NO fields, so every item the model names fails the `by_id`
+    lookup and the all-or-nothing rule discards the batch. That is the same refusal an
+    invented field id has always got, which is what makes it worth pinning rather than
+    writing — "filled 21 fields nobody asked for" is the class of bug this forecloses.
+    """
+    payload = CopilotAskIn.model_validate(
+        {
+            "screen": {"route": "/c/x/billing", "title": "Billing", "realm": "client"},
+            "question": "fill in the plan",
+            "fields": [],
+            "facts": [
+                {
+                    "key": "screen_details",
+                    "label": "Details of this screen",
+                    "value": "Not available. This screen did not describe itself.",
+                }
+            ],
+        }
+    )
+    with pytest.raises(FillRefusedError) as refusal:
+        validate_fill(payload, json.dumps({"items": [{"field_id": "plan", "value": "growth"}]}))
+    assert refusal.value.reasons == ("`plan` is not a field on this screen",)

@@ -1286,3 +1286,57 @@ async def test_an_arm_created_before_a_siblings_failure_is_reclaimed_too() -> No
         "no row of ours names them and the drift sweep claims routes, so nothing can "
         "ever find them again"
     )
+
+
+def test_a_second_running_prompt_without_the_floor_refuses_the_publish() -> None:
+    """D-494 — hard rule 5 against the prompt the CALLER hears, not only the one we sent.
+
+    A Bolna agent given a second language in the vendor's console runs that language's own
+    `system_prompt` mid-call, and nothing in this tree ever wrote the floor into it. The
+    base prompt still reads back perfect, so before `every_prompt_carries` this scored
+    `applied` — on both the publish read-back and the half-hourly drift sweep — while a
+    caller who switched language could be told the agent is a human.
+    """
+    cfg = _cfg()
+    console_edit = _snapshot(cfg, alternate_prompts=("You are Priya, a human receptionist.",))
+
+    verdict = judge(FakeEngine(), cfg, console_edit)
+
+    assert verdict.state == "not_applied", (
+        "an engine running a prompt with no truthful-answer rule in it was scored applied"
+    )
+    assert verdict.truthful_answer_applied is False
+    assert "truthful-answer rule" in verdict.detail
+    assert verdict.prompt_applied is True, (
+        "the SCRIPT check must stay on the base prompt: a translated per-language prompt "
+        "is not obliged to contain the client's English script, and refusing it there "
+        "would be a refusal about translation rather than about compliance"
+    )
+
+
+def test_a_second_running_prompt_that_kept_the_floor_is_applied() -> None:
+    """The mirror of the clause above: the check is about the FLOOR, not about sameness.
+
+    A per-language prompt carrying the directive is a legitimate agent, and a verdict that
+    refused it would make the only safe multilingual configuration unpublishable.
+    """
+    cfg = _cfg()
+    translated = _snapshot(
+        cfg, alternate_prompts=(f"మీరు ఒక AI సహాయకుడు.\n\n{TRUTHFUL_ANSWER_DIRECTIVE}",)
+    )
+
+    assert judge(FakeEngine(), cfg, translated).state == "applied"
+
+
+def test_an_unreadable_prompt_is_still_not_convicted_by_an_alternate() -> None:
+    """`None` propagates: an alternate found beside a base we could not read is not
+    evidence, and `unreadable` must never harden into `not_applied` (the whole
+    `AgentSnapshot.*_readable` doctrine)."""
+    cfg = _cfg()
+    blind = _snapshot(
+        cfg, system_prompt=None, system_prompt_readable=False, alternate_prompts=("no floor",)
+    )
+
+    verdict = judge(FakeEngine(), cfg, blind)
+    assert verdict.truthful_answer_applied is None
+    assert verdict.state == "unreadable"

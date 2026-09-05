@@ -365,6 +365,83 @@ describe("the qualification-layer section", () => {
   });
 });
 
+/**
+ * THE KNOWLEDGE CLAIM — banned by SHAPE, because it is the claim this market's buyers
+ * assume without being told.
+ *
+ * **The fact.** In-call retrieval is T0 and nothing else (`docs/TRD.md:948`): the facts a
+ * person approves are compiled into the agent's own system prompt at publish time
+ * (`apps/api/agents/t0.py`). The engine's built-in knowledge base is OFF
+ * (`apps/api/engine/bolna.py:2484`, `knowledge_base=False`) and `attach_kb` refuses in as
+ * many words — "The voice platform's knowledge base accepts documents, not text"
+ * (`bolna.py:3536`). `POST /v1/kb/sources` takes TEXT: `kind="url"` and `kind="file"` are
+ * declared on the wire and REFUSED by the service (`apps/api/kb/routes.py:44`). There is
+ * no embedding path in `apps/`, and there is no file input anywhere in this console
+ * (`grep 'type="file"' apps/web/src` returns nothing).
+ *
+ * So a page that says "upload your price list" — which this one did, in the capability
+ * card and in the FAQ — sends a buyer looking for a control that does not exist, and lets
+ * them infer an agent that reads a 40-page PDF and looks things up mid-call. That is the
+ * F-1 shape from `docs/LEGAL-SURFACE.md`: a promise to a prospect, on the surface where it
+ * is a CPA 2019 representation rather than an internal note.
+ *
+ * **The correction is pinned, not merely the ban.** Deleting the sentence would leave the
+ * omission — a buyer assuming document retrieval because nothing said otherwise — so the
+ * page has to keep saying what DOES happen, and what happens is better: the facts are in
+ * the agent before the call, so there is nothing to wait for mid-call.
+ *
+ * ## Why the bans are shaped the way they are
+ *
+ * They are deliberately NOT a bare `/upload/i` over the page. "Upload" is legitimate about
+ * a client's own systems and about anything a human reads and approves; what is banned is
+ * the verb aimed at the agent's KNOWLEDGE, and the retrieval verbs aimed at a live call.
+ * Each pattern is bounded by `[^.]{0,60}` so it stays inside one sentence — a ban wide
+ * enough to fire on an honest sentence gets deleted by the next person who trips over it,
+ * and then nothing guards the real claim.
+ */
+describe("what the page promises the agent knows", () => {
+  it("never offers a document upload, because nothing in the product accepts one", () => {
+    const { container } = render(<Home />);
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(
+      /\bupload(ing|ed|s)?\b[^.]{0,60}\b(price list|rate card|brochure|document|documents|pdf|file|files|catalogue|menu|material)\b/i,
+    );
+    expect(text).not.toMatch(
+      /\b(document|documents|pdf|pdfs|brochure|file|files)\b[^.]{0,60}\byou\b[^.]{0,20}\bupload/i,
+    );
+    // No file words in the knowledge register at all: the page has no reason to name a
+    // format nothing in the product can read.
+    expect(text).not.toMatch(/\bpdfs?\b|\bword docs?\b|\bdocx\b/i);
+  });
+
+  it("never implies the agent looks something up while the caller waits", () => {
+    const { container } = render(<Home />);
+    const text = container.textContent ?? "";
+    // Retrieval verbs pointed at the client's own material — "searches your documents",
+    // "reads your price list", "looks it up in your knowledge base". Every one of them
+    // describes a system this repository does not contain.
+    expect(text).not.toMatch(
+      /\b(search(es|ing)?|looks? (it |them )?up|reads?|scans?|consults?)\b[^.]{0,40}\byour\b[^.]{0,30}\b(document|documents|files?|pdfs?|knowledge base|material)\b/i,
+    );
+    // The open-genre promises. None is backed, and the last one is unbackable by anything.
+    expect(text).not.toMatch(/\btrained on your\b|\blearns your\b|\bknows everything\b/i);
+    expect(text).not.toMatch(/\banswers? any question\b/i);
+  });
+
+  it("says instead what the agent really carries, so the omission cannot come back", () => {
+    const { container } = render(<Home />);
+    const text = container.textContent ?? "";
+    // The capability card: "built into the agent" is the T0 mechanism in the owner's own
+    // words, and the approval half is the product property FLOWS §7 exists for.
+    expect(text).toContain("built into the agent");
+    expect(text).toContain("until a person approves it");
+    // The FAQ answer. Both halves are load-bearing: WHERE the answers come from (facts a
+    // person approved, not a document) and WHEN they get there (before the call).
+    expect(text).toContain("From facts somebody has approved");
+    expect(text).toContain("written into the agent before it takes a call");
+  });
+});
+
 describe("the questions section", () => {
   it("answers every question it asks", () => {
     const { container } = render(<Home />);
@@ -403,6 +480,207 @@ describe("the questions section", () => {
     // browser would deliver.
     fireEvent(first as HTMLDetailsElement, new Event("toggle"));
     expect(refresh).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * THE CONVERSION STRUCTURE, pinned in the same negative style as the claims above — and
+ * for the same reason. This page has NO social proof available to it: there is no client
+ * #1 in production (ROADMAP M2), so testimonials, customer counts, logo walls, star
+ * ratings and case studies would all be fabrications, and the borrowed statistics the
+ * genre runs on trace to sources this repository could not read (hard rule 11;
+ * `docs/POSITIONING-QUALIFICATION-LAYER.md` §6 names each refused figure).
+ *
+ * What is left is clarity, the buyer's own arithmetic, and risk reversal that is true.
+ * Those three are structural rather than textual, which is what these assertions guard: a
+ * later edit can reword any of it, but it cannot quietly reintroduce four names for one
+ * door, bury the audience below the fold again, or drop the repeated call to action that
+ * a page this long needs.
+ */
+describe("the page's structure asks for one thing, once", () => {
+  /**
+   * ONE DESTINATION, ONE LABEL, OFFERED MORE THAN ONCE.
+   *
+   * `/signup` was reached under four different names — "Get a workspace" twice, "How to
+   * get one" and "Start a conversation" — which is CLAUDE.md's "two ways of doing one
+   * thing" defect on a surface where it also costs conversion: a reader cannot tell
+   * whether four buttons are four things or one, so repetition reads as clutter instead
+   * of confidence. GOV.UK's rule is about multiple DIFFERENT default buttons ("having
+   * more than one main call to action reduces their impact", alphagov/govuk-design-system
+   * `main`, `src/components/button/index.md`, read 1 Sep 2026); the same action repeated
+   * down a long page is not that, and is what the assertion below requires.
+   *
+   * "How to get one" is the one deliberate exception and is pinned separately above: it
+   * answers the question its own card heading asks.
+   */
+  it("offers the same door under one name, at more than one point on the page", () => {
+    const { container } = render(<Home />);
+    const toSignup = [...container.querySelectorAll('a[href="/signup"]')];
+    // Header, hero, the block under the calculator, the doors card and the closing panel.
+    expect(toSignup.length).toBeGreaterThanOrEqual(4);
+
+    const labels = new Set(toSignup.map((a) => (a.textContent ?? "").trim()));
+    labels.delete("How to get one");
+    // Two spellings, not one, and the second is measured rather than stylistic: the
+    // header shares a row with the logo and "Sign in", and `MarketingAccountNav` records
+    // that the row was 374px of content in a 320px viewport before it was tightened. The
+    // short form is a prefix of the long one, so it reads as the same offer.
+    expect(
+      [...labels].sort(),
+      "every other link to /signup must carry the SAME label — one door, one name for it",
+    ).toEqual(["Talk to us", "Talk to us about your calls"]);
+
+    // And it is offered again where the reader has just done work, rather than only at the
+    // top and the very bottom with the whole page in between.
+    const cost = container.querySelector("#cost");
+    expect(cost, "the cost section did not render").not.toBeNull();
+    expect(cost!.querySelectorAll('a[href="/signup"]').length).toBe(1);
+  });
+
+  /**
+   * WHO THIS IS FOR, ABOVE THE BUTTON RATHER THAN BELOW IT.
+   *
+   * The audience sentence used to be the last item in the hero, under the call to action
+   * and under the three-item list, so on a phone the reader this page is written for had
+   * to scroll past the button to learn it was addressed to them. Asserted on ORDER in the
+   * DOM rather than on the words, because the words may legitimately be rewritten and the
+   * order is the thing that regressed.
+   */
+  it("says who it is for before it asks for anything", () => {
+    const { container } = render(<Home />);
+    const hero = container.querySelector("h1")?.closest("section");
+    expect(hero, "the hero section did not render").not.toBeNull();
+
+    const audience = [...hero!.querySelectorAll("p")].find((p) =>
+      /Andhra Pradesh and Telangana/.test(p.textContent ?? ""),
+    );
+    expect(audience, "the hero no longer names who it is for").toBeDefined();
+
+    const cta = hero!.querySelector('a[href="/signup"]');
+    expect(cta).not.toBeNull();
+    // `compareDocumentPosition` reads DOM order, which is reading order.
+    expect(
+      audience!.compareDocumentPosition(cta!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      "the audience sentence must come BEFORE the hero's call to action",
+    ).toBeTruthy();
+  });
+
+  /**
+   * THE BANDS ARE NUMBERED, AND THE NUMBERS ARE THE READING ORDER.
+   *
+   * The eyebrow index is decoration until it disagrees with the order of the sections,
+   * at which point it is a small visible defect that says nobody checked. It also pins
+   * the objection order itself: fit ("is it for me, in my language, for my trade") ahead
+   * of value ahead of the sceptic's objections. See `app/page.tsx`'s header for why that
+   * order and not the one it replaced.
+   */
+  it("numbers its bands in the order they are read", () => {
+    const { container } = render(<Home />);
+    const eyebrows = [...container.querySelectorAll("main p > span.font-mono")]
+      .map((s) => s.textContent ?? "")
+      .filter((t) => /^\d\d$/.test(t));
+    expect(eyebrows).toEqual([
+      "01",
+      "02",
+      "03",
+      "04",
+      "05",
+      "06",
+      "07",
+      "08",
+      "09",
+      "10",
+    ]);
+  });
+
+  /**
+   * RISK REVERSAL, AND EVERY LINE OF IT A SHIPPED FACT.
+   *
+   * This is the slot a landing page normally fills with a testimonial or a money-back
+   * guarantee. We have neither: no client is in production to quote, and there is no
+   * refund term to promise (D-11's commercial terms are negotiated per client). What we
+   * do have is three things the buyer keeps control of, each enforced in code — approval
+   * before anything is answerable (`apps/api/agents/t0.py`, `kb_sources` review states),
+   * the campaign launch gate (`apps/api/campaigns/service.py`), and the pause that stops
+   * the next dispatch tick. Pinned so a later edit cannot swap one of them for a promise
+   * nothing enforces.
+   */
+  it("reverses risk with three things the product actually enforces", () => {
+    const { container } = render(<Home />);
+    const cost = container.querySelector("#cost");
+    const text = cost?.textContent ?? "";
+    expect(text).toContain("You approve every word before it goes live");
+    expect(text).toContain("Nothing dials anybody until you launch it");
+    expect(text).toContain("Pause it from your dashboard whenever you want");
+    // And it may not reach for the thing it does not have. A guarantee, a refund, a
+    // no-commitment claim and a trial are each a commercial term nobody has agreed;
+    // "free" and "trial" are already banned page-wide by the price rule above.
+    expect(text).not.toMatch(/guarantee|money[- ]back|refund|no commitment|risk[- ]free/i);
+  });
+
+  /**
+   * NO MANUFACTURED URGENCY, anywhere on the page.
+   *
+   * Scarcity and countdowns are the other half of the playbook this page cannot use, and
+   * unlike social proof they are not merely unavailable — they would be false. There are
+   * no limited places, no closing date and no offer. Banned by shape rather than by
+   * example, because the phrasing varies and the shape does not.
+   */
+  it("manufactures no urgency or scarcity", () => {
+    const { container } = render(<Home />);
+    const text = container.textContent ?? "";
+    expect(text).not.toMatch(/limited (time|offer|places?|spots?)|only \d+ (left|spots?|places?)/i);
+    expect(text).not.toMatch(/act now|hurry|don'?t miss|last chance|ends (soon|today|in)/i);
+    expect(text).not.toMatch(/\bwait ?list\b|early bird|founding (member|client)s?/i);
+  });
+});
+
+/**
+ * THE PHONE IS THE DESIGN TARGET HERE, not a breakpoint — UX-DOCTRINE §8.6 — and this is
+ * the marketing surface's half of `tests/responsive.test.ts`.
+ *
+ * That file's header states the trade this one inherits: the defects were found by
+ * MEASUREMENT in a real browser, the gate is a SOURCE check, and what a source check buys
+ * is that a fix cannot be silently undone. It does not claim the page is still measured.
+ * The rule below is the one class of defect this page actually had — a multi-column grid
+ * with no breakpoint under it, which does not overflow the viewport (so no overflow rule
+ * catches it) but divides a 320px content box into three 75px columns of wrapped words.
+ *
+ * The calculator's coverage picker was exactly that: `grid-cols-3` unprefixed, holding
+ * "Business hours" / "Into the evening" / "Around the clock" with a caption under each.
+ */
+describe("nothing on this page lays out in columns a phone cannot hold", () => {
+  const MARKETING_SOURCES = [
+    "app/page.tsx",
+    "components/marketing/roiCalculator.tsx",
+    "components/marketing/callDemo.tsx",
+    "components/marketing/faq.tsx",
+  ];
+
+  it("every multi-column grid waits for a breakpoint", () => {
+    const offenders: string[] = [];
+    for (const file of MARKETING_SOURCES) {
+      const lines = readFileSync(
+        resolve(process.cwd(), "src", ...file.split("/")),
+        "utf8",
+      ).split("\n");
+      lines.forEach((line, i) => {
+        // Comments talk about these utilities; only a class string applies one.
+        if (/^\s*(\*|\/\/)/.test(line)) return;
+        for (const match of line.matchAll(/(^|[\s"'`(])(grid-cols-([2-9]|\[[^\]]+\]))/g)) {
+          const before = line.slice(0, match.index! + match[1].length);
+          // `sm:grid-cols-3` and friends read as a `:` immediately before the utility.
+          if (/[a-z0-9\]]:$/.test(before)) continue;
+          offenders.push(`src/${file}:${i + 1} — ${match[2]}`);
+        }
+      });
+    }
+    expect(
+      offenders,
+      `these grids split a 320px content box into columns at every width:\n  ` +
+        `${offenders.join("\n  ")}\n` +
+        `Prefix the utility (e.g. \`grid-cols-1 sm:grid-cols-3\`) so a phone gets rows.`,
+    ).toEqual([]);
   });
 });
 

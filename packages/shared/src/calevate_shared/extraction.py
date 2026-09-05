@@ -157,7 +157,7 @@ class ValidationOutcome(BaseModel):
         return not self.errors
 
 
-def _is_phone_field(field: ExtractionField) -> bool:
+def is_phone_field(field: ExtractionField) -> bool:
     """Does this field ASK for a phone number? Read from the schema the client wrote —
     key, label and the reason that also serves as the model's instruction."""
     haystack = f"{field.key} {field.label} {field.reason}".lower()
@@ -256,11 +256,11 @@ def coerce_value(field: ExtractionField, raw: Any) -> tuple[Any, str | None]:
                 return None, (
                     f"{field.label}: {len(value)} characters is a transcript, not a value"
                 )
-            if not _is_phone_field(field) and _PHONE_SHAPED_RE.search(value):
+            if not is_phone_field(field) and _PHONE_SHAPED_RE.search(value):
                 # Right value, wrong column: a phone number in the name field is PII
                 # nobody redacts and a name nobody has.
                 return None, f"{field.label} does not hold phone numbers"
-            if _is_phone_field(field) and _PHONE_SHAPED_RE.search(value):
+            if is_phone_field(field) and _PHONE_SHAPED_RE.search(value):
                 # A phone field carrying a phone-shaped value: canonicalise it so the Leads
                 # column holds one dialable form, not whatever punctuation the number
                 # arrived in. A non-phone-shaped value in a number-named field (a flat
@@ -336,7 +336,7 @@ def validate_extraction(spec: ExtractionSchemaSpec, raw: dict[str, Any]) -> Vali
             # the SMB dials off this record, so "we heard a number but it does not look like
             # a mobile" is worth a human glance before a call. The message names no digits
             # (hard rule 6) — the value is in `data` for the field's owner to read.
-            if _is_phone_field(field) and not _CANONICAL_MOBILE_RE.match(str(value)):
+            if is_phone_field(field) and not _CANONICAL_MOBILE_RE.match(str(value)):
                 needs_review[field.key] = (
                     f"{field.label} was captured but is not a standard Indian mobile "
                     "number — check it before dialling."
@@ -436,6 +436,7 @@ Transcript:
 
 
 __all__ = [
+    "MAX_TEXT_LEN",
     "ExtractionField",
     "ExtractionOutput",
     "ExtractionSchemaSpec",
@@ -445,5 +446,6 @@ __all__ = [
     "ValidationOutcome",
     "build_extraction_prompt",
     "coerce_value",
+    "is_phone_field",
     "validate_extraction",
 ]

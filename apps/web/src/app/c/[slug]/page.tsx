@@ -10,6 +10,7 @@ import {
   PhoneCall,
   Sparkles,
   Users,
+  Wallet,
 } from "lucide-react";
 
 import {
@@ -25,8 +26,12 @@ import {
   formatIST,
 } from "@/components/ui";
 import type { Dashboard } from "@/lib/api/client";
+import { useAttention } from "@/lib/api/attention";
 import { useCalls, useDashboard, useUsage } from "@/lib/api/hooks";
 import { useClientRealm } from "@/lib/api/session";
+import { useWallet, walletState } from "@/lib/api/wallet";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 import { lookup } from "@/lib/lookup";
 
 import { KnowledgeGaps } from "./KnowledgeGaps";
@@ -48,12 +53,146 @@ import { KnowledgeGaps } from "./KnowledgeGaps";
  * rate, and the "+18.4% vs last week" deltas under every figure. Each is a real
  * question and each needs an endpoint; `docs/BUILD-LOG.md` records which.
  */
-export default function DashboardPage({ params }: { params: Promise<{ slug: string }> }) {
+export default function DashboardPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
   const { slug } = use(params);
   const { session, href } = useClientRealm();
   const dashboard = useDashboard(session);
   const usage = useUsage(session);
+  /*
+   * THE BALANCE, on the screen a client opens first.
+   *
+   * The home screen showed what this month has COST and nothing about what is left to
+   * spend, which was the right pair of facts while every account was invoiced against a
+   * retainer and no balance could stop anything. Prepaid is now what an account gets
+   * unless an operator deliberately puts it on a retainer, so the number that decides
+   * whether the product works tomorrow was the one number missing from the daily entry
+   * point — and the first a client learns of an empty wallet should not be a campaign
+   * that did not go out.
+   *
+   * `wallet:read`, which every client role holds including `staff` (`core/rbac.py`), so
+   * this tile does not fetch something half the team is refused. An INVOICED account
+   * renders nothing at all rather than ₹0.00: it has no wallet, and a zero would be a
+   * number about nothing.
+   */
+  const wallet = useWallet(session);
   const recent = useCalls(session, { limit: 6 });
+  // The triage queue's size — same query key the header bell reads, so this costs no
+  // extra request. The dashboard is the daily entry point and used to never link to
+  // the one list with a time cost attached to ignoring it (ux-audit D2). Renders
+  // nothing until the server answers, and nothing on zero — exactly as the bell does.
+  const attention = useAttention(session);
+
+  /*
+   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * DECLARED BEFORE THE §52 BRANCHES BELOW, not inside the happy path: `useCopilotSurface`
+   * is a hook, and the three early returns on this screen would make its call conditional.
+   * The declaration therefore has to describe a screen that may still be loading, which is
+   * what the `state` fact is for — an assistant told "your dashboard says 0 calls today"
+   * while the request is still in flight has been handed the same lie the docstring above
+   * refuses to render.
+   *
+   * NOTHING PERSONAL IS DECLARABLE HERE. Every tile on this screen is a count, a duration
+   * or a rupee total; the only strings that could name a person are inside "Latest calls",
+   * and this surface sends the LENGTH of that list rather than any row of it.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}",
+    title: "Your dashboard",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: dashboard.data
+          ? "the figures below have loaded"
+          : dashboard.error
+            ? "the dashboard failed to load, so no figure is on screen"
+            : "still loading",
+      },
+      {
+        /* THE TILE THE ASSISTANT WOULD OTHERWISE BE BLIND TO, and the one most likely to
+           be asked about by somebody whose campaigns have stopped. Read off the same
+           query the tile renders, so the two cannot disagree. */
+        key: "calling_credit",
+        label: "Calling credit on this account",
+        value: wallet.data
+          ? wallet.data.prepaid
+            ? `${wallet.data.balance_inr} INR left${
+                wallet.data.outbound_stopped
+                  ? " — outgoing calls have stopped, incoming calls are still answered"
+                  : wallet.data.is_low
+                    ? " — running low"
+                    : ""
+              }`
+            : "this account is invoiced on a retainer and has no credit balance"
+          : wallet.error
+            ? "the balance failed to load"
+            : "still loading",
+      },
+      ...(dashboard.data
+        ? [
+            { key: "calls_today", label: "Calls today", value: String(dashboard.data.calls_today) },
+            { key: "calls_7d", label: "Calls in the last 7 days", value: String(dashboard.data.calls_7d) },
+            {
+              key: "avg_duration_s_7d",
+              label: "Average completed call length, last 7 days (seconds)",
+              value: dashboard.data.avg_duration_s_7d == null ? "not measurable yet" : String(dashboard.data.avg_duration_s_7d),
+            },
+            { key: "leads_new_7d", label: "New leads in the last 7 days", value: String(dashboard.data.leads_new_7d) },
+            { key: "hot_leads_open", label: "Hot leads waiting", value: String(dashboard.data.hot_leads_open) },
+            {
+              key: "after_hours_captured_7d",
+              label: "Captured after hours, last 7 days",
+              value: String(dashboard.data.after_hours_captured_7d),
+            },
+            {
+              key: "after_hours_basis",
+              label: "How after-hours is decided",
+              value:
+                dashboard.data.after_hours_basis === "business_hours"
+                  ? "the recorded opening hours"
+                  : "the 9am-9pm IST default, because no opening hours are recorded",
+            },
+            {
+              key: "sentiment_split",
+              label: "Sentiment split of scored calls",
+              value:
+                Object.entries(dashboard.data.sentiment_split ?? {})
+                  .map(([mood, count]) => `${mood}: ${count}`)
+                  .join(", ") || "no calls scored yet",
+            },
+          ]
+        : []),
+      ...(attention.data
+        ? [
+            {
+              key: "attention_total",
+              label: "Things waiting on the attention queue",
+              value: String(attention.data.total),
+            },
+          ]
+        : []),
+      ...(usage.data
+        ? [
+            { key: "month_charges_inr", label: "Charges this month (INR)", value: usage.data.month_charges_inr },
+            { key: "minutes_used", label: "Minutes used this month", value: usage.data.minutes_used },
+            { key: "included_minutes", label: "Minutes included in the plan", value: String(usage.data.included_minutes) },
+          ]
+        : []),
+      {
+        key: "recent_calls_shown",
+        label: "Rows in the Latest calls panel",
+        value: recent.data ? String(recent.data.length) : "not loaded",
+      },
+    ],
+    apply: noFill,
+  });
 
   if (dashboard.isLoading) {
     return (
@@ -93,6 +232,43 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
 
   return (
     <div className="space-y-6 pb-12">
+      {/* Only when something IS waiting: a zero here is noise and renders nothing. A
+          FAILED read is NOT an all-clear, though — dropping the banner silently would
+          offer the client neither the action nor a reason for its absence (BUILD-LOG
+          §52), so the failure says what it could not read and offers the retry. */}
+      {attention.isError ? (
+        <p className="rounded-card border border-line bg-surface-muted px-4 py-3 text-sm text-ink-muted">
+          We could not check whether anything needs your attention.{" "}
+          <button
+            type="button"
+            onClick={() => void attention.refetch()}
+            className="font-medium text-brand-strong underline"
+          >
+            Try again
+          </button>
+        </p>
+      ) : (
+        attention.data &&
+        attention.data.total > 0 && (
+          <Link
+            href={href(`/c/${slug}/attention`)}
+            className="flex items-center justify-between gap-3 rounded-card border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200 dark:hover:bg-amber-900"
+          >
+            <span>
+              <span className="font-semibold tabular-nums">
+                {formatCount(attention.data.total)}
+              </span>{" "}
+              {attention.data.total === 1 ? "thing needs" : "things need"} your
+              attention — things we stopped on purpose, each with the reason and
+              the fix.
+            </span>
+            <span className="shrink-0 font-medium underline">
+              Open the list
+            </span>
+          </Link>
+        )
+      )}
+
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatTile
           label="Calls today"
@@ -116,7 +292,10 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
           value={formatCount(data.leads_new_7d)}
           icon={<Users className="h-5 w-5" />}
           hint={
-            <Link href={href(`/c/${slug}/leads`)} className="underline hover:text-ink">
+            <Link
+              href={href(`/c/${slug}/leads`)}
+              className="underline hover:text-ink"
+            >
               Open leads
             </Link>
           }
@@ -196,13 +375,25 @@ export default function DashboardPage({ params }: { params: Promise<{ slug: stri
               value={formatINR(usage.data.month_charges_inr)}
               icon={<Sparkles className="h-5 w-5" />}
               hint={
-                <Link href={href(`/c/${slug}/usage`)} className="underline hover:text-ink">
+                <Link
+                  href={href(`/c/${slug}/billing?tab=usage`)}
+                  className="underline hover:text-ink"
+                >
                   {usage.data.minutes_used} min used of{" "}
                   {formatCount(usage.data.included_minutes)} included
                 </Link>
               }
             />
           )}
+          {/* CALLING CREDIT — the same three states as the tile above it, spelled the
+              same way (§52), plus a fourth this one has and that one does not: an
+              invoiced account, which renders nothing rather than a balance it has no
+              wallet to hold. */}
+          <CallingCreditTile
+            wallet={wallet}
+            href={href(`/c/${slug}/billing?tab=credits`)}
+          />
+
           {/* `?? {}` here is a PAYLOAD null, not an envelope one, and the difference is
               the whole of §52: `data` is narrowed, so the only `undefined` left is the
               one `DashboardOut.sentiment_split` carries because it has a server-side
@@ -310,49 +501,164 @@ const DAY_CLASSES = [
   { key: "completed", label: "Completed", fill: "bg-brand" },
   { key: "no_answer", label: "No answer", fill: "bg-amber-400" },
   { key: "failed", label: "Failed", fill: "bg-rose-500" },
-  { key: "in_flight", label: "Still running", fill: "bg-slate-300 dark:bg-slate-600" },
+  {
+    key: "in_flight",
+    label: "Still running",
+    fill: "bg-slate-300 dark:bg-slate-600",
+  },
 ] as const;
+
+/**
+ * How much calling credit is left, and what that means today.
+ *
+ * **THE STATE IS NEVER CARRIED BY THE FIGURE ALONE.** ₹0.00 means nothing to somebody
+ * skimming a dashboard on a phone; "outgoing calls have stopped" does. So each state has
+ * a SENTENCE under the number, the empty one has an icon that is not the healthy one's,
+ * and none of the three is distinguished by colour (WCAG 1.4.1) — which matters most on
+ * the one tile where a misread is a business day of missed calls.
+ *
+ * **THE EMPTY STATE'S SENTENCE CARRIES THE REASSURANCE**, in the same order the wallet's
+ * own screen uses: what still works, then what stopped. A client who reads "your credit
+ * has run out" on a dashboard concludes their phone has stopped being answered, and
+ * nothing on the tile is big enough to correct that afterwards.
+ *
+ * **AN INVOICED ACCOUNT GETS NO TILE.** `prepaid: false` is a tenant with nothing to top
+ * up, not one whose balance is zero; a ₹0.00 here would be the same false alarm the
+ * credit screen refuses to raise. It is a fact the read RETURNED, so nothing is being
+ * hidden on our own ignorance — the loading and failed arms above it say so themselves.
+ */
+function CallingCreditTile({
+  wallet,
+  href,
+}: {
+  wallet: ReturnType<typeof useWallet>;
+  href: string;
+}) {
+  if (wallet.isLoading) {
+    return (
+      <Card title="Calling credit" bodyClassName="p-4 sm:p-5">
+        <Skeleton rows={2} label="Loading your calling credit" />
+      </Card>
+    );
+  }
+  // `|| !wallet.data` for the PAUSED query (offline): `isLoading` is false, `error` is
+  // null and `data` is undefined, and a tile that fell through all three would print
+  // "—" to a client whose wallet may be empty (§52).
+  if (wallet.error || !wallet.data) {
+    return (
+      <Card title="Calling credit" bodyClassName="p-4 sm:p-5">
+        <ProblemNotice
+          error={wallet.error ?? new Error("Your calling credit did not load.")}
+          onRetry={() => void wallet.refetch()}
+        />
+      </Card>
+    );
+  }
+
+  const state = walletState(wallet.data);
+  if (state === "not-prepaid") return null;
+
+  return (
+    <StatTile
+      label="Calling credit left"
+      value={formatINR(wallet.data.balance_inr)}
+      icon={<Wallet className="h-5 w-5" />}
+      tone={state === "stopped" ? "strong" : "soft"}
+      hint={
+        <Link href={href} className="underline hover:text-ink">
+          {state === "stopped"
+            ? "Outgoing calls have stopped — people ringing you still get through. Add credit"
+            : state === "low"
+              ? "Running low — top up before outgoing calls stop"
+              : "Add credit or see where it went"}
+        </Link>
+      }
+    />
+  );
+}
 
 function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
   if (!days.length) {
-    return <EmptyState title="No call history yet" hint="Each day appears here as it happens." />;
+    return (
+      <EmptyState
+        title="No call history yet"
+        hint="Each day appears here as it happens."
+      />
+    );
   }
   const busiest = Math.max(...days.map((day) => day.total));
   return (
     <div>
-      <div className="mb-6 flex flex-wrap items-center gap-4 text-xs font-medium text-ink-muted">
-        {DAY_CLASSES.map((cls) => (
-          <span key={cls.key} className="flex items-center gap-1.5">
-            <span className={`h-2 w-2 rounded-full ${cls.fill}`} />
-            {cls.label}
-          </span>
-        ))}
-      </div>
-
-      <div className="flex h-[240px] items-end justify-between gap-2">
-        {days.map((day) => (
-          <div key={day.ist_date} className="flex h-full min-w-0 flex-1 flex-col items-center gap-2">
-            <span className="text-[11px] font-semibold tabular-nums text-ink">{day.total}</span>
-            <div
-              className="flex w-full max-w-[44px] flex-col-reverse overflow-hidden rounded-t-md bg-black/[0.03] dark:bg-white/5"
-              style={{
-                height: `${busiest > 0 ? Math.max(2, Math.round((day.total / busiest) * 100)) : 2}%`,
-              }}
-              title={`${day.ist_date}: ${day.total} calls`}
-            >
+      {/* The four-way split existed ONLY in the bars' `title` tooltips — mouse users
+          got it, keyboard and screen-reader users got nothing (ux-audit D1). The
+          rendered chart is aria-hidden and this table is its text alternative; the
+          numbers are the same `daily_7d` rows, not a second computation. */}
+      <table className="sr-only">
+        <caption>Calls each day for the last 7 days, by outcome</caption>
+        <thead>
+          <tr>
+            <th scope="col">Day</th>
+            <th scope="col">Total</th>
+            {DAY_CLASSES.map((cls) => (
+              <th key={cls.key} scope="col">
+                {cls.label}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {days.map((day) => (
+            <tr key={day.ist_date}>
+              <th scope="row">{formatDayLabel(day.ist_date)}</th>
+              <td>{day.total}</td>
               {DAY_CLASSES.map((cls) => (
-                <span
-                  key={cls.key}
-                  className={`w-full ${cls.fill}`}
-                  style={{ flexGrow: day[cls.key], flexBasis: 0 }}
-                />
+                <td key={cls.key}>{day[cls.key]}</td>
               ))}
-            </div>
-            <span className="w-full truncate text-center text-[11px] font-medium text-ink-muted">
-              {formatDayLabel(day.ist_date)}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      <div aria-hidden="true">
+        <div className="mb-6 flex flex-wrap items-center gap-4 text-xs font-medium text-ink-muted">
+          {DAY_CLASSES.map((cls) => (
+            <span key={cls.key} className="flex items-center gap-1.5">
+              <span className={`h-2 w-2 rounded-full ${cls.fill}`} />
+              {cls.label}
             </span>
-          </div>
-        ))}
+          ))}
+        </div>
+
+        <div className="flex h-[240px] items-end justify-between gap-2">
+          {days.map((day) => (
+            <div
+              key={day.ist_date}
+              className="flex h-full min-w-0 flex-1 flex-col items-center gap-2"
+            >
+              <span className="text-[11px] font-semibold tabular-nums text-ink">
+                {day.total}
+              </span>
+              <div
+                className="flex w-full max-w-[44px] flex-col-reverse overflow-hidden rounded-t-md bg-black/[0.03] dark:bg-white/5"
+                style={{
+                  height: `${busiest > 0 ? Math.max(2, Math.round((day.total / busiest) * 100)) : 2}%`,
+                }}
+                title={`${day.ist_date}: ${day.total} calls`}
+              >
+                {DAY_CLASSES.map((cls) => (
+                  <span
+                    key={cls.key}
+                    className={`w-full ${cls.fill}`}
+                    style={{ flexGrow: day[cls.key], flexBasis: 0 }}
+                  />
+                ))}
+              </div>
+              <span className="w-full truncate text-center text-[11px] font-medium text-ink-muted">
+                {formatDayLabel(day.ist_date)}
+              </span>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -366,7 +672,20 @@ function DailyCalls({ days }: { days: Dashboard["daily_7d"] }) {
  * The string is already an IST calendar date — the server did that work — so the only
  * correct thing to do with it is read it.
  */
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
 
 function formatDayLabel(istDate: string): string {
   const [, month, day] = istDate.split("-");
@@ -386,7 +705,9 @@ function SentimentSplit({ split }: { split: Record<string, number> }) {
   return (
     <Card title="How callers sounded" bodyClassName="p-4 sm:p-5">
       {total === 0 ? (
-        <p className="text-[13px] text-ink-muted">We haven&apos;t rated any calls in the last 7 days yet.</p>
+        <p className="text-[13px] text-ink-muted">
+          We haven&apos;t rated any calls in the last 7 days yet.
+        </p>
       ) : (
         <div className="space-y-2">
           {rows.map(([mood, count]) => (
@@ -398,7 +719,9 @@ function SentimentSplit({ split }: { split: Record<string, number> }) {
               <span
                 className={`h-2 w-2 shrink-0 rounded-full ${lookup(SENTIMENT_TONES, mood) ?? "bg-slate-300"}`}
               />
-              <span className="flex-1 text-[13px] capitalize text-ink-muted">{mood}</span>
+              <span className="flex-1 text-[13px] capitalize text-ink-muted">
+                {mood}
+              </span>
               <span className="text-[13px] font-semibold tabular-nums text-ink">
                 {formatCount(count)}
               </span>

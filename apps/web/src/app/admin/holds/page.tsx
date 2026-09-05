@@ -22,6 +22,8 @@ import {
   waitedFor,
   type HeldTenant,
 } from "@/lib/api/holds";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * The ops work list: who is waiting on a human, and for how long.
@@ -71,6 +73,63 @@ export default function HeldAccountsPage() {
   // different bands, and so the numbers on screen agree with each other.
   const now = Date.now();
   const breaching = rows.filter((row) => hoursWaiting(row.signed_up_at, now) >= WAIT_BREACH_HOURS);
+
+  /*
+   * THE QUEUE, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * DEPTH AND AGE, NOT THE ROSTER. Cross-tenant by construction, and every row names a
+   * business that cannot dial — so the counts go and the names do not, for the reason the
+   * directory states. The longest wait is sent as a DURATION computed from the same
+   * `now` the rows are banded against, so the assistant and the screen cannot disagree
+   * about how long anybody has been waiting; the raw `signed_up_at` never leaves, because
+   * a signup instant is a fact about one identifiable account.
+   *
+   * `HOLD_RULES` keys are machine rule names. The blockers' `reason` strings are dropped
+   * SERVER-side (see the header) and this declaration deliberately does not fetch them
+   * back: they interpolate an operator's free text about a named client.
+   */
+  useCopilotSurface({
+    route: "/admin/holds",
+    title: "Waiting on us",
+    realm: "admin",
+    fields: [],
+    facts: queue.data
+      ? [
+          { key: "waiting", label: "Accounts waiting on a human", value: String(rows.length) },
+          {
+            key: "breaching",
+            label: `Waiting longer than ${WAIT_BREACH_HOURS / 24} days`,
+            value: String(breaching.length),
+          },
+          {
+            key: "longest_wait",
+            label: "Longest anyone has waited",
+            value:
+              rows.length === 0
+                ? "nobody is waiting"
+                : // The list is oldest-signup-first server-side, so row 0 is the longest
+                  // wait; re-sorting here would be a second opinion about triage order.
+                  waitedFor(rows[0].signed_up_at, now),
+          },
+          {
+            key: "rules",
+            label: "Which gates are holding accounts",
+            value:
+              [...new Set(rows.flatMap((row) => row.holds))]
+                .map((rule) => holdRule(rule)?.label ?? rule)
+                .sort()
+                .join(", ") || "none",
+          },
+        ]
+      : [
+          {
+            key: "queue",
+            label: "The hold queue",
+            value: queue.error ? "could not be read" : "still loading",
+          },
+        ],
+    apply: noFill,
+  });
 
   return (
     <div className="space-y-4 pb-12">

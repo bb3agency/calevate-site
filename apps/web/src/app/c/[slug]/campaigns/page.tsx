@@ -36,6 +36,7 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON,
 } from "@/components/ui";
+import { useFormValidation, type FormValidation } from "@/components/formValidation";
 import { useWriteAccess } from "@/lib/api/hooks";
 import {
   consentCollectedAt,
@@ -239,6 +240,44 @@ const BLOCKER_COPY: Record<string, BlockerNote> = {
     ),
   },
   no_contacts: { text: "Upload the contact list." },
+
+  /*
+   * THE TWO MONEY GATES, and the only two blockers on this list that stop calls the
+   * client has ALREADY launched as well as this one.
+   *
+   * Both had no entry here at all, so both rendered the server's own sentence — "This
+   * account has no calling credit left." — which is true, terse, and missing the two
+   * things that decide what the reader does next: that people ringing them still get
+   * through, and where the fix is. That was survivable while almost every account was
+   * invoiced against a retainer and neither gate could fire; prepaid is now what an
+   * account gets unless an operator deliberately says otherwise, so `no_credits` goes
+   * from a rule most clients could never meet to the single most likely reason a
+   * campaign of theirs will not start.
+   *
+   * INBOUND FIRST, in both. A business owner who reads "outgoing calls have stopped"
+   * about their phone system concludes the phone has stopped — the most expensive wrong
+   * belief this product can create, and the same reason `WalletHero` orders its two
+   * sentences that way.
+   *
+   * Both are `client`, and both are now the same screen: the balance is topped up and the
+   * monthly limit is set on `/c/{slug}/billing`, on its Credits and Usage tabs (D-34 R-11,
+   * D-525). Neither waits on us, so neither may carry the "we handle this" badge that
+   * tells a client to sit and wait.
+   */
+  no_credits: {
+    text:
+      "Your calling credit has run out, so outgoing calls have stopped. People ringing " +
+      "you still get through — answering calls never uses credit. Add credit and this " +
+      "campaign can go straight out.",
+    owner: "client",
+  },
+  spend_cap: {
+    text:
+      "This account has spent up to the monthly limit set on it, so outgoing calls have " +
+      "stopped until the limit is raised or the month turns over. People ringing you " +
+      "still get through.",
+    owner: "client",
+  },
 
   // The DLT entity registrations (SEC-COMP §3). Three separate registrations, none
   // implying another, and all three are OUR paperwork — an operator records them in
@@ -682,6 +721,7 @@ export default function CampaignsPage() {
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [agentId, setAgentId] = useState("");
   const [name, setName] = useState("");
+  const valid = useFormValidation();
   const [classification, setClassification] =
     useState<Classification>("service");
   const [concurrency, setConcurrency] = useState(3);
@@ -778,6 +818,13 @@ export default function CampaignsPage() {
   const blockedOnFirstCampaign = clientBlockers.some((b) =>
     FIRST_CAMPAIGN_BLOCKERS.includes(b.rule),
   );
+  /* THE TWO MONEY GATES, each with a screen behind it — the same shape as the KYC and
+     first-campaign links below: the bullet says WHY, the link says WHERE. They are
+     separate booleans and separate links because they end differently: an empty wallet is
+     fixed in two minutes with a card, and a monthly limit is a number the account owner
+     chose and may not want to move. */
+  const blockedOnCredits = clientBlockers.some((b) => b.rule === "no_credits");
+  const blockedOnSpendCap = clientBlockers.some((b) => b.rule === "spend_cap");
   /**
    * Which agent dials decides the script, the voice and the disclosure line, so the
    * choice is ALWAYS on screen — not only when there is more than one. A campaign that
@@ -926,7 +973,16 @@ export default function CampaignsPage() {
         value: numberId,
         options: (numbers.data ?? []).map((number) => ({
           value: number.id,
-          label: `${number.e164} (${number.series} series)`,
+          // NO E.164 HERE, and the on-screen <option> at line ~1359 deliberately still
+          // shows one. This list is the COPILOT's copy of the screen, and it goes to a US
+          // model provider — D-127 G-2 says the console never volunteers a personal value
+          // on the user's behalf, and a phone number is the first thing that rule names.
+          // `copilot/routes.py` now refuses the whole request when anything in the
+          // rendered screen still looks personal, so this label was breaking the
+          // assistant on this screen as well as leaking; the last two digits are the same
+          // discriminator `workers/redaction.py` keeps for staff, and the series is what
+          // the person actually asks by ("use the 140 number").
+          label: `…${number.e164.slice(-2)} (${number.series} series)`,
         })),
       },
       {
@@ -1237,8 +1293,8 @@ export default function CampaignsPage() {
         <Card title="New campaign">
           <form
             className="space-y-5"
-            onSubmit={(e) => {
-              e.preventDefault();
+            noValidate
+            onSubmit={valid.onSubmit(() => {
               if (!selectedAgentId) return;
               create.mutate(
                 {
@@ -1258,19 +1314,25 @@ export default function CampaignsPage() {
                 },
                 { onSuccess: (data) => setCampaignId(data.id) },
               );
-            }}
+            })}
           >
-            <label className="block max-w-sm">
-              <span className={FIELD_LABEL}>Name</span>
-              <input
-                required
-                minLength={2}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Diwali service reminder"
-                className={FIELD}
-              />
-            </label>
+            {/* Outside the wrapping label, so the sentence describes the field instead
+                of becoming part of its name. */}
+            <div className="max-w-sm">
+              <label className="block">
+                <span className={FIELD_LABEL}>Name</span>
+                <input
+                  {...valid.field("name", "Give this campaign a name.")}
+                  required
+                  minLength={2}
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="e.g. Diwali service reminder"
+                  className={FIELD}
+                />
+              </label>
+              {valid.error("name")}
+            </div>
 
             {/* Rendered whenever the server has ANSWERED with at least one assignable
                 agent — never off a list that is empty because the read is in flight or
@@ -1417,21 +1479,25 @@ export default function CampaignsPage() {
               </label>
             </div>
 
-            <label className="block max-w-xs">
-              <span className={FIELD_LABEL}>Calls at the same time</span>
-              <input
-                type="number"
-                min={1}
-                max={10}
-                value={concurrency}
-                onChange={(e) => setConcurrency(Number(e.target.value))}
-                className={FIELD}
-              />
-              <span className={FIELD_HINT}>
-                Lower means the list takes longer. Lines are always kept free
-                for people calling you.
-              </span>
-            </label>
+            <div className="max-w-xs">
+              <label className="block">
+                <span className={FIELD_LABEL}>Calls at the same time</span>
+                <input
+                  {...valid.field("concurrency", "Enter how many calls may run at once.")}
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={concurrency}
+                  onChange={(e) => setConcurrency(Number(e.target.value))}
+                  className={FIELD}
+                />
+                <span className={FIELD_HINT}>
+                  Lower means the list takes longer. Lines are always kept free
+                  for people calling you.
+                </span>
+              </label>
+              {valid.error("concurrency")}
+            </div>
 
             {/* The calling window NARROWS a bound that already exists; it does not set
                 one. 9am-9pm is TRAI law applied to every dial (hard rule 5), so the
@@ -1459,26 +1525,34 @@ export default function CampaignsPage() {
 
               {restrictHours && (
                 <div className="mt-2 grid max-w-xs gap-3 sm:grid-cols-2">
-                  <label className="block">
-                    <span className={FIELD_LABEL}>From</span>
-                    <input
-                      type="time"
-                      required
-                      value={windowStart}
-                      onChange={(e) => setWindowStart(e.target.value)}
-                      className={FIELD}
-                    />
-                  </label>
-                  <label className="block">
-                    <span className={FIELD_LABEL}>Until</span>
-                    <input
-                      type="time"
-                      required
-                      value={windowEnd}
-                      onChange={(e) => setWindowEnd(e.target.value)}
-                      className={FIELD}
-                    />
-                  </label>
+                  <div>
+                    <label className="block">
+                      <span className={FIELD_LABEL}>From</span>
+                      <input
+                        {...valid.field("windowStart", "Choose a start time.")}
+                        type="time"
+                        required
+                        value={windowStart}
+                        onChange={(e) => setWindowStart(e.target.value)}
+                        className={FIELD}
+                      />
+                    </label>
+                    {valid.error("windowStart")}
+                  </div>
+                  <div>
+                    <label className="block">
+                      <span className={FIELD_LABEL}>Until</span>
+                      <input
+                        {...valid.field("windowEnd", "Choose an end time.")}
+                        type="time"
+                        required
+                        value={windowEnd}
+                        onChange={(e) => setWindowEnd(e.target.value)}
+                        className={FIELD}
+                      />
+                    </label>
+                    {valid.error("windowEnd")}
+                  </div>
                 </div>
               )}
             </fieldset>
@@ -1490,6 +1564,7 @@ export default function CampaignsPage() {
                 that cannot launch, and finding that out at the launch check — after the
                 list is uploaded — is a worse place to learn it. */}
             <ConsentProvenanceFields
+              validation={valid}
               idPrefix="new"
               source={consentSource}
               collectedAt={consentDate}
@@ -1871,6 +1946,41 @@ export default function CampaignsPage() {
                       view-as marker like every other in-realm link, so an operator
                       following it from a "view as client" session does not drop back
                       to a client token two pages in (lib/api/session.tsx). */}
+                  {/* THE WALLET, one click away. The bullet above says what stopped and
+                      that people ringing them still get through; this is the two-minute
+                      fix, and without it a client whose campaigns have stopped is left
+                      hunting for "Calling credit" at the bottom of a settings menu. */}
+                  {blockedOnCredits && (
+                    <p className="text-sm">
+                      <Link
+                        href={href(`/c/${session.orgSlug}/billing?tab=credits`)}
+                        className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+                      >
+                        Add calling credit
+                      </Link>{" "}
+                      <span className="text-ink-muted">
+                        — it takes a minute, and your campaigns start again as soon as it
+                        lands.
+                      </span>
+                    </p>
+                  )}
+
+                  {/* The monthly limit is the client's OWN and lives on Usage (D-34 R-11),
+                      so this is a destination and not an account-manager queue. */}
+                  {blockedOnSpendCap && (
+                    <p className="text-sm">
+                      <Link
+                        href={href(`/c/${session.orgSlug}/billing?tab=usage`)}
+                        className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+                      >
+                        See your monthly spending limit
+                      </Link>{" "}
+                      <span className="text-ink-muted">
+                        — it is your own setting, and you can raise it there.
+                      </span>
+                    </p>
+                  )}
+
                   {blockedOnKyc && (
                     <p className="text-sm">
                       <Link
@@ -2154,6 +2264,7 @@ export default function CampaignsPage() {
                 }
               >
                 {progress.data?.total ? (
+                  <>
                   <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4">
                     {Object.entries(counts).map(([key, value]) => (
                       <div key={key}>
@@ -2168,11 +2279,15 @@ export default function CampaignsPage() {
                         </dd>
                       </div>
                     ))}
-                    <div className="col-span-2 text-xs text-ink-faint sm:col-span-4">
-                      Launched {formatIST(progress.data.launched_at)} · up to{" "}
-                      {formatCount(progress.data.concurrency)} calls at a time
-                    </div>
                   </dl>
+                  {/* Prose, so OUTSIDE the <dl>: a bare <div> of text as a direct child
+                      of a definition list is the axe violation f944a67 fixed on the
+                      call-detail screen — this was its sibling. */}
+                  <p className="mt-4 text-xs text-ink-faint">
+                    Launched {formatIST(progress.data.launched_at)} · up to{" "}
+                    {formatCount(progress.data.concurrency)} calls at a time
+                  </p>
+                  </>
                 ) : (
                   <EmptyState title="No contacts yet" />
                 )}
@@ -2208,12 +2323,15 @@ function ConsentProvenanceFields({
   collectedAt,
   onSource,
   onCollectedAt,
+  validation,
 }: {
   idPrefix: string;
   source: ConsentSource | "";
   collectedAt: string;
   onSource: (value: ConsentSource) => void;
   onCollectedAt: (value: string) => void;
+  /** The campaign form's validation — this block is part of that form, not its own. */
+  validation: FormValidation;
 }) {
   return (
     <div className="space-y-4">
@@ -2254,20 +2372,24 @@ function ConsentProvenanceFields({
         </div>
       </fieldset>
 
-      <label className="block max-w-xs">
-        <span className={FIELD_LABEL}>When did they agree?</span>
-        <input
-          type="date"
-          value={collectedAt}
-          max={todayInputValue()}
-          onChange={(e) => onCollectedAt(e.target.value)}
-          className={FIELD}
-        />
-        <span className={FIELD_HINT}>
-          The date on the form, bill or enquiry. If the list was built up over
-          time, use the day the most recent person was added.
-        </span>
-      </label>
+      <div className="max-w-xs">
+        <label className="block">
+          <span className={FIELD_LABEL}>When did they agree?</span>
+          <input
+            {...validation.field("consentDate", "Choose the day they agreed.")}
+            type="date"
+            value={collectedAt}
+            max={todayInputValue()}
+            onChange={(e) => onCollectedAt(e.target.value)}
+            className={FIELD}
+          />
+          <span className={FIELD_HINT}>
+            The date on the form, bill or enquiry. If the list was built up over
+            time, use the day the most recent person was added.
+          </span>
+        </label>
+        {validation.error("consentDate")}
+      </div>
     </div>
   );
 }
@@ -2302,17 +2424,18 @@ function ConsentProvenanceAnswer({
   const declare = useDeclareConsentProvenance(session, campaignId);
   const [source, setSource] = useState<ConsentSource | "">("");
   const [collectedAt, setCollectedAt] = useState("");
+  const valid = useFormValidation();
 
   const iso = consentCollectedAt(collectedAt);
 
   return (
     <form
       className="space-y-4 rounded-card border border-line bg-app p-4"
-      onSubmit={(e) => {
-        e.preventDefault();
+      noValidate
+      onSubmit={valid.onSubmit(() => {
         if (!source || !iso) return;
         declare.mutate({ source, collected_at: iso });
-      }}
+      })}
     >
       <p className="text-sm font-semibold text-ink">
         {correcting
@@ -2325,6 +2448,7 @@ function ConsentProvenanceAnswer({
       </p>
 
       <ConsentProvenanceFields
+        validation={valid}
         idPrefix={`answer-${campaignId}`}
         source={source}
         collectedAt={collectedAt}

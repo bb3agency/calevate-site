@@ -60,6 +60,8 @@ from dataclasses import astuple
 from typing import Any
 
 from apps.api.compliance.deletion import (
+    CALLER_MEMORY_KEY,
+    CALLER_VECTOR_KEY,
     DESTROYED_COUNT_KEY,
     ERASURE_EXCEPTIONS,
     ERASURE_LIMITATIONS,
@@ -141,6 +143,8 @@ def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
     destroyed = _optional_count(scope.get(DESTROYED_COUNT_KEY))
     hold_until = _optional_text(scope.get(HOLD_UNTIL_KEY))
     kb_matched = _optional_count(scope.get(KB_MATCH_KEY))
+    vectors = _optional_count(scope.get(CALLER_VECTOR_KEY))
+    remembered = _optional_count(scope.get(CALLER_MEMORY_KEY))
 
     return {
         # Passed through, never recomputed: this module is not given the number, and the
@@ -157,6 +161,8 @@ def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
             DESTROYED_COUNT_KEY: destroyed,
             HOLD_UNTIL_KEY: hold_until,
             KB_MATCH_KEY: kb_matched,
+            CALLER_VECTOR_KEY: vectors,
+            CALLER_MEMORY_KEY: remembered,
         },
         "actions": _actions(stored.get("actions")),
         "engine_deletion": str(stored.get("engine_deletion") or ""),
@@ -166,6 +172,8 @@ def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
             turns=turns,
             fields=extractions,
             recordings=destroyed,
+            vectors=vectors,
+            remembered=remembered,
         ),
         "not_erased": _not_erased(floor, hold_until, kb_matched),
         "limitations": list(ERASURE_LIMITATIONS),
@@ -177,7 +185,14 @@ def certificate(stored: Mapping[str, Any] | None) -> dict[str, Any] | None:
 
 
 def _erased(
-    *, calls: int, leads: int, turns: int, fields: int, recordings: int | None
+    *,
+    calls: int,
+    leads: int,
+    turns: int,
+    fields: int,
+    recordings: int | None,
+    vectors: int | None,
+    remembered: int | None,
 ) -> list[str]:
     """The scope counts as sentences, for a reader who does not know our table names.
 
@@ -218,6 +233,37 @@ def _erased(
         )
     else:
         statements.append("No CRM lead held this number.")
+    # THE COPY NOBODY CAN READ (D-503). `None` and not zero is the state of every proof
+    # written before the vector store existed, and it prints nothing at all rather than a
+    # claim — the `not_erased` register is where a silence gets explained, and this
+    # erasure's silence is simply that there was no such store to search.
+    statements.extend(_caller_sentences(vectors, remembered))
+    return statements
+
+
+def _caller_sentences(vectors: int | None, remembered: int | None) -> list[str]:
+    """What was destroyed in the SEARCH store, said without the words "vector" or "index".
+
+    A data principal is owed the fact that a machine-readable copy of their sentences
+    existed and is gone; they are not owed our storage vocabulary, and a certificate that
+    reads like an architecture diagram is one they cannot check. So: "searchable copies of
+    what you said", and "facts the agent had remembered about you".
+
+    Silent when the proof recorded nothing, for the module's second design rule — absent is
+    not zero, and a `0` here would certify a search of a store that did not exist.
+    """
+    statements: list[str] = []
+    if vectors:
+        statements.append(
+            f"{_plural(vectors, 'searchable copy', 'searchable copies')} of what this "
+            "person said — the machine-readable index that let staff search past "
+            "conversations by meaning was emptied, so the words survive in it in no form."
+        )
+    if remembered:
+        statements.append(
+            f"{_plural(remembered, 'fact')} the agent had remembered about this person "
+            "across calls — erased, so a later call starts with no memory of them."
+        )
     return statements
 
 
@@ -328,8 +374,16 @@ def _actions(value: Any) -> dict[str, str]:
     return {str(key): str(item) for key, item in _mapping(value).items()}
 
 
-def _plural(count: int, noun: str) -> str:
-    return f"{count} {noun}" if count == 1 else f"{count} {noun}s"
+def _plural(count: int, noun: str, plural: str | None = None) -> str:
+    """`3 call records`, and `3 searchable copies` where an `s` is not the plural.
+
+    The override exists because this document is read by people, and "3 searchable copys"
+    in a compliance certificate reads as machine output nobody proof-read — which is
+    exactly the impression a document asserting a legal obligation cannot afford.
+    """
+    if count == 1:
+        return f"{count} {noun}"
+    return f"{count} {plural if plural is not None else noun + 's'}"
 
 
 __all__ = ["certificate", "notice_version"]

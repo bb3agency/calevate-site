@@ -7,7 +7,13 @@ import { ApiProblem, type Session } from "@/lib/api/client";
 import { clearFilled, markFilled } from "./highlight";
 import { redactForWire } from "./redaction";
 import { askCopilot, type CopilotAskBody } from "./stream";
-import type { CopilotFillItem } from "./types";
+import type {
+  CopilotAction,
+  CopilotFillItem,
+  CopilotNavigation,
+  CopilotProposal,
+  CopilotStep,
+} from "./types";
 import type { SurfaceHolder } from "./registry";
 
 /**
@@ -73,15 +79,102 @@ export interface CopilotConversation {
   /** The server's sentence, rendered VERBATIM when present (D-127 G-6). */
   disclosure: string | null;
   batch: CopilotBatch | null;
+  /**
+   * The change the assistant is OFFERING to make, or `null`.
+   *
+   * Held here rather than in the panel for the reason the batch is: it belongs to the
+   * EXCHANGE. A new question replaces it, exactly as a new question ends the previous
+   * batch's Undo — a card left over from two answers ago is an offer about a screen state
+   * nobody is looking at any more, and its token is minutes from expiring regardless.
+   *
+   * At most one is held. The server sends at most one per response, and a second would
+   * REPLACE the first rather than stacking: two open proposals is a person choosing which
+   * of two sentences they are agreeing to, which is the shape this whole design exists to
+   * avoid.
+   */
+  proposal: CopilotProposal | null;
+  /**
+   * TIER 1 actions this exchange has already performed, oldest first. D-500.
+   *
+   * A LIST where `proposal` is a single value, and the difference is the promise. At most
+   * one offer can be open at a time — two would be a person choosing which of two sentences
+   * they are agreeing to — but an answer may genuinely DO more than one thing ("make an
+   * inbound and an outbound agent"), and each of those is a receipt for something that has
+   * already happened. Dropping the first to show the second would hide a change from the
+   * person it was made for.
+   */
+  actions: CopilotAction[];
+  /**
+   * THE SCREEN THIS ANSWER ASKED TO OPEN, or `null`. D-524.
+   *
+   * A single value like `proposal` and not a list like `actions`, because one answer opens
+   * at most one screen (the server caps it) and two destinations would be a flicker through
+   * a screen nobody read.
+   *
+   * **HOLDING IT IS NOT PERFORMING IT.** Nothing in this hook moves anybody: the panel
+   * decides, once the answer has finished arriving, whether the screen being left may hold
+   * unsaved work, asks if it may, and only then calls the router. Navigating from inside the
+   * stream handler would abort the answer mid-sentence — the dock closes the panel when the
+   * surface changes, which aborts the in-flight request — so the person would lose the
+   * sentence telling them where they were going.
+   */
+  navigation: CopilotNavigation | null;
+  /**
+   * Take the destination off the table without moving. The panel calls it after it has
+   * navigated (so a re-render cannot navigate twice) and when the person answers "stay".
+   */
+  clearNavigation: () => void;
+  /**
+   * Every tool call this exchange has made, in the order they started, each carrying its
+   * latest state. Live, and cleared by the next question.
+   *
+   * KEYED BY `id` AND REPLACED IN PLACE: the server sends two frames per call, and appending
+   * both would render one lookup as two rows. Purely observational — the panel may render
+   * none of it and lose no outcome.
+   */
+  steps: CopilotStep[];
   /** True when the refusal on screen is the AI allowance ceiling (G-5, client realm). */
   atCeiling: boolean;
   ask: (question: string) => void;
   undo: () => void;
+  /**
+   * Take the card off the screen. SENDS NOTHING — a proposal is a JWT the server never
+   * stored, so there is no server-side state to release and nothing to tell it. Doing
+   * nothing is a valid answer to a suggestion, and the token simply stops verifying.
+   */
+  dismissProposal: () => void;
   /** Forget the conversation — used when the surface underneath changes. */
   reset: () => void;
 }
 
 /** The one code the server uses for the allowance ceiling; `AssistCard` reads the same. */
+/**
+ * `CopilotAskIn.history`'s ceiling, from `apps/api/copilot/schemas.py::MAX_HISTORY`.
+ *
+ * Retyped rather than generated because the OpenAPI schema carries `maxItems` on the
+ * ARRAY and the generated client does not surface it as a value — so this is the one
+ * place the number is written on this side, and `copilotHistory.test.ts` reads the
+ * Python constant and fails if the two drift.
+ */
+export const MAX_HISTORY = 10;
+
+/**
+ * The last whole EXCHANGES that fit under the ceiling, oldest first.
+ *
+ * Pairs, not turns. A plain `slice(-MAX_HISTORY)` can start the window on an assistant
+ * turn whose question fell off the front, and a model given an answer with no question
+ * reads it as its own earlier assertion — which is how an assistant starts defending a
+ * claim nobody made. Dropping the orphan costs one turn of context and removes that
+ * failure entirely.
+ *
+ * Not a conversation summary and deliberately not: nothing here is persisted, and
+ * summarising would mean a second model call on the latency path of every question.
+ */
+export function recentTurns(turns: readonly CopilotTurn[]): CopilotTurn[] {
+  const window = turns.slice(-MAX_HISTORY);
+  return window.length > 0 && window[0].role === "assistant" ? window.slice(1) : window;
+}
+
 export const AI_CEILING_CODE = "ai_quota_exceeded";
 
 export function useCopilotConversation(
@@ -94,6 +187,10 @@ export function useCopilotConversation(
   const [error, setError] = useState<unknown>(null);
   const [disclosure, setDisclosure] = useState<string | null>(null);
   const [batch, setBatch] = useState<CopilotBatch | null>(null);
+  const [proposal, setProposal] = useState<CopilotProposal | null>(null);
+  const [actions, setActions] = useState<CopilotAction[]>([]);
+  const [navigation, setNavigation] = useState<CopilotNavigation | null>(null);
+  const [steps, setSteps] = useState<CopilotStep[]>([]);
 
   // The in-flight request, so a second question cancels the first rather than
   // interleaving two answers into one bubble.
@@ -116,8 +213,15 @@ export function useCopilotConversation(
     setError(null);
     setDisclosure(null);
     setBatch(null);
+    setProposal(null);
+    setActions([]);
+    setNavigation(null);
+    setSteps([]);
     clearFilled();
   }, []);
+
+  const dismissProposal = useCallback(() => setProposal(null), []);
+  const clearNavigation = useCallback(() => setNavigation(null), []);
 
   const undo = useCallback(() => {
     if (batch === null) return;
@@ -140,6 +244,22 @@ export function useCopilotConversation(
       // and the marks come off with it. Leaving them would show an "Undo" that restores
       // values from two answers ago.
       setBatch(null);
+      // …and the previous OFFER goes with it, for the same reason and one more: the card
+      // may be sitting in its confirmed state, and a record of what the last answer did
+      // must not be left standing beside a new one as if it were about that.
+      setProposal(null);
+      // AND THE PREVIOUS ANSWER'S RECEIPTS AND STEPS. Both belong to the EXCHANGE, exactly
+      // as the batch and the offer do. Leaving a receipt standing beside a new answer says
+      // "this is what I just did" about something that happened two questions ago — and it
+      // is a receipt for a change that is still real, which is why it goes rather than
+      // being greyed out: the record of it is in the audit log and on the object's own
+      // screen, not in a chat panel.
+      setActions([]);
+      // …and any destination the previous answer named. A move nobody made by the time the
+      // next question was typed is a move the person did not want; carrying it forward would
+      // navigate them out of the conversation they just started.
+      setNavigation(null);
+      setSteps([]);
       clearFilled();
       setError(null);
       setDisclosure(null);
@@ -157,7 +277,22 @@ export function useCopilotConversation(
         fields: pass.fields,
         facts: pass.facts,
         // The REDACTED half of what has already been said. See `CopilotTurn`.
-        history: turns.map((turn) => ({ role: turn.role, content: turn.wire })),
+        //
+        // TRIMMED TO THE SERVER'S CEILING, and this used to send the whole conversation.
+        // `CopilotAskIn.history` is `max_length=MAX_HISTORY`, so the sixth exchange in one
+        // open panel was a 422 that read "history: List should have at most 10 items" —
+        // shown to the person as a validation error about a field they cannot see, in the
+        // middle of a conversation that was working a moment earlier. The bound is not the
+        // bug: nothing is persisted, this list IS the conversation's whole memory, and
+        // replaying an unbounded one would grow every request until the model's context
+        // decided where to truncate instead of us.
+        //
+        // The LAST turns, not the first: the recent exchange is what a follow-up question
+        // refers to. Sliced on PAIRS so the window never opens on an assistant turn whose
+        // question was dropped — a model handed an answer with no question treats it as
+        // its own prior assertion, which is how a copilot starts insisting on something
+        // nobody asked.
+        history: recentTurns(turns).map((turn) => ({ role: turn.role, content: turn.wire })),
       };
 
       // Both halves of the answer, built in step: `answer` is what is shown, `answerWire`
@@ -206,6 +341,39 @@ export function useCopilotConversation(
               priors: Array.from(priors, ([field_id, value]) => ({ field_id, value })),
               labels: [...labels],
               ids: [...ids],
+            });
+          },
+          onProposal: (offered) => {
+            // Straight through, unedited. The token is the whole state of the offer and
+            // the prose beside it is the server's; there is nothing for this layer to
+            // restore, merge or normalise — `pass.restore` is deliberately NOT applied,
+            // because a proposal names its target by id and carries no placeholder by
+            // construction (`_plan_dnc_add`: the number never enters the prompt).
+            setProposal(offered);
+          },
+          onAction: (performed) => {
+            // APPENDED, never replaced — see `actions`. Straight through and unedited for
+            // `onProposal`'s reason: every string is the server's own account of something
+            // it has already done, and an action names its object by id, so there is no
+            // placeholder to restore.
+            setActions((previous) => [...previous, performed]);
+          },
+          onNavigate: (destination) => {
+            // HELD, NOT PERFORMED. The panel moves once the answer has finished arriving —
+            // see `navigation` on the interface for why navigating from inside the stream
+            // would abort the sentence that explains the move.
+            setNavigation(destination);
+          },
+          onStep: (step) => {
+            // UPSERT BY `id`. The terminal frame REPLACES its own `running` one rather than
+            // following it, so one call is one row that changes state — which is the whole
+            // point of showing them.
+            setSteps((previous) => {
+              const at = previous.findIndex((existing) => existing.id === step.id);
+              if (at === -1) return [...previous, step];
+              const next = [...previous];
+              next[at] = step;
+              return next;
             });
           },
           onDone: (done) => {
@@ -262,9 +430,15 @@ export function useCopilotConversation(
     error,
     disclosure,
     batch,
+    proposal,
+    actions,
+    navigation,
+    clearNavigation,
+    steps,
     atCeiling,
     ask,
     undo,
+    dismissProposal,
     reset,
   };
 }

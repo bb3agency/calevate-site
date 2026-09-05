@@ -18,13 +18,23 @@ engine already deleted, and a document nobody can address again — billed for a
 the account exists. Nothing in our code can prevent that. These two checks detect it on
 the next attempt and stop, instead of attaching a second copy on top.
 
-**The publish ordering is the reason the stakes are what they are.** Every copy the
-engine holds is DETACHED before the new one is attached — including this source's own
-previously attached copy, because `attach_kb` is a CREATE that mints a fresh handle on
-every call and de-duplicates nothing. Attach-first would leave a window, or a permanent
-state, in which the agent can answer from either version. One request of "I don't know"
-(T4 refuse-and-escalate) during the gap is the cheaper failure; a stale price is a quote
-the client is then held to.
+**The publish ordering is the reason the stakes are what they are, and it REVERSED in
+D-488 — read this before diagnosing anything below.** The new copy is now ATTACHED first
+and every superseded copy is withdrawn after, because a real attach is an upload plus an
+indexing wait the vendor gives no bound for, and detaching first would leave the agent
+answering T4 "I don't know" for the whole of it on every republish. "Every superseded
+copy" includes this source's own previously attached one, because `attach_kb` is a CREATE
+that mints a fresh handle every time and de-duplicates nothing.
+
+**What that means for you at 3am:** the window is now an OVERLAP, not a gap. For the
+length of one detach round trip — or permanently, if the process died in between — the
+agent can retrieve from BOTH versions. So the symptom of a half-finished publish is an
+agent giving inconsistent answers, not an agent giving none, and the first question is
+which of the leftovers is the version the client approved.
+
+**A re-publish of unchanged content uploads nothing**, keyed on a SHA-256 of the rendered
+document stored beside the handle. So "just press Publish again" is safe in a way it was
+not before: it will not mint a second copy of text that is already attached.
 
 Ground rules: audited admin path for any production SQL (SECURITY-COMPLIANCE.md
 §"Admin access path"); read-only. Nothing on this path touches a phone number or a
@@ -211,14 +221,25 @@ exists.
 There are only three plausible origins, and telling them apart decides the order of
 operations:
 
-- **A crashed publish.** The attach succeeded and the COMMIT did not. Our tables kept
-  pointing at the OLD handle (which the detach had already deleted) and never learned the
-  new one. The leftover is the NEW version's document — the one the client approved.
-- **A failed publish that re-attached.** `_reattach_after_failed_publish` puts the
-  previous version's text back when the attach fails, deliberately without recording the
-  new handle (the transaction is about to roll back, so any write here would roll back
-  too). The leftover is the PREVIOUS version's document, re-minted under a handle nobody
-  recorded. This is the intended residue and the docstring says so.
+> **⚠ THE PUBLISH ORDER REVERSED (D-488) AND TWO OF THESE THREE ORIGINS CHANGED WITH
+> IT.** Publishing now ATTACHES the new version before it withdraws the superseded ones,
+> because a real attach is an upload plus an indexing wait and detaching first would leave
+> the agent with no knowledge for the whole of it. The consequence for this runbook: a
+> crashed publish now leaves BOTH versions attached rather than only the new one, and
+> there is no longer a re-attach path to produce a re-minted copy of the previous text.
+
+- **A crashed publish, before the withdrawal.** The attach succeeded and the process died
+  (or the COMMIT failed) before the superseded copy came down. The agent is holding BOTH
+  versions and can answer from either — this is the origin to look for FIRST, because it
+  is the only one where the client is being given stale answers right now. The leftover is
+  the NEW version's document, unrecorded; the OLD one is still recorded and still live.
+- **A crashed publish, after the withdrawal.** The old copy is gone, the new one is up,
+  and the COMMIT failed. The leftover is the NEW version's document — the one the client
+  approved — with our tables still naming the handle that was deleted.
+- **A rolled-back attach that could not be undone.** When a detach fails, `_undo_attach`
+  removes the copy the publish just added so the agent is left exactly as it was. If that
+  removal ALSO failed it is logged as `kb_left_attached`, and the leftover is the NEW
+  version's document beside a previous version that is still correct and still recorded.
 - **Someone attached something by hand** in the vendor console.
 
 Read the leftover document's content and match it against `kb_documents.content` for the
@@ -228,8 +249,9 @@ quoting old prices:
 
 | Origin | What the leftover is | Right move |
 |---|---|---|
-| Crashed publish | The approved NEW text, live on the engine, unaddressable | Delete it on the engine, then re-run Publish. The re-publish attaches a fresh, recorded copy of the same approved text — one short "I don't know" window, then correct |
-| Failed publish, re-attached | The PREVIOUS approved text | Delete it, then re-run Publish. Same outcome |
+| Crashed publish, before the withdrawal | BOTH versions live; the NEW one unaddressable | **Most urgent — the agent is quoting two prices.** Delete the unaddressable copy on the engine, then re-run Publish: our tables still name the OLD handle, so the re-publish withdraws it properly and attaches a fresh, recorded copy |
+| Crashed publish, after the withdrawal | The approved NEW text, live on the engine, unaddressable | Delete it on the engine, then re-run Publish. The re-publish attaches a fresh, recorded copy of the same approved text — and `_detach_superseded` now treats our stale handle as already withdrawn rather than refusing, so the retry works |
+| Rolled-back attach (`kb_left_attached`) | The NEW text, beside a PREVIOUS version that is still correct and still recorded | Delete the NEW copy on the engine. Do NOT re-run Publish until the reason the detach failed is understood — it will fail the same way |
 | Hand-attached | Unknown provenance, unapproved | Delete it. Nothing unapproved may reach a client's agent (FLOWS §7) — that is the whole point of the approval gate |
 
 In all three the leftover is deleted and Publish is re-run. What differs is what the

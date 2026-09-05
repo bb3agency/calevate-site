@@ -1,14 +1,16 @@
-"""KB tables (DATA-MODEL §7, narrowed by D-28/D-33).
+"""KB tables (DATA-MODEL §7; D-28 narrowed them, D-502 restored `kb_chunks`).
 
-`kb_chunks` with its `vector(1024)` column and HNSW index is NOT created here: D-28
-moved retrieval to a managed service and made those tables contingency. What we build
-is the part that stays ours whichever provider wins — the source, its versions, and the
-approval gate — plus the chunk TEXT needed to preview what a client is about to publish.
+The source, its versions and the approval gate are the part that stays ours whichever
+provider serves retrieval, plus the chunk TEXT needed to preview what a client is about to
+publish. `kb_chunks` is the RETRIEVAL PROJECTION over that text (D-502, migration
+`dc1aaeeeff02`): it stores no content of its own, only the two derived keys and the scope a
+query filters on.
 """
 
 from datetime import datetime
 from uuid import UUID
 
+from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
@@ -19,11 +21,13 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from apps.api.db.base import Base, PKMixin, TimestampMixin
+from apps.api.kb.gloss import GLOSS_PENDING, GLOSS_STATES
+from apps.api.retrieval.embedding import EMBEDDING_DIMS
 
 KB_KINDS = ("file", "url", "text", "call_corpus")
 KB_STATUSES = ("uploaded", "parsed", "pending_approval", "approved", "rejected", "archived")
@@ -73,7 +77,10 @@ class KbDocument(PKMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "kb_documents"
-    __table_args__ = (UniqueConstraint("source_id", "idx"),)
+    __table_args__ = (
+        UniqueConstraint("source_id", "idx"),
+        CheckConstraint(f"gloss_state IN {GLOSS_STATES!r}", name="gloss_state_enum"),
+    )
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
@@ -84,7 +91,106 @@ class KbDocument(PKMixin, TimestampMixin, Base):
     idx: Mapped[int] = mapped_column(Integer, nullable=False)
     title: Mapped[str | None] = mapped_column(Text)
     content: Mapped[str] = mapped_column(Text, nullable=False)
+    #: A short ENGLISH rendering of `content`, written once at ingestion by
+    #: `apps/workers/kb_gloss.py` (migration `a7f4c31d95e8`).
+    #:
+    #: IT IS A RETRIEVAL KEY AND NEVER AN UTTERANCE. `retrieval/compiled_facts.py` scores
+    #: it against a question and then returns the ORIGINAL line; nothing compiles it into a
+    #: prompt, pushes it to the engine, or shows it to a caller. So a machine translation
+    #: cannot widen what a client's agent may say — the human approved Telugu, the agent
+    #: still says Telugu, and the gloss only changes whether a Tenglish question finds it.
+    #: `kb/gloss.py` carries the measurement that justifies the column.
+    gloss: Mapped[str | None] = mapped_column(Text)
+    #: Which model wrote `gloss`. Provenance, so "machine-generated" is a checkable fact on
+    #: the row rather than a convention — the preview screen marks the gloss from this.
+    gloss_model: Mapped[str | None] = mapped_column(Text)
+    #: `pending` / `ready` / `not_needed` (`kb/gloss.GLOSS_STATES`). THE IDEMPOTENCY KEY of
+    #: the gloss sweep: `not_needed` is how an English chunk says "looked at, nothing owed",
+    #: which `gloss IS NULL` cannot say and which is the difference between a sweep that
+    #: converges and one that re-pays a model call for the same "no" on every tick.
+    gloss_state: Mapped[str] = mapped_column(String, nullable=False, server_default=GLOSS_PENDING)
     meta: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+
+
+#: `kb_chunks.embed_state` — the sweep's idempotency key, as a closed vocabulary.
+#:
+#: `pending` nobody has embedded this yet · `ready` a vector is stored · `refused` the
+#: provider answered and the answer was unusable (a width the column cannot hold, or an
+#: empty array), which is a state a retry cannot fix and which must therefore not look like
+#: `pending`. Without the third value the sweep would buy the same refusal on every tick
+#: for ever — `kb_documents.gloss_state`'s argument, one column over.
+EMBED_PENDING = "pending"
+EMBED_READY = "ready"
+EMBED_REFUSED = "refused"
+EMBED_STATES: tuple[str, ...] = (EMBED_PENDING, EMBED_READY, EMBED_REFUSED)
+
+
+class KbChunk(PKMixin, TimestampMixin, Base):
+    """The retrieval projection of ONE published chunk (D-502). Holds no content.
+
+    WHY IT IS A SEPARATE TABLE FROM `KbDocument`, in one line each — the migration
+    `dc1aaeeeff02` carries the long form. (1) A row exists here only because
+    `kb/service.publish_source` put it here for an APPROVED source, so the approval gate is
+    structural rather than a predicate somebody must remember. (2) `agent_id` and
+    `is_active` are denormalised off `kb_sources` so the scope predicate is ONE btree on ONE
+    table — which is the plan `docs/evidence/kb-retrieval-bakeoff.md` §2.3(b) actually
+    measured, and the reason the pre-0.8.0 filtered-scan hazard does not arise.
+
+    **NO `content` COLUMN, DELIBERATELY.** The client's prose lives once, on `kb_documents`,
+    and is reached through `document_id`. A second copy would double what retention and
+    backups pay for, give a DPDP erasure two rows to find, and let a correction to one
+    silently diverge from the other. Everything stored here is DERIVED and reconstructible.
+
+    **ERASURE IS BY CASCADE HERE AND THAT IS SOUND, WHICH IS NOT TRUE OF EVERY SCOPE.** A
+    cascade only erases when something is actually deleted, and `workers/retention.py`'s
+    `_KB_EXPIRE_SQL` genuinely DELETEs `kb_sources` (its comment: "A DELETE, not an
+    anonymize"), taking `kb_documents` and therefore these rows with it. The transcript
+    scope is the opposite — a DPDP erasure SCRUBS a call in place and keeps the row as
+    billing evidence, so a cascade there never fires. Any future embedding of caller data
+    needs an explicit erasure arm, not this pattern.
+    """
+
+    __tablename__ = "kb_chunks"
+    __table_args__ = (
+        # ONE projection per chunk. What makes both the publish path and the backfill
+        # idempotent through `ON CONFLICT` rather than a read-then-write, and what stops a
+        # republished source accumulating duplicates that would each take a top-k slot.
+        UniqueConstraint("document_id", name="uq_kb_chunks_document_id"),
+        CheckConstraint(f"embed_state IN {EMBED_STATES!r}", name="ck_kb_chunks_embed_state_enum"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="CASCADE"), nullable=False
+    )
+    source_id: Mapped[UUID] = mapped_column(
+        ForeignKey("kb_sources.id", ondelete="CASCADE"), nullable=False
+    )
+    document_id: Mapped[UUID] = mapped_column(
+        ForeignKey("kb_documents.id", ondelete="CASCADE"), nullable=False
+    )
+    #: The sparse key: the chunk's own text AND its English gloss, under one text-search
+    #: configuration (`dc1aaeeeff02.TS_CONFIG`). A plain column rather than GENERATED
+    #: because it is built from a JOIN — the gloss lives on `kb_documents` and a generated
+    #: column may only read its own row.
+    tsv: Mapped[str] = mapped_column(TSVECTOR, nullable=False)
+    #: The dense key. NULLABLE by design: a chunk is searchable by its sparse arm the
+    #: instant it is published and gains its dense arm when the sweep reaches it, so
+    #: publishing never depends on a provider being up.
+    embedding: Mapped[list[float] | None] = mapped_column(Vector(EMBEDDING_DIMS))
+    #: Which model wrote `embedding`, and at what width. Provenance, and the thing a
+    #: re-embedding sweep would compare against to find rows written by a superseded model.
+    embed_model: Mapped[str | None] = mapped_column(Text)
+    embed_dim: Mapped[int | None] = mapped_column(Integer)
+    embed_state: Mapped[str] = mapped_column(String, nullable=False, server_default=EMBED_PENDING)
+    version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    #: Whether this projection is of the LIVE version of its source. `publish_source`
+    #: archives a superseded version rather than deleting it (FLOWS §7 rollback), so the
+    #: projection follows: the rows stay, addressable by a rollback, and are invisible to
+    #: retrieval.
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
 
 class KbRetrievalLog(PKMixin, Base):

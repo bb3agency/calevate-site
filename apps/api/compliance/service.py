@@ -55,13 +55,17 @@ of its scope.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, time, timedelta
+from datetime import UTC, datetime, time
+from typing import Final
 from uuid import UUID
 
+from calevate_shared.calling_window import DEFAULT_WINDOW as _DEFAULT_WINDOW
+from calevate_shared.calling_window import IST as _IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.service import agent_outbound_number_blocker
+from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
 from apps.api.compliance.dnc_recall import enqueue_dnc_recall
 from apps.api.compliance.first_campaign import (
@@ -82,19 +86,46 @@ log = get_logger(__name__)
 
 # IST. The DB stores UTC (conventions); the RULE is expressed in the caller's time,
 # so the conversion happens here and nowhere else.
-IST = timedelta(hours=5, minutes=30)
-DEFAULT_WINDOW = (time(9, 0), time(21, 0))
+# IMPORTED, NOT DEFINED. Both constants used to live here, and both are needed by
+# `apps/voice-runtime`'s in-call callback tool — which may not import this module at all
+# (hard rule 3; `tests/voice_runtime_import_surface_test.py` boots the service and reads
+# `sys.modules`). The choice was one definition in a place both deployables can reach, or
+# two spellings of a legal boundary, on the one constant in this repo where a disagreement
+# means ringing a household at 04:00. They live in `calevate_shared.calling_window`, which
+# imports nothing but the standard library; every reader of `compliance.service.IST` and
+# `.DEFAULT_WINDOW` keeps working unchanged, and this module remains the name they are
+# imported BY.
+IST = _IST
+DEFAULT_WINDOW = _DEFAULT_WINDOW
 
 # The client-facing wording of the two tenant-level refusals, shared with the campaign
 # launch gate so the same condition never gets explained two different ways.
 SPEND_CAP_REASON = "This account has reached its spending cap for the month."
-NO_CREDITS_REASON = "This account has no calling credit left."
+# ⚠ THE SECOND SENTENCE IS NOT PADDING (D-521). Prepaid is the default motion now, so
+# this is the refusal most clients will eventually read — on a blocked lead, on the
+# launch gate and on the readiness screen — and "no calling credit left" invites the
+# reading "our phone line is dead". It is not: answering an inbound call never touches
+# the wallet, and `check_dispatch` refuses an inbound agent before it reads money at all.
+# Saying which half stopped is the difference between a client topping up and a client
+# ringing to ask whether their business is off the air.
+NO_CREDITS_REASON = (
+    "This account has no calling credit left, so we have stopped making outgoing calls. "
+    "Incoming calls are still answered."
+)
 
 #: The `consent_ledger` statuses that stop a dial (D-117). Derived from the ledger's own
 #: vocabulary rather than spelled here — `granted` is the only member that is not a
 #: refusal, so a status added to `CONSENT_STATUSES` tomorrow blocks by default and has to
 #: be argued INTO the allowed set, which is the safe direction on a compliance gate.
 DIAL_REFUSING_CONSENT_STATUSES: frozenset[str] = frozenset(CONSENT_STATUSES) - {"granted"}
+
+#: The rule name the platform-wide outbound halt refuses under. NAMED HERE, beside the
+#: gate that produces it, because a second reader now has to say the same word: the
+#: dispatcher re-asks the halt per contact with the cache forced (see
+#: `campaign_dispatch._dispatch_for_campaign`), and a literal spelled twice is a metric
+#: label and a runbook query that drift apart the first time either is edited.
+BIG_RED_SWITCH_RULE = "big_red_switch"
+BIG_RED_SWITCH_REASON = "Outbound calling is halted platform-wide by the operations team."
 
 #: The refusals that are facts about the PERSON, not about the account, the agent, the
 #: paperwork or the clock — the ones that do not become false by waiting.
@@ -113,7 +144,42 @@ DIAL_REFUSING_CONSENT_STATUSES: frozenset[str] = frozenset(CONSENT_STATUSES) - {
 #: place to declare itself. Membership is deliberately conservative — everything not
 #: listed is treated as transient and retried, which is the safe direction for a
 #: SETTLEMENT decision (a retried contact is re-gated; a wrongly-settled one is not).
-PERSON_LEVEL_REFUSALS: frozenset[str] = frozenset({"dnc", "no_consent"})
+#: `destination_not_india` is the third, and it is here for the same defect this constant
+#: was written about rather than for tidiness. `campaign_contacts.phone_e164` is written
+#: once and never rewritten except by the erasure sweep, which settles the row terminally
+#: in the same statement (`retention._CAMPAIGN_CONTACT_ERASE_SQL`) — so a contact refused
+#: for being outside India is refused identically forever. Treated as transient it was
+#: re-claimed, re-gated and refunded every thirty minutes for the life of the campaign,
+#: and because it never left `pending` the campaign never auto-completed and its
+#: `campaign.completed` event never fired: `no_consent`'s bug, one rule along.
+#:
+#: `add_contacts` closed the INGRESS (it counts well-formed foreign numbers as `foreign`
+#: and stores none), and its own comment says the dispatcher "would claim, refuse
+#: (`destination_not_india`) and never settle" — which was true and was left standing for
+#: every row uploaded before that guard. Closing the door does not settle who is already
+#: inside.
+#:
+#: The membership test the docstring above states is met: the freeze is a fact about the
+#: DESTINATION, not about the account, the clock or the paperwork, and waiting does not
+#: make a US number Indian. Lifting the freeze would leave these rows settled — but that
+#: is a scope decision (LEGAL-OPS-PLAYBOOK §14/§18) that has to move contacts by
+#: migration anyway, not something a retry ladder should be holding open in the meantime.
+#: `consent_expired` is the FOURTH, and it is here because keeping it out was the same
+#: defect a third time. The comment that excluded it argued "a re-grant makes the number
+#: dialable again, so a batch dialler keeps such a contact on the retry ladder" — which is
+#: true, and is ALSO true word for word of `no_consent`, whose `withdrawn` arm is lifted by
+#: exactly the same re-grant and which is settled. Two contradictory doctrines for one
+#: ledger, and the transient half produced the livelock this constant was written about:
+#: an `expires_at` in the past only ever recedes further, so nothing the dispatcher does
+#: or waits for lifts it, and the contact was re-claimed, re-gated and refunded every
+#: thirty minutes for the life of the campaign while the campaign never auto-completed.
+#: The membership test holds on the reading that decides settlements — "can waiting help?"
+#: — rather than on the surface word "clock": `calling_hours` is about the clock and
+#: becomes FALSE by waiting; a lapsed permission becomes more true. Only an affirmative
+#: act by the PERSON lifts it, which is the definition of a person-level fact.
+PERSON_LEVEL_REFUSALS: frozenset[str] = frozenset(
+    {"dnc", "no_consent", "destination_not_india", "consent_expired"}
+)
 
 #: The India-only freeze, as a dial predicate. LEGAL-OPS-PLAYBOOK's scope is frozen to
 #: Andhra Pradesh + Telangana / India-only B2B: no foreign clients, and its stop-list is
@@ -252,22 +318,75 @@ async def spend_capped(session: AsyncSession, *, tenant_id: UUID) -> bool:
     return str(row[1]) == current_billing_month()
 
 
-async def credits_exhausted(session: AsyncSession, *, tenant_id: UUID) -> bool:
-    """Self-serve/trial only (D-34). A managed client is invoiced against a retainer,
-    so blocking them over a wallet they never bought would be an outage caused by a
-    concept that does not apply to them. Shared with the launch gate for the same
-    reason `spend_capped` is."""
-    tier = await plan_tier_of(session, tenant_id)
-    if tier not in ("self_serve", "trial"):
-        return False
-    balance = await get_balance(session, tenant_id=tenant_id)
-    return balance.is_exhausted
-
-
 # The tiers whose identity we have not verified out of band. `credits_exhausted` draws
 # the same line for the same shape of reason, and it is named ONCE so the two predicates
 # cannot drift into disagreeing about which motion a tenant is on.
-SELF_SERVE_TIERS = ("self_serve", "trial")
+#
+# ⚠ **IT WAS NOT NAMED ONCE, AND THE PREDICATE THIS COMMENT NAMES WAS THE ONE SPELLING IT
+# OUT.** `credits_exhausted` carried the literal `("self_serve", "trial")` four lines
+# above this constant, which is the exact defect the sentence above claims to have closed
+# — the same shape `usage_summary` had when it spelled `PREPAID_TIERS` both ways four
+# lines apart. What it would have cost: a fourth prepaid tier added to this tuple and not
+# to that literal is a motion whose wallet the METER goes on draining while the DIAL GATE
+# stops refusing an empty one, so the balance runs negative and nothing stops it.
+#
+# **DERIVED FROM `billing.rates.PREPAID_TIERS`, NOT RESTATED.** There is one fact here —
+# which plan tiers pay up front — and it already had a home in the lowest money module,
+# where `usage_summary`, `charge_for_call` and the meter all read it. Two constants with
+# identical contents in two packages is the same defect one level up: the money side and
+# the gate side would go on agreeing right up until somebody edited one. The NAME stays,
+# because five modules import it and because "the tiers we have not verified out of band"
+# is the compliance-side reason for caring about the same set.
+#
+# ⚠ **AND D-521 SPLIT THEM APART AGAIN, ON PURPOSE. READ THIS BEFORE RE-DERIVING IT.**
+# The derivation above was right about the mechanism and wrong about the premise: it
+# assumed there is ONE fact here. There are two, and they had the same answer only while
+# every prepaid account was an unattended signup:
+#
+#   * **`PREPAID_TIERS` — does this account pay from a wallet?** D-521 made that the
+#     default, so it now also contains `prepaid`;
+#   * **`SELF_SERVE_TIERS` — did a STRANGER open this account?** That is what the three
+#     predicates below are for. `kyc_blocker` exists because on the self-serve motion the
+#     applicant is unknown to us (D-47: "a managed tenant is not anonymous — we
+#     contracted with them"), and `first_campaign_hold_blocker` is R-11's manual review of
+#     an account nobody vetted. `prepaid` is a tier an OPERATOR types into the wizard for
+#     a client they have met, so it does NOT join this set: had it, the migration that
+#     moved every existing tenant onto prepaid would have refused every one of their dials
+#     with `kyc_missing` and held every campaign for review — a platform-wide outage
+#     dressed as a billing change.
+#
+# Spelled literally rather than derived from `PREPAID_TIERS` because it is now a
+# DIFFERENT fact, not a copy of one. What the derivation was protecting — that the wallet
+# never drains for a tier the dial gate does not stop — survives as CONTAINMENT rather
+# than equality, and `tests/plan_tier_split_test.py` asserts it: every member here must be
+# in `PREPAID_TIERS`, and every member of `PLAN_TIERS` must be accounted for by one branch
+# or the other. A new tier that reaches neither is the failure both spellings exist for.
+SELF_SERVE_TIERS: Final[tuple[str, ...]] = ("self_serve", "trial")
+
+
+async def credits_exhausted(session: AsyncSession, *, tenant_id: UUID) -> bool:
+    """PREPAID tiers only (D-34, widened by D-521). A `managed` client is invoiced
+    against a retainer, so blocking them over a wallet they never bought would be an
+    outage caused by a concept that does not apply to them. Shared with the launch gate
+    for the same reason `spend_capped` is.
+
+    **IT ASKS `PREPAID_TIERS`, NOT `SELF_SERVE_TIERS`, AND THOSE STOPPED BEING ONE
+    QUESTION WITH D-521.** The question here is "does this account pay from a wallet",
+    which is the money set; the identity gates below ask the other one. Reading the
+    compliance alias here would have left every `prepaid` tenant — i.e. nearly all of
+    them — dialling on an empty wallet, which is the defect D-521 was raised to fix.
+
+    **INBOUND SURVIVES A ZERO BALANCE AND MUST GO ON DOING SO.** This predicate is
+    reached only from `check_dispatch` — which refuses an inbound-only agent with
+    `agent_inbound_only` before it asks any money question — and from the campaign launch
+    and dispatch gates, which are outbound by construction. A clinic whose phone stops
+    being answered because a top-up lapsed is a clinic that leaves.
+    """
+    tier = await plan_tier_of(session, tenant_id)
+    if tier not in PREPAID_TIERS:
+        return False
+    balance = await get_balance(session, tenant_id=tenant_id)
+    return balance.is_exhausted
 
 
 async def kyc_blocker(session: AsyncSession, *, tenant_id: UUID) -> tuple[str, str] | None:
@@ -382,8 +501,8 @@ async def check_dispatch(
     if platform.outbound_halted:
         return DispatchDecision(
             allowed=False,
-            rule="big_red_switch",
-            reason="Outbound calling is halted platform-wide by the operations team.",
+            rule=BIG_RED_SWITCH_RULE,
+            reason=BIG_RED_SWITCH_REASON,
         )
 
     # Before the agent, the paperwork and the money: an account we have STOPPED does not
@@ -462,7 +581,10 @@ async def check_dispatch(
             reason=SPEND_CAP_REASON,
         )
 
-    # Credits gate the self-serve motion only (D-34: one product, two motions).
+    # Credits gate every PREPAID account (D-34, and D-521 which made that the
+    # default), i.e. everyone except a client an operator put on `managed`. It is
+    # asked AFTER `agent_inbound_only` above, which is what keeps an inbound line
+    # answering at a zero balance.
     if await credits_exhausted(session, tenant_id=tenant_id):
         return DispatchDecision(
             allowed=False,
@@ -555,9 +677,10 @@ async def check_dispatch(
         # record itself set: a `granted` row whose `expires_at` has already passed no longer
         # authorises a dial, mirroring `consent.py`'s own expiry check. An ABSENT `expires_at`
         # is unchanged behaviour — allowed — with the per-tick DND/DLT re-scrub as the
-        # freshness control. Transient, not person-level: a re-grant makes the number
-        # dialable again, so `consent_expired` is intentionally NOT in `PERSON_LEVEL_REFUSALS`
-        # and a batch dialler keeps such a contact on the retry ladder rather than settling it.
+        # freshness control. PERSON-LEVEL: a lapsed permission is not undone by waiting, so
+        # a batch dialler SETTLES such a contact rather than re-claiming it every thirty
+        # minutes for ever — see `PERSON_LEVEL_REFUSALS`, which records why the opposite
+        # classification this line used to assert was the same livelock a third time.
         if expires_at is not None and expires_at <= datetime.now(UTC):
             return DispatchDecision(
                 allowed=False,
@@ -682,6 +805,8 @@ async def add_to_dnc(
 __all__ = [
     "ACCOUNT_CLOSED_REASON",
     "ACCOUNT_SUSPENDED_REASON",
+    "BIG_RED_SWITCH_REASON",
+    "BIG_RED_SWITCH_RULE",
     "DEFAULT_WINDOW",
     "DESTINATION_NOT_INDIA_REASON",
     "DIAL_REFUSING_CONSENT_STATUSES",

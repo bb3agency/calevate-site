@@ -394,8 +394,16 @@ async def test_a_callback_consent_with_a_past_expiry_is_refused() -> None:
     """FN-6: the dial gate honours an EXPLICIT expiry the record set. A granted callback
     whose `expires_at` is already in the past no longer authorises a dial — mirroring the
     messaging leg's own expiry check, which this gate previously lacked (it refused only on
-    status). Refused as `consent_expired`, a distinct, TRANSIENT rule: a fresh opt-in makes
-    the number dialable again, so it is not a person-level settlement."""
+    status). Refused as `consent_expired` — a rule of its own, distinct from `no_consent`
+    because the two say different things about the record ("this lapsed" versus "this was
+    refused or withdrawn") and a client's screen must not conflate them.
+
+    It is a PERSON-LEVEL refusal: an `expires_at` in the past only recedes further, so
+    nothing the dispatcher waits for lifts it, and only the person granting again does —
+    exactly the act that lifts `no_consent`'s `withdrawn` arm, which has always settled.
+    This docstring used to say the opposite word ("TRANSIENT"), and the batch dialler
+    acting on it re-claimed, re-gated and refunded such a contact every thirty minutes for
+    the life of the campaign (`tests/dispatch_refusal_settlement_test.py`)."""
     tenant_id, agent_id, _webhook_id = await _tenant_with_meta_source()
     phone = "+919876511111"
     await _insert_callback_consent(

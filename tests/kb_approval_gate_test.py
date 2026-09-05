@@ -29,7 +29,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.kb import service
 from sqlalchemy import text
-from tests.kb_workflow_test import _tenant_with_published_agent
+from tests.kb_workflow_test import _tenant_with_published_agent, give_agent_a_script
 
 
 async def _second_published_agent(tenant_id: uuid.UUID) -> uuid.UUID:
@@ -41,11 +41,12 @@ async def _second_published_agent(tenant_id: uuid.UUID) -> uuid.UUID:
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, status, language_primary, "
-                "disclosure_line, ai_disclosure_line, recording_notice_line, engine, "
-                "engine_agent_ref, created_at, updated_at) VALUES (:id, :t, 'Second', 'outbound', "
-                "'live', 'te-IN', 'This is an AI assistant calling on behalf of the clinic.', "
-                "'This is an AI assistant calling on behalf of the clinic.', 'This call is being "
-                "recorded.', 'fake', :r, now(), now())"
+                "disclosure_line, ai_disclosure_line, recording_notice_line, "
+                "caller_memory_notice_line, engine, engine_agent_ref, created_at, updated_at) "
+                "VALUES (:id, :t, 'Second', 'outbound', 'live', 'te-IN', 'This is an AI "
+                "assistant calling on behalf of the clinic.', 'This is an AI assistant calling "
+                "on behalf of the clinic.', 'This call is being recorded.', 'I keep a short "
+                "note of what you ask about.', 'fake', :r, now(), now())"
             ),
             {"id": agent_id, "t": tenant_id, "r": ref},
         )
@@ -58,6 +59,8 @@ async def _second_published_agent(tenant_id: uuid.UUID) -> uuid.UUID:
             ),
             {"r": ref, "t": tenant_id, "a": agent_id},
         )
+    # A live agent has an applied script; see `give_agent_a_script`.
+    await give_agent_a_script(tenant_id, agent_id)
     return agent_id
 
 

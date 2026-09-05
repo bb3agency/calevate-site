@@ -155,7 +155,31 @@ DNC_REMOVABLE_SOURCES: tuple[str, ...] = ("manual",)
 # has no clock, and the reason it is not here is not oversight: how long we keep it is a
 # commitment in the client's DPA and the number is the founder's to give
 # (`tests/dpdp_known_gaps_test.py` holds that gap open by probing this constraint).
-DATA_CATEGORIES = ("recording", "transcript", "lead", "consent_log", "engine_payload", "kb")
+DATA_CATEGORIES = (
+    "recording",
+    "transcript",
+    "lead",
+    "consent_log",
+    "engine_payload",
+    "kb",
+    # What the in-app copilot remembers (migration d4a9c17e6b02). A CATEGORY rather than a
+    # new mechanism: `retention_policies` already IS "a per-tenant TTL a client agreed to,
+    # swept nightly", and `kb`/`engine_payload` joined it the same way (D-179).
+    #
+    # DELIBERATELY ABSENT from `compliance/caller_notice._CATEGORY_LABELS`, which generates
+    # a CALLER-facing document. These rows are a client's own staff talking to their own
+    # console; printing their retention period in a notice to that client's callers would
+    # describe data those callers are not the subject of. `consent_log` is already omitted
+    # there for its own reason, so the omission is a pattern rather than a gap.
+    "copilot_memory",
+    # What an AGENT remembers about a CALLER between calls (D-507, migration e1a4d70c9b52).
+    # A category rather than a share of `transcript`'s, because the question it answers is
+    # a different one: not "how long may we keep what was said on this call" but "how long
+    # may we remember this person between calls". 180 days and `delete`, `copilot_memory`'s
+    # pair — and unlike that one it IS a caller-facing period, so it belongs in
+    # `compliance/caller_notice._CATEGORY_LABELS` rather than being omitted from it.
+    "caller_memory",
+)
 RETENTION_ACTIONS = ("delete", "anonymize")
 ACTOR_TYPES = ("admin", "user", "system")
 
@@ -666,7 +690,19 @@ class FirstCampaignReview(PKMixin, TimestampMixin, Base):
 #: a migration anyway, so a closed vocabulary costs nothing and keeps the table
 #: self-describing. `kb_source` is the only one today; `_due_tenants` explains why it is
 #: the only artefact a tenant can hold without ever publishing an agent.
-RETENTION_WORKLIST_REASONS = ("kb_source",)
+RETENTION_WORKLIST_REASONS = (
+    "kb_source",
+    # A tenant can hold copilot memories with no published agent — an owner mid-onboarding
+    # asking the assistant about the screen they are filling in is the ordinary case, not
+    # the corner — so `engine_agent_routes` cannot name them. Same hole, same answer
+    # (migration d4a9c17e6b02, an AFTER INSERT trigger on `copilot_memories`).
+    #
+    # It is ALSO what lets the distillation cron find work at all: `copilot_memories` is
+    # FORCE-RLS'd, so an untenanted session sees zero rows of it, and this table hands an
+    # untenanted reader tenant IDS and nothing else — which is exactly the cost
+    # `retention._due_tenants` refused to pay by exempting a content table instead.
+    "copilot_memory",
+)
 
 
 class RetentionWorklistEntry(Base):

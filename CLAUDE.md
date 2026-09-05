@@ -11,8 +11,24 @@ mirrors this manual for other coding agents.
 Clients get AI phone agents (inbound receptionist + outbound campaigns) built on a rented
 voice engine (Bolna primary per D-31) with BYOK models. **Speech is Sarvam** (Saaras STT ·
 Bulbul v3 TTS, v2 = value tier — D-36, unchanged). **Language is Azure OpenAI in East US 2**
-— `AZURE_LOCATION` (`eastus2`), default `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`), with
-`gpt-4.1-mini` a live config switch. **D-410 supersedes D-400/D-404 on the in-call leg and
+— `AZURE_LOCATION` (`eastus2`), whose deployment is made from `AZURE_OPENAI_DEFAULT_MODEL`
+(`gpt-4o-mini`), with `gpt-4.1-mini` a live config switch.
+⚠ **THE PLATFORM'S OWN DEFAULT MODEL IS NO LONGER THAT CONSTANT AND IS NO LONGER ON THIS
+LEG (4 Sep 2026).** The founder's answer is **`gemini-2.5-flash-lite`**, carried by
+`PLATFORM_DEFAULT_LLM_MODEL` and by its own live setting `Settings.platform_llm_model` —
+because the platform rung of `agent → organization → platform` used to read
+`Settings.azure_openai_model`, whose type is the Azure Literal and cannot hold a model on
+either of the other two declared legs. `AZURE_OPENAI_DEFAULT_MODEL` keeps its two other
+jobs unchanged and is still the right constant for both: the default of
+`azure_openai_model` (which model the Azure DEPLOYMENT was made from, pushed to the
+engine's credential store) and `billing/rates.BASE_RATE_LLM_MODEL`, the FROZEN model the
+plan rate is struck against — so no account's bill moves and none is re-classified, and
+TRD §10's fifteen cost points are unrepriced. ⚠ **A DEPLOYMENT CANNOT RUN THE NEW DEFAULT
+UNTIL ITS GOOGLE KEY IS INSTALLED IN THE OPS CONSOLE AND ITS PRICE ATTESTED** — the Gemini
+catalogue price is `verified=False` (vendor-published, founder-relayed, not fetchable from
+here), so hard rule 7 keeps it out of `unit_cost_paid`; until both land, an account that
+has chosen nothing runs the ENGINE's own default and the picker marks the row unavailable
+with its ground. **D-410 supersedes D-400/D-404 on the in-call leg and
 D-127 on the dashboard leg; Vertex is OUT of this product and Gemini is now OFFERED on its
 two safe models (see the multi-provider paragraph below, which supersedes D-456 on the
 offering question). D-449 (22 Aug 2026)
@@ -523,9 +539,22 @@ decision-log entry.
 
 ## Do NOT
 
-- Self-host vector infrastructure (RAG/memory is a managed API service per D-28 —
-  the old "no vector DB" rule now means: don't run one), add a message broker, or a
-  second backend language.
+- Run a SEPARATE vector service, add a message broker, or a second backend language.
+  ⚠ **D-502 (1 Sep 2026) REVERSED D-28 ON THE STORE, AND THIS BULLET USED TO READ
+  "self-host vector infrastructure (RAG/memory is a managed API service per D-28)".**
+  What the rule protects is "no new deployable, no new backup unit, no new restore drill,
+  no new region, no new vendor" — and `pgvector` is an EXTENSION in the Postgres this repo
+  already runs, backs up and drills, so `kb_chunks` adds none of those. A managed vector
+  cloud, a self-hosted Qdrant/Weaviate container, or a second database still do, and are
+  still refused. The bake-off (`docs/evidence/kb-retrieval-bakeoff.md` §5.2) took that
+  reading deliberately; if it is ever rejected, the whole of D-502 falls and option 1 is
+  the answer. **The founder's condition is part of the decision**: adopt it now, and move
+  to Pinecone or Weaviate if the compute load makes it necessary once there are clients —
+  which is what `calevate_shared.retrieval.RetrievalProvider` and
+  `apps/api/retrieval/service.get_retriever` exist to keep to one adapter.
+  ⚠ **IN-CALL RETRIEVAL DID NOT CHANGE AND MUST NOT**: it is T0 and the engine's own KB,
+  `tests/kb_tiers_test.py` pins voice-runtime's route inventory as an equality, and this
+  store serves the dashboard copilot and the CRM paths only.
 - Call model providers directly from request handlers (workers or engine only), except the
   in-call RAG tool endpoint which has a 100ms budget — measure it.
 - Store secrets in DB/env-committed files; use the secrets manager references.

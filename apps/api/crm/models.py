@@ -102,6 +102,28 @@ class Call(PKMixin, TimestampMixin, Base):
             "started_at",
             postgresql_where=text("campaign_id IS NOT NULL"),
         ),
+        # A DPDP ERASURE FINDS ITS SUBJECT'S CALLS BY PHONE, AND HAD NO INDEX TO DO IT
+        # WITH. `execute_deletion_request` selects
+        # `WHERE from_e164 = :phone OR to_e164 = :phone OR erased_subject_ref = :ref`;
+        # only the third column was indexed, so an OR that Postgres would otherwise serve
+        # as a BitmapOr of three index scans degraded to a sequential scan of every call
+        # the platform holds. That is the one query in this repository with a statutory
+        # clock on it (DPDP §12), and it got slower with every call ever placed.
+        #
+        # PARTIAL, and the predicate is the erasure's own postcondition: both columns are
+        # set to NULL when a subject is erased, so `IS NOT NULL` excludes exactly the rows
+        # a later erasure can never match again. The index therefore holds live callers
+        # only and shrinks as erasures are discharged.
+        Index(
+            "ix_calls_from_e164",
+            "from_e164",
+            postgresql_where=text("from_e164 IS NOT NULL"),
+        ),
+        Index(
+            "ix_calls_to_e164",
+            "to_e164",
+            postgresql_where=text("to_e164 IS NOT NULL"),
+        ),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -124,6 +146,18 @@ class Call(PKMixin, TimestampMixin, Base):
     outcome_tag: Mapped[str | None] = mapped_column(String)
     sentiment: Mapped[str | None] = mapped_column(String)
     summary: Mapped[str | None] = mapped_column(Text)
+    #: HAS THE CROSS-CALL MEMORY DISTILLER LOOKED AT THIS CALL, AND WHAT DID IT DECIDE?
+    #: `pending` / `remembered` / `nothing` / `skipped` — `compliance.caller_memory.
+    #: CALLER_MEMORY_STATES`, and the CHECK in migration `a1f6c30d92be`.
+    #:
+    #: THE THIRD STATE IS WHY THE COLUMN EXISTS (D-513): `caller_memories.source_call_id`
+    #: can say "this call produced a fact" and can never say "this call was read and owed
+    #: nothing", which is what most calls owe — so without a durable negative every retry
+    #: re-buys the same answer. `kb_documents.gloss_state` is the same shape for the same
+    #: reason.
+    caller_memory_state: Mapped[str] = mapped_column(
+        String, nullable=False, server_default="pending"
+    )
     campaign_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))  # FK lands M2
     lead_id: Mapped[UUID | None] = mapped_column(ForeignKey("leads.id", ondelete="SET NULL"))
     # D-21 M2: the call this one follows up. Bounds the callback chain — see migration

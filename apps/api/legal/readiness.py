@@ -133,9 +133,9 @@ ROW_COPY: dict[str, _Copy] = {
         title="Business not verified",
         actor="client",
         next_step=(
-            "Send us your business registration details from the Verification screen. "
-            "There is nothing to upload — we record a public registration number, never "
-            "a document."
+            "Send us your business registration number and we will record it for you. "
+            "There is nothing to upload — it is a public registration number, never a "
+            "document. The Verification screen then shows what we hold."
         ),
     ),
     "kyc_not_verified": _Copy(
@@ -159,7 +159,8 @@ ROW_COPY: dict[str, _Copy] = {
         actor="client",
         next_step=(
             "Register your business as a Principal Entity on an access provider's DLT "
-            "platform, then give us the registration id on the Verification screen."
+            "platform, then send us the registration id and we will record it. The "
+            "Verification screen shows it once it is on file."
         ),
     ),
     "pe_registration_not_active": _Copy(
@@ -194,12 +195,24 @@ ROW_COPY: dict[str, _Copy] = {
     "spend_cap": _Copy(
         title="Monthly spending cap reached",
         actor="client",
-        next_step="Raise the cap on the Spend screen, or wait for the month to roll over.",
+        next_step=(
+            "Raise the cap on the Usage tab of Credits & billing, or wait for the month "
+            "to roll over."
+        ),
     ),
     "no_credits": _Copy(
         title="No calling credit left",
         actor="client",
-        next_step="Top up on the Usage screen. Calls resume as soon as the payment clears.",
+        # NAMES THE SCREEN THAT HAS THE BUTTON, and it used to name the wrong one: the
+        # top-up form was on "Calling credit" while Usage was the month's charges and
+        # could not take a payment. Both are tabs of Credits & billing now (D-525), which
+        # is why this says the SCREEN and not the tab — the Credits tab is where the
+        # button is, and the screen opens on Overview, which carries it too. And "Calls
+        # resume" said more than it meant — only OUTGOING calls ever stopped (D-521).
+        next_step=(
+            "Add credit on the Credits & billing screen. Outgoing calls resume as soon "
+            "as the payment clears; incoming calls are answered throughout."
+        ),
     ),
     "national_dnd_scrub_missing": _Copy(
         title="Campaigns waiting on a DND scrub",

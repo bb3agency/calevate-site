@@ -53,7 +53,7 @@ from apps.api.agents.service import publish_agent
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.billing.service import rate_to_display
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
@@ -416,7 +416,9 @@ admin_router = APIRouter(prefix="/v1/admin", tags=["admin"])
     summary="Which language model one client's agents run",
     description=_DESCRIPTION,
 )
-async def admin_get_llm_defaults(org_id: UUID, _: Operator) -> LlmDefaultsOut:
+async def admin_get_llm_defaults(
+    org_id: UUID, request: Request, principal: Operator
+) -> LlmDefaultsOut:
     """THE ACCOUNT IS NAMED IN THE PATH AND ENTERED EXPLICITLY, never inferred from a
     session — the same resolution `agents/routes.py::publish` records. An admin principal
     carries no tenant of its own, and the one way it can carry one (impersonation) is
@@ -424,7 +426,14 @@ async def admin_get_llm_defaults(org_id: UUID, _: Operator) -> LlmDefaultsOut:
     PUT below and inconsistent with it here."""
     async with tenant_session(org_id) as scoped:
         # Admin realm: the operator keeps the actionable ground for each blocked model.
-        return await _read_defaults(scoped, audience="operator")
+        defaults = await _read_defaults(scoped, audience="operator")
+        # D-482 L-1: a direct per-tenant admin read leaves its own ledger row. Reading
+        # which model a client runs is reading their account's configuration without
+        # impersonation, so this is the only place it can be recorded.
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=org_id
+        )
+    return defaults
 
 
 @admin_router.put(

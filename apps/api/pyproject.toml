@@ -23,6 +23,18 @@ dependencies = [
     "opentelemetry-sdk>=1.30",
     "opentelemetry-exporter-otlp-proto-http>=1.30",
     "argon2-cffi>=25.1",
+    # PDF rendering for the engine's knowledgebase, which accepts a PDF file or a URL
+    # and nothing else (`bolna-findings/mirror/pages/api-reference/knowledgebase/
+    # create.md:36-51`). Pure Python, and chosen over reportlab because it embeds a
+    # TrueType font with a correct `ToUnicode` CMap out of the box — which is what makes
+    # Telugu EXTRACTABLE rather than merely visible (`kb/pdf_render.py`).
+    #
+    # Lockfile diff read before adding (hard rule 9): fpdf2 brings `fonttools` (font
+    # subsetting), `pillow` (image support we do not use) and `defusedxml`. All three
+    # are widely used, none declares a build hook or a postinstall step. `uharfbuzz`,
+    # fpdf2's optional text-shaping extra, is deliberately NOT installed: shaping
+    # corrupts the extracted text layer, measured in `kb/pdf_render.py`.
+    "fpdf2>=2.8.8",
 ]
 
 # Virtual member: run from the repo root as `apps.api.main:app`, never installed.

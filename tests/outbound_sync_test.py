@@ -27,6 +27,7 @@ from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.integrations import service
 from apps.api.reliability.service import claim_outbox_batch, enqueue_outbox
+from apps.workers import outbound_webhooks
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
 from arq import Retry
 from sqlalchemy import text
@@ -299,6 +300,48 @@ async def test_a_non_2xx_response_is_a_failure_the_outbox_will_retry() -> None:
         )
     assert not result.delivered
     assert result.status_code == 500
+
+
+async def test_a_redirect_is_never_followed_even_to_the_metadata_service() -> None:
+    """The SSRF residual the egress guard cannot reach on its own.
+
+    `assert_public_http_url` vets the destination WE resolve. A vetted address is only
+    vetted for the hop we make, so a receiver that answers 307 with
+    `Location: http://169.254.169.254/...` would re-send the body — and, on a same-scheme
+    redirect, httpx re-sends the HEADERS, which here means a signed envelope carrying a
+    lead's name and possibly their number. `deliver` therefore disables redirects on the
+    CLIENT and again on the REQUEST, so the promise does not depend on how a caller
+    happened to build the client it passed in (docs/WEBHOOKS.md §1.5).
+
+    Nothing pinned that, and the call shape has now changed once (`.post()` →
+    `.send(..., stream=True)` for the delivery deadline), which is exactly when an
+    unasserted security property goes quiet.
+
+    A 3xx is also a PERMANENT failure — `outbound_webhooks._is_transient` gives the
+    ladder to 5xx and 408/425/429 only — because a receiver that redirects will redirect
+    the same way in two minutes.
+    """
+    seen: list[str] = []
+
+    def redirects_to_metadata(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(307, headers={"Location": "http://169.254.169.254/latest/meta-data/"})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(redirects_to_metadata)) as client:
+        result = await service.deliver(
+            url="https://crm.example/hook",
+            secret=SECRET,
+            event="lead.created",
+            envelope={"id": str(uuid7()), "data": {"phone": "+919876500001"}},
+            client=client,
+        )
+
+    assert seen == ["https://crm.example/hook"], "the redirect was followed"
+    assert not result.delivered
+    assert result.status_code == 307
+    assert outbound_webhooks._is_transient(result) is False, (
+        "a redirect is the receiver's verdict on the request, not a blip"
+    )
 
 
 async def test_a_connection_error_reports_the_type_and_never_the_body() -> None:

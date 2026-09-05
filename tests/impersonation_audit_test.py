@@ -193,7 +193,28 @@ def test_the_flag_that_means_impersonation_is_set_in_exactly_one_place() -> None
         # read the decision, they do not make it.
         and not line.lstrip().startswith("#")
         and "impersonating=False" not in line
+        # ...nor the sites that merely COPY an already-resolved flag onward. Both spellings
+        # read the decision; neither makes it, and neither is a way into a tenant.
+        #
+        # `principal.` — the response models and dependencies that pass the resolved
+        # `Principal`'s own flag outward.
+        # `actor.` — `copilot/write_tools`, which narrows a `Principal` into a `ToolActor`
+        # (`actor_for` is the ONLY constructor and it copies this field from a principal
+        # `core/auth.py` already resolved) and then passes that same field on to
+        # `kb/curation.may_curate_knowledge`. Admitting it is a scope correction of the
+        # same kind as the `_test.py` clause below, and it is admitted BY NAME rather than
+        # by loosening the pattern: a line that set the flag from anything other than an
+        # already-resolved identity — a literal, a header, a column — still fails here.
         and "impersonating=principal." not in line
+        and "impersonating=actor." not in line
+        # ...and not a TEST FILE. What this guards is a way INTO a tenant at runtime, and
+        # a test is not one. A test that proves an impersonating session is REFUSED has to
+        # construct the refused state to refuse it — forbidding that would make the control
+        # untestable, which is the opposite of the point. This is a scope correction, not a
+        # relaxation: every production construction site is still caught, and the case it
+        # admits is `copilot/write_tools_test.py`, which drives the D-22 refusal on the
+        # copilot's proposal-confirm path.
+        and not path.name.endswith("_test.py")
     }
     assert {site.split(":")[0] for site in sites} == {"apps/api/core/auth.py"}, (
         f"`impersonating=` is decided in {sorted(sites)}; every one of those is a way "

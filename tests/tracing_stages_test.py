@@ -165,10 +165,11 @@ async def _seed_tenant(engine_agent_ref: str) -> tuple[uuid.UUID, uuid.UUID]:
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, status, engine, engine_agent_ref, "
-                "created_at, updated_at) VALUES (:id, :tid, 'Receptionist', 'inbound', 'Idi AI "
-                "assistant. Call record avutundi.', 'Idi AI assistant. Call record avutundi.', "
-                "'This call is being recorded.', 'live', 'fake', :ref, now(), now())"
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, status, "
+                "engine, engine_agent_ref, created_at, updated_at) VALUES (:id, :tid, "
+                "'Receptionist', 'inbound', 'Idi AI assistant. Call record avutundi.', 'Idi AI "
+                "assistant. Call record avutundi.', 'This call is being recorded.', 'I keep a "
+                "short note of what you ask about.', 'live', 'fake', :ref, now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id, "ref": engine_agent_ref},
         )
@@ -464,13 +465,13 @@ def test_the_receiver_acks_even_when_there_is_no_span_to_annotate(spans: Any) ->
     A receiver that could be broken by the absence of a span would be a phone system
     taken down by its own observability, which is what hard rule 3 keeps off this path.
     """
-    from webhook_routes import _ack, _server_span
+    from webhook_routes import WEBHOOK_ACK, _ack, _server_span
 
     assert tracing_enabled() is True
     assert _server_span() is None, "an invalid current span is not a span to annotate"
 
     response = Response()
-    body = _ack(response, time.perf_counter(), "fake", {"status": "accepted"})
+    body = _ack(response, time.perf_counter(), "fake", {"status": "accepted"}, meter=WEBHOOK_ACK)
 
     assert body == {"status": "accepted"}
     assert float(response.headers["X-Ack-Ms"]) < 500, "hard rule 3's number, still measured"

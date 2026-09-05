@@ -75,7 +75,7 @@ from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import dispatch_campaign_tick
 from sqlalchemy import event, text
 from sqlalchemy.ext.asyncio import AsyncSession
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, fund_wallet
 from tests.national_dnd_test import record_test_scrub
 
 # The organizations this test provisions so the two candidate shapes are distinguishable
@@ -110,8 +110,40 @@ IDLE = POPULATION - DISPATCHABLE
 # to the dispatch path without this line pretending to police it. What it does police is
 # the term that is not here: a tick that opened a session per dispatchable tenant would
 # need ~12,000 of both, and no value of these constants can absorb that.
+#
+# RAISED 12 -> 16 (D-514). `dispatch_campaign_tick` now calls `dispatch_due_callbacks`
+# for each tenant it is already dispatching (`workers/campaign_dispatch.py:630`), so a
+# tick that dials also asks whether that tenant owes anyone a call-back. Measured in a
+# full-suite run against an ambient database: 278 queries across 20 sessions for 6
+# dialling tenants — 13.5 per session against a coefficient of 12, so the old value was
+# describing a tick that no longer exists.
+#
+# THE RAISE IS SOUND BECAUSE THE NEW WORK IS PER TENANT WITH WORK, NOT PER DISPATCHABLE
+# TENANT, and that distinction is the one this file exists to police. The same run had
+# 372 dispatchable tenants and opened 20 sessions; the four assertions above — no
+# trespass, no strangers, none missed, none idle-opened — all passed on rows this test
+# owns. A reversion to a session per dispatchable tenant would need ~12,000 queries,
+# which 16 absorbs no better than 12 did.
+#
+# The headroom (16, not 14) is for the same reason the original was rounded up: so a gate
+# may be added to the dispatch path without this line pretending to police it.
+#
+# RAISED 16 -> 26 (D-521), and the reason is one indexed read that used to be skipped.
+# `compliance.credits_exhausted` returns early for a `managed` tenant — it reads the tier
+# and stops — and until D-521 every tenant this file creates WAS managed, by the column's
+# old server default. Prepaid is the default now, so the gate goes on to read the wallet
+# balance (`billing.service._newest_balance`, one row by index) on every dial. Measured
+# here, twice, at 286 queries across 13 sessions = 22.0 per session against a coefficient
+# of 16.
+#
+# THE RAISE IS SOUND FOR D-514's REASON, WHICH IS THE ONLY ONE THAT MATTERS HERE: the new
+# read is per DIAL, i.e. per unit of work actually done, and carries no per-dispatchable-
+# tenant term. The property this file polices is that absence, and a tick that opened a
+# session per dispatchable tenant would still need ~12,000 queries, which 26 absorbs no
+# better than 16 did. 26 keeps the same proportional headroom over the measurement (22.0)
+# that 16 kept over 13.5.
 QUERY_BASE = 8
-QUERIES_PER_SESSION = 12
+QUERIES_PER_SESSION = 26
 
 # Every tenant `_tenant()` builds, so the fixture below can quiet them again.
 _TENANTS: list[uuid.UUID] = []
@@ -288,10 +320,11 @@ async def _population() -> AsyncIterator[Population]:
                             text(
                                 "INSERT INTO agents (id, tenant_id, name, direction, "
                                 "disclosure_line, ai_disclosure_line, recording_notice_line, "
-                                "status, engine, engine_agent_ref, created_at, updated_at) VALUES "
-                                "(:id, :tid, 'Receptionist', 'outbound', 'Idi AI assistant.', 'Idi "
-                                "AI assistant.', 'This call is being recorded.', 'live', 'fake', "
-                                ":ref, now(), now())"
+                                "caller_memory_notice_line, status, engine, engine_agent_ref, "
+                                "created_at, updated_at) VALUES (:id, :tid, 'Receptionist', "
+                                "'outbound', 'Idi AI assistant.', 'Idi AI assistant.', 'This "
+                                "call is being recorded.', 'I keep a short note of what you ask "
+                                "about.', 'live', 'fake', :ref, now(), now())"
                             ),
                             {"id": agent_id, "tid": tenant_id, "ref": ref},
                         )
@@ -368,6 +401,10 @@ async def _tenant(*, published: bool = True) -> tuple[uuid.UUID, uuid.UUID]:
     # publish gate now refuses an organisation that has not accepted them, so a fixture
     # without this reports `agreements_not_accepted` in place of the answer under test.
     await accept_agreements(uuid.UUID(str(created["id"])))
+    # And credit, for the same reason and in the same shape (D-521): `prepaid` is the
+    # default motion now, so an unfunded tenant is refused `no_credits` on every
+    # outbound dial and this file would report that in place of what it is about.
+    await fund_wallet(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
     _TENANTS.append(tenant_id)
     if not published:
@@ -617,9 +654,10 @@ async def test_a_tenant_with_two_published_agents_is_scanned_once(
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, status, engine, engine_agent_ref, "
-                "created_at, updated_at) VALUES (:id, :tid, 'Second', 'outbound', 'Idi AI "
-                "assistant.', 'Idi AI assistant.', 'This call is being recorded.', 'live', 'fake', "
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, status, "
+                "engine, engine_agent_ref, created_at, updated_at) VALUES (:id, :tid, 'Second', "
+                "'outbound', 'Idi AI assistant.', 'Idi AI assistant.', 'This call is being "
+                "recorded.', 'I keep a short note of what you ask about.', 'live', 'fake', "
                 ":ref, now(), now())"
             ),
             {"id": second_agent, "tid": tenant_id, "ref": second_ref},
@@ -710,7 +748,7 @@ async def test_a_tenant_holding_a_line_is_counted_without_being_opened(
         result = await dispatch_campaign_tick({})
 
     assert idle_holder not in visits.tenants, "a tenant with no campaign costs no session"
-    assert result == f"pool_saturated active={ambient + held}", result
+    assert result == f"pool_saturated active={ambient + held} callbacks=0", result
     async with tenant_session(dialler) as session:
         dialing = (
             await session.execute(

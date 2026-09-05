@@ -82,11 +82,32 @@ function source(over: Partial<KbSource> = {}): KbSource {
   };
 }
 
+/**
+ * A HOLE IN THE PREMISE THAT COULD NOT ANNOUNCE ITSELF, and the flake it caused.
+ *
+ * `harness.tsx` throws on an unrouted endpoint precisely so a missing route reads as a
+ * broken test rather than as a screen quietly rendering an error state. That guarantee
+ * has one gap and this file sat in it: the throw happens inside a `queryFn`, so React
+ * Query catches it and turns it into `isError` — and `StaffCurationSwitch` renders any
+ * failed read as a `ProblemNotice`, which is `role="alert"`.
+ *
+ * `/v1/kb/staff-curation` was not routed, so this screen carried a PERMANENT second
+ * alert about the fixture. The two tests below that await `findByRole("alert")` — one
+ * alert, singular — then failed with "Found multiple elements" whenever that second
+ * refusal had painted by the time the query polled, and passed when it had not. Two
+ * runs in six, on a race between two unrelated queries.
+ *
+ * Routing it is the fix, not a relaxation: every assertion below is unchanged, and
+ * `findByRole("alert")` now finds the refusal each test is actually about.
+ */
+const STAFF_CURATION = { staff_may_curate_knowledge: false };
+
 async function renderKnowledge(sources: KbSource[] | ProblemResponse, over: Routes = {}) {
   return await renderClientPage(<KnowledgePage />, {
     "/v1/me": ME,
     "/v1/agents": [AGENT],
     "/v1/kb/sources": sources,
+    "/v1/kb/staff-curation": STAFF_CURATION,
     ...over,
   });
 }
@@ -285,5 +306,66 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
     });
     await screen.findByText("Opening hours");
     expect(unnamed.container.textContent).not.toContain("Front desk");
+  });
+});
+
+/**
+ * WHAT THE SCREEN PROMISES THE AGENT DOES WITH THE TEXT — the second thing on this screen
+ * a client can be misled about, and it was.
+ *
+ * The badge ladder above is about WHEN a submission takes effect. This is about WHAT
+ * taking effect means, and the screen used to answer it wrongly: the assist panel's help
+ * for the body field said the text "is split into chunks and retrieved during calls".
+ * Nothing retrieves anything during a call.
+ *
+ * **The shipped system, verified rather than recalled.** In-call retrieval is T0 and
+ * nothing else (`docs/TRD.md:948`): approved knowledge is compiled into the agent's own
+ * system prompt at publish time (`apps/api/agents/t0.py`, `[T0 FACTS]` / "Published
+ * knowledge:"). The engine's built-in knowledge base is off
+ * (`apps/api/engine/bolna.py:2484`, `knowledge_base=False`) and `attach_kb` refuses —
+ * "The voice platform's knowledge base accepts documents, not text" (`bolna.py:3536`).
+ * `apps/api/kb/__init__.py` records that the vector store is explicitly NOT ours and that
+ * `kb_chunks` + pgvector are CONTINGENCY; there is no embedding path in `apps/`.
+ *
+ * A client who read "retrieved during calls" would reasonably conclude the agent can look
+ * things up mid-call and therefore that volume is free — write everything down, it will
+ * find it. The truth is the opposite shape and is worth saying plainly: the facts are IN
+ * the agent before it picks up, which is why the answer is instant, and which is why what
+ * they write is carried close to verbatim.
+ *
+ * **The bans are deliberately narrow.** This screen legitimately says "submit", "review"
+ * and "preview", and its chunk-preview panel legitimately talks about what the agent
+ * would SAY. What may not appear is retrieval language aimed at a live call, or an
+ * invitation to hand over a file — `POST /v1/kb/sources` takes text and refuses
+ * `kind="url"` and `kind="file"` (`apps/api/kb/routes.py:44`), and this console has no
+ * file input at all, so an "upload" here would be a control that does not exist.
+ */
+describe("what the screen says the agent does with the text", () => {
+  it("says the approved facts become part of what the agent already knows", async () => {
+    const { container } = await renderKnowledge([]);
+    await screen.findByText(/Nothing submitted yet/i);
+    const text = container.textContent ?? "";
+    // The mechanism, in the owner's words. Pinned rather than merely un-banned: deleting
+    // the sentence would leave a client to assume the document-retrieval product that
+    // every competitor's page describes.
+    expect(text).toContain("part of what the agent already knows when it picks up");
+    // And the approval gate stays attached to it — the two facts are one sentence,
+    // because "it knows this" without "a person approved it" is the wrong half.
+    expect(text).toContain("reviewed by your account manager");
+  });
+
+  it("never tells a client the agent retrieves or looks anything up mid-call", async () => {
+    const { container } = await renderKnowledge([]);
+    await screen.findByText(/Nothing submitted yet/i);
+    const text = container.textContent ?? "";
+    // The exact shape that was here, plus the family it belongs to. Bounded to one
+    // sentence (`[^.]{0,40}`) so a legitimate "during the call" elsewhere on a future
+    // version of this screen cannot combine with a stray "retrieved" into a false hit.
+    expect(text).not.toMatch(
+      /\b(retriev\w+|search\w+|look\w* up|fetch\w*)\b[^.]{0,40}\b(during|mid|on) (a )?calls?\b/i,
+    );
+    expect(text).not.toMatch(/\bretrieved during calls\b/i);
+    // No file words: there is nothing on this screen that accepts one.
+    expect(text).not.toMatch(/\bupload\w*\b|\bpdfs?\b|\battach a (file|document)\b/i);
   });
 });

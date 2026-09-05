@@ -19,6 +19,8 @@ import { useAiQuota, useBuyAiExtra, type AiQuota } from "@/lib/api/aiQuota";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import type { Session } from "@/lib/api/client";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * AI help: what this month includes, what it has used, and what more costs (D-127 —
@@ -76,6 +78,62 @@ export default function AiAssistPage() {
    * While `/v1/me` is in flight nothing is refused, so the screen never flashes an
    * explanation it is about to withdraw.
    */
+  /*
+   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`) — including the
+   * one screen that is ABOUT the assistant, which is the screen a person opens when it
+   * has just refused them.
+   *
+   * The whole of it is money and counts. The one act here — buying another block of AI
+   * help — spends the client's money behind an explicit charge dialog, so nothing is
+   * declared writable and the dialog's own controls are not declared at all.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/ai-assist",
+    title: "AI help",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value:
+          me.data !== undefined && !me.data.permissions.includes("billing:read")
+            ? "a refusal — this session may not read billing, so the allowance is not shown"
+            : quota.data
+              ? "the allowance below has loaded"
+              : quota.error
+                ? "the allowance failed to load"
+                : "still loading",
+      },
+      ...(quota.data
+        ? [
+            { key: "month", label: "Billing month (IST)", value: quota.data.month },
+            { key: "plan_tier", label: "Plan", value: quota.data.plan_tier },
+            { key: "quota_state", label: "State of the allowance", value: quota.data.state },
+            { key: "requests_used", label: "AI requests used this month", value: String(quota.data.requests_used) },
+            { key: "requests_included", label: "AI requests included", value: String(quota.data.requests_included) },
+            { key: "requests_remaining", label: "AI requests remaining", value: String(quota.data.requests_remaining) },
+            { key: "used_inr", label: "Spent on AI help this month (INR)", value: quota.data.used_inr },
+            { key: "allowance_inr", label: "Allowance for AI help (INR)", value: quota.data.allowance_inr },
+            { key: "remaining_inr", label: "Allowance left (INR)", value: quota.data.remaining_inr },
+            {
+              key: "extra_available",
+              label: "May another block be bought?",
+              value: quota.data.extra_available
+                ? `yes — ${quota.data.extra_block_requests} more requests for INR ${quota.data.extra_block_inr}`
+                : `no — ${quota.data.extra_unavailable_reason ?? "no reason given"}`,
+            },
+            {
+              key: "extra_purchased_inr",
+              label: "Extra already bought this month (INR)",
+              value: quota.data.extra_purchased_inr ?? "none",
+            },
+          ]
+        : []),
+    ],
+    apply: noFill,
+  });
+
   const refused = me.data !== undefined && !me.data.permissions.includes("billing:read");
   if (refused) {
     return (

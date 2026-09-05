@@ -32,6 +32,7 @@ import httpx
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import payments
+from apps.api.billing.credit_packs import pack_by_id
 from apps.api.billing.payment_routes import (
     CheckoutCallbackIn,
     RefundIn,
@@ -282,6 +283,75 @@ async def test_payment_captured_then_order_paid_for_one_payment_credits_once() -
     assert first.json()["status"] == "credited"
     assert second.json()["status"] == "duplicate", "one payment, one credit, across two events"
     assert len([r for r in await _ledger(tenant_id) if r[0] == "topup"]) == 1
+
+
+# ============================================================================
+# The alarm on money that verified and did not land
+# ============================================================================
+
+
+def _route_alerts(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """The codes the alert path wrote on this route. `alert()` emits ONE
+    `log.error("alert", ...)` per firing and the CODE is the contract — the sentence
+    beside it is prose an operator edits."""
+    return [
+        str(record.__dict__.get("code"))
+        for record in caplog.records
+        if record.message == "alert" and record.__dict__.get("failure_stage") == "ROUTE_HANDLER"
+    ]
+
+
+async def test_a_verified_payment_we_cannot_attribute_raises_an_alarm(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A payment taken OUTSIDE our checkout (a payment link, a dashboard payment) carries
+    no `notes.calevate_tenant_id`. The signature verified, so the money is real — and
+    before this alarm the only trace was a 4xx in an access log while the provider retried
+    into the same wall and the client watched an unmoved balance."""
+    raw, headers = _sign(_payment_envelope(payment_id=_payment_id("NONOTE"), tenant_id=None))
+    with caplog.at_level("ERROR"):
+        async with _client() as http:
+            response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+    assert response.status_code == 422, response.text
+    assert response.json()["type"].endswith("payment_tenant_unresolved")
+    assert "razorpay_money_unapplied" in _route_alerts(caplog)
+
+
+async def test_a_payload_shape_we_cannot_read_raises_the_same_alarm(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The FIRST live payment's most likely failure: our reading of their payload paths is
+    wrong. It must be loud, because nothing else on this path is."""
+    raw, headers = _sign({"event": "payment.captured", "payload": {"payment": {}}})
+    with caplog.at_level("ERROR"):
+        async with _client() as http:
+            response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+    assert response.status_code == 422, response.text
+    assert "razorpay_money_unapplied" in _route_alerts(caplog)
+
+
+async def test_an_unknown_tenant_alarms_once_and_not_twice(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`razorpay_unknown_tenant` alerts where it is raised, with a sharper sentence than
+    the general guard could carry, so the guard must not fire a second alarm for the one
+    delivery."""
+    raw, headers = _sign(_payment_envelope(payment_id=_payment_id("GHOST"), tenant_id=uuid.uuid4()))
+    with caplog.at_level("ERROR"):
+        async with _client() as http:
+            response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+    assert response.status_code == 404, response.text
+    assert _route_alerts(caplog) == ["razorpay_unknown_tenant"]
+
+
+async def test_a_credited_payment_raises_no_alarm(caplog: pytest.LogCaptureFixture) -> None:
+    tenant_id = await _tenant()
+    raw, headers = _sign(_payment_envelope(payment_id=_payment_id("QUIET"), tenant_id=tenant_id))
+    with caplog.at_level("ERROR"):
+        async with _client() as http:
+            response = await http.post("/hooks/v1/razorpay", content=raw, headers=headers)
+    assert response.json()["status"] == "credited"
+    assert _route_alerts(caplog) == []
 
 
 # ============================================================================
@@ -891,3 +961,352 @@ async def test_the_same_refund_id_at_a_different_amount_is_a_conflict() -> None:
 )
 def test_failed_payment_summary_is_empty_for_a_shape_it_cannot_read(envelope: Any) -> None:
     assert payments.failed_payment_summary(envelope) == {}
+
+
+# ============================================================================
+# What a refund may take back: the payment, in AGGREGATE, and the bonus it bought
+# ============================================================================
+#
+# Two holes on the money path, both found by asking the edge-case question the round was
+# for — can this system charge for something it did not do?
+#
+# 1. `refund_exceeds_payment` was a PER-REQUEST ceiling. Two partial refunds each inside
+#    the payment can sum to more than it, and each writes its own compensating debit.
+# 2. A pack payment grants paid credits AND a bonus we fund. Reversing only the paid leg
+#    leaves the bonus on the wallet — free talk time, repeatable at will.
+
+
+def _refund_by_amount(prefix: str = "rfnd_AMT") -> Any:
+    """A provider stub whose refund id is derived from the amount, so two DIFFERENT
+    partial refunds of one payment get two different ids — which is what makes the
+    aggregate question askable at all. The vendor's own idempotency key is derived the
+    same way (`refund_idempotency_key`), so identical amounts do collapse onto one id."""
+
+    def responder(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={
+                "id": f"{prefix}_{body['amount']}",
+                "amount": body["amount"],
+                "status": "processed",
+            },
+        )
+
+    return responder
+
+
+async def _fund_pack(tenant_id: UUID, *, payment_id: str, pack_id: str) -> None:
+    """A pack purchase: paid credits plus the bonus, exactly as the webhook credits one."""
+    pack = pack_by_id(pack_id)
+    assert pack is not None
+    payment = payments.CapturedPayment(
+        payment_id=payment_id,
+        tenant_id=tenant_id,
+        amount_inr=pack.amount_inr,
+        currency="INR",
+        pack_id=pack_id,
+    )
+    async with tenant_session(tenant_id) as session:
+        await payments.credit_captured_payment(session, payment=payment)
+
+
+async def _balance(tenant_id: UUID) -> Decimal:
+    async with tenant_session(tenant_id) as session:
+        return (await get_balance(session, tenant_id=tenant_id)).amount_inr
+
+
+async def test_partial_refunds_may_not_exceed_the_payment_in_aggregate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """₹2,000 then ₹1,000 against a ₹2,500 payment: each is inside the payment on its own,
+    and together they refund ₹500 the client never paid."""
+    tenant_id = await _tenant()
+    pid = _payment_id("AGG")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+    seen = _install_refund(monkeypatch, _refund_by_amount())
+
+    first = await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2000.00"), reason="partial"),
+        _request(),
+        _admin(),
+    )
+    assert first.recorded is True
+    with pytest.raises(ProblemError) as raised:
+        await issue_tenant_refund(
+            tenant_id,
+            RefundIn(payment_id=pid, amount_inr=Decimal("1000.00"), reason="again"),
+            _request(),
+            _admin(),
+        )
+    assert raised.value.code == "refund_exceeds_payment"
+    assert len(seen) == 1, "a refusal must never reach the provider"
+    assert await _balance(tenant_id) == Decimal("500.0000")
+
+
+async def test_the_remaining_part_of_a_payment_is_still_refundable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The aggregate ceiling bounds the total and nothing more: ₹2,000 then ₹500 is
+    exactly the payment and must go through."""
+    tenant_id = await _tenant()
+    pid = _payment_id("AGGOK")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+    _install_refund(monkeypatch, _refund_by_amount())
+
+    await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2000.00"), reason="partial"),
+        _request(),
+        _admin(),
+    )
+    rest = await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("500.00"), reason="the rest"),
+        _request(),
+        _admin(),
+    )
+    assert rest.recorded is True
+    assert await _balance(tenant_id) == Decimal("0.0000")
+
+
+async def test_a_full_refund_of_a_pack_takes_the_bonus_back_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pack grants paid credits plus a bonus we fund. Reversing the purchase reverses
+    both, or the wallet keeps talk time nobody paid for."""
+    tenant_id = await _tenant()
+    pid = _payment_id("PACK")
+    pack = pack_by_id("growth")
+    assert pack is not None and pack.bonus_credits > 0
+    await _fund_pack(tenant_id, payment_id=pid, pack_id="growth")
+    assert await _balance(tenant_id) == pack.total_credits
+    _install_refund(monkeypatch, _refund_by_amount("rfnd_PACK"))
+
+    out = await issue_tenant_refund(
+        tenant_id, RefundIn(payment_id=pid, reason="client asked"), _request(), _admin()
+    )
+    assert out.amount_inr == pack.amount_inr
+    assert await _balance(tenant_id) == Decimal("0.0000"), "the bonus went back with the purchase"
+
+
+async def test_a_partial_refund_of_a_pack_takes_back_that_share_of_the_bonus(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Half the purchase back, half the bonus back — and the second half later, once,
+    with the two clawbacks summing to exactly the bonus granted."""
+    tenant_id = await _tenant()
+    pid = _payment_id("PACKHALF")
+    pack = pack_by_id("growth")
+    assert pack is not None
+    await _fund_pack(tenant_id, payment_id=pid, pack_id="growth")
+    _install_refund(monkeypatch, _refund_by_amount("rfnd_HALF"))
+
+    # UNEVEN halves on purpose: the provider's idempotency key is derived from
+    # (payment_id, amount), so two refunds of the SAME amount are one refund.
+    part = Decimal("1000.00")
+    await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=part, reason="part"),
+        _request(),
+        _admin(),
+    )
+    after_part = await _balance(tenant_id)
+    assert after_part < pack.total_credits - part, "the bonus moved too, not only the paid leg"
+
+    await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=pack.amount_inr - part, reason="the rest"),
+        _request(),
+        _admin(),
+    )
+    assert await _balance(tenant_id) == Decimal("0.0000"), (
+        "the clawbacks sum to exactly the bonus granted, with no rounding residue"
+    )
+
+
+# ============================================================================
+# The refund ceiling under CONCURRENCY — the half the aggregate ceiling did not hold
+# ============================================================================
+#
+# `test_partial_refunds_may_not_exceed_the_payment_in_aggregate` above proves the
+# SEQUENTIAL case: the second request runs after the first has recorded its compensating
+# entry, so a read of `credit_ledger` sees it. That was the whole of the ceiling, and it
+# was checked inside a `tenant_session` while the provider was called AFTER that block
+# ended — and `pg_advisory_xact_lock` is released by COMMIT. So two operators acting at
+# the same moment both read "nothing refunded yet" and both reached the provider.
+#
+# The reproduction below does not need threads: it starts the second refund from INSIDE
+# the first one's provider call, which is exactly the window the released lock left open —
+# the first request's transaction has committed and its ledger entry does not exist yet.
+
+
+async def test_a_second_refund_started_mid_flight_cannot_cross_the_ceiling(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """₹2,000 and ₹1,000 against a ₹2,500 payment, the second issued while the first is
+    still at the provider. Before the claim table both reached the wire and ₹500 the
+    client never paid went back."""
+    tenant_id = await _tenant()
+    pid = _payment_id("RACE")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+
+    inner: list[ProblemError] = []
+    settled = _refund_by_amount("rfnd_RACE")
+
+    async def racing(request: httpx.Request) -> httpx.Response:
+        # ONE reentry only: the second refund's own provider call must not recurse.
+        if not inner and len(seen) == 1:
+            with pytest.raises(ProblemError) as raised:
+                await issue_tenant_refund(
+                    tenant_id,
+                    RefundIn(payment_id=pid, amount_inr=Decimal("1000.00"), reason="concurrent"),
+                    _request(),
+                    _admin(),
+                )
+            inner.append(raised.value)
+        return settled(request)
+
+    seen = _install_refund(monkeypatch, racing)
+
+    first = await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2000.00"), reason="partial"),
+        _request(),
+        _admin(),
+    )
+    assert first.recorded is True
+    assert [problem.code for problem in inner] == ["refund_exceeds_payment"]
+    assert len(seen) == 1, "the concurrent refund must never reach the provider"
+    assert await _balance(tenant_id) == Decimal("500.0000")
+
+
+async def test_the_claim_is_committed_before_the_provider_is_called(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The ceiling can only span the vendor call if the row it counts is already
+    committed when the call is made — a read inside the request's own transaction is
+    invisible to everyone else and gone by then."""
+    tenant_id = await _tenant()
+    pid = _payment_id("CLAIM")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+
+    claimed: list[Decimal] = []
+    settled = _refund_by_amount("rfnd_CLAIM")
+
+    async def observing(request: httpx.Request) -> httpx.Response:
+        async with tenant_session(tenant_id) as session:
+            claimed.append(
+                await payments.claimed_refund_total_inr(
+                    session, tenant_id=tenant_id, payment_id=pid
+                )
+            )
+        return settled(request)
+
+    _install_refund(monkeypatch, observing)
+    await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2000.00"), reason="partial"),
+        _request(),
+        _admin(),
+    )
+    assert claimed == [Decimal("2000.0000")]
+
+
+async def test_a_refund_the_provider_refuses_releases_its_claim(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No money moved, so nothing may go on being reserved: one vendor 500 must not
+    permanently shrink what this client can be refunded."""
+    tenant_id = await _tenant()
+    pid = _payment_id("RELEASE")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+
+    def broken(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"error": {"description": "provider is down"}})
+
+    _install_refund(monkeypatch, broken)
+    with pytest.raises(ProblemError):
+        await issue_tenant_refund(
+            tenant_id,
+            RefundIn(payment_id=pid, amount_inr=Decimal("2500.00"), reason="x"),
+            _request(),
+            _admin(),
+        )
+    async with tenant_session(tenant_id) as session:
+        assert await payments.claimed_refund_total_inr(
+            session, tenant_id=tenant_id, payment_id=pid
+        ) == Decimal("0")
+
+    # And the whole payment is still refundable once the provider is back.
+    _install_refund(monkeypatch, _refund_by_amount("rfnd_RETRY"))
+    out = await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2500.00"), reason="retry"),
+        _request(),
+        _admin(),
+    )
+    assert out.recorded is True
+    assert await _balance(tenant_id) == Decimal("0.0000")
+
+
+async def test_a_second_click_on_one_refund_is_still_a_replay_and_not_a_breach(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The provider's idempotency key is `(payment_id, amount)`, so the same amount asked
+    twice can only collapse onto the refund that exists. It must stay the no-op it was
+    and must not be refused as a breach of a ceiling it does not move."""
+    tenant_id = await _tenant()
+    pid = _payment_id("REPLAY")
+    await _fund(tenant_id, payment_id=pid, amount_inr="2500.00")
+    _install_refund(monkeypatch, _refund_by_amount("rfnd_REPLAY"))
+
+    first = await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2500.00"), reason="x"),
+        _request(),
+        _admin(),
+    )
+    second = await issue_tenant_refund(
+        tenant_id,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2500.00"), reason="x"),
+        _request(),
+        _admin(),
+    )
+    assert first.recorded is True
+    assert second.recorded is False
+    async with tenant_session(tenant_id) as session:
+        assert await payments.claimed_refund_total_inr(
+            session, tenant_id=tenant_id, payment_id=pid
+        ) == Decimal("2500.0000"), "a replay adds nothing to what the ceiling counts"
+
+
+async def test_one_tenants_refund_claims_are_invisible_to_another(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hard rule 1's cross-tenant zero-rows test for `refund_intents`.
+
+    It matters more here than the shape suggests: the ceiling is a SUM over this table,
+    so a claim leaking across tenants would refuse a refund one client is owed because
+    another client had already been refunded."""
+    tenant_a = await _tenant()
+    tenant_b = await _tenant()
+    pid = _payment_id("RLS")
+    await _fund(tenant_a, payment_id=pid, amount_inr="2500.00")
+    _install_refund(monkeypatch, _refund_by_amount("rfnd_RLS"))
+    await issue_tenant_refund(
+        tenant_a,
+        RefundIn(payment_id=pid, amount_inr=Decimal("2500.00"), reason="x"),
+        _request(),
+        _admin(),
+    )
+
+    async with tenant_session(tenant_a) as session:
+        assert await payments.claimed_refund_total_inr(
+            session, tenant_id=tenant_a, payment_id=pid
+        ) == Decimal("2500.0000")
+    async with tenant_session(tenant_b) as session:
+        assert (await session.execute(text("SELECT count(*) FROM refund_intents"))).scalar() == 0, (
+            "another tenant's claims must not be readable"
+        )

@@ -1598,6 +1598,13 @@ _VENDOR_ONLY_KEYS = frozenset(
         "agent_name",
         "agent_prompts",
         "agent_type",
+        # The vendor's name for the uploaded document on a knowledge-base listing row
+        # (`bolna-findings/mirror/pages/api-reference/knowledgebase/get_knowledgebases.md:55-110`).
+        # VENDOR-ONLY rather than shared: we WRITE into it (the upload sends
+        # `calevate-kb-<source id>.pdf`, which is what the orphan sweep reads back to
+        # attribute a row), but we hold no `file_name` of our own anywhere outside the
+        # engine boundary — no column, no model field, no domain term.
+        "file_name",
         # The greeting field — Bolna's own noun for it. Read since P3.3, because the
         # disclosure verdict has to be scored against the field that SPEAKS.
         "agent_welcome_message",
@@ -1609,6 +1616,30 @@ _VENDOR_ONLY_KEYS = frozenset(
         # every other shipped mention is prose explaining the vendor, which the AST reader
         # ignores.
         "api_tools",
+        # THE KNOWLEDGE LINKAGE, IN THE VENDOR'S FOUR NOUNS (D-488). The agent references
+        # a knowledge base through `llm_config.vector_store.provider_config.vector_ids`
+        # (`bolna-findings/mirror/pages/api-reference/agent/v2/get.md:806-817,1164-1195`),
+        # with `vector_id` the legacy singular. OUR word for the same thing is
+        # `EngineKBRef` — an opaque handle — and `apps/api/kb/` is written so that not one
+        # of these four appears in it (`tests/kb_boundaries_test.py` scans that directory
+        # as text). So they are vendor-only by exactly `call_type`'s argument: the concept
+        # is ours, the spelling and the nesting are theirs, and either escaping the
+        # adapter would be a payload shape above the boundary.
+        "provider_config",
+        "vector_id",
+        "vector_ids",
+        "vector_store",
+        # THE VENDOR'S NOUN FOR THE PER-LANGUAGE PROMPT BLOCK (D-494). Bolna keeps a
+        # `system_prompt` per language under `tools_config.multilingual_config` and swaps
+        # the ACTIVE prompt mid-call, which is how a console-added language could carry a
+        # prompt with no truthful-answer directive in it while the base prompt read back
+        # clean. We read it to score the compliance floor against every prompt the engine
+        # will actually run. OUR word for what comes back is `AgentSnapshot.
+        # alternate_prompts` — a plain tuple of prompt strings with no vendor shape left
+        # on it — so this compound noun appearing outside the adapter would be exactly the
+        # escape hard rule 2 bans. (`languages` and `enabled`, the two keys nested inside
+        # it, are in `_SHARED_PAYLOAD_KEYS`: both are words we use ourselves.)
+        "multilingual_config",
         # THE DIRECTION OF A CALL, IN THE VENDOR'S SPELLING (D-359). Bolna puts it on
         # `telephony_data.call_type` as `"inbound"`/`"outbound"`; OUR word for the same
         # thing is `direction`, on `CallEvent` and `ExecutionSnapshot`. That is exactly
@@ -1794,6 +1825,13 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         "azure_openai",
         "calls",
         "completed_at",
+        # BOTH ARRIVED WITH D-494's MULTILINGUAL READ-BACK, and both are ours as much as
+        # theirs, which is the whole test for this list. `enabled` is a column we own
+        # (`flags/models.py`) and `languages` is a field we own (`agents/voices.py`), so
+        # banning either would fire on our own vocabulary. Only the block that contains
+        # them — `multilingual_config` — is a vendor noun, and that one IS banned above.
+        "enabled",
+        "languages",
         "content",
         "context_note",
         # OURS AS MUCH AS THEIRS — the whole test for this list rather than the one above.
@@ -1816,6 +1854,16 @@ _SHARED_PAYLOAD_KEYS = frozenset(
         # which is the definition of a word that proves nothing about a leaked shape.
         "voice",
         "voice_id",
+        # ARRIVED WITH THE PER-LANGUAGE SPEECH CHECK (`_check_multilingual_speech`), which
+        # reads `provider` off a `MultilingualLanguageEntry`'s synthesizer and transcriber
+        # to name the speech vendor in the alert. It is our word as much as theirs and by
+        # a wide margin: `ModelConfig.tts_provider`/`stt_provider`/`llm_provider` are three
+        # fields of the portability contract itself, `LlmProvider` is our own closed
+        # `Literal`, and telephony, email and object storage each have a `provider` in this
+        # tree. Finding the bare word outside the adapter proves nothing about a leaked
+        # vendor shape; the compound nouns that would (`provider_config`, `telephony_
+        # provider`) are banned above.
+        "provider",
         # A GENERIC SAMPLING PARAMETER, not a Bolna noun: every OpenAI-compatible provider
         # and our own `TEMPERATURE_MUST_BE_ONE` trap name it, and `workers/extraction.py`
         # sends one to Sarvam. Finding it outside the adapter proves nothing.

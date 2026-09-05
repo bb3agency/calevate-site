@@ -68,7 +68,7 @@ from apps.api.tenancy.models import MEMBER_ROLES
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
-from tests.conftest import accept_agreements, arm_agent_for_outbound
+from tests.conftest import accept_agreements, arm_agent_for_outbound, fund_wallet
 from tests.impersonation_grant_test import view_as_headers
 
 READINESS = "/v1/legal/readiness"
@@ -597,7 +597,13 @@ async def test_the_owner_accepts_and_gets_the_whole_screen_back() -> None:
         assert screen["may_operate"] is False
         assert screen["can_accept"] is True and screen["can_accept_reason"] is None
         assert screen["pending_legal_review"] is catalogue.PENDING_LEGAL_REVIEW
-        assert screen["provisional_notice"] == statements.PROVISIONAL_NOTICE
+        # The notice belongs to the DRAFT state and is None once the set is published,
+        # which is the state today. Written against the constant rather than against
+        # either value, so publishing the set — or putting it back into draft — moves
+        # this assertion with it instead of failing it.
+        assert screen["provisional_notice"] == (
+            statements.PROVISIONAL_NOTICE if catalogue.PENDING_LEGAL_REVIEW else None
+        )
         assert screen["acceptance_statement"] == statements.statement_text()
         assert {doc["slug"] for doc in screen["documents"]} == {
             spec.slug for spec in catalogue.DOCUMENTS
@@ -871,7 +877,7 @@ def test_a_document_whose_version_moved_materially_reads_as_needing_reacceptance
         ),
     )
     # `version_of` and NOT a bare "1": the wire version carries the review-state suffix
-    # while `PENDING_LEGAL_REVIEW` stands, and a bare revision trips the REVIEW-STATE arm
+    # whenever `PENDING_LEGAL_REVIEW` stands, and a bare revision trips the REVIEW-STATE arm
     # of `reacceptance_required` instead of the material one. This test passed on that
     # accident before the sibling test below exposed it — it was green for a reason that
     # had nothing to do with materiality.
@@ -884,10 +890,11 @@ def test_a_non_material_revision_notifies_and_does_not_block() -> None:
     """The `changed` arm — the half of the founder's versioning rule that must NOT block.
 
     A material revision re-demands acceptance; a minor one (a typo, a subprocessor of a
-    kind already disclosed) shows a banner and blocks nothing. Every document in the
-    catalogue is at its first revision today, so this state is unreachable from real data
-    and would have stayed untested until the first correction we publish — which is
-    exactly when getting it wrong would halt every client's calls over a typo.
+    kind already disclosed) shows a banner and blocks nothing. The catalogue now carries a
+    real non-material revision — the 2 September 2026 publication, which filled the
+    placeholders and changed no obligation — and this stays a constructed spec anyway, so
+    the arm is proved by its own fixture rather than by whichever revision happens to be
+    last in `DOCUMENTS`.
 
     The spec is built here rather than added to the catalogue: a fixture revision in
     `DOCUMENTS` would ship in the product and appear on `/legal`.
@@ -1008,6 +1015,33 @@ async def test_the_spend_cap_and_an_empty_wallet_each_reach_the_screen() -> None
     by_rule = {row.rule: row for row in rows}
     assert by_rule["spend_cap"].reason == readiness.SPEND_CAP_REASON
     assert by_rule["no_credits"].reason == readiness.NO_CREDITS_REASON
+
+
+@pytest.mark.asyncio
+async def test_an_account_with_credit_is_not_told_it_has_none() -> None:
+    """The OTHER arm of the wallet gate, which D-521 made the common one.
+
+    Both boolean gates above are stubbed True, so until now nothing drove the case where
+    a client's wallet is fine. That was harmless while every account was `managed` and
+    `credits_exhausted` returned False on the tier alone. It is not harmless now: prepaid
+    is the default, this gate fires for nearly everyone, and the arm that decides a
+    FUNDED account is left alone had no test at all.
+
+    What it would cost to be wrong is a readiness screen telling a client with money on
+    the account that their calling credit has run out — on the screen they open to find
+    out why calls stopped. They would top up again, against a balance they already had.
+
+    Driven against a real funded wallet rather than a stub, because the stub is what was
+    already there and it is the thing that left the arm dark.
+    """
+    org = await _org("funded")
+    await fund_wallet(org["tenant_id"])
+    async with tenant_session(org["tenant_id"]) as session:
+        rows = await readiness.readiness_rows(session, tenant_id=org["tenant_id"])
+
+    assert "no_credits" not in {row.rule for row in rows}, (
+        "a funded account was told its calling credit had run out"
+    )
 
 
 @pytest.mark.asyncio

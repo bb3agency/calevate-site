@@ -22,11 +22,14 @@ import {
   RestrictionNote,
   Skeleton,
   StatTile,
+  FIELD_INLINE,
+  FIELD_INLINE_ICON,
   formatCount,
   formatIST,
   type NoticeTone,
   PRIMARY_BUTTON_SM,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import {
   DNC_LIST_LIMIT,
@@ -42,6 +45,8 @@ import {
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 
 /**
  * Do not call (SEC-COMP §3, hard rule 5) — the suppression list made visible.
@@ -143,25 +148,9 @@ const SOURCE_OPTIONS: { value: DncSource; label: string; note: string }[] = [
   },
 ];
 
-/**
- * Form controls, once — a screen whose inputs disagree about padding reads as two.
- *
- * Split rather than overridden at the call site: `${FIELD} pl-8` is two utilities for
- * one property, and which one wins is decided by Tailwind's own emission order rather
- * than by the order they are written in. That is a coin toss dressed as a style.
- */
-/* `min-w-0 max-w-full`: an <input> with no width utility sizes to its `size`
-   attribute (~20 characters), which at the 16px this repo now gives touch devices
-   is ~256px — 2px wider than the 254px card it sits in at 320px, so it painted
-   across the border. A CAP rather than `w-full`: these sit in flex rows where a
-   forced full width would restyle the desktop console, and on desktop there is
-   room so the cap never binds. `min-w-0` because a flex item will not otherwise
-   shrink below its own min-content. */
-const FIELD_BASE =
-  "rounded-md border border-line bg-surface py-1.5 text-sm text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11";
-const FIELD = `${FIELD_BASE} px-3`;
-/** The same field with room for a leading icon. */
-const FIELD_ICON = `${FIELD_BASE} pl-8 pr-3`;
+// Form controls come from ui.tsx's FIELD_INLINE / FIELD_INLINE_ICON — this screen and
+// messaging-consent carried a byte-identical local trio shadowing the shared FIELD, the
+// drift MC-2 flagged; both now import the one spelling.
 
 export default function DoNotCallPage() {
   const session = useClientSession();
@@ -206,6 +195,7 @@ export default function DoNotCallPage() {
   const [paste, setPaste] = useState("");
   const [source, setSource] = useState<DncSource>("manual");
   const [phone, setPhone] = useState("");
+  const valid = useFormValidation();
 
   const parsed = parsePastedNumbers(paste);
   const tooMany = parsed.length > MAX_NUMBERS_PER_ADD;
@@ -217,6 +207,113 @@ export default function DoNotCallPage() {
   /* At the endpoint's ceiling the row count stops being a total (no offset, clamped
      limit), so the header says which of the two it is showing. */
   const truncated = rows !== undefined && rows.length >= DNC_LIST_LIMIT;
+
+  /*
+   * THE DO-NOT-CALL LIST, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * ## Every number on this screen stays on this device
+   *
+   * The list, the check box and the paste box are all phone numbers — the exact data hard
+   * rule 6 and D-127 G-2 name first. The two inputs are declared `personal` so they leave
+   * as `«PHONE_1»` / `«PRIVATE_1»` placeholders, and NOT ONE ROW of the list is declared
+   * at any redaction: the assistant is told how many numbers are suppressed and why, which
+   * is what "is this list working" needs, and nothing that could identify one of them.
+   *
+   * ## And neither input is writable
+   *
+   * This is the compliance surface where a wrong value is a call that should not have
+   * happened (TCCCPR), in either direction: a number the assistant invented onto the list
+   * silently stops a real customer being rung, and one it invented into the check box
+   * answers a question about somebody else. Both are typed by a person or not at all.
+   *
+   * The REASON is writable, because it is a four-value enum describing a decision the
+   * person has already made — and the form still says out loud that only "Added by your
+   * team" can be undone, which is the part that matters and which nothing here changes.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/do-not-call",
+    title: "Do-not-call list",
+    realm: "client",
+    fields: [
+      {
+        id: "dnc-check-number",
+        label: "Number being checked",
+        type: "text",
+        value: phone,
+        writable: false,
+        personal: "phone",
+        help: "Typed by the reader. The assistant is told whether the box is filled in, never what is in it.",
+      },
+      {
+        id: "dnc-paste",
+        label: "Numbers pasted to suppress",
+        type: "textarea",
+        value: paste,
+        writable: false,
+        personal: "text",
+        help: `A human-supplied list. ${parsed.length} number(s) parsed so far.`,
+      },
+      {
+        id: "dnc-source",
+        label: "Why these numbers are being suppressed",
+        type: "select",
+        value: source,
+        options: SOURCE_OPTIONS.map((option) => ({
+          value: option.value,
+          label: `${option.label} — ${option.note}`,
+        })),
+      },
+    ],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: rows
+          ? "the suppressed list below has loaded"
+          : entries.error
+            ? "the list failed to load, so no number is shown"
+            : "still loading",
+      },
+      {
+        key: "suppressed_count",
+        label: "Numbers on the list",
+        value: rows === undefined ? "not known" : truncated ? `${rows.length} shown, which is the display ceiling — there may be more` : String(rows.length),
+      },
+      {
+        key: "by_reason",
+        label: "Why they are suppressed, by count",
+        // Counted over the four KNOWN reasons rather than accumulated into a keyed
+        // object: a tally keyed by a server string is `src/lib/lookup.ts`'s hazard in a
+        // write position, and the reasons are a fixed set the form already enumerates.
+        value: rows
+          ? rows.length === 0
+            ? "nothing is suppressed"
+            : SOURCE_OPTIONS.map(
+                (option) =>
+                  `${option.label}: ${rows.filter((entry) => entry.source === option.value).length}`,
+              ).join(", ")
+          : "not known",
+      },
+      { key: "paste_parsed", label: "Numbers parsed out of the paste box", value: String(parsed.length) },
+      {
+        key: "paste_over_limit",
+        label: "Is the pasted list over the per-add ceiling?",
+        value: tooMany ? `yes — the ceiling is ${MAX_NUMBERS_PER_ADD} per add` : "no",
+      },
+      {
+        key: "may_change",
+        label: "May this session add or remove numbers?",
+        value: write.allowed ? "yes" : `no — ${write.reason ?? "no reason given"}`,
+      },
+    ],
+    apply: (items) => {
+      for (const item of items) {
+        if (item.field_id !== "dnc-source") continue;
+        const next = SOURCE_OPTIONS.find((option) => option.value === asText(item.value));
+        if (next !== undefined) setSource(next.value);
+      }
+    },
+  });
 
   return (
     <div className="space-y-5 pb-12">
@@ -239,12 +336,12 @@ export default function DoNotCallPage() {
         </p>
         <form
           className="mt-3 flex flex-wrap items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
+          noValidate
+          onSubmit={valid.onSubmit(() => {
             // POST with the number in the BODY. Never a query string, never the URL —
             // the number is the personal data (see the API's dnc_routes docstring).
             check.mutate(phone.trim());
-          }}
+          })}
         >
           {/* `min-w-0`: this wrapper is a flex item, and a flex item defaults to
               `min-width: auto` — so it took the search input's intrinsic ~256px width
@@ -253,6 +350,7 @@ export default function DoNotCallPage() {
           <div className="relative min-w-0">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
             <input
+              {...valid.field("phone", "Enter the number to check.")}
               required
               value={phone}
               onChange={(e) => {
@@ -266,12 +364,15 @@ export default function DoNotCallPage() {
               autoComplete="off"
               placeholder="9876543210 or +919876543210"
               aria-label="Phone number to check"
-              className={`${FIELD_ICON} w-64 font-mono`}
+              className={`${FIELD_INLINE_ICON} w-64 font-mono`}
             />
+            {valid.error("phone")}
           </div>
           <button
             type="submit"
-            disabled={check.isPending || phone.trim().length < 8}
+            /* The length rule is answered at the field now, so the button stays live and
+               a press produces a sentence rather than nothing. */
+            disabled={check.isPending}
             className={PRIMARY_BUTTON_SM}
           >
             {check.isPending ? "Checking…" : "Check"}
@@ -319,6 +420,7 @@ export default function DoNotCallPage() {
           </p>
           <form
             className="mt-3 space-y-3"
+            noValidate
             onSubmit={(e) => {
               e.preventDefault();
               add.mutate({ numbers: parsed, source }, { onSuccess: () => setPaste("") });
@@ -331,7 +433,7 @@ export default function DoNotCallPage() {
               spellCheck={false}
               aria-label="Numbers to suppress"
               placeholder={"9876543210\n+919876543211\n9876543212"}
-              className={`${FIELD} w-full font-mono`}
+              className={`${FIELD_INLINE} w-full font-mono`}
             />
 
             <div className="flex flex-wrap items-center gap-2">
@@ -342,7 +444,12 @@ export default function DoNotCallPage() {
                 id="dnc-source"
                 value={source}
                 onChange={(e) => setSource(e.target.value as DncSource)}
-                className={FIELD}
+                // The note changes the MEANING of this control (three of the four
+                // reasons are permanent), so it must be programmatically associated —
+                // a span merely sitting beside a select is one a screen reader never
+                // reads with it (WCAG 3.3.2 — ux-audit DNC-2).
+                aria-describedby="dnc-source-note"
+                className={FIELD_INLINE}
               >
                 {SOURCE_OPTIONS.map((option) => (
                   <option key={option.value} value={option.value}>
@@ -350,7 +457,7 @@ export default function DoNotCallPage() {
                   </option>
                 ))}
               </select>
-              <span className="text-xs text-ink-faint">
+              <span id="dnc-source-note" className="text-xs text-ink-faint">
                 {SOURCE_OPTIONS.find((o) => o.value === source)?.note}
               </span>
             </div>

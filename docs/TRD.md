@@ -132,6 +132,22 @@ Models (per-agent config, BYOK):
   table, one builder. `gpt-4.1-mini` is a CONFIG SWITCH through `azure_openai_model`, not a
   second shipped default.
 
+  > **THE PLATFORM'S OWN DEFAULT MOVED OFF THIS LEG ON 4 SEP 2026, AND THIS PARAGRAPH IS
+  > ABOUT THE LEG RATHER THAN ABOUT THE DEFAULT.** Everything D-410 settled about the Azure
+  > leg still holds. What changed is which model an account runs when neither it nor its
+  > agent chose: the founder's answer is **`gemini-2.5-flash-lite`**, and it is now its own
+  > setting - `Settings.platform_llm_model`, typed over all three declared legs - because the
+  > platform rung used to read `azure_openai_model`, a field whose type could not hold it.
+  > `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`) keeps its two other jobs unchanged: the
+  > default of `azure_openai_model` (which model the Azure DEPLOYMENT was made from) and
+  > `billing/rates.BASE_RATE_LLM_MODEL`, the frozen model the plan rate is struck against - so
+  > no client's bill moves and no account is re-classified. **A DEPLOYMENT CANNOT ACTUALLY
+  > RUN THE NEW DEFAULT UNTIL ITS GOOGLE KEY IS INSTALLED AND ITS PRICE ATTESTED** (the Gemini
+  > catalogue figures are `verified=False` - vendor-published and founder-relayed rather than
+  > fetchable here - so hard rule 7 keeps them out of `unit_cost_paid`); until then an account
+  > that has chosen nothing runs the ENGINE's own default and the picker marks the row
+  > unavailable with its ground.
+
   **WHY THE REGION MOVED, AND WHAT IT COST [D-449].** Two grounds. **(a)** Bolna's
   orchestrator is US-hosted (VERIFIED-VENDOR-DOCS,
   `bolna-findings/mirror/pages/concepts/security.md:29`, AWS us-east-1), so every
@@ -878,13 +894,37 @@ The ThinnestAI integration surface documented in v1.0 of this section was retire
 D-31 (vendor due diligence failed: no verifiable customers, no SLA, unresponsive);
 it remains in git history. Its adapter was never built.
 
-## 6. RAG Subsystem (per-client knowledge) — REVISED per D-28
+## 6. RAG Subsystem (per-client knowledge) — REVISED per D-28, **SETTLED BY D-502**
 
-Strategy (D-28 supersedes D-08's self-hosted pgvector plan): per-client knowledge and
-call memory live in a **managed RAG/memory service consumed via API** — one shared
-layer serving BOTH the engine voice pipeline AND the client CRM (semantic search
-over calls/leads, caller memory, and future CRM features). We do not operate vector
-infrastructure; provider is selected by the D-28 bake-off gate (below).
+**THE BAKE-OFF HAS RUN AND THE STORE IS DECIDED, AND THE FINDING THAT MATTERS IS THAT THE
+TWO PATHS GET DIFFERENT ANSWERS** (`docs/evidence/kb-retrieval-bakeoff.md`, 31 Aug 2026;
+adopted as D-502 on 1 Sep 2026):
+
+* **In-call retrieval is UNCHANGED — T0 and the engine's own KB, and nothing else.** Not
+  because the store is slow (it is not, §2.3 of the evidence file) but because it was never
+  the binding constraint: the voice pipeline already misses its own target by 100ms with
+  ZERO retrieval in it, the engine→endpoint hop is India↔us-east-1 and has never been
+  measured, and both of those are identical for every candidate store.
+  `tests/kb_tiers_test.py` pins voice-runtime's route inventory as an equality so this
+  cannot drift.
+* **The dashboard copilot is served by `kb_chunks`, and CRM semantic search, past-call
+  search and H3 caller memory by `caller_chunks`, both on pgvector in the Postgres we
+  already run** (migrations `dc1aaeeeff02` and `c6b1f0d47e83`,
+  `apps/api/retrieval/pgvector.py`, `apps/api/retrieval/caller_search.py`). ⚠ This bullet
+  named `kb_chunks` for all four until D-503 split them, and the split is not cosmetic:
+  `kb_chunks` holds the CLIENT'S OWN knowledge and `caller_chunks` holds a data
+  principal's words, which is why only the second carries `subject_ref`, a
+  `retention_category` per row and an explicit erasure arm. Hybrid: a dense arm fused with a `tsvector` arm by
+  Reciprocal Rank Fusion, behind FORCEd RLS. Embeddings come from `text-embedding-3-small`
+  on the EXISTING Azure OpenAI resource in East US 2 — **no new sub-processor**.
+* **This is not "we operate vector infrastructure".** It adds no deployable, no backup unit,
+  no restore drill, no region and no vendor — it adds an extension to a database this repo
+  already runs. What is still refused is a separate vector service, self-hosted or managed.
+* **The exit stays cheap, by construction and by the founder's condition.** Retrieval is
+  behind `calevate_shared.retrieval.RetrievalProvider`; a managed vendor is one adapter
+  module plus one branch in `retrieval/service.get_retriever`, with no caller touched.
+  Vectors are stored at full precision and `text-embedding-3-small` is truncatable to 512
+  or 768 dimensions without re-embedding, so an export is not a re-ingest.
 
 ### 6.1 Memory horizons (three; do not conflate them with RAG)
 
@@ -894,7 +934,7 @@ Only H3 touches the retrieval layer. H1 is orchestration, H2 is our existing pip
 |---|---|---|---|---|---|
 | **H1** | In-call working memory — the running dialogue the agent reasons over | the call only; **discarded at hangup** | the ENGINE's orchestrator (the LLM message array) | no line item — LLM input tokens, already inside the ₹0.10–0.24/min LLM leg (§10.1) | 0ms (nothing is retrieved) |
 | **H2** | Call-level durable memory — transcript, AI summary, extraction fields, sentiment, resolved/needs-follow-up | retention policy (90-day recording floor) | OURS — Postgres, written by the post-call pipeline (§8) | ⚠ Sarvam extraction is **NOT ₹0.00/call** — `sarvam-105b` is priced per token (₹29.28/₹10.98/₹73.20 per 1M in/cached-in/out, §10.1's correction note). The pass has never run on a NON-Sarvam vendor (`GEMINI_EXTRACTION_DEFAULT is False`), which is a different statement from free, and it currently meters nothing | n/a (post-call) |
-| **H3** | Caller / tenant long memory — repeat-caller context, semantic search over calls and leads | forever | managed RAG/memory service (D-28) | provider unit cost | injected **pre-call** via the context webhook (~5s budget), never mid-call |
+| **H3** | Caller / tenant long memory — repeat-caller context, semantic search over calls and leads | **NOT forever — 180 days for what an agent remembers about a CALLER (D-507), the tenant's own clock for the rest** | `caller_chunks` + `caller_memories` on pgvector in our own Postgres (D-503; D-502 supersedes D-28) — the DPDP erasure arm is BUILT (`retrieval/caller_erasure.py`, called from both erasure paths and the nightly sweep) because an embedding of a caller's words is a derived copy of those words. ⚠ **The caller-memory scope still has no PRODUCER and no route that switches it on**; the lead and transcript scopes are live. | Azure embedding tokens, metered per usage_event | injected **pre-call** via the context webhook (~5s budget), never mid-call |
 
 H1 is not a component we build, buy, or key: the engine holds the conversation for the
 duration of the call and drops it at hangup. The hand-off from H1 to H2 is the post-call
@@ -1022,14 +1062,39 @@ Tier model (unchanged in intent; T1–T3 now provider-backed):
   callback, call tagged needs_follow_up. Never invents prices/medical/legal facts.
 
 Ingestion (workers, offline — OURS regardless of provider): parse (LlamaParse for
-messy PDFs) → chunk preview → **client/admin approve** → push to BOTH targets
-(engine KB API for in-call; managed service for CRM/memory) → version
-bump → T0 recompilation. The preview-and-approve gate stays ours — a bad upload must
+messy PDFs) → chunk preview → **client/admin approve** → **English gloss (D-487)** →
+push to BOTH targets (engine KB API for in-call; managed service for CRM/memory) →
+version bump → T0 recompilation.
+
+**The English gloss (D-487), because the query form production produces is the one
+retrieval is worst at.** Sarvam's Saaras STT returns **Tenglish** — Telugu grammar in
+Latin script — and a Tenglish question scores recall@1 **0.250** against a Telugu-script
+corpus on a dense ranker where an English control scores 0.958
+(`docs/evidence/telugu-embedding-quality.md`, n=24). On the ranker this system runs today
+(T0 token overlap) the same question scores **0.000**: there are no shared tokens at all.
+So `apps/workers/kb_gloss.py` writes a short English rendering into
+`kb_documents.gloss` once per chunk, at ingestion, deciding by SCRIPT which chunks need
+one; retrieval scores it as a second key BEHIND A SCRIPT GATE and returns the original
+line, taking Tenglish to **0.542** and English to **0.875** while leaving Telugu-script
+questions bit-identical. It is a RETRIEVAL KEY and never an utterance, so it does not
+widen the approval gate above it, and it is provider-independent — our own stored text,
+written before the D-28 bake-off and given to whichever store wins. The preview-and-approve gate stays ours — a bad upload must
 not poison live calls, whichever store serves it. Resolved-call transcripts are
 indexed into the managed service as the per-client corpus (compounding, uncopyable).
 
-D-28 bake-off gate (blocks provider commitment; run with M2, before any CRM feature
-depends on the provider): candidates in two classes — vector-cloud (Qdrant Cloud,
+⚠ **THE GATE BELOW IS CLOSED (D-502) AND IS KEPT AS THE SCORECARD A RE-OPENING WOULD BE
+SCORED AGAINST.** It was run on 31 Aug 2026 and the result is in
+`docs/evidence/kb-retrieval-bakeoff.md`; the winner is pgvector for the dashboard/CRM paths
+and T0 for the call. Criterion (a) "measured retrieval p50/p95 from Mumbai" is the one the
+run reframed: the store component is 12–42ms p95 and the terms that actually threaten the
+budget — the US↔India hop and the question-embedding call — are IDENTICAL for every
+candidate, so they do not discriminate. If the compute load ever forces the move the
+founder's exit clause contemplates, this is the list to score against, and (b) and (f) are
+the two that decide it: RLS gives us namespace isolation a forgotten predicate cannot defeat
+and deletion proof with no second copy to prove anything about, and a managed vendor has to
+match both.
+
+D-28 bake-off gate (CLOSED by D-502; original text follows): candidates in two classes — vector-cloud (Qdrant Cloud,
 Pinecone serverless [Singapore], Turbopuffer, Weaviate Cloud) and memory-API (Mem0,
 Supermemory, Zep). Score: (a) measured retrieval p50/p95 from Mumbai; (b) hard
 per-tenant namespace isolation; (c) hybrid (dense+sparse) search; (d) ingestion API
@@ -1295,9 +1360,9 @@ unmeasured and is the single biggest lever on the TTS line (pilot gate 12).
 |---|---|---|
 | STT — Saaras (STT+Translate) | ₹30/hr | **₹0.50** |
 | TTS — Bulbul **v3** | ₹3.00 / 1,000 chars | **₹1.08–1.62** |
-| LLM — **`gpt-4o-mini` on Azure OpenAI `eastus2`** (D-410 default; region per D-449) | $0.15/$0.60 per 1M tok | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |
+| LLM — `gpt-4o-mini` on Azure OpenAI `eastus2` *(D-410's default and still the **base-rate** model `billing/rates.BASE_RATE_LLM_MODEL` freezes the plan rate against — no longer the platform default; region per D-449)* | $0.15/$0.60 per 1M tok | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |
 | LLM — `gpt-4.1-mini` on Azure OpenAI `eastus2` *(the live switch, `azure_openai_model`; both allow-listed models are on the Regional-Standard matrix for this region — gate 20b reads the quota)* | $0.40/$1.60 per 1M tok | **₹0.27 (1 min) / ₹0.44 (5 min) / ₹0.65 (10 min)** |
-| LLM — `gemini-2.5-flash-lite` on Google Gemini Developer API *(the cheapest leg we offer, and cheaper than the platform default — so it carries **no** model surcharge)* | $0.10/$0.40 per 1M tok | **₹0.07 (1 min) / ₹0.11 (5 min) / ₹0.16 (10 min)** |
+| LLM — **`gemini-2.5-flash-lite` on Google Gemini Developer API** *(the cheapest leg we offer, and since 4 Sep 2026 the **platform default** — `Settings.platform_llm_model`. Cheaper than the base-rate model, so it carries **no** model surcharge)* | $0.10/$0.40 per 1M tok | **₹0.07 (1 min) / ₹0.11 (5 min) / ₹0.16 (10 min)** |
 | LLM — `gemini-2.5-flash` on Google Gemini Developer API *(the vendor's own production recommendation; thinking budget zeroed by the engine)* | $0.30/$2.50 per 1M tok | **₹0.23 (1 min) / ₹0.36 (5 min) / ₹0.51 (10 min)** |
 | LLM — `gpt-5.4-mini` on OpenAI direct `us` *(the engine's own voice recommendation, and the dearest thing we offer)* | $0.75/$4.50 per 1M tok | **₹0.54 (1 min) / ₹0.85 (5 min) / ₹1.24 (10 min)** |
 | LLM — Sarvam 105B *(what D-400 superseded; the disclosed dashboard fallback and the extraction pass — **not an in-call leg**, so no per-minute curve is derived for it)* | ₹29.28/₹10.98/₹73.20 per 1M in/cached-in/out | **not ₹0.00 — see the correction note** |
@@ -1351,11 +1416,12 @@ variable, D-32):
 
 Paid-LLM rows are quoted at the **five-minute** figure — **₹0.16/min on `gpt-4o-mini`**, ₹0.44 on `gpt-4.1-mini`, ₹0.11 on `gemini-2.5-flash-lite`, ₹0.36 on `gemini-2.5-flash`, ₹0.85 on `gpt-5.4-mini` — because a blended average has to pick a call length and five minutes is the one §10's other assumptions are written for. A ten-minute call adds **₹0.08/min** to every `gpt-4o-mini` row, **₹0.21/min** to `gpt-4.1-mini`, ₹0.05 to `gemini-2.5-flash-lite`, ₹0.15 to `gemini-2.5-flash` and ₹0.39 to `gpt-5.4-mini`. None of them is a rate: `llm_cost_inr_per_minute` takes a duration because §6.1 resends the whole conversation each turn, and it takes `model` as a required keyword because the offered set now spans **7.7x per minute** at five minutes — from ₹0.11 to ₹0.85.
 
-**The cheapest offered model is not the platform default, and the surcharge floors at zero because of it.** `gemini-2.5-flash-lite` costs us less per minute than `gpt-4o-mini`, which the plan's rate is struck at, so `billing/rates.py::is_surchargeable_llm_model` compares both token legs against the base model and returns False for anything at or below it — a client who moves to a cheaper model keeps their plan rate and is **not** charged an upgrade. There is no negative arm: a derived discount would publish our margin in the one direction a client could arithmetic backwards (D-455's own argument for why what a client pays is a plan term rather than a figure derived from supplier cost).
+**The cheapest offered model IS the platform default now, and the surcharge floors at zero because the BASE-RATE model is a different, dearer one.** ⚠ This paragraph used to open "the cheapest offered model is not the platform default": on 4 Sep 2026 the founder made `gemini-2.5-flash-lite` what an account runs when it has chosen nothing, and the two facts came apart deliberately — `billing/rates.BASE_RATE_LLM_MODEL` stays frozen at `gpt-4o-mini` so that moving the platform default cannot re-classify what any account is billed for (D-455), and an account that FOLLOWS the default is never surcharged whatever it resolves to. `gemini-2.5-flash-lite` costs us less per minute than `gpt-4o-mini`, which the plan's rate is struck at, so `billing/rates.py::is_surchargeable_llm_model` compares both token legs against the base model and returns False for anything at or below it — a client who moves to a cheaper model keeps their plan rate and is **not** charged an upgrade. There is no negative arm: a derived discount would publish our margin in the one direction a client could arithmetic backwards (D-455's own argument for why what a client pays is a plan term rather than a figure derived from supplier cost).
 
 | Combination | Per call-minute |
 |---|---|
-| **Bulbul v3 + `gpt-4o-mini`** (D-410 default) | **₹1.74–2.28** |
+| **Bulbul v3 + `gemini-2.5-flash-lite`** *(the PLATFORM DEFAULT since 4 Sep 2026 - the three legs above added at their five-minute figures)* | **₹1.69–2.23** |
+| Bulbul v3 + `gpt-4o-mini` *(D-410's default, and still the base-rate model)* | ₹1.74–2.28 |
 | Bulbul v3 + `gpt-4.1-mini` *(the switch — what it costs, stated where the choice is made)* | ₹2.02–2.56 |
 | **Bulbul v3 + Sarvam LLM** *(what runs today; cheapest verified stack)* | **₹1.58–2.12** |
 

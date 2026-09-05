@@ -63,6 +63,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.callbacks.service import cancel_for_phones
 from apps.api.compliance.dnc_recall import enqueue_dnc_recall
 from apps.api.compliance.export import subject_ref
 from apps.api.compliance.models import DNC_REMOVABLE_SOURCES
@@ -73,6 +74,15 @@ from apps.api.db.result import rowcount_of
 from apps.api.ingest.service import normalize_phone
 
 log = get_logger(__name__)
+
+#: What a client reads on a call-back a suppression called off. It says what happened
+#: rather than naming the rule, for the reason every client-facing sentence in this tree
+#: does: "refused (dnc)" is our vocabulary and a person reads their screen, not our enum.
+#: The GATE writes its own DNC sentence on a call-back it refuses at fire time; this is the
+#: wording for the ones stopped days earlier, which never reach the gate at all.
+CALLBACK_SUPPRESSED_REASON = (
+    "This number was added to your do-not-call list, so we did not ring them back."
+)
 
 # Where a suppression came from. Free text in the column (no CHECK constraint), pinned
 # here so the list stays answerable when someone asks "why is this number blocked".
@@ -214,6 +224,25 @@ async def add_numbers(
         # twice costs a scan, while missing one leaves a suppressed number's dial sitting
         # in the vendor's queue. The two questions have different safe directions.
         await enqueue_dnc_recall(session, tenant_id=tenant_id, phones=fresh)
+        # D-514: and the call-backs this client's agents PROMISED these people, which are
+        # dials that have not been placed yet and so are invisible to the recall above.
+        #
+        # **THIS IS THE FAST DOOR AND NOT THE ENFORCEMENT**, which matters for reading the
+        # blast radius: every call-back dial passes `check_dispatch` at its own fire time
+        # with an uncached per-number DNC read, and `dnc` is a person-level refusal, so a
+        # promise to a suppressed number is settled `refused` on the next tick whether or
+        # not this statement ran. What this buys is that the client's screen stops saying
+        # "we will ring them on Tuesday" the moment they suppress the number, instead of
+        # on Tuesday. Same transaction as the insert, so a suppression that rolls back
+        # cannot leave a call-back cancelled for a reason that never happened.
+        cancelled = await cancel_for_phones(
+            session, phones=fresh, reason=CALLBACK_SUPPRESSED_REASON
+        )
+        if cancelled:
+            log.info(
+                "dnc_cancelled_callbacks",
+                extra={"tenant_id": str(tenant_id), "cancelled": cancelled},
+            )
 
     # Counts only (hard rule 6): the numbers are the whole point of the request and
     # none of them belong in a log line.

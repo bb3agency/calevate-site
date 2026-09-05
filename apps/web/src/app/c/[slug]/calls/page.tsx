@@ -16,7 +16,10 @@ import {
   formatIST,
 } from "@/components/ui";
 import { useClientRealm } from "@/lib/api/session";
-import { useCalls } from "@/lib/api/hooks";
+import { useCallsLog } from "@/lib/api/hooks";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
+import { LoadMore } from "@/components/interior/load-more";
 import { lookup } from "@/lib/lookup";
 
 /**
@@ -52,6 +55,9 @@ import { lookup } from "@/lib/lookup";
  * happened, the dial reached the network but not a person, the dial itself broke, or
  * it is still running.
  */
+/** One page of the log — and the honesty threshold for the header count (CL1). */
+const CALLS_PAGE_SIZE = 100;
+
 const STATUS_FILTERS = [
   { value: "completed", label: "Completed" },
   { value: "no_answer", label: "No answer" },
@@ -86,7 +92,70 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
   // `href` keeps the D-22 operator session across in-realm links (session.tsx).
   const { session, href } = useClientRealm();
   const [status, setStatus] = useState<string | undefined>(undefined);
-  const calls = useCalls(session, { status, limit: 100 });
+  const calls = useCallsLog(session, { status, pageSize: CALLS_PAGE_SIZE });
+
+  // Flattened across the loaded pages, deduped by id: a call landing mid-read shifts
+  // rows across an offset boundary, and a duplicate React key would crash the log.
+  const seen = new Set<string>();
+  const rows = (calls.data?.pages ?? [])
+    .flatMap((page) => page)
+    .filter((call) => (seen.has(call.id) ? false : (seen.add(call.id), true)));
+
+  /*
+   * THE CALL LOG, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * THE FILTER IS THE ONLY WRITABLE THING ON THIS SCREEN, and it is worth writing: "show
+   * me the ones nobody answered" is the question this log is opened with. Its options are
+   * the SAME `STATUS_FILTERS` the chips render from plus the "all" chip, so the assistant
+   * cannot select a status this screen has no chip for, and `apply` ignores anything else.
+   *
+   * NOT ONE ROW OF THE LOG IS DECLARED. Every row carries a caller's number (hard rule 6),
+   * and the number of rows loaded plus whether more remain is the whole of what a reader
+   * can see that a copilot read tool cannot fetch for itself under the caller's own RLS.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/calls",
+    title: "Call log",
+    realm: "client",
+    fields: [
+      {
+        id: "calls-status",
+        label: "Show only calls with this outcome",
+        type: "select",
+        value: status ?? "",
+        options: [
+          { value: "", label: "All" },
+          ...STATUS_FILTERS.map((filter) => ({ value: filter.value, label: filter.label })),
+        ],
+        help: "Empty means every call. Filtering re-reads the log from the server.",
+      },
+    ],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: calls.data
+          ? "the log below has loaded"
+          : calls.error
+            ? "the log failed to load, so no call is listed"
+            : "still loading",
+      },
+      { key: "rows_loaded", label: "Call rows loaded so far", value: String(rows.length) },
+      {
+        key: "more_pages",
+        label: "Are there older calls behind this page?",
+        value: calls.hasNextPage ? "yes — the count above is this page, not the total" : "no — the count above is the total",
+      },
+    ],
+    apply: (items) => {
+      for (const item of items) {
+        if (item.field_id !== "calls-status") continue;
+        const wanted = asText(item.value);
+        if (wanted === "") setStatus(undefined);
+        else if (STATUS_FILTERS.some((filter) => filter.value === wanted)) setStatus(wanted);
+      }
+    },
+  });
 
   return (
     <div className="space-y-4 pb-12">
@@ -98,14 +167,28 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
             filter" rather than possibly "nothing loaded". Only once the query has
             answered — a count rendered from `data ?? []` while loading says 0 and
             then jumps, which reads as calls disappearing. */}
-        {calls.data && (
-          <p className="text-sm text-ink-muted">
-            <span className="font-semibold tabular-nums text-ink">
-              {formatCount(calls.data.length)}
-            </span>{" "}
-            {status ? `matching “${status.replace(/_/g, " ")}”` : "calls"}
-          </p>
-        )}
+        {calls.data &&
+          /* With more pages behind it, the loaded length is a statement about OUR QUERY,
+             not their business: an account past 100 calls used to read "100 calls"
+             forever — the exact defect the leads screen's docstring names as the thing
+             it fixed. Once the log has no next page, the length IS the total and the
+             plain count is honest (ux-audit CL1). */
+          (calls.hasNextPage ? (
+            <p className="text-sm text-ink-muted">
+              Showing the{" "}
+              <span className="font-semibold tabular-nums text-ink">
+                {formatCount(rows.length)}
+              </span>{" "}
+              most recent{status ? ` matching “${status.replace(/_/g, " ")}”` : ""}
+            </p>
+          ) : (
+            <p className="text-sm text-ink-muted">
+              <span className="font-semibold tabular-nums text-ink">
+                {formatCount(rows.length)}
+              </span>{" "}
+              {status ? `matching “${status.replace(/_/g, " ")}”` : "calls"}
+            </p>
+          ))}
       </div>
 
       <div className="flex flex-wrap gap-1.5">
@@ -143,9 +226,9 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
               onRetry={() => void calls.refetch()}
             />
           </div>
-        ) : calls.data.length ? (
+        ) : rows.length ? (
           <ul className="divide-y divide-line">
-            {calls.data.map((call) => {
+            {rows.map((call) => {
               const Icon = lookup(STATUS_ICONS, call.status) ?? PhoneCall;
               return (
                 <li key={call.id}>
@@ -212,6 +295,22 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
                 ? "Clear the filter to see everything."
                 : "A call appears here within a couple of minutes of the caller hanging up."
             }
+          />
+        )}
+        {/* The way to yesterday (ux-audit CL2): a busy day pushed yesterday past row
+            100 and nothing reached it. Manual — a log the reader is scanning should
+            grow when asked, not while their scroll passes a sentinel. */}
+        {calls.hasNextPage && rows.length > 0 && (
+          <LoadMore
+            auto={false}
+            hasMore={calls.hasNextPage}
+            labels={{ idle: "Show older calls" }}
+            onLoad={async () => {
+              const result = await calls.fetchNextPage();
+              if (result.isError) throw result.error;
+              return result.hasNextPage;
+            }}
+            className="py-1"
           />
         )}
       </Card>

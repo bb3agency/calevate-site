@@ -59,20 +59,29 @@ def test_no_vendor_field_name_appears_anywhere_in_the_kb_path() -> None:
             )
 
 
-def test_the_engine_handle_is_persisted_under_a_neutral_key() -> None:
-    """The JSON key is part of the schema, and it outlives the engine that suggested it.
+def test_the_engine_handle_is_persisted_under_a_neutral_name() -> None:
+    """The column name is part of the schema, and it outlives the engine that suggested it.
 
-    `kb_documents.meta` is where the migration put provider-side ids, and a handle
-    stored there under the vendor's name would be a vendor shape in a typed column by
-    another route. `engine_kb_ref` describes the ROLE ("the engine's handle for this
-    source") rather than the vendor, which is the same convention
-    `agents.engine_agent_ref` already sets.
+    A handle stored under the VENDOR's name for it would be a vendor shape in a typed
+    column by another route: Bolna calls this identifier a `vector_id` and calls a
+    different one (`rag_id`) the id of the same object, and either spelling above the
+    adapter would freeze one vendor's vocabulary into our schema. `engine_kb_ref`
+    describes the ROLE — "the engine's handle for this source" — which is the convention
+    `agents.engine_agent_ref` and `engine_agent_routes` already set.
+
+    D-519 moved it from `kb_documents.meta ->> 'engine_kb_ref'` to a column of the same
+    name on `engine_kb_routes`; the naming rule is what this test guards, not the home.
     """
     service = (KB_MODULE / "service.py").read_text(encoding="utf-8")
-    assert "'engine_kb_ref'" in service
-    assert "meta ->> 'engine_kb_ref'" in service, (
-        "the handle is no longer read from the neutral key the migration reserved"
+    assert "engine_kb_routes" in service
+    assert "engine_kb_ref" in service, (
+        "the handle is no longer read under the neutral name the schema reserves"
     )
+    for vendor_spelling in ("vector_id", "rag_id"):
+        assert vendor_spelling not in service, (
+            f"{vendor_spelling!r} is the vendor's name for this identifier and belongs "
+            "inside apps/api/engine/ (hard rule 2)"
+        )
 
 
 def test_the_kb_path_reaches_the_engine_only_through_the_protocol() -> None:

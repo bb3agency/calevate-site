@@ -83,7 +83,12 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.impersonation import ImpersonationGrant, verify_grant
 from apps.api.core.logging import get_logger
 from apps.api.core.ratelimit import consume, profile_for, too_many_requests
-from apps.api.core.rbac import MUTATING_PERMISSIONS, Permission, role_has
+from apps.api.core.rbac import (
+    IMPERSONATION_PERMITTED_MUTATIONS,
+    MUTATING_PERMISSIONS,
+    Permission,
+    role_has,
+)
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, user_session
@@ -457,6 +462,78 @@ async def _load_client_principal(verified: VerifiedCaller, org_slug: str | None)
 IMPERSONATION_READ_ACTION = "admin.impersonation_read"
 IMPERSONATION_AUDIT_WINDOW_S = 60
 
+# The DIRECT-admin twin of the row above (D-482 L-1). The console's per-tenant screens —
+# intake, margin, spend, invoice, credits, terms, flags, erasure — read a client's
+# tenant-scoped rows WITHOUT impersonation, so until this action existed the ledger
+# recorded an operator who pressed "view as client" and said nothing about one who opened
+# the same client's margin card directly. SEC-COMP §5 claims "audit_log on all admin
+# reads"; this is what makes the claim true for the direct path. Same window, same
+# coalescing rule, same volume argument as impersonation — the two trails differ only in
+# how the operator got in, and an investigator reads them side by side.
+ADMIN_TENANT_READ_ACTION = "admin.tenant_read"
+ADMIN_READ_AUDIT_WINDOW_S = IMPERSONATION_AUDIT_WINDOW_S
+
+
+async def _first_read_in_window(marker: str, *, window_s: int, unavailable_event: str) -> bool:
+    """Whether this read opens a new audit window — the one Redis SETNX, shared by both
+    read trails.
+
+    A CACHE of "already recorded", never a source of truth, so IT FAILS TOWARDS
+    RECORDING: if Redis cannot answer, we write the row. An audit control degrades into
+    noise, never into silence, and the cost of that direction is bounded (a Redis outage
+    is minutes, and the rows are still correct).
+    """
+    try:
+        return bool(await get_redis().set(marker, "1", nx=True, ex=window_s))
+    except Exception:
+        log.warning(unavailable_event)
+        return True
+
+
+async def record_admin_tenant_read(
+    session: AsyncSession,
+    *,
+    request: Request,
+    principal: Principal,
+    tenant_id: UUID,
+) -> None:
+    """Append the direct-admin read row, coalesced per (admin, tenant) per window.
+
+    Called by each admin-realm GET that reads one client's tenant-scoped data outside
+    impersonation, LATE in the route's transaction (the audit chain lock is held from
+    `write_audit` to COMMIT — see compliance/audit.py). The row and the read commit
+    together; if the row cannot be written the read fails, the same direction
+    `_record_impersonated_read` fails in — a read we cannot record is a read SEC-COMP §5
+    does not permit.
+
+    Deliberately NOT skipped for an impersonating principal: the impersonation row names
+    the tenant the HEADER resolved, this one names the tenant the PATH addressed, and
+    when the two differ, both facts belong in the ledger.
+    """
+    marker = f"calevate:adminread:seen:{principal.user_id}:{tenant_id}"
+    if not await _first_read_in_window(
+        marker,
+        window_s=ADMIN_READ_AUDIT_WINDOW_S,
+        unavailable_event="admin_read_audit_dedupe_unavailable",
+    ):
+        return
+    await write_audit(
+        session,
+        action=ADMIN_TENANT_READ_ACTION,
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="organization",
+        object_id=str(tenant_id),
+        ip=client_request_ip(request),
+        # The ROUTE TEMPLATE, never the resolved path or query string (hard rule 6) —
+        # the same discipline the impersonation row keeps, and like it, this rides in
+        # `summary` (the log stream), not in the hashed ledger row.
+        summary={
+            "route": _route_template(request),
+            "window_s": ADMIN_READ_AUDIT_WINDOW_S,
+        },
+    )
+
 
 async def _record_impersonated_read(
     session: AsyncSession,
@@ -482,14 +559,11 @@ async def _record_impersonated_read(
     is a read D-22 does not permit.
     """
     marker = f"calevate:imp:seen:{principal.user_id}:{tenant_id}"
-    try:
-        first_in_window = bool(
-            await get_redis().set(marker, "1", nx=True, ex=IMPERSONATION_AUDIT_WINDOW_S)
-        )
-    except Exception:
-        log.warning("impersonation_audit_dedupe_unavailable")
-        first_in_window = True
-    if not first_in_window:
+    if not await _first_read_in_window(
+        marker,
+        window_s=IMPERSONATION_AUDIT_WINDOW_S,
+        unavailable_event="impersonation_audit_dedupe_unavailable",
+    ):
         return
     await write_audit(
         session,
@@ -974,8 +1048,16 @@ def requires(
         )
         if principal.role is None or not role_has(principal.role, permission):
             raise ProblemError.forbidden("You do not have permission to do this.")
-        if principal.impersonating and permission in MUTATING_PERMISSIONS:
-            # D-22 in one line: read-only keeps the audit trail unambiguous.
+        if (
+            principal.impersonating
+            and permission in MUTATING_PERMISSIONS
+            and permission not in IMPERSONATION_PERMITTED_MUTATIONS
+        ):
+            # D-22 in one line: read-only keeps the audit trail unambiguous. The one
+            # exemption is NAMED in `rbac.IMPERSONATION_PERMITTED_MUTATIONS` and argued
+            # there — it covers a permission whose spend can only ever land on the
+            # PLATFORM's ledger, so there is no client balance for a view-as session to
+            # move and nothing in the client's account it can change.
             raise ProblemError.forbidden(
                 "Impersonation is read-only. Perform this action from the admin console."
             )

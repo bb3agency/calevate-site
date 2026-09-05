@@ -118,13 +118,16 @@ reason string. No phone number, no transcript, in a payload or an assertion mess
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 import uuid
 from collections.abc import Callable, Iterator
 from typing import Any
 
 import pytest
 import tool_routes
+import webhook_routes
 from apps.api.db.session import get_engine
 from httpx import ASGITransport, AsyncClient, Response
 from main import app as voice_app
@@ -402,3 +405,79 @@ async def test_a_refused_tool_call_is_measured_into_the_tool_series_too(
         if record.name == "calevate.metric" and hasattr(record, "metric")
     ]
     assert recorded == ["tool_ack_ms", "tool_ack_ms"], recorded
+
+
+# --- 4. the in-call surface's own clock ---------------------------------------
+#
+# THE DEADLINES WERE THE POST-CALL RECEIVER'S, BY IMPORT AND BY DEFAULT ARGUMENT.
+# `tool_routes` did `from webhook_routes import _DURABLE_DEADLINE_S` and called
+# `_read_bounded` without naming a body deadline, so an in-call tool call could hold for
+# two seconds waiting for a body and two more waiting for an enqueue. Those numbers are
+# argued in `webhook_routes` with a sentence that is false one endpoint over — "the cost
+# of being wrong is one poller cycle (D-31), not a lost call" — because there is no poller
+# behind a tool call, as `tool_routes` says itself where it refuses to ack an unkeyable
+# one. The cost of being wrong here is four seconds of dead air while a person waits for
+# the agent to answer.
+
+
+def test_the_in_call_surface_does_not_run_on_the_post_call_surfaces_clock() -> None:
+    """Both deadlines must be strictly tighter than the receiver's, and this is the test
+    that stops a future edit from re-pointing either back at it.
+
+    Not a millisecond bound — a bound on the DESIGN. What is asserted is the ordering
+    (in-call waits less than post-call, because a person is listening to this one) and
+    that neither has been set so tight it would fire on healthy traffic: this file's own
+    measurement puts the endpoint at p95 1.4ms single-flight and ~143ms at 250 concurrent,
+    so a one-second abandon is ~7x the worst ack ever measured here under load.
+    """
+    tool, receiver = webhook_routes.TOOL_ACK, webhook_routes.WEBHOOK_ACK
+
+    assert tool.durable_deadline_s < receiver.durable_deadline_s, (
+        "the in-call enqueue may not wait as long as the post-call claim: the receiver's "
+        "caller has hung up, this one is a person on the line hearing silence"
+    )
+    assert tool.body_deadline_s < receiver.body_deadline_s, (
+        "a tool body is three fields under 4 KiB from a proxy that already holds it; it "
+        "may not be given the patience sized for a transcript-bearing webhook"
+    )
+    assert tool.max_body_bytes < receiver.max_body_bytes
+    # Above the measured worst case by a wide margin, so the abandon cannot fire on a
+    # healthy call — the other half of the design, and the one a tightening would break.
+    assert tool.durable_deadline_s >= 5 * (IN_CALL_BUDGET_MS / 1000)
+
+
+async def test_a_queue_that_never_answers_stops_being_dead_air(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The behaviour, at the REAL deadline rather than a patched one.
+
+    `call_optout_test` already proves the shape of the answer — a retryable error, never a
+    202 over a job nobody queued. What that test cannot show is how LONG the caller waits
+    for it, because it shortens the deadline to 0.2s first. This one does not touch the
+    deadline: it hangs the queue for thirty seconds and asserts the handler is done with
+    the request inside two, which fails against the receiver's inherited four-second
+    worst case and passes against the in-call surface's own.
+    """
+
+    async def _never_answers(*_a: Any, **_kw: Any) -> str | None:
+        await asyncio.sleep(30)
+        return None
+
+    monkeypatch.setattr(tool_routes, "enqueue", _never_answers)
+
+    started = time.perf_counter()
+    async with AsyncClient(
+        transport=ASGITransport(
+            app=voice_app, client=(EDGE_PROXY_IP, 44444), raise_app_exceptions=False
+        ),
+        base_url="http://runtime",
+    ) as http:
+        response = await http.post(TOOL, json=_body(), headers=HEADERS)
+    elapsed = time.perf_counter() - started
+
+    assert response.status_code == 503, response.text
+    assert response.json()["type"].endswith("/tool_queue_unavailable")
+    assert elapsed < 2.0, (
+        f"the agent stood silent for {elapsed:.1f}s waiting for a queue that was never "
+        "going to answer; the caller hears every millisecond of that"
+    )

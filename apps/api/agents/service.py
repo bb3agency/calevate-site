@@ -108,6 +108,7 @@ from apps.api.agents import assignment
 from apps.api.agents.llm_models import (
     ResolvedLlmModel,
     deployment_for,
+    installed_llm_providers,
     platform_default_model,
     resolve_llm_model,
     unofferable_reason,
@@ -120,6 +121,7 @@ from apps.api.agents.models import (
 )
 from apps.api.agents.verification import verify_publish
 from apps.api.agents.voices import speech_for_voice_id, voice_id_of
+from apps.api.compliance.caller_memory import recall
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -334,6 +336,10 @@ class AgentRow(TypedDict):
     ai_disclosure_enabled: bool
     recording_notice_line: str
     recording_notice_enabled: bool
+    #: Sentence three and its switch (D-507). No third `*_enabled` field for the sentence
+    #: itself: it is spoken exactly when `caller_memory_enabled` is true.
+    caller_memory_notice_line: str
+    caller_memory_enabled: bool
 
 
 def _is_agent_direction(value: object) -> TypeGuard[AgentDirection]:
@@ -381,6 +387,7 @@ async def _load_agent(
                 # the drift read can never disagree about the posture.
                 "a.ai_disclosure_line, a.ai_disclosure_enabled, "
                 "a.recording_notice_line, a.recording_notice_enabled, "
+                "a.caller_memory_notice_line, a.caller_memory_enabled, "
                 # The ACCOUNT's model default, joined rather than fetched separately: the
                 # fallback is decided from these two columns together, and two statements
                 # would let a concurrent change to the account default land between them —
@@ -443,7 +450,9 @@ async def _load_agent(
         "ai_disclosure_enabled": row[16],
         "recording_notice_line": row[17],
         "recording_notice_enabled": row[18],
-        "organization_llm_model": row[19],
+        "caller_memory_notice_line": row[19],
+        "caller_memory_enabled": row[20],
+        "organization_llm_model": row[21],
     }
 
 
@@ -460,6 +469,10 @@ def posture_of(agent: AgentRow) -> DisclosurePosture:
         ai_disclosure_enabled=bool(agent["ai_disclosure_enabled"]),
         recording_notice_line=str(agent["recording_notice_line"]),
         recording_notice_enabled=bool(agent["recording_notice_enabled"]),
+        # Sentence three (D-507), whose switch IS the memory switch — there is no third
+        # `*_enabled` column to read, and that is the decision rather than an omission.
+        caller_memory_notice_line=str(agent["caller_memory_notice_line"]),
+        caller_memory_enabled=bool(agent["caller_memory_enabled"]),
     )
 
 
@@ -710,19 +723,30 @@ def in_call_llm(configured_model: str | None) -> InCallLLM:
     leg = leg_for_model(model)
     traps = tuple(trap.name for trap in LLM_MODELS[model].traps)
 
-    if leg.provider == "azure_openai" and credentials is None:
-        # THE PASSTHROUGH ARM, unchanged and deliberately narrow. With no Azure leg
-        # configured there is no deployment indirection and no endpoint to name, so the
-        # model goes to the engine's own default client — which is what every conformance
-        # fixture and every local run exercises. `configured_model` rather than `model`:
-        # nobody chose, so the engine's default is the honest thing to send, and
-        # substituting the platform's model here would publish a choice nobody made.
+    if configured_model is None and leg.provider not in installed_llm_providers():
+        # THE PASSTHROUGH ARM: NOBODY CHOSE, AND WE HOLD NO KEY FOR THE LEG THE PLATFORM'S
+        # OWN DEFAULT RUNS ON. Send no model at all and let the engine answer from its own
+        # default client — which is what every conformance fixture, every local run and every
+        # CI run exercises, and what a deployment whose console has not been filled in has
+        # always done.
         #
-        # ⚠ IT IS AZURE-ONLY ON PURPOSE. The other two legs have no analogue: their
-        # credential lives in the engine's store, so "unconfigured" there is not a
-        # passthrough, it is an agent that will 401 on its first turn. They fall through to
-        # the refusal below, which is the loud direction.
-        return {"llm_model": configured_model}
+        # ⚠ **THE CONDITION USED TO BE `leg is azure_openai and azure_credentials() is
+        # None`, AND BOTH HALVES CHANGED FOR A REASON.**
+        #
+        # * **It is no longer Azure-only**, because the platform default no longer has to be
+        #   an Azure model (`Settings.platform_llm_model`). The old spelling would
+        #   have refused every publish on a deployment whose default is a Gemini model and
+        #   whose Google key is not installed yet — i.e. CI, every local run, and the
+        #   founder's own deployment between the decision and the ops-console work. What the
+        #   arm actually encodes is "this platform cannot address its own default, so the
+        #   engine's default answers", and that sentence was never about Azure.
+        # * **It fires only when NOBODY CHOSE.** The old arm also passed a CLIENT'S CHOSEN
+        #   model through on an unconfigured deployment, which is the one thing this seam
+        #   must not do: it published an agent under a model somebody was quoted and billed
+        #   for while the engine served whatever its own bundled tier holds. A choice we
+        #   cannot honour now falls to the refusal below, which is the loud direction, and
+        #   `validate_llm_model` already refuses that selection at the write path.
+        return {"llm_model": None}
 
     refusal = unofferable_reason(model)
     if refusal is not None:
@@ -888,6 +912,12 @@ def _to_config(tenant_id: UUID, agent: AgentRow, *, engine: VoiceEngine) -> Agen
         # and the answer to a caller who ASKS is `TRUTHFUL_ANSWER_DIRECTIVE`, which no
         # column on this row can reach.
         opening_line=compose_opening_line(posture_of(agent)),
+        # DOES THIS AGENT REMEMBER ITS CALLERS (D-507/D-513)? It reaches the engine as a
+        # PROMPT SECTION and nothing else — the facts are per-call and ride the dial or the
+        # inbound caller-data endpoint, because a fact about ONE person may not be written
+        # onto an agent object every caller shares. The same column also governs
+        # auto-reschedule callbacks (D-514): one switch, one reader.
+        caller_memory_enabled=bool(agent["caller_memory_enabled"]),
         models=ModelConfig(
             # The LLM leg is resolved, not read: see `in_call_llm` for why the endpoint
             # and the identifier it addresses cannot be configured apart (D-410).
@@ -1458,13 +1488,14 @@ def _variant_config(
             # is what makes a toggle flip reach the arms: `republish_running_variants`
             # rebuilds every arm from the agent, so an arm cannot go on greeting callers
             # with a notice its agent has withdrawn.
+            # ONE FIELD SWAPPED ON THE AGENT'S OWN POSTURE, not a second construction of
+            # it. This used to re-list every field by hand, which is precisely the drift
+            # `posture_of` was written to prevent — and it proved the point: a third
+            # sentence added to the posture (D-507) would have reached the agent and not
+            # its experiment arms, so an arm would greet callers without saying the agent
+            # remembers them while the agent said it.
             "opening_line": compose_opening_line(
-                DisclosurePosture(
-                    ai_disclosure_line=disclosure,
-                    ai_disclosure_enabled=bool(agent["ai_disclosure_enabled"]),
-                    recording_notice_line=str(agent["recording_notice_line"]),
-                    recording_notice_enabled=bool(agent["recording_notice_enabled"]),
-                )
+                posture_of(agent).model_copy(update={"ai_disclosure_line": disclosure})
             ),
         }
     )
@@ -1795,6 +1826,48 @@ async def resolve_caller_id(session: AsyncSession, *, agent_id: UUID) -> str | N
     return str(rows[0][0])
 
 
+async def _recall_for_dial(
+    session: AsyncSession,
+    tenant_id: UUID,
+    *,
+    agent: AgentRow,
+    phone_e164: str,
+) -> tuple[str, ...]:
+    """What this agent remembers about the person about to be dialled. Empty is normal.
+
+    **IT FAILS OPEN, AND THAT IS THE DECISION.** A returning caller greeted generically is
+    a missed nicety; a dial that did not happen because a memory lookup raised is a broken
+    product, and the failure would land on the one path a client watches. So every failure
+    here — a number that is not canonical E.164 (`CallerRefError`), a KEK ring that cannot
+    derive, a slow read — becomes an empty tuple and a log line, never an exception through
+    the dial. `CALLER_MEMORY_GUIDANCE` tells the model that an empty block means a caller it
+    does not know, so the degraded state is a correct call rather than a confused one.
+
+    THE SWITCH IS READ OFF THE ROW WE ALREADY HAVE, so an agent that does not remember its
+    callers — every agent by default — costs this path nothing at all, not even a query.
+    `recall()` checks again for itself; that arm is the one that matters if the switch moves
+    between `_load_agent` and here, and a read-side check is not redundant with a write-side
+    one (`compliance/caller_memory.recall`'s own argument).
+
+    HARD RULE 6: ids and a count. Never the number, never a fact.
+    """
+    if not bool(agent["caller_memory_enabled"]):
+        return ()
+    try:
+        facts = await recall(session, tenant_id, agent_id=agent["id"], phone_e164=phone_e164)
+    except Exception:
+        log.warning(
+            "caller_memory_recall_failed_open",
+            extra={"agent_id": str(agent["id"])},
+        )
+        return ()
+    log.info(
+        "caller_memory_recalled_for_dial",
+        extra={"agent_id": str(agent["id"]), "facts": len(facts)},
+    )
+    return facts
+
+
 async def dispatch_call(
     session: AsyncSession,
     *,
@@ -1928,6 +2001,14 @@ async def dispatch_call(
                 lead_id=str(lead_id) if lead_id else None,
                 lead_name=lead_name,
                 context_note=context_note,
+                # WHAT THIS AGENT ALREADY KNOWS ABOUT THE PERSON BEING DIALLED (D-513).
+                # Resolved HERE because this function is the platform's single outbound
+                # entry point — the property `scripts/check_compliance_invariants` asserts
+                # — so the campaign dispatcher, the D-21 "call this lead" button and the
+                # callback path all get it without any of them knowing the feature exists.
+                caller_memory=await _recall_for_dial(
+                    session, tenant_id, agent=agent, phone_e164=phone_e164
+                ),
                 # The per-call prompt with `{{ }}` merge fields resolved from THIS lead's
                 # data (structured builder, D-script). Only the values known at dial time
                 # are supplied; an unfilled field collapses to nothing rather than being

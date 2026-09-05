@@ -28,6 +28,7 @@ import {
 
 import {
   Card,
+  DANGER_BUTTON,
   EmptyState,
   FIELD_LABEL,
   MonoValue,
@@ -40,7 +41,9 @@ import {
   formatCount,
   formatINR,
   formatIST,
+  istDateToInstant,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import {
   useKbDecision,
   useKbPreview,
@@ -62,6 +65,8 @@ import {
   type TmLinkStatus,
 } from "@/lib/api/admin";
 import { useCaps } from "@/lib/api/caps";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 import { holdRule } from "@/lib/api/holds";
 import { viewAsHref } from "@/lib/api/session";
 import { useRecordTenantAlertOptIn, useTenantAlertOptIn } from "@/lib/api/whatsappAlerts";
@@ -117,9 +122,98 @@ export default function TenantDetailPage({
   // stay in this list — filter them out rather than offer a second Publish button.
   const awaitingPublish = (publishQueue.data ?? []).filter((source) => !source.is_active);
   const [selected, setSelected] = useState<string | null>(null);
+  // Two-stage reject (ux-audit F-4): the quiet Reject reveals a confirmation bound to
+  // ONE source, carrying a reason the OPERATOR writes — the old one-click reject sent a
+  // hardcoded "Not suitable for the agent" the operator never saw, into the permanent
+  // `rejection_reason` on the client's document.
+  const [rejecting, setRejecting] = useState<string | null>(null);
+  const [rejectReason, setRejectReason] = useState("");
   const preview = useKbPreview(slug, selected);
   const decide = useKbDecision(tenantId);
   const kbWrite = useAdminAccess("admin:tenants", "decide on this client's knowledge");
+
+  /*
+   * ONE CLIENT, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * THE CROSS-TENANT QUESTION IS ANSWERED BY THE ROUTE HERE, and this is the one admin
+   * shape where per-client detail is the right answer rather than the leak: the URL names
+   * a single tenant, every figure below was read under that tenant's own RLS session, and
+   * an operator asking "why can this client not dial" is asking about the client whose
+   * name is in the heading. The boards that list many tenants (`/admin`, `/admin/health`,
+   * `/admin/holds`, `/admin/spend`) send counts precisely so that the detail lives here,
+   * scoped, once.
+   *
+   * The KB queue is declared as COUNTS and not as titles. A source name is client-authored
+   * text — the rename-your-price-list kind — and the module that guards this seam exists
+   * partly because attacker-authored titles carry invisible characters
+   * (`copilot/sanitize.py`); the document PREVIEW, which is the client's own content, is
+   * further still from anything worth volunteering.
+   *
+   * The reject-reason box is not declared. It is free text an operator writes onto a
+   * client's permanent `rejection_reason`, and a machine-drafted rejection is not a thing
+   * this console should offer at the point the operator is deciding.
+   *
+   * Declared before the three early returns, because a hook cannot sit behind one — and
+   * the loading and not-found renders want the launcher too.
+   */
+  useCopilotSurface({
+    route: "/admin/tenants/{id}",
+    title: "Client",
+    realm: "admin",
+    fields: [],
+    facts: tenant
+      ? [
+          { key: "tenant_id", label: "Tenant id", value: tenantId },
+          { key: "client", label: "Client", value: tenant.name },
+          { key: "slug", label: "Slug", value: tenant.slug },
+          { key: "status", label: "Account status", value: tenant.status },
+          {
+            key: "vertical_template",
+            label: "Vertical template",
+            value: tenant.vertical_template ?? "none",
+          },
+          { key: "live_agents", label: "Live agents", value: String(tenant.live_agents) },
+          { key: "calls_7d", label: "Calls in the last 7 days", value: String(tenant.calls_7d) },
+          { key: "leads", label: "Leads", value: String(tenant.leads) },
+          { key: "last_call_at", label: "Last call", value: tenant.last_call_at ?? "never" },
+          {
+            key: "capped",
+            label: "At the spend ceiling (outbound refused pre-dispatch)",
+            value: tenant.capped ? "yes" : "no",
+          },
+          {
+            key: "holds",
+            label: "Gates holding this account",
+            value:
+              tenant.holds.map((rule) => holdRule(rule)?.label ?? rule).join(", ") || "none",
+          },
+          {
+            key: "kb_awaiting_approval",
+            label: "Knowledge documents awaiting approval (titles are not sent)",
+            value: queue.data ? String(queue.data.length) : "could not be read",
+          },
+          {
+            key: "kb_awaiting_publish",
+            label: "Approved knowledge documents not yet live",
+            value: publishQueue.data ? String(awaitingPublish.length) : "could not be read",
+          },
+          {
+            key: "may_decide_kb",
+            label: "May this operator approve or reject knowledge",
+            value: kbWrite.allowed ? "yes" : "no",
+          },
+        ]
+      : [
+          {
+            key: "client",
+            label: "This client",
+            // A 403, a 500 or a dropped connection is not "no such client", and the
+            // assistant must not be the surface that says it is.
+            value: tenantQuery.error ? "could not be read" : "still loading",
+          },
+        ],
+    apply: noFill,
+  });
 
   if (tenantQuery.isLoading) return <Skeleton rows={6} />;
   // A 403, a 500 or a dropped connection is not "no such client" — saying so sends
@@ -316,20 +410,79 @@ export default function TenantDetailPage({
                     >
                       Approve
                     </PrimaryButton>
+    {/* Reject is a two-stage act (the ops/dnc pattern): this quiet outline
+                        button only OPENS the confirmation below — nothing is sent until
+                        the operator has written why and pressed the rose submit there. */}
                     <DangerButton
                       disabled={decide.isPending || !kbWrite.allowed}
-                      onClick={() =>
-                        decide.mutate({
-                          sourceId: source.id,
-                          decision: "reject",
-                          reason: "Not suitable for the agent",
-                        })
-                      }
+                      onClick={() => {
+                        setRejecting(rejecting === source.id ? null : source.id);
+                        setRejectReason("");
+                      }}
                     >
-                      Reject
+                      {rejecting === source.id ? "Cancel reject" : "Reject…"}
                     </DangerButton>
                   </div>
                 </div>
+                {rejecting === source.id && (
+                  <form
+                    className="mt-3 space-y-2 rounded-card border border-rose-200 bg-rose-50/40 p-3 dark:border-rose-900 dark:bg-rose-950/20"
+                    noValidate
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      decide.mutate(
+                        { sourceId: source.id, decision: "reject", reason: rejectReason.trim() },
+                        {
+                          onSuccess: () => {
+                            setRejecting(null);
+                            setRejectReason("");
+                          },
+                        },
+                      );
+                    }}
+                  >
+                    <p className="text-xs text-rose-900 dark:text-rose-200">
+                      Rejecting <span className="font-semibold">{source.name}</span> v
+                      {source.version}. It stays out of the agent&apos;s answers, and the
+                      reason below is recorded on the document permanently — a repeat
+                      rejection does not rewrite it.
+                    </p>
+                    <label className="block">
+                      <span className={FIELD_LABEL}>Why it can&apos;t be used</span>
+                      <textarea
+                        rows={2}
+                        maxLength={500}
+                        value={rejectReason}
+                        disabled={!kbWrite.allowed}
+                        onChange={(event) => setRejectReason(event.target.value)}
+                        className="mt-1 w-full min-w-0 rounded-md border border-line bg-surface px-2 py-1 text-xs text-ink placeholder:text-ink-faint disabled:cursor-not-allowed disabled:opacity-50 touch:min-h-11"
+                        /* The example must name an action the client can actually take. It used to say
+                           "upload the current rate card", and there is no upload: knowledge is
+                           submitted as TEXT (`POST /v1/kb/sources` refuses `kind="file"` and
+                           `kind="url"`, `apps/api/kb/routes.py:44`) and the console has no file
+                           input at all. An operator copying the example would send a client
+                           looking for a control that does not exist. */
+                        placeholder="e.g. These prices are last year's — send us the current ones and we will put them in"
+                      />
+                    </label>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="submit"
+                        disabled={
+                          decide.isPending || !kbWrite.allowed || rejectReason.trim().length < 3
+                        }
+                        className={DANGER_BUTTON}
+                      >
+                        {decide.isPending ? "Rejecting…" : "Reject this document"}
+                      </button>
+                      {rejectReason.trim().length < 3 && (
+                        <span className="text-xs text-rose-800 dark:text-rose-300">
+                          Write the reason in your own words first — it goes on the record.
+                        </span>
+                      )}
+                    </div>
+                  </form>
+                )}
                 {selected === source.id && (
                   <div className="mt-3 space-y-2">
                     {preview.error ? (
@@ -932,6 +1085,10 @@ function SpendCapPanel({
 
           <form
             className="space-y-3"
+            // A typed confirmation is the only gate and it is not a rule about an answer,
+            // so there is nothing for `useFormValidation` to word. `noValidate` all the
+            // same, so a rule added later cannot be answered by the browser.
+            noValidate
             onSubmit={(e) => {
               e.preventDefault();
               recompute.mutate(undefined, { onSuccess: () => setConfirm("") });
@@ -1104,6 +1261,7 @@ function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: Re
 
       <form
         className="space-y-2"
+        noValidate
         onSubmit={(e) => {
           e.preventDefault();
           record.mutate({
@@ -1111,10 +1269,15 @@ function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: Re
             tm_link_status: tmLink,
             pe_id: peId.trim() || null,
             entity_name: entityName.trim() || null,
-            // `<input type="date">` parsed as LOCAL midnight, not UTC: at +05:30 the
-            // UTC reading of "today" is a moment that has not happened yet, and the
-            // server refuses a future registration date.
-            registered_at: registeredAt ? new Date(`${registeredAt}T00:00:00`).toISOString() : null,
+            // `<input type="date">` read as MIDNIGHT IST, not UTC and not the browser's.
+            // UTC midnight is 05:30 IST, so "today" would be a moment that has not
+            // happened yet and the server refuses a future registration date. The
+            // browser's own midnight avoided that and introduced a worse one: this is the
+            // date on an Indian registrar's letter, it is read back with `formatIST`, and
+            // from a machine east of IST local midnight lands on the previous IST day —
+            // so the same digits filed a different date depending on who typed them.
+            // `istDateToInstant` (components/ui.tsx) is the one spelling of this.
+            registered_at: istDateToInstant(registeredAt),
           });
         }}
       >
@@ -1163,7 +1326,12 @@ function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: Re
           />
           <input
             type="date"
-            aria-label="Registered on"
+            // THE ZONE IS ON SCREEN, for `/admin/ops`'s reason, said there in full: a
+            // `type="date"` carries no zone, so an unlabelled one reads as this machine's
+            // calendar — and this field holds the date printed on an Indian registrar's
+            // letter, which is IST wherever the operator is sitting. The two screens
+            // record the same fact and now say the same thing about it.
+            aria-label="Registered on (IST)"
             value={registeredAt}
             disabled={!write.allowed}
             onChange={(e) => setRegisteredAt(e.target.value)}
@@ -1209,11 +1377,13 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
   const write = useAdminAccess("admin:tenants", "change this client's telecom setup");
 
   const [e164, setE164] = useState("");
+  const numberValid = useFormValidation();
   const [series, setSeries] = useState<"140" | "160" | "standard">("160");
   const [classification, setClassification] = useState<
     "promotional" | "transactional" | "service"
   >("service");
   const [body, setBody] = useState("");
+  const templateValid = useFormValidation();
   const [dltRef, setDltRef] = useState("");
 
   return (
@@ -1277,13 +1447,15 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
           )}
           <form
             className="flex flex-wrap gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
+            noValidate
+            onSubmit={numberValid.onSubmit(() => {
               provision.mutate({ e164, series }, { onSuccess: () => setE164("") });
-            }}
+            })}
           >
             <input
+              {...numberValid.field("e164", "Enter the number to record.")}
               required
+              minLength={8}
               aria-label="Number to record"
               value={e164}
               disabled={!write.allowed}
@@ -1304,9 +1476,12 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
               <option value="160">160 — service</option>
               <option value="standard">standard</option>
             </select>
+            {numberValid.error("e164")}
             <PrimaryButton
               type="submit"
-              disabled={provision.isPending || e164.length < 8 || !write.allowed}
+              /* The length rule is answered at the field now, so the button stays live
+                 and a press produces a sentence rather than nothing. */
+              disabled={provision.isPending || !write.allowed}
             >
               Add
             </PrimaryButton>
@@ -1358,8 +1533,8 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
           )}
           <form
             className="space-y-2"
-            onSubmit={(e) => {
-              e.preventDefault();
+            noValidate
+            onSubmit={templateValid.onSubmit(() => {
               register.mutate(
                 { classification, body, dlt_ref: dltRef || null },
                 {
@@ -1369,7 +1544,7 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
                   },
                 },
               );
-            }}
+            })}
           >
             <div className="flex gap-2">
               <select
@@ -1393,6 +1568,7 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
               />
             </div>
             <textarea
+              {...templateValid.field("body", "Type the wording registered with the registrar.")}
               required
               aria-label="Template wording"
               minLength={10}
@@ -1403,9 +1579,11 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
               placeholder="The exact wording registered with the DLT registrar."
               className={`w-full ${FIELD}`}
             />
+            {templateValid.error("body")}
             <PrimaryButton
               type="submit"
-              disabled={register.isPending || body.length < 10 || !write.allowed}
+              /* The ten-character rule is the field's now. */
+              disabled={register.isPending || !write.allowed}
             >
               Register template
             </PrimaryButton>

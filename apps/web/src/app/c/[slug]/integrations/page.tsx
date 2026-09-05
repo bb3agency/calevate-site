@@ -16,6 +16,7 @@ import {
   Skeleton,
   formatIST,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { ConfirmDialog } from "@/components/confirmDialog";
 import { ApiProblem, type Session } from "@/lib/api/client";
 import { useWriteAccess, type WriteAccess } from "@/lib/api/hooks";
@@ -36,6 +37,8 @@ import {
   type OutboundEvent,
 } from "@/lib/api/integrations";
 import { hasKey, lookup } from "@/lib/lookup";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * Outbound sync (D-23) and its delivery log (SURFACES §2b).
@@ -147,6 +150,120 @@ export default function IntegrationsPage() {
   const mayReadPayload = payloadAccess.allowed;
   const [openPayload, setOpenPayload] = useState<string | null>(null);
   const payload = useDeliveryPayload(session);
+
+  /*
+   * THIS SCREEN, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * ## The endpoint URLs are not sent, and neither is a delivered body
+   *
+   * A delivery payload is a lead — a name, a number, the captured details — which is why
+   * opening one is gated on `calls:read_raw` and writes an audit row. It does not go to a
+   * model. The endpoint URL is not personal, but it is a client's own private address and
+   * it is the thing a mis-typed fill would silently break, so what is declared is the
+   * SHAPE of the integration: how many endpoints, of what kind, subscribed to what,
+   * carrying which content, and how the recent deliveries went.
+   *
+   * That is the vocabulary of the question this screen exists to answer — "did my CRM get
+   * it?" — and the copilot can answer it without seeing one lead.
+   *
+   * ## Nothing is writable
+   *
+   * Registering an endpoint mints a signing secret the API cannot reissue, and turning one
+   * off has no re-activate route (see `stopping` above). Neither is an act to hand to an
+   * assistant, and the create form's own fields are consequently not declared at all.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/integrations",
+    title: "Where your leads are sent",
+    realm: "client",
+    fields: [],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: endpoints.data
+          ? "the endpoints below have loaded"
+          : endpoints.error
+            ? "the endpoints failed to load, so none is listed"
+            : "still loading",
+      },
+      ...(endpoints.data
+        ? [
+            { key: "endpoints_total", label: "Destinations registered", value: String(endpoints.data.length) },
+            {
+              key: "endpoints_active",
+              label: "Of those, still receiving",
+              value: String(endpoints.data.filter((endpoint) => endpoint.active).length),
+            },
+            {
+              key: "endpoint_kinds",
+              label: "What kind each destination is",
+              value:
+                endpoints.data.map((endpoint) => endpoint.kind).join(", ") || "none registered",
+            },
+            {
+              key: "endpoint_events",
+              label: "Events subscribed to across all destinations",
+              value:
+                [...new Set(endpoints.data.flatMap((endpoint) => endpoint.events))].join(", ") ||
+                "none",
+            },
+            {
+              key: "endpoint_content",
+              label: "How many destinations are sent a transcript, a raw transcript, or a recording link",
+              value: `transcript: ${endpoints.data.filter((e) => e.include_transcript).length}, raw transcript: ${endpoints.data.filter((e) => e.include_raw_transcript).length}, recording link: ${endpoints.data.filter((e) => e.include_recording_url).length}`,
+            },
+          ]
+        : []),
+      {
+        key: "deliveries_state",
+        label: "Have the recent deliveries loaded?",
+        value: deliveries.data ? "yes" : deliveries.error ? "no — they failed to load" : "still loading",
+      },
+      ...(deliveries.data
+        ? [
+            { key: "deliveries_listed", label: "Recent deliveries listed", value: String(deliveries.data.length) },
+            {
+              key: "deliveries_by_status",
+              label: "How those deliveries ended",
+              value:
+                [...new Set(deliveries.data.map((delivery) => delivery.status ?? "unknown"))]
+                  .map(
+                    (status) =>
+                      `${status}: ${deliveries.data.filter((delivery) => (delivery.status ?? "unknown") === status).length}`,
+                  )
+                  .join(", ") || "no deliveries yet",
+            },
+            {
+              key: "deliveries_retried",
+              label: "Deliveries that needed more than one attempt",
+              value: String(deliveries.data.filter((delivery) => delivery.attempts > 1).length),
+            },
+          ]
+        : []),
+      ...(options.data
+        ? [
+            { key: "events_available", label: "Events this platform can send", value: options.data.events.join(", ") },
+            {
+              key: "sheets_available",
+              label: "Can this deployment deliver into a Google Sheet?",
+              value: options.data.sheets_delivery_available ? "yes" : "no",
+            },
+          ]
+        : []),
+      {
+        key: "may_change",
+        label: "May this session change where events are sent?",
+        value: write.allowed ? "yes" : `no — ${write.reason ?? "no reason given"}`,
+      },
+      {
+        key: "may_open_payload",
+        label: "May this session open a delivered body?",
+        value: mayReadPayload ? "yes — opening one writes an audit record" : "no",
+      },
+    ],
+    apply: noFill,
+  });
   /**
    * Open = ask the server for THIS delivery. Close, or switch to another row, = throw the
    * previous answer away first.
@@ -169,7 +286,9 @@ export default function IntegrationsPage() {
   return (
     <div className="space-y-5">
       <div>
-        <h1 className="text-xl font-semibold text-ink">Integrations</h1>
+        {/* No <h1>: the app shell prints the page title from the nav list (layout.tsx),
+            and a second "Integrations" beside it is a visible duplicate that keeps the
+            old name when the nav entry is renamed (ux-audit INT-3). */}
         {/* `text-ink-muted`, not `text-ink-faint`: this is the screen's opening
             paragraph at `text-sm`, the same slot every other route in this lane writes in
             muted (`settings/team`, `settings/alerts`). Faint is for a 12px hint beside a
@@ -619,6 +738,7 @@ function WebhookForm({
 }) {
   const create = useCreateEndpoint(session);
   const [url, setUrl] = useState("");
+  const valid = useFormValidation();
   const [events, setEvents] = useState<OutboundEvent[]>(["lead.created"]);
   // The three `call.completed` opt-ins. All start OFF, matching the server default and
   // the base contract (summary and outcome only). `includeRawTranscript` is layered on
@@ -640,8 +760,8 @@ function WebhookForm({
       )}
       <form
         className="space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault();
+        noValidate
+        onSubmit={valid.onSubmit(() => {
           create.mutate(
             {
               url,
@@ -659,7 +779,7 @@ function WebhookForm({
               },
             },
           );
-        }}
+        })}
       >
         {/* A PERSISTENT label, not the placeholder alone. axe's `label` rule accepts a
             placeholder as an accessible name (tests/a11y.ts says so, and it is why this
@@ -667,18 +787,24 @@ function WebhookForm({
             somebody types — which is WCAG 3.3.2's entire complaint, and worst for the
             reader who most needs to re-check what a field wanted. The rest of the
             console labels its fields this way; this input was the exception. */}
-        <label className="block">
-          <span className={FIELD_LABEL}>Where should we send them?</span>
-          <input
-            required
-            type="url"
-            value={url}
-            disabled={!write.allowed}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://your-crm.example.com/calevate"
-            className={INPUT}
-          />
-        </label>
+        <div>
+          <label className="block">
+            <span className={FIELD_LABEL}>Where should we send them?</span>
+            <input
+              {...valid.field("url", "Enter the web address to send events to.")}
+              required
+              type="url"
+              value={url}
+              disabled={!write.allowed}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://your-crm.example.com/calevate"
+              className={INPUT}
+            />
+          </label>
+          {/* Outside the label for the reason the comment above it gives about the hint:
+              enclosed, the sentence becomes part of the field's accessible name. */}
+          {valid.error("url")}
+        </div>
         <EventChoices
           catalogue={catalogue}
           selected={events}
@@ -851,6 +977,7 @@ function SheetsForm({
 }) {
   const create = useCreateSheetsEndpoint(session);
   const [spreadsheet, setSpreadsheet] = useState("");
+  const valid = useFormValidation();
   const [worksheet, setWorksheet] = useState("");
   const [events, setEvents] = useState<OutboundEvent[]>(["lead.created"]);
 
@@ -906,8 +1033,8 @@ function SheetsForm({
       )}
       <form
         className="mt-3 space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault();
+        noValidate
+        onSubmit={valid.onSubmit(() => {
           create.mutate(
             {
               spreadsheet,
@@ -918,7 +1045,7 @@ function SheetsForm({
             },
             { onSuccess: () => setSpreadsheet("") },
           );
-        }}
+        })}
       >
         {/* The hint sits OUTSIDE the label on purpose. A `<label>` wrapping both the
             field and a sentence of guidance makes the whole paragraph the field's
@@ -927,6 +1054,7 @@ function SheetsForm({
         <label className="block">
           <span className={FIELD_LABEL}>Which sheet?</span>
           <input
+            {...valid.field("spreadsheet", "Paste the sheet address, or its id.")}
             required
             value={spreadsheet}
             disabled={!write.allowed}
@@ -935,6 +1063,7 @@ function SheetsForm({
             className={INPUT}
           />
         </label>
+        {valid.error("spreadsheet")}
         <p className="-mt-2 text-xs text-ink-faint">
           Paste the address bar while the sheet is open, or just the document id.
         </p>

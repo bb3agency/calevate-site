@@ -35,6 +35,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { capsKey } from "./caps";
 import { apiRequest, type Session } from "./client";
+import { walletAttemptsKey, walletKey, walletLedgerKey } from "./wallet";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -69,8 +70,12 @@ export const MAX_TOPUP_INR = 100_000;
  * from a null balance: a managed (invoiced) tenant is not "a prepaid tenant with no
  * credit", it is a tenant with nothing to top up, and offering it a top-up form earns
  * a `topup_not_available` refusal after the click instead of before it.
+ *
+ * MIRRORS `apps/api/billing/rates.py::PREPAID_TIERS` and must move with it — `prepaid`
+ * joined both with D-521, which made it the default tier, so the invoiced screen this
+ * list selects is now the rare case rather than the common one.
  */
-export const PREPAID_TIERS = ["self_serve", "trial"] as const;
+export const PREPAID_TIERS = ["prepaid", "self_serve", "trial"] as const;
 
 export function isPrepaid(planTier: string | undefined): boolean {
   return PREPAID_TIERS.includes(planTier as (typeof PREPAID_TIERS)[number]);
@@ -123,9 +128,15 @@ export function useTopUpIntent(session: Session) {
  * out of this console. Invalidating asks the server for the figure instead, and the screen
  * says "updating" until the server's own number changes.
  *
- * Both balance surfaces are invalidated because both render it: `/v1/usage` carries
- * `credit_balance_inr` and `/v1/billing/caps` carries the spend this month is measured
- * against. The same pair `useSetCaps` invalidates, for the same reason.
+ * EVERY surface that renders the balance is invalidated, and the list is the whole
+ * correctness of this hook. `/v1/usage` carries `credit_balance_inr` and
+ * `/v1/billing/caps` carries the spend this month is measured against — the pair
+ * `useSetCaps` invalidates. The three WALLET keys are the ones added when the credits
+ * screen was built, and forgetting them was a real defect for exactly one test run: the
+ * top-up panel now LIVES on `/c/{slug}/credits`, so a hook that refreshed only the two
+ * Usage reads left a client staring at their old balance on the very screen they had just
+ * paid from. `topups` is in the list for the same reason one step along — the attempt they
+ * just completed should stop being listed as unfinished.
  */
 export function useConfirmTopUp(session: Session) {
   const queryClient = useQueryClient();
@@ -142,6 +153,9 @@ export function useConfirmTopUp(session: Session) {
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["usage", session.orgSlug] });
       void queryClient.invalidateQueries({ queryKey: capsKey(session.orgSlug) });
+      void queryClient.invalidateQueries({ queryKey: walletKey(session.orgSlug) });
+      void queryClient.invalidateQueries({ queryKey: walletLedgerKey(session.orgSlug) });
+      void queryClient.invalidateQueries({ queryKey: walletAttemptsKey(session.orgSlug) });
     },
   });
 }

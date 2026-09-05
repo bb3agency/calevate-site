@@ -1253,6 +1253,45 @@ _FALLBACK_DISCLOSURE: Final[dict[tuple[str, str], str]] = {
     ),
 }
 
+#: The same two events, for an account that HAS CHOSEN NOTHING and is therefore running the
+#: model Calevate picked (`resolve_llm_model`'s `platform` rung).
+#:
+#: ⚠ **"YOU CHOSE" IS FALSE ON THAT RUNG, AND IT IS THE ORDINARY RUNG, NOT A CORNER.** The
+#: platform default is `Settings.platform_llm_model` and an account that has never opened the
+#: models screen runs it; since D-530 that default is `gemini-2.5-flash-lite`, a leg this
+#: dashboard cannot serve, so the substitution sentence above is exactly what such an account
+#: is shown. Telling a client they chose a model we chose for them is the
+#: `NO_CREDENTIAL_REASON` defect class — a PLATFORM fact stated as a fact about their account
+#: — and it invites them to go and change a setting they never touched.
+#:
+#: A SECOND TABLE CONSULTED FIRST, rather than a third element in the key of the one above,
+#: because only these sentences depend on who chose: keying every entry on the rung would
+#: duplicate four sentences that do not vary, and two copies of one sentence is how the two
+#: come to disagree. `_disclosure_for` falls through to `_FALLBACK_DISCLOSURE` for the rest.
+#:
+#: The sentence still says the account's model cannot serve the assistant, because that is
+#: the true and useful half; it just does not attribute the model to the reader.
+_PLATFORM_DEFAULT_DISCLOSURE: Final[dict[tuple[str, str], str]] = {
+    (SARVAM_PROVIDER, TENANT_PROVIDER_UNSUPPORTED_REASON): (
+        "This was written by Sarvam, not the AI model on your account: that model runs "
+        "your phone agents, but it cannot be used for the in-app assistant."
+    ),
+    (AZURE_PROVIDER, TENANT_PROVIDER_UNSUPPORTED_REASON): (
+        "This was written by Calevate's own assistant model, not the AI model on your "
+        "account: that model runs your phone agents, but it cannot be used for the in-app "
+        "assistant."
+    ),
+}
+
+
+def _disclosure_for(provider: str, reason: str, *, account_chose_model: bool) -> str | None:
+    """The sentence for (who answered, why), in the words the READER's rung makes true."""
+    if not account_chose_model:
+        chosen_nothing = _PLATFORM_DEFAULT_DISCLOSURE.get((provider, reason))
+        if chosen_nothing is not None:
+            return chosen_nothing
+    return _FALLBACK_DISCLOSURE.get((provider, reason))
+
 
 @dataclass(frozen=True, slots=True)
 class TenantModelLeg:
@@ -1288,6 +1327,16 @@ class TenantModelLeg:
     serves_dashboard: bool
     #: Why not, for an operator. `None` exactly when `serves_dashboard`.
     blocked_reason: str | None = None
+    #: Did the ACCOUNT choose this model, or did we? `resolve_llm_model`'s `agent` and
+    #: `organization` rungs are the account's own choice; its `platform` rung is Calevate's,
+    #: and an account on it has chosen nothing. Carried because several client-facing
+    #: sentences below say "the model you chose", which is only true on the first two.
+    #:
+    #: **DEFAULT `True` SO EVERY DIRECT CONSTRUCTION KEEPS TODAY'S WORDS.** A caller that
+    #: knows the rung (`agents/assist_leg.account_assist_leg`) passes it; the fixtures and
+    #: eval harnesses that construct a leg to exercise the ladder are describing an account
+    #: with a model, which is the choosing case.
+    account_chose_model: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -1327,14 +1376,24 @@ class AssistCapability:
     #: because nobody learns the assistant is off. `assist_unavailable` logs this (ids and
     #: authored codes only, hard rule 6) and never puts it in a `ProblemError` a client reads.
     operator_detail: str | None = None
+    #: Did the account choose the model it runs, or did the platform? Copied from
+    #: `TenantModelLeg.account_chose_model` by the selector, and read ONLY to pick between
+    #: two wordings of one event — never to decide who answers. `True` when there is no
+    #: tenant leg in hand, which is the value that keeps every existing sentence unchanged.
+    account_chose_model: bool = True
 
     @property
     def disclosure(self) -> str | None:
         """The sentence to show beside a substituted answer, or None when nothing was
-        substituted. Keyed by WHO answered and WHY — see `_FALLBACK_DISCLOSURE`."""
+        substituted. Keyed by WHO answered and WHY, and worded by WHOSE CHOICE the model
+        was — see `_FALLBACK_DISCLOSURE` and `_PLATFORM_DEFAULT_DISCLOSURE`."""
         if self.fallback_reason is None or self.provider is None:
             return None
-        return _FALLBACK_DISCLOSURE.get((self.provider, self.fallback_reason))
+        return _disclosure_for(
+            self.provider,
+            self.fallback_reason,
+            account_chose_model=self.account_chose_model,
+        )
 
 
 def azure_credentials() -> tuple[str, str, str] | None:
@@ -1441,7 +1500,11 @@ def assist_capability(
        substitute a model.
     4. **Refuse**, with the reason that stopped everything, when there is no Sarvam key
        either. `assist_unavailable()` turns that into a message with a remediation — one for
-       a client, one for an operator, because the two can act on different things.
+       a client, one for an operator, because the two can act on different things. ⚠ On this
+       rung the reason is `no_credential` even for an account whose own provider could not
+       have served the leg: with nothing left to answer, the operative fact is that this
+       platform holds no assistant leg, and blaming the account's model would be a platform
+       fact reported as a fact about their account (see the branch that decides it).
 
     `tenant_leg`, `quota_exhausted` and `provider_unavailable` are ARGUMENTS rather than
     reads, and for one reason: none is knowable from configuration. The first is a row this
@@ -1477,6 +1540,12 @@ def assist_capability(
     substituted = tenant_leg is not None and not tenant_leg.serves_dashboard
     detail = tenant_leg.blocked_reason if substituted and tenant_leg is not None else None
 
+    # WHOSE MODEL IT IS decides only the WORDING of a substitution, never who answers — so it
+    # is computed beside `substituted` and carried on every answer rather than branched on.
+    # `None` (no account in hand) keeps the choosing wording, exactly as the leg's own default
+    # does, because no sentence about a tenant's choice is reachable without a tenant.
+    chose = tenant_leg is None or tenant_leg.account_chose_model
+
     if blocked is None:
         # RUNG 1, THE GEMINI ARM (D-478). The account runs its OWN Gemini model, that leg
         # serves the dashboard (attested AND addressable — `serves_dashboard`), and this
@@ -1496,7 +1565,9 @@ def assist_capability(
             and tenant_leg.provider == GOOGLE_PROVIDER
             and settings.gemini_api_key
         ):
-            return AssistCapability(available=True, provider=GOOGLE_PROVIDER)
+            return AssistCapability(
+                available=True, provider=GOOGLE_PROVIDER, account_chose_model=chose
+            )
         if azure_credentials() is not None:
             # RUNGS 1 AND 2 ARE ONE WIRE AND TWO PROMISES, and that is not a shortcut. The
             # Azure leg is both the account's own provider (when the account runs Azure) and
@@ -1508,11 +1579,32 @@ def assist_capability(
                 provider=AZURE_PROVIDER,
                 fallback_reason=TENANT_PROVIDER_UNSUPPORTED_REASON if substituted else None,
                 operator_detail=detail,
+                account_chose_model=chose,
             )
         # NO AZURE LEG. Which refusal this becomes is the falsehood the reported defect was:
         # an account with a working provider is NOT an account with no AI configured, and the
         # two states get different codes and different sentences.
-        blocked = TENANT_PROVIDER_UNSUPPORTED_REASON if substituted else NO_CREDENTIAL_REASON
+        #
+        # ⚠ **AND "SUBSTITUTED" IS ONLY SAYABLE WHEN A SUBSTITUTE EXISTS**, which is the
+        # second half of the same rule and was missing. `substituted` says the account's own
+        # provider may not serve this leg; on its own it does NOT say we could have served it
+        # either. With no Azure leg AND no Sarvam key this platform has no assistant at all,
+        # so `tenant_provider_unsupported` would tell a client their model CHOICE is why they
+        # cannot have an assistant — when the truth is that we have configured nothing and a
+        # client on any provider would be refused identically. That is the exact
+        # misreporting `NO_CREDENTIAL_REASON`'s note exists to prevent, pointing the other
+        # way, and it is the state a deployment is in before its keys are installed.
+        #
+        # The Sarvam arm below is unchanged and is where `tenant_provider_unsupported` stays
+        # right: something DID answer, the client is owed the more specific sentence about
+        # whose answer it is, and `_FALLBACK_DISCLOSURE` has it. `operator_detail` carries the
+        # tenant leg's own ground either way, so nothing an operator needs is lost by naming
+        # the platform's gap first.
+        blocked = (
+            TENANT_PROVIDER_UNSUPPORTED_REASON
+            if substituted and settings.sarvam_api_key
+            else NO_CREDENTIAL_REASON
+        )
 
     if settings.sarvam_api_key:
         return AssistCapability(
@@ -1520,8 +1612,11 @@ def assist_capability(
             provider=SARVAM_PROVIDER,
             fallback_reason=blocked,
             operator_detail=detail,
+            account_chose_model=chose,
         )
-    return AssistCapability(available=False, reason=blocked, operator_detail=detail)
+    return AssistCapability(
+        available=False, reason=blocked, operator_detail=detail, account_chose_model=chose
+    )
 
 
 #: The refusal's REMEDIATION, keyed by (audience, reason). The client half and the operator
@@ -1572,11 +1667,33 @@ _ASSIST_REMEDIATION: Final[dict[tuple[str, str], str]] = {
         "assistant — there is nothing to change on your side."
     ),
     ("operator", TENANT_PROVIDER_UNSUPPORTED_REASON): (
-        "This account's chosen model runs on a provider that may not serve the dashboard "
-        "assist leg (agents/llm_models.dashboard_leg_reason says which ground), and this "
+        # RUNG-NEUTRAL ON PURPOSE. It said "this account's CHOSEN model", which is false for
+        # an account still on the platform default — the same falsehood the client half
+        # carried. The operator's remedy is identical either way, so one true sentence beats
+        # two, and `operator_detail` still names the provider ground in the log line.
+        "The model this account runs — its own choice, or the platform default when it has "
+        "made none — is on a provider that may not serve the dashboard assist leg "
+        "(agents/llm_models.dashboard_leg_reason says which ground), and this "
         "deployment has nothing to substitute. Install an Azure OpenAI resource "
         "(AZURE_OPENAI_RESOURCE + AZURE_OPENAI_API_KEY + AZURE_OPENAI_DEPLOYMENT) or a "
         "Sarvam API key (DEV-SETUP §4)."
+    ),
+}
+
+#: The refusals whose CLIENT sentence is false for an account that has chosen no model, in
+#: the words that are true for it — `_PLATFORM_DEFAULT_DISCLOSURE`'s argument, one surface
+#: over, and consulted the same way (this table first, the one above for everything else).
+#:
+#: ONLY THE CLIENT HALF IS HERE, and the absence of an operator entry is a decision: an
+#: operator's remedy does not change with whose choice the model was, so the sentence above
+#: was made rung-neutral instead of duplicated. Two copies of one instruction is how the two
+#: come to disagree about which environment variables to install.
+_PLATFORM_DEFAULT_REMEDIATION: Final[dict[tuple[str, str], str]] = {
+    ("client", TENANT_PROVIDER_UNSUPPORTED_REASON): (
+        "The AI model on your account runs your phone agents, but it cannot be used for the "
+        "in-app assistant, and no other assistant is set up for your account yet. Your "
+        "agents are not affected. Ask your Calevate team to enable the assistant — there is "
+        "nothing to change on your side."
     ),
 }
 
@@ -1615,6 +1732,12 @@ def assist_unavailable(
     """
     reason = capability.reason or NO_CREDENTIAL_REASON
     operator_remediation = _ASSIST_REMEDIATION[("operator", reason)]
+    remediation = _ASSIST_REMEDIATION[(audience, reason)]
+    if not capability.account_chose_model:
+        # An account on the platform default chose nothing, so a sentence about "the model
+        # you chose" is a platform fact told as a fact about their account. Same table shape
+        # as the disclosure's: an override where the words differ, the original everywhere.
+        remediation = _PLATFORM_DEFAULT_REMEDIATION.get((audience, reason), remediation)
     log.warning(
         "assist_unavailable",
         extra={
@@ -1631,7 +1754,7 @@ def assist_unavailable(
         code=f"assist_{reason}",
         title="AI assistance is not available",
         detail=_ASSIST_DETAIL[audience],
-        remediation=_ASSIST_REMEDIATION[(audience, reason)],
+        remediation=remediation,
     )
 
 
@@ -1777,6 +1900,36 @@ async def run_assist(
     return AssistResult(output=output, capability=capability)
 
 
+def _nothing_was_said(spec: ExtractionSchemaSpec) -> ExtractionOutput:
+    """The extraction of a call in which nobody said anything, WITHOUT paying for it.
+
+    A model cannot answer a question about words that do not exist, so the only honest
+    answer is the schema's own verdict on an empty object — every required field missing,
+    nothing captured, no summary. `validate_extraction(spec, {})` computes exactly that,
+    so this row is byte-identical to the one a perfectly behaved model would have
+    produced, minus the round trip.
+
+    `outcome_tag` is `dropped` rather than `resolved`: a call with no transcript resolved
+    nothing, and `resolved` is what the CRM fan-out publishes to the client's own system.
+    `sentiment` stays `neutral`, which is what "we cannot tell" has always meant here.
+
+    NOT a `_model` error. `pipeline._settled_extraction` refuses to reuse a row carrying
+    one, because that code means "the provider never answered and a retry is the repair" —
+    and re-driving this call would ask the same unanswerable question again. There is
+    nothing to retry: the transcript is empty and a second look will not fill it.
+    """
+    outcome = validate_extraction(spec, {})
+    return ExtractionOutput(
+        data=outcome.data,
+        summary="",
+        sentiment="neutral",
+        outcome_tag="dropped",
+        valid=outcome.valid,
+        errors=outcome.errors,
+        needs_review=outcome.needs_review,
+    )
+
+
 async def extract_call(
     spec: ExtractionSchemaSpec, transcript: str, *, extractor: Extractor | None = None
 ) -> ExtractionOutput:
@@ -1785,7 +1938,22 @@ async def extract_call(
     A model failure does NOT fail the call: an extraction row still lands with
     `valid=False` and the error, so the call, the lead and the metering all survive an
     LLM outage. Losing the structured fields is recoverable; losing the call is not.
+
+    **A TRANSCRIPT WITH NO WORDS IN IT NEVER REACHES A PROVIDER.** Voicemail, an
+    immediate hangup, a ring the vendor still reports `completed`, a caller who says
+    nothing — all of them arrive here as an empty string, and every one of them used to
+    buy a chargeable round trip (the Sarvam chat leg is priced per token,
+    `billing/rates.SARVAM_LLM_INR_PER_MTOK`) to ask a model what was said in a silence.
+    On an outbound campaign, answering machines are not the rare case. The guard is HERE
+    rather than in the pipeline because `run_assist` reaches this same function and would
+    otherwise keep its own copy of the rule — one door, per CLAUDE.md.
+
+    Whitespace-only counts as empty: `pipeline._persist_transcript` builds this string
+    from turns, so a reading in which every turn's `text` came back blank is a silence
+    spelled with newlines.
     """
+    if not transcript.strip():
+        return _nothing_was_said(spec)
     runner = extractor or get_extractor()
     try:
         raw = await runner.run(spec, transcript)

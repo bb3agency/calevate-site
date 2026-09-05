@@ -15,6 +15,7 @@ import {
   ProblemNotice,
   SECONDARY_BUTTON,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { ApiProblem } from "@/lib/api/client";
 import { CLIENT_ACCOUNT_PATH, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { ClientSessionProvider, useClientSessionRow } from "@/lib/authn/clientSession";
@@ -387,6 +388,7 @@ function ConfirmYourAddress({
 function SignupForm() {
   const signup = useSignup();
   const [businessName, setBusinessName] = useState("");
+  const valid = useFormValidation();
   const [slug, setSlug] = useState("");
   const [vertical, setVertical] = useState<string>("clinic");
   const [language, setLanguage] = useState<SignupLanguage>("te-IN");
@@ -523,9 +525,13 @@ function SignupForm() {
                 ))}
               </ul>
             )}
-            {problem.traceId && (
-              <p className="font-mono text-[11px]">ref {problem.traceId}</p>
-            )}
+            {/* NO TRACE REFERENCE ON THIS BRANCH. This arm is reached only when the
+                server named specific answers to change, which is a refusal the person
+                can clear themselves — and a 32-character id printed beside "check the
+                answers marked below" competes with the only line that helps, and makes a
+                fixable form look like an outage. `ProblemNotice` (the branch above, for a
+                refusal that names nothing to fix) applies the same rule and still carries
+                the reference where it is genuinely ours to look up. */}
           </div>
         </NoticeBox>
       )}
@@ -533,8 +539,8 @@ function SignupForm() {
       <Card>
         <form
           className="space-y-5"
-          onSubmit={(e) => {
-            e.preventDefault();
+          noValidate
+          onSubmit={valid.onSubmit(() => {
             // Everything a prospect typed travels in the POST body. Nothing is ever put
             // in the path or a query string — hard rule 6: a URL lands in access logs,
             // proxy logs and the Referer header of the next request.
@@ -549,17 +555,21 @@ function SignupForm() {
               plan_tier: "self_serve",
               ...(email.trim() ? { billing_email: email.trim() } : {}),
             });
-          }}
+          })}
         >
           <Field
             id={FIELD_IDS.business_name}
             label="Business name"
             hint="What your callers know you as."
-            error={fieldMessage(fields, "business_name")}
+            /* OURS FIRST, then the server's. They are two answers to one question and
+               only one can be shown; the client's is about what is on screen right now,
+               while the server's arrived before the last keystroke. */
+            error={valid.message("business_name") ?? fieldMessage(fields, "business_name")}
           >
             {(props) => (
               <input
                 {...props}
+                {...valid.track("business_name", "Enter your business name.")}
                 required
                 minLength={2}
                 maxLength={120}
@@ -575,13 +585,14 @@ function SignupForm() {
             id={FIELD_IDS.slug}
             label="Workspace URL"
             hint="Permanent once created — it cannot be changed later."
-            error={fieldMessage(fields, "slug")}
+            error={valid.message("slug") ?? fieldMessage(fields, "slug")}
           >
             {(props) => (
               <div className="mt-1 flex items-center gap-1">
                 <span className="font-mono text-sm text-ink-faint">/c/</span>
                 <input
                   {...props}
+                  {...valid.track("slug", "Choose a web address for your workspace.")}
                   required={mustChooseSlug}
                   minLength={mustChooseSlug ? 3 : undefined}
                   value={slug}
@@ -656,11 +667,12 @@ function SignupForm() {
             id={FIELD_IDS.billing_email}
             label="Billing email"
             hint="Optional — where invoices go."
-            error={fieldMessage(fields, "billing_email")}
+            error={valid.message("billing_email") ?? fieldMessage(fields, "billing_email")}
           >
             {(props) => (
               <input
                 {...props}
+                {...valid.track("billing_email", "Enter the email address for invoices.")}
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -673,7 +685,9 @@ function SignupForm() {
           <div className="space-y-2">
             <button
               type="submit"
-              disabled={signup.isPending || businessName.trim().length < 2}
+              /* The name rule is not repeated here: the field answers it in a sentence,
+                 and a button dead at one character said nothing at all. */
+              disabled={signup.isPending}
               className={PRIMARY_BUTTON}
             >
               {signup.isPending ? "Creating…" : "Create workspace"}

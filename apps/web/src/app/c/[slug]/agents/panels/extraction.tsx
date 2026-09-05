@@ -18,6 +18,7 @@ import {
   SECONDARY_BUTTON,
   SectionHeading,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { useToast } from "@/components/interior/toaster";
 import { ARCHIVED_STATUS } from "@/lib/agentState";
 import { useWriteAccess } from "@/lib/api/hooks";
@@ -25,7 +26,7 @@ import { useSetExtractionSchema, type Agent } from "@/lib/api/agents";
 import { useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 import { useCopilotSurface } from "@/lib/copilot/registry";
-import { asText } from "@/lib/copilot/types";
+import { asText, noFill } from "@/lib/copilot/types";
 
 import {
   FIELD_TYPE_COPY,
@@ -70,6 +71,9 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
   const wireFields = toWireFields(rows);
   const dirty = canonical(wireFields) !== savedCanonical;
   const clientError = clientValidationError(rows);
+  /* A nameless variable is answered AT its row (see `FieldEditorRow`); the two rules
+     `clientValidationError` still holds are about the list as a whole. */
+  const valid = useFormValidation();
 
   /*
    * THE CAPTURE COLUMNS, DECLARED TO THE SCREEN ASSISTANT.
@@ -136,6 +140,56 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
       }
       return fields;
     }),
+    /*
+     * THE AGENT THIS PANEL BELONGS TO, and the reason it is declared HERE rather than on
+     * the workspace around it.
+     *
+     * `registry.ts` keeps a STACK and the innermost registration wins — and child effects
+     * commit before their parent's, so a surface declared by `AgentWorkspace` would push
+     * on top of this one and take the capture columns away from the assistant on the one
+     * screen they can be edited from. The agent's own state is small, so it travels with
+     * the panel instead of displacing it.
+     *
+     * Every value here is the agent's configuration, which is the client's own writing —
+     * no caller, no lead and no transcript is reachable from this component at all.
+     */
+    facts: [
+      { key: "agent_id", label: "Agent id", value: agent.id },
+      { key: "agent_name", label: "Agent name", value: agent.name },
+      { key: "agent_status", label: "Status", value: agent.status },
+      { key: "agent_direction", label: "Direction", value: agent.direction },
+      { key: "agent_language", label: "Primary language", value: agent.language_primary },
+      {
+        key: "agent_published",
+        label: "Is what callers hear the same as what is saved here?",
+        value: agent.published ? "yes — it is published" : "no — there are unpublished changes",
+      },
+      {
+        key: "agent_inbound_numbers",
+        label: "Numbers this agent answers",
+        value: String(agent.inbound_number_count),
+      },
+      {
+        key: "agent_llm_model",
+        label: "AI model it runs on",
+        value: `${agent.llm_model_effective} (chosen at the ${agent.llm_model_source} level)`,
+      },
+      {
+        key: "agent_announcements",
+        label: "What it volunteers at the start of a call",
+        value: `AI disclosure: ${agent.ai_disclosure_enabled ? "on" : "off"}, recording notice: ${agent.recording_notice_enabled ? "on" : "off"}`,
+      },
+      {
+        key: "capture_unsaved",
+        label: "Are there unsaved changes to the capture list?",
+        value: dirty ? "yes" : "no",
+      },
+      {
+        key: "capture_may_save",
+        label: "May this session save the capture list?",
+        value: write.allowed ? "yes" : "no",
+      },
+    ],
     apply: (items) => {
       setRows((current) =>
         current.map((row) => {
@@ -202,8 +256,8 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
 
       <form
         className="mt-4 space-y-4"
-        onSubmit={(event) => {
-          event.preventDefault();
+        noValidate
+        onSubmit={valid.onSubmit(() => {
           if (!write.allowed || !dirty || clientError || save.isPending) return;
           save.mutate(
             { fields: toWireFields(rows) },
@@ -216,7 +270,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
               },
             },
           );
-        }}
+        })}
       >
         {rows.length === 0 ? (
           <p className="rounded-lg border border-line bg-app px-3 py-3 text-sm text-ink-muted">
@@ -233,6 +287,7 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
                 index={index}
                 total={rows.length}
                 disabled={!write.allowed || save.isPending}
+                validation={valid}
                 onChange={(patch) => patchRow(row.uid, patch)}
                 onDelete={() => setRows((current) => current.filter((r) => r.uid !== row.uid))}
                 onMoveUp={() => move(index, -1)}
@@ -303,6 +358,37 @@ function ArchivedExtractionList({
   agent: Agent;
   leadsHref: ReactNode;
 }) {
+  /*
+   * THE ARCHIVED AGENT'S SCREEN, DECLARED — because otherwise it is the one agent screen
+   * with no launcher on it.
+   *
+   * `ExtractionEditor` carries the declaration for a working agent; a retired one renders
+   * this component instead, and a screen whose whole subject is "what did this agent used
+   * to do" is exactly where somebody asks. No field: the columns are a record of what the
+   * agent did and editing them would rewrite that record, which is why this list is
+   * read-only in the first place.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/agents/{id} — a retired agent",
+    title: "A retired agent",
+    realm: "client",
+    fields: [],
+    facts: [
+      { key: "agent_id", label: "Agent id", value: agent.id },
+      { key: "agent_name", label: "Agent name", value: agent.name },
+      { key: "agent_status", label: "Status", value: agent.status },
+      { key: "agent_archived_at", label: "Retired (UTC)", value: agent.archived_at ?? "not recorded" },
+      { key: "agent_direction", label: "What it used to do", value: agent.direction },
+      { key: "agent_language", label: "What it spoke", value: agent.language_primary },
+      {
+        key: "capture_fields",
+        label: "Details it used to write down (the field names, never a value)",
+        value: agent.extraction_fields.map((field) => field.label).join(", ") || "none",
+      },
+    ],
+    apply: noFill,
+  });
+
   return (
     <section>
       <SectionHeading icon={<ListChecks className="h-3.5 w-3.5" />}>

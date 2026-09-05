@@ -547,10 +547,11 @@ async def _seed_lead(tenant_id: UUID, lead_id: UUID) -> None:
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, language_primary, "
-                "disclosure_line, ai_disclosure_line, recording_notice_line, status, created_at, "
-                "updated_at) VALUES (:id, :t, 'Alerts', 'inbound', 'te-IN', 'This is an AI "
-                "assistant.', 'This is an AI assistant.', 'This call is being recorded.', 'draft', "
-                "now(), now())"
+                "disclosure_line, ai_disclosure_line, recording_notice_line, "
+                "caller_memory_notice_line, status, created_at, updated_at) VALUES (:id, :t, "
+                "'Alerts', 'inbound', 'te-IN', 'This is an AI assistant.', 'This is an AI "
+                "assistant.', 'This call is being recorded.', 'I keep a short note of what you "
+                "ask about.', 'draft', now(), now())"
             ),
             {"id": agent_id, "t": tenant_id},
         )

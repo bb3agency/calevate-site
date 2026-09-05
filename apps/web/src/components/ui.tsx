@@ -238,12 +238,38 @@ const SWITCH_TRACK =
  * `summary` is the whole control, so it carries `touch:min-h-11` for SC 2.5.8's target
  * size; `subtitle` lets the closed state say what is inside without the reader opening it,
  * which is the "information scent" that makes a disclosure findable at all.
+ *
+ * ## `variant="inline"` — the same mechanism at strip size
+ *
+ * A card-shaped panel is the right container for a section. It is the wrong one for a
+ * LIST of one-line facts, each of which has a longer sentence behind it: five bordered
+ * cards inside a card is a stack of chrome around ten words apiece, and the doc comment
+ * above says outright that a disclosed panel is a peer of a card and never nested in one.
+ * `variant="inline"` drops the border, the shadow and the padding and keeps everything
+ * that makes this component the console's one disclosure: the native `<details>`, the
+ * announced state, the Show/Hide affordance in words, and the touch target.
+ *
+ * It is a VARIANT rather than a second component because the alternative on offer was a
+ * hand-rolled `<details>` beside `WhatCallsCost`, which is the thing UX-DOCTRINE §3
+ * forbids ("do not hand-roll a second").
+ *
+ * Two contract differences, both deliberate:
+ *
+ * - **`headingLevel`.** The card variant's `h2` is a peer of `Card`'s own `h2`. An inline
+ *   disclosure sits INSIDE a card's body, under that `h2`, so it takes `3` there —
+ *   otherwise the heading list reads as two peers where one contains the other.
+ * - **`subtitle` is not expected.** §3 requires the closed state to carry the FACT rather
+ *   than a tease; in the inline variant the TITLE is the fact ("No GST is added, and we
+ *   cannot issue a tax invoice") and the body is only the elaboration, so a subtitle would
+ *   be a third line of text on a strip that exists to remove text.
  */
 export function Disclosure({
   title,
   subtitle,
   icon,
   defaultOpen = false,
+  variant = "card",
+  headingLevel = 2,
   children,
   className,
 }: {
@@ -251,14 +277,21 @@ export function Disclosure({
   subtitle?: ReactNode;
   icon?: ReactNode;
   defaultOpen?: boolean;
+  variant?: "card" | "inline";
+  headingLevel?: 2 | 3;
   children: ReactNode;
   className?: string;
 }) {
+  const inline = variant === "inline";
+  const Heading = headingLevel === 3 ? "h3" : "h2";
   return (
     <details
       open={defaultOpen}
       className={clsx(
-        "group rounded-card border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
+        "group",
+        inline
+          ? "border-b border-line/60 last:border-b-0"
+          : "rounded-card border border-line bg-surface shadow-[0_1px_2px_rgba(0,0,0,0.02)]",
         className,
       )}
     >
@@ -268,17 +301,34 @@ export function Disclosure({
           can jump to from the heading list and one they can only find by tabbing. WCAG 2.2
           1.3.1 / 2.4.6 — the level is fixed at 2 for `Disclosure`'s reason above `Card`:
           a disclosed panel is a peer of a card, never nested inside one. */}
-      <summary className="flex cursor-pointer list-none items-center gap-3 px-4 py-4 touch:min-h-11 sm:px-6 [&::-webkit-details-marker]:hidden">
+      <summary
+        className={clsx(
+          "flex cursor-pointer list-none items-center gap-3 touch:min-h-11 [&::-webkit-details-marker]:hidden",
+          inline ? "py-2" : "px-4 py-4 sm:px-6",
+        )}
+      >
         {icon && (
           <span
             aria-hidden
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong"
+            className={clsx(
+              "flex shrink-0 items-center justify-center",
+              inline
+                ? "text-brand"
+                : "h-8 w-8 rounded-full bg-brand-soft text-brand-strong",
+            )}
           >
             {icon}
           </span>
         )}
         <span className="min-w-0 flex-1">
-          <h2 className="text-[15px] font-semibold text-ink">{title}</h2>
+          <Heading
+            className={clsx(
+              "text-ink",
+              inline ? "text-sm font-medium" : "text-[15px] font-semibold",
+            )}
+          >
+            {title}
+          </Heading>
           {subtitle && (
             <span className="block text-xs text-ink-muted">{subtitle}</span>
           )}
@@ -294,7 +344,13 @@ export function Disclosure({
           className="h-4 w-4 shrink-0 text-ink-faint transition-transform group-open:rotate-180"
         />
       </summary>
-      <div className="border-t border-line p-4 sm:p-6">{children}</div>
+      <div
+        className={clsx(
+          inline ? "pb-3 pr-6 text-sm text-ink-muted" : "border-t border-line p-4 sm:p-6",
+        )}
+      >
+        {children}
+      </div>
     </details>
   );
 }
@@ -529,12 +585,44 @@ export function TermGloss({
 }
 
 /**
+ * The problem kinds where a support reference is worth printing.
+ *
+ * A reference is for a failure only WE can look into. `validation`, `permission`,
+ * `auth`, `not_found`, `conflict` and `business_rule` are the API telling the person what
+ * it needs — a 32-character id beside "check what you entered" makes a typo look like an
+ * outage, which is exactly what the photographed sign-in box did. The three kinds here
+ * are the ones whose answer is in a log line rather than on the screen
+ * (`apps/api/core/errors.py`: `dependency`, `transient`, `internal`).
+ */
+const REFERENCE_KINDS = new Set(["dependency", "transient", "internal"]);
+
+/**
  * Renders an RFC-9457 problem the way its fields intend.
  *
  * The reason this exists instead of `alert(error.message)`: the API distinguishes a
  * compliance refusal ("this number is on the do-not-call list") from a transient
  * failure, and tells us which is which via `retryable` + `remediation`. Flattening
  * both into "something went wrong" would make the compliance gate look like a bug.
+ *
+ * ## The hierarchy, and why the support reference moved down it
+ *
+ * A live sign-in refusal was photographed reading: *"One or more fields are invalid /
+ * Correct the fields named in this response and send the request again / password: String
+ * should have at least 12 characters / Support reference: 9c83825c…"*. The server half of
+ * that is somebody else's fix. THIS half is that four things were given near-equal weight,
+ * and the only one that helped — use a longer password — was third.
+ *
+ * So: the sentence is the loudest thing in the box; what to do next sits under it; and the
+ * support reference is shown **only when there is genuinely something for support to look
+ * up**. A 4xx is the API telling the person what it needs — a 32-character id beside it is
+ * noise that makes a fixable refusal look like an outage. A 5xx, an unclassified failure,
+ * or a refusal that names nothing to do, is ours: there the reference is the whole point,
+ * because it is what turns "it broke" into a row somebody can find.
+ *
+ * `break-words` on every element that can hold server prose, because the server puts the
+ * CLIENT's own strings in it — the endpoint URL they typed on `/integrations`, a slug, a
+ * host. One 300-character token with no space in it walked a 320px card off the screen,
+ * and `overflow-wrap` does not inherit past a child that sets its own.
  */
 export function ProblemNotice({
   error,
@@ -545,34 +633,51 @@ export function ProblemNotice({
 }) {
   if (!error) return null;
   const problem = error instanceof ApiProblem ? error : null;
-  const title = problem?.message ?? "Something went wrong.";
+  // A blank `detail` is the ABSENCE of a sentence, and `ApiProblem` now hands one back as
+  // `"We could not finish that."` rather than as `""` — but a plain `Error` thrown by a
+  // screen ("This preview could not be loaded.") reaches here too, and an empty message on
+  // one of those would still paint a box with no words in it.
+  const title = problem?.message?.trim() || (problem === null ? "Something went wrong." : "We could not finish that.");
   // Anything that is not an ApiProblem never reached the API — a dropped connection,
   // a DNS failure, a laptop that slept. The API's `retryable` cannot speak for those,
   // and they are the most retryable failures there are, so the button must not depend
   // on it: without this, a client on a train watches a screen with no way forward
   // except reloading the page.
   const canRetry = Boolean(onRetry) && (problem === null || problem.retryable);
+  // See the docstring: a reference is for a failure only WE can look into. A 4xx that
+  // told the person what it needs is not one, and the id beside it only competes with the
+  // instruction.
+  const ours = problem !== null && REFERENCE_KINDS.has(problem.kind);
   return (
     <div
       role="alert"
       className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
     >
-      <p className="font-medium">{title}</p>
+      <p className="break-words text-[15px] font-semibold leading-snug">{title}</p>
       {problem?.remediation && (
-        <p className="mt-1 text-rose-800 dark:text-rose-300">
+        <p className="mt-1 break-words text-rose-800 dark:text-rose-300">
           {problem.remediation}
         </p>
       )}
       {problem === null && (
-        <p className="mt-1 text-rose-800 dark:text-rose-300">
+        <p className="mt-1 break-words text-rose-800 dark:text-rose-300">
           We could not reach Calevate. Check your connection and try again.
         </p>
       )}
       {problem?.fields?.length ? (
         <ul className="mt-2 list-inside list-disc">
           {problem.fields.map((f) => (
-            <li key={f.field}>
-              <span className="font-medium">{f.field}</span>: {f.message}
+            /* The NOUN comes from the server (`label`) or is left off entirely. It used
+               to be derived here from `f.field`, which is a wire path — that derivation
+               printed `password: String should have at least 12 characters` in the
+               photographed box, our schema's word for the thing in front of the person's
+               own word for it. The path is still sent, and is still used to mark the
+               right input; it is not for reading. */
+            <li key={f.field} className="break-words">
+              {f.label ? (
+                <span className="break-words font-medium">{f.label}: </span>
+              ) : null}
+              {f.message}
             </li>
           ))}
         </ul>
@@ -586,10 +691,10 @@ export function ProblemNotice({
           Try again
         </button>
       )}
-      {problem?.traceId && (
-        <p className="mt-2 text-[11px] text-rose-700 dark:text-rose-400">
-          Support reference:{" "}
-          <span className="font-mono">{problem.traceId}</span>
+      {ours && problem.traceId && (
+        <p className="mt-2 break-words text-[11px] text-rose-700 dark:text-rose-400">
+          If you tell us about this, quote{" "}
+          <span className="break-all font-mono">{problem.traceId}</span>
         </p>
       )}
     </div>
@@ -743,6 +848,25 @@ export function TypedConfirmation({
 
 export const FIELD =
   "mt-1 w-full rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint touch:min-h-11";
+/**
+ * The same control for a FLEX ROW, where `FIELD`'s `w-full` would be wrong.
+ *
+ * `min-w-0 max-w-full` instead: an <input> with no width utility sizes to its `size`
+ * attribute (~20 characters), which at the 16px this repo gives touch devices is ~256px
+ * — 2px wider than the 254px card it sits in at 320px, so it painted across the border.
+ * A CAP rather than `w-full` because these sit in flex rows where a forced full width
+ * would restyle the desktop console; `min-w-0` because a flex item will not otherwise
+ * shrink below its own min-content.
+ *
+ * Hoisted from `do-not-call` and `messaging-consent`, which each carried the
+ * byte-identical trio under the SAME NAME as this module's `FIELD` — shadowing that made
+ * any future edit here silently not reach them (ux-audit MC-2).
+ */
+export const FIELD_INLINE =
+  "rounded-md border border-line bg-surface px-3 py-1.5 text-sm text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11";
+/** `FIELD_INLINE` with room for a leading icon. */
+export const FIELD_INLINE_ICON =
+  "rounded-md border border-line bg-surface pl-8 pr-3 py-1.5 text-sm text-ink placeholder:text-ink-faint min-w-0 max-w-full touch:min-h-11";
 /**
  * `block` IS THE FIX FOR A BUG THAT LOOKED LIKE THREE DIFFERENT DESIGNS.
  *
@@ -936,11 +1060,27 @@ export function SkipLink() {
   );
 }
 
-export function EmptyState({ title, hint }: { title: string; hint?: string }) {
+export function EmptyState({
+  title,
+  hint,
+  action,
+}: {
+  title: string;
+  hint?: string;
+  /**
+   * The next meaningful action, when one exists — a Link or button that creates the
+   * first item or opens the screen that does. Without this slot every empty state in
+   * the product was structurally a dead end: the sentence could name an action and the
+   * screen could not offer it (ux-audit entry-auth F-18). Optional on purpose — an
+   * empty state that is the GOOD state (an empty holds queue) rightly offers nothing.
+   */
+  action?: ReactNode;
+}) {
   return (
     <div className="py-10 text-center">
       <p className="text-sm font-medium text-ink">{title}</p>
       {hint && <p className="mt-1 text-xs text-ink-muted">{hint}</p>}
+      {action && <div className="mt-4 flex justify-center">{action}</div>}
     </div>
   );
 }
@@ -1147,16 +1287,47 @@ export function hasNonZeroDigit(value: string): boolean {
   return /[1-9]/.test(value);
 }
 
-/** Times are stored UTC and shown IST at the edge (CLAUDE.md conventions). */
+/**
+ * Times are stored UTC and shown IST at the edge (CLAUDE.md conventions).
+ *
+ * The unparseable arm is not defensive padding: `new Date("…").toLocaleString()` renders
+ * the literal words **"Invalid Date"**, and this is the helper all hundred-odd timestamps
+ * on this console go through. Every other date helper in this file and beside it already
+ * guards it (`formatCallCap`, `istDateToInstant`, the quality screen's `calendarDay`);
+ * this one did not, so one malformed instant anywhere in an API response put a phrase from
+ * a JavaScript runtime in front of a shop owner. "—" is the same absence marker the null
+ * arm above already uses, and it is honest: we do not know when this happened.
+ */
 export function formatIST(value: string | null | undefined): string {
   if (!value) return "—";
-  return new Date(value).toLocaleString("en-IN", {
+  const at = new Date(value);
+  if (Number.isNaN(at.getTime())) return "—";
+  return at.toLocaleString("en-IN", {
     timeZone: "Asia/Kolkata",
     day: "2-digit",
     month: "short",
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+/**
+ * The calendar day in India, as `YYYY-MM-DD` — for naming a file after the day it was taken.
+ *
+ * `new Date().toISOString().slice(0, 10)` is the spelling this replaces, and it is wrong
+ * for the whole of an Indian small hours: at 00:30 IST, UTC is still on the previous day,
+ * so the CSV a client exported on the 4th was called `leads-2026-09-03.csv`. Those two
+ * files — the leads export and the subject-access JSON — are the ones a client is most
+ * likely to keep, forward and later have to place in time, which is exactly when a
+ * filename that is a day out costs something. `campaigns/page.tsx::todayInputValue`
+ * already carried the warning for a date picker's `max`; the filenames had not heard it.
+ *
+ * `en-CA` because it formats as `YYYY-MM-DD` — the same trick `currentISTMonth` was
+ * already using, which is why that helper now reads its answer from here rather than
+ * spelling the conversion a second time.
+ */
+export function istDateStamp(at: Date = new Date()): string {
+  return at.toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" });
 }
 
 /**
@@ -1230,5 +1401,34 @@ export function istInputToInstant(value: string): string | null {
   // them, and `2026-08-04T14:30+05:30` is not a date-time any parser is obliged to accept.
   const withSeconds = typed.length === 16 ? `${typed}:00` : typed;
   const at = new Date(`${withSeconds}+05:30`);
+  return Number.isNaN(at.getTime()) ? null : at.toISOString();
+}
+
+/**
+ * The same conversion for a DATE-ONLY field: `<input type="date">` → midnight IST.
+ *
+ * A `type="date"` value is a calendar date, not an instant, and every one of them on this
+ * console names a day in India — the day a registrar issued a letter, the day a client
+ * collected consent. The API stores an instant, so a day has to be given a time, and
+ * WHICH midnight it is given is the whole of the correctness:
+ *
+ * - `new Date("2026-08-10")` is UTC midnight = 05:30 IST, which for "today" is a moment
+ *   that has not happened yet, and the server refuses a future date.
+ * - `new Date("2026-08-10T00:00:00")` is midnight in the BROWSER's zone, which is the
+ *   defect `formatISTInput` above documents at length. East of IST it lands on the
+ *   previous IST date outright — Auckland midnight is 16:30 IST the day before — so the
+ *   same digits record a different day depending on who typed them, and the value is
+ *   then read back with `formatIST`, which is where the disagreement becomes visible.
+ * - Midnight IST is the earliest instant of the day the person actually picked, in the
+ *   zone every reader of it is in. It is never in the future when the day is not.
+ *
+ * Separate from `istInputToInstant` rather than folded into it: that one takes a
+ * `datetime-local` and would silently accept a bare date by appending nothing, and a
+ * helper that guesses which of two input types it was handed is a helper that guesses.
+ */
+export function istDateToInstant(value: string): string | null {
+  const typed = value.trim();
+  if (typed === "") return null;
+  const at = new Date(`${typed}T00:00:00+05:30`);
   return Number.isNaN(at.getTime()) ? null : at.toISOString();
 }

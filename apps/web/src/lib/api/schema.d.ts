@@ -277,6 +277,47 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/copilot/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the admin console's assistant — streamed, metered to the platform
+         * @description The admin console's own assistant. Answers about the screen the operator is on, about
+         *     PLATFORM state (the client roster, the triage board, whether outbound dialling is halted,
+         *     whether our telemarketer registration is live, how much of this month's AI budget is
+         *     spent), about the ONE account named in `tenant_id` when one is open, and about Calevate's
+         *     own runbooks — every one of those by calling a read tool, never from memory.
+         *
+         *     `tenant_id` is the account whose admin page is open, or null. It scopes the account tools,
+         *     the live-state block and memory recall. Inside a view-as session it is ignored in favour of
+         *     the impersonated account, which is proven by the grant rather than claimed in a body.
+         *
+         *     Streams `text/event-stream` with exactly the frames `POST /v1/copilot/ask` documents —
+         *     `text`, `fill`, `step`, `proposal`, `action`, `done`, `error`. A `proposal` is NOT a
+         *     change and, in this realm today, neither a `proposal` nor an `action` will be offered: the
+         *     write tools need an account-scoped identity that an admin session does not carry, and
+         *     inside a view-as session they are refused outright because impersonation is read-only.
+         *
+         *     **BILLING: this never touches a client's AI allowance.** Operator spend is metered to the
+         *     platform's own ledger under the cost name `admin_copilot`. It is still bounded by the
+         *     platform-wide AI brake, which pauses this console's assistant exactly as it pauses every
+         *     client's.
+         *
+         *     Requires `copilot:admin` — held by operators and superadmins.
+         */
+        post: operations["ask_admin_copilot_v1_admin_copilot_ask_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/impersonation-grants": {
         parameters: {
             query?: never;
@@ -699,6 +740,8 @@ export interface paths {
          * @description The variables this agent captures from a call and writes into its leads — the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
          *
          *     Saving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).
+         *
+         *     At most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.
          */
         put: operations["admin_set_extraction_schema_v1_admin_tenants__tenant_id__agents__agent_id__extraction_schema_put"];
         post?: never;
@@ -719,6 +762,9 @@ export interface paths {
          * Reopen the intake step — what is durably stored, and only that
          * @description No `AdminSession`: this reads one tenant's own rows, so it enters that tenant's
          *     scope directly rather than opening the cross-tenant directory it does not need.
+         *
+         *     Audited (D-482 L-1): the intake sheet is free-text onboarding prose that can carry
+         *     incidental staff PII, which is exactly the class of read the DPDP trail must hold.
          */
         get: operations["read_intake_v1_admin_tenants__tenant_id__agents__agent_id__intake_get"];
         put?: never;
@@ -1383,6 +1429,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/plan-tier": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Move a client between billing motions — prepaid credit or invoiced retainer
+         * @description Sets `organizations.plan_tier`. `prepaid` is the default every account is created on (D-521): its calling is paid from a credit balance and `compliance.check_dispatch` refuses `no_credits` when that balance is empty. `managed` is for a client genuinely billed on a plan retainer — it has no wallet, the credits screen says so, and nothing stops their dialling for want of credit. **Setting `prepaid` on an account with no credit stops its OUTBOUND calling at the next dial**; inbound answering is unaffected either way. Idempotent: setting the tier an account is already on returns 200, `changed: false`, and writes no audit row. 404 means no such client.
+         */
+        post: operations["set_tenant_plan_tier_v1_admin_tenants__tenant_id__plan_tier_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/refunds": {
         parameters: {
             query?: never;
@@ -1751,14 +1817,44 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Retire the agent (draft, active or inactive -> archived)
-         * @description An archived agent is never dialled and cannot be given to a campaign. It is NOT deleted: the agent, its scripts and every call it ever took stay readable, and it can be restored. Archiving an active agent also releases the numbers it was answering.
+         * Retire the agent — the console's Delete (draft or inactive -> archived)
+         * @description An archived agent is never dialled and cannot be given to a campaign. It is NOT deleted: the agent, its scripts and every call it ever took stay readable, and it can be restored. Archiving releases any numbers the agent was answering.
+         *
+         *     **An ACTIVE agent is refused with `agent_is_live` (409).** Switching off is a separate, deliberate decision (D-527): the client console shows this move as Delete on every row of the roster, and no single click there may take a working phone line down. Deactivate first, then archive.
          */
         post: operations["archive_agent_route_v1_agents__agent_id__archive_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/caller-memory": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Let an agent remember returning callers, and book call-backs
+         * @description Two abilities, always on or off together. Your agents remember the people they have spoken to and can greet a returning caller with what they asked about last time; and when someone asks to be called back at a particular time, that follow-up is booked for exactly then and dials with everything already learned.
+         *
+         *     Off unless you switch it on. Switched on, the agent says at the start of every call that a short note is kept — that sentence cannot be switched off separately.
+         *
+         *     What is kept is a short note of what the caller wanted, what happened, and any preference they stated, such as the language they like or when they prefer to be called. It is used only for that person's own future calls with you, is never shared, and is deleted after 180 days or sooner if they ask.
+         *
+         *     The first time anyone in your account switches this on you are asked to confirm what these calls collect. Some kinds of business cannot use it at all.
+         *
+         *     Applies immediately: a live agent is updated on the voice platform in the same transaction, so the screen never claims something the phone line is not doing.
+         */
+        patch: operations["set_caller_memory_route_v1_agents__agent_id__caller_memory_patch"];
         trace?: never;
     };
     "/v1/agents/{agent_id}/deactivate": {
@@ -1863,6 +1959,8 @@ export interface paths {
          * @description The variables this agent captures from a call and writes into its leads — the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
          *
          *     Saving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).
+         *
+         *     At most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.
          */
         get: operations["get_extraction_schema_v1_agents__agent_id__extraction_schema_get"];
         /**
@@ -1870,6 +1968,8 @@ export interface paths {
          * @description The variables this agent captures from a call and writes into its leads — the Leads column list. Send the WHOLE ordered list; it replaces what was there. Each variable has a key (stored id), a label (shown), a type (text, number, bool, enum, date), whether it is required, enum values when the type is enum, and an OPTIONAL `reason` — why the variable is needed, which the AI reads to fill it more accurately. Leave the reason blank to have the AI work from the name alone.
          *
          *     Saving creates a new schema version used on the NEXT call's extraction; calls already recorded keep the variables they were extracted with. A variable whose key is a built-in lead column, or a duplicate key, is refused. Renaming or removing a variable's key stops older leads from showing that column (their values are kept).
+         *
+         *     At most 50 variables, each with a name of 80 characters or fewer, a reason of 500 or fewer, and at most 50 choices.
          */
         put: operations["set_extraction_schema_v1_agents__agent_id__extraction_schema_put"];
         post?: never;
@@ -2790,6 +2890,129 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/billing/wallet": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Balance, how long it lasts, and where the money went
+         * @description The prepaid wallet as its owner reads it. `outbound_stopped` is the dial gate's own verdict, asked rather than re-derived — inbound calls are never stopped by a balance. `runway.days` is null whenever a projection may not honestly be asserted, and `runway.basis` says which reason.
+         */
+        get: operations["read_wallet_summary_v1_billing_wallet_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/wallet/ledger": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The wallet's entries, newest first, with the payments behind them
+         * @description Every movement on the wallet — payments, call usage, pack bonuses, operator corrections and refunds — newest first. `payments` carries one line per payment on the page, which is what a receipt is issued against.
+         */
+        get: operations["read_wallet_ledger_v1_billing_wallet_ledger_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/wallet/receipts/{payment_ref}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * A receipt for one payment — NOT a tax invoice
+         * @description An acknowledgement that money was received against this reference. The business is not registered for GST, so no tax is charged and no tax invoice can be issued; `document_type` says what this document is and the console renders its heading from that field.
+         */
+        get: operations["read_payment_receipt_v1_billing_wallet_receipts__payment_ref__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/wallet/topups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Payments that were started — including the ones that failed or never landed
+         * @description A declined card moves no money, so it has no ledger entry. This is the list that shows it happened, so a client whose payment failed does not come back to a screen indistinguishable from one they never touched.
+         */
+        get: operations["read_topup_attempts_v1_billing_wallet_topups_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/callbacks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The call-backs your agents promised
+         * @description Every time a caller asked to be rung back at a particular time, and what happened to that promise. Most recent first.
+         *
+         *     Set `open_only` to see just the ones still to come.
+         */
+        get: operations["list_callbacks_v1_callbacks_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/callbacks/{callback_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** One promised call-back */
+        get: operations["get_callback_v1_callbacks__callback_id__get"];
+        put?: never;
+        post?: never;
+        /**
+         * Call off a promised call-back
+         * @description Stops a call-back that has not gone out yet. A call-back that is already being placed cannot be stopped here — the phone may already be ringing — and one that has already ended stays as it ended.
+         */
+        delete: operations["cancel_callback_v1_callbacks__callback_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/calls": {
         parameters: {
             query?: never;
@@ -3317,7 +3540,7 @@ export interface paths {
         };
         /**
          * This account's DLT Principal Entity registration — absence is data, not a 404
-         * @description What the DLT registrar holds for this business, as the platform last verified it. Read-only: registrations are recorded by Calevate operations against the registrar, never by the client. A business with nothing filed yet gets `recorded: false` and a 200.
+         * @description What the DLT registrar holds for this business, as the platform last verified it, plus Calevate's own Telemarketer registration number, which the client needs in order to authorise us on the registrar's portal. Read-only: registrations are recorded by Calevate operations against the registrar, never by the client. A business with nothing filed yet gets `recorded: false` and a 200.
          */
         get: operations["read_registration_v1_compliance_dlt_registration_get"];
         put?: never;
@@ -3465,8 +3688,10 @@ export interface paths {
         put?: never;
         /**
          * Ask the in-app assistant about this screen — streamed, metered, quota-gated
-         * @description Answers a question about the screen the caller is on, and can fill that screen's form
-         *     fields. Streams `text/event-stream`:
+         * @description Answers a question about the screen the caller is on, answers questions about the
+         *     account's own business by reading it (calls, leads, campaigns, agents, performance —
+         *     read-only, under the caller's own permissions and RLS scope), can fill that screen's
+         *     form fields, and can open another screen of the console. Streams `text/event-stream`:
          *
          *     * `event: text` · `data: {"delta": "..."}` — one fragment of the answer.
          *     * `event: fill` · `data: {"items": [{"field_id": "...", "value": ...}]}` — at most one
@@ -3474,18 +3699,98 @@ export interface paths {
          *       request declared: a field that is not `writable`, a `select` value outside its own
          *       `options`, or a wrong type refuses the WHOLE fill. Write these into local form state,
          *       highlight them, and offer one Undo; nothing is saved until the user presses Save.
+         *     * `event: proposal` · `data: {"token": "...", "tool": "...", "title": "...",
+         *       "summary": "...", "object_type": "...", "object_id": "...", "current": "...",
+         *       "proposed": "...", "cost": null|"...", "reversal": "...", "expires_at": "..."}` — at most
+         *       one per response, and it is NOT a change. NOTHING HAS HAPPENED. This is a **Tier 2**
+         *       action: one that reaches a caller or spends money, and therefore needs a person. Show
+         *       `title`, `summary`, the `current` → `proposed` pair, `cost` when it is non-null and
+         *       `reversal` always, and a Confirm button that posts `token` back, unchanged, to
+         *       `POST /v1/copilot/confirm`. Doing nothing is a valid answer and leaves the world
+         *       untouched; the token stops working at `expires_at`.
+         *     * `event: action` · `data: {"tool": "...", "title": "...", "detail": "...",
+         *       "object_type": "...", "object_id": "...", "applied": true, "reversal": "...",
+         *       "where": "..."}` — a **Tier 1** action that **has already happened**: reversible, reaching
+         *       no caller, spending nothing. Render it as a RECEIPT and never as an offer — there is no
+         *       token and no button. `reversal` says whether and how it can be taken back and `where`
+         *       says where the result now lives; both are the server's own words. `applied: false` means
+         *       the world was already in that state.
+         *     * `event: navigate` · `data: {"tool": "open_screen", "screen": "...", "route": "...",
+         *       "where": "...", "detail": "...", "reversal": "..."}` — OPEN THIS SCREEN. At most one per
+         *       response. A **Tier 1** frame: reversible (the back button), reaching no caller, spending
+         *       nothing, so there is no token and no Confirm button — render it as a RECEIPT beside the
+         *       answer, exactly like `action`. It is the one frame on this stream the browser must ACT
+         *       on, and the only one where the server has decided WHERE but not WHEN.
+         *       * `route` is a route TEMPLATE carrying a literal `{slug}` (`/c/{slug}/billing`) and is a
+         *         constant read out of the server's own screen inventory — never assembled, and never
+         *         anything the model wrote (the tool it comes from takes a screen NAME). Substitute your
+         *         own slug, CHECK the result against your own navigation list, and refuse anything that
+         *         is not in it; then change route with the app's own router. Never a full page load and
+         *         never an external address.
+         *       * **ASK BEFORE YOU MOVE IF THE SCREEN BEING LEFT MAY HOLD UNSAVED WORK.** The server
+         *         knows a form exists; only you know whether it is dirty, and a half-typed campaign
+         *         discarded by a screen change is work this assistant destroyed without asking. Prefer
+         *         asking when you cannot tell.
+         *       * `screen` and `where` are the console's own words for the destination and are what a
+         *         person is told and a screen reader announces. `route` is never rendered or spoken.
+         *     * `event: step` · `data: {"id": "...", "tool": "...", "status":
+         *       "running"|"done"|"refused"|"failed", "args": "...", "detail": null|"...",
+         *       "elapsed_ms": null|123}` — one tool call as it happens, two frames per call sharing an
+         *       `id`: `running` when it starts, then one terminal frame with `elapsed_ms`. Purely
+         *       observational — dropping every one of them loses no outcome — and safe to render live so
+         *       a person can see which of their data was read and how long it took.
          *     * `event: done` · `data: {"disclosure": null|"...", "metered": true}` — `disclosure` is
          *       non-null when a substitute model answered and MUST be shown.
          *     * `event: error` · `data: {problem+json}` — a refusal that happened after the stream
          *       opened. Permission, rate-limit and request-validation refusals arrive as ordinary
          *       problem+json responses with their real status instead.
          *
-         *     Nothing is stored. `history` is the whole memory of the conversation and dies with the
-         *     request. Metered against the account's AI allowance and refused before a token is spent
+         *     `history` is what the browser replays and it still dies with the request — the server keeps
+         *     no thread. What IS kept is one redacted, capped memory row per answered question
+         *     (`copilot_memories`), which the assistant recalls on later questions from the same person;
+         *     it expires on the account's own `copilot_memory` retention policy and is destroyed by
+         *     offboarding. Metered against the account's AI allowance and refused before a token is spent
          *     when that allowance is used up (`ai_quota_exceeded` opens the wallet dialog).
-         *     Requires `org:manage`.
+         *     Requires `copilot:use` — held by owners and staff.
          */
         post: operations["ask_copilot_v1_copilot_ask_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/copilot/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Do the change the assistant proposed — once, for the person who confirmed it
+         * @description Carry out the change the assistant proposed, after the person confirmed it.
+         *
+         *     Post back the `token` from an `event: proposal` frame, **unchanged**. The body carries
+         *     nothing else: the account, the person, the tool and every argument are inside the token's
+         *     signature, so there is nothing here a browser could edit and nothing a page could invent.
+         *
+         *     A token works ONCE and only for the account and the person it was minted for, and it stops
+         *     working five minutes after it was issued. Every refusal is a 403 with the same shape —
+         *     already confirmed, expired, tampered with, or minted elsewhere are deliberately not told
+         *     apart, so this endpoint cannot be used to learn which half of a token is wrong.
+         *
+         *     The change runs through exactly the service function the equivalent button on the screen
+         *     calls, so every refusal that button can get, this can get: `409` when a campaign is not
+         *     running, `404` when nothing of yours has that id. `applied: false` with a `200` is a real
+         *     answer — the world was already in that state and nothing was written.
+         *
+         *     Every change writes an `audit_log` row naming the person who confirmed it.
+         *     Requires `copilot:use`, and the tool's own permission on top of it.
+         */
+        post: operations["confirm_copilot_proposal_v1_copilot_confirm_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3575,6 +3880,26 @@ export interface paths {
          *     which is the answer this repo already gives for a delete with nothing to report.
          */
         delete: operations["remove_v1_dnc__entry_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/engine/caller-data/{engine}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Engine-called: what this agent remembers about the caller now ringing
+         * @description The voice platform calls this when an inbound call arrives and puts the answer into the agent's instructions for that one call. It answers with nothing at all for a caller the agent has not spoken to, for an agent whose account has not switched caller continuity on, and whenever the lookup cannot be completed in time — a returning caller is then greeted normally, which is the right way for this to fail.
+         */
+        get: operations["caller_data_v1_engine_caller_data__engine__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -3835,6 +4160,27 @@ export interface paths {
         /** Side-by-side preview of exactly what the agent would learn */
         get: operations["preview_source_v1_kb_sources__source_id__preview_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/kb/staff-curation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Whether this account lets its staff members curate knowledge */
+        get: operations["get_staff_curation_v1_kb_staff_curation_get"];
+        /**
+         * Let this account's staff curate knowledge, or stop letting them
+         * @description Off for every account until its owner turns it on. Switching it on lets members with the `staff` role submit knowledge for review and dismiss or teach a knowledge gap — and nothing else. It does not let them approve or publish anything: a staff-submitted source lands in the same review queue an owner's does, and still needs approval before an agent can say a word of it.
+         */
+        put: operations["set_staff_curation_v1_kb_staff_curation_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -5185,6 +5531,50 @@ export interface components {
             tenant_id: string;
         };
         /**
+         * AdminCopilotAskIn
+         * @description `POST /v1/admin/copilot/ask` — the client body plus WHICH ACCOUNT IS OPEN (D-499).
+         *
+         *     `tenant_id` is the account whose admin page the operator is looking at, or null on a
+         *     platform screen. It scopes three things and nothing else: which tenant the account read
+         *     tools run under, which tenant's live business state is composed, and which memories are
+         *     eligible for recall (`copilot/admin_memory.py`).
+         *
+         *     **IT IS NOT AN AUTHORIZATION INPUT AND IT IS NOT A PAYER.** The payer is always the
+         *     platform ledger — an operator never spends a client's allowance (D-499) — so no body
+         *     field here can move anyone's bill. And it widens nothing: every route serving this
+         *     permission is admin-realm, and both admin roles hold `admin:tenants`, so an operator
+         *     naming an account here reaches exactly what the console's own tenant page would show
+         *     them. It is still validated to be a real, undeleted account before it is used, because
+         *     a silently-ignored id would let a screen believe it had scoped the assistant when it
+         *     had not.
+         *
+         *     **INSIDE A VIEW-AS SESSION THE HEADER WINS.** `Principal.tenant_id` from an
+         *     impersonation grant is proven by a second factor and audited; this field is a claim in a
+         *     body. The route takes the principal's when there is one and never reconciles the two.
+         */
+        AdminCopilotAskIn: {
+            /**
+             * Facts
+             * @default []
+             */
+            facts: components["schemas"]["CopilotFact"][];
+            /**
+             * Fields
+             * @default []
+             */
+            fields: components["schemas"]["CopilotField"][];
+            /**
+             * History
+             * @default []
+             */
+            history: components["schemas"]["CopilotTurn"][];
+            /** Question */
+            question: string;
+            screen: components["schemas"]["CopilotScreen"];
+            /** Tenant Id */
+            tenant_id?: string | null;
+        };
+        /**
          * AdminMeOut
          * @description The admin realm's own identity document.
          *
@@ -5295,6 +5685,10 @@ export interface components {
             ai_disclosure_line: string;
             /** Archived At */
             archived_at: string | null;
+            /** Caller Memory Enabled */
+            caller_memory_enabled: boolean;
+            /** Caller Memory Notice Line */
+            caller_memory_notice_line: string;
             /**
              * Direction
              * @enum {string}
@@ -6043,6 +6437,54 @@ export interface components {
             status: "queued" | "blocked";
         };
         /**
+         * CallerMemoryIn
+         * @description Switch caller continuity on or off for one agent.
+         *
+         *     ONE BOOLEAN AND NOT A PAIR, unlike `DisclosureIn` above, and the difference is the
+         *     decision rather than the shape of the screen: remembering a caller and rescheduling a
+         *     call-back are "two linked abilities, always on or off together" (D-513), so there is
+         *     one column and there is nothing here for a second field to name. A client who could
+         *     switch one off and keep the other would keep the ability that REUSES what was
+         *     remembered while withdrawing the one their callers were told about.
+         *
+         *     `accept` is the client saying yes to the sentence the refusal handed them. It is only
+         *     read the FIRST time an account switches this on: the attestation is about the
+         *     business, so it is asked once and then stands
+         *     (`organizations.caller_memory_attested_at`).
+         */
+        CallerMemoryIn: {
+            /**
+             * Accept
+             * @default false
+             */
+            accept: boolean;
+            /** Enabled */
+            enabled: boolean;
+        };
+        /** CallerMemoryOut */
+        CallerMemoryOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /**
+             * Attestation
+             * @default I confirm that these calls do not collect health, medical, financial, biometric or other sensitive personal data about callers, that my business is the Data Fiduciary for these callers, and that my own privacy notice tells them we keep a short note of what they ask about. I understand that my agents will say so at the start of every call, that notes are kept for 180 days, and that a caller may ask for theirs to be erased.
+             */
+            attestation: string;
+            /** Attested At */
+            attested_at?: string | null;
+            /** Attested By Name */
+            attested_by_name?: string | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Engine Synced */
+            engine_synced: boolean;
+            /** Opening Line */
+            opening_line: string;
+        };
+        /**
          * CallerNoticeOut
          * @description The draft, structured and rendered.
          *
@@ -6285,6 +6727,10 @@ export interface components {
             chars: number;
             /** Content */
             content: string;
+            /** Gloss */
+            gloss?: string | null;
+            /** Gloss Model */
+            gloss_model?: string | null;
             /** Idx */
             idx: number;
         };
@@ -6593,6 +7039,44 @@ export interface components {
             /** Question */
             question: string;
             screen: components["schemas"]["CopilotScreen"];
+        };
+        /**
+         * CopilotConfirmIn
+         * @description `POST /v1/copilot/confirm`. ONE FIELD, and that is the security property.
+         *
+         *     Every parameter of the action is inside the signed token, so there is nothing here for
+         *     a caller to tamper with: no lead id, no status, no campaign. A body that also carried
+         *     the target would be a body that could disagree with the description the person read.
+         *
+         *     The bound is generous against a JWT carrying a small `args` object — this is not a
+         *     length a legitimate client approaches, it is the wall in front of a caller feeding the
+         *     verifier megabytes.
+         */
+        CopilotConfirmIn: {
+            /** Token */
+            token: string;
+        };
+        /**
+         * CopilotConfirmOut
+         * @description What the confirmed change did.
+         *
+         *     `applied` is False when the world was ALREADY in the requested state — a real outcome,
+         *     not a failure (D-65's distinction, which `set_campaign_status` and the lead executor
+         *     both make). `detail` is the sentence to show; it says which of the two happened,
+         *     because "nothing changed, it was already paused" is the answer a person needs when
+         *     they are watching calls go out.
+         */
+        CopilotConfirmOut: {
+            /** Applied */
+            applied: boolean;
+            /** Detail */
+            detail: string;
+            /** Object Id */
+            object_id: string;
+            /** Object Type */
+            object_type: string;
+            /** Tool */
+            tool: string;
         };
         /**
          * CopilotFact
@@ -7416,6 +7900,33 @@ export interface components {
             /** Source */
             source: string | null;
         };
+        /**
+         * DrawdownOut
+         * @description WHERE THE MONEY WENT, over the same window the runway was measured on.
+         *
+         *     Every figure is POSITIVE and its direction is in the field name, never in a sign — a
+         *     screen that had to decide whether `-340.00` was a debit or a correction of one is a
+         *     screen that will eventually decide wrong.
+         *
+         *     THERE IS NO MESSAGING BUCKET, and that is deliberate rather than missing: nothing on
+         *     this platform debits the wallet for a WhatsApp message or an SMS, so a "Messaging"
+         *     row reading ₹0.00 would be a category invented to look complete, and a client reading
+         *     it would reasonably conclude they are being charged for messages.
+         */
+        DrawdownOut: {
+            /** Added Inr */
+            added_inr: string;
+            /** Adjustments Inr */
+            adjustments_inr: string;
+            /** Ai Assist Inr */
+            ai_assist_inr: string;
+            /** Calls Inr */
+            calls_inr: string;
+            /** Refunded Inr */
+            refunded_inr: string;
+            /** Spent Inr */
+            spent_inr: string;
+        };
         /** EnableIn */
         EnableIn: {
             /** Enabled */
@@ -7674,6 +8185,10 @@ export interface components {
         ErasureScopeOut: {
             /** Call Extractions Erased */
             call_extractions_erased: number;
+            /** Caller Memories Erased */
+            caller_memories_erased: number | null;
+            /** Caller Vectors Erased */
+            caller_vectors_erased: number | null;
             /** Calls */
             calls: string[];
             /** Knowledge Base Documents Matched */
@@ -7821,6 +8336,13 @@ export interface components {
          * @description The whole new ordered field list. `extra="forbid"` on every field
          *     (`ExtractionField`), so an unknown key on a variable is a 422 rather than a silently
          *     dropped edit.
+         *
+         *     `max_length` HERE and not on `ExtractionField`/`ExtractionSchemaSpec`, deliberately.
+         *     Those two models also parse what is ALREADY STORED (`_read_current`, `crm.service.
+         *     lead_columns`, `crm/lead_chunks._fields_for`), and a ceiling added to a read model is a
+         *     ceiling that turns every row written before it existed into a 500 on the client's own
+         *     Leads screen. A bound belongs on the write, where the person who can act on it is
+         *     holding the form.
          */
         ExtractionSchemaIn: {
             /** Fields */
@@ -9256,6 +9778,8 @@ export interface components {
         LeadLensIn: {
             /** Agent Id */
             agent_id?: string | null;
+            /** Ask */
+            ask?: string | null;
             /** Assigned To */
             assigned_to?: string | null;
             /** Columns */
@@ -9285,6 +9809,11 @@ export interface components {
             limit: number;
             /** Offset */
             offset: number;
+            /**
+             * Semantic Truncated
+             * @default false
+             */
+            semantic_truncated: boolean;
             /** Status Counts Matching Search */
             status_counts_matching_search: {
                 [key: string]: number;
@@ -9344,6 +9873,8 @@ export interface components {
         LeadSearchIn: {
             /** Agent Id */
             agent_id?: string | null;
+            /** Ask */
+            ask?: string | null;
             /** Assigned To */
             assigned_to?: string | null;
             /** Columns */
@@ -9567,6 +10098,13 @@ export interface components {
             ref: string | null;
             /** Reversible Inr */
             reversible_inr: string;
+        };
+        /** LedgerOut */
+        LedgerOut: {
+            /** Entries */
+            entries: components["schemas"]["WalletEntryOut"][];
+            /** Payments */
+            payments: components["schemas"]["WalletPaymentOut"][];
         };
         /**
          * LegSummary
@@ -10293,6 +10831,10 @@ export interface components {
          *     gate must never disagree about it.
          */
         PeRegistrationOut: {
+            /** Calevate Tm Active */
+            calevate_tm_active: boolean;
+            /** Calevate Tm Id */
+            calevate_tm_id: string | null;
             /** Entity Name */
             entity_name: string | null;
             /** Is Active */
@@ -10492,6 +11034,30 @@ export interface components {
             setup_fee_inr: string | null;
             /** States Pricing */
             states_pricing: boolean;
+        };
+        /** PlanTierIn */
+        PlanTierIn: {
+            /**
+             * Plan Tier
+             * @enum {string}
+             */
+            plan_tier: "managed" | "prepaid";
+            /** Reason */
+            reason: string;
+        };
+        /** PlanTierOut */
+        PlanTierOut: {
+            /** Changed */
+            changed: boolean;
+            /** Plan Tier */
+            plan_tier: string;
+            /** Previous Plan Tier */
+            previous_plan_tier: string | null;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
         };
         /** PlatformStateIn */
         PlatformStateIn: {
@@ -10797,6 +11363,43 @@ export interface components {
             rule: string;
             /** Title */
             title: string;
+        };
+        /**
+         * ReceiptOut
+         * @description A RECEIPT for one payment. It is NOT a tax invoice and never says it is.
+         *
+         *     The business is not registered for GST and is not required to be at present turnover
+         *     (`docs/legal/LEGAL-OPS-PLAYBOOK.md` §4), so `gst.supplier_identity().is_registered` is
+         *     false on every deployment: there is no GSTIN to print, no tax is charged, and CGST
+         *     s.32 forbids an unregistered person collecting any. `document_type` is therefore
+         *     `receipt` — an acknowledgement that money was received — and the console renders its
+         *     heading from THIS field, never from a literal, exactly as the monthly statement does.
+         *     Nothing here carries a tax head, a rate, or an estimate of one.
+         */
+        ReceiptOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Document Type */
+            document_type: string;
+            /** Entries */
+            entries: number;
+            /** Note */
+            note: string;
+            /** Organization Billing Email */
+            organization_billing_email: string | null;
+            /** Organization Name */
+            organization_name: string;
+            /** Payment Ref */
+            payment_ref: string;
+            /**
+             * Received At
+             * Format: date-time
+             */
+            received_at: string;
+            /** Supplier Address */
+            supplier_address: string | null;
+            /** Supplier Legal Name */
+            supplier_legal_name: string | null;
         };
         /**
          * RecordAlertOptInIn
@@ -11173,6 +11776,38 @@ export interface components {
             /** Secret Header */
             secret_header: string;
         };
+        /**
+         * RunwayOut
+         * @description How long the balance lasts — and, when it may not be said, WHY not.
+         *
+         *     `days` is null on every basis but `projected`, and `basis` carries which reason.
+         *     "We have not been watching you long enough to tell" and "you are not spending
+         *     anything" are different sentences to an owner deciding whether to top up, and a
+         *     screen that collapsed them into a blank would answer neither.
+         *
+         *     NO DEFAULTS on any field, for `TopUpIntentOut.provider_order_id`'s reason: a Pydantic
+         *     default generates an OPTIONAL property in the TypeScript client, and `days: null`
+         *     (we will not put a number on it) must stay distinguishable from `undefined` (the
+         *     server did not say).
+         */
+        RunwayOut: {
+            /** Basis */
+            basis: string;
+            /** Beyond Horizon */
+            beyond_horizon: boolean;
+            /** Daily Burn Inr */
+            daily_burn_inr: string | null;
+            /** Days */
+            days: number | null;
+            /** History Days */
+            history_days: number;
+            /** Max Days */
+            max_days: number;
+            /** Min History Days */
+            min_history_days: number;
+            /** Window Days */
+            window_days: number;
+        };
         /** SaveScriptIn */
         SaveScriptIn: {
             /** Notes */
@@ -11369,6 +12004,45 @@ export interface components {
              * Format: date-time
              */
             start_at: string;
+        };
+        /**
+         * ScheduledCallbackOut
+         * @description One promise. Instants are UTC on the wire and rendered in IST by the browser —
+         *     the repo convention, and the reason this model carries no formatted string: a time
+         *     formatted on the server is a time formatted in the server's idea of the day.
+         */
+        ScheduledCallbackOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Attempts */
+            attempts: number;
+            /** Explanation */
+            explanation: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Last Call Id */
+            last_call_id: string | null;
+            /** Lead Id */
+            lead_id: string | null;
+            /** Note */
+            note: string | null;
+            /** Phone E164 */
+            phone_e164: string;
+            /**
+             * Requested At
+             * Format: date-time
+             */
+            requested_at: string;
+            /** Settled At */
+            settled_at: string | null;
+            /** Status */
+            status: string;
         };
         /**
          * ScriptOut
@@ -11755,6 +12429,28 @@ export interface components {
             top_calls_truncated: boolean;
         };
         /**
+         * StaffCurationIn
+         * @description The whole of the resource, which is what makes this a PUT rather than a PATCH —
+         *     `LlmDefaultIn`'s argument, one field further down.
+         */
+        StaffCurationIn: {
+            /** Staff May Curate Knowledge */
+            staff_may_curate_knowledge: boolean;
+        };
+        /**
+         * StaffCurationOut
+         * @description Whether this account's staff may curate knowledge.
+         *
+         *     A DECLARED model rather than a bare mapping, for the reason `admin/routes.KbReviewOut`
+         *     gives: `scripts/check_redaction_exposure.py` walks response models and is structurally
+         *     blind to a route that declares none, and the generated TS client renders a mapping as
+         *     an index signature the frontend then hand-types.
+         */
+        StaffCurationOut: {
+            /** Staff May Curate Knowledge */
+            staff_may_curate_knowledge: boolean;
+        };
+        /**
          * StaffMember
          * @description `pronunciation` is not decoration — PROMPT-GUIDE §3 requires proper nouns to be
          *     spelled phonetically in [T0 FACTS], because a mispronounced doctor's name is the
@@ -11828,6 +12524,34 @@ export interface components {
             summary: string | null;
         };
         /**
+         * SubjectExportCampaignContactOut
+         * @description This number on a client's uploaded calling list, whether or not it was ever called.
+         *
+         *     Present for `SubjectExportDoNotCallOut`'s reason, and the case is starker: §12 erases
+         *     `campaign_contacts` and §11 reported it nowhere, so a person whose number a client
+         *     uploaded and who NEVER CALLED was told we hold nothing about them. They are the least
+         *     likely of anyone to know otherwise, having had no contact through which to find out.
+         *
+         *     `has_custom_fields` rather than the fields themselves: `campaign_contacts.custom` holds
+         *     whatever columns the client uploaded as merge variables, in shapes we do not model. The
+         *     boolean tells the subject such data exists so they can ask for it specifically — the
+         *     same halfway house as `recording_available` and `evidence_recorded`.
+         */
+        SubjectExportCampaignContactOut: {
+            /** Added At */
+            added_at: string | null;
+            /** Attempts */
+            attempts: number;
+            /** Campaign Name */
+            campaign_name: string;
+            /** Has Custom Fields */
+            has_custom_fields: boolean;
+            /** Last Attempt At */
+            last_attempt_at: string | null;
+            /** Status */
+            status: string;
+        };
+        /**
          * SubjectExportConsentOut
          * @description One consent-ledger entry. `evidence_recorded` is a boolean for the same reason
          *     the recording is: the evidence is a transcript SPAN, raw by construction, and it
@@ -11856,12 +12580,16 @@ export interface components {
         SubjectExportCountsOut: {
             /** Calls */
             calls: number;
+            /** Campaign Contacts */
+            campaign_contacts: number;
             /** Consent Records */
             consent_records: number;
             /** Leads */
             leads: number;
             /** Recordings Available */
             recordings_available: number;
+            /** Remembered Facts */
+            remembered_facts: number;
             /** Transcript Turns */
             transcript_turns: number;
         };
@@ -11961,6 +12689,8 @@ export interface components {
         SubjectExportOut: {
             /** Calls */
             calls: components["schemas"]["SubjectExportCallOut"][];
+            /** Campaign Contacts */
+            campaign_contacts: components["schemas"]["SubjectExportCampaignContactOut"][];
             /** Consent */
             consent: components["schemas"]["SubjectExportConsentOut"][];
             counts: components["schemas"]["SubjectExportCountsOut"];
@@ -11971,8 +12701,30 @@ export interface components {
             lead: components["schemas"]["SubjectExportLeadOut"] | null;
             /** Phone E164 */
             phone_e164: string;
+            /** Remembered */
+            remembered: components["schemas"]["SubjectExportRememberedOut"][];
             /** Transcripts */
             transcripts: components["schemas"]["SubjectExportTranscriptOut"][];
+        };
+        /**
+         * SubjectExportRememberedOut
+         * @description A fact one of this account's agents had remembered about the subject (D-506/D-507).
+         *
+         *     THE SENTENCE ITSELF IS DISCLOSED, unlike a campaign's `custom` fields, and the
+         *     difference is who wrote it: `custom` is the client's data about the person, while this
+         *     is OUR distilled sentence about them. A subject access request is precisely the
+         *     instrument for reading what a company has written down about you.
+         *
+         *     Nothing writes these yet — the producer is unbuilt and `agents.caller_memory_enabled`
+         *     defaults false — so this list is empty on every account today. It is modelled anyway,
+         *     because a disclosure that silently lags a new store is the exact defect that made this
+         *     document incomplete in the first place.
+         */
+        SubjectExportRememberedOut: {
+            /** Fact */
+            fact: string;
+            /** Occurred At */
+            occurred_at: string | null;
         };
         /** SubjectExportTranscriptOut */
         SubjectExportTranscriptOut: {
@@ -12209,6 +12961,10 @@ export interface components {
         TenantErasureScopeOut: {
             /** Call Extractions Erased */
             call_extractions_erased: number | null;
+            /** Caller Memories Erased */
+            caller_memories_erased: number | null;
+            /** Caller Vectors Erased */
+            caller_vectors_erased: number | null;
             /** Calls Erased */
             calls_erased: number | null;
             /** Campaign Contacts Erased */
@@ -12308,6 +13064,8 @@ export interface components {
             live_agents: number;
             /** Name */
             name: string;
+            /** Plan Tier */
+            plan_tier: string;
             /** Slug */
             slug: string;
             /** Status */
@@ -12478,6 +13236,34 @@ export interface components {
             provider: string | null;
             /** Trigger */
             trigger: string;
+        };
+        /**
+         * TopUpAttemptOut
+         * @description A payment that was STARTED — including the ones that went nowhere.
+         *
+         *     THE POINT OF THIS LIST is the rows a ledger cannot hold. A declined card moves no
+         *     money, so it has no `credit_ledger` entry, so before it existed a client whose payment
+         *     failed came back to a screen indistinguishable from one they had never touched.
+         */
+        TopUpAttemptOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Outcome */
+            outcome: string;
+            /** Pack Id */
+            pack_id: string | null;
+            /** Receipt */
+            receipt: string;
+            /**
+             * Started At
+             * Format: date-time
+             */
+            started_at: string;
         };
         /**
          * TopUpCapabilityOut
@@ -12907,6 +13693,82 @@ export interface components {
             live: components["schemas"]["AgentVoiceOut"] | null;
             /** Republish Required */
             republish_required: boolean;
+        };
+        /**
+         * WalletEntryOut
+         * @description One line of the wallet, as its owner reads it.
+         *
+         *     Deliberately NOT `credit_routes.LedgerEntryOut` — and named apart from it for a
+         *     second, mechanical reason: two different schemas under one name make FastAPI emit
+         *     fully-qualified component names for BOTH, which would rename the admin console's
+         *     generated type out from under `lib/api/credits.ts`. That one carries `reversible_inr`,
+         *     which exists so an OPERATOR can be offered a correction with a ceiling on it. It is
+         *     meaningless to a client, and publishing it here would invite a screen to render a
+         *     control this realm does not have.
+         */
+        WalletEntryOut: {
+            /** Balance After Inr */
+            balance_after_inr: string;
+            /** Delta Inr */
+            delta_inr: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /**
+             * Occurred At
+             * Format: date-time
+             */
+            occurred_at: string;
+            /** Payment Ref */
+            payment_ref: string | null;
+            /** Reason */
+            reason: string;
+            /** Ref */
+            ref: string | null;
+        };
+        /**
+         * WalletOut
+         * @description Everything the credits screen needs about the money, in one read.
+         */
+        WalletOut: {
+            /** Balance Inr */
+            balance_inr: string;
+            drawdown: components["schemas"]["DrawdownOut"];
+            /** Is Low */
+            is_low: boolean;
+            /** Low Balance Threshold Inr */
+            low_balance_threshold_inr: string;
+            /** Minutes Left */
+            minutes_left: number | null;
+            /** Outbound Stopped */
+            outbound_stopped: boolean;
+            /** Prepaid */
+            prepaid: boolean;
+            runway: components["schemas"]["RunwayOut"];
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+        };
+        /**
+         * WalletPaymentOut
+         * @description One payment, as the wallet holds it — the line a receipt is issued against.
+         */
+        WalletPaymentOut: {
+            /** Credited Inr */
+            credited_inr: string;
+            /** Entries */
+            entries: number;
+            /**
+             * First At
+             * Format: date-time
+             */
+            first_at: string;
+            /** Payment Ref */
+            payment_ref: string;
         };
         /** WebhookAck */
         WebhookAck: {
@@ -13376,6 +14238,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HeldTenantOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    ask_admin_copilot_v1_admin_copilot_ask_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AdminCopilotAskIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": unknown;
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -15367,6 +16262,41 @@ export interface operations {
             };
         };
     };
+    set_tenant_plan_tier_v1_admin_tenants__tenant_id__plan_tier_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlanTierIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlanTierOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     issue_tenant_refund_v1_admin_tenants__tenant_id__refunds_post: {
         parameters: {
             query?: never;
@@ -16047,6 +16977,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AgentLifecycleOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_caller_memory_route_v1_agents__agent_id__caller_memory_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CallerMemoryIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallerMemoryOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -17685,6 +18650,220 @@ export interface operations {
             };
         };
     };
+    read_wallet_summary_v1_billing_wallet_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WalletOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_wallet_ledger_v1_billing_wallet_ledger_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LedgerOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_payment_receipt_v1_billing_wallet_receipts__payment_ref__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                payment_ref: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ReceiptOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_topup_attempts_v1_billing_wallet_topups_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TopUpAttemptOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_callbacks_v1_callbacks_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                open_only?: boolean;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledCallbackOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_callback_v1_callbacks__callback_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                callback_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledCallbackOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    cancel_callback_v1_callbacks__callback_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                callback_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduledCallbackOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_calls_v1_calls_get: {
         parameters: {
             query?: {
@@ -18785,6 +19964,39 @@ export interface operations {
             };
         };
     };
+    confirm_copilot_proposal_v1_copilot_confirm_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CopilotConfirmIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CopilotConfirmOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     get_dashboard_v1_dashboard_get: {
         parameters: {
             query?: never;
@@ -18928,6 +20140,45 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    caller_data_v1_engine_caller_data__engine__get: {
+        parameters: {
+            query: {
+                contact_number: string;
+                agent_id: string;
+                execution_id?: string;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                engine: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: string;
+                    };
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -19461,6 +20712,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ChunkOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    get_staff_curation_v1_kb_staff_curation_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffCurationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_staff_curation_v1_kb_staff_curation_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StaffCurationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StaffCurationOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

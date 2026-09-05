@@ -12,6 +12,8 @@ import { ModelPricingPanel } from "@/app/admin/ops/ModelPricingPanel";
 import { KeyManagementPanel, SecretsPanel } from "@/app/admin/ops/SecretsPanel";
 import { WithheldPanel } from "@/app/admin/withheld";
 import { Card, Skeleton } from "@/components/ui";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * THE OPS CONFIG PANEL — platform settings and vendor credentials, on their own screen.
@@ -60,6 +62,52 @@ export default function OpsConfigPage() {
   // The same `["admin","me"]` query the two verdicts above read, asked a third way: has it
   // ANSWERED yet. See `identityAnswerPending` for why this is not `isLoading`.
   const identityLoading = identityAnswerPending(useAdminMe());
+
+  /*
+   * THE CONFIG SCREEN, DECLARED TO THE SCREEN ASSISTANT — AND IT DECLARES NO INVENTORY.
+   *
+   * This is the sharpest surface in either console and the declaration is shaped by the
+   * same argument the withheld cards below are: an inventory of which vendor credentials a
+   * deployment holds is a TARGETING ORACLE (`apps/api/ops/secret_routes.py`), so no key
+   * name, no last-four, no count and no "none installed" leaves this screen — not to the
+   * model, not for an operator who holds `platform:secrets` either. Nothing is gained by
+   * telling an assistant what is in a vault the person is looking at.
+   *
+   * What it declares is which of the six panels this operator is being shown, because that
+   * is what somebody asks here ("why can I not see the credentials panel"), and the answer
+   * is a permission rather than a secret. The panel values themselves live inside the panel
+   * components and each holds its own draft; none of them is reached from here.
+   */
+  useCopilotSurface({
+    route: "/admin/ops/config",
+    title: "Platform configuration",
+    realm: "admin",
+    fields: [],
+    facts: [
+      {
+        key: "identity",
+        label: "Has the permission check answered",
+        value: identityLoading ? "not yet" : "yes",
+      },
+      {
+        key: "platform_config",
+        label:
+          "Panels on platform:config — settings, model prices, exchange rate, dashboard AI data-use",
+        value: identityLoading ? "unknown" : mayConfigure.refused ? "withheld" : "shown",
+      },
+      {
+        key: "platform_secrets",
+        label: "Panels on platform:secrets — vendor credentials, key management",
+        value: identityLoading ? "unknown" : maySecrets.refused ? "withheld" : "shown",
+      },
+      {
+        key: "no_inventory",
+        label: "What this screen tells the assistant about stored credentials",
+        value: "nothing — not a key name, not a count. See the comment above this declaration.",
+      },
+    ],
+    apply: noFill,
+  });
 
   return (
     <div className="max-w-2xl space-y-5">

@@ -116,6 +116,38 @@ export interface CopilotSurface {
    * model's, and a screen crashing on it would take the console with it.
    */
   apply: (items: CopilotFillItem[]) => void;
+  /**
+   * IS THERE WORK ON THIS SCREEN THAT WOULD BE LOST BY LEAVING IT? D-524.
+   *
+   * The assistant can now open another screen (`CopilotNavigation`), and the one thing the
+   * SERVER cannot know is whether the form in front of the person is dirty — it is told
+   * that fields exist, never that any of them has been touched. So this is the screen's
+   * own answer, and it is the AUTHORITATIVE one when it is given: `true` means ask before
+   * leaving, `false` means "I have nothing unsaved, go".
+   *
+   * **OPTIONAL, AND WHAT `undefined` MEANS IS "I DID NOT SAY", NEVER "NO".** A screen that
+   * has not been taught this question is not a screen with nothing to lose, so
+   * `unsaved.ts` falls back to a conservative reading — a screen with any writable field
+   * is treated as possibly dirty and the person is asked. Asking when there was nothing to
+   * lose costs one click; not asking when there was costs the work. Declare it and the
+   * question stops being asked needlessly; leave it out and nothing is ever discarded
+   * silently.
+   *
+   * Read at navigation time through the holder, like every other value here, so it is the
+   * state at the moment of the move rather than at the moment of the question.
+   */
+  unsaved?: boolean;
+  /**
+   * Set ONLY by `fallback.ts::fallbackSurface`, on the surface the dock composes for a
+   * screen that declared nothing (D-501). Never set by a screen: a screen that sets it
+   * would be claiming it cannot see itself.
+   *
+   * It exists because the panel's copy has to be able to tell the two apart, and the
+   * FIELD COUNT cannot: a read-only screen declaring `noFill` and zero fields is a real
+   * declaration, and telling its user "I can't see this screen" would be as wrong as
+   * telling a fallback's user "this screen has 0 fields".
+   */
+  undeclared?: boolean;
 }
 
 /**
@@ -134,4 +166,174 @@ export interface CopilotSurface {
  */
 export function asText(value: CopilotFillItem["value"]): string {
   return value === null ? "" : String(value);
+}
+
+/**
+ * The `apply` a READ-ONLY screen declares — a dashboard, a log, a statement.
+ *
+ * Most screens in the client console hold no writable control at all: they render counts,
+ * statuses and a filter or two. They still declare themselves, because a launcher that is
+ * absent on nineteen screens out of thirty teaches a person the assistant does not exist,
+ * and because the copilot's read tools can answer "why is this campaign held" perfectly
+ * well from a screen whose only contribution is "you are on the campaign-review screen and
+ * the verdict says pending".
+ *
+ * A named export rather than `apply: () => {}` written out at each of those call sites:
+ * one spelling means a reader can tell "this screen has nothing to fill" from "this screen
+ * forgot to wire its setters", which two dozen anonymous empty arrows cannot.
+ *
+ * It takes NO parameter, which is what TypeScript wants of a function used where one
+ * taking `CopilotFillItem[]` is expected — a narrower parameter list is assignable, and
+ * naming an argument this body cannot use is an unused binding the linter is right about.
+ * Nothing reaches it in any case: the panel filters fills to DECLARED ids, and a screen
+ * that declares no writable field has none to be filled.
+ */
+export function noFill(): void {
+  /* Nothing to fill — see above. */
+}
+
+/**
+ * A described, server-signed intent — the `proposal` SSE frame, unchanged.
+ *
+ * **NOTHING HAS HAPPENED WHEN ONE OF THESE ARRIVES.** It is the copilot's write surface,
+ * and the whole design is that the write tools cannot mutate anything: they read, they
+ * describe, and they return this (`apps/api/copilot/write_tools.py`). The change happens
+ * only if the person presses Confirm, which posts `token` back — UNCHANGED, and with
+ * nothing beside it — to `POST /v1/copilot/confirm`.
+ *
+ * ## Every string here is the SERVER'S, and the browser composes none of them
+ *
+ * `title`, `summary`, `current` and `proposed` are written server-side from what the tool
+ * READ, not from what the model said it would do. A console that re-derived the sentence
+ * from `tool` and `object_id` would be a second, drifting account of the change, and it
+ * would be the one the person actually approved. So the card renders these verbatim; the
+ * only strings it adds are its own chrome ("Confirm", "Dismiss", "Suggestion").
+ *
+ * `current` is nullable because a tool may have no single value to name; every tool
+ * shipped so far has one, and the pair is what makes the decision informed — "set this to
+ * Hot" is a label, "it is Contacted now, this makes it Hot" is a description.
+ *
+ * `object_id` is an id and never a name or a number (hard rule 6): this crosses the same
+ * wire the answer does. It is not rendered.
+ *
+ * `expires_at` is an ISO instant five minutes after minting. The card disables its own
+ * Confirm at that point rather than letting somebody click into a refusal.
+ */
+export interface CopilotProposal {
+  token: string;
+  tool: string;
+  title: string;
+  summary: string;
+  object_type: string;
+  object_id: string;
+  current: string | null;
+  proposed: string;
+  /**
+   * What it costs, in a sentence, or `null` for "nothing". D-500.
+   *
+   * Never a rupee figure, deliberately: the per-minute rate is a property of the account's
+   * plan, so the server's sentence says what is billed and names the screen that holds the
+   * amount. Render it verbatim when it is non-null and render nothing when it is null —
+   * "Cost: none" is a line that makes a free action look like a priced one.
+   */
+  cost: string | null;
+  /**
+   * Whether and how it can be taken back. NEVER null, and never softened.
+   *
+   * This is the field the console owes the person most. The panel offers an Undo for a
+   * field fill, so somebody has already learned that this assistant's changes come back —
+   * and for a launch they do not. Render it on every card.
+   */
+  reversal: string;
+  expires_at: string;
+}
+
+/**
+ * A TIER 1 action that HAS ALREADY HAPPENED — the `action` SSE frame, unchanged. D-500.
+ *
+ * **THE OPPOSITE PROMISE FROM `CopilotProposal`, AND THE TWO MUST NEVER LOOK THE SAME.**
+ * A proposal is an offer with a Confirm button and nothing behind it yet; this is a
+ * receipt. There is no token and no button, because the change is done: the assistant's
+ * risk tiering (`apps/api/copilot/actions.py`) lets an action run without a click only when
+ * it is reversible, reaches no caller and spends nothing, and creating a draft agent is the
+ * shape of that.
+ *
+ * Every string is the SERVER'S. `detail` is composed from what the executor returned,
+ * `reversal` says what taking it back would mean, and `where` says where the result now
+ * lives — which is the console's half of "act without navigating": the assistant does the
+ * thing from whatever screen the person is on and then tells them where it went, rather
+ * than moving them or pre-filling a form for them to save.
+ *
+ * `applied: false` means the world was already in that state, which is a real outcome and
+ * not a failure (D-65).
+ */
+export interface CopilotAction {
+  tool: string;
+  title: string;
+  detail: string;
+  object_type: string;
+  object_id: string;
+  applied: boolean;
+  reversal: string;
+  where: string;
+}
+
+/**
+ * A SCREEN TO OPEN — the `navigate` SSE frame. D-524.
+ *
+ * **THE ONE FRAME ON THIS STREAM THE BROWSER HAS TO ACT ON.** Text, fills, proposals,
+ * receipts and steps are all things to render; this one is a route change, so it is a
+ * separate type and a separate handler for `CopilotAction`'s reason — one shape carrying
+ * both would be a receipt that sometimes navigates.
+ *
+ * It is Tier 1 (`apps/api/copilot/actions.py`): reversible with the back button, reaching
+ * no caller, spending nothing. So it arrives with no token and no Confirm button, and it is
+ * RENDERED as a receipt exactly like `CopilotAction`.
+ *
+ * ## `route` is a TEMPLATE, and it is checked here before anything moves
+ *
+ * It carries a literal `{slug}` (`/c/{slug}/credits`) because the server is never told this
+ * account's slug on this path — a declaring screen sends the template
+ * (`lib/copilot/registry.ts`). `resolveDestination` substitutes the slug and then checks the
+ * result against `lib/clientNav.ts`; a route that is not in that list does not navigate,
+ * whatever the server said. The server side is the same shape (the model names a SCREEN and
+ * the route is a constant from an inventory), so there are two closed lists and neither half
+ * moves anybody on the other's word alone.
+ *
+ * `screen`, `where`, `detail` and `reversal` are the server's own sentences and are the only
+ * things a person is shown or a screen reader hears. `route` is never rendered.
+ */
+export interface CopilotNavigation {
+  tool: string;
+  /** The destination's name as the sidebar spells it — "Calling credit". */
+  screen: string;
+  /** The route TEMPLATE, `{slug}` unsubstituted. Acted on, never rendered. */
+  route: string;
+  /** "Calling credit, under Settings & account in the left sidebar". */
+  where: string;
+  /** "Opening …" — never "Opened", because this browser decides when. */
+  detail: string;
+  /** How to come back. The panel's Undo does not reach a route change. */
+  reversal: string;
+}
+
+/**
+ * One tool call as it happens — the `step` SSE frame. D-500.
+ *
+ * TWO FRAMES PER CALL, sharing an `id`: `running` when it starts, then exactly one of
+ * `done` / `refused` / `failed` carrying `elapsed_ms`. Key the row by `id` and REPLACE it,
+ * rather than appending, or one lookup renders as two lines.
+ *
+ * Purely observational: dropping every one of these loses no outcome, which is what makes
+ * it safe to render live. `args` and `detail` are bounded previews the server has already
+ * stripped and truncated; they are the person's own account data going back to the person's
+ * own screen, and they are never logged or stored anywhere.
+ */
+export interface CopilotStep {
+  id: string;
+  tool: string;
+  status: "running" | "done" | "refused" | "failed";
+  args: string;
+  detail: string | null;
+  elapsed_ms: number | null;
 }

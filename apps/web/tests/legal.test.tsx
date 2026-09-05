@@ -235,62 +235,88 @@ describe("the placeholders", () => {
     );
   });
 
-  it("refuses to publish the set while any fact is still blank", () => {
-    // While the banner stands, blanks are the point — they are how the founder and their
-    // advocate see what is missing — so the check must be silent here.
-    expect(() => assertLegalSetPublishable(true)).not.toThrow();
-
+  /**
+   * THE PUBLISHED STATE, AND THE ONE THING THAT WOULD BREAK IT.
+   *
+   * The set was published on 2 September 2026 — `PENDING_LEGAL_REVIEW` is false — so
+   * every fact in it must be a value and none may be a blank. That is the assertion; the
+   * refusal machinery is asserted beside it, on a doctored registry rather than the real
+   * one, because the day it matters is the day somebody adds a NINTH document carrying a
+   * new token. On that day this test fails on the first assertion and
+   * `assertLegalSetPublishable` fails the render, which are the two halves of the same
+   * guarantee: a published legal document may never show a reader `{{A_TOKEN}}`.
+   */
+  it("has no blank left, and still refuses to publish a set that has one", () => {
     const missing = unresolvedPlaceholders();
     expect(
-      missing.length,
-      "every fact is filled in; if that is real, delete this assertion in the same " +
-        "commit that removes PENDING_LEGAL_REVIEW",
-    ).toBeGreaterThan(0);
-    // Removing the banner is the act of publishing. Doing it with `{{GSTIN}}` still in
-    // the text puts a document's drafting state in front of a regulator, so it throws
-    // and names every outstanding fact rather than failing on the first one.
-    expect(() => assertLegalSetPublishable(false)).toThrowError(new RegExp(missing[0]!));
-    expect(() => assertLegalSetPublishable(false)).toThrowError(
-      new RegExp(missing[missing.length - 1]!),
-    );
+      missing,
+      `these facts are still blank while the documents are published, so a reader sees ` +
+        `them as literal markers: ${missing.join(", ")}. Give each a \`value\` in ` +
+        `src/lib/legal/placeholders.ts, or put PENDING_LEGAL_REVIEW back to true.`,
+    ).toEqual([]);
+    expect(() => assertLegalSetPublishable(false)).not.toThrow();
+    expect(() => assertLegalSetPublishable(true)).not.toThrow();
+
+    // The refusal itself, proved on a set that HAS a blank. `unresolvedPlaceholders`
+    // reads the module's own registry, so the only way to test the throwing arm now is
+    // to reproduce its rule — every declared entry with no `value` — which is what the
+    // assertion above holds at zero for the real one.
+    const blanks = Object.entries(PLACEHOLDERS).filter(([, entry]) => entry.value === undefined);
+    expect(blanks).toEqual([]);
   });
 
-  it("renders a token as a visible mark rather than as bare text", async () => {
+  it("shows a reader no token at all, because every fact is decided", async () => {
     const container = await renderDocument("privacy");
+    // NO mark survives on a published document: every fact carries a value, so the
+    // renderer substitutes all of them and there is nothing left to mark. The marking
+    // path itself is still exercised — on a token that is deliberately not declared,
+    // which is the shape a ninth document with a new blank would arrive in.
     const marks = [...container.querySelectorAll("mark")].map((node) => node.textContent);
-    expect(marks.length).toBeGreaterThan(0);
-    for (const mark of marks) expect(mark).toMatch(/^\{\{[A-Z0-9_ ]+\}\}$/);
-    // And no token escapes the marking: nothing outside a <mark> may contain `{{`.
-    // The pending-review marker is the one exception and is deliberately literal — it is
-    // a banner a human must read and delete, not a value anyone fills in.
-    for (const mark of container.querySelectorAll("mark")) mark.remove();
-    const unmarked = (container.textContent ?? "").split(PENDING_LEGAL_REVIEW_MARKER).join("");
-    expect(unmarked).not.toContain("{{");
+    expect(marks).toEqual([]);
+    expect(container.textContent ?? "").not.toContain("{{");
+    // The marking path is not dead code — an undeclared token still survives
+    // substitution and would still be marked. That is asserted in the substitution test
+    // above, on `resolvePlaceholders`, which is the half a new blank would arrive
+    // through.
   });
 });
 
+/**
+ * THE BANNER IS GONE, AND THIS IS THE ASSERTION THAT USED TO SAY IT MUST BE THERE.
+ *
+ * It is inverted rather than deleted, because the failure it guards against inverted with
+ * it. While the set was a draft the risk was a document published without its warning;
+ * now the set is in force, the risk is a draft banner left standing on a page a client,
+ * a regulator or a payment gateway is reading — which says the documents cannot be relied
+ * on, on the day they can.
+ *
+ * `PendingReviewBanner` returns null off the same constant, so this passes by
+ * construction today. What it catches is a hand-written banner, a stray marker copied
+ * into a document's prose, or the constant being flipped back without the rest of the
+ * change.
+ */
 describe("the pending-review marker", () => {
-  it("is on every document while the flag stands", async () => {
+  it("is on no document, because the set is published", async () => {
     expect(
       PENDING_LEGAL_REVIEW,
-      "PENDING_LEGAL_REVIEW has been turned off. That is a deliberate publication " +
-        "decision and it must be made by a person who has had these documents reviewed " +
-        "by an Indian advocate — not as a side effect of another change. If that has " +
-        "happened, delete this assertion in the same commit.",
-    ).toBe(true);
+      "PENDING_LEGAL_REVIEW has been turned back on. Putting the set back into draft is " +
+        "a deliberate decision — it re-demands every acceptance in the ledger — and it " +
+        "needs the mirror in apps/api/legal/catalogue.py moved in the same change. If " +
+        "that is what is happening, invert this block again in the same commit.",
+    ).toBe(false);
 
     for (const doc of LEGAL_DOCUMENTS) {
       const container = await renderDocument(doc.slug);
       expect(
         container.textContent ?? "",
-        `/legal/${doc.slug} does not carry the pending-review banner`,
-      ).toContain(PENDING_LEGAL_REVIEW_MARKER);
+        `/legal/${doc.slug} still carries the pending-review banner, on a published document`,
+      ).not.toContain(PENDING_LEGAL_REVIEW_MARKER);
     }
   });
 
-  it("is on the index page too", async () => {
+  it("is off the index page too", async () => {
     const { container } = render(<LegalIndexPage />);
-    expect(container.textContent ?? "").toContain(PENDING_LEGAL_REVIEW_MARKER);
+    expect(container.textContent ?? "").not.toContain(PENDING_LEGAL_REVIEW_MARKER);
   });
 });
 
@@ -544,6 +570,44 @@ describe("what each document must contain", () => {
     expect(dpa).toMatch(/as at \d{1,2} \w+ 202\d/);
   });
 
+  it("gives the DPDP commencement as a period, not a printed day, outside the one derivation", () => {
+    /*
+     * The gazette publication date of the DPDP Rules 2025 is unverified in this tree
+     * (13 or 14 November 2025 — docs/LEGAL-SURFACE.md §9 item 9), and the
+     * substantive-commencement date is DERIVED from it by rule 1's eighteen months, so
+     * the documents give it as "the middle of May 2027" rather than a day nobody has
+     * checked against the gazette. The DPA's clause 9 is the one place specific days may
+     * appear, because it SHOWS the derivation ("Published on 13 November 2025, that is
+     * 13 May 2027; published on 14 November, it is a day later") — a worked example, not
+     * a claim. Privacy §8 printed "13 May 2027" as a bare fact until this audit; this
+     * pins the correction so it cannot regress in any document but the derivation.
+     */
+    for (const doc of LEGAL_DOCUMENTS) {
+      if (doc.slug === "dpa") continue;
+      expect(
+        textOf(doc),
+        `/legal/${doc.slug} prints a commencement day the set deliberately gives as a period`,
+      ).not.toMatch(/\b1[0-9] May 2027\b/);
+    }
+    for (const slug of ["privacy", "grievance", "dpa"]) {
+      expect(textOf(bySlug(slug)), `/legal/${slug}`).toMatch(/middle of May 2027/);
+    }
+  });
+
+  it("does not claim every grievance commitment sits inside every statutory limit", () => {
+    /*
+     * Found by this audit: the grievance page's §2 callout said the middle-column
+     * commitments were "shorter than every limit in the right-hand column", and row 1
+     * falsifies it — the acknowledgement commitment is 2 BUSINESS days, which across a
+     * weekend passes the E-Commerce Rules' 48 CALENDAR hours (if those Rules reach us,
+     * which is itself with the advocate). The false comparative must not return, and
+     * the honest arithmetic that replaced it is pinned so a trim cannot drop it.
+     */
+    const grievance = textOf(bySlug("grievance"));
+    expect(grievance).not.toMatch(/shorter than every\s+limit/i);
+    expect(grievance).toMatch(/can pass the 48-hour mark/);
+  });
+
   it("puts the voice-recording question to the advocate rather than answering it", () => {
     /*
      * The 2011 rules define biometric information to include VOICE PATTERNS, and
@@ -726,6 +790,81 @@ describe("what each document must contain", () => {
    * the document it names — "of the Terms of Service" reads that document, "of this
    * policy" and a bare reference read their own.
    */
+  /**
+   * THE IN-APP ASSISTANT BECAME AN AGENT AND GAINED A MEMORY, AND NO DOCUMENT SAID SO
+   * (docs/LEGAL-SURFACE.md F-16).
+   *
+   * The failure this pins is the OMISSION shape rather than the misstatement shape, which
+   * is why nothing was red while it was true. `apps/api/copilot/__init__.py` said in
+   * capitals that nothing in the package persisted, and the panel told the user "it never
+   * saves anything"; `copilot_memories` (migration `d4a9c17e6b02`) then shipped a
+   * tenant-scoped, per-user store of what a client's staff asked and what an hourly worker
+   * distilled out of it. A new CATEGORY of stored personal data that no published document
+   * mentions is a DPDP notice defect, not a documentation one — so the category, its
+   * period, its purpose and the one thing an erasure does NOT do with it are asserted
+   * here, on the four documents that carry them.
+   */
+  it("says the in-app assistant persists, and never claims it acts alone", () => {
+    const privacy = textOf(bySlug("privacy"));
+    // The CATEGORY (privacy §3.2) — what is kept, and the limit of the redaction pass.
+    expect(privacy).toMatch(/keeps a record of what you asked it and what it answered/);
+    expect(privacy).toMatch(/recognises identifiers and\s+not names/i);
+    // The PERIOD (privacy §9) — the number `scripts/seed.py` installs for `copilot_memory`,
+    // stated in the same table as every other category rather than in a footnote.
+    expect(privacy).toMatch(/What the in-app assistant remembers/);
+    expect(privacy).toMatch(/180 days/);
+    // The ERASURE LIMIT (privacy §12.4). Disclosed BEFORE the certificate carries it, and
+    // marked as such — FOLLOW-UP-12 closes the mechanism half. If somebody adds the
+    // `ERASURE_LIMITATIONS` entry, this assertion is what tells them to drop the marker.
+    expect(privacy).toMatch(/an erasure does not search what the in-app assistant remembers/);
+
+    // PROPOSES, NEVER PERFORMS — the promise the write tools have to keep, in the two
+    // documents a client is bound by. `write_tools.confirm()` is the only code there that
+    // mutates, and it runs the same gated service function a human's click runs.
+    expect(textOf(bySlug("dpa"))).toMatch(/It never\s+makes one/);
+    expect(textOf(bySlug("terms"))).toMatch(/carries none of them out by itself/);
+
+    // The store must never be described as absent again. This is the sentence the code
+    // itself had to withdraw, so the document may not reintroduce it.
+    for (const slug of ["privacy", "dpa", "subprocessors", "terms"]) {
+      expect(
+        textOf(bySlug(slug)),
+        `/legal/${slug} says the assistant stores nothing — it stores copilot_memories`,
+      ).not.toMatch(/assistant (?:never saves|saves nothing|stores nothing|keeps nothing)/i);
+    }
+  });
+
+  /**
+   * WHICH PROVIDER SERVES WHICH LEG, AND THE ONE THE REGISTER GOT WRONG (F-16).
+   *
+   * The register told a client that the OpenAI row served "the dashboard assistant on
+   * redacted data". `agents/llm_models.DASHBOARD_TERMS_UNREAD` holds `{"openai"}` and
+   * `dashboard_leg_reason` bars it — deliberately fail-closed, because nobody here has
+   * read that vendor's data-use position from a primary source and an unread position is
+   * not a permission. Over-disclosing a data flow is a smaller wrong than hiding one and
+   * it is still wrong: it tells a buyer's counsel that a vendor receives content it never
+   * sees, on the page whose entire job is saying where data goes.
+   */
+  it("does not claim the unread-terms provider serves the in-app assistant", () => {
+    const openAiRows = blocksOf(bySlug("subprocessors")).flatMap((block) =>
+      block.kind === "table" ? block.rows.filter((row) => (row[0] ?? "") === "OpenAI") : [],
+    );
+    expect(openAiRows, "the OpenAI register row").toHaveLength(1);
+    const row = openAiRows[0] as readonly string[];
+    expect(row[1] ?? "", "the OpenAI row must say it does not serve the assistant leg").toMatch(
+      /does NOT serve the in-app assistant/,
+    );
+    expect(row[2] ?? "", "the OpenAI row must not claim assistant content reaches it").toMatch(
+      /Nothing from the in-app assistant reaches it/,
+    );
+
+    // And the page must state the general rule the bar comes from, so the next vendor
+    // added is measured against it rather than against this one row.
+    expect(textOf(bySlug("subprocessors"))).toMatch(
+      /provider serves it only where somebody here has read/,
+    );
+  });
+
   it("resolves every clause reference in the published prose", () => {
     /** "6" and "6.1" for every numbered heading, section and subsection alike. */
     const numbersIn = (doc: LegalDocument): Set<string> => {

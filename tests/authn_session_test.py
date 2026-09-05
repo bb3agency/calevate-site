@@ -482,3 +482,76 @@ async def test_an_unknown_realm_is_refused_loudly() -> None:
         await verify_session(token="anything", realm="ops")
     with pytest.raises(ValueError, match="not an authentication realm"):
         token_fingerprint("anything", "ops")
+
+
+# ----------------------------------------------------- who is allowed to rotate at all
+
+
+#: Every call site of `rotate_session` in `apps/api`, and what makes it acceptable to the
+#: no-grace-window decision the module docstring argues.
+#:
+#: THE CENSUS IS THE POINT, not the three entries. `sessions.py` refuses the 10-second
+#: reuse grace its reference implementation carries, and the whole argument for that
+#: refusal is that nothing here rotates on a schedule: every rotation is one person doing
+#: one thing, so two requests never race the same token from this side. That premise used
+#: to be stated as "sign-in, MFA completion, role change" — a list in which two of the
+#: three do not rotate and the one caller a client can drive at will (`session/refresh`)
+#: was missing. A prose list cannot hold a security premise up; this can.
+#:
+#: The failure this catches is precise: a SERVER-side rotation caller — a periodic re-mint,
+#: a middleware, a background sweep — would make racing bursts ordinary, and every one of
+#: them would revoke a live family as theft. Adding one is legitimate; adding one without
+#: revisiting the grace-window decision is not, and an entry here is what forces the
+#: reading.
+_ROTATION_CALLERS: dict[str, str] = {
+    "complete_second_factor": (
+        "a second factor was proved — OWASP's session-fixation defence asks for a new "
+        "identifier at exactly this moment. One person, one code, one request."
+    ),
+    "complete_step_up": (
+        "a factor was re-proved for a dangerous act (D-178). Same shape: one person "
+        "answering one emailed code."
+    ),
+    "refresh": (
+        "the console's idle-extension button (POST /v1/auth/{realm}/session/refresh). The "
+        "ONLY caller reachable at a client's discretion, and therefore the one the "
+        "no-grace-window decision rests on: `apps/web/src/lib/authn/realm.ts` holds the "
+        "'never a burst' premise up with a single-flight and a rotation barrier."
+    ),
+}
+
+
+def test_the_only_rotation_callers_are_the_three_recorded_here() -> None:
+    """Walk `apps/api` for `rotate_session(` and require the enclosing functions to match.
+
+    A source walk rather than a monkeypatch: the property is about which code EXISTS, not
+    about which code ran in one test. `sessions.py` itself is excluded — it defines the
+    function — and so are comments and docstrings, which name it constantly.
+    """
+    import ast
+    from pathlib import Path
+
+    api = Path(__file__).resolve().parent.parent / "apps" / "api"
+    callers: dict[str, str] = {}
+    for path in sorted(api.rglob("*.py")):
+        if path.name == "sessions.py" and path.parent.name == "authn":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            for inner in ast.walk(node):
+                if (
+                    isinstance(inner, ast.Call)
+                    and isinstance(inner.func, ast.Name)
+                    and inner.func.id == "rotate_session"
+                ):
+                    callers[node.name] = str(path.relative_to(api.parent.parent))
+    assert set(callers) == set(_ROTATION_CALLERS), (
+        f"`rotate_session` is called from {sorted(callers)}; this census records "
+        f"{sorted(_ROTATION_CALLERS)}. Rotation supersedes a token and the NEXT "
+        "presentation of it revokes the whole family as theft — `authn/sessions.py` "
+        "refuses a concurrency grace window on the premise that nothing here rotates on a "
+        "schedule. Add the caller here with the sentence that keeps that premise true, or "
+        "reopen the grace-window decision."
+    )

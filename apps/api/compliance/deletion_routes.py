@@ -53,11 +53,12 @@ from typing import Annotated, Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request, Response
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.compliance import deletion, deletion_proof
 from apps.api.compliance.audit import write_audit
+from apps.api.compliance.subject_phone import SubjectPhone
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
@@ -83,10 +84,11 @@ class DeletionRequestIn(Strict):
     number". `scope` in particular is refused rather than ignored: the worker honours no
     narrower scope, so accepting one would record a promise nothing keeps."""
 
-    # E.164, the same gate as the subject-access export. A number we cannot dial is a
-    # number we cannot match, and an erasure that silently matches nothing is worse than
-    # a 422.
-    phone: str = Field(min_length=8, max_length=20, pattern=r"^\+[1-9]\d{7,18}$")
+    # Raw as pasted, then normalized — the same gate as the subject-access export and
+    # the same one `/v1/dnc` uses. A number we cannot dial is a number we cannot match,
+    # and an erasure that silently matches nothing is worse than a 422; but a client
+    # typing the ten digits the form asked for is not that case, and used to get one.
+    phone: SubjectPhone
 
 
 class ErasureScopeOut(Strict):
@@ -129,6 +131,17 @@ class ErasureScopeOut(Strict):
     # the client's manual step actionable, and which document is a question they answer on
     # their own knowledge screen.
     knowledge_base_documents_matched: int | None
+    # How many SEARCHABLE PROJECTIONS of this person's words this erasure destroyed, and
+    # how many remembered facts about them (D-503). NULLABLE and required, on the reasoning
+    # every count above uses: a recorded `0` is the claim "there were none", and `None`
+    # means the proof predates the vector store — the certificate says those in different
+    # sentences (`deletion_proof._caller_sentences`) rather than collapsing them.
+    #
+    # First-class fields rather than a line in `actions` because this is the copy a reader
+    # cannot check by eye: a transcript that still held the words would be obvious on the
+    # client's own screen, and an embedding that still held them would be obvious nowhere.
+    caller_vectors_erased: int | None
+    caller_memories_erased: int | None
 
 
 class ErasureLimitationOut(Strict):

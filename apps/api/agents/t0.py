@@ -131,6 +131,22 @@ def _one_line(value: str) -> str:
     return re.sub(r"\s+", " ", value).strip()
 
 
+def knowledge_line_prefix(name: str) -> str:
+    """`- <source name>: ` — the head of the line `knowledge_lines` writes for that source.
+
+    ONE SPELLING, for `T0_HEADER`'s reason. `retrieval/compiled_facts.py` has to map a line
+    of the compiled block back to the source it came from, in order to find that source's
+    English gloss, and it can only do that by recognising this prefix. A second module
+    re-deriving `f"- {name}: "` is how the block came to have two headers once
+    (`tests/t0_recompile_test.py` pins that pair for the same reason).
+
+    `_one_line` is applied here rather than by the caller so the two uses cannot disagree
+    about whitespace: a source named "Opening\n hours" produces one prefix, whichever side
+    asks for it.
+    """
+    return f"- {_one_line(name)}: "
+
+
 def knowledge_lines(facts: Sequence[KnowledgeFact]) -> tuple[list[str], int]:
     """The knowledge half, capped. Returns (lines, sources skipped for space).
 
@@ -141,10 +157,10 @@ def knowledge_lines(facts: Sequence[KnowledgeFact]) -> tuple[list[str], int]:
     used = 0
     skipped = 0
     for fact in facts:
-        name, body = _one_line(fact.name), _one_line(fact.text)
+        body = _one_line(fact.text)
         if not body:
             continue
-        line = f"- {name}: {body}"
+        line = f"{knowledge_line_prefix(fact.name)}{body}"
         if used + len(line) > KNOWLEDGE_CHAR_BUDGET:
             skipped += 1
             continue
@@ -378,6 +394,7 @@ __all__ = [
     "block_of",
     "compile_block",
     "intake_half",
+    "knowledge_line_prefix",
     "knowledge_lines",
     "recompile_t0",
     "splice_t0_block",

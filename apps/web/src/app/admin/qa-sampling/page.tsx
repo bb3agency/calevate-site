@@ -8,6 +8,7 @@ import {
   Card,
   EmptyState,
   FilterChip,
+  NOTICE_TONES,
   NoticeBox,
   ProblemNotice,
   ScrollRegion,
@@ -16,6 +17,8 @@ import {
   formatIST,
 } from "@/components/ui";
 import { useQaSamples, VERDICTS, type QaSample } from "@/lib/api/qaSamples";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
 
 /**
  * The QA sampling queue — which calls we spot-checked this week, and why those ones.
@@ -51,6 +54,63 @@ export default function QaSamplingPage() {
   const rows = queue.data ?? [];
   const defects = rows.filter((row) => row.verdict === "defect");
 
+  /*
+   * THE SAMPLING QUEUE, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * The draw spans every client, so the rows are cross-tenant and the counts are what
+   * leave — not `tenant_name`, not `agent_name`, and not `call_id`. That is stricter than
+   * the payload needs (the list carries no transcript at all) and it is the right side of
+   * the line to be on: an operator asking "how many defects this week" is asking about the
+   * queue, and an operator asking about ONE call opens it, where the surface is scoped to
+   * that call and reading it is audited.
+   *
+   * The filter IS declared writable: it is a two-value toggle over a list the person is
+   * already looking at, it costs one cached read, and "show me everything, not just the
+   * unreviewed" is the most obvious thing anybody would ask this screen to do.
+   */
+  useCopilotSurface({
+    route: "/admin/qa-sampling",
+    title: "Call quality sampling",
+    realm: "admin",
+    fields: [
+      {
+        id: "qa-filter-pending",
+        label: "Which calls are listed",
+        type: "select",
+        value: pending ? "pending" : "all",
+        options: [
+          { value: "pending", label: "Not yet reviewed" },
+          { value: "all", label: "Every sampled call" },
+        ],
+      },
+    ],
+    facts: queue.data
+      ? [
+          {
+            key: "listed",
+            label: pending ? "Calls waiting for review" : "Calls sampled",
+            value: String(rows.length),
+          },
+          { key: "defects", label: "Listed calls marked as a defect", value: String(defects.length) },
+          {
+            key: "weeks",
+            label: "Draw weeks represented in the list",
+            value: String(new Set(rows.map((row) => row.week_start)).size),
+          },
+        ]
+      : [
+          {
+            key: "queue",
+            label: "The sampling queue",
+            value: queue.error ? "could not be read" : "still loading",
+          },
+        ],
+    apply: (items) => {
+      const filter = items.find((item) => item.field_id === "qa-filter-pending");
+      if (filter !== undefined) setPending(asText(filter.value) !== "all");
+    },
+  });
+
   return (
     <div className="space-y-4 pb-12">
       <p className="text-sm text-ink-muted">
@@ -73,7 +133,12 @@ export default function QaSamplingPage() {
             {pending ? " waiting for review" : " sampled"}
           </span>
           {!pending && defects.length > 0 && (
-            <span className="inline-flex items-center gap-1.5 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-800 dark:border-red-900 dark:bg-red-950 dark:text-red-200">
+            <span
+              /* NOTICE_TONES.stop, not a hand-rolled red: health and holds render the
+                 structurally identical badge in the shared rose — three screens, one
+                 badge, one palette (ux-audit F-10). */
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium ${NOTICE_TONES.stop}`}
+            >
               <TriangleAlert className="h-3.5 w-3.5" />
               {defects.length} marked as a defect
             </span>
@@ -186,7 +251,13 @@ function SampleRow({ row }: { row: QaSample }) {
         {/* The rank IN the draw, and the size OF the draw. This is the pair that makes
             the sample checkable rather than merely plausible. */}
         #{row.selection_rank} of {row.target}
-        <div className="text-xs text-ink-faint">{Math.round((row.target / row.population) * 100)}% sampled</div>
+        {/* Guarded: a `population` of 0 would print Infinity% — the only derived
+            statistic in the realm, kept only where its denominator is real (F-11). */}
+        {row.population > 0 && (
+          <div className="text-xs text-ink-faint">
+            {Math.round((row.target / row.population) * 100)}% sampled
+          </div>
+        )}
       </td>
       <td className="px-6 py-3">
         {verdict ? (

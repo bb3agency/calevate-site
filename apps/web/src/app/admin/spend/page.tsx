@@ -17,6 +17,8 @@ import {
 } from "@/components/ui";
 import { currentISTMonth } from "@/lib/api/invoice";
 import { useFleetSpend, type FleetTenant } from "@/lib/api/spend";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { noFill } from "@/lib/copilot/types";
 
 /**
  * THE MONEY BOARD — every live client's month, worst margin first.
@@ -50,6 +52,68 @@ export default function FleetSpendPage() {
   const board = useFleetSpend(month);
   const data = board.data;
 
+  /*
+   * THE MONEY BOARD, DECLARED TO THE SCREEN ASSISTANT.
+   *
+   * FLEET TOTALS, NO CLIENT ROWS — the cross-tenant decision this screen forces, and the
+   * reason it goes here rather than in a helper. Every row in the table below belongs to a
+   * DIFFERENT client, so sending the table would drop one client's revenue into whatever
+   * conversation the operator is having about another: hard rule 1's leak with no query to
+   * blame for it. The four sums and the two counts are CALEVATE'S OWN margin, not any
+   * tenant's data, so they go. An operator who wants to ask about one client opens that
+   * client's `/admin/tenants/{id}/spend`, which declares its own surface with its own name
+   * on it.
+   *
+   * The month is declared read-only. Changing it re-reads every live client one RLS
+   * session at a time — the slowest read in this console — so it is not something to be
+   * driven from a sentence; the model can still say which month is on screen.
+   */
+  useCopilotSurface({
+    route: "/admin/spend",
+    title: "Spend and margin, every client",
+    realm: "admin",
+    fields: [
+      {
+        id: "fleet-spend-month",
+        label: "Billing month",
+        type: "text",
+        value: month,
+        writable: false,
+        help: "IST billing month as YYYY-MM. Changing it walks every live client again.",
+      },
+    ],
+    facts: data
+      ? [
+          { key: "month", label: "Month shown", value: data.month },
+          { key: "clients", label: "Live clients walked", value: String(data.clients) },
+          { key: "revenue_inr", label: "Fleet revenue (₹)", value: data.revenue_inr },
+          { key: "cost_inr", label: "What the fleet cost us (₹)", value: data.cost_inr },
+          { key: "margin_inr", label: "Fleet margin (₹)", value: data.margin_inr },
+          {
+            key: "margin_pct",
+            label: "Fleet margin (%)",
+            value: data.margin_pct ?? "nothing billed this month",
+          },
+          {
+            key: "loss_making",
+            label: "Clients whose month is losing money",
+            value: String(
+              data.tenants.filter((row) => row.margin_inr.trim().startsWith("-")).length,
+            ),
+          },
+        ]
+      : [
+          {
+            key: "board",
+            label: "The board",
+            // Never "₹0": a read that did not arrive is not a month with no revenue in it,
+            // and the assistant must not be the one surface that forgets that (§52).
+            value: board.error ? "could not be read" : "still loading",
+          },
+        ],
+    apply: noFill,
+  });
+
   return (
     <div className="space-y-4 pb-12">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -60,6 +124,8 @@ export default function FleetSpendPage() {
         <input
           type="month"
           value={month}
+          // No future months: an empty 2027 board reads like a failure (ux-audit F-9a).
+          max={currentISTMonth()}
           onChange={(event) => setMonth(event.target.value)}
           className="rounded-md border border-line bg-surface px-2 py-1 text-sm text-ink"
           aria-label="Billing month"
@@ -87,6 +153,11 @@ export default function FleetSpendPage() {
                     : "mt-1 text-2xl font-bold tracking-tight tabular-nums text-brand-strong dark:text-brand-bright"
                 }
               >
+                {/* Same sr-only prefix as the table rows below: colour is never the only
+                    signal that a month is losing money (ux-audit F-18). */}
+                {data.margin_inr.trim().startsWith("-") && (
+                  <span className="sr-only">Losing money: </span>
+                )}
                 {formatINR(data.margin_inr)}
               </p>
             </div>

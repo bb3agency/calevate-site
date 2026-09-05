@@ -48,8 +48,7 @@ import CampaignReviewPage from "@/app/c/[slug]/campaign-review/page";
 import CampaignsPage from "@/app/c/[slug]/campaigns/page";
 import DataRightsPage from "@/app/c/[slug]/data-rights/page";
 import CallerNoticePage from "@/app/c/[slug]/caller-notice/page";
-import ClientInvoicePage from "@/app/c/[slug]/invoice/page";
-import ClientSpendPage from "@/app/c/[slug]/spend/page";
+import CallbacksPage from "@/app/c/[slug]/callbacks/page";
 import DoNotCallPage from "@/app/c/[slug]/do-not-call/page";
 import IntegrationsPage from "@/app/c/[slug]/integrations/page";
 import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
@@ -66,7 +65,7 @@ import QaSampleReviewPage from "@/app/admin/qa-sampling/[sampleId]/page";
 import AlertsPage from "@/app/c/[slug]/settings/alerts/page";
 import ClientLlmModelPage from "@/app/c/[slug]/settings/models/page";
 import TeamPage from "@/app/c/[slug]/settings/team/page";
-import UsagePage from "@/app/c/[slug]/usage/page";
+import BillingPage from "@/app/c/[slug]/billing/page";
 import AgreementsPage from "@/app/c/[slug]/agreements/page";
 import VerificationPage from "@/app/c/[slug]/verification/page";
 import InvitePage from "@/app/invite/page";
@@ -112,6 +111,116 @@ import { problem, renderClientPage, type Routes } from "./harness";
 const ORG = { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" };
 
 /** An owner: the role that can see the most, and therefore renders the most markup. */
+/**
+ * A STOPPED wallet — the state of `/c/<slug>/credits` that renders the most markup: the
+ * alert banner, the runway sentence, the full drawdown and the ledger beneath it. The
+ * healthy state renders a strict subset of it, which is the same rule the agreements and
+ * AI-help entries in this file are fixtured by.
+ */
+const WALLET_STOPPED = {
+  tenant_id: "00000000-0000-0000-0000-0000000000aa",
+  prepaid: true,
+  balance_inr: "0.00",
+  is_low: true,
+  low_balance_threshold_inr: "200.00",
+  outbound_stopped: true,
+  runway: {
+    basis: "empty",
+    days: null,
+    daily_burn_inr: "340.00",
+    history_days: 30,
+    beyond_horizon: false,
+    window_days: 30,
+    min_history_days: 7,
+    max_days: 365,
+  },
+  minutes_left: 0,
+  drawdown: {
+    calls_inr: "8400.00",
+    ai_assist_inr: "300.00",
+    adjustments_inr: "0.00",
+    spent_inr: "8700.00",
+    added_inr: "8700.00",
+    refunded_inr: "0.00",
+  },
+};
+
+const WALLET_LEDGER = {
+  entries: [
+    {
+      id: "11111111-1111-4111-8111-111111111111",
+      delta_inr: "-42.50",
+      reason: "usage",
+      ref: "call:9",
+      balance_after_inr: "0.00",
+      occurred_at: "2026-08-30T09:00:00Z",
+      payment_ref: null,
+    },
+    {
+      id: "22222222-2222-4222-8222-222222222222",
+      delta_inr: "2500.00",
+      reason: "topup",
+      ref: "pay_a1b2c3",
+      balance_after_inr: "2542.50",
+      occurred_at: "2026-08-01T09:00:00Z",
+      payment_ref: "pay_a1b2c3",
+    },
+  ],
+  payments: [
+    {
+      payment_ref: "pay_a1b2c3",
+      credited_inr: "2500.00",
+      entries: 1,
+      first_at: "2026-08-01T09:00:00Z",
+    },
+  ],
+};
+
+/** One attempt that never finished, so the panel above the top-up controls renders. */
+const WALLET_ATTEMPTS = [
+  {
+    id: "33333333-3333-4333-8333-333333333333",
+    receipt: "CAL-2608-0007",
+    amount_inr: "2500.00",
+    pack_id: null,
+    outcome: "failed",
+    started_at: "2026-08-30T10:00:00Z",
+  },
+];
+
+// SYNTHETIC, and deliberately not the real ladder: the list rate here is ₹8.00 and the
+// catalogue's is ₹5.00, so these amounts, bonuses and talk times are internally
+// consistent test data rather than packs we sell. The real rungs are pinned in
+// `tests/credit_packs_test.py`; a fixture that tracked them would break on every
+// repricing while proving nothing this file is about (D-526).
+const CREDIT_PACKS = {
+  list_rate_inr_per_min: "8.00",
+  packs: [
+    {
+      pack_id: "starter",
+      amount_inr: "1000.00",
+      paid_credits: "1000.00",
+      bonus_credits: "0.00",
+      total_credits: "1000.00",
+      bonus_pct: "0",
+      effective_rate_inr_per_min: "8.00",
+      talk_time_minutes: 125,
+      best_value: false,
+    },
+    {
+      pack_id: "growth",
+      amount_inr: "5000.00",
+      paid_credits: "5000.00",
+      bonus_credits: "400.00",
+      total_credits: "5400.00",
+      bonus_pct: "8",
+      effective_rate_inr_per_min: "7.41",
+      talk_time_minutes: 675,
+      best_value: true,
+    },
+  ],
+};
+
 const ME = {
   user_id: "u1",
   realm: "client",
@@ -127,6 +236,10 @@ const ME = {
     "kb:read",
     "kb:write",
     "billing:read",
+    // The wallet read every client role holds, `staff` included — `/c/<slug>/credits`
+    // refuses without it, and a swept refusal is a sweep of a RestrictionNote rather
+    // than of the screen.
+    "wallet:read",
     "members:read",
     "members:write",
     "dnc:read",
@@ -413,6 +526,8 @@ const AGENT = {
     "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   ai_disclosure_enabled: true,
   recording_notice_line: "This call is being recorded.",
+  caller_memory_notice_line: "I keep a short note of what you ask about.",
+  caller_memory_enabled: false,
   recording_notice_enabled: true,
   opening_line:
     "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
@@ -822,6 +937,35 @@ const OPS_KEK = {
   pending: 0,
 };
 
+/**
+ * `GET /v1/ops/fx-rate`, which `FxRatePanel` on the ops config screen reads.
+ *
+ * Its absence is why that screen's sweep was scanning a `ProblemNotice` instead of the
+ * screen: the panel renders one on a failed query, and a route with no fixture fails.
+ * `assertScreenRendered` is what turned that into a red test rather than a silent
+ * vacuous pass — the whole reason it exists.
+ *
+ * `state: "live"` and `using_fallback: false` on purpose. The stale and never-pulled
+ * states render an extra warning, so scanning the LIVE state is the weaker choice and
+ * would leave that warning unswept — but the panel's own stale/fallback rendering is
+ * covered by its own suite, and this fixture's job is the screen around it.
+ */
+const OPS_FX_RATE = {
+  base_currency: "USD",
+  quote_currency: "INR",
+  effective_rate: "88.4200",
+  fallback_rate: "95.6600",
+  published_rate: "88.4200",
+  published_source: "exchangerate.host",
+  published_as_of: "2026-09-04",
+  observed_at: "2026-09-04T06:00:00Z",
+  age_label: "today",
+  max_age_days: 7,
+  state: "live",
+  using_fallback: false,
+  history: [],
+};
+
 const OPS_CONFIG = {
   fields: [
     {
@@ -1179,6 +1323,9 @@ const CLIENT_SCREENS: Screen[] = [
       "/v1/me": ME,
       "/v1/dashboard": DASHBOARD,
       "/v1/usage": USAGE,
+      // The calling-credit tile, in the state worth sweeping: STOPPED, which is the one
+      // that carries a sentence and a link rather than a figure alone.
+      "/v1/billing/wallet": WALLET_STOPPED,
       "/v1/calls?limit=6": [CALL],
       // The dashboard-home `KnowledgeGaps` card (all agents). One OPEN gap so the sweep
       // covers its populated markup — the count badge, the quote, the agent name and the
@@ -1775,19 +1922,65 @@ const CLIENT_SCREENS: Screen[] = [
     element: () => <DoNotCallPage />,
     routes: {
       "/v1/me": ME,
-      "/v1/dnc?limit=500": {
-        items: [
-          {
-            id: "dnc-1",
-            phone_e164: "+919876543210",
-            reason: "requested_on_call",
-            source: "call",
-            created_at: "2026-08-11T10:00:00Z",
-            note: null,
-          },
-        ],
-        total: 1,
-      },
+      // A BARE ARRAY, which is what `GET /v1/dnc` actually returns
+      // (`DncEntryOut[]`, schema.d.ts::list_entries_v1_dnc_get) and what `useDncList`
+      // is typed for. This fixture used to wrap the rows in an `{items, total}`
+      // envelope with `reason`/`created_at`/`note` fields the payload does not have, so
+      // the scan rendered the EMPTY list and never saw a row: the screen happened to
+      // survive it because `{}.length` is merely `undefined`. It stopped surviving the
+      // moment anything called an array method on the value, which is the point — a
+      // fixture that does not match the wire is a test of a screen nobody ships.
+      "/v1/dnc?limit=500": [
+        {
+          id: "dnc-1",
+          phone_e164: "+919876543210",
+          added_at: "2026-08-11T10:00:00Z",
+          removable: true,
+          scope: "tenant",
+          source: "call_optout",
+        },
+      ],
+    },
+  },
+  {
+    file: "c/[slug]/callbacks/page.tsx",
+    realm: "client",
+    element: () => <CallbacksPage />,
+    routes: {
+      "/v1/me": ME,
+      // A BARE ARRAY, matching what `GET /v1/callbacks` returns
+      // (`ScheduledCallbackOut[]`) and what `useCallbacks` is typed for. Both a live row
+      // and a refused one, because the two render DIFFERENT controls — a waiting promise
+      // offers "Call it off" and a settled one does not — and a fixture with only one of
+      // them would sweep half the screen.
+      "/v1/callbacks?limit=200&open_only=false": [
+        {
+          id: "cb-1",
+          agent_id: "agent-1",
+          lead_id: null,
+          phone_e164: "+919876543210",
+          requested_at: "2026-09-08T10:30:00Z",
+          status: "scheduled",
+          attempts: 0,
+          explanation: "Waiting for the time they asked for.",
+          last_call_id: null,
+          settled_at: null,
+          note: "wants the Gachibowli listing",
+        },
+        {
+          id: "cb-2",
+          agent_id: "agent-1",
+          lead_id: null,
+          phone_e164: "+919876543211",
+          requested_at: "2026-09-01T10:30:00Z",
+          status: "refused",
+          attempts: 1,
+          explanation: "This number is on the do-not-call list.",
+          last_call_id: null,
+          settled_at: "2026-09-01T10:31:00Z",
+          note: null,
+        },
+      ],
     },
   },
   {
@@ -1797,6 +1990,9 @@ const CLIENT_SCREENS: Screen[] = [
     routes: {
       "/v1/me": ME,
       "/v1/agents": [AGENT],
+      // The owner's staff-curation switch (D-487). Without it `StaffCurationSwitch`
+      // renders its ProblemNotice and the scan would cover an error panel.
+      "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
       "/v1/kb/sources": [
         {
           id: "kb-1",
@@ -1913,19 +2109,27 @@ const CLIENT_SCREENS: Screen[] = [
     },
   },
   {
-    file: "c/[slug]/usage/page.tsx",
+    // CREDITS & BILLING — the hub the four money screens folded into (D-525). Swept on
+    // its OVERVIEW tab and in the state that renders the most and is the most dangerous
+    // to get wrong: STOPPED (the alert banner), with an unfinished payment above
+    // everything, a full drawdown and the "what calls cost" explainer. The other three
+    // tabs need a CLICK and this sweep renders rather than drives, so each is swept in
+    // the file that drives it — `credits.test.tsx` (the receipt dialog and Transactions),
+    // `usage.test.tsx` and `spend.test.tsx` (Usage), `clientInvoice.test.tsx` (the
+    // statement).
+    file: "c/[slug]/billing/page.tsx",
     realm: "client",
-    element: () => <UsagePage />,
+    element: () => <BillingPage params={slug} />,
     routes: {
       "/v1/me": ME,
-      "/v1/usage": USAGE,
-      "/v1/billing/caps": {
-        cap_minutes: null,
-        cap_inr: null,
-        notify_at_pct: 80,
-        capped: false,
-        updated_at: null,
+      "/v1/billing/wallet": WALLET_STOPPED,
+      "/v1/billing/wallet/ledger?limit=50": WALLET_LEDGER,
+      "/v1/billing/wallet/topups": WALLET_ATTEMPTS,
+      "/v1/billing/topups/capability": {
+        online_payments_available: true,
+        provider_orders_available: true,
       },
+      "/v1/billing/topups/packs": CREDIT_PACKS,
     },
   },
   {
@@ -1938,26 +2142,6 @@ const CLIENT_SCREENS: Screen[] = [
     realm: "client",
     element: () => <AiAssistPage />,
     routes: { "/v1/me": ME, "/v1/billing/ai-quota": AI_QUOTA_AT_CEILING },
-  },
-  {
-    // Per-rupee attribution, the client's half. Swept with a NON-ZERO residual so the
-    // explanation panel is in the scan — it is the one block on this screen that renders
-    // conditionally on something the server says rather than on a request landing.
-    file: "c/[slug]/spend/page.tsx",
-    realm: "client",
-    element: () => <ClientSpendPage params={slug} />,
-    routes: { "/v1/me": ME, [`/v1/billing/spend?month=${IST_MONTH}`]: SPEND },
-  },
-  {
-    // The client's own invoice — the same sheet the admin entry below renders, from the
-    // same fixture, because it is the same document (SLICE AL).
-    file: "c/[slug]/invoice/page.tsx",
-    realm: "client",
-    element: () => <ClientInvoicePage />,
-    routes: {
-      "/v1/me": ME,
-      [`/v1/billing/invoice?month=${IST_MONTH}`]: INVOICE,
-    },
   },
   {
     // Agreements & readiness. Fixtured in the state with the MOST markup and the most to
@@ -2176,6 +2360,7 @@ const ADMIN_SCREENS: Screen[] = [
         permissions: [...ADMIN_ME.permissions, "platform:config", "platform:secrets"],
       },
       "/v1/ops/config": OPS_CONFIG,
+      "/v1/ops/fx-rate": OPS_FX_RATE,
       "/v1/ops/model-prices": OPS_MODEL_PRICES,
       "/v1/ops/dashboard-data-use": OPS_DASHBOARD_DATA_USE,
       "/v1/ops/secrets": OPS_SECRETS,

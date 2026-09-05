@@ -52,7 +52,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.lifecycle import assert_assignable, hold_agent_for_campaign_start
-from apps.api.campaigns.models import CONSENT_SOURCES, REFUSED_CONSENT_SOURCES
+from apps.api.campaigns.models import (
+    CONSENT_SOURCES,
+    REFUSED_CONSENT_SOURCES,
+    TEMPLATE_STATUSES,
+)
 from apps.api.compliance.models import PE_REGISTRATION_STATUSES, TM_LINK_STATUSES
 from apps.api.compliance.preference_scrub import national_dnd_blocker, read_current_scrub
 from apps.api.compliance.registration import outbound_entity_blockers
@@ -273,6 +277,64 @@ def _consent_age_blocker(collected_at: datetime | None) -> LaunchBlocker | None:
     )
 
 
+def _template_not_approved_reason(status: str | None) -> str:
+    """Why this template cannot be dialled under YET, with the next action per state.
+
+    The old sentence — "The DLT template is submitted." — named the status and stopped,
+    which is the error-ladder failure this module's other reasons avoid: a status is a
+    fact, not an instruction, and the three non-approved states end three different ways.
+    Who files is settled by SEC-COMP §3's preamble ("draft the template content for them
+    to file") and LEGAL-OPS-PLAYBOOK §10/C2: the CLIENT registers templates from their
+    own DLT login, and Calevate records the registrar's verdict (`set_template_status`).
+    The fallback arm keeps the gate fail-closed in words as well as in verdict if the
+    enum ever grows a state this map has not met.
+    """
+    per_status = {
+        "draft": (
+            "The DLT voice template is still a draft — it has not been filed with the "
+            "DLT registrar. File it from your registrar login (we draft the wording "
+            "with you), and we record the verdict here."
+        ),
+        "submitted": (
+            "The DLT voice template is with the registrar and not yet approved. The "
+            "launch opens the moment the approval is recorded — nothing to file again."
+        ),
+        "rejected": (
+            "The DLT registrar rejected this voice template. Revise the wording, file "
+            "it again from your registrar login, and attach the approved template."
+        ),
+    }
+    return per_status.get(
+        str(status),
+        f"The DLT template is {status}; only a registrar-approved template may be "
+        "dialled under. Attach an approved one.",
+    )
+
+
+def _number_not_registered_reason(dlt_status: str | None) -> str:
+    """Why this header cannot carry campaign calls yet — the number-side twin of
+    `_template_not_approved_reason`, for the same error-ladder reason. The statuses are
+    `phone_numbers.dlt_status`'s enum (pending/registered/blocked); `registered` never
+    reaches here."""
+    per_status = {
+        "pending": (
+            "This number's DLT header registration is still pending with the "
+            "registrar. It can carry campaign calls once the registrar approves it "
+            "and we record the verdict — nothing to do at your end."
+        ),
+        "blocked": (
+            "This number's DLT header registration has been blocked by the registrar "
+            "or the operator, so it cannot carry campaign calls. Pick a different "
+            "registered number for this campaign."
+        ),
+    }
+    return per_status.get(
+        str(dlt_status),
+        f"This number's DLT registration is {dlt_status}; only a registered number "
+        "may place campaign calls. Pick a registered number for this campaign.",
+    )
+
+
 def _channel_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:
     """WHAT this campaign may say, and from WHERE — SEC-COMP §3's second bullet. The
     registered voice template and the registered header of the right series."""
@@ -282,19 +344,29 @@ def _channel_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:
         blockers.append(
             LaunchBlocker("dlt_template_missing", "Attach an approved DLT voice template.")
         )
-    elif facts.template_status != "approved":
-        blockers.append(
-            LaunchBlocker(
-                "dlt_template_not_approved", f"The DLT template is {facts.template_status}."
+    else:
+        # BOTH template facts, not `elif` (SEC-COMP §3: "the client fixes them as a
+        # list"). Approval and classification are independent properties of the attached
+        # template — the registrar decides one, the client's own choice of template
+        # decides the other — and the old `elif` hid the mismatch behind the approval, so
+        # a client who chased an approval on a wrongly-classified template learnt about
+        # the second blocker only after clearing the first. Same verdict either way; one
+        # round trip fewer to a launchable campaign.
+        if facts.template_status != "approved":
+            blockers.append(
+                LaunchBlocker(
+                    "dlt_template_not_approved",
+                    _template_not_approved_reason(facts.template_status),
+                )
             )
-        )
-    elif facts.template_cls != facts.classification:
-        blockers.append(
-            LaunchBlocker(
-                "dlt_template_mismatch",
-                f"A {facts.classification} campaign cannot use a {facts.template_cls} template.",
+        if facts.template_cls != facts.classification:
+            blockers.append(
+                LaunchBlocker(
+                    "dlt_template_mismatch",
+                    f"A {facts.classification} campaign cannot use a {facts.template_cls} "
+                    f"template. Attach an approved {facts.classification} template instead.",
+                )
             )
-        )
 
     if facts.series is None:
         blockers.append(LaunchBlocker("number_missing", "Attach a calling number."))
@@ -355,8 +427,7 @@ def _channel_blockers(facts: _CampaignFacts) -> list[LaunchBlocker]:
             blockers.append(
                 LaunchBlocker(
                     "number_not_registered",
-                    f"This number's DLT registration is {facts.number_dlt_status}; only a "
-                    "registered number may place campaign calls.",
+                    _number_not_registered_reason(facts.number_dlt_status),
                 )
             )
 
@@ -1336,6 +1407,17 @@ async def set_template_status(
 ) -> None:
     """What the registrar decided. `approved` is what unlocks the launch gate, so this
     is an audited admin action, not a field the client can edit."""
+    # The same guard `record_dlt_registration` keeps for the PE statuses, for the same
+    # reason: the admin route's `Literal` already refuses these, but the DB CHECK is the
+    # only other line of defence, and a future caller that skipped the route would turn
+    # a typo into an IntegrityError 500 instead of a refusal naming the enum.
+    if status not in TEMPLATE_STATUSES:
+        raise ProblemError(
+            kind="validation",
+            code="template_status_invalid",
+            title="Unrecognised template status",
+            detail=f"A DLT template status must be one of: {', '.join(TEMPLATE_STATUSES)}.",
+        )
     result = await session.execute(
         text(
             "UPDATE dlt_templates SET status = :st, "

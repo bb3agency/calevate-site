@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import {
   CheckCircle2,
   Download,
@@ -9,6 +9,7 @@ import {
   List,
   PhoneOutgoing,
   Search,
+  Sparkles,
   ShieldAlert,
 } from "lucide-react";
 
@@ -18,6 +19,7 @@ import {
   FilterChip,
   ProblemNotice,
   RestrictionNote,
+  SECONDARY_BUTTON_SM,
   ScrollRegion,
   Skeleton,
   StatusBadge,
@@ -54,6 +56,10 @@ import { FacetPanel } from "./FacetPanel";
 import { InlineName } from "./InlineName";
 import { RowFailure } from "./RowFailure";
 import { SavedViewBar } from "./SavedViewBar";
+import { STATUSES, StatusSelect } from "./StatusSelect";
+import { useCopilotSurface } from "@/lib/copilot/registry";
+import { asText } from "@/lib/copilot/types";
+import { Pagination } from "@/components/interior/pagination";
 
 /**
  * The CRM table — every lead an agent captured, and the one place a client works them.
@@ -102,9 +108,6 @@ import { SavedViewBar } from "./SavedViewBar";
  * export button says out loud what it downloads.
  */
 
-/** Fixed enum (D-21): clients cannot add statuses, because analytics and the hot-lead
- *  rules key off exactly these values. */
-const STATUSES: LeadStatus[] = ["new", "contacted", "interested", "hot", "won", "lost"];
 
 /** Two ways to look at the same leads: the table for scanning detail columns, the
  *  board for working the pipeline stage by stage (parity with what competitors ship). */
@@ -169,6 +172,18 @@ export default function LeadsPage() {
   const { toast } = useToast();
   const [status, setStatus] = useState<string | undefined>();
   const [search, setSearch] = useState("");
+  /**
+   * THE SEMANTIC QUESTION (D-504) — "leads who asked about a 3BHK in Gachibowli".
+   *
+   * A second box beside the search box rather than a mode on it, for the reason
+   * `LeadLens.ask` gives: the two match different things and a person must be able to use
+   * both at once. It is submitted rather than debounced, and that is the difference that
+   * matters — every keystroke of `search` costs a `LIKE`, but every submission of this
+   * costs an EMBEDDING against the account's AI ceiling, so it fires when a person says
+   * so and never while they are still typing.
+   */
+  const [ask, setAsk] = useState("");
+  const [askTerm, setAskTerm] = useState("");
   const [view, setView] = useState<ViewMode>("list");
   /** "Assigned to me" — a member id sent to the SERVER, never a slice of the page. */
   const [assignedTo, setAssignedTo] = useState<string | undefined>();
@@ -204,16 +219,26 @@ export default function LeadsPage() {
   const lens: LeadLens = {
     status,
     search: searchTerm || undefined,
+    ask: askTerm || undefined,
     assigned_to: assignedTo,
     fields: facetValues,
     columns: chosenColumns,
   };
 
+  // WHICH page of the lens. Row 101 used to be unreachable through the UI — the footer
+  // printed an honest "Showing 100 of 1,240" and then stopped, leaving the majority of
+  // an established account's CRM permanently invisible (ux-audit L1, its top blocker).
+  // The server side always took {limit, offset}; this is the missing control.
+  const [offset, setOffset] = useState(0);
+
   // Every filter on this screen is a SERVER-side filter — the chips, the search box, the
   // owner and the facets. The page is capped at 100 rows, so a filter applied here would
   // be a filter over whatever happened to load (BUILD-LOG §52 counts four defects of
   // exactly that shape, including the stage tally on this very screen).
-  const leads = useLeadsUnderLens(session, lens, { limit: PAGE_SIZE });
+  const leads = useLeadsUnderLens(session, lens, {
+    limit: PAGE_SIZE,
+    offset: offset || undefined,
+  });
   const facets = useLeadFacets(session, lens);
   const savedViews = useSavedViews(session);
   const exportLeads = useExportLeads(session);
@@ -291,7 +316,18 @@ export default function LeadsPage() {
    * under — so it does not. `lensKey` is the same string the query is keyed by, which
    * means "the lens moved" here and "refetch" there are the same event by construction.
    */
-  const currentLens = lensKey(lens, { limit: PAGE_SIZE });
+  // A changed FILTER returns to page one: page 4 of "hot" is not page 4 of "won", and
+  // an offset kept across the switch would show a short page and read as missing leads.
+  // Keyed WITHOUT the offset, or this effect would undo every page turn.
+  const filterKey = lensKey(lens, { limit: PAGE_SIZE });
+  useEffect(() => {
+    setOffset(0);
+  }, [filterKey]);
+
+  // Keyed WITH the offset: turning the page moves the ticked rows out from under an
+  // `ids` selection, so a page change clears it exactly like a filter change does — the
+  // page-scoped select-all checkbox must never carry across pages (L1's constraint).
+  const currentLens = lensKey(lens, { limit: PAGE_SIZE, offset: offset || undefined });
   useEffect(() => {
     setSelection(EMPTY_SELECTION);
     setBulkResult(null);
@@ -390,6 +426,132 @@ export default function LeadsPage() {
       : me.error != null
         ? "We could not check who you are signed in as, so calls from this table and the “Assigned to me” filter are closed. Reload the page to try again."
         : null;
+
+  /*
+   * THE LEADS TABLE, DECLARED TO THE ASSISTANT (`lib/copilot/registry.ts`).
+   *
+   * ## Not one lead
+   *
+   * This is the densest personal data in the client console — every row is a named person
+   * and an E.164 — so nothing about a ROW is declared: no name, no number, no captured
+   * field value, not even the assignee's name. What the assistant is told is the SHAPE of
+   * what the reader is looking at: which filters are on, how many rows the server matched,
+   * how the pipeline is distributed, and which columns are showing. That is what makes
+   * "why does my hot column look empty" answerable, and it identifies nobody.
+   *
+   * ## The search box is `personal`, and it is not writable
+   *
+   * A person searching this table types a customer's name or number into it, which is why
+   * it carries `personal: "text"` and leaves as `«PRIVATE_1»` (D-127 G-2) rather than as
+   * itself. It is `writable: false` for the other half of the same reason: an assistant
+   * that cannot see the term has no business inventing one, and a filled search silently
+   * changes which rows a person then acts on in bulk.
+   *
+   * The FACET selection is declared by its KEYS only. A facet value is an extracted field
+   * off a real call and can be anything a caller said; the keys are the client's own
+   * schema, which is already the vocabulary the extraction screen sends.
+   */
+  useCopilotSurface({
+    route: "/c/{slug}/leads",
+    title: "Leads",
+    realm: "client",
+    fields: [
+      {
+        id: "leads-status",
+        label: "Show only leads at this stage",
+        type: "select",
+        value: status ?? "",
+        options: [
+          { value: "", label: "Every stage" },
+          ...STATUSES.map((stage) => ({ value: stage, label: stage })),
+        ],
+        help: "A server-side filter over the whole account, not a slice of this page.",
+      },
+      {
+        id: "leads-view",
+        label: "How the leads are laid out",
+        type: "select",
+        value: view,
+        options: [
+          { value: "list", label: "Table" },
+          { value: "board", label: "Board (one column per stage)" },
+        ],
+      },
+      {
+        id: "leads-search",
+        label: "Search",
+        type: "text",
+        value: search,
+        writable: false,
+        personal: "text",
+        help: "What the reader typed. It usually names a customer, so the assistant is told there is a search rather than what it says.",
+      },
+    ],
+    facts: [
+      {
+        key: "state",
+        label: "What is on screen",
+        value: leads.data
+          ? "the table below has loaded"
+          : leads.error
+            ? "the leads failed to load, so no row is listed"
+            : "still loading",
+      },
+      { key: "rows_on_page", label: "Lead rows on this page", value: String(items.length) },
+      { key: "page_size", label: "Rows per page", value: String(PAGE_SIZE) },
+      { key: "page_offset", label: "Rows skipped before this page", value: String(offset) },
+      {
+        key: "total_matching",
+        label: "Leads the current filters match, across every page",
+        value: exportTotal === null ? "not known yet" : String(exportTotal),
+      },
+      {
+        key: "stage_counts",
+        label: "Leads per stage, matching the search (not the stage chip)",
+        value:
+          STATUSES.map((stage) => `${stage}: ${stageCount(stage) ?? "not stated"}`).join(", "),
+      },
+      { key: "columns_shown", label: "Columns in the table", value: String(columns.length) },
+      {
+        key: "facets_in_effect",
+        label: "Captured fields being filtered on (their names, not the values chosen)",
+        value: Object.keys(facetValues).length === 0 ? "none" : Object.keys(facetValues).join(", "),
+      },
+      {
+        key: "assigned_filter",
+        label: "Is the list narrowed to one owner?",
+        value: assignedTo === undefined ? "no" : "yes, to one team member",
+      },
+      {
+        key: "selection",
+        label: "Rows ticked for a bulk action",
+        value: selection.wholeQuery
+          ? "every lead the filters match"
+          : String(selection.ids.length),
+      },
+      {
+        key: "editable",
+        label: "May this session change a lead?",
+        value: readOnly ? "no — the stage and owner controls are disabled" : "yes",
+      },
+      {
+        key: "saved_view",
+        label: "Is a saved view applied?",
+        value: activeViewId === undefined ? "no" : "yes",
+      },
+    ],
+    apply: (items_) => {
+      for (const item of items_) {
+        const text = asText(item.value);
+        if (item.field_id === "leads-status") {
+          if (text === "") setStatus(undefined);
+          else if (STATUSES.some((stage) => stage === text)) setStatus(text);
+        } else if (item.field_id === "leads-view" && (text === "list" || text === "board")) {
+          setView(text);
+        }
+      }
+    },
+  });
 
   const dispatch = (leadId: string) =>
     callLead.mutate(
@@ -555,6 +717,22 @@ export default function LeadsPage() {
             {scopeLabel(status, searchTerm, leads.data.total)}
           </p>
         )}
+        {/* WHAT THE ROWS ARE, said in words, because a ranked table looks exactly like a
+            filtered one and a person who cannot tell them apart will read "12 leads" as
+            "this account has 12 leads". `semantic_truncated` is the server's own answer to
+            "is this all of them" — never inferred here from a full page, which is the
+            guess `_listing` refuses to make on the copilot's side of the same data. */}
+        {askTerm && leads.data && (
+          <p className="mt-1 text-xs text-ink-muted">
+            Ranked by how closely each lead&rsquo;s captured answers match{" "}
+            <span className="font-medium text-ink">&ldquo;{askTerm}&rdquo;</span>.
+            {leads.data.semantic_truncated
+              ? " There may be more matches than were ranked — ask a narrower question."
+              : ""}{" "}
+            Names, phone numbers and dates are not searched this way — use the search box
+            and the filters for those.
+          </p>
+        )}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -570,6 +748,39 @@ export default function LeadsPage() {
             className="w-56 rounded-md border border-line bg-surface py-1.5 pl-8 pr-3 text-sm text-ink placeholder:text-ink-faint"
           />
         </div>
+
+        {/* THE QUESTION BOX (D-504). A FORM, not a debounced input, and the difference is
+            money: each submission buys one embedding against this account's AI ceiling,
+            so it fires when the person says so. `type="search"` gives the browser's own
+            clear affordance, and clearing it returns the table to the ordinary filtered
+            list because `askTerm` is what the lens reads. */}
+        <form
+          className="relative"
+          /* See `SavedViewBar`: the browser never refuses a form on a client screen,
+             including the ones with no rule for it to refuse on. */
+          noValidate
+          onSubmit={(e) => {
+            e.preventDefault();
+            setAskTerm(ask.trim());
+            setOffset(0);
+          }}
+        >
+          <Sparkles className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+          <input
+            type="search"
+            value={ask}
+            onChange={(e) => {
+              setAsk(e.target.value);
+              // Clearing the box clears the search. Anything else leaves a person
+              // looking at ranked rows with an empty box and no way to explain them.
+              if (e.target.value === "") setAskTerm("");
+            }}
+            maxLength={2000}
+            aria-label="Find leads by what they asked for"
+            placeholder="What did they ask for? e.g. 3BHK in Gachibowli"
+            className="w-72 rounded-md border border-line bg-surface py-1.5 pl-8 pr-3 text-sm text-ink placeholder:text-ink-faint"
+          />
+        </form>
 
         {/* View toggle: the list keeps every capture-list column; the board trades
             detail for a stage-by-stage picture of the pipeline. */}
@@ -631,9 +842,14 @@ export default function LeadsPage() {
             preview of its answer, never a substitute for it. */}
         <button
           type="button"
-          disabled={exportLeads.isPending || !mayExport}
+          disabled={exportLeads.isPending || !mayExport || Boolean(askTerm)}
           onClick={() =>
-            exportLeads.mutate(lens, {
+            // WITHOUT `ask`. The API refuses a lens carrying a question on the export
+            // (`_ASK_CANNOT_BE_EXPORTED`): a ranking is not "the whole filtered set" the
+            // file promises. The button is disabled with that sentence above, so this
+            // strip is the belt — a lens that reached the mutation with a question would
+            // otherwise be a 422 on a control we had already said was available.
+            exportLeads.mutate({ ...lens, ask: undefined }, {
               onSuccess: () =>
                 toast({
                   tone: "success",
@@ -643,7 +859,10 @@ export default function LeadsPage() {
             })
           }
           title={
-            mayExport
+            askTerm
+              ? "A question ranks the best matches rather than selecting a complete set, " +
+                "so it cannot be exported. Clear it to export by the filters instead."
+              : mayExport
               ? "Downloads the leads and the columns shown here, with full phone numbers."
               : // The refusal in the server's own terms — "Only an account owner can
                 // export leads." for a role that lacks it, and "We could not check…"
@@ -931,11 +1150,34 @@ export default function LeadsPage() {
                which is why that case never reaches this Card at all. With a filter on,
                the emptiness belongs to the filter and not to the business. */
             <EmptyState
-              title={status || searchTerm ? "No leads match this filter" : "No leads yet"}
+              title={
+              askTerm
+                ? "No lead's captured answers match that question"
+                : status || searchTerm
+                  ? "No leads match this filter"
+                  : "No leads yet"
+            }
               hint={
                 status || searchTerm
                   ? "Clear the filter to see everything."
                   : "Every answered call becomes a lead within two minutes."
+              }
+              /* The sentence used to NAME the action without offering it — the dead-end
+                 shape ux-audit F-18 flags. Only the filtered case gets a button: an
+                 account with genuinely no leads has nothing to clear. */
+              action={
+                (status || searchTerm) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setStatus(undefined);
+                      setSearch("");
+                    }}
+                    className={SECONDARY_BUTTON_SM}
+                  >
+                    Clear the filters
+                  </button>
+                )
               }
             />
           )}
@@ -1037,7 +1279,11 @@ export default function LeadsPage() {
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border border-line bg-surface px-4 py-3 text-xs text-ink-muted">
           <span>
             Showing{" "}
-            <span className="font-semibold tabular-nums text-ink">{formatCount(items.length)}</span>{" "}
+            <span className="font-semibold tabular-nums text-ink">
+              {leads.data.total > PAGE_SIZE && items.length > 0
+                ? `${formatCount(offset + 1)}–${formatCount(offset + items.length)}`
+                : formatCount(items.length)}
+            </span>{" "}
             of {formatCount(leads.data.total)}
             {status ? ` ${status}` : ""} {leads.data.total === 1 ? "lead" : "leads"}.
           </span>
@@ -1050,6 +1296,21 @@ export default function LeadsPage() {
               </span>
             </span>
           ))}
+        </div>
+      )}
+
+      {/* The way past row 100 (ux-audit L1). Rendered only off the SERVER's total — a
+          failed read draws no pager, and one page draws none either. Numbered pages
+          rather than load-more because a CRM table is revisited by position ("they were
+          on page 3") and both views share the one offset. */}
+      {leads.data && leads.data.total > PAGE_SIZE && (
+        <div className="flex justify-center">
+          <Pagination
+            count={Math.ceil(leads.data.total / PAGE_SIZE)}
+            page={Math.floor(offset / PAGE_SIZE) + 1}
+            onPageChange={(page) => setOffset((page - 1) * PAGE_SIZE)}
+            label="Lead pages"
+          />
         </div>
       )}
     </div>
@@ -1069,6 +1330,44 @@ export default function LeadsPage() {
  * A refusal is amber, not rose: the gate working is not a fault, and painting it like an
  * error is what teaches a client to report their own compliance rules as bugs.
  */
+/**
+ * The one thing a refused dial's rule NAME was ever worth to a client: where the refusal
+ * is cleared.
+ *
+ * Only the two money gates have a destination on this screen's side of the product, and
+ * they are the two a prepaid account meets — which is now nearly every account. Every
+ * other rule (consent, do-not-call, calling hours, the DLT registrations) already carries
+ * its own remedy inside the server's sentence, and a second link would be a worse version
+ * of it. An unknown rule adds nothing rather than printing itself.
+ */
+function blockedRemedy(rule: string | null | undefined): ReactNode {
+  // BOTH SCREENS ARE ONE SCREEN NOW (D-525). This used to name "Calling credit" and
+  // "Usage", which were two of the four money screens; they are tabs of Credits & billing,
+  // so the destination is the same in both arms and only the tab differs. The tab is not
+  // named here on purpose — a client who lands on the screen sees the balance and the
+  // limit without being told which tab to press, and a tab name is one more thing that
+  // goes stale on a screen this sentence cannot see.
+  if (rule === "no_credits") {
+    return (
+      <>
+        {" "}
+        People ringing you still get through. Add credit on the Credits &amp; billing
+        screen and outgoing calls start again.
+      </>
+    );
+  }
+  if (rule === "spend_cap") {
+    return (
+      <>
+        {" "}
+        People ringing you still get through. Your monthly limit is on Credits &amp;
+        billing.
+      </>
+    );
+  }
+  return null;
+}
+
 function CallControl({
   result,
   pending,
@@ -1092,7 +1391,16 @@ function CallControl({
         <ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>
           {result.blocked_reason ?? "This call was not allowed."}
-          {result.blocked_rule ? ` (${result.blocked_rule})` : ""}
+          {/* THE RULE NAME USED TO BE PRINTED HERE, in brackets, to the client: a refused
+              dial read "This account has no calling credit left. (no_credits)". That is
+              the platform's own vocabulary handed to the person it refused, and it tells
+              them nothing they can act on — the founder's standard for client-facing copy
+              bans it, and `tests/plainLanguageGuard.test.ts` now enforces the literal
+              half of that rule (this one was a variable, which is why it survived).
+              What replaces it is the thing the name was standing in for: WHERE the two
+              money refusals are fixed. Everything else keeps the server's sentence
+              alone, which already names its own remedy. */}
+          {blockedRemedy(result.blocked_rule)}
         </span>
       </span>
     );
@@ -1116,35 +1424,6 @@ function CallControl({
  *  views go through exactly the same mutation (useUpdateLeadStatus). The label names
  *  the LEAD: a screen reader meeting a hundred selects called "status" cannot tell
  *  which row it is on. */
-function StatusSelect({
-  value,
-  label,
-  disabled,
-  onChange,
-  className,
-}: {
-  value: LeadStatus;
-  label: string;
-  disabled: boolean;
-  onChange: (next: LeadStatus) => void;
-  className: string;
-}) {
-  return (
-    <select
-      value={value}
-      aria-label={label}
-      disabled={disabled}
-      onChange={(e) => onChange(e.target.value as LeadStatus)}
-      className={className}
-    >
-      {STATUSES.map((s) => (
-        <option key={s} value={s}>
-          {s}
-        </option>
-      ))}
-    </select>
-  );
-}
 
 function cellValue(lead: Lead, key: string): string {
   // `lookup`, not `data[key]`: `data` arrives from JSON.parse and therefore inherits

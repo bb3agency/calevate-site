@@ -108,6 +108,12 @@ async def _tenant(
         billing_email=None,
         language="te-IN",
         created_by=None,
+        # `managed` NAMED, and this file used to inherit it from the default (D-521 moved
+        # that default to `prepaid`). It is the subject rather than a workaround: every
+        # case below builds a PLAN — monthly fee, included minutes, overage rate — and
+        # asserts how a managed month's charge is divided across its calls. The cases that
+        # are about the prepaid arm say so, by moving the tier to `self_serve` themselves.
+        plan_tier="managed",
     )
     tenant_id, agent_id = created["id"], created["agent_id"]
     assert isinstance(tenant_id, UUID) and isinstance(agent_id, UUID)
@@ -137,10 +143,10 @@ async def _second_agent(tenant_id: UUID, name: str = "Outbound") -> UUID:
         await session.execute(
             text(
                 "INSERT INTO agents (id, tenant_id, name, direction, disclosure_line, "
-                "ai_disclosure_line, recording_notice_line, status, engine, created_at, "
-                "updated_at) VALUES (:id, :tid, :name, 'outbound', 'Idi AI assistant.', "
-                "'Idi AI assistant.', 'This call is being recorded.', 'live', 'fake', "
-                "now(), now())"
+                "ai_disclosure_line, recording_notice_line, caller_memory_notice_line, status, "
+                "engine, created_at, updated_at) VALUES (:id, :tid, :name, 'outbound', 'Idi AI "
+                "assistant.', 'Idi AI assistant.', 'This call is being recorded.', 'I keep a "
+                "short note of what you ask about.', 'live', 'fake', now(), now())"
             ),
             {"id": agent_id, "tid": tenant_id, "name": name},
         )

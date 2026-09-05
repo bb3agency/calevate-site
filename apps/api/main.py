@@ -98,8 +98,11 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.routes import router as billing_admin_router
     from apps.api.billing.spend_routes import client_router as billing_spend_router
     from apps.api.billing.spend_routes import router as spend_admin_router
+    from apps.api.billing.wallet_routes import router as wallet_router
+    from apps.api.callbacks.routes import router as callbacks_router
     from apps.api.campaigns.provisioning_routes import router as numbers_router
     from apps.api.campaigns.routes import router as campaigns_router
+    from apps.api.compliance.caller_data_routes import router as caller_data_router
     from apps.api.compliance.caller_notice_routes import router as caller_notice_router
     from apps.api.compliance.consent_routes import call_router as call_consent_router
     from apps.api.compliance.consent_routes import router as messaging_consent_router
@@ -123,6 +126,7 @@ def _mount_routers(application: FastAPI) -> None:
         admin_router as whatsapp_optin_admin_router,
     )
     from apps.api.compliance.whatsapp_optin_routes import router as whatsapp_optin_router
+    from apps.api.copilot.admin_routes import router as admin_copilot_router
     from apps.api.copilot.routes import router as copilot_router
     from apps.api.crm.routes import router as crm_router
     from apps.api.flags.routes import router as feature_flags_router
@@ -211,12 +215,29 @@ def _mount_routers(application: FastAPI) -> None:
     # in the campaigns package because that module owns `phone_numbers`.
     application.include_router(numbers_router)
     application.include_router(crm_router)
+    # The call-backs an agent promised on a call (D-514). Its own literal `/v1/callbacks`
+    # prefix, which collides with nothing above, so mount order is not load-bearing here.
+    # There is no route on it that CREATES one: a call-back exists because a caller asked
+    # for it mid-call, through the in-call tool in `apps/voice-runtime`.
+    application.include_router(callbacks_router)
+    # The engine-called inbound caller-details fetch (D-513). Its own literal
+    # `/v1/engine/caller-data` prefix — declared in `core.rbac.PUBLIC_PREFIXES` and in
+    # `scripts/check_public_routes.UNAUTHENTICATED_ROUTES`, which is the reviewed line
+    # that says why the world may call it. It lives in `apps/api` rather than in
+    # voice-runtime because it derives a keyed caller reference and reads a tenant's
+    # store, which that service's import surface forbids it to hold.
+    application.include_router(caller_data_router)
     # The in-app AI copilot (`apps/api/copilot/`). Its own literal `/v1/copilot` prefix,
     # which collides with nothing above, so mount order is not load-bearing here — unlike
-    # `voice_router`, whose literal segment lives under `/v1/agents/`. CLIENT REALM ONLY:
-    # `copilot/routes.py` argues at length why the admin realm gets no twin (it has no
-    # tenant to meter against, and hard rule 7 does not allow an unmetered model call).
+    # `voice_router`, whose literal segment lives under `/v1/agents/`.
+    #
+    # ⚠ **THIS USED TO SAY "CLIENT REALM ONLY", AND THE ADMIN TWIN NOW EXISTS (D-499).**
+    # The reason there was none was that the admin realm had no PAYER, not that nobody had
+    # written it; `billing/platform_ai.py` and `platform_ai_usage` are that payer, so
+    # `copilot/admin_routes.py` mounts beside this one under `/v1/admin/copilot`. Two
+    # routes, two realms, two tool arrays, two memories, two ledgers — one service.
     application.include_router(copilot_router)
+    application.include_router(admin_copilot_router)
     # Knowledge gaps — the urgent "what the agents couldn't answer" surface. Its own
     # literal `/v1/knowledge-gaps` prefix collides with nothing above, so mount order is
     # not load-bearing here.
@@ -307,6 +328,13 @@ def _mount_routers(application: FastAPI) -> None:
     # reason they give.
     application.include_router(billing_spend_router)
     application.include_router(spend_admin_router)
+    # THE CLIENT'S OWN WALLET (2 Sep 2026): balance, how long it lasts, where it went,
+    # the ledger with a receipt per payment, and the payments that failed. Literal
+    # `/v1/billing/wallet`, declared with the other `/v1/billing/*` routers for the
+    # ordering reason they give. Its permission is `wallet:read`, which — uniquely on
+    # this prefix — `staff` holds: the thing that stops a staff member dialling is an
+    # empty wallet, and a refusal only the owner can read is a refusal with no words.
+    application.include_router(wallet_router)
     # The client's monthly QA report (SURFACES §2 trust surfaces) and OUR weekly 5%
     # spot-check queue (SURFACES §1). Two realms, one control: the report is the claim
     # we make to the client, the queue is the evidence we collect for it.

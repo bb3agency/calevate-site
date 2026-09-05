@@ -10,7 +10,13 @@ Four claims, each a different way the feature could be wrong:
    column are each refused with a message the form can act on — never silently dropped.
 3. **The optional `reason` is optional.** A variable with no reason saves and the model is
    left to work from its name alone (the founder's rule).
-4. **The realm boundary holds.** An owner reaches only their own tenant's agents (a
+4. **The list has a CEILING, and it is the write model's.** D-460 handed this surface to
+   a client owner, which makes the length of `fields` caller-controlled — and nothing was
+   refusing fifty thousand variables, or one variable whose `reason` is a megabyte. Every
+   one of them is folded into the extraction prompt on EVERY call that agent ever takes,
+   so the cost is not the row. The four cases below are the ceilings; `MAX_*` is imported
+   rather than retyped so the tests move with the constants.
+5. **The realm boundary holds.** An owner reaches only their own tenant's agents (a
    neighbour's id is 404, hard rule 1); an operator reaches any tenant by naming it in the
    path (D-22: impersonation is read-only, so the tenant is named, not inferred). Every
    change writes an audit entry carrying the field SHAPE and never a caller's value.
@@ -23,6 +29,10 @@ import uuid
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents.extraction_routes import (
+    MAX_ENUM_VALUES,
+    MAX_EXTRACTION_FIELDS,
+    MAX_LABEL_LEN,
+    MAX_REASON_LEN,
     ExtractionSchemaOut,
     _audit_summary,
     admin_router,
@@ -384,3 +394,86 @@ async def test_get_on_an_unknown_agent_is_404() -> None:
     async with _client(app) as http:
         r = await http.get(f"/v1/agents/{uuid.uuid4()}/extraction-schema", headers=_bearer(token))
     assert r.status_code == 404
+
+
+def _variable(key: str, **over: object) -> dict[str, object]:
+    """One well-formed variable, so a size test differs from a valid one in ONE way."""
+    field: dict[str, object] = {
+        "key": key,
+        "label": "Ok",
+        "type": "text",
+        "enum_values": None,
+        "reason": "",
+        "required": False,
+    }
+    field.update(over)
+    return field
+
+
+async def _put(agent_id: uuid.UUID, token: str, fields: list[dict[str, object]]) -> object:
+    app = _app()
+    async with _client(app) as http:
+        return await http.put(
+            f"/v1/agents/{agent_id}/extraction-schema",
+            json={"fields": fields},
+            headers=_bearer(token),
+        )
+
+
+async def test_a_variable_list_past_the_ceiling_is_refused() -> None:
+    """The list length itself. Without the `max_length` this is a 200 and the agent now
+    carries a prompt that is paid for on every extraction it ever runs."""
+    _tid, agent_id, token = await _tenant()
+    too_many = [_variable(f"f{i}") for i in range(MAX_EXTRACTION_FIELDS + 1)]
+    refused = await _put(agent_id, token, too_many)
+    assert refused.status_code == 422  # type: ignore[attr-defined]
+
+    # And the ceiling itself saves, so the bound is a ceiling and not an off-by-one.
+    at_the_line = await _put(
+        agent_id, token, [_variable(f"f{i}") for i in range(MAX_EXTRACTION_FIELDS)]
+    )
+    assert at_the_line.status_code == 200  # type: ignore[attr-defined]
+
+
+async def test_an_oversized_reason_is_refused_and_names_the_variable() -> None:
+    """The `reason` is the instruction the model gets on every call, so its size is a
+    per-call cost. The message has to name WHICH variable — a generic 422 against a form
+    of fifty rows is not something anybody can act on."""
+    _tid, agent_id, token = await _tenant()
+    response = await _put(
+        agent_id, token, [_variable("symptom", reason="x" * (MAX_REASON_LEN + 1))]
+    )
+    assert response.status_code == 422  # type: ignore[attr-defined]
+    body = response.json()  # type: ignore[attr-defined]
+    assert body["type"].endswith("/extraction_field_reason_too_long")
+    assert "symptom" in body["detail"]
+
+
+async def test_an_oversized_label_is_refused() -> None:
+    """A label is a Leads column header and a CSV header cell."""
+    _tid, agent_id, token = await _tenant()
+    response = await _put(agent_id, token, [_variable("symptom", label="L" * (MAX_LABEL_LEN + 1))])
+    assert response.status_code == 422  # type: ignore[attr-defined]
+    assert response.json()["type"].endswith(  # type: ignore[attr-defined]
+        "/extraction_field_label_too_long"
+    )
+
+
+async def test_too_many_choices_on_one_variable_are_refused() -> None:
+    """An enum's values reach the prompt, the facet panel and the column chooser."""
+    _tid, agent_id, token = await _tenant()
+    response = await _put(
+        agent_id,
+        token,
+        [
+            _variable(
+                "urgency",
+                type="enum",
+                enum_values=[f"v{i}" for i in range(MAX_ENUM_VALUES + 1)],
+            )
+        ],
+    )
+    assert response.status_code == 422  # type: ignore[attr-defined]
+    assert response.json()["type"].endswith(  # type: ignore[attr-defined]
+        "/extraction_field_choices_invalid"
+    )

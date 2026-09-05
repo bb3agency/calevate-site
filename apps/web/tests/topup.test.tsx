@@ -1,18 +1,23 @@
 import { act, fireEvent, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import UsagePage from "@/app/c/[slug]/usage/page";
 import type { Me } from "@/lib/api/client";
-import type { Caps } from "@/lib/api/caps";
-import type { UsagePanel } from "@/lib/api/hooks";
+import type { Wallet } from "@/lib/api/wallet";
 import { RAZORPAY_CHECKOUT_SRC } from "@/lib/razorpayCheckout";
 
 import { expectNoA11yViolations } from "./a11y";
-import { expectTextCount, problem, renderClientPage } from "./harness";
+import { renderBillingHub } from "./billingHub";
+import { expectTextCount, problem } from "./harness";
 
 /**
  * The top-up panel (D-98) — a control that must not exist unless it can work, and, since
  * the checkout landed, one that must take a payment all the way through.
+ *
+ * IT MOVED. The panel used to sit at the bottom of `/c/<slug>/usage`, behind
+ * `billing:read`, so buying credit meant scrolling past a month's usage figures — and the
+ * ledger, the receipts and a payment that had failed had nowhere at all. It is now the
+ * "Add credit" card on `/c/<slug>/credits`; `tests/credits.test.tsx` holds that screen's
+ * own states and this file follows the panel, unchanged.
  *
  * `tests/usage.test.tsx` holds the money formatting and the permission gate. This file
  * holds the capability states and the four ways a payment window can end, because each of
@@ -44,7 +49,9 @@ const ME: Me = {
   user_id: "u1",
   realm: "client",
   role: "owner",
-  permissions: ["billing:read", "org:manage"],
+  // `wallet:read` is what the credits screen reads on and `org:manage` is what BUYING
+  // needs — the founder's split (2 Sep 2026), and an owner holds both.
+  permissions: ["billing:read", "wallet:read", "org:manage"],
   impersonating: false,
   organization: {
     id: "o1",
@@ -54,68 +61,108 @@ const ME: Me = {
   },
 };
 
-const CAPS: Caps = {
-  capped: false,
-  month: "2026-08",
-  minutes_used: "0.00",
-  spend_used_inr: "0.00",
-  client_cap_minutes: null,
-  client_cap_spend_inr: null,
-  effective_cap_minutes: null,
-  effective_cap_spend_inr: null,
-  plan_cap_minutes: null,
-  plan_cap_spend_inr: null,
-};
-
-/** A PREPAID tenant with a wallet — the only shape that renders the top-up panel. */
-function usage(over: Partial<UsagePanel> = {}): UsagePanel {
+/**
+ * A PREPAID wallet with credit on it — the only shape that renders the "Add credit" card.
+ *
+ * Healthy on purpose: this file is about the PAYMENT WINDOW, and a stopped or low wallet
+ * would put a banner above the panel that has nothing to do with what these tests drive.
+ * `tests/credits.test.tsx` holds those states.
+ */
+function wallet(over: Partial<Wallet> = {}): Wallet {
   return {
-    month: "2026-08",
-    calls: 3,
-    capped: false,
-    cap_minutes: null,
-    minutes_left: null,
-    included_minutes: 0,
-    minutes_used: "12.00",
-    credit_balance_inr: "1200.00",
-    monthly_fee_inr: "0.00",
-    month_charges_inr: "0.00",
-    overage_cost_inr: "0.00",
-    overage_minutes: "0.00",
-    overage_minutes_premium: "0.00",
-    overage_minutes_value: "0.00",
-    overage_rate_inr: "6.0000",
-    overage_rate_value_inr: null,
-    // D-455: the model surcharge, unset on every plan today — so a ₹0.00 total and no
-    // models named is the shipped shape of this panel.
-    llm_surcharge_rate_inr: null,
-    llm_surcharge_minutes: "0.00",
-    llm_surcharge_inr: "0.00",
-    llm_surcharge_models: [],
-    plan_tier: "self_serve",
-    spend_used_inr: "72.00",
+    tenant_id: "o1",
+    prepaid: true,
+    balance_inr: "1200.00",
+    is_low: false,
+    low_balance_threshold_inr: "200.00",
+    outbound_stopped: false,
+    runway: {
+      basis: "projected",
+      days: 9,
+      daily_burn_inr: "130.00",
+      history_days: 21,
+      beyond_horizon: false,
+      window_days: 30,
+      min_history_days: 7,
+      max_days: 365,
+    },
+    minutes_left: 240,
+    drawdown: {
+      calls_inr: "2730.00",
+      ai_assist_inr: "0.00",
+      adjustments_inr: "0.00",
+      spent_inr: "2730.00",
+      added_inr: "3930.00",
+      refunded_inr: "0.00",
+    },
     ...over,
   };
 }
+
+const WALLET = "/v1/billing/wallet";
+const LEDGER = "/v1/billing/wallet/ledger?limit=50";
+const ATTEMPTS = "/v1/billing/wallet/topups";
 
 const CAPABILITY = "/v1/billing/topups/capability";
 const PACKS = "/v1/billing/topups/packs";
 const INTENT = "POST /v1/billing/topups/intent";
 const CALLBACK = "POST /v1/billing/topups/callback";
 
-/** The pack rate card the panel renders as a table, at ₹5.00/min list. */
+/**
+ * THE PACK RATE CARD, as the server sends it — the ₹2,000-floor ladder on round rungs
+ * (D-526, `apps/api/billing/credit_packs.py::PACK_CATALOGUE`), at ₹5.00/min list.
+ *
+ * All FIVE packs, not a representative two, and that is the point of the fixture rather
+ * than its size: the panel hardcodes no amount and no pack count, so the thing worth
+ * pinning is that it renders whatever arrives. Every figure here is the shape the server
+ * emits — rupee amounts at 2dp, the rate at 4dp (a rate is not a rupee amount), the bonus
+ * percent bare — because the panel formats digits and never parses them.
+ */
 const PACK_CARD = {
   list_rate_inr_per_min: "5.00",
   packs: [
     {
       pack_id: "starter",
-      amount_inr: "1499.00",
-      paid_credits: "1499.00",
+      amount_inr: "2000.00",
+      paid_credits: "2000.00",
       bonus_credits: "0.00",
-      total_credits: "1499.00",
+      total_credits: "2000.00",
       bonus_pct: "0",
       effective_rate_inr_per_min: "5.0000",
-      talk_time_minutes: 299,
+      talk_time_minutes: 400,
+      best_value: false,
+    },
+    {
+      pack_id: "growth",
+      amount_inr: "5000.00",
+      paid_credits: "5000.00",
+      bonus_credits: "150.00",
+      total_credits: "5150.00",
+      bonus_pct: "3",
+      effective_rate_inr_per_min: "4.8544",
+      talk_time_minutes: 1030,
+      best_value: false,
+    },
+    {
+      pack_id: "scale",
+      amount_inr: "10000.00",
+      paid_credits: "10000.00",
+      bonus_credits: "500.00",
+      total_credits: "10500.00",
+      bonus_pct: "5",
+      effective_rate_inr_per_min: "4.7619",
+      talk_time_minutes: 2100,
+      best_value: false,
+    },
+    {
+      pack_id: "pro",
+      amount_inr: "25000.00",
+      paid_credits: "25000.00",
+      bonus_credits: "1750.00",
+      total_credits: "26750.00",
+      bonus_pct: "7",
+      effective_rate_inr_per_min: "4.6729",
+      talk_time_minutes: 5350,
       best_value: false,
     },
     {
@@ -162,8 +209,13 @@ const CHECKOUT_RESPONSE = {
 function routes(over: Record<string, unknown> = {}) {
   return {
     "/v1/me": ME,
-    "/v1/usage": usage(),
-    "/v1/billing/caps": CAPS,
+    [WALLET]: wallet(),
+    // Both are read by the screen AROUND the panel. Routed with the emptiest honest
+    // answer, because an unrouted request throws in this harness — a hole in a test's
+    // premise should say so rather than render an error state that happens to contain
+    // the string it was looking for.
+    [LEDGER]: { entries: [], payments: [] },
+    [ATTEMPTS]: [],
     [CAPABILITY]: {
       online_payments_available: true,
       provider_orders_available: true,
@@ -172,8 +224,6 @@ function routes(over: Record<string, unknown> = {}) {
     ...over,
   };
 }
-
-const page = <UsagePage />;
 
 /**
  * The provider's global, as a stub that RECORDS rather than one that pretends.
@@ -238,14 +288,14 @@ describe("the top-up panel", () => {
     // The DEFAULT configuration of every deployment. The form used to be offered here
     // and could only ever answer `payments_not_configured` — a control whose single
     // possible outcome is a red notice.
-    await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({
         [CAPABILITY]: {
           online_payments_available: false,
           provider_orders_available: false,
         },
       }),
+      "Credits",
     );
 
     // Awaited on the SENTENCE, not on the card around it: the panel renders a skeleton
@@ -260,19 +310,40 @@ describe("the top-up panel", () => {
     expect(screen.queryByText("Pay this amount")).toBeNull();
     // Not an error either: this deployment is configured, not broken.
     expect(screen.queryByRole("alert")).toBeNull();
+
+    // ...AND THE PRICES ARE STILL THERE. This branch used to `return` before the rate
+    // card, so a client opening "Add credit" on any deployment without a provider account
+    // — which is all of them until one exists — got a single sentence and no idea what
+    // anything cost. They cannot decide what to transfer without knowing what a pack
+    // buys. Removing the BUTTON must not remove the PRICE LIST: the catalogue reads no
+    // tenant and no provider state, so it is exactly as true on a bank-transfer
+    // deployment as on a card one.
+    expect(screen.getByText("Best value"), "the rate card is gone").toBeTruthy();
+    expect(container.textContent).toContain("₹4.6296/min");
+    // The bonus, as the fact rather than as a column: this used to read "+4,000 (8%)" in
+    // a cell under a "FREE" heading, which is the number without the sentence it stood
+    // for. Both halves are asserted, because the count alone was already there.
+    expect(container.textContent).toContain("4,000 credits free");
+    expect(container.textContent).toContain("8% more calling for the same money");
+    // Talk time LEADS on a card, which is the whole reason the table went: it is the unit
+    // somebody running a phone line thinks in.
+    expect(container.textContent).toContain("10,800 min");
+    // And the button still names its amount even where it cannot pay — a grid of controls
+    // all called "Select" is a list of identical names in a screen reader.
+    expect(screen.getByRole("button", { name: "Select ₹50,000.00" })).toBeTruthy();
   });
 
   it("never names which of our secrets is missing", async () => {
     // `reason` is OUR configuration state and stays server-side. A client cannot act on
     // "no_webhook_secret" and telling them is an internals leak.
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({
         [CAPABILITY]: {
           online_payments_available: false,
           provider_orders_available: false,
         },
       }),
+      "Credits",
     );
 
     await screen.findByText(/transfer the amount to us by bank/);
@@ -291,9 +362,9 @@ describe("the top-up panel", () => {
     // We do not know whether payment works, so we offer nothing and say so. Rendering
     // the form optimistically would produce a refusal after the click; rendering the
     // "not available" sentence would state a fact we do not have.
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({ [CAPABILITY]: problem(503, { title: "Service unavailable" }) }),
+      "Credits",
     );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
@@ -307,8 +378,7 @@ describe("the top-up panel", () => {
     // A deployment that can RECEIVE payments but cannot create orders (`no_api_secret`,
     // the state of every deployment before a Razorpay account exists). The label is the
     // consequence: this click produces a reference, not a payment window.
-    const { container, calls } = await renderClientPage(
-      page,
+    const { container, calls } = await renderBillingHub(
       routes({
         [CAPABILITY]: {
           online_payments_available: true,
@@ -316,6 +386,7 @@ describe("the top-up panel", () => {
         },
         [INTENT]: { ...ORDER_INTENT, provider_order_id: null, provider_order_pending: true },
       }),
+      "Credits",
     );
 
     const field = await screen.findByLabelText("Other amount");
@@ -346,11 +417,11 @@ describe("the top-up panel", () => {
     // answered with none. The hint being stale costs a reference panel and can never cost
     // a payment: no window opens and no constructor is touched.
     const opened = stubRazorpay();
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({
         [INTENT]: { ...ORDER_INTENT, provider_order_id: null, provider_order_pending: true },
       }),
+      "Credits",
     );
 
     await payCustomAmount();
@@ -362,8 +433,7 @@ describe("the top-up panel", () => {
 
   it("renders the pack rate card and starts an intent priced by pack, not amount", async () => {
     stubRazorpay();
-    const { container, calls } = await renderClientPage(
-      page,
+    const { container, calls } = await renderBillingHub(
       routes({
         [INTENT]: {
           ...ORDER_INTENT,
@@ -374,13 +444,24 @@ describe("the top-up panel", () => {
           pack_id: "max",
         },
       }),
+      "Credits",
     );
 
     // The rate card renders both packs with their server-priced figures — the effective
     // rate and the bonus, neither computed in the browser.
     await screen.findByText("Best value");
     expect(container.textContent).toContain("₹4.6296/min"); // the max pack's effective rate
-    expect(container.textContent).toContain("+4,000 (8%)"); // its free bonus credits
+    expect(container.textContent).toContain("4,000 credits free"); // its bonus credits
+    expect(container.textContent).toContain("8% more calling for the same money");
+    // Talk time first, rupees second — the order this panel is built around.
+    expect(container.textContent).toContain("10,800 min");
+    expect(container.textContent).toContain("₹50,000.00");
+    // The zero-bonus pack says so rather than printing an em dash in a "Free" column.
+    expect(container.textContent).toContain("no bonus credit");
+    // WHATEVER THE SERVER SENDS, however many: five rungs arrive and five buy controls
+    // render, each named by its own amount. Nothing here knows what a pack costs.
+    expect(screen.getAllByRole("button", { name: /^Pay ₹/ })).toHaveLength(5);
+    expect(container.textContent).toContain("1,750 credits free");
 
     // Selecting a pack posts its id — never an amount — so the catalogue is the price.
     // Named by AMOUNT, because six buttons reading "Pay" are six identical names to a
@@ -391,12 +472,65 @@ describe("the top-up panel", () => {
     const sent = calls.find((c) => c.path === "/v1/billing/topups/intent");
     expect(sent?.body).toBe(JSON.stringify({ pack_id: "max" }));
   });
+
+  it("lands the reader on a pack from the minutes they call, without doing money arithmetic", async () => {
+    // THE QUESTION THE OLD TABLE MADE THE READER ANSWER THEMSELVES. Six columns of
+    // arithmetic on a phone is not how somebody decides how much to put on their phone
+    // system; "I call about this much" is. The recommendation is a comparison between two
+    // figures the SERVER sent (`talk_time_minutes`), and it prices nothing.
+    const { container } = await renderBillingHub(routes(), "Credits");
+
+    const field = await screen.findByLabelText(
+      "Roughly how many minutes do you call in a month?",
+    );
+
+    // 200 minutes fits inside the entry pack — the SMALLEST that covers it, not the
+    // biggest that exists, which is the difference between a recommendation and an upsell.
+    fireEvent.change(field, { target: { value: "200" } });
+    const answer = await screen.findByRole("status");
+    expect(answer.textContent).toContain("₹2,000.00 covers it");
+    expect(answer.textContent).toContain("about 400 minutes");
+    // The matched card says so where the reader is looking, not only in the sentence.
+    expect(container.textContent).toContain("Covers your month");
+
+    // 500 minutes no longer fits the entry pack, so the answer moves up ONE rung — not to
+    // the deepest pack, and not to the badged one.
+    fireEvent.change(field, { target: { value: "500" } });
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain("₹5,000.00 covers it"),
+    );
+    expect(screen.getByRole("status").textContent).toContain("about 1,030 minutes");
+
+    // More than the whole catalogue can hold is answered honestly rather than by
+    // recommending a pack that does not cover it.
+    fireEvent.change(field, { target: { value: "40000" } });
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain("more than one pack"),
+    );
+
+    // Not a number: a sentence they can act on, and no recommendation invented from it.
+    fireEvent.change(field, { target: { value: "lots" } });
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toContain(
+        "Enter the number of minutes as digits",
+      ),
+    );
+    expect(container.textContent).not.toContain("Covers your month");
+
+    // NOTHING WAS BOUGHT AND NOTHING WAS ASKED OF THE SERVER. The matcher reads the
+    // catalogue already on screen; a click on a pack is still the only thing that prices
+    // anything.
+    expect(
+      screen.queryByRole("button", { name: /^Pay ₹2,500.10 now$/ }),
+      "the matcher must not start an order",
+    ).toBeNull();
+  });
 });
 
 describe("the payment window", () => {
   it("opens with the server's own values and charges no amount this browser computed", async () => {
     const opened = stubRazorpay();
-    await renderClientPage(page, routes({ [INTENT]: ORDER_INTENT }));
+    await renderBillingHub(routes({ [INTENT]: ORDER_INTENT }), "Credits");
 
     await payCustomAmount();
     await waitFor(() => expect(opened).toHaveLength(1));
@@ -426,8 +560,7 @@ describe("the payment window", () => {
 
   it("posts exactly the three signature fields and never asserts a balance itself", async () => {
     const opened = stubRazorpay();
-    const { container, calls } = await renderClientPage(
-      page,
+    const { container, calls } = await renderBillingHub(
       routes({
         [INTENT]: ORDER_INTENT,
         [CALLBACK]: {
@@ -437,6 +570,7 @@ describe("the payment window", () => {
           credit_pending: true,
         },
       }),
+      "Credits",
     );
 
     await payCustomAmount();
@@ -464,10 +598,17 @@ describe("the payment window", () => {
 
     // The balance is REFETCHED, never computed: `credit_pending` is true on every
     // successful callback, so the only honest number is the server's next one.
+    //
+    // ASSERTED ON THE WALLET, which is the screen the panel now lives on. It used to
+    // assert `/v1/usage`, and when the panel moved that assertion kept passing against a
+    // read this screen does not make while the balance beside the button went stale — the
+    // defect `useConfirmTopUp` now names in its own header.
     await waitFor(() =>
-      expect(calls.filter((c) => c.path === "/v1/usage").length).toBeGreaterThan(1),
+      expect(calls.filter((c) => c.path === WALLET).length).toBeGreaterThan(1),
     );
-    expect(calls.filter((c) => c.path === "/v1/billing/caps").length).toBeGreaterThan(1);
+    // The unfinished-payments list is re-read too: the attempt just completed must stop
+    // being listed as outstanding.
+    expect(calls.filter((c) => c.path === ATTEMPTS).length).toBeGreaterThan(1);
     // ₹1,200.00 is the balance the fixture keeps returning. Nothing on screen may claim
     // ₹3,700.10 — the sum this browser could have worked out and has no right to.
     expect(container.textContent).not.toContain("₹3,700.10");
@@ -475,9 +616,9 @@ describe("the payment window", () => {
 
   it("treats a dismissal as a cancellation, not a failure, and keeps the same order", async () => {
     const opened = stubRazorpay();
-    const { container, calls } = await renderClientPage(
-      page,
+    const { container, calls } = await renderBillingHub(
       routes({ [INTENT]: ORDER_INTENT }),
+      "Credits",
     );
 
     await payCustomAmount();
@@ -504,9 +645,9 @@ describe("the payment window", () => {
 
   it("reports a failed payment in our words, never the provider's string", async () => {
     const opened = stubRazorpay();
-    const { container, calls } = await renderClientPage(
-      page,
+    const { container, calls } = await renderBillingHub(
       routes({ [INTENT]: ORDER_INTENT }),
+      "Credits",
     );
 
     await payCustomAmount();
@@ -542,8 +683,7 @@ describe("the payment window", () => {
     // have moved, which is why the sentence about the webhook has to be here and has to
     // be accurate: the wallet is credited by the signed webhook, not by this page.
     const opened = stubRazorpay();
-    const { container } = await renderClientPage(
-      page,
+    const { container } = await renderBillingHub(
       routes({
         [INTENT]: ORDER_INTENT,
         [CALLBACK]: problem(401, {
@@ -555,6 +695,7 @@ describe("the payment window", () => {
           retryable: false,
         }),
       }),
+      "Credits",
     );
 
     await payCustomAmount();
@@ -580,7 +721,7 @@ describe("the payment window", () => {
   it("says so when the provider's script will not load, and offers a way through", async () => {
     // No `window.Razorpay`, so the loader really injects a tag; the `error` a blocked or
     // dropped request would fire is dispatched onto it. Nothing here reaches the network.
-    const { calls } = await renderClientPage(page, routes({ [INTENT]: ORDER_INTENT }));
+    const { calls } = await renderBillingHub(routes({ [INTENT]: ORDER_INTENT }), "Credits");
 
     await payCustomAmount();
 
@@ -609,7 +750,7 @@ describe("the payment window", () => {
 
   it("keeps no secret in the browser and passes the accessibility floor", async () => {
     const opened = stubRazorpay();
-    const { container } = await renderClientPage(page, routes({ [INTENT]: ORDER_INTENT }));
+    const { container } = await renderBillingHub(routes({ [INTENT]: ORDER_INTENT }), "Credits");
 
     await payCustomAmount();
     await waitFor(() => expect(opened).toHaveLength(1));

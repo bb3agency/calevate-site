@@ -20,6 +20,7 @@ import {
   ProblemNotice,
   Skeleton,
 } from "@/components/ui";
+import { useFormValidation } from "@/components/formValidation";
 import { ARCHIVED_STATUS } from "@/lib/agentState";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
@@ -59,6 +60,7 @@ export function TrainingPanel({ agent }: { agent: Agent }) {
   const write = useWriteAccess(session, "kb:write", "teach this agent");
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
+  const valid = useFormValidation();
 
   return (
     <section>
@@ -98,8 +100,8 @@ export function TrainingPanel({ agent }: { agent: Agent }) {
       ) : (
         <form
           className="mt-5 space-y-3 border-t border-line pt-5"
-          onSubmit={(event) => {
-            event.preventDefault();
+          noValidate
+          onSubmit={valid.onSubmit(() => {
             submit.mutate(
               { agentId: agent.id, name, body },
               {
@@ -109,38 +111,50 @@ export function TrainingPanel({ agent }: { agent: Agent }) {
                 },
               },
             );
-          }}
+          })}
         >
-          <label className="block">
-            <span className={FIELD_LABEL}>What this is about</span>
-            <input
-              required
-              minLength={2}
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder={`e.g. ${eg.knowledgeTitle}`}
-              className={FIELD}
-            />
-          </label>
-          <label className="block">
-            <span className={FIELD_LABEL}>What the agent should say</span>
-            <textarea
-              required
-              minLength={10}
-              rows={6}
-              value={body}
-              onChange={(event) => setBody(event.target.value)}
-              placeholder={
-                "Write it the way you would tell a new receptionist.\n\n" +
-                "Leave a blank line between topics."
-              }
-              className={`${FIELD} py-2`}
-            />
-          </label>
+          {/* Each message sits outside its wrapping `<label>`: enclosed, it would become
+              part of the field's accessible name instead of its description. */}
+          <div>
+            <label className="block">
+              <span className={FIELD_LABEL}>What this is about</span>
+              <input
+                {...valid.field("title", "Say what this is about.")}
+                required
+                minLength={2}
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder={`e.g. ${eg.knowledgeTitle}`}
+                className={FIELD}
+              />
+            </label>
+            {valid.error("title")}
+          </div>
+          <div>
+            <label className="block">
+              <span className={FIELD_LABEL}>What the agent should say</span>
+              <textarea
+                {...valid.field("body", "Write what the agent should say.")}
+                required
+                minLength={10}
+                rows={6}
+                value={body}
+                onChange={(event) => setBody(event.target.value)}
+                placeholder={
+                  "Write it the way you would tell a new receptionist.\n\n" +
+                  "Leave a blank line between topics."
+                }
+                className={`${FIELD} py-2`}
+              />
+            </label>
+            {valid.error("body")}
+          </div>
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="submit"
-              disabled={!write.allowed || submit.isPending || body.length < 10}
+              /* The length rule is NOT repeated here. A button that goes dead at nine
+                 characters explains nothing; pressing it now answers in words. */
+              disabled={!write.allowed || submit.isPending}
               /* The reason travels WITH the control: a dead button whose explanation is
                  off-screen is the 403 this pattern exists to avoid shipping. */
               title={write.reason ?? undefined}

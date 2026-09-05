@@ -19,6 +19,7 @@ import {
   type GapSignal,
   type KnowledgeGap,
 } from "@/lib/api/knowledgeGaps";
+import { useFormValidation } from "@/components/formValidation";
 import { useClientSession } from "@/lib/api/session";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 import type { VerticalExamples } from "@/lib/verticalExamples";
@@ -126,6 +127,8 @@ function GapRow({
   const teach = useTeachGap(session);
   const [teaching, setTeaching] = useState(false);
   const [answer, setAnswer] = useState("");
+  const valid = useFormValidation();
+  const answerField = valid.field("answer", "Write what the agent should say.");
   const answerRef = useRef<HTMLTextAreaElement>(null);
 
   // Move focus to the answer box when the teach form opens — the keyboard-user
@@ -177,32 +180,43 @@ function GapRow({
       {teaching ? (
         <form
           className="mt-3 space-y-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!answer.trim()) return;
+          noValidate
+          /* The empty case used to be `if (!answer.trim()) return;` beside a dead
+             button: pressing Save did nothing and said nothing, which is a worse
+             refusal than the browser bubble the rest of this realm was converted away
+             from. The rule is on the control now and it answers in words. */
+          onSubmit={valid.onSubmit(() => {
             teach.mutate(
               { gapId: gap.id, answer: answer.trim() },
               { onSuccess: () => setTeaching(false) },
             );
-          }}
+          })}
         >
           <label htmlFor={`teach-${gap.id}`} className="block text-[12px] font-medium text-ink-muted">
             What should the agent say next time?
           </label>
           <textarea
+            {...answerField}
+            required
             id={`teach-${gap.id}`}
-            ref={answerRef}
+            /* Both refs: this screen focuses the box when the panel opens, and the
+               validation needs the same node to read the answer off on submit. */
+            ref={(node) => {
+              answerField.ref(node);
+              answerRef.current = node;
+            }}
             className={`${FIELD} min-h-[76px]`}
             value={answer}
             onChange={(event) => setAnswer(event.target.value)}
             placeholder={`e.g. ${eg.knowledgeAnswer}`}
           />
+          {valid.error("answer")}
           <p className="text-[11px] text-ink-faint">
             This is saved as a draft for your agent&apos;s knowledge and reviewed before it
             goes live.
           </p>
           <div className="flex gap-2">
-            <button type="submit" className={PRIMARY_BUTTON_SM} disabled={busy || !answer.trim()}>
+            <button type="submit" className={PRIMARY_BUTTON_SM} disabled={busy}>
               {teach.isPending ? "Saving…" : "Save answer"}
             </button>
             <button

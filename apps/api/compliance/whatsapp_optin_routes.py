@@ -69,7 +69,7 @@ from apps.api.admin.service import tenant_exists
 from apps.api.compliance import whatsapp_optin
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.models import ALERT_OPTIN_OPERATOR, ALERT_OPTIN_SELF_SERVE
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import client_request_ip, record_admin_tenant_read, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, db
 from apps.api.core.errors import ProblemError
@@ -344,7 +344,9 @@ async def record(
         "resolved server-side from the same row the alert job would send to."
     ),
 )
-async def read_for_client(tenant_id: UUID, _: OperatorReader) -> AlertOptInOut:
+async def read_for_client(
+    tenant_id: UUID, request: Request, principal: OperatorReader
+) -> AlertOptInOut:
     """The read the OPERATOR surface needs, and the client-realm GET cannot answer.
 
     `read` above deliberately returns no subject state to an impersonated session: an
@@ -367,11 +369,17 @@ async def read_for_client(tenant_id: UUID, _: OperatorReader) -> AlertOptInOut:
     """
     async with tenant_session(tenant_id) as scoped:
         owner_id, phone = await _owner_of(scoped, tenant_id)
-        return _out(
-            await whatsapp_optin.read_alert_optin(
-                scoped, tenant_id=tenant_id, user_id=owner_id, phone_e164=phone
-            )
+        state = await whatsapp_optin.read_alert_optin(
+            scoped, tenant_id=tenant_id, user_id=owner_id, phone_e164=phone
         )
+        # D-482 L-1: a direct per-tenant admin read leaves its own ledger row. This one
+        # is the strongest case for it on the surface — the subject is a NAMED HUMAN and
+        # the row read is their consent record under DPDP — and it is reached without
+        # impersonation, so `admin.impersonation_read` never fires for it.
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
+    return _out(state)
 
 
 @admin_router.post(

@@ -14,6 +14,7 @@ import tempfile
 import uuid
 from collections.abc import Callable, Iterator
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 
 import pytest
@@ -127,6 +128,86 @@ async def accept_agreements(tenant_id: uuid.UUID, user_id: uuid.UUID | None = No
                 statement_version=statements.statement_version(),
                 user_id=user_id,
             )
+
+
+async def fund_wallet(tenant_id: uuid.UUID, amount_inr: str = "10000.00") -> None:
+    """Put credit in a tenant's wallet, so a test about something else is not refused
+    `no_credits`.
+
+    **WHY SO MANY FIXTURES SUDDENLY NEED THIS (D-521).** Every account used to be created
+    `managed` — invoiced against a retainer, with `credits_exhausted` returning False for
+    it — so a fixture that never mentioned money dialled happily on a wallet it did not
+    have. `prepaid` is the default now, so an unfunded tenant is a tenant whose OUTBOUND
+    dialling is correctly refused, and a dispatch test that never speaks of credit gets
+    `no_credits` in place of the answer it is about.
+
+    Exactly the shape and exactly the argument of `accept_agreements` above: it does NOT
+    soften the gate, it supplies the missing fact. And it is the reason the fixtures were
+    funded rather than pinned back to `plan_tier="managed"` — a suite that exercises
+    dispatch only on the invoiced motion is a suite that stops testing the motion the
+    product actually sells, which is how the credits screen came to be verified by nobody.
+    A test whose SUBJECT is the invoiced motion still names `managed` explicitly, and
+    should.
+
+    `reason="topup"` because that is what this is: money arriving before any call. Append
+    only, like every entry on this ledger, so calling it twice adds credit twice rather
+    than resetting a balance.
+    """
+    from apps.api.billing.service import record_entry
+    from apps.api.db.session import tenant_session
+
+    async with tenant_session(tenant_id) as session:
+        await record_entry(
+            session,
+            tenant_id=tenant_id,
+            delta=Decimal(amount_inr),
+            reason="topup",
+            ref=f"fixture-{uuid.uuid4().hex}",
+        )
+
+
+async def purge_platform_list_rates() -> None:
+    """Remove every row from `platform_list_rates`, as the OWNER (D-492).
+
+    **A CONFIG TEST NOW WRITES AN APPEND-ONLY LEDGER, AND MUST CLEAN UP AFTER ITSELF.**
+    `PUT /v1/ops/config/self_serve_inr_per_min` records the new price into
+    `platform_list_rates` in the same transaction as the `platform_settings` row it dates,
+    so a suite that exercises that route leaves a PUBLISHED RATE behind. One stray row
+    stops `billing/list_rates.self_serve_rate_at` falling back to the `Settings` value, and
+    every other prepaid-money suite on this shared database then prices its minutes at a
+    figure a config test typed (measured: `spend_attribution_test` reading ₹72.50 where it
+    expects ₹50.00, from a `7.25` left by `platform_config_routes_test`).
+
+    The table is append-only ON PURPOSE, so only the owner can do this, and only with the
+    triggers momentarily off. `ENABLE TRIGGER` is not the inverse of `DISABLE` — plain
+    ENABLE demotes an `ENABLE ALWAYS` trigger to ORIGIN — so each trigger's mode is read
+    first and put back verbatim (the trap `platform_secrets_test` documents).
+    """
+    from apps.api.core.settings import Settings
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    owner_url = Settings().alembic_database_url
+    assert owner_url, "ALEMBIC_DATABASE_URL required: platform_list_rates is append-only"
+    engine = create_async_engine(owner_url)
+    try:
+        async with engine.begin() as conn:
+            modes = (
+                await conn.execute(
+                    text(
+                        "SELECT tgname, tgenabled FROM pg_trigger "
+                        "WHERE tgrelid = 'platform_list_rates'::regclass AND NOT tgisinternal"
+                    )
+                )
+            ).all()
+            await conn.execute(text("ALTER TABLE platform_list_rates DISABLE TRIGGER USER"))
+            await conn.execute(text("DELETE FROM platform_list_rates"))
+            for name, mode in modes:
+                verb = {"A": "ENABLE ALWAYS", "R": "ENABLE REPLICA", "D": "DISABLE"}.get(
+                    str(mode), "ENABLE"
+                )
+                await conn.execute(text(f'ALTER TABLE platform_list_rates {verb} TRIGGER "{name}"'))
+    finally:
+        await engine.dispose()
 
 
 async def _owner_of(tenant_id: uuid.UUID) -> uuid.UUID:
@@ -508,3 +589,46 @@ def _reserved_test_domains_resolve() -> Iterator[None]:
         yield
     finally:
         patch.undo()
+
+
+# --------------------------------------------------------------------------------------
+# THE IST MONTH BOUNDARY IS PINNED, BECAUSE THE SUITE IS NOT ALLOWED TO CARE WHAT TIME IT IS
+# --------------------------------------------------------------------------------------
+#
+# `ai_quota.read_ai_quota` asks `month_is_ending(period)` with NO `now=`, so it reads the
+# clock; inside the last `LAST_SALEABLE_MINUTES` of an IST month it answers a tenant past
+# its allowance with `ai_extra_month_ending` ("the allowance comes back within the hour")
+# instead of `ai_quota_exceeded`, and `extra_state` with `month_ending` instead of
+# `not_at_ceiling`. Both are CORRECT product behaviour — the specific sentence is the
+# better one to show a person — so this fixture does not change the product. What it fixes
+# is that a test about a CEILING was being answered by the CALENDAR.
+#
+# THIS COST A FULL RELEASE GATE. On 31 Aug 2026 a 42-minute `make coverage-ratchet` rolled
+# across 00:00 IST mid-run and came back `27 failed` across five files, in the middle of a
+# 48-commit release — 27 things that looked exactly like regressions and were not one. The
+# window is real, it is one hour every month, and the next one is 30 Sep.
+#
+# WHY A DELEGATING WRAPPER RATHER THAN `lambda: False`. `ai_quota_test` deliberately probes
+# the boundary itself, and it does so the honest way — by passing an explicit `now=`
+# (`month_is_ending("2026-08", now=last_day.replace(hour=23, minute=1)) is True`). A blunt
+# stub would silently turn those assertions into tautologies, which is a worse defect than
+# the one being fixed: the boundary would stop being tested at all. So an explicit `now=`
+# still reaches the real implementation and still tests the real edge; only the IMPLICIT
+# clock read — the one no test can control and none of them means to exercise — is pinned.
+#
+# Autouse and unconditional: a test that wants the boundary asks for it by argument, and
+# every other test should be unable to notice what day it is.
+@pytest.fixture(autouse=True)
+def _ist_month_boundary_is_pinned(monkeypatch: pytest.MonkeyPatch) -> None:
+    from apps.api.billing import ai_quota
+
+    real = ai_quota.month_is_ending
+
+    def _pinned(month: str, *, now: datetime | None = None) -> bool:
+        # An explicit instant is a test that MEANS to sit on the edge — answer honestly.
+        if now is not None:
+            return bool(real(month, now=now))
+        # An implicit read is the clock leaking in. Mid-month, always.
+        return False
+
+    monkeypatch.setattr(ai_quota, "month_is_ending", _pinned)

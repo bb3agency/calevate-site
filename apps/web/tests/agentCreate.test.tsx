@@ -5,6 +5,8 @@ import NewAgentPage from "@/app/c/[slug]/agents/new/page";
 import type { Agent } from "@/lib/api/agents";
 import type { Lanes } from "@/lib/api/publishing";
 
+import { useCopilotSurfaceHolder, type SurfaceHolder } from "@/lib/copilot/registry";
+
 import { problem, renderClientPage, stillLoading } from "./harness";
 
 /**
@@ -59,6 +61,8 @@ function created(over: Partial<Agent> = {}): Agent {
     ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
     ai_disclosure_enabled: true,
     recording_notice_line: "This call is being recorded.",
+    caller_memory_notice_line: "I keep a short note of what you ask about.",
+    caller_memory_enabled: false,
     recording_notice_enabled: true,
     opening_line:
       "Namaskaram, this is an AI assistant calling for Sri Clinic. This call is being recorded.",
@@ -290,12 +294,22 @@ describe("failure paths a person can act on", () => {
     );
   });
 
-  it("will not build an agent with no name", async () => {
+  it("will not build an agent with no name, and says so in our words", async () => {
     const { calls } = await renderClientPage(page, routes({ "POST /v1/agents": created() }));
 
     await screen.findByText("Build an agent");
-    const build = screen.getByRole("button", { name: /Build this agent/ });
-    expect(build.hasAttribute("disabled")).toBe(true);
+    // The button is LIVE and the press is refused with a sentence. It used to be dead
+    // until the second character, which is a refusal with nothing in it — and before that
+    // the browser answered in its own UI language, which for a Telugu-first product is
+    // the defect this form was converted for.
+    await act(async () => {
+      fireEvent.click(await pressable(/Build this agent/));
+    });
+
+    const field = screen.getByLabelText(/^What do you want to call it/) as HTMLInputElement;
+    expect(await screen.findByText("Give this agent a name.")).toBeTruthy();
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    expect(document.activeElement).toBe(field);
     expect(calls.some((call) => call.method === "POST")).toBe(false);
   });
 
@@ -348,5 +362,47 @@ describe("the direction choice", () => {
     expect(JSON.parse(calls.find((c) => c.method === "POST")?.body ?? "{}").direction).toBe(
       "inbound",
     );
+  });
+});
+
+
+describe("what the assistant is told about leaving this screen half-filled", () => {
+  /**
+   * D-524. The copilot can now open another screen, and this form is the hazard D-523
+   * named: a half-composed agent, discarded by a move nobody warned about. The SERVER
+   * cannot answer "is it dirty" — it is told the fields exist, never that anybody touched
+   * one — so this screen declares it, and the browser asks before it moves.
+   *
+   * FAILS IF: the declaration goes away (the fallback would then ask on every move from
+   * here, training people to click through the question) or stops tracking the form (the
+   * work would be discarded silently, which is the defect).
+   */
+  function Probe({ onHolder }: { onHolder: (holder: SurfaceHolder | null) => void }) {
+    onHolder(useCopilotSurfaceHolder());
+    return null;
+  }
+
+  async function surfaceOf(routeOverrides: Record<string, unknown> = {}) {
+    let holder: SurfaceHolder | null = null;
+    await renderClientPage(
+      <>
+        {page}
+        <Probe onHolder={(next) => (holder = next)} />
+      </>,
+      routes(routeOverrides),
+    );
+    await screen.findByText("Build an agent");
+    return () => (holder as SurfaceHolder | null)?.read();
+  }
+
+  it("says there is NOTHING unsaved on a form nobody has typed in", async () => {
+    const read = await surfaceOf();
+    expect(read()?.unsaved).toBe(false);
+  });
+
+  it("SAYS THERE IS, the moment a name is typed", async () => {
+    const read = await surfaceOf();
+    await fillName("Front desk");
+    expect(read()?.unsaved).toBe(true);
   });
 });

@@ -24,7 +24,7 @@ import re
 from typing import Any
 from uuid import UUID
 
-from calevate_shared.engine import KBSourceRef, VoiceEngine
+from calevate_shared.engine import AgentConfig, KBSourceRef, VoiceEngine
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,6 +37,12 @@ from apps.api.db.result import rowcount_of
 from apps.api.db.transition import transition_status
 from apps.api.engine import get_engine, require_capability
 from apps.api.kb.models import KB_STATUSES
+from apps.api.kb.pdf_render import (
+    ApprovedChunk,
+    KnowledgePdfError,
+    RenderedKnowledgePdf,
+    render_knowledge_pdf,
+)
 
 log = get_logger(__name__)
 
@@ -65,6 +71,87 @@ MIN_CHUNK_CHARS = 80
 #: from our network to a caller-chosen host) and a document parser. LlamaParse is the
 #: named candidate and is an EXTERNAL blocker: a vendor account nobody has opened.
 SUPPORTED_SUBMISSION_KINDS: frozenset[str] = frozenset({"text"})
+
+
+#: Characters a reviewer cannot see and a downstream reader still acts on.
+#:
+#: **THE APPROVAL GATE IS A HUMAN READING A PREVIEW, so a character that makes the preview
+#: and the published text say different things is a bypass of it — not a formatting
+#: nuisance.** The named attack is Trojan Source (Boucher & Anderson, 2021, CVE-2021-42574):
+#: `U+202E RIGHT-TO-LEFT OVERRIDE` and its relatives reorder a run VISUALLY while leaving
+#: the stored order untouched, so "Refunds are ‮never‬ given" is read one way by the admin
+#: who approves it and spoken the other way by the agent. Every other consumer of this text
+#: — the [T0 FACTS] block the agent actually speaks from, the engine document, the dashboard
+#: copilot's quotation — takes the logical order.
+#:
+#: THE THREE GROUPS, AND WHY EACH IS IN:
+#:
+#: * **Bidi formatting, overrides and isolates** (U+202A-U+202E, U+2066-U+2069, U+200E,
+#:   U+200F, U+061C) — the attack above. Our market writes Telugu, English and Hindi, none
+#:   of which needs an explicit direction mark in a knowledge sentence.
+#: * **C0 and C1 controls except tab, LF and CR** — a vertical tab or a form feed is
+#:   invisible in a text box, and `\x00` is not merely invisible: a Postgres text column
+#:   REFUSES it, so a submission carrying one used to die on the INSERT as a
+#:   `psycopg.DataError`, reach the generic handler, and answer a client 500 with a crash
+#:   alert behind it. A named 422 is the honest answer to text we will not store.
+#: * **Zero-width and invisible spacing** — U+200B, U+2060, U+FEFF. They split a word for
+#:   the tokeniser (and therefore for the sparse arm) while looking like nothing at all.
+#:
+#: AND THE TWO THAT ARE DELIBERATELY NOT HERE. `U+200C ZERO WIDTH NON-JOINER` and
+#: `U+200D ZERO WIDTH JOINER` are ORTHOGRAPHY in Telugu and every other Indic script — they
+#: decide whether a conjunct forms — so refusing them would refuse correctly spelled Telugu,
+#: which is the language this product is built for. `U+00AD SOFT HYPHEN` stays allowed too:
+#: it arrives in honest pastes out of word processors and cannot reorder anything.
+_FORBIDDEN_CODEPOINTS: frozenset[int] = frozenset(
+    {0x061C, 0x200B, 0x200E, 0x200F, 0x2060, 0xFEFF}
+    | set(range(0x00, 0x20))
+    | set(range(0x7F, 0xA0))
+    | set(range(0x202A, 0x202F))
+    | set(range(0x2066, 0x206A))
+) - {0x09, 0x0A, 0x0D}
+
+
+def _reject_invisible_characters(value: str, *, field: str) -> None:
+    """Refuse text carrying a character the reviewer cannot see. See `_FORBIDDEN_CODEPOINTS`.
+
+    REFUSED RATHER THAN STRIPPED, which is this repository's doctrine for a guard on
+    something that matters (`sanitize.assert_redacted`: a guard that silently repairs its
+    input teaches the caller nothing). Stripping would be worse than usual here — the client
+    would have approved wording they never see us change, and a bidi run that survives one
+    stripping pass and not another is exactly the ambiguity the gate exists to remove.
+
+    THE CODEPOINTS ARE NAMED AND THE TEXT IS NOT (hard rule 6, and it is also the only
+    actionable half): "there is an invisible character at U+202E" is something a person can
+    search for in their own document; an echo of their prose is not.
+
+    It is checked at `submit_source` — the ONE door into `kb_sources` — so the property
+    holds for the form, the copilot's propose-knowledge tool, the knowledge-gap teaching
+    path and the intake seeder without any of them knowing about it. `kb/pdf_render.py`
+    refuses most of these a second time as a side effect of the font's cmap, which is a
+    real backstop and a WRONG diagnosis ("the font cannot render this") for a reviewer who
+    was shown one sentence and asked to approve another.
+    """
+    found = sorted({ord(ch) for ch in value} & _FORBIDDEN_CODEPOINTS)
+    if not found:
+        return
+    named = ", ".join(f"U+{cp:04X}" for cp in found[:8])
+    log.warning("kb_invisible_characters", extra={"field": field, "codepoints": named})
+    raise ProblemError(
+        kind="validation",
+        code="kb_invisible_characters",
+        title="That wording contains characters we cannot show a reviewer",
+        detail=(
+            f"The {field} carries {len(found)} invisible or direction-changing character "
+            f"type(s) ({named}). Knowledge is read by a person before it goes live and "
+            "spoken to callers afterwards, so it may only contain characters both of them "
+            "can see."
+        ),
+        remediation=(
+            "Retype the wording in a plain text box, or paste it into a plain-text editor "
+            "first — these characters usually arrive invisibly from a formatted document."
+        ),
+        status=422,
+    )
 
 
 def chunk_text(body: str) -> list[str]:
@@ -201,6 +288,11 @@ async def submit_source(
             status=422,
         )
 
+    # BEFORE anything is written and before the lock, because it is a property of the
+    # SUBMISSION rather than of a version: nothing here needs a database to decide it.
+    _reject_invisible_characters(name, field="source name")
+    _reject_invisible_characters(body, field="wording")
+
     chunks = chunk_text(body)
     if not chunks:
         raise ProblemError(
@@ -316,11 +408,27 @@ async def preview(session: AsyncSession, source_id: UUID) -> list[dict[str, Any]
         raise ProblemError.not_found("Knowledge source")
     rows = (
         await session.execute(
-            text("SELECT idx, content FROM kb_documents WHERE source_id = :sid ORDER BY idx"),
+            text(
+                "SELECT idx, content, gloss, gloss_model FROM kb_documents "
+                "WHERE source_id = :sid ORDER BY idx"
+            ),
             {"sid": source_id},
         )
     ).all()
-    return [{"idx": r[0], "content": r[1], "chars": len(r[1])} for r in rows]
+    # THE GLOSS IS SHOWN AND IT IS SHOWN AS A MACHINE'S WORK. `gloss_model` travels with it
+    # so the screen can say WHICH model wrote it rather than asserting "machine-generated"
+    # as a convention the API merely hopes the client honours. A reviewer who can see it can
+    # report a bad one; a reviewer who cannot would be approving text they never read.
+    return [
+        {
+            "idx": r[0],
+            "content": r[1],
+            "chars": len(r[1]),
+            "gloss": r[2],
+            "gloss_model": r[3],
+        }
+        for r in rows
+    ]
 
 
 async def approve_source(
@@ -381,15 +489,71 @@ async def _chunks_of(session: AsyncSession, source_id: UUID) -> list[str]:
     return [str(chunk) for chunk in rows]
 
 
+def _engine_name() -> str:
+    """WHICH vendor account holds the object this claim names — recorded, never keyed on.
+
+    The PROCESS-WIDE selection (`get_engine()`), not `agents.engine`: `get_engine` does
+    not consult that column, so the adapter that actually performed an attach is this one.
+    `engine_agent_routes` is written from the same value (`agents/service.py`).
+
+    IT IS DELIBERATELY NOT PART OF ANY LOOKUP, and that is a decision rather than an
+    omission. The reads below ask "what is this source filed as", never "what is it filed
+    as on engine X" — one source holds at most one vendor object, which is what
+    `uq_engine_kb_routes_source` states — and a lookup keyed on this string would strand
+    every existing claim the day an adapter is renamed or the setting moves, silently, in
+    the direction that loses a client's knowledge. What the column is FOR is the orphan
+    sweep, which must know which account's listing to compare a claim against.
+    """
+    return get_engine().name
+
+
+#: Every per-source read of the claim table JOINs `kb_sources`, and that join is the
+#: TENANCY, not decoration.
+#:
+#: `engine_kb_routes` is globally readable on purpose — the orphan question ("which
+#: objects on this account does no tenant of ours claim?") cannot be asked any other way
+#: (migration `f1c9e0a73b46`). But possession of a handle IS possession of another
+#: client's knowledge: the vendor's namespace is flat, one account holds every tenant's
+#: documents, and the handle is what deletes one. So the reads that answer "what is MY
+#: source filed as" go through `kb_sources`, which is FORCE-RLS'd — a session scoped to
+#: another tenant, or to none, sees no source row and therefore no handle, which is
+#: exactly the visibility the JSONB key had. `tests/kb_isolation_test.py` and
+#: `tests/kb_drift_reconciliation_test.py` pin both halves; the drift sweep DEPENDS on
+#: the untenanted read answering empty rather than the platform's whole handle set.
+_ROUTE_JOIN = "FROM engine_kb_routes r JOIN kb_sources s ON s.id = r.source_id WHERE "
+
+
 async def _engine_kb_ref(session: AsyncSession, source_id: UUID) -> str | None:
     """The engine's handle for this source's attached copy, or None if nothing of ours
     is attached. See `_remember_engine_kb_ref` for why it lives where it lives."""
     value = (
         await session.execute(
-            text(
-                "SELECT meta ->> 'engine_kb_ref' FROM kb_documents "
-                "WHERE source_id = :sid AND idx = 0"
-            ),
+            text(f"SELECT r.engine_kb_ref {_ROUTE_JOIN} r.source_id = :sid"),
+            {"sid": source_id},
+        )
+    ).scalar()
+    return str(value) if value else None
+
+
+async def _engine_kb_digest(session: AsyncSession, source_id: UUID) -> str | None:
+    """The content digest of the document we last uploaded for this source.
+
+    THE IDEMPOTENCY KEY (D-488), and it is stored rather than recomputed because the two
+    questions are different: recomputing tells us what the CURRENT chunks render to,
+    while this tells us what the engine was actually HANDED. A publish is a no-op at the
+    vendor only when those two agree AND the handle they produced is still attached.
+
+    Why it is needed at all: `attach_kb` is a CREATE on every engine this port
+    describes — none of them offers an update — so each call mints a new object and
+    de-duplicates nothing (the vendor evidence for the one we run on is cited in
+    `apps/api/engine/`, which is the only place it may be named). A double-clicked
+    Publish, a retry after a timeout, or FLOWS §7's rollback onto the version already
+    live would each upload a second identical document, bill for it, and overwrite the
+    only handle that could have removed the first.
+    """
+    value = (
+        await session.execute(
+            text(f"SELECT r.digest {_ROUTE_JOIN} r.source_id = :sid"),
             {"sid": source_id},
         )
     ).scalar()
@@ -397,37 +561,187 @@ async def _engine_kb_ref(session: AsyncSession, source_id: UUID) -> str | None:
 
 
 async def _remember_engine_kb_ref(
-    session: AsyncSession, source_id: UUID, engine_kb_ref: str | None
+    session: AsyncSession,
+    source_id: UUID,
+    engine_kb_ref: str | None,
+    *,
+    digest: str | None = None,
 ) -> None:
     """Record (or clear) the engine's handle for a source.
 
-    It lives in `kb_documents.meta` because that is where the migration that created
-    these tables put it: "Provider-side document and namespace ids land in
-    `kb_documents.meta`, which is also what lets a DPDP erasure prove it removed both
-    copies." A source is pushed to the engine as ONE document, so the handle hangs off
-    its first chunk. No column is added for it — a new column is a migration, and this
-    fix is not worth coupling to one when the designed home already exists.
+    **IT USED TO LIVE IN `kb_documents.meta ->> 'engine_kb_ref'` AND NOW HAS A TABLE
+    (D-519, migration `f1c9e0a73b46`).** The old home was the one the KB migration
+    designated for provider-side ids and it cost no migration, which is why it was
+    chosen; three properties it cannot have are what moved it, and the third is the one
+    that matters:
+
+    * it was UNINDEXED — every read walked `kb_documents`, one row per chunk per version,
+      for at most one string;
+    * nothing enforced UNIQUENESS, so two sources could record one handle and a detach
+      would delete a vendor object another source still pointed at;
+    * `kb_documents` is FORCE-RLS'd, so "which objects on this account does no tenant of
+      ours claim" — the question that decides whether a client's document is reachable by
+      any erasure path at all — could not be asked of it from anywhere. We run ONE engine
+      account for every tenant and the vendor's knowledge base is an ACCOUNT-level object
+      with no owner field, so that question is the whole safety story, and it needed a
+      globally readable claim. `engine_agent_routes` is the same shape for the same
+      reason.
+
+    The digest travels with the handle rather than staying behind: it is a fact about the
+    VENDOR's copy — the bytes that handle was minted from — not about our chunks.
 
     Clearing on detach is not tidiness: a handle left behind after the engine copy is
     gone is a handle a later publish would try to delete, and that publish would then
-    refuse for a reason that is no longer true.
+    refuse for a reason that is no longer true. The whole row goes, because a claim on a
+    vendor object we no longer believe exists is exactly what the orphan sweep must not
+    see (`kb/orphans.py`).
+
+    `tenant_id` and `agent_id` are SELECTed from `kb_sources` rather than passed in, so
+    the claim can only ever name the tenant that owns the source — under RLS a session
+    scoped elsewhere selects no row and writes nothing, rather than writing a row
+    attributing a vendor object to the wrong client.
     """
     if engine_kb_ref is None:
         await session.execute(
-            text(
-                "UPDATE kb_documents SET meta = coalesce(meta, '{}'::jsonb) - 'engine_kb_ref', "
-                "updated_at = now() WHERE source_id = :sid AND idx = 0"
-            ),
+            text("DELETE FROM engine_kb_routes WHERE source_id = :sid"),
             {"sid": source_id},
         )
         return
     await session.execute(
         text(
-            "UPDATE kb_documents SET meta = coalesce(meta, '{}'::jsonb) || "
-            "jsonb_build_object('engine_kb_ref', to_jsonb(cast(:ref as text))), "
-            "updated_at = now() WHERE source_id = :sid AND idx = 0"
+            "INSERT INTO engine_kb_routes (engine, engine_kb_ref, tenant_id, agent_id, "
+            "source_id, digest, created_at, updated_at) "
+            "SELECT :engine, :ref, s.tenant_id, s.agent_id, s.id, :digest, now(), now() "
+            "FROM kb_sources s WHERE s.id = :sid "
+            # The source keeps its claim and re-points it: a republish of the same source
+            # mints a new vendor object, and the row that named the old one is the row
+            # that must now name the new one. A DIFFERENT source claiming a handle this
+            # one already holds is NOT reconciled here — it violates the primary key and
+            # raises, which is the point of the constraint.
+            "ON CONFLICT (source_id) DO UPDATE SET engine = EXCLUDED.engine, "
+            "engine_kb_ref = EXCLUDED.engine_kb_ref, digest = EXCLUDED.digest, "
+            "updated_at = now()"
         ),
-        {"sid": source_id, "ref": engine_kb_ref},
+        {"sid": source_id, "ref": engine_kb_ref, "digest": digest, "engine": _engine_name()},
+    )
+
+
+async def _approved_chunks_of(
+    session: AsyncSession, source_id: UUID, *, source_name: str
+) -> list[ApprovedChunk]:
+    """The rows `render_knowledge_pdf` renders, in reading order.
+
+    Separate from `_chunks_of`, which answers a different question: that one returns the
+    TEXT for the engines whose knowledge base ingests prose, and this one returns the
+    renderer's row type, which carries `idx` (so a retrieved marker points back at a
+    chunk) and the approval flags the renderer re-asserts for itself.
+    """
+    rows = (
+        await session.execute(
+            text("SELECT idx, content FROM kb_documents WHERE source_id = :sid ORDER BY idx"),
+            {"sid": source_id},
+        )
+    ).all()
+    return [
+        ApprovedChunk(
+            source_id=source_id,
+            source_name=source_name,
+            idx=int(idx),
+            content=str(content),
+            # BOTH TRUE, AND STATED RATHER THAN READ, because at this point in a publish
+            # the row's own `is_active` is still FALSE on every first publish — line
+            # 1340 sets it, and that is AFTER the attach this document is being rendered
+            # for. Passing the column would refuse every first publish of every source.
+            # What these two flags mean to the renderer is "this content is cleared to go
+            # to a vendor", and `publish_source` has already proved exactly that above
+            # (`approved_at IS NOT NULL AND status IN ('approved','archived')`) and
+            # refused with `kb_not_approved` if not. The renderer's own re-assertion is
+            # therefore vacuous FROM THIS CALLER and deliberately kept anyway: it guards
+            # the next caller, which will not have this function's gate above it.
+            approved=True,
+            is_active=True,
+        )
+        for idx, content in rows
+    ]
+
+
+def _render_document(
+    *, title: str, chunks: list[ApprovedChunk], language: str
+) -> RenderedKnowledgePdf:
+    """The approved chunks as the document an engine will ingest.
+
+    **THIS USED TO BE A `importlib` SEAM RESOLVING `apps.api.kb.render` BY NAME, AND IT
+    IS NOW A PLAIN IMPORT.** The indirection existed for one reason, written into the
+    comment it replaced: the renderer was a sibling agent's module and was not in this
+    tree yet, so a static import would not type-check. It landed (`kb/pdf_render.py`),
+    so the reason is spent — and a dynamic lookup that outlives its reason is strictly
+    worse than an import: mypy cannot see the signature, the arity is unchecked, and the
+    two halves drifted apart exactly as you would expect. They HAD drifted: the seam
+    declared `render_knowledge_pdf(*, title, chunks: list[str], language) -> bytes`
+    against a module named `render.py`, and what shipped was
+    `render_knowledge_pdf(chunks: Sequence[ApprovedChunk]) -> RenderedKnowledgePdf` in
+    `pdf_render.py`. Nothing failed: `import_module` raised `ImportError`, the seam
+    logged `kb_renderer_unavailable`, returned `None`, and the adapter refused with
+    `engine_kb_document_missing` — so publishing knowledge to the engine was DEAD, and
+    every test passed, because the fake adapter accepts `document=None`.
+
+    `title` and `language` are accepted and not passed on, and that is not an oversight.
+    The renderer puts each chunk's own source name above it (a retrieved passage has to
+    carry its provenance INSIDE the text, since the vendor re-chunks what we upload), so
+    a document-level title would be a second, weaker copy of the same thing; and the
+    script is decided by the font, which covers Telugu and Latin, rather than by a
+    declared language. They stay in the signature because the caller has them and the
+    next renderer may need them — dropping them would make re-adding them a change at
+    both ends.
+
+    Raises `ProblemError` for every refusal the renderer can produce. All four are the
+    same class of event — a document that would upload cleanly and then under-serve a
+    live call — so they share a remediation shape: say which chunk, and what to do.
+    """
+    try:
+        return render_knowledge_pdf(chunks)
+    except KnowledgePdfError as exc:
+        # AT ERROR AND WITH NO CHUNK TEXT. `str(exc)` names markers and codepoints, never
+        # content (hard rule 6), which is why the message is safe to log and to show.
+        log.error(
+            "kb_render_refused",
+            extra={"reason": type(exc).__name__, "chunks": len(chunks)},
+        )
+        raise ProblemError(
+            kind="business_rule",
+            code="kb_render_refused",
+            title="This knowledge cannot be published as it stands",
+            detail=str(exc),
+            remediation="Edit the knowledge source and approve it again.",
+        ) from exc
+
+
+async def _publish_config(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> AgentConfig:
+    """The agent's configuration, exactly as a publish would send it.
+
+    WHY THIS FUNCTION EXISTS (D-488). On an engine that keeps the knowledge linkage as
+    AGENT state, attaching a document is a WRITE to the agent — and on the engine this
+    product runs, the only route that performs that write REPLACES the agent's whole
+    configuration, while the partial-update route cannot reach the field at all. An
+    adapter cannot assemble a full body from a read-back either, because the read-back
+    omits the agent's spoken notice and its event webhook: a publish that rebuilt the
+    agent from what it could read would silently drop the AI disclosure, the recording
+    notice and the only channel by which we learn a call happened. So the publisher
+    supplies the configuration and the adapter writes a body it was given. The vendor
+    citations for every clause of that are in `apps/api/engine/`, where hard rule 2 lets
+    them live.
+
+    `service._to_config` RATHER THAN A SECOND RENDERING, for `publishing.engine_drift_for`'s
+    reason: a config built here would drift from the one a real publish sends on the field
+    nobody looks at, and the drift would show up as a knowledge attach that quietly
+    rewrote an agent.
+    """
+    # Deferred, exactly as `agents/publishing.py` does it: `agents/service` sits inside an
+    # import cycle with the publish chain, and a module-level import here closes it.
+    from apps.api.agents.service import _load_agent, _to_config
+
+    return _to_config(
+        tenant_id, await _load_agent(session, tenant_id, agent_id), engine=get_engine()
     )
 
 
@@ -577,16 +891,17 @@ async def recorded_handles_of_agent(session: AsyncSession, agent_id: UUID) -> se
     Deliberately NOT filtered to `is_active` sources. A superseded version has its handle
     CLEARED on detach (`_detach_superseded`), so a handle still recorded against an
     archived source means a detach that never completed — a divergence, not noise, and
-    exactly the residue `_reattach_after_failed_publish` documents itself as leaving.
+    exactly the residue `_undo_attach` documents itself as leaving.
+
+    Since D-519 the handle lives in `engine_kb_routes` and this reads it THROUGH
+    `kb_sources` (see `_ROUTE_JOIN`), which is what keeps the answer tenant-scoped: the
+    claim table is globally readable so the orphan sweep can ask an account-wide question,
+    and this is not that question. The sweep's caller depends on it — an untenanted read
+    must answer the empty set, not the platform's every handle.
     """
     rows = (
         await session.execute(
-            text(
-                "SELECT d.meta ->> 'engine_kb_ref' FROM kb_documents d "
-                "JOIN kb_sources s ON s.id = d.source_id "
-                "WHERE s.agent_id = :aid AND d.idx = 0 "
-                "AND d.meta ->> 'engine_kb_ref' IS NOT NULL"
-            ),
+            text(f"SELECT r.engine_kb_ref {_ROUTE_JOIN} s.agent_id = :aid"),
             {"aid": agent_id},
         )
     ).scalars()
@@ -595,7 +910,7 @@ async def recorded_handles_of_agent(session: AsyncSession, agent_id: UUID) -> se
 
 async def _reconcile_engine_state(
     engine: VoiceEngine, engine_ref: str, *, agent_id: UUID, accounted: set[str]
-) -> None:
+) -> list[str] | None:
     """Refuse to publish onto an agent holding a copy no row of ours mentions.
 
     This is the only check that can see the failure our transaction cannot: the engine
@@ -613,12 +928,20 @@ async def _reconcile_engine_state(
     because it looks handled.
 
     **Evidence, not a dependency.** A listing we could not obtain proves nothing either
-    way, and `list_kb` is the adapter method whose response shape stays a hand-maintained
-    claim until pilot gate 8 — the adapter filters strictly by agent and so degrades to
-    an empty list if the engine's rows turn out not to carry that linkage. Refusing on
-    "we did not manage to look" would turn one flaky vendor read into an outage of the
-    approval workflow, so a failed listing is logged and stepped over. It can prove a
-    divergence; it can never prove the absence of one.
+    way, so a failed listing is logged and stepped over rather than turning one flaky
+    vendor read into an outage of the approval workflow. It can prove a divergence; it can
+    never prove the absence of one.
+
+    **THE `list_kb` CAVEAT THIS DOCSTRING CARRIED IS RETIRED (D-488).** It read that the
+    method "filters strictly by agent and so degrades to an empty list if the engine's
+    rows turn out not to carry that linkage". The rows never carried it — the linkage was
+    always a property of the AGENT, and `list_kb` reads it there now. So an empty answer
+    means the agent references nothing, which is a fact rather than a filter artefact.
+    The adapter's own docstring carries the vendor evidence; naming the field here would
+    put a vendor payload shape above the boundary.
+
+    RETURNS the handles the engine reports, or `None` when the read failed — a third
+    state the caller must not flatten into "none attached".
     """
     try:
         attached = await engine.list_kb(engine_ref)
@@ -627,10 +950,15 @@ async def _reconcile_engine_state(
             "kb_reconcile_unavailable",
             extra={"agent_id": str(agent_id), "engine_error": type(exc).__name__},
         )
-        return
+        # `None`, NOT `[]`. The caller uses this listing to decide whether a handle it
+        # already holds is still attached, and an empty list would answer "it is gone" on
+        # the strength of a read that did not happen — re-uploading a document that is
+        # attached and leaving the first copy unaddressable. Three states, and the third
+        # one is "we did not manage to look".
+        return None
     unaccounted = [handle for handle in attached if handle not in accounted]
     if not unaccounted:
-        return
+        return list(attached)
     log.error(
         "kb_engine_out_of_sync",
         extra={"agent_id": str(agent_id), "unaccounted": len(unaccounted)},
@@ -658,6 +986,9 @@ async def _detach_superseded(
     engine_ref: str,
     source_id: UUID,
     engine_kb_ref: str,
+    *,
+    agent: AgentConfig,
+    attached: list[str] | None,
 ) -> None:
     """Withdraw one attached copy from the engine, or refuse to publish.
 
@@ -674,17 +1005,35 @@ async def _detach_superseded(
     knowledge at all, which is an outage we caused to avoid an inconsistency.
 
     Refusing keeps the client whole: their agent still answers, from text a human
-    approved. What they lose is the UPDATE, and they are told so, with a retry that
-    costs nothing — the engine is idempotent from our side here because we have not
-    attached anything yet. `kind` is inherited from the adapter's own error so a rate
-    limit stays retryable and a rejection stays not.
+    approved. What they lose is the UPDATE, and they are told so. `kind` is inherited from
+    the adapter's own error so a rate limit stays retryable and a rejection stays not.
+    Since D-488 the retry is no longer free — the new version is attached by the time this
+    runs — so `publish_source` compensates by removing it before it re-raises.
 
     A version we have no handle for is the same refusal for the same reason, raised one
     step earlier by `_require_addressable`: we cannot remove what we cannot address, so
     we must not publish over it.
+
+    **A HANDLE THE ENGINE NO LONGER HOLDS IS A SUCCESS, NOT A FAILURE (D-488), and that
+    is what makes a crashed publish self-heal.** This function's postcondition is "the
+    engine is not serving that copy". `publish_source`'s engine calls are outside the
+    transaction, so a process that dies between a successful detach and the COMMIT leaves
+    our row naming a handle the engine has already dropped — and every later publish then
+    refused with `kb_detach_failed`, whose remediation ("try publishing again") could
+    never work. `attached` is the listing read moments earlier: a handle absent from it
+    has reached the postcondition by another route and only our record needs clearing.
+    `None` means the listing could not be read, and then the detach is attempted for real
+    — never skipped on an assumption.
     """
+    if attached is not None and engine_kb_ref not in attached:
+        log.info(
+            "kb_detach_already_done",
+            extra={"source_id": str(source_id)},
+        )
+        await _remember_engine_kb_ref(session, source_id, None)
+        return
     try:
-        await engine.detach_kb(engine_ref, engine_kb_ref)
+        await engine.detach_kb(engine_ref, engine_kb_ref, agent=agent)
     except ProblemError as exc:
         log.warning(
             "kb_detach_failed", extra={"source_id": str(source_id), "engine_code": exc.code}
@@ -705,45 +1054,84 @@ async def _detach_superseded(
     await _remember_engine_kb_ref(session, source_id, None)
 
 
-async def _reattach_after_failed_publish(
+async def _restore_withdrawn(
     engine: VoiceEngine,
     engine_ref: str,
+    *,
+    agent: AgentConfig,
+    withdrawn: list[tuple[UUID, list[str]]],
     name: str,
-    detached: list[UUID],
-    chunks_of: dict[UUID, list[str]],
 ) -> None:
-    """Close the gap the detach-first ordering opens when the ATTACH then fails.
+    """Put back versions this publish withdrew, when a LATER step then failed.
 
-    At this point the agent holds no copy of this source. The previous version's text is
-    still in our tables and is still approved, so putting it back restores a state a
-    human signed off on — the client keeps a working knowledge base and loses only the
-    update.
+    **THERE IS EXACTLY ONE CALLER AND THAT IS THE POINT (D-488).** Under attach-first,
+    almost every failure happens before anything is withdrawn — a failed attach leaves the
+    previous version untouched, and a failed detach is undone by removing the copy we
+    added. The one failure that lands AFTER the withdrawals is the source vanishing from
+    under us (`kb_source_vanished`): the retention sweep DELETEs superseded versions on the
+    tenant's own clock, from its own transaction, taking no part in our lock, and FLOWS §7's
+    rollback republishes exactly the population it expires. By then the superseded copies
+    are gone from the engine, and walking away would leave the client with no knowledge at
+    all — an outage we caused to report that somebody else deleted a row.
 
-    What deliberately is NOT done here: recording the new handle. The caller re-raises,
-    the transaction rolls back, and any write here would roll back with it — so our
-    tables keep pointing at the handle that was just deleted. That is the intended
-    residue, and it is now caught twice over: the next publish either fails to detach a
-    handle the engine no longer has (`kb_detach_failed`) or, where the re-attach minted
-    a new handle, finds a copy it cannot account for (`kb_engine_out_of_sync`). Both
-    stop; neither quietly stacks two versions.
+    WHAT IS DELIBERATELY NOT DONE HERE: recording the new handles. The caller re-raises,
+    the transaction rolls back, and any write here would roll back with it — so our tables
+    keep pointing at handles that were just deleted. That is the intended residue and it is
+    caught twice over: the next publish either finds a handle the engine no longer holds
+    (which `_detach_superseded` now treats as already withdrawn) or a copy it cannot
+    account for (`kb_engine_out_of_sync`). Neither quietly stacks two versions.
     """
-    for source_id in detached:
+    for source_id, chunks in withdrawn:
         try:
             await engine.attach_kb(
                 engine_ref,
-                KBSourceRef(
-                    kb_id=str(source_id),
-                    title=name,
-                    text="\n\n".join(chunks_of.get(source_id, [])),
-                ),
+                KBSourceRef(kb_id=str(source_id), title=name, text="\n\n".join(chunks)),
+                agent=agent,
             )
         except Exception:
-            # Nothing left to try: the engine is refusing both directions. Say so at
-            # ERROR — this agent now has NO knowledge for this source and only an
-            # operator can put it back.
+            # Nothing left to try: the engine is refusing both directions. ERROR, because
+            # this agent now has NO knowledge for this source and only an operator can put
+            # it back.
             log.error("kb_left_detached", extra={"source_id": str(source_id)})
         else:
             log.info("kb_restored_after_failed_publish", extra={"source_id": str(source_id)})
+
+
+async def _undo_attach(
+    engine: VoiceEngine,
+    engine_ref: str,
+    *,
+    agent: AgentConfig,
+    attached_ref: str | None,
+    source_id: UUID,
+) -> None:
+    """Remove the copy this publish just attached, restoring the state it found.
+
+    **THIS REPLACED `_reattach_after_failed_publish`, AND THE REPLACEMENT IS A CONSEQUENCE
+    OF REVERSING THE ORDER (D-488), not a change of mind about compensation.** While the
+    publish detached first, a failed attach left the agent with NOTHING and the old
+    function put the superseded versions back. Now the attach happens first, so the only
+    thing a failure can have added is the new copy, and the only compensation is to take
+    it away — after which the agent is exactly as it was: the previously approved version,
+    still attached, still the one a human signed off.
+
+    `attached_ref is None` means the re-upload guard matched and no new copy was made; the
+    handle then belongs to the version that was ALREADY live, and removing it would turn a
+    failed update into an outage.
+
+    IT SWALLOWS AND LOGS, for the reason every compensator does: it runs on a path that is
+    already failing, and the caller's error is the one worth reporting. What it must never
+    do is fail silently — an unremovable extra copy is a document a client's agent can
+    still answer from, and only an operator can clear it now.
+    """
+    if attached_ref is None:
+        return
+    try:
+        await engine.detach_kb(engine_ref, attached_ref, agent=agent)
+    except Exception:
+        log.error("kb_left_attached", extra={"source_id": str(source_id)})
+    else:
+        log.info("kb_attach_rolled_back", extra={"source_id": str(source_id)})
 
 
 async def active_knowledge(session: AsyncSession, *, agent_id: UUID) -> list[KnowledgeFact]:
@@ -773,6 +1161,51 @@ async def active_knowledge(session: AsyncSession, *, agent_id: UUID) -> list[Kno
     return [KnowledgeFact(name=str(row[0]), text=str(row[1] or "")) for row in rows]
 
 
+async def live_glosses(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID | None = None
+) -> list[tuple[UUID, str, str]]:
+    """(agent_id, source name, English gloss) for every LIVE source that has one.
+
+    THE TWIN OF `active_knowledge`, AND THAT IS THE WHOLE POINT OF IT LIVING HERE. This
+    module owns what "live" means — `s.is_active = true`, set by `publish_source` and by
+    nothing else — and `retrieval/compiled_facts.py` must not re-derive it. Its own
+    docstring already refuses to read `kb_documents` directly for exactly this reason
+    ("re-deriving what is approved and live in a second place"), so the gloss is handed
+    over the same way the knowledge itself is, by the module that decides it.
+
+    ONLY GLOSSES OF LIVE SOURCES, SO THE APPROVAL GATE IS INHERITED RATHER THAN
+    RE-ARGUED. A gloss of a rejected or superseded source is unreachable here for the same
+    reason its original text is unreachable from the compiled block.
+
+    `d.gloss IS NOT NULL` inside the aggregate rather than around it: a source whose Telugu
+    chunks are glossed and whose one English chunk is `not_needed` should contribute the
+    Telugu glosses, not vanish. `string_agg` skips NULLs anyway; the predicate is what keeps
+    a source with NO glossed chunk out of the result entirely instead of returning an empty
+    string that would score against every question.
+
+    `s.tenant_id = :tid` is REDUNDANT WITH RLS AND IS STILL THERE, for the reason
+    `compiled_facts._live_blocks` gives about its own copy: it defends a caller passing
+    tenant A's id on a session opened for tenant B, which RLS cannot see as a mistake.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT s.agent_id, s.name, string_agg(d.gloss, ' ' ORDER BY d.idx) "
+                "FROM kb_sources s JOIN kb_documents d ON d.source_id = s.id "
+                "WHERE s.tenant_id = :tid AND s.is_active = true AND d.gloss IS NOT NULL "
+                # Cast for `_live_blocks`' reason: an untyped placeholder inside `IS NULL`
+                # gives Postgres nothing to infer from and it refuses the statement with
+                # `AmbiguousParameter`. `CAST(... AS uuid)` and not `::`, which SQLAlchemy's
+                # `text()` consumes as a bound-parameter marker.
+                "AND (CAST(:aid AS uuid) IS NULL OR s.agent_id = CAST(:aid AS uuid)) "
+                "GROUP BY s.agent_id, s.id, s.name"
+            ),
+            {"tid": tenant_id, "aid": agent_id},
+        )
+    ).all()
+    return [(UUID(str(r[0])), str(r[1]), str(r[2])) for r in rows if r[2]]
+
+
 async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: UUID) -> int:
     """Push an APPROVED source to the engine KB and make it the active version.
 
@@ -781,28 +1214,35 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     1. The engine work happens BEFORE the local activation flip. If the engine rejects
        it, nothing in our state claims the agent knows something it does not — the
        opposite order would leave a client's dashboard confidently wrong.
-    2. EVERY copy of this source the engine is holding is DETACHED before the new one is
-       attached. Archiving a row only changes our tables; what the caller hears is what
-       the engine holds. Push first and there is a window — or, when the detach never
-       happens at all, a permanent state — in which the agent can answer from either
-       version, and a rollback leaves every version live at once. A client approved v2;
-       the agent quoting v1's prices is the divergence the approval gate exists to
-       prevent.
+    2. **THE NEW COPY IS ATTACHED FIRST AND THE SUPERSEDED ONES ARE WITHDRAWN AFTER, AND
+       THIS IS THE REVERSE OF WHAT THIS FUNCTION SHIPPED WITH (D-488).** The old order
+       withdrew first and priced the gap at "one request of silence", which was true while
+       `attach_kb` was a single call the engine either took or refused. It is not one call
+       any more: on a real engine it is a document upload plus an indexing wait no vendor
+       publishes a bound for, and the adapter's own budget for it is minutes rather than
+       seconds. Detaching first would take a client's knowledge away for the whole of
+       that, on every republish — the agent answering "I don't know" (T4
+       refuse-and-escalate) to every caller for minutes because somebody corrected a
+       price.
 
-       "Every copy" includes THIS source's own previously attached copy, which is not a
-       subtlety. `attach_kb` is a CREATE: it mints a fresh handle on every call and
-       de-duplicates nothing, because the engine has no idea two calls describe the same
-       source of ours. So re-publishing a version that is already live — a double-clicked
-       Publish button, a retry after a timeout, FLOWS §7's rollback onto the current
-       version — attached a second document and overwrote the only handle that could
-       have removed the first. That first copy is then unaddressable forever,
-       retrievable by the agent forever, and billed forever. The fake adapter cannot
-       show this: it keys its store on OUR `kb_id` and returns a stable handle, so it
-       silently replaces where a real engine accumulates.
+       The vendor references knowledge by a LIST of vector ids, so an overlap is
+       expressible and a gap is not avoidable any other way. So the window MOVED rather
+       than closed, and here is the honest statement of it: for the length of one detach
+       round trip the agent can retrieve from either version. A stale price for one round
+       trip is worse than nothing for one round trip; it is much better than nothing for
+       three minutes.
 
-    That ordering costs a gap: between the detach and the attach the agent has no copy
-    of this source and answers "I don't know" (T4 refuse-and-escalate). One request of
-    silence is the cheaper failure — a stale price is a quote the client is then held to.
+       "Every superseded copy" includes THIS source's own previously attached one, which
+       is not a subtlety. `attach_kb` is a CREATE — there is no update route on the
+       vendor's knowledge base — so it mints a fresh handle on every call and
+       de-duplicates nothing. Re-publishing a version that is already live would attach a
+       second document and overwrite the only handle that could have removed the first,
+       leaving it unaddressable, retrievable and billed forever. Two things stop that now:
+       the re-upload guard (`_engine_kb_digest`), which skips the upload entirely when the
+       rendered bytes and the attached handle both match, and the withdrawal below when
+       they do not. The fake adapter cannot show either defect — it keys its store on OUR
+       `kb_id` and returns a stable handle, so it silently replaces where a real engine
+       accumulates.
 
     Eligibility is `approved_at IS NOT NULL`, not `status = 'approved'`, because
     FLOWS §7's rollback is republishing a version this same function ARCHIVED when its
@@ -824,11 +1264,31 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
        is already live — a client publishing an FAQ must not promote an agent past
        FLOWS §1 step 7's human sign-off.
 
-    What this function still cannot make atomic, stated so nobody assumes otherwise: the
-    engine calls are not in the transaction, so a COMMIT that fails after a successful
-    attach leaves the engine holding a document none of our rows mention.
-    `_reconcile_engine_state` cannot prevent that — nothing here can — but it detects it
-    on the next attempt and refuses, instead of attaching a second copy on top.
+    WHAT HAPPENS IF THE PROCESS DIES MID-ROLLOVER, per step, because the engine calls are
+    not in the transaction and no amount of ordering makes them so:
+
+    * **Before the attach.** Nothing happened. The old version is live and addressable.
+    * **Between the upload and the agent write** (inside `attach_kb`). The adapter deletes
+      the document it just created and re-raises; nothing is attached and nothing is
+      billed. A death inside THAT window leaves an unreferenced knowledge base, which
+      costs money and is invisible to `list_kb` — the account-level sweep (OPERATIONS §2
+      gate 43e) is what finds it.
+    * **Between the attach and the detach.** Both versions are attached and no row of ours
+      changed. The agent can answer from either — the overlap window, made permanent. The
+      next publish reads the engine, cannot account for the new handle, and REFUSES with
+      `kb_engine_out_of_sync` rather than stacking a third copy; an operator clears it.
+    * **Between the detach and the COMMIT.** The old copy is gone and our rows still name
+      its handle. This used to poison every later publish with `kb_detach_failed` and a
+      remediation that could not work; since D-488 `_detach_superseded` treats a handle
+      the engine no longer holds as its own postcondition, so the next publish clears the
+      record and proceeds. Self-healing, and the only cost is the update that was lost.
+    * **After the COMMIT.** Done. The T0 recompile below is the only step left and it is
+      idempotent.
+
+    The one thing that is genuinely not recoverable inside this function is a COMMIT that
+    fails after a successful attach: the engine holds a document none of our rows mention.
+    `_reconcile_engine_state` cannot prevent it — nothing here can — but it detects it on
+    the next attempt and refuses instead of attaching a second copy on top.
     """
     row = (
         await session.execute(
@@ -879,19 +1339,23 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     # would still carry the ~80% of questions TRD §6 assigns it). Building that fallback
     # is a decision-log entry and a milestone, not a line in this function.
     require_capability("knowledge_base", engine=engine)
+    # The configuration a publish of THIS agent would send. Resolved before any vendor
+    # call because attaching is an agent write on a control-plane engine (see
+    # `_publish_config`), and an agent we cannot describe is one we must not rewrite.
+    agent_config = await _publish_config(session, tenant_id, agent_id)
     superseded = await _superseded_versions(
         session, agent_id=agent_id, name=str(name), keep=source_id
     )
     _require_addressable(superseded)
-    await _reconcile_engine_state(
+    attached_now = await _reconcile_engine_state(
         engine,
         engine_ref,
         agent_id=agent_id,
         accounted=await recorded_handles_of_agent(session, agent_id),
     )
 
-    # Everything to withdraw before the attach: the other live version(s) of this named
-    # source, plus this source's own copy if one is already attached.
+    # Everything to withdraw once the new copy is up: the other live version(s) of this
+    # named source, plus this source's own earlier copy when the content has moved.
     #
     # `engine_kb_ref IS NULL` means two different things depending on whose row it is,
     # which is why the own-handle case is appended here rather than folded into
@@ -903,31 +1367,128 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
         (previous_id, str(handle)) for previous_id, handle in superseded
     ]
     own_handle = await _engine_kb_ref(session, source_id)
-    if own_handle is not None:
-        withdraw.append((source_id, own_handle))
 
-    # Read the fallback text BEFORE anything is withdrawn: if the attach fails we have to
-    # put these versions back, and a query issued after the failure is a query issued on
-    # a session that may itself be the thing that failed.
-    previous_chunks = {
-        withdrawn_id: await _chunks_of(session, withdrawn_id) for withdrawn_id, _ in withdraw
-    }
+    # THE DOCUMENT, AND ITS DIGEST (D-488). Rendered before anything is touched, because
+    # a renderer that refuses must do so while the client's knowledge is still whole
+    # rather than half way through a rollover.
+    #
+    # NO LONGER OPTIONAL, AND THAT IS THE SEAM BEING FINISHED RATHER THAN A NEW RULE:
+    # `_render_document` used to return `None` when the renderer module was missing, and
+    # it was ALWAYS missing, because the seam named `apps.api.kb.render` and the module
+    # that shipped is `apps.api.kb.pdf_render` with a different signature. Every engine
+    # that ingests files therefore refused every publish. The renderer is now imported
+    # directly and `fpdf2` is a declared runtime dependency of `apps/api`, so "there is
+    # no renderer" is not a state this deployment can be in; a refusal now comes from
+    # the CONTENT and says which chunk.
+    rendered = _render_document(
+        title=str(name),
+        chunks=await _approved_chunks_of(session, source_id, source_name=str(name)),
+        language=agent_config.language_primary,
+    )
+    document = rendered.content
+    # THE RENDERER'S OWN DIGEST, not a second hash taken here. It is the SHA-256 of the
+    # same bytes either way, so this is not about the value — it is about there being one
+    # place that decides what the idempotency key is computed over. A local `_digest_of`
+    # would be a second answer to a settled question, and the day the renderer starts
+    # returning a digest over something else (a normalised form, say) the two would
+    # disagree silently and the re-upload guard would stop guarding.
+    digest = rendered.sha256
+
+    # THE RE-UPLOAD GUARD. Three conditions, and all three are load-bearing: we hold a
+    # handle, the bytes are the ones that handle was minted from, and the engine still
+    # reports it attached. Any one of them missing and a fresh upload is the safe answer —
+    # the vendor has no update route, so an attach is a CREATE that mints a new object and
+    # de-duplicates nothing — no engine this port describes offers an update. This is
+    # double-clicked Publish, a retry after a timeout, and FLOWS §7's rollback onto the
+    # version already live cost nothing instead of stacking a second billed copy the first
+    # handle could never name again.
+    # `digest` is no longer part of this conjunction: it was `str | None` while the
+    # renderer was optional, and it is now always a digest. An arm that cannot be false
+    # is an uncovered branch the ratchet counts and a reader has to reason about twice.
+    unchanged = (
+        own_handle is not None
+        and await _engine_kb_digest(session, source_id) == digest
+        and (attached_now is None or own_handle in attached_now)
+    )
+    attached_ref: str
+    minted: str | None = None
+    if unchanged and own_handle is not None:
+        log.info("kb_upload_skipped_unchanged", extra={"source_id": str(source_id)})
+        attached_ref = own_handle
+    else:
+        if own_handle is not None:
+            withdraw.append((source_id, own_handle))
+        # ATTACH FIRST, DETACH SECOND — THE OPPOSITE OF THE ORDER THIS FUNCTION SHIPPED
+        # WITH, and the reversal is forced by what an attach became (D-488). It used to be
+        # a single call, so detaching first cost "one request of silence". A real attach is
+        # an upload plus an indexing wait the vendor gives no bound for — up to
+        # `KB_READY_TIMEOUT_S`, three minutes — and detaching first would take the client's
+        # knowledge away for ALL of it, on every republish. The engine references knowledge
+        # by a LIST of vector ids, so holding both for the length of one detach round trip
+        # is expressible; holding neither for three minutes is what the old order buys.
+        #
+        # SO THE WINDOW MOVED RATHER THAN CLOSED, and the honest statement of it is: for
+        # one detach round trip the agent can retrieve from either version. That is the
+        # cheaper failure than a blank agent, and much cheaper than a blank one for
+        # minutes. A crash inside that window leaves both attached and our rows unchanged,
+        # which the next publish REFUSES on (`kb_engine_out_of_sync`) rather than silently
+        # stacking a third — see this function's closing note.
+        minted = await engine.attach_kb(
+            engine_ref,
+            KBSourceRef(
+                kb_id=str(source_id),
+                title=str(name),
+                text="\n\n".join(chunks),
+                document=document,
+                content_sha256=digest,
+            ),
+            agent=agent_config,
+        )
+        attached_ref = minted
+
+    # NEVER WITHDRAW THE HANDLE WE JUST ATTACHED, and this is a consequence of the order
+    # rather than defensive noise (D-488). Under detach-first the two sets could not
+    # overlap; under attach-first they can, on any engine that de-duplicates — hand it two
+    # uploads it considers the same document and it may hand back one id, and the
+    # withdrawal of "the old copy" would then delete the new one. The fake adapter does
+    # exactly that (its handle is derived from OUR `kb_id`), which is how this was found;
+    # a real engine that ever behaved the same way would take a client's knowledge down
+    # silently, because every one of our records would still look right.
+    withdraw = [(wid, handle) for wid, handle in withdraw if handle != attached_ref]
+
+    # Read the fallback text BEFORE anything is withdrawn, for `_restore_withdrawn`'s one
+    # caller: a query issued after the failure is a query issued on a session that may
+    # itself be the thing that failed.
+    withdrawn_chunks: list[tuple[UUID, list[str]]] = [
+        (withdrawn_id, await _chunks_of(session, withdrawn_id)) for withdrawn_id, _ in withdraw
+    ]
 
     for withdrawn_id, withdrawn_kb_ref in withdraw:
-        await _detach_superseded(session, engine, engine_ref, withdrawn_id, withdrawn_kb_ref)
+        try:
+            await _detach_superseded(
+                session,
+                engine,
+                engine_ref,
+                withdrawn_id,
+                withdrawn_kb_ref,
+                agent=agent_config,
+                attached=attached_now,
+            )
+        except Exception:
+            # The new copy is up and a superseded one would not come down, so the agent is
+            # holding both. Put it back the way it was — remove what we just added — and
+            # re-raise the refusal `_detach_superseded` composed. The client keeps the
+            # version a human approved and loses only the update.
+            await _undo_attach(
+                engine,
+                engine_ref,
+                agent=agent_config,
+                attached_ref=minted,
+                source_id=source_id,
+            )
+            raise
 
-    try:
-        attached_ref = await engine.attach_kb(
-            engine_ref,
-            KBSourceRef(kb_id=str(source_id), title=str(name), text="\n\n".join(chunks)),
-        )
-    except Exception:
-        await _reattach_after_failed_publish(
-            engine, engine_ref, str(name), [wid for wid, _ in withdraw], previous_chunks
-        )
-        raise
-
-    await _remember_engine_kb_ref(session, source_id, attached_ref)
+    await _remember_engine_kb_ref(session, source_id, attached_ref, digest=digest)
 
     # Archive the previous active version of this named source, then activate this one.
     # Rollback (FLOWS §7) is re-running publish on the archived row, which is why the
@@ -971,15 +1532,25 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
         # for the same reason: the client keeps a working knowledge base and loses only
         # the update. The raise then rolls our side back.
         log.error("kb_publish_source_vanished", extra={"source_id": str(source_id)})
-        try:
-            await engine.detach_kb(engine_ref, attached_ref)
-        except Exception:
-            # The engine is holding a copy of a source that no longer exists here. Named
-            # at ERROR because only an operator can remove it now — the drift sweep
-            # (D-158) reports the agent `unaccounted` until they do.
-            log.error("kb_left_attached", extra={"source_id": str(source_id)})
-        await _reattach_after_failed_publish(
-            engine, engine_ref, str(name), [wid for wid, _ in withdraw], previous_chunks
+        # BOTH HALVES, because this is the ONE failure that lands after the withdrawals.
+        # The copy this publish added comes down (`minted`; `None` when the re-upload
+        # guard matched, in which case the handle belongs to the version that was already
+        # live and removing it would turn a lost race into an outage), and the versions
+        # withdrawn for it go back — otherwise the client is left with no knowledge at all
+        # because somebody else's transaction deleted a row.
+        await _undo_attach(
+            engine,
+            engine_ref,
+            agent=agent_config,
+            attached_ref=minted,
+            source_id=source_id,
+        )
+        await _restore_withdrawn(
+            engine,
+            engine_ref,
+            agent=agent_config,
+            withdrawn=withdrawn_chunks,
+            name=str(name),
         )
         raise ProblemError.conflict(
             "kb_source_vanished",
@@ -989,6 +1560,14 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
                 "Submit the wording again if it is still needed."
             ),
         )
+
+    # THE RETRIEVAL PROJECTION (D-502), between the activation flip and the T0 recompile
+    # and for the flip's own reason: it reads what the flip just decided. Same transaction
+    # as the publish, which is the property `docs/evidence/kb-retrieval-bakeoff.md` §5.2
+    # picked pgvector for — with a store across a network boundary, "our tables say
+    # published" and "the store says otherwise" are two commits and D-41 is the record of
+    # what that divergence costs.
+    await project_chunks(session, tenant_id=tenant_id, agent_id=agent_id, source_id=source_id)
 
     # T0 recompilation (FLOWS §7, TRD §6). LAST, and after the activation flip, because
     # `active_knowledge` reads exactly what the flip just decided — computing it earlier
@@ -1010,6 +1589,78 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
         },
     )
     return int(version)
+
+
+#: The sparse retrieval key, built from the chunk's own text AND its English gloss. It MUST
+#: spell the same text-search configuration as migration `dc1aaeeeff02.TS_CONFIG` and
+#: `retrieval/pgvector.TS_CONFIG`: lexemes stored under one configuration do not match a
+#: `tsquery` built under another, and the symptom is an empty sparse arm rather than an
+#: error. `coalesce` because most chunks have no gloss and `||` with NULL erases the vector.
+_TSV_SQL = "to_tsvector('english', d.content) || to_tsvector('english', coalesce(d.gloss, ''))"
+
+#: Insert or refresh one source's projection. `ON CONFLICT (document_id)` is what makes a
+#: republish idempotent in the DATABASE rather than in a read-then-write, and it is also
+#: what makes a rollback correct: reactivating an archived version finds its rows already
+#: there and flips them back rather than minting duplicates that would each take a slot in
+#: the top-k.
+#:
+#: **`tsv` IS RECOMPUTED ON CONFLICT AND `embedding` IS NOT TOUCHED.** The text a chunk
+#: holds cannot change under it (`kb_documents.content` is written once at submission), but
+#: its GLOSS can arrive hours later on the sweep's clock, and a projection written before
+#: the gloss would carry only half its sparse key for ever. The vector is left alone because
+#: re-embedding costs money and nothing about the text moved — the sweep re-reaches a row
+#: only when `embed_state` says so.
+_PROJECT_SQL = f"""
+INSERT INTO kb_chunks (id, tenant_id, agent_id, source_id, document_id, tsv, version, is_active)
+SELECT gen_random_uuid(), d.tenant_id, s.agent_id, s.id, d.id, {_TSV_SQL}, s.version, s.is_active
+FROM kb_documents d JOIN kb_sources s ON s.id = d.source_id
+WHERE s.id = :sid AND s.tenant_id = :tid
+ON CONFLICT (document_id) DO UPDATE
+SET tsv = EXCLUDED.tsv, version = EXCLUDED.version, is_active = EXCLUDED.is_active,
+    agent_id = EXCLUDED.agent_id, updated_at = now()
+"""
+
+#: Every OTHER version of this agent's knowledge goes inactive in the projection, mirroring
+#: the `kb_sources` flip immediately above. Written as its own statement over the AGENT
+#: rather than as a join from the archived source, so a version archived by any path — this
+#: publish, a rollback, an operator — converges on the next publish instead of leaving a
+#: superseded price list answering questions.
+_DEACTIVATE_SQL = """
+UPDATE kb_chunks c SET is_active = s.is_active, updated_at = now()
+FROM kb_sources s
+WHERE s.id = c.source_id AND c.tenant_id = :tid AND c.agent_id = :aid
+  AND c.is_active <> s.is_active
+"""
+
+
+async def project_chunks(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID, source_id: UUID
+) -> int:
+    """Mirror this agent's published knowledge into `kb_chunks`. Returns rows projected.
+
+    THE ONE WRITER of the projection's SHAPE (the sweep writes only vectors and states), and
+    it lives in `kb/service.py` rather than in `retrieval/` on purpose: what is retrievable
+    is defined by what was APPROVED and PUBLISHED, and that is this module's subject. A
+    projection written from the retrieval side would be a second answer to "what is live",
+    which is the drift CLAUDE.md calls a defect even while both copies agree.
+
+    IT RUNS IN THE CALLER'S TRANSACTION and takes no lock of its own: `publish_source` is
+    already inside `_lock_agent_publishes`, so two publishes of one agent cannot interleave
+    here, and the unique index on `document_id` is what makes it safe against everything
+    else.
+
+    `tenant_id` is re-stated on both statements on top of RLS — belt over braces, defending
+    the one mistake RLS cannot see: a caller passing tenant A's id on tenant B's session.
+    """
+    projected = await session.execute(text(_PROJECT_SQL), {"sid": source_id, "tid": tenant_id})
+    await session.execute(text(_DEACTIVATE_SQL), {"tid": tenant_id, "aid": agent_id})
+    count = rowcount_of(projected)
+    # Ids and counts (hard rule 6). Never a chunk, never a source name.
+    log.info(
+        "kb_chunks_projected",
+        extra={"source_id": str(source_id), "agent_id": str(agent_id), "chunks": count},
+    )
+    return count
 
 
 async def list_sources(
@@ -1071,6 +1722,7 @@ __all__ = [
     "chunk_text",
     "list_sources",
     "preview",
+    "project_chunks",
     "publish_lock_key",
     "publish_source",
     "recorded_handles_of_agent",

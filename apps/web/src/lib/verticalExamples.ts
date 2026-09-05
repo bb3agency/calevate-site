@@ -55,7 +55,7 @@ export interface VerticalExamples {
   readonly bookingRules: string;
   /** Who a caller is put through to. */
   readonly contactName: string;
-  /** A knowledge-base document title. */
+  /** A knowledge note's title — the thing a client types, not a file they send. */
   readonly knowledgeTitle: string;
   /** A gap answer, in this trade's vocabulary. */
   readonly knowledgeAnswer: string;
