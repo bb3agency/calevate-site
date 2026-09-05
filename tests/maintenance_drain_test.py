@@ -382,11 +382,33 @@ async def test_a_window_cannot_start_in_the_past_or_be_instantaneous() -> None:
         assert "maintenance_window_too_short" in str(short.value)
 
 
-async def test_an_active_window_is_ended_not_cancelled() -> None:
-    """`cancel` is "never mind"; `end` is "we are finished". An ACTIVE window has already
-    shut the client surface and owes restoration work, so it may only be ended — and the
-    refusal is what stops an operator taking the cheaper-looking verb and leaving every
-    campaign paused."""
+async def test_a_window_that_has_begun_is_ended_and_never_cancelled() -> None:
+    """THE HOLE WITH NO BOTTOM, CLOSED BY MAKING THE STATE UNREACHABLE.
+
+    `cancel` means NOTHING HAPPENED. The moment a window starts draining it has paused
+    every running campaign in the fleet and rewritten what every live inbound agent says,
+    and only `completed` puts those back — the tick advances the OPEN window, so a
+    cancelled drain would leave every campaign paused and every agent telling callers the
+    platform was down, with nothing that would ever restore them.
+
+    So `cancel_window` accepts `scheduled` and nothing else, from EITHER of the two states
+    that owe restoration, and both are ended instead.
+    """
+    window_id = await _schedule()
+    try:
+        async with untenanted_session() as session:
+            await begin_drain(session, window_id=window_id, max_drain_minutes=15)
+        async with untenanted_session() as session:
+            with pytest.raises(Exception) as refused_draining:
+                await cancel_window(session, window_id=window_id)
+        assert "draining" in str(refused_draining.value)
+        # ...and ending from `draining` IS allowed, because the drain happened.
+        async with untenanted_session() as session:
+            assert await complete_window(session, window_id=window_id)
+            assert (await read_window(session, window_id)).state == "completed"
+    finally:
+        await _clear_windows()
+
     window_id = await _schedule()
     try:
         async with untenanted_session() as session:
@@ -399,9 +421,9 @@ async def test_an_active_window_is_ended_not_cancelled() -> None:
                 restore_mode="normal",
             )
         async with untenanted_session() as session:
-            with pytest.raises(Exception) as refused:
+            with pytest.raises(Exception) as refused_active:
                 await cancel_window(session, window_id=window_id)
-        assert "active" in str(refused.value)
+        assert "active" in str(refused_active.value)
 
         async with untenanted_session() as session:
             assert await complete_window(session, window_id=window_id)
@@ -432,7 +454,7 @@ async def test_read_open_window_ignores_finished_ones() -> None:
     try:
         async with untenanted_session() as session:
             assert (await read_open_window(session)) is not None
-            await cancel_window(session, window_id=window_id)
+            assert await cancel_window(session, window_id=window_id)
         async with untenanted_session() as session:
             assert (await read_open_window(session)) is None
     finally:

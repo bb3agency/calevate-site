@@ -432,11 +432,13 @@ async def cancel_maintenance(
     principal: MaintenanceOperator,
     x_confirm_action: ConfirmAction = None,
 ) -> MaintenanceWindowOut:
-    """`scheduled | draining -> cancelled`.
+    """`scheduled -> cancelled`. A window that has BEGUN is ended, not cancelled.
 
-    An ACTIVE window cannot be cancelled — the verb for that is `/end`, and the difference
-    is not pedantry: an active window has already shut the client surface and there is
-    restoration work owed. `cancel_window` argues it.
+    The difference is not pedantry and `cancel_window` argues it in full: a cancellation
+    means nothing happened, and the moment a window starts draining it has paused every
+    running campaign in the fleet and rewritten what every live inbound agent says. That
+    work is put back by exactly one terminal state — `completed` — so `draining` and
+    `active` are reached through `/end`, and the refusal below names it.
     """
     step_up.require(x_confirm_action, maintenance_confirmation("cancel_maintenance", window_id))
     changed = await cancel_window(session, window_id=window_id)
@@ -495,6 +497,22 @@ async def end_maintenance(
             title="That window is already over",
             detail=f"The window is {existing.state}; there is nothing to end.",
             status=409,
+        )
+    if existing.state == "scheduled":
+        # A window that has not begun has nothing to end and nothing to put back. Setting
+        # its end to now would also put `ends_at` BEFORE `starts_at`, which the row's own
+        # CHECK forbids — so without this the operator would meet a constraint-shaped
+        # validation error instead of the verb they actually wanted.
+        raise ProblemError(
+            kind="business_rule",
+            code="maintenance_not_started",
+            title="That window has not started",
+            detail=(
+                "This window is still scheduled, so there is nothing to end. Call it off "
+                "instead — clients who were told about it are told it is off."
+            ),
+            status=409,
+            remediation="Use Call it off rather than End now.",
         )
     window = await amend_window(session, window_id=window_id, ends_at=_now())
     await write_audit(

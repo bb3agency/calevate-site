@@ -286,11 +286,13 @@ function CurrentWindow({ window: current }: { window: MaintenanceWindow }) {
           {cancel.error !== null && <ProblemNotice error={cancel.error} />}
           {end.error !== null && <ProblemNotice error={end.error} />}
           <div className="flex flex-wrap gap-3">
-            {/* CANCEL vs END, and they are offered as two buttons because the server
-                treats them as two things. Cancel is refused on an ACTIVE window — it has
-                already closed the portals and owes the restoration work — so it is not
-                rendered there rather than rendered to fail. */}
-            {current.state !== "active" && (
+            {/* CANCEL vs END. Two verbs because the server treats them as two things,
+                and each is rendered only where it is accepted rather than rendered to
+                fail — a button that 409s teaches an operator to read this surface's
+                refusals as noise. A window that has not BEGUN is called off (nothing has
+                happened); one that is draining or active is ENDED, which is what puts the
+                campaigns and the agents back. */}
+            {current.state === "scheduled" ? (
               <button
                 type="button"
                 className={SECONDARY_BUTTON}
@@ -299,15 +301,20 @@ function CurrentWindow({ window: current }: { window: MaintenanceWindow }) {
               >
                 {cancel.isPending ? "Calling it off…" : "Call it off"}
               </button>
+            ) : (
+              <button
+                type="button"
+                className={DANGER_BUTTON}
+                disabled={end.isPending}
+                onClick={() => end.mutate(current.id)}
+              >
+                {end.isPending
+                  ? "Ending…"
+                  : current.state === "active"
+                    ? "End now and reopen the portals"
+                    : "Stop now and put everything back"}
+              </button>
             )}
-            <button
-              type="button"
-              className={DANGER_BUTTON}
-              disabled={end.isPending}
-              onClick={() => end.mutate(current.id)}
-            >
-              {end.isPending ? "Ending…" : "End now and reopen the portals"}
-            </button>
           </div>
           <p className="text-xs text-ink-faint">
             Ending restores the portals first, then resumes every campaign this window

@@ -490,13 +490,26 @@ async def amend_window(
 
 
 async def cancel_window(session: AsyncSession, *, window_id: UUID) -> bool:
-    """`scheduled | draining -> cancelled`. True when THIS call cancelled it.
+    """`scheduled -> cancelled`. True when THIS call cancelled it.
 
-    NOT REACHABLE FROM `active`, and that is the design rather than an omission: a window
-    that is active has already shut the client surface, and "cancel" would be a word for
-    two different things (never mind, versus we are finished early). The second one has
-    its own verb — `end_window_early` — and it has to do work that a cancellation does
-    not: restore the load-shed mode, resume the campaigns, tell the clients it is over.
+    ═══ ONLY FROM `scheduled`, AND THE NARROWNESS IS THE POINT ═══
+
+    A cancellation means NOTHING HAPPENED — so it is available exactly while nothing has.
+    The moment a window starts draining it has paused every running campaign in the fleet
+    and rewritten what every live inbound agent says, and those have to be put back: the
+    load-shed mode restored, the campaigns resumed from where they stopped, the agents
+    republished from our own record.
+
+    That work belongs to ONE terminal state, and it is `completed`. It used to be reachable
+    from `draining` here too, and that was a hole with no bottom: the tick advances the OPEN
+    window, a cancelled window is not open, so a drain cancelled mid-flight left every
+    campaign paused and every agent telling callers the platform was down, with nothing that
+    would ever put them back. Making the state unreachable is the fix rather than teaching
+    the tick to chase terminal windows — a second recovery path for a state that need not
+    exist is the worse of the two.
+
+    So the verbs partition cleanly: `scheduled` is cancelled, `draining` and `active` are
+    ENDED (`complete_window`), and the route refuses the other pairing by name.
     """
     return await transition_status(
         session,
@@ -504,7 +517,7 @@ async def cancel_window(session: AsyncSession, *, window_id: UUID) -> bool:
         entity="Maintenance window",
         row_id=window_id,
         to_status="cancelled",
-        from_statuses=("scheduled", "draining"),
+        from_statuses=("scheduled",),
         status_column="state",
         extra_set="cancelled_at = now()",
     )
@@ -566,12 +579,12 @@ async def activate(
 async def complete_window(session: AsyncSession, *, window_id: UUID) -> bool:
     """`draining | active -> completed`. True when THIS call ended it.
 
-    BOTH source states, deliberately. Ending early from `active` is the ordinary case;
-    ending from `draining` is the operator who scheduled the window, watched it drain, and
-    realised they do not need it after all — which is a completion rather than a
-    cancellation, because the drain DID happen and campaigns were paused by it. Both paths
-    owe the same restoration work, and giving them one terminal state is what stops the
-    resume sweep having to know which verb was pressed.
+    BOTH source states, deliberately, and this is the other half of `cancel_window`'s
+    argument. Ending from `active` is the ordinary case. Ending from `draining` is the
+    operator who watched the drain and changed their mind — and it is a COMPLETION rather
+    than a cancellation, because the drain DID happen: campaigns were paused by it and
+    agents were switched by it, so the same restoration is owed. One terminal state for
+    both is what stops the tick's restoration arm having to know which verb was pressed.
     """
     return await transition_status(
         session,

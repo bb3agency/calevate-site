@@ -560,6 +560,16 @@ async def _tick_draining(window: MaintenanceWindow, *, now: datetime, budget: Wa
     otherwise activate with no numbers on the row, and the straggler list is the entire
     value of the deadline to the operator standing in front of it.
     """
+    # ENDING EARLY DURING A DRAIN FINISHES THE WINDOW, it does not wait for the drain.
+    # "End now" sets `ends_at` to this instant (`maintenance_routes.end_maintenance`), and
+    # an operator who presses it while the platform is still draining means STOP — not
+    # "activate as soon as the last call ends, then stop". Without this arm the button did
+    # nothing until the drain resolved, which on a wedged job is the whole drain bound.
+    # `_tick_active` does the same work from the other state; both reach `complete_window`,
+    # which is why it accepts either.
+    if now >= window.ends_at:
+        return await _complete(window, budget=budget)
+
     in_flight = await probe_in_flight(budget)
     async with untenanted_session() as session:
         await record_probe(session, window_id=window.id, in_flight=in_flight)
@@ -621,6 +631,48 @@ async def _tick_draining(window: MaintenanceWindow, *, now: datetime, budget: Wa
     return f"active forced={overdue and not in_flight.drained}"
 
 
+async def _complete(window: MaintenanceWindow, *, budget: WalkBudget) -> str:
+    """End the window and put everything back — from `active` or from `draining`.
+
+    ONE function for both, because both owe the identical work and a second copy is how
+    the two paths start differing. The ORDER is the part that matters and it mirrors the
+    way in: the load-shed mode goes back FIRST so clients have their portal while the fleet
+    work runs, because that work is minutes of vendor round trips and none of it is a
+    reason to keep anybody locked out.
+    """
+    async with untenanted_session() as session:
+        if not await complete_window(session, window_id=window.id):
+            return "complete_lost_race"
+        await write_audit(
+            session,
+            action="ops.maintenance_completed",
+            actor_type="system",
+            object_type="platform_maintenance_window",
+            object_id=str(window.id),
+            summary={"forced": window.forced, "from": window.state},
+        )
+        # THE "IT IS OVER" NOTICE IS SENT FROM EITHER STATE, including a window ended
+        # mid-drain that never shut the portal at all. A client who was told at 9am that
+        # we would be down at midnight is owed the correction whether or not the outage
+        # they were promised actually happened.
+        await _fan_out(session, window=window, kind="ended")
+
+    await set_platform_status(mode=_restore_mode(window.restore_load_shed_mode), actor_id=None)
+    resumed = await _resume_campaigns(window, budget)
+    voice = await _restore_scripts(budget)
+    _alert_engine_outcome(window, voice, edge="completed")
+    log.info(
+        "maintenance_completed",
+        extra={
+            "window_id": str(window.id),
+            "from": window.state,
+            "campaigns_resumed": resumed,
+            "agents_restored": voice.applied,
+        },
+    )
+    return f"completed resumed={resumed} agents={voice.applied}"
+
+
 async def _tick_active(window: MaintenanceWindow, *, now: datetime, budget: WalkBudget) -> str:
     """End it when its time is up. An operator ending it early sets `ends_at` to now.
 
@@ -642,36 +694,7 @@ async def _tick_active(window: MaintenanceWindow, *, now: datetime, budget: Walk
             return "active mode_reasserted"
         return "active"
 
-    async with untenanted_session() as session:
-        if not await complete_window(session, window_id=window.id):
-            return "complete_lost_race"
-        await write_audit(
-            session,
-            action="ops.maintenance_completed",
-            actor_type="system",
-            object_type="platform_maintenance_window",
-            object_id=str(window.id),
-            summary={"forced": window.forced},
-        )
-        await _fan_out(session, window=window, kind="ended")
-
-    # THE MODE FIRST ON THE WAY OUT, mirroring the way in. Clients get their portal back
-    # before the fleet work starts, because the fleet work is minutes of vendor round
-    # trips and none of it is a reason to keep anybody locked out. `restore_load_shed_mode`
-    # and not a hard `normal`: see `_tick_draining`.
-    await set_platform_status(mode=_restore_mode(window.restore_load_shed_mode), actor_id=None)
-    resumed = await _resume_campaigns(window, budget)
-    voice = await _restore_scripts(budget)
-    _alert_engine_outcome(window, voice, edge="completed")
-    log.info(
-        "maintenance_completed",
-        extra={
-            "window_id": str(window.id),
-            "campaigns_resumed": resumed,
-            "agents_restored": voice.applied,
-        },
-    )
-    return f"completed resumed={resumed} agents={voice.applied}"
+    return await _complete(window, budget=budget)
 
 
 def _alert_engine_outcome(

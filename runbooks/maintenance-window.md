@@ -66,13 +66,24 @@ measurement is — plus the deadline. Three cases:
 **Never "force" a window by moving `ends_at` backwards to end it early and immediately
 scheduling another.** Ending early is a button; use it.
 
-## 4. Ending one early
+## 4. Ending one early, and the two verbs
 
-Admin console → Ops → Maintenance → End now. It sets `ends_at` to now and nudges the
-worker, which completes the window on its next pass (within a second). Completion, in
-order: the load-shed mode is restored FIRST so clients get their portal back immediately,
-then campaigns are resumed, then every live answering agent is republished from our own
-record through the verified path.
+**A window that has not started is CALLED OFF. A window that has begun is ENDED.** The
+console shows only the verb that applies and the API refuses the other by name, because
+they are two different things:
+
+* **Call it off** (`scheduled` only) means nothing happened — no campaign was paused, no
+  agent was switched, so there is nothing to put back. Clients who were told about it are
+  told it is off.
+* **End now** (`draining` or `active`) sets `ends_at` to this instant and nudges the
+  worker, which completes the window on its next pass — within a second. Completion, in
+  order: the load-shed mode is restored FIRST so clients get their portal back
+  immediately, then campaigns are resumed from exactly where they stopped, then every live
+  answering agent is republished from our own record through the verified path.
+
+Ending a window that is still DRAINING stops it there. It does not wait for the drain to
+finish first — pressing the button while a job is wedged means stop, not "activate when
+the wedge clears, then stop".
 
 ## 5. Afterwards — the one thing to check
 
