@@ -538,13 +538,47 @@ def test_the_resolver_seam_is_substituted_by_tests_and_by_nothing_that_ships() -
     are the substitution sites, and a monkeypatch is a test tool. A production module
     reaching for this name would be a bypass wearing a seam's clothes — the "bypass for
     testing" hard rule 5 forbids in those words, arriving from the other direction.
+
+    **IT READS THE AST, NOT THE TEXT, AND THAT IS THE FIX RATHER THAN A LOOSENING.** The
+    first version was `"resolve_addresses" in path.read_text()`, which cannot tell a CALL
+    from a module docstring that CITES the seam to explain why the module has one of its
+    own — `workers/kb_ingest.link_http_client` does exactly that, and turned this guard red
+    on a file that does not reference the name at all. That is the defect class CLAUDE.md
+    already records against coverage's exclude regex: a pattern that matches inside a
+    comment silently changes what the gate means. A `Name`/`Attribute`/import node is a
+    USE; a string is prose, and prose that explains a seam is the opposite of a bypass.
     """
+    import ast
     import pathlib
+
+    def uses_the_seam(source: str) -> bool:
+        try:
+            tree = ast.parse(source)
+        except SyntaxError:  # pragma: no cover - `apps/` must parse for anything to run
+            return True
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id == "resolve_addresses":
+                return True
+            if isinstance(node, ast.Attribute) and node.attr == "resolve_addresses":
+                return True
+            if isinstance(node, ast.ImportFrom) and any(
+                alias.name == "resolve_addresses" for alias in node.names
+            ):
+                return True
+        return False
+
+    # THE GUARD'S OWN DISCRIMINATION, pinned here rather than assumed. A gate that has
+    # just been made narrower has to prove it still bites, or the next reader inherits a
+    # test that passes because it stopped looking.
+    assert uses_the_seam("from apps.api.integrations.egress_guard import resolve_addresses")
+    assert uses_the_seam("egress_guard.resolve_addresses(host, port)")
+    assert uses_the_seam("await resolve_addresses(host, 443)")
+    assert not uses_the_seam('"""A seam, for `egress_guard.resolve_addresses`\' reason."""')
 
     callers = sorted(
         str(path)
         for path in pathlib.Path("apps").rglob("*.py")
-        if path.name != "egress_guard.py" and "resolve_addresses" in path.read_text("utf-8")
+        if path.name != "egress_guard.py" and uses_the_seam(path.read_text("utf-8"))
     )
     assert callers == [], f"the resolver seam is reachable from shipped code: {callers}"
 
