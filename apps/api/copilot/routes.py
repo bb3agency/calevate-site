@@ -810,12 +810,21 @@ async def load_copilot_conversation(
 ) -> CopilotConversationOut:
     """One page of this person's live conversation.
 
-    **`copilot:use` ON A GET, AND IT IS IN `MUTATING_PERMISSIONS`, WHICH IS THE POINT.**
-    An operator inside a D-22 read-only view-as session is refused this for free, and that
-    is the correct answer rather than a side effect worked around: a client's private
-    conversation with their own assistant is not something impersonation exists to show.
-    The precedent for a GET declaring a mutating permission is `tenancy/routes.py:202`,
-    which took the same trade for the same reason.
+    **`copilot:use` ON A GET, AND IT IS IN `MUTATING_PERMISSIONS`.** That normally hides
+    a read from a D-22 view-as session and normally costs a support person the screen the
+    client is describing on the phone, which is what
+    `tests/impersonation_reads_test.py::test_no_read_is_gated_on_a_permission_impersonation_refuses`
+    exists to catch. Here it costs nothing, and the reason is a fact about the KEY rather
+    than a view about support: this route is scoped on `principal.user_id`, and inside an
+    impersonated session that value is the OPERATOR'S `admin_users.id` (`core/auth.py`
+    builds the principal as `user_id=admin_id` with the client's `tenant_id`).
+    `copilot_conversation_turns.user_id` is a foreign key to `users`, so an admin id can
+    never appear in it — an impersonated read returns an EMPTY page under any permission,
+    and `org:read` would buy the same empty page one round trip later. The path is in
+    `ADMIN_CONSOLE_GETS` with that reasoning written out.
+
+    What support CAN see of an assistant answer is what has always been reviewable: the
+    `copilot.ask` audit row, naming the screen, the spend and any change the answer made.
 
     **LOAD ON MOUNT AND APPEND LOCALLY — THERE IS NO REALTIME SYNC, DELIBERATELY.** The
     question was asked and answered rather than assumed: what does a second device see?

@@ -68,6 +68,29 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "impersonated session is a client dashboard, which has no screen showing what "
         "Calevate pays a vendor"
     ),
+    "/v1/copilot/conversation": (
+        "ONE PERSON'S conversation with the assistant (D-540), and the exemption rests on "
+        "a fact about the KEY rather than on a judgement about support. This route is "
+        "scoped on `principal.user_id`, and inside a D-22 view-as session that value is "
+        "the OPERATOR'S `admin_users.id` (`core/auth.py`: the impersonated principal "
+        "carries `user_id=admin_id` with the client's `tenant_id`). "
+        "`copilot_conversation_turns.user_id` is a foreign key to `users`, so an admin id "
+        "can never appear in it: an impersonated read returns an EMPTY page whatever "
+        "permission guards it. Giving this a read permission would therefore buy a "
+        "support person nothing — the same empty page, one round trip later — because "
+        "the thing they would want to see is keyed on a person they are not. What a "
+        "support person can see of an assistant answer is what has always been "
+        "reviewable: the `copilot.ask` audit row, which names the screen, the spend and "
+        "any change the answer made. The turns themselves are the client's own chat, they "
+        "are cleared when that client's last session ends, and no screen in either "
+        "console has ever displayed another person's"
+    ),
+    "/v1/admin/copilot/conversation": (
+        "the OPERATOR'S own conversation with the admin assistant (D-540) — the same "
+        "shape as the entry above and a shorter argument: it is keyed on the operator "
+        "asking, it is an admin-console surface with no client-realm counterpart at all, "
+        "and a client dashboard has no screen showing an operator's notes to themselves"
+    ),
     "/v1/ops/platform": "the platform switches — superadmin surface",
     "/v1/ops/audit/verify": "the audit chain check — superadmin surface",
     "/v1/ops/engine-latency": (
