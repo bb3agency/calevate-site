@@ -139,9 +139,9 @@ def _render(tmp: Path) -> Path:
             snippet.read_text(encoding="utf-8"), encoding="utf-8"
         )
 
-    # Three edits are made to the rendered text and no others. First: the templates include
+    # Four edits are made to the rendered text and no others. First: the templates include
     # snippets by ABSOLUTE path (/etc/nginx/snippets/...), which a test prefix cannot
-    # provide. The other two are argued at the lines that make them.
+    # provide. The other three are argued at the lines that make them.
     for conf in (prefix / "conf.d").glob("*.conf"):
         text = conf.read_text().replace("/etc/nginx/snippets/", f"{prefix}/snippets/")
         # IPv6 `listen` lines are dropped, and this is the second and last edit.
@@ -170,6 +170,26 @@ def _render(tmp: Path) -> Path:
         # thing that decides which vhost answers.
         text = re.sub(r"(^\s*listen\s+)80\b", r"\g<1>8080", text, flags=re.MULTILINE)
         text = re.sub(r"(^\s*listen\s+)443\b", r"\g<1>8443", text, flags=re.MULTILINE)
+        # THE ACCESS LOG IS REDIRECTED INTO THE PREFIX, and this is the fourth and last
+        # edit. It is the same argument as the ports directly above, arriving through a
+        # different directive. Each vhost declares
+        # `access_log /var/log/nginx/access.log calevate_redacted;`, which overrides the
+        # `access_log off;` this harness sets at http scope — and `nginx -t` does not
+        # merely parse a log path, it OPENS it. As a non-root account that is
+        # `open() "/var/log/nginx/access.log" failed (13: Permission denied)`, raised as
+        # [emerg] AFTER nginx has printed "syntax is ok": red on GitHub Actions, green on
+        # a workstation that happens to run as root. A gate that fails for a reason no
+        # diff can contain is one people learn to override.
+        #
+        # ONLY THE PATH MOVES. The format name is kept, deliberately, because the format
+        # name is the part under test: `calevate_redacted` is defined in
+        # `00-log-format.conf.template`, whose `00-` prefix exists solely to make it load
+        # before the `access_log` naming it (conf.d is included alphabetically), and an
+        # unknown format is a config nginx refuses. Dropping these lines, or replacing
+        # them with `access_log off`, would parse fine and would stop testing the one
+        # ordering property that file was created to protect — the failure mode being
+        # guarded against here is a mailed token in the access log.
+        text = text.replace("/var/log/nginx/access.log", f"{prefix}/logs/access.log")
         conf.write_text(text, encoding="utf-8")
 
     (prefix / "nginx.conf").write_text(
@@ -205,7 +225,22 @@ def test_the_rendered_config_is_one_nginx_will_load(tmp_path: Path) -> None:
     """
     prefix = _render(tmp_path)
     result = subprocess.run(
-        ["nginx", "-t", "-p", str(prefix), "-c", str(prefix / "nginx.conf")],
+        # `-e` names the error log on the COMMAND LINE because nginx opens its
+        # compile-time default (/var/log/nginx/error.log) before it reads `-c` at all, and
+        # cannot on a non-root account. That one is only [alert] and does not fail the
+        # run, but it lands at the top of the very output this test tells you to read
+        # literally — so it is removed rather than left to send the next reader after a
+        # permission problem that is not the failure.
+        [
+            "nginx",
+            "-t",
+            "-p",
+            str(prefix),
+            "-c",
+            str(prefix / "nginx.conf"),
+            "-e",
+            str(prefix / "logs" / "error.log"),
+        ],
         capture_output=True,
         text=True,
     )
