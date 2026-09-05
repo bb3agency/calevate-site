@@ -3317,7 +3317,7 @@ BOLNA_CAPABILITIES = EngineCapabilities(
     # script override are on it: `agent_welcome_message` ("First message the agent speaks
     # when a call connects") and the top-level `agent_prompts` keyed `task_1`
     # (`bolna-findings/mirror/pages/api-reference/agent/v2/patch_update.md:19,24,30,
-    # 57-65`). It is the same page `update_agent` cites for why PATCH cannot do the FULL
+    # 116-124`). It is the same page `update_agent` cites for why PATCH cannot do the FULL
     # replacement — that argument is about `tasks`/`vector_store` being absent from the
     # closed list, and it is exactly why PATCH is the right instrument for this narrower
     # write: nothing outside the two attributes we name can move.
@@ -3856,7 +3856,7 @@ class BolnaEngine:
         The two attributes a maintenance override needs are both on the closed list —
         `agent_welcome_message` in `agent_config` ("First message the agent speaks when a
         call connects", `patch_update.md:24`) and the top-level `agent_prompts` keyed
-        `task_1` (`patch_update.md:30,33,57-65`) — and being closed is the guarantee: the
+        `task_1` (`patch_update.md:30,33,116-124`) — and being closed is the guarantee: the
         knowledge base, the synthesizer, the model, the webhook and the tools cannot move,
         because there is no field in this body that addresses them.
 
