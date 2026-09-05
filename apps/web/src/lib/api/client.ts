@@ -397,7 +397,9 @@ interface RequestOptions {
  * It THROWS rather than returning a partial set when a view-as session was built without
  * a grant source: see the `AuthProblem` below.
  */
-async function identityHeaders(session: Session): Promise<Record<string, string>> {
+function identityHeaders(
+  session: Session,
+): Record<string, string> | Promise<Record<string, string>> {
   // Resolved HERE, per call, rather than when the session object was built. The `await`
   // is skipped when the source already has the string, so a local request still reaches
   // `fetch` in the same tick as the query that asked for it. If it throws, the throw
@@ -407,8 +409,25 @@ async function identityHeaders(session: Session): Promise<Record<string, string>
   // NO SOURCE IS THE DEPLOYED CASE and it sends NO header rather than an empty one: the
   // session cookie below is the credential, and `Authorization: Bearer ` would be a
   // malformed credential the API is obliged to refuse before it looks at the cookie.
+  // ⚠ NOT AN `async` FUNCTION, AND THAT IS THE WHOLE POINT OF THE UNION RETURN TYPE.
+  // Marking it `async` would make every caller's `await` yield a microtask even when the
+  // body never awaits anything — which silently DEFEATS the property the paragraph above
+  // promises, and did: extracting this helper put a tick in front of every request in the
+  // app, and `tests/leadColumns.test.tsx` caught it as a request that had not been sent
+  // yet when the assertion ran. A test racing a click is the cheap version of that bug;
+  // the expensive version is a screen that reads its own state one tick stale.
   const requested = session.token?.();
-  const token = typeof requested === "string" ? requested : await requested;
+  if (typeof requested !== "string" && requested !== undefined) {
+    return requested.then((token) => withToken(session, token));
+  }
+  return withToken(session, requested);
+}
+
+/** The headers themselves, once the token (if any) is in hand. */
+function withToken(
+  session: Session,
+  token: string | undefined,
+): Record<string, string> | Promise<Record<string, string>> {
 
   const headers: Record<string, string> = {};
   // CONDITIONAL, for the reason the token above is: a request with no account named sends
@@ -446,9 +465,17 @@ async function identityHeaders(session: Session): Promise<Record<string, string>
     headers["X-Impersonate-Org"] = session.impersonateOrg;
     // Resolved HERE, per call, like the bearer token above and for the same reason: a
     // grant expires in minutes and the module that hands it over re-mints transparently.
+    // The SECOND await point, and the reason `withToken` carries the same union return as
+    // its caller: a view-as session whose grant is a promise cannot be built in one tick,
+    // and pretending otherwise would put `undefined` on the wire.
     const requestedGrant = session.impersonationGrant();
-    headers["X-Impersonation-Grant"] =
-      typeof requestedGrant === "string" ? requestedGrant : await requestedGrant;
+    if (typeof requestedGrant !== "string") {
+      return requestedGrant.then((grant) => {
+        headers["X-Impersonation-Grant"] = grant;
+        return headers;
+      });
+    }
+    headers["X-Impersonation-Grant"] = requestedGrant;
   }
 
   return headers;
@@ -540,7 +567,8 @@ export async function apiUpload<T>(
     timeoutMs = UPLOAD_TIMEOUT_MS,
   }: { onProgress?: (progress: UploadProgress) => void; signal?: AbortSignal; timeoutMs?: number } = {},
 ): Promise<T> {
-  const headers = await identityHeaders(session);
+  const identity = identityHeaders(session);
+  const headers = identity instanceof Promise ? await identity : identity;
   return await withDeadline<T>(
     (deadlineSignal) =>
       new Promise<T>((resolve, reject) => {
@@ -598,7 +626,8 @@ async function sendRequest<T>(
     timeoutMs,
   }: RequestOptions = {},
 ): Promise<T> {
-  const headers = await identityHeaders(session);
+  const identity = identityHeaders(session);
+  const headers = identity instanceof Promise ? await identity : identity;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (confirmAction) headers["X-Confirm-Action"] = confirmAction;
