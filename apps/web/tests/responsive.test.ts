@@ -6,6 +6,8 @@ import { relPosix } from "./repoPaths";
 import { describe, expect, it } from "vitest";
 import { blankComments } from "./sourceScan";
 
+import { sidebarPanelClass } from "@/components/sidebarCollapse";
+
 /**
  * The mobile-layout gate: the rules a responsive sweep established, pinned so they cannot
  * quietly come undone.
@@ -307,18 +309,30 @@ describe("the mobile drawer is a drawer at every width", () => {
    * content instead of being a 255px drawer. Both shells had the identical expression,
    * which is why this is checked for both rather than fixed in one.
    */
-  it("both shells give the drawer a width that does not depend on a breakpoint", () => {
+  it("the shared width expression has an unprefixed width in both states", () => {
+    for (const isCollapsed of [true, false]) {
+      const classes = sidebarPanelClass(isCollapsed).split(/\s+/).filter(Boolean);
+      expect(
+        classes.some((c) => /^w-/.test(c)),
+        `sidebarPanelClass(${isCollapsed}) = "${classes.join(" ")}" — the drawer width is ` +
+          `only set behind a breakpoint, so below lg the overlay drawer has no width of ` +
+          `its own and shrink-wraps its content`,
+      ).toBe(true);
+    }
+  });
+
+  /**
+   * The rule above is only worth anything while both shells actually go through it. They
+   * each held their own copy of the expression until the collapse was made to animate,
+   * and two copies is how one of them drifts back.
+   */
+  it("both shells set the drawer width through that one expression", () => {
     for (const shell of ["app/c/[slug]/layout.tsx", "app/admin/layout.tsx"]) {
       const source = read(join(SRC, shell));
-      const expression = /className=\{isCollapsed \? "([^"]*)" : "([^"]*)"\}/.exec(source);
-      expect(expression, `${shell} no longer sets the NavDrawer width the expected way`).not.toBeNull();
-      for (const arm of [expression![1], expression![2]]) {
-        expect(
-          arm.split(/\s+/).some((c) => /^w-/.test(c)),
-          `${shell}: the drawer width "${arm}" is only set behind a breakpoint, so below ` +
-            `lg the overlay drawer has no width of its own`,
-        ).toBe(true);
-      }
+      expect(
+        source,
+        `${shell} no longer sets the NavDrawer width through sidebarPanelClass`,
+      ).toContain("className={sidebarPanelClass(isCollapsed)}");
     }
   });
 });
