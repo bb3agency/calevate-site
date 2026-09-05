@@ -3865,6 +3865,16 @@ class BolnaEngine:
         update omits nothing, so there is nothing to preserve. One request per agent per
         edge of a window instead of two.
 
+        ⚠ **MARKED ASSUMPTION — the page is read, the request has never been made.** No call
+        in this path has run against a live Bolna account, so what is verified is the
+        DOCUMENT and not the behaviour. OPERATIONS §2 gate 48 is the live probe, and it
+        names the two ways it can be wrong: a PATCH accepted that changes nothing (in which
+        case `script_override` becomes False and the product says so), and a PATCH that
+        clears the agent's `vector_store` (in which case this method is destructive and must
+        be withdrawn — `update_agent` reads the agent back precisely to preserve it, and
+        this path deliberately does not, on the documented promise that a closed attribute
+        list cannot reach it).
+
         **THE RESPONSE IS NOT PARSED.** Their page documents 200 with
         `{"message": "success", "state": "updated"}` (`patch_update.md:11`); that is a
         string we would be checking against our own guess at its spelling, and the 2xx is
