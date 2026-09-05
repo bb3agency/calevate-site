@@ -270,7 +270,7 @@ dropped afterwards.
 | `uv run mypy apps packages` | 417 files, no issues |
 | `pnpm -C apps/web typecheck` | clean |
 | `pnpm -C apps/web lint` | 0 errors (1 pre-existing unused-import warning in `tests/spend.test.tsx`) |
-| `pnpm gen:api` regenerated into a temp copy | **`schema.d.ts` is byte-identical to `openapi.json`** — no stale frontend contract |
+| `pnpm -C apps/web gen:api` regenerated into a temp copy | **`schema.d.ts` is byte-identical to `openapi.json`** — no stale frontend contract |
 | `tests/absent_tenant_answer_test.py`, `edge_route_policy_test.py`, `rate_limit_census_test.py`, `loadshed_exemption_test.py` | 61 passed — every new route is in the 404 census, the edge policy and the rate-limit census |
 
 `make coverage-ratchet` was deliberately NOT run (the founder runs it once at the end; a
@@ -467,7 +467,7 @@ uv run mypy apps packages
 pnpm -C apps/web typecheck && pnpm -C apps/web lint
 
 # the frontend contract, regenerated and diffed rather than trusted
-cd apps/web && cp src/lib/api/schema.d.ts /tmp/before && pnpm gen:api && diff /tmp/before src/lib/api/schema.d.ts
+cp apps/web/src/lib/api/schema.d.ts /tmp/before && pnpm -C apps/web gen:api && diff /tmp/before apps/web/src/lib/api/schema.d.ts
 
 # migrations, in a THROWAWAY database (never the shared one)
 createdb calevate_migcheck
