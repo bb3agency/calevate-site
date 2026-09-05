@@ -28,17 +28,34 @@
  * native dependency for a logo is a supply-chain decision (hard rule 9) with a compile on
  * the VPS attached to it, and the thing it would buy — right-sized variants — is bought
  * instead by `scripts/generate_brand_assets.py`, which is run by hand and whose output is
- * committed. The masters are 1024x1024 and 2172x724 (412 KB for the square mark alone);
+ * committed. The masters are 1024x1024 and 2172x724/2171x724 (412 KB for the square mark
+ * alone);
  * what ships here is 21 KB. `width`/`height` are stated on every one of them, so the
  * layout never shifts as they load.
  *
  * ## The canvases are not tight, and the sizes below account for it
  *
- * Measured from the masters rather than guessed: the wordmark and lockup are 3:1
- * canvases whose ink occupies 54% of the height (rows 147..540 of 724), and the square
- * mark's ink is 996x830 centred in 1024x1024. So a wordmark asked to be 40px tall draws
- * about 22px of ink, and the square mark in a 36px box draws 36x30. The numbers passed by
- * callers are canvas sizes; the comments beside them say what ink that yields.
+ * Measured from the masters rather than guessed, and RE-MEASURED when the founder
+ * replaced the two lockups on 5 Sep 2026 — these numbers describe the artwork that is
+ * actually in the repository, so they are re-taken whenever it changes rather than
+ * carried forward:
+ *
+ *   - wordmark master (without tagline), 2171x724: ink rows 140..536 — 397px, 54.8% of
+ *     the height — and cols 88..2106.
+ *   - lockup master (with tagline), 2172x724: ink rows 143..544 — 402px, 55.5% — and
+ *     cols 87..2095.
+ *   - square mark, unchanged: ink 996x830 centred in 1024x1024.
+ *
+ * So a wordmark asked to be 40px tall draws about 22px of ink, and the square mark in a
+ * 36px box draws 36x30. The numbers passed by callers are canvas sizes; the comments
+ * beside them say what ink that yields.
+ *
+ * ⚠ THE TWO LOCKUPS ARE NOT THE SAME CANVAS ANY MORE. The new without-tagline master is
+ * 2171 wide against the with-tagline's 2172 — one pixel, 0.05%, invisible — but it means
+ * `wordmark.png` and `lockup.png` are both emitted at exactly 720x240 from canvases whose
+ * ratios differ in the fourth decimal. That is deliberate: a shared output size keeps the
+ * two interchangeable at a call site, and the alternative (a 719-wide wordmark) would put
+ * a half-pixel seam on every sidebar to correct a distortion no one can see.
  *
  * ## The size is stated ONCE
  *
@@ -84,7 +101,7 @@ export function BrandWordmark({
   height = 40,
   className = "",
 }: {
-  /** Canvas px. 3:1, so the width is 3x this and the ink is ~54% of it tall. */
+  /** Canvas px. 3:1, so the width is 3x this and the ink is ~55% of it tall. */
   height?: number;
   className?: string;
 }) {
