@@ -409,7 +409,16 @@ AREAS: tuple[Area, ...] = (
     Area(
         name="ledgers-and-money",
         rule="hard rules 4 and 7 (append-only ledgers, NUMERIC money)",
-        patterns=("apps/api/billing/*.py",),
+        patterns=(
+            "apps/api/billing/*.py",
+            # D-537 put the vendor's own number price on `phone_numbers`
+            # (`purchase_price_usd`, `monthly_rental_usd`, NUMERIC(12,4)), so the money
+            # derivation flags this file. Guarded HERE rather than in a new area because
+            # the failures are this area's failures: those two columns exist to be read
+            # by the number meter, and a wrong one is a wrong `unit_cost_paid` on a
+            # recurring charge — the same defect a wrong paise in `billing/` is.
+            "apps/api/agents/models.py",
+        ),
         why=(
             "metering, credits, caps, rating and invoicing. Money arithmetic fails "
             "quietly — a wrong paise is a wrong invoice that nobody notices until a "
