@@ -622,8 +622,24 @@ async def _tick_draining(window: MaintenanceWindow, *, now: datetime, budget: Wa
 
 
 async def _tick_active(window: MaintenanceWindow, *, now: datetime, budget: WalkBudget) -> str:
-    """End it when its time is up. An operator ending it early sets `ends_at` to now."""
+    """End it when its time is up. An operator ending it early sets `ends_at` to now.
+
+    AND RE-ASSERT THE SHED MODE WHILE IT RUNS, which is not belt-and-braces. The window
+    and `platform_state.load_shed_mode` are two rows, and the ops switchboard can move the
+    second on its own: an operator clearing a shed mid-window — plausibly, because the
+    console shows `maintenance` and they read it as a leftover — would reopen every client
+    portal while the window still says ACTIVE and the migration is still running. Nothing
+    would put it back until the window ENDED, which is the wrong direction entirely.
+
+    So the mode is a property the window MAINTAINS rather than one it sets once. It costs a
+    cached read per tick (`get_platform_status` is memoised for 5s) and a write only on the
+    tick that finds a disagreement.
+    """
     if now < window.ends_at:
+        if (await get_platform_status()).mode != "maintenance":
+            log.warning("maintenance_mode_reasserted", extra={"window_id": str(window.id)})
+            await set_platform_status(mode="maintenance", actor_id=None)
+            return "active mode_reasserted"
         return "active"
 
     async with untenanted_session() as session:

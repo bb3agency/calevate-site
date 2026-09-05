@@ -385,7 +385,14 @@ def _shed_problem(status: PlatformStatus) -> ProblemError:
     the stable identifier the console switches on: `platform_maintenance` is what makes
     `apps/web` render the maintenance page instead of the transient-error toast.
     """
-    if status.maintenance == "active":
+    # EITHER FACT MAKES IT MAINTENANCE. `maintenance == "active"` is a scheduled window
+    # (D-544); `mode == "maintenance"` is the blunt instrument that predates it — an
+    # operator throwing the load-shed switch by hand, with no window and no reason on file.
+    # Both mean "we are deliberately shut", and telling the second one's clients we are
+    # "managing a spike in load" is the same wrong sentence for the same state. The
+    # difference is only what we can SAY: with a window there is an operator's sentence and
+    # an end time, without one there is the fallback below.
+    if status.maintenance == "active" or status.mode == "maintenance":
         detail = status.maintenance_reason or (
             "Calevate is closed for planned maintenance. Your agents' recordings, leads "
             "and settings are untouched and will be here when we reopen."

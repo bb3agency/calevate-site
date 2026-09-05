@@ -111,6 +111,19 @@ async def test_retry_after_is_computed_from_the_window_and_clamped() -> None:
     assert _retry_after_s(far) == _RETRY_AFTER_CEILING_S
 
 
+async def test_a_manually_shed_maintenance_mode_is_still_called_maintenance() -> None:
+    """THE BLUNT INSTRUMENT THAT PREDATES THE WINDOW. An operator can set
+    `load_shed_mode = 'maintenance'` by hand from the ops switchboard, with no window and
+    no reason on file. That is still "we are deliberately shut", and telling those clients
+    we are managing a spike in load is the same wrong sentence — so it gets the maintenance
+    refusal with the fallback wording."""
+    manual = PlatformStatus(mode="maintenance", outbound_halted=False)
+    assert manual.maintenance == "none"
+    problem = _shed_problem(manual)
+    assert problem.code == "platform_maintenance"
+    assert "planned maintenance" in problem.detail
+
+
 async def test_a_maintenance_refusal_with_no_reason_still_says_something_useful() -> None:
     """The reason is NOT NULL on the row and required at the boundary, so this is only
     reachable through a cache entry an older process wrote. The fallback still tells a
