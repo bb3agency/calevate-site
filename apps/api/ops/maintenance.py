@@ -675,15 +675,24 @@ async def claim_notice(session: AsyncSession, *, window_id: UUID, kind: NoticeKi
     amendment re-opens the `amended` claim by NULLing the stamp (`amend_window`), which is
     the one intended way a claim comes back.
 
-    The column name is interpolated from `NOTICE_COLUMNS` and from nowhere else: the
+    ⚠ **THE ADVANCE CLAIM SETTLES THE AMENDMENT SLOT WITH IT, IN THE SAME STATEMENT.** An
+    amendment is by definition a change SINCE the announcement, so at the instant the
+    announcement goes out there is nothing outstanding — and without this, `amended_notice_at`
+    starts life NULL, which the tick reads as "an amendment is owed" and mails every client
+    a correction to a window nobody had changed, one tick after telling them about it. One
+    statement rather than two so a crash between them cannot leave the spurious notice
+    armed.
+
+    The column names are interpolated from `NOTICE_COLUMNS` and from nowhere else: the
     parameter is a `Literal`, the lookup raises on anything else, and `check_raw_sql`
     resolves the dict to our own source text.
     """
     column = NOTICE_COLUMNS[kind]
+    settles_amendment = ", amended_notice_at = now()" if kind == "advance" else ""
     result = await session.execute(
         text(
             "UPDATE platform_maintenance_windows "
-            f"SET {column} = now(), updated_at = now() "
+            f"SET {column} = now(){settles_amendment}, updated_at = now() "
             f"WHERE id = :id AND {column} IS NULL"
         ),
         {"id": window_id},

@@ -281,6 +281,30 @@ async def test_an_unannounced_window_may_still_be_moved_freely() -> None:
         await _clear_windows()
 
 
+async def test_the_announcement_does_not_itself_produce_an_amendment_notice() -> None:
+    """THE SPURIOUS SECOND EMAIL, which is what an uninitialised stamp buys.
+
+    `amended_notice_at` starts life NULL and the tick reads NULL as "an amendment is
+    owed" — so without the advance claim settling the amendment slot in the same
+    statement, every client got a correction to a window nobody had changed, one tick
+    after being told about it. An announcement is not an amendment to itself.
+    """
+    window_id = await _schedule()
+    try:
+        async with untenanted_session() as session:
+            assert await claim_notice(session, window_id=window_id, kind="advance")
+            window = await read_window(session, window_id)
+        assert window.advance_notice_at is not None
+        assert window.amended_notice_at is not None, (
+            "the amendment slot is still open, so the next tick mails every client a "
+            "correction to a window that has not changed"
+        )
+        async with untenanted_session() as session:
+            assert await claim_notice(session, window_id=window_id, kind="amended") is False
+    finally:
+        await _clear_windows()
+
+
 async def test_a_client_visible_amendment_re_announces() -> None:
     """An amendment nobody hears is worse than no amendment: the client's last message
     about this window would describe a window that no longer exists. Changing the END
@@ -288,8 +312,9 @@ async def test_a_client_visible_amendment_re_announces() -> None:
     window_id = await _schedule()
     try:
         async with untenanted_session() as session:
+            # The advance claim settles the amendment slot with it, so this is the real
+            # post-announcement state rather than one the test arranged.
             await claim_notice(session, window_id=window_id, kind="advance")
-            await claim_notice(session, window_id=window_id, kind="amended")
             assert (await read_window(session, window_id)).amended_notice_at is not None
         async with untenanted_session() as session:
             window = await amend_window(
@@ -308,7 +333,6 @@ async def test_a_drain_bound_change_alone_does_not_re_announce() -> None:
     try:
         async with untenanted_session() as session:
             await claim_notice(session, window_id=window_id, kind="advance")
-            await claim_notice(session, window_id=window_id, kind="amended")
         async with untenanted_session() as session:
             window = await amend_window(session, window_id=window_id, max_drain_minutes=30)
         assert window.amended_notice_at is not None, "a private change mailed every client"

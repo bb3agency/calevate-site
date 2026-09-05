@@ -46,6 +46,12 @@ any client-visible change re-mails everybody. To move the start, cancel and re-s
 that way every client hears the cancellation and the new time instead of quietly planning
 around a time that moved.
 
+**The end can be moved WHILE the window is running, and that is the amendment you will
+actually make.** If the work is going long, extend `ends_at` rather than letting it
+over-run: every refused client request is told to come back at that time, so an over-run
+window sends people back into a closed door. Extending re-mails everybody. Changing the
+drain bound alone does not — it is an operational number no client is shown.
+
 ## 3. It is stuck in DRAINING
 
 The console shows what it is waiting for — calls, queued jobs, and how old the
@@ -95,7 +101,23 @@ window is over.
 Read the ops engine-drift panel, find the named agents, and republish each from its own
 screen. `sweep_engine_drift` will also report them against our record.
 
-## 6. If the engine cannot carry the message
+## 6. The one gap in the caller message, named
+
+The maintenance script is pushed to every live answering agent on TWO edges: when the
+window starts draining, and again when it goes active. It is not re-pushed on every tick —
+that would be a vendor round trip per agent every fifteen seconds for the length of the
+window.
+
+So an agent **published between those two edges** keeps its ordinary script for the rest
+of the window. The portal is still open while draining, so a client can do this. Its
+callers then get ordinary service over a platform that is being worked on.
+
+It needs a client publishing an agent inside a window measured in minutes, and the outcome
+is the state this feature is an improvement on rather than a regression. If it ever bites,
+the fix is to refuse a publish while a window is open — a product decision about a screen
+a client is looking at, not a tuning change.
+
+## 7. If the engine cannot carry the message
 
 `maintenance_voice_unsupported` means the selected voice platform has no way to change what
 a published agent says without republishing it (`EngineCapabilities.script_override` is
@@ -104,7 +126,7 @@ client's ordinary agent, doing ordinary business, over a platform whose database
 worked on. Warn affected clients directly, or keep windows on such an engine short and
 outside their calling hours.
 
-## 7. What a maintenance window is NOT
+## 8. What a maintenance window is NOT
 
 * It is not the big red switch. That halts OUTBOUND dialling platform-wide, immediately,
   with a recall of dials the vendor already holds (`runbooks/campaign-stall.md` §1). A

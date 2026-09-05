@@ -316,10 +316,24 @@ async def _speak_maintenance(window: MaintenanceWindow, budget: WalkBudget) -> E
     those words, that callers will reach their ordinary agent for its duration.
 
     PER-AGENT ISOLATION. One agent's vendor failure must not cost the other ninety-nine
-    theirs: a failure is counted and the walk continues. The failures are recoverable by
-    two independent paths — this job runs again in fifteen seconds and re-applies (the
-    override is idempotent: the same two strings written twice is the same agent), and
-    `sweep_engine_drift` scores every live agent against our record anyway.
+    theirs: a failure is counted and the walk continues; the alert carries the count and
+    `sweep_engine_drift` scores every live agent against our record independently.
+
+    ⚠ **IT RUNS ON THE TWO EDGES, NOT ON EVERY TICK, AND THAT LEAVES ONE NAMED GAP.** The
+    override is applied when the window starts DRAINING and again when it goes ACTIVE — two
+    passes, so a vendor blip on the first is usually cleared by the second. It is NOT
+    re-applied on every fifteen-second tick, because that is O(agents) vendor round trips
+    per tick for the length of the window and a large fleet would spend the whole drain
+    talking to the engine.
+
+    The gap that leaves: an agent PUBLISHED between the two edges — the portal is still
+    open while draining, so a client can — reaches the engine with its ordinary script and
+    keeps it for the rest of the window. Its callers get ordinary service over a platform
+    that is being worked on. Judged acceptable rather than papered over: it needs a client
+    publishing an agent inside a window measured in minutes, and the cost is the state this
+    whole feature is an improvement ON. `runbooks/maintenance-window.md` §6 records it, and
+    the fix if it ever bites is to refuse a publish while a window is open — which is a
+    product decision about a screen a client is looking at, not a line in this function.
     """
     engine = get_engine()
     if not engine.capabilities.has("script_override"):
@@ -505,6 +519,19 @@ async def maintenance_tick(ctx: dict[str, Any]) -> str:
     if window is None:
         return "no_window"
 
+    # THE AMENDMENT NOTICE, FROM EVERY OPEN STATE, and it is here rather than in
+    # `_tick_scheduled` because the amendment an operator is most likely to make is the one
+    # they make DURING the window: extending `ends_at` because the work is running long.
+    # Handled only on the scheduled arm, that correction never reached a client, and the
+    # clients holding the old end time are exactly the ones who planned around it.
+    #
+    # `announced and amended_notice_at is None` is the whole condition: the advance claim
+    # settles the amendment slot with it (`claim_notice`), so NULL here can only have been
+    # produced by an actual amendment to an announced window.
+    if window.announced and window.amended_notice_at is None:
+        async with untenanted_session() as session:
+            await _fan_out(session, window=window, kind="amended")
+
     if window.state == "scheduled":
         return await _tick_scheduled(window, now=now, budget=budget)
     if window.state == "draining":
@@ -516,14 +543,9 @@ async def _tick_scheduled(window: MaintenanceWindow, *, now: datetime, budget: W
     """Announce it when it is close enough; open it when its time comes."""
     if now < window.starts_at:
         sent = 0
-        async with untenanted_session() as session:
-            if now >= window.starts_at - ADVANCE_NOTICE:
+        if now >= window.starts_at - ADVANCE_NOTICE:
+            async with untenanted_session() as session:
                 sent = await _fan_out(session, window=window, kind="advance")
-            if window.announced and window.amended_notice_at is None:
-                # An amendment CLEARS the stamp, so this is how a changed window
-                # re-announces itself. Only after the first announcement: before it,
-                # nobody has been told anything to amend.
-                sent += await _fan_out(session, window=window, kind="amended")
         return f"scheduled notices={sent}"
 
     async with untenanted_session() as session:
@@ -607,6 +629,13 @@ async def _tick_draining(window: MaintenanceWindow, *, now: datetime, budget: Wa
     # notice is queued, not delivered, at this point — but it is queued DURABLY, and the
     # outbox dispatcher is not shed.
     await set_platform_status(mode="maintenance", actor_id=None)
+
+    # THE SECOND PASS. Re-applying here costs one walk per window and buys two things: an
+    # agent whose override failed at the draining edge gets another go, and an agent
+    # published DURING the drain — the portal is open then — is caught before the window
+    # actually shuts. `_speak_maintenance` argues the residual gap this does not close.
+    voice = await _speak_maintenance(window, budget)
+    _alert_engine_outcome(window, voice, edge="active")
 
     if overdue and not in_flight.drained:
         alert(
@@ -724,8 +753,10 @@ def _alert_engine_outcome(
             "maintenance_voice_incomplete",
             detail=(
                 f"{outcome.failed} agent(s) did not take the {edge} script change "
-                f"({outcome.applied} did); the next tick re-applies and the engine drift "
-                "sweep scores the rest"
+                f"({outcome.applied} did). The DRAINING pass is re-run when the window "
+                "goes active, so a blip on the first edge usually clears itself; a "
+                "failure on the COMPLETED edge does not, and leaves those agents telling "
+                "callers the platform is down"
             ),
         )
 
