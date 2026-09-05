@@ -81,8 +81,7 @@ const BEYOND: readonly { icon: typeof Clock3; title: string; body: string }[] = 
     body:
       "No six-week ramp, no re-hiring in four months, no re-teaching the price list to " +
       "somebody new. It is doing the job the day you switch it on and the same job a year " +
-      "later. Attrition in this role is real enough that the calculator on /roi treats " +
-      "replacement cost as a line of its own.",
+      "later.",
   },
   {
     icon: ListChecks,

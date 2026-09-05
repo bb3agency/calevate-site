@@ -1369,6 +1369,83 @@ async def set_campaign_status(
     )
 
 
+async def pause_campaigns_for_maintenance(
+    session: AsyncSession, *, window_id: UUID
+) -> list[UUID]:
+    """Stop this tenant's running campaigns for the duration of a maintenance window.
+
+    Returns the campaigns THIS call stopped, so the caller can audit one row each.
+
+    ═══ WHY A SET-BASED CAS RATHER THAN N CALLS TO `set_campaign_status` ═══
+
+    That function is the right instrument for ONE campaign a person pressed a button on:
+    it discriminates the three zero-row answers (already there, moved, absent) because a
+    person is owed a sentence about the row they named. Here nobody named a row. The
+    predicate IS the selection — every campaign of this tenant that is running — and the
+    three answers collapse into one uninteresting fact (a campaign that was not running is
+    not one we stopped). `WHERE status = 'running'` is the same compare-and-swap guard
+    `transition_status` writes; it is applied to a set, in one statement, and `RETURNING`
+    names exactly what moved. N round trips per tenant per window edge, on a fleet walk
+    that already has a wall-clock budget, would buy nothing.
+
+    ═══ WHY THE MARKER COLUMN, AND WHY IT IS NOT THE STATUS ═══
+
+    The pause itself is ordinary: `campaign_contacts`, attempt counts and the retry ladder
+    are untouched, so the resume continues rather than restarting — the founder's "must
+    come back where it was". `paused_by_maintenance_id` records WHOSE pause it was, which
+    is the one thing the status cannot say: without it the window's end would either
+    resume everything paused (restarting campaigns a client paused deliberately, and ones
+    `complaint_spike` stopped for a TCCCPR reason) or resume nothing (silently killing
+    every campaign it stopped).
+
+    Runs inside the caller's `tenant_session`, so RLS is the scoping and this query
+    carries no `tenant_id` predicate of its own (hard rule 1).
+    """
+    rows = (
+        await session.execute(
+            text(
+                "UPDATE campaigns SET status = 'paused', "
+                "paused_by_maintenance_id = :wid, updated_at = now() "
+                "WHERE status = 'running' RETURNING id"
+            ),
+            {"wid": window_id},
+        )
+    ).all()
+    return [row[0] for row in rows]
+
+
+async def resume_campaigns_after_maintenance(
+    session: AsyncSession, *, window_id: UUID
+) -> list[UUID]:
+    """Put back exactly the campaigns `pause_campaigns_for_maintenance` stopped.
+
+    Returns the campaigns THIS call restarted — which is not always all of them, and the
+    difference is the point of the `CASE`. Between the two edges of a window a client can
+    cancel a paused campaign, or complete it, or an operator can; those rows must not be
+    dragged back into `running` by our bookkeeping. So the status moves only for a row
+    still sitting in `paused`, while the MARKER is cleared unconditionally for every row
+    this window owns.
+
+    Clearing it unconditionally is what stops the column becoming history. It answers one
+    question — "is this campaign waiting on a maintenance window right now" — and a marker
+    left on a cancelled campaign would make the next window's resume sweep look at a row
+    it has no business touching. The permanent record of what happened is `audit_log`.
+    """
+    rows = (
+        await session.execute(
+            text(
+                "UPDATE campaigns SET "
+                "status = CASE WHEN status = 'paused' THEN 'running' ELSE status END, "
+                "paused_by_maintenance_id = NULL, updated_at = now() "
+                "WHERE paused_by_maintenance_id = :wid "
+                "RETURNING id, status = 'running' AS resumed"
+            ),
+            {"wid": window_id},
+        )
+    ).all()
+    return [row[0] for row in rows if row[1]]
+
+
 async def register_dlt_template(
     session: AsyncSession,
     *,
@@ -1629,6 +1706,8 @@ __all__ = [
     "dispatch_blockers",
     "launch_blockers",
     "launch_campaign",
+    "pause_campaigns_for_maintenance",
+    "resume_campaigns_after_maintenance",
     "launch_refusal_for_agent_status",
     "list_campaigns",
     "record_dlt_registration",

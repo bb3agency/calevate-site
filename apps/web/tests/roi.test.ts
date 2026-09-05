@@ -25,8 +25,6 @@ const BASE: RoiInputs = {
   talkHoursPerDay: 5,
   basePerAgentInr: 21_240,
   loadedPerAgentInr: 32_000,
-  attritionPctPerYear: 40,
-  replacementCostInr: 150_000,
 };
 
 describe("computeRoi — Calevate cost", () => {
@@ -149,7 +147,7 @@ describe("computeRoi — coverage (shifts), the always-on lever", () => {
   });
 });
 
-describe("computeRoi — loaded cost and attrition", () => {
+describe("computeRoi — loaded cost", () => {
   it("splits base from the hidden loaded uplift", () => {
     // 2 agents: base 2 × ₹21,240 = ₹42,480; uplift 2 × (32,000 − 21,240) = 2 × 10,760 =
     // ₹21,520.
@@ -165,25 +163,24 @@ describe("computeRoi — loaded cost and attrition", () => {
     expect(r.humanBasePaise).toBe(2 * 21_240 * 100);
   });
 
-  it("amortises attrition monthly across the fleet", () => {
-    // 2 agents × ₹1,50,000 × 40% ÷ 12 = 2 × 60,000 ÷ 12 = ₹10,000.00/mo.
+  it("totals base + uplift, and nothing else", () => {
+    // Turnover and replacement cost were removed on 5 Sep 2026: not a factor an Indian
+    // SMB buyer weighs while being pitched. The assertion is written as an EQUALITY
+    // against the two remaining parts rather than only as a rupee figure, so a third
+    // component reappearing in the total fails here rather than quietly inflating the
+    // people side of the comparison.
     const r = computeRoi(BASE);
-    expect(r.humanAttritionPaise).toBe(10_000 * 100);
-  });
-
-  it("totals base + uplift + attrition", () => {
-    const r = computeRoi(BASE);
-    expect(r.humanTotalPaise).toBe(
-      r.humanBasePaise + r.humanUpliftPaise + r.humanAttritionPaise,
-    );
-    // ₹42,480 + ₹21,520 + ₹10,000 = ₹74,000.00.
-    expect(formatPaiseINR(r.humanTotalPaise)).toBe("₹74,000.00");
+    expect(r.humanTotalPaise).toBe(r.humanBasePaise + r.humanUpliftPaise);
+    // ₹42,480 + ₹21,520 = ₹64,000.00.
+    expect(formatPaiseINR(r.humanTotalPaise)).toBe("₹64,000.00");
   });
 
   it("reports the delta, which can be negative when the team is cheaper", () => {
     const r = computeRoi(BASE);
-    // ₹74,000 − ₹52,000 = ₹22,000 in Calevate's favour.
-    expect(r.deltaPaise).toBe(2_200_000);
+    // ₹64,000 − ₹52,000 = ₹12,000 in Calevate's favour. It was ₹22,000 while turnover was
+    // priced in; removing that cost SHRINKS our own advantage, which is why it is a safe
+    // thing to remove and would not have been a safe thing to add.
+    expect(r.deltaPaise).toBe(1_200_000);
     // At high minutes-per-call, a single agent's fixed cost can beat pay-per-minute; the
     // model must not hide it. With the duration-aware ceiling, a 10-min call lets one agent
     // handle only floor(5h×60 / 10) = 30 calls/day, so 30 calls/day is still exactly one
@@ -257,27 +254,30 @@ describe("computeTwoStage — the worked example the page shows", () => {
     const r = computeTwoStage(TWO);
 
     // A — people call all 5,200. One person manages floor(5h×60 ÷ 6) = 50 a day, so four
-    // salespeople: base 4×₹21,240 = ₹84,960, uplift 4×₹10,760 = ₹43,040, attrition
-    // 4×₹1,50,000×40% ÷ 12 = ₹20,000. Total ₹1,48,000.
+    // salespeople: base 4×₹21,240 = ₹84,960 plus uplift 4×₹10,760 = ₹43,040.
+    // Total ₹1,28,000.
     expect(r.allHuman.headcount).toBe(4);
-    expect(r.allHuman.humanTotalPaise).toBe(14_800_000);
-    expect(formatPaiseINR(r.allHuman.humanTotalPaise)).toBe("₹1,48,000.00");
+    expect(r.allHuman.humanTotalPaise).toBe(12_800_000);
+    expect(formatPaiseINR(r.allHuman.humanTotalPaise)).toBe("₹1,28,000.00");
 
     // B, stage 1 — Calevate's 2-minute call to every one of the 5,200: ₹52,000.
     expect(r.qualificationPaise).toBe(5_200_000);
 
     // B, stage 2 — 30% of 200 = 60 conversations a day, still 50 per person, so TWO
-    // salespeople rather than four: ₹42,480 + ₹21,520 + ₹10,000 = ₹74,000.
+    // salespeople rather than four: ₹42,480 + ₹21,520 = ₹64,000.
     expect(r.qualifiedCallsPerDay).toBe(60);
     expect(r.qualifiedCallsPerMonth).toBe(1_560);
     expect(r.humans.headcount).toBe(2);
-    expect(r.humans.humanTotalPaise).toBe(7_400_000);
+    expect(r.humans.humanTotalPaise).toBe(6_400_000);
 
-    // Together ₹1,26,000 — ₹22,000 a month less than ₹1,48,000.
-    expect(r.blendedTotalPaise).toBe(12_600_000);
-    expect(formatPaiseINR(r.blendedTotalPaise)).toBe("₹1,26,000.00");
-    expect(r.deltaPaise).toBe(2_200_000);
-    expect(formatPaiseINR(r.deltaPaise)).toBe("₹22,000.00");
+    // Together ₹52,000 + ₹64,000 = ₹1,16,000 — ₹12,000 a month less than ₹1,28,000.
+    // The gap NARROWED when turnover left the model (₹22,000 before), because the cost
+    // that was removed sat on the people side of the comparison. That is the honest
+    // direction and the reason the removal is safe to make.
+    expect(r.blendedTotalPaise).toBe(11_600_000);
+    expect(formatPaiseINR(r.blendedTotalPaise)).toBe("₹1,16,000.00");
+    expect(r.deltaPaise).toBe(1_200_000);
+    expect(formatPaiseINR(r.deltaPaise)).toBe("₹12,000.00");
   });
 
   it("counts the calls that never reach a person, and the hours that buys back", () => {

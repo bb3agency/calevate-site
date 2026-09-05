@@ -285,10 +285,6 @@ export function RoiCalculator() {
   const [talkHoursPerDay, setTalkHours] = useState(TELECALLER.talkHoursPerDay.default);
   const [basePerAgentInr, setBase] = useState(TELECALLER.basePerAgentInr.default);
   const [loadedPerAgentInr, setLoaded] = useState(TELECALLER.loadedPerAgentInr.default);
-  const [attritionPct, setAttrition] = useState(TELECALLER.attritionPctPerYear.default);
-  const [replacementInr, setReplacement] = useState(
-    TELECALLER.replacementCostInr.default,
-  );
 
   const [qualifiedPct, setQualifiedPct] = useState(TWO_STAGE.qualifiedPct.default);
   const [qualifyMinutes, setQualifyMinutes] = useState(TWO_STAGE.qualifyMinutes.default);
@@ -308,8 +304,6 @@ export function RoiCalculator() {
         talkHoursPerDay,
         basePerAgentInr,
         loadedPerAgentInr,
-        attritionPctPerYear: attritionPct,
-        replacementCostInr: replacementInr,
         leadValue: { enabled: leadOpen, convertedLeadInr, conversionPct },
       }),
     [
@@ -321,8 +315,6 @@ export function RoiCalculator() {
       talkHoursPerDay,
       basePerAgentInr,
       loadedPerAgentInr,
-      attritionPct,
-      replacementInr,
       leadOpen,
       convertedLeadInr,
       conversionPct,
@@ -343,8 +335,6 @@ export function RoiCalculator() {
         talkHoursPerDay,
         basePerAgentInr,
         loadedPerAgentInr,
-        attritionPctPerYear: attritionPct,
-        replacementCostInr: replacementInr,
         qualifiedPct,
         qualifyMinutes,
       }),
@@ -357,8 +347,6 @@ export function RoiCalculator() {
       talkHoursPerDay,
       basePerAgentInr,
       loadedPerAgentInr,
-      attritionPct,
-      replacementInr,
       qualifiedPct,
       qualifyMinutes,
     ],
@@ -539,22 +527,6 @@ export function RoiCalculator() {
             unit="/mo"
             hint="The figure a job ad shows — around ₹18k–₹25k for the role."
           />
-          <Control
-            label="Yearly attrition"
-            bounds={TELECALLER.attritionPctPerYear}
-            value={attritionPct}
-            onChange={setAttrition}
-            unit="%"
-            hint="Widely reported at 35–45% a year in this role."
-          />
-          <Control
-            label="Cost to replace one leaver"
-            bounds={TELECALLER.replacementCostInr}
-            value={replacementInr}
-            onChange={setReplacement}
-            unit="one-off"
-            hint="Hiring, training and lost output — commonly ₹1–2 lakh, folded in monthly."
-          />
           </div>
         </details>
       </div>
@@ -602,10 +574,6 @@ export function RoiCalculator() {
                 <CostLine
                   label="Incentives, PF/ESI, supervisor, desk & overhead"
                   value={formatPaiseINR(twoStage.allHuman.humanUpliftPaise)}
-                />
-                <CostLine
-                  label="Amortised attrition"
-                  value={formatPaiseINR(twoStage.allHuman.humanAttritionPaise)}
                 />
                 <CostLine
                   label="Your team on the whole list, a month"
@@ -699,10 +667,6 @@ export function RoiCalculator() {
                 <CostLine
                   label="Incentives, PF/ESI, supervisor, desk & overhead"
                   value={formatPaiseINR(result.humanUpliftPaise)}
-                />
-                <CostLine
-                  label="Amortised attrition"
-                  value={formatPaiseINR(result.humanAttritionPaise)}
                 />
                 <CostLine
                   label="Telecallers, a month"
@@ -942,9 +906,11 @@ export function RoiCalculator() {
                 the real cost.
               </li>
               <li>
-                <span className="font-medium text-ink">Attrition</span> (35–45%/year, ₹1–2
-                lakh to replace each leaver) is folded in as an amortised monthly line:
-                replacement cost × attrition ÷ 12.
+                <span className="font-medium text-ink">What this deliberately leaves out</span>
+                : turnover and the cost of replacing someone. Both are real, and neither is
+                what a business owner here is weighing while deciding — so counting them
+                would be arguing a case you are not making. Leaving them out makes the human
+                side of this comparison smaller, not larger.
               </li>
             </ul>
             <p>

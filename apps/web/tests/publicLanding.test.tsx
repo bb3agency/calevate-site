@@ -996,14 +996,18 @@ describe("the ROI calculator", () => {
       { target: { value: "6" } },
     );
     const text = calc(container).textContent ?? "";
-    // Four salespeople on the whole list at ₹1,48,000 …
+    // Four salespeople on the whole list at ₹1,28,000 …
     expect(text).toMatch(/hire\s*4\s*salespeople/);
-    expect(text).toContain("₹1,48,000.00");
-    // … versus ₹52,000 of first calls plus two salespeople at ₹74,000 = ₹1,26,000.
+    expect(text).toContain("₹1,28,000.00");
+    // … versus ₹52,000 of first calls plus two salespeople at ₹64,000 = ₹1,16,000.
+    // Every figure here dropped when turnover and replacement cost left the model
+    // (5 Sep 2026), and the GAP dropped with them, from ₹22,000 to ₹12,000: what was
+    // removed sat on the people side. A change that shrinks our own advantage is the
+    // safe direction, and this test is where that stays visible.
     expect(text).toContain("₹52,000.00");
-    expect(text).toContain("₹74,000.00");
-    expect(text).toContain("₹1,26,000.00");
-    expect(text).toContain("₹22,000.00");
+    expect(text).toContain("₹64,000.00");
+    expect(text).toContain("₹1,16,000.00");
+    expect(text).toContain("₹12,000.00");
     // The capacity line — the actual argument, and pure arithmetic off the buyer's inputs.
     expect(text).toMatch(/3,640[^]*never reach a person/);
     expect(text).toMatch(/364[^]*hours a month/);

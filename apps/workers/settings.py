@@ -127,6 +127,13 @@ from apps.workers.kb_ingest import SWEEP_MINUTES as KB_UPLOAD_SWEEP_MINUTES
 from apps.workers.kb_ingest import ingest_kb_source, sweep_kb_uploads
 from apps.workers.kb_orphans import ORPHAN_SWEEP_HOUR, ORPHAN_SWEEP_MINUTE, sweep_kb_orphans
 from apps.workers.kb_reconciliation import KB_SWEEP_MINUTES, sweep_kb_drift
+from apps.workers.maintenance import (
+    TICK_SECONDS as MAINTENANCE_TICK_SECONDS,
+)
+from apps.workers.maintenance import (
+    maintenance_tick,
+    notify_maintenance,
+)
 from apps.workers.notifications import notify_hot_lead
 from apps.workers.number_rental import meter_number_rentals, reconcile_engine_numbers
 from apps.workers.optout import record_in_call_optout
@@ -253,6 +260,15 @@ FUNCTIONS: list[Any] = [
         # generator — `tests/job_registration_test.py` is what makes that a failing test
         # rather than a silent one.
         notify_account_closed,
+        # D-544. The client's three maintenance notices — the advance warning, the "we are
+        # in it now" and the "it is over" — plus the amendment. Published by the
+        # maintenance tick through the OUTBOX in the same transaction as the claim that
+        # says the fan-out happened, so an unregistered name here is the `check_job_wiring`
+        # shape 3 failure with a specific edge to it: the window's row would record every
+        # notice as sent, arq would drop each job with a warning nothing reads, and the
+        # first a client heard of a planned outage would be their dashboard refusing to
+        # load. The whole point of a PLANNED window is that nobody is surprised by it.
+        notify_maintenance,
     )
 ]
 
@@ -262,6 +278,27 @@ FUNCTIONS: list[Any] = [
 CRON_JOBS = [
     # The outbox dispatcher is the heartbeat of every reliable side effect.
     cron(traced_job(dispatch_outbox), second={0, 10, 20, 30, 40, 50}, run_at_startup=True),
+    # THE MAINTENANCE WINDOW'S ONLY ACTUATOR (D-544). Every fifteen seconds, because the
+    # cadence IS the resolution of three promises a client and an operator both feel: how
+    # soon after the window opens the platform stops accepting new work, how soon after the
+    # last call ends it goes fully active, and how soon after it closes the portal comes
+    # back. On the overwhelming majority of ticks it is one indexed read of a one-row table
+    # and a return; the fleet walks only run while a window is open.
+    #
+    # `run_at_startup` because a worker that restarted mid-window must not leave the window
+    # frozen for up to fifteen seconds in a state it has already outgrown — and because the
+    # tick is the only thing that ends one.
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1 and
+    # `WorkerSettings.max_tries` does not reach a function carrying its own. Retrying is
+    # safe and is the point — every transition inside is a compare-and-swap, so a retried
+    # tick that finds the work already done does nothing and says so.
+    cron(
+        traced_job(maintenance_tick),
+        second=MAINTENANCE_TICK_SECONDS,
+        run_at_startup=True,
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # D-31: the guarantee of record, not a safety net. 10 minutes matches the window
     # in which a Bolna execution reaches `completed` plus margin.
     #

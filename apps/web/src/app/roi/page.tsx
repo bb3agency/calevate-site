@@ -79,11 +79,12 @@ const METHOD: readonly { term: string; detail: string }[] = [
       "doing is that the base hides most of the cost.",
   },
   {
-    term: "Attrition, folded in monthly",
+    term: "What is deliberately left out",
     detail:
-      "Replacement cost × yearly attrition ÷ 12. Hiring and re-training is a real, " +
-      "recurring line in this role rather than an occasional event, so it is priced as one " +
-      "— and both numbers are yours to change.",
+      "Turnover, and what it costs to replace somebody. Both are real; neither is what a " +
+      "business owner here is actually weighing, so pricing them would be arguing a case " +
+      "you are not making. Leaving them out makes the people side of this comparison " +
+      "smaller, not larger.",
   },
   {
     term: "Hours covered",

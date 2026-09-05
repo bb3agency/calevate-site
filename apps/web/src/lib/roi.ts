@@ -58,9 +58,13 @@ export interface Benchmark {
  *   base), a share of a supervisor, desk/power/phone/software, and ramp-up time before an
  *   agent is fully productive. ~₹32,000 is a mid loaded figure; the whole point of the
  *   calculator is that the base hides this.
- * - `attritionPctPerYear` — annual attrition in this role is widely reported at 35–45%.
- * - `replacementCostInr` — hiring + training + lost productivity to replace one leaver is
- *   commonly put at ₹1–2 lakh; folded in amortised monthly.
+ *
+ * ATTRITION AND REPLACEMENT COST USED TO BE HERE AND WERE REMOVED DELIBERATELY (founder,
+ * 5 Sep 2026): in the Indian SMB market they are not a factor a buyer weighs when they are
+ * being pitched, so a calculator that spends two of its inputs on them is arguing a case
+ * the buyer is not making. Dropping them LOWERS the human side of the comparison — the
+ * honest direction, and the reason it is safe to drop: the figure that remains is one the
+ * buyer recognises as their own payroll.
  *
  * These are relayed benchmarks, not measurements Calevate has taken; the UI labels them
  * so and the buyer moves them.
@@ -70,8 +74,6 @@ export const TELECALLER: {
   talkHoursPerDay: Benchmark;
   basePerAgentInr: Benchmark;
   loadedPerAgentInr: Benchmark;
-  attritionPctPerYear: Benchmark;
-  replacementCostInr: Benchmark;
 } = {
   callsPerAgentPerDay: { default: 100, min: 60, max: 140, step: 5 },
   // Productive TALK hours in a shift — the second, harder ceiling on how many calls one
@@ -83,8 +85,6 @@ export const TELECALLER: {
   talkHoursPerDay: { default: 5, min: 3, max: 6.5, step: 0.5 },
   basePerAgentInr: { default: 21_240, min: 15_000, max: 30_000, step: 500 },
   loadedPerAgentInr: { default: 32_000, min: 20_000, max: 45_000, step: 500 },
-  attritionPctPerYear: { default: 40, min: 20, max: 60, step: 1 },
-  replacementCostInr: { default: 150_000, min: 50_000, max: 300_000, step: 10_000 },
 };
 
 /** The three usage inputs and their defaults / slider ranges. */
@@ -190,10 +190,6 @@ export interface RoiInputs {
   basePerAgentInr: number;
   /** Fully loaded cost per agent per month, in whole rupees. */
   loadedPerAgentInr: number;
-  /** Annual attrition, as a percentage (e.g. 40 for 40%). */
-  attritionPctPerYear: number;
-  /** Cost to replace one leaver, in whole rupees. */
-  replacementCostInr: number;
   /** Optional missed-lead-value context; omit or set enabled=false to leave it out. */
   leadValue?: {
     enabled: boolean;
@@ -233,9 +229,7 @@ export interface RoiResult {
    * ramp — across the fleet, in paise. `max(0, loaded − base) × headcount`.
    */
   humanUpliftPaise: number;
-  /** Amortised monthly attrition cost across the fleet, in paise. */
-  humanAttritionPaise: number;
-  /** Total telecaller cost per month (base + uplift + attrition), in paise. */
+  /** Total telecaller cost per month (base + uplift), in paise. */
   humanTotalPaise: number;
   /** Calevate cost per month (variable, pay-per-minute), in paise. */
   calevatePaise: number;
@@ -312,16 +306,7 @@ export function computeRoi(inputs: RoiInputs): RoiResult {
   const humanBasePaise = headcount * baseInr * 100;
   const humanUpliftPaise = headcount * upliftInr * 100;
 
-  // Amortised attrition: replacing `attrition%` of the fleet each year, spread monthly.
-  // replacementInr × attrition% ÷ 100 ÷ 12, in paise, per agent, times headcount. One
-  // round at the end keeps it in whole paise.
-  const attritionPct = nonNeg(inputs.attritionPctPerYear);
-  const replacementInr = Math.round(nonNeg(inputs.replacementCostInr));
-  const humanAttritionPaise = Math.round(
-    (headcount * replacementInr * attritionPct * 100) / 100 / 12,
-  );
-
-  const humanTotalPaise = humanBasePaise + humanUpliftPaise + humanAttritionPaise;
+  const humanTotalPaise = humanBasePaise + humanUpliftPaise;
   const deltaPaise = humanTotalPaise - calevatePaise;
 
   let pipelineValuePaise: number | null = null;
@@ -340,7 +325,6 @@ export function computeRoi(inputs: RoiInputs): RoiResult {
     headcount,
     humanBasePaise,
     humanUpliftPaise,
-    humanAttritionPaise,
     humanTotalPaise,
     calevatePaise,
     deltaPaise,
@@ -392,9 +376,9 @@ export interface TwoStageResult {
  *
  * Both options are priced by the SAME model at different volumes and lengths, which is the
  * whole reason this is a composition and not a second copy of the headcount arithmetic:
- * the talk-time ceiling, the per-shift staffing floor, the loaded-cost split and the
- * attrition line are defined once, so the two sides of the comparison can never drift into
- * disagreeing about what a telecaller costs.
+ * the talk-time ceiling, the per-shift staffing floor and the loaded-cost split are defined
+ * once, so the two sides of the comparison can never drift into disagreeing about what a
+ * telecaller costs.
  *
  * It does NOT stack the deck. At `qualifiedPct = 100` option B is option A plus a
  * qualification bill, so `deltaPaise` goes negative and the UI is required to say so —
