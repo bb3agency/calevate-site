@@ -14,17 +14,12 @@
  * clinics is first in reading order because it is first in `scripts/seed.py`, and it gets
  * no richer example, no default styling and no editorial promotion over the other three.
  *
- * ## The field lists are still the seed's own labels
+ * ## The content lives in `lib/marketing/industries.ts`
  *
- * `fields` is copied label-for-label and in order from `VERTICAL_TEMPLATES` in
- * `scripts/seed.py`, and `publicLanding.test.tsx` reads them back out of the rendered DOM
- * and diffs them against that file. The value of this grid to a buyer is that it is the
- * actual first screen of their agent; a prettier label here is a small lie that only
- * shows up on the day they log in.
- *
- * `suite` marks the two verticals the golden-transcript fixtures cover today
- * (`tests/fixtures/golden_transcripts.json` carries `cl_*` and `re_*` only). Stated
- * rather than implied, on every tab, in both directions.
+ * One copy, shared with `/industries`, which renders the same four at full length. That
+ * module's header carries the rules the data is held to — `fields` is `scripts/seed.py`'s
+ * own labels in the seed's own order, `suite` is stated on every vertical in both
+ * directions, and the example lead is captioned as an illustration wherever it renders.
  *
  * ## The ARIA contract
  *
@@ -47,70 +42,8 @@
  */
 
 import { useRef, useState, type KeyboardEvent } from "react";
-import { Building2, GraduationCap, Stethoscope, Umbrella } from "lucide-react";
 
-export interface Industry {
-  readonly id: string;
-  readonly icon: typeof Stethoscope;
-  readonly name: string;
-  /** The `VERTICAL_TEMPLATES` labels, verbatim and in the seed's order. */
-  readonly fields: readonly string[];
-  /** Whether a golden-transcript suite exists for this vertical today. */
-  readonly suite: boolean;
-  /** What the caller wanted, in the owner's words. */
-  readonly asks: string;
-  /** The row the owner opens — the structured result, as chips. */
-  readonly result: readonly string[];
-  /** Why that matters to the business, in one sentence. */
-  readonly advantage: string;
-}
-
-export const INDUSTRIES: readonly Industry[] = [
-  {
-    id: "clinics",
-    icon: Stethoscope,
-    name: "Clinics",
-    fields: ["Symptom / reason", "Preferred doctor", "Urgency", "Preferred slot", "Insurance"],
-    suite: true,
-    asks: "What is troubling you, how soon do you need to be seen, and who would you like to see?",
-    result: ["Root canal", "Dr Rao", "This week", "Tuesday 6pm", "Cash"],
-    advantage:
-      "Your front desk opens the day on people who already said what they need and when they can come in.",
-  },
-  {
-    id: "property",
-    icon: Building2,
-    name: "Property offices",
-    fields: ["Budget (lakhs)", "Location", "BHK", "Timeline", "Site visit"],
-    suite: true,
-    asks: "What budget are you working with, which area, how many bedrooms, and when do you want to move?",
-    result: ["80 lakh budget", "Gachibowli", "3BHK", "This month", "Site visit: Sat"],
-    advantage:
-      "Your salesperson rings a qualified buyer, not an unexplained phone number.",
-  },
-  {
-    id: "insurance",
-    icon: Umbrella,
-    name: "Insurance",
-    fields: ["Policy type", "Sum assured", "Renewal due", "Existing insurer"],
-    suite: false,
-    asks: "Which cover are you looking at, for how much, and when is your current policy due?",
-    result: ["Health cover", "10 lakh sum assured", "Renewal in 3 weeks", "Existing: other insurer"],
-    advantage:
-      "You know which renewals are close before somebody else calls them first.",
-  },
-  {
-    id: "coaching",
-    icon: GraduationCap,
-    name: "Coaching and colleges",
-    fields: ["Course", "Class / year", "Fee concern", "Demo booked"],
-    suite: false,
-    asks: "Which course, which year is the student in, and would you like to sit in on a class?",
-    result: ["NEET repeater", "Class 12", "Asked about fees", "Demo: Friday"],
-    advantage:
-      "Your counsellor spends admission season on parents who have already asked for a demo.",
-  },
-];
+import { INDUSTRIES } from "@/lib/marketing/industries";
 
 export function IndustryTabs() {
   const [active, setActive] = useState(0);

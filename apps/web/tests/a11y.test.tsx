@@ -71,6 +71,13 @@ import VerificationPage from "@/app/c/[slug]/verification/page";
 import InvitePage from "@/app/invite/page";
 import LegalDocumentRoute from "@/app/legal/[slug]/page";
 import LegalIndexPage from "@/app/legal/page";
+import IndustriesPage from "@/app/industries/page";
+import PricingPage from "@/app/pricing/page";
+import ResourcesPage from "@/app/resources/page";
+import RoiPage from "@/app/roi/page";
+import SecurityPage from "@/app/security/page";
+import SolutionsPage from "@/app/solutions/page";
+import WhyCalevatePage from "@/app/why-calevate/page";
 import Home from "@/app/page";
 import ClientConsoleJunction from "@/app/c/page";
 import SignupPage from "@/app/signup/page";
@@ -2202,6 +2209,59 @@ const CLIENT_SCREENS: Screen[] = [
     file: "page.tsx",
     realm: "client",
     element: () => <Home />,
+    routes: {},
+  },
+  /*
+   * The seven interior marketing pages. Static server components with no data of their
+   * own, so each renders its populated state from an empty fixture — which is why they
+   * are swept rather than waived: there is nothing here that a browser-mode run would see
+   * and jsdom would not, apart from the layout rules axe cannot evaluate anywhere.
+   *
+   * All seven render the same chrome (`components/marketing/pageShell.tsx`), so the
+   * header's navigation, its disclosure menu and the two footer landmarks are scanned
+   * eight times over rather than once — which is the coverage the homepage alone could
+   * not give, since a duplicated landmark name only shows up when two of them exist.
+   */
+  {
+    file: "solutions/page.tsx",
+    realm: "client",
+    element: () => <SolutionsPage />,
+    routes: {},
+  },
+  {
+    file: "industries/page.tsx",
+    realm: "client",
+    element: () => <IndustriesPage />,
+    routes: {},
+  },
+  {
+    file: "why-calevate/page.tsx",
+    realm: "client",
+    element: () => <WhyCalevatePage />,
+    routes: {},
+  },
+  {
+    file: "pricing/page.tsx",
+    realm: "client",
+    element: () => <PricingPage />,
+    routes: {},
+  },
+  {
+    file: "roi/page.tsx",
+    realm: "client",
+    element: () => <RoiPage />,
+    routes: {},
+  },
+  {
+    file: "security/page.tsx",
+    realm: "client",
+    element: () => <SecurityPage />,
+    routes: {},
+  },
+  {
+    file: "resources/page.tsx",
+    realm: "client",
+    element: () => <ResourcesPage />,
     routes: {},
   },
   // The public legal pages. Swept here so the coverage guard below sees them, and swept

@@ -27,11 +27,14 @@
  * It is a DISCLOSURE, not a modal: it does not trap focus and does not close on Escape,
  * which is correct for a menu that pushes the page rather than covering it.
  *
- * ## Why the links are anchors on this page rather than routes
+ * ## The links are ROUTES, and only because the routes now exist
  *
- * Because those routes do not exist. A nav item pointing at `/solutions` would be the
- * "route nobody mounted" defect CLAUDE.md names — a promise in the one place a visitor
- * trusts most. Every item here scrolls to a section that is really on the page.
+ * They were anchors into the homepage in the first pass of this redesign, deliberately:
+ * a nav item pointing at `/solutions` before anybody had built `/solutions` is the "route
+ * nobody mounted" defect CLAUDE.md names, in the one place a visitor trusts most. The
+ * seven pages landed in the same change that made these routes, and `NAV_ROUTES` records
+ * the standing rule — an item appears here only once its page renders, and a page that is
+ * ever removed loses its nav item in the same commit.
  */
 
 import Link from "next/link";
@@ -41,16 +44,27 @@ import { MarketingAccountNav } from "@/components/authn/marketingAccountNav";
 import { BrandHeaderMark } from "@/components/brand";
 
 /**
- * The page's own sections, in reading order. Each `href` is an id this page really
- * renders — `publicLanding.test.tsx` pins that, because a nav item that scrolls nowhere
- * is indistinguishable from a broken page to the reader and invisible to everyone else.
+ * The site, in reading order.
+ *
+ * ⚠ THESE WERE ANCHORS INTO THE HOMEPAGE UNTIL THE SEVEN PAGES EXISTED, and that was
+ * correct while they did not: a nav item pointing at a route nobody has built is the
+ * "route nobody mounted" defect on the surface where a visitor trusts us most. The rule
+ * that replaced it is the same rule stated the other way — **an item may only appear here
+ * once its page renders**, and `publicLanding.test.tsx` proves every href against the
+ * `page.tsx` files actually on disk rather than against a list somebody kept in their head.
+ *
+ * Seven is a lot for one row, which is why the horizontal nav waits for `xl` (1280px) and
+ * the disclosure menu covers everything below it. Both render the SAME seven, never two
+ * site maps.
  */
-export const NAV_SECTIONS: readonly { href: string; label: string }[] = [
-  { href: "#how", label: "How it works" },
-  { href: "#capabilities", label: "What it does" },
-  { href: "#industries", label: "Industries" },
-  { href: "#why", label: "Why Calevate" },
-  { href: "#cost", label: "What it costs" },
+export const NAV_ROUTES: readonly { href: string; label: string }[] = [
+  { href: "/solutions", label: "Solutions" },
+  { href: "/industries", label: "Industries" },
+  { href: "/why-calevate", label: "Why Calevate" },
+  { href: "/pricing", label: "Pricing" },
+  { href: "/roi", label: "ROI" },
+  { href: "/security", label: "Security" },
+  { href: "/resources", label: "Resources" },
 ];
 
 /**
@@ -83,10 +97,12 @@ export function SiteHeader() {
             does not fit at 320px otherwise; `BrandHeaderMark` carries the measurement. */}
         <BrandHeaderMark />
 
-        {/* The desktop nav. Hidden below `lg` by CSS, which is why the menu below exists —
-            the two are the same five destinations, never two different site maps. */}
-        <nav aria-label="Sections" className="hidden lg:flex lg:items-center lg:gap-1">
-          {NAV_SECTIONS.map((item) => (
+        {/* The horizontal nav. Hidden below `xl` by CSS, which is why the menu below
+            exists — the two render the same seven destinations, never two site maps.
+            `xl` rather than `lg`: seven labels plus the wordmark, "Sign in" and the
+            button do not fit a 1024px row without the labels colliding. */}
+        <nav aria-label="Pages" className="hidden xl:flex xl:items-center xl:gap-1">
+          {NAV_ROUTES.map((item) => (
             <Link key={item.href} href={item.href} className={NAV_LINK}>
               {item.label}
             </Link>
@@ -96,9 +112,9 @@ export function SiteHeader() {
         <div className="flex items-center gap-1.5 sm:gap-2">
           <MarketingAccountNav ctaHref={HEADER_CTA.href} ctaLabel={HEADER_CTA.label} />
 
-          {/* The menu, below `lg`. `relative` on the wrapper so the panel hangs off the
+          {/* The menu, below `xl`. `relative` on the wrapper so the panel hangs off the
               header rather than off the page. */}
-          <details className="group relative lg:hidden">
+          <details className="group relative xl:hidden">
             <summary
               className="flex h-9 w-9 cursor-pointer list-none items-center justify-center rounded-md text-ink-muted transition-colors hover:bg-black/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong [&::-webkit-details-marker]:hidden dark:hover:bg-white/5"
               aria-label="Menu"
@@ -108,11 +124,11 @@ export function SiteHeader() {
             {/* `right-0` and a fixed width: anchored to the button, never wider than the
                 narrowest phone this page is designed for. */}
             <nav
-              aria-label="Sections menu"
+              aria-label="Pages menu"
               className="absolute right-0 z-40 mt-2 w-60 rounded-xl border border-line bg-surface p-2 shadow-lg"
             >
               <ul>
-                {NAV_SECTIONS.map((item) => (
+                {NAV_ROUTES.map((item) => (
                   <li key={item.href}>
                     <Link href={item.href} className={MENU_LINK}>
                       {item.label}
