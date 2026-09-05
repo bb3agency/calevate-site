@@ -35,6 +35,8 @@ file touches the database, Redis, or any row.
 
 from __future__ import annotations
 
+from datetime import UTC, datetime, timedelta
+
 import pytest
 from apps.api.authn.cookies import (
     COOKIE_NAMES,
@@ -134,7 +136,13 @@ def test_read_and_write_agree_about_which_name_this_deployment_speaks(realm: str
     for scheme in ("http", "https"):
         request = _request(scheme=scheme, cookie="")
         response = Response()
-        set_session_cookie(response, realm=realm, token="issued-token", request=request)
+        set_session_cookie(
+            response,
+            realm=realm,
+            token="issued-token",
+            request=request,
+            absolute_expires_at=datetime.now(UTC) + timedelta(hours=1),
+        )
         header = response.headers["set-cookie"]
         name = header.split("=", 1)[0]
         echoed = _request(scheme=scheme, cookie=f"{name}=issued-token")
