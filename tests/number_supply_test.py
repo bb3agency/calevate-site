@@ -28,6 +28,7 @@ from decimal import Decimal
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import service as agents_service
+from apps.api.billing import number_rental
 from apps.api.billing.number_rental import record_number_rental, rental_ref
 from apps.api.campaigns import number_supply, provisioning
 from apps.api.core.errors import ProblemError
@@ -542,6 +543,23 @@ async def test_one_tenants_bought_number_is_invisible_to_another(authorized: Non
             )
         ).scalar()
     assert seen == 0
+
+
+def test_the_rental_key_is_minted_in_the_shape_the_meter_asserts() -> None:
+    """The namespace is OURS and the SHAPE is what makes the idempotency meaningful — one
+    row per number per IST billing month. `record_number_rental` asserts the shape as its
+    postcondition and can never be handed a wrong one (`rental_ref` is the only mint), so
+    the mint is where the contract is testable: it holds here, and a month it cannot parse
+    is refused rather than turned into a key no month will ever collide with.
+    """
+    number_id = uuid7()
+    minted = rental_ref(number_id, "2026-09")
+    assert minted == f"number_rental:{number_id}:2026-09"
+    assert number_rental._REF_RE.match(minted), minted
+
+    with pytest.raises(ProblemError) as refused:
+        rental_ref(number_id, "2026-13")
+    assert refused.value.code == "invalid_billing_month"
 
 
 def test_the_search_query_is_the_vendors_own_two_country_enum() -> None:

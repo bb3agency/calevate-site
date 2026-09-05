@@ -20,7 +20,7 @@ from decimal import Decimal
 
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.billing.service import get_balance, record_entry
+from apps.api.billing.service import get_balance, record_entry, usage_summary
 from apps.api.billing.trials import (
     DEFAULT_ERASURE_GRACE_DAYS,
     MAX_TRIAL_DAYS,
@@ -88,6 +88,35 @@ async def test_a_trial_bypasses_the_credit_gate_without_a_single_ledger_row() ->
         ).scalar()
     assert balance.amount_inr == Decimal("0")
     assert rows == 0
+
+
+async def test_a_trial_offers_no_runway_number_rather_than_one_nobody_can_spend() -> None:
+    """*"their dashboard should show the usage and all but should not charge them
+    anything"*. A trial bypasses the credit gate entirely, so the wallet is not what limits
+    this client's calling and "about N minutes left" priced off that wallet would be a
+    number they cannot spend down. `None` is the panel's own word for "no answer"
+    (`prepaid_minutes_left`) — publishing 0 would tell a client with a working service that
+    it had stopped.
+
+    The same wallet, once the trial has ended, DOES answer — so the `None` above is the
+    trial suppressing the figure and not the runway calculation having quietly stopped
+    working.
+    """
+    tenant_id, _ = await _org()
+    async with tenant_session(tenant_id) as session:
+        await record_entry(
+            session, tenant_id=tenant_id, delta=Decimal("300.00"), reason="topup", ref="rzp_trial"
+        )
+        await start_trial(session, tenant_id=tenant_id, days=14, actor_user_id=None)
+        during = await usage_summary(session, tenant_id=tenant_id)
+        await end_trial(session, tenant_id=tenant_id, outcome="converted", reason="They bought.")
+        after = await usage_summary(session, tenant_id=tenant_id)
+
+    assert during["trial"]["active"] is True
+    assert during["minutes_left"] is None, "a wallet is not what bounds a trial"
+    assert during["month_charges_inr"] == Decimal("0.00"), "nothing is charged during a trial"
+    assert after["trial"]["active"] is False
+    assert after["minutes_left"] == 60, "₹300 at the ₹5/min list price, once the trial is over"
 
 
 async def test_a_trial_past_its_end_date_stops_bypassing_before_any_sweep_runs() -> None:

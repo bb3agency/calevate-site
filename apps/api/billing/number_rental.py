@@ -172,8 +172,15 @@ async def record_number_rental(
             "number whose cost could not be read"
         )
     ref = rental_ref(number_id, month)
-    if not _REF_RE.match(ref):  # pragma: no cover - `rental_ref` is the only mint
-        raise ValueError("a number rental ref must be minted by `rental_ref`")
+    # AN `assert`, NOT AN `if`/`raise`, AND THE DIFFERENCE IS THE POINT. `rental_ref` is
+    # the only mint: it takes a `UUID` and a month `parse_billing_month` has already
+    # refused unless it is `YYYY-MM`, so a ref of the wrong shape is not a state this
+    # function can be handed. Written as a branch it was an arm no test could ever enter,
+    # which is why it carried a coverage suppression — and a suppressed branch on a money
+    # path is one nobody will ever see fail. The invariant is worth STATING (the namespace
+    # is ours and idempotency is a switch that turns metering off), so it stays as the
+    # postcondition it always was, with `rental_ref`'s own shape pinned by a test instead.
+    assert _REF_RE.match(ref), "a number rental ref must be minted by `rental_ref`"
     cost, fx_source, fx_as_of = rental_inr(monthly_rental_usd)
     # Hard rule 6: the number's ROW id and the carrier, never the E.164.
     meta = {

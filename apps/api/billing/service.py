@@ -615,9 +615,14 @@ async def credit_totals(session: AsyncSession, *, tenant_id: UUID) -> CreditTota
                 "granted": list(GRANTED_CREDIT_REASONS),
             },
         )
-    ).first()
-    if row is None:
-        return CreditTotals(paid_inr=Decimal("0"), granted_inr=Decimal("0"))
+    ).one()
+    # `.one()`, not `.first()` plus a `row is None` guard, for `ops/secret_service.py`'s
+    # reason: a SUM over no rows is one row of zeroes (the `COALESCE` above is what makes
+    # them zeroes rather than NULLs), so a wallet with no ledger at all still returns a
+    # row and the guard was unreachable. An unreachable branch on a money path is one
+    # nobody will ever see fail; if the impossible ever happens, SQLAlchemy raises
+    # `NoResultFound` here and the traceback points at this line rather than at a pair of
+    # zeroes we invented for a query that answered nothing.
     # `Decimal(str(...))` on every NUMERIC read — `_newest_balance` argues the one character.
     return CreditTotals(paid_inr=Decimal(str(row[0])), granted_inr=Decimal(str(row[1])))
 
