@@ -491,3 +491,56 @@ async def test_a_dead_island_after_a_live_one_cannot_be_read_as_the_run() -> Non
     started = await session_run.current_run_start(realm="client", subject_id=user_id)
     assert started is not None
     assert abs((started - anchor).total_seconds()) < 1
+
+
+async def test_the_conversation_survives_a_sign_out_on_one_of_two_devices() -> None:
+    """THE FOUNDER'S EXPLICIT ANSWER, at the level a client experiences it (D-542).
+
+    `test_signing_out_one_device_does_not_end_the_run` pins the DERIVATION; this pins the
+    consequence, which is the thing that was promised: the thread open on the desktop is
+    still there after the phone signs out. The two are worth having separately — a
+    conversation could be lost to `_drop_stale` even with a stable run if a read ever
+    stamped its own `now` instead of carrying the run it was given.
+    """
+    tenant_id, user_id = await _tenant_with_user()
+    now = datetime.now(UTC)
+    phone = await _open_session(
+        user_id, started=now - timedelta(hours=2), ends=now + timedelta(hours=6)
+    )
+    await _open_session(user_id, started=now - timedelta(hours=1), ends=now + timedelta(hours=6))
+
+    run = await session_run.current_run_start(realm="client", subject_id=user_id)
+    assert run is not None
+    async with tenant_session(tenant_id) as session:
+        await transcript.append_exchange(
+            session,
+            realm=transcript.CLIENT,
+            owner_id=user_id,
+            tenant_id=tenant_id,
+            run_started_at=run,
+            screen_route="/leads",
+            question="what did the last caller want",
+            answer="A quote for a deep clean.",
+        )
+
+    async with credential_session() as session:
+        await session.execute(
+            text(
+                "UPDATE auth_sessions SET revoked_at = now(), revoked_reason = 'signed_out' "
+                "WHERE id = :id"
+            ),
+            {"id": phone},
+        )
+
+    # The desktop asks again. Its run is re-derived from scratch, and the load — which
+    # DELETES every turn of any other run before it reads — must still find the exchange.
+    after = await session_run.current_run_start(realm="client", subject_id=user_id)
+    assert after == run
+    async with tenant_session(tenant_id) as session:
+        page = await transcript.load(
+            session, realm=transcript.CLIENT, owner_id=user_id, run_started_at=after
+        )
+    assert [turn.content for turn in page.turns] == [
+        "what did the last caller want",
+        "A quote for a deep clean.",
+    ]
