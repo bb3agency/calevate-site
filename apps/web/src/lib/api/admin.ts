@@ -47,6 +47,8 @@ export type CreateOrgOut = Schemas["CreateOrgOut"];
 export type InviteOut = Schemas["InviteOut"];
 /** One redeemable invitation, address masked (`admin/routes.py::PendingInviteOut`). */
 export type PendingInviteOut = Schemas["PendingInviteOut"];
+/** What a resend did — the new expiry and the send count (`admin/routes.py::ResendInviteOut`). */
+export type ResendInviteOut = Schemas["ResendInviteOut"];
 export type PlatformState = Schemas["PlatformStateOut"];
 export type KbSource = Schemas["SourceOut"];
 export type KbChunk = Schemas["ChunkOut"];
@@ -396,6 +398,37 @@ export function useRevokeTenantInvitation() {
         adminSession(),
         `/v1/admin/tenants/${tenantId}/invitations/${invitationId}`,
         { method: "DELETE" },
+      ),
+    onSuccess: (_data, { tenantId }) =>
+      client.invalidateQueries({ queryKey: ["admin", "invitations", tenantId] }),
+  });
+}
+
+/**
+ * Send an unredeemed invitation's link AGAIN — the founder's own ask, verbatim: *"the
+ * invite link can be re-sent via the admin panel for a client business until that mail
+ * sets up their business"* (D-538).
+ *
+ * The route, the token rotation, the two-minute/ten-send rate limit and the audit row all
+ * shipped with D-538 and NOTHING IN THIS CONSOLE CALLED THEM, so the requirement was met
+ * by an endpoint an operator had no way to reach. This is that button's client.
+ *
+ * It rotates the token on the SAME row, so the previous link dies in the statement that
+ * mints the new one — which is why this is not "revoke, then invite again" and why the
+ * list has to be refetched: `expires_at`, `last_sent_at` and `send_count` all moved.
+ *
+ * The address CORRECTION half of the route (`email` + `attestation`) is deliberately not
+ * offered here: it is an operator attestation about a mailbox nothing verified, and it
+ * needs its own confirmation and its own note field rather than riding a one-click resend.
+ */
+export function useResendTenantInvitation() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ tenantId, invitationId }: { tenantId: string; invitationId: string }) =>
+      apiRequest<ResendInviteOut>(
+        adminSession(),
+        `/v1/admin/tenants/${tenantId}/invitations/${invitationId}/resend`,
+        { method: "POST", body: {} },
       ),
     onSuccess: (_data, { tenantId }) =>
       client.invalidateQueries({ queryKey: ["admin", "invitations", tenantId] }),

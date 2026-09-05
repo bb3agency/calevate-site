@@ -37,6 +37,7 @@ import { previewSlug, slugIsDerivable } from "@/lib/api/signup";
 import {
   useCreateTenant,
   useInvite,
+  useResendTenantInvitation,
   useRevokeTenantInvitation,
   useTenantInvitations,
   type CreateOrgIn,
@@ -790,6 +791,13 @@ function CreatedPanel({
 }) {
   const invite = useInvite();
   const revoke = useRevokeTenantInvitation();
+  // THE FOUNDER'S OWN ASK, and until now the only route in D-538 with no caller: *"the
+  // invite link can be re-sent via the admin panel ... until that mail sets up their
+  // business"*. The endpoint, the rotation, the rate limit and the audit row all shipped;
+  // the operator staring at `invitation_already_pending` could only CANCEL, which throws
+  // away a live key to fix a mail that simply never arrived. Resending is the answer to
+  // that refusal far more often than cancelling is, so it stands beside it.
+  const resend = useResendTenantInvitation();
   const [email, setEmail] = useState(defaultEmail);
   // WAS the raw token, rendered on screen. D-198 removed it from the response and put the
   // link in the invitee's mailbox instead, so what is remembered here is the ADDRESS it was
@@ -945,6 +953,13 @@ function CreatedPanel({
           {invite.error && <ProblemNotice error={invite.error} />}
           {refusal && <p className="text-xs text-ink-muted">{refusal}</p>}
           {revoke.error && <ProblemNotice error={revoke.error} />}
+          {resend.error && <ProblemNotice error={resend.error} />}
+          {resend.data && (
+            <p className="text-xs text-ink-muted">
+              A new link is on its way to {resend.data.email}. The previous one has stopped
+              working, and this one expires {formatIST(resend.data.expires_at)}.
+            </p>
+          )}
 
           {blockedByPending && !cancellable && (
             <div className="space-y-2">
@@ -972,6 +987,16 @@ function CreatedPanel({
                     </span>
                     <button
                       type="button"
+                      disabled={resend.isPending}
+                      className={SECONDARY_BUTTON}
+                      onClick={() =>
+                        resend.mutate({ tenantId: created.id, invitationId: row.id })
+                      }
+                    >
+                      Send this invite again
+                    </button>
+                    <button
+                      type="button"
                       disabled={revoke.isPending}
                       className={SECONDARY_BUTTON}
                       onClick={() =>
@@ -988,6 +1013,20 @@ function CreatedPanel({
 
           {cancellable && (
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={resend.isPending}
+                className={SECONDARY_BUTTON}
+                onClick={() => {
+                  // The old confirmation goes: "sent to …" described a link this rotation
+                  // has just killed, and leaving it beside the new one is two claims about
+                  // one mailbox.
+                  setSentTo(null);
+                  resend.mutate({ tenantId: created.id, invitationId: cancellable });
+                }}
+              >
+                Send it again
+              </button>
               <button
                 type="button"
                 disabled={revoke.isPending}

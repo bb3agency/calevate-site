@@ -10,12 +10,23 @@
  *
  * ## What a second device sees, since it is the question this design has to answer
  *
- * It sees everything up to the moment it loaded, plus whatever it says itself. There is
- * no realtime channel and none is built: this is one person's conversation with an
- * assistant, not shared state, and a person is not usually typing into two devices at
- * once. Both devices write to the same rows, so nothing is lost — the second device's
- * next load shows the first device's turns in their real order. Buying convergence would
- * mean a socket or a poll behind every open panel for a case whose cost is a reload.
+ * **IT REFRESHES WHEN YOU COME BACK TO THE TAB, AND THAT IS THE WHOLE SYNC MODEL.** The
+ * founder's decision, and it is bought with `refetchOnWindowFocus` — the option this
+ * console already runs on by default (`app/providers.tsx` sets no other) — plus one
+ * refetch after anything this device sends. So a phone and a desktop converge the moment
+ * either is looked at, and there is no socket, no poll and no channel behind an open panel.
+ *
+ * The alternatives were priced and each buys nothing here. **SSE is one-way**, so a panel
+ * on it still needs a separate request to send anything and the send is what already
+ * refreshes us ("Long polling vs WebSockets", getstream.io, read 5 Sep 2026 — ⚠ EVIDENCE
+ * CLASS: REPORTED, the host is egress-blocked from this container and the reading was
+ * relayed). **Multi-connection ordering needs application-level sequence numbers**, and
+ * timestamp last-write-wins has known defects (Ably, "reliable message ordering", same
+ * date and same class) — a focus refetch sidesteps that entirely, because the SERVER's
+ * `created_at, id` order is the only order anybody ever renders.
+ *
+ * Both devices write to the same rows, so nothing is lost either way; what the refetch
+ * adds is that neither has to be reloaded to see the other.
  *
  * ## `content` is the redacted form, and that is visible
  *
@@ -26,6 +37,8 @@
  * are the same string on a loaded turn. That is the cost of not keeping a caller's digits
  * in a durable row, and it is the right way round.
  */
+
+import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { apiRequest, type Session } from "@/lib/api/client";
 
@@ -77,10 +90,55 @@ export async function loadConversation(
     `${conversationPath(realm)}?limit=${CONVERSATION_PAGE}`,
   );
   return body.turns.map((turn) => ({
+    id: turn.id,
     role: turn.role,
     content: turn.content,
     wire: turn.content,
   }));
+}
+
+/**
+ * The cache key.
+ *
+ * Per REALM, because the two realms are two conversations in two tables — and per ORG
+ * SLUG, because one `QueryClient` outlives a switch between accounts (D-22 "View as
+ * client") and the key is the only thing keeping two tenants' cached data apart. The
+ * admin conversation is not per-tenant, so the slug there only costs a refetch when the
+ * account on screen changes; a shared key would cost the wrong thread on screen, which is
+ * not a trade worth making for one request.
+ */
+export function conversationKey(orgSlug: string, realm: "client" | "admin"): readonly unknown[] {
+  return ["copilot", "conversation", orgSlug, realm];
+}
+
+/**
+ * The stored conversation as a query, so the tab getting focus refreshes it.
+ *
+ * `staleTime: 0` rather than the client default of ten seconds: the whole point is that
+ * coming back to the tab shows what the other device said, and a ten-second window in
+ * which focus does nothing is the one case a person would notice ("I sent it on my phone
+ * and the laptop still doesn't have it").
+ *
+ * `refetchOnWindowFocus` and `refetchOnReconnect` are handed the SAME predicate, and it is
+ * the one rule this query has: **never refetch while an answer is streaming.** The panel
+ * appends its turns to this cache as they complete, so a refetch that landed mid-exchange
+ * would replace the list with a server page taken before the question was asked — the
+ * person would watch their own message disappear. `streaming()` reads a ref, so the answer
+ * is the truth at the instant focus fires rather than whatever a render last captured.
+ */
+export function useConversation(
+  session: Session,
+  realm: "client" | "admin" | null,
+  streaming: () => boolean,
+): UseQueryResult<CopilotTurn[]> {
+  return useQuery({
+    queryKey: conversationKey(session.orgSlug, realm ?? "client"),
+    queryFn: () => loadConversation(session, realm ?? "client"),
+    enabled: realm !== null,
+    staleTime: 0,
+    refetchOnWindowFocus: () => !streaming(),
+    refetchOnReconnect: () => !streaming(),
+  });
 }
 
 /** Forget it, on every device. Returns how many turns were removed. */

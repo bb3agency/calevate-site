@@ -275,6 +275,17 @@ export function CopilotPanel({
               <Skeleton rows={2} label="Loading your conversation…" />
             </div>
           )}
+          {/* THE HISTORY DID NOT LOAD, said plainly. An empty panel shown to somebody who
+              has a conversation reads as "it forgot", and that impression is exactly what
+              a durable transcript exists to remove — so silence here is the one answer
+              that must not be given. `aria-hidden` for the skeleton's reason: it is a
+              status about the panel, not an answer, and the live region is for answers. */}
+          {conversation.historyUnavailable && !conversation.loading && (
+            <p aria-hidden className="text-xs text-ink-muted">
+              Your earlier messages could not be loaded just now — they are not lost. You
+              can still ask a question; reopen the assistant to try again.
+            </p>
+          )}
           {conversation.turns.map((turn, index) =>
             // The PERSON'S turn stays literal `pre-wrap`: they typed what they typed, and
             // rendering their asterisks as emphasis would edit their own words back at
