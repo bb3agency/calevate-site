@@ -62,6 +62,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.copilot.memory import redacted_content
+from apps.api.copilot.schemas import CopilotConversationOut, CopilotStoredTurnOut
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 
@@ -351,6 +352,42 @@ async def clear(session: AsyncSession, *, realm: _Realm, owner_id: UUID) -> int:
     return int(rowcount_of(result) or 0)
 
 
+def turn_cursor(before: str | None) -> UUID | None:
+    """The `before` cursor as a uuid, or None.
+
+    A MALFORMED CURSOR IS `None`, NOT A 422. It is an opaque token this API issued, so a
+    client sending a broken one is a client with a stale page — and answering the newest
+    page is a recovery, where a validation error is a chat panel that refuses to open and
+    cannot be talked out of it. The value is a predicate on the caller's OWN rows
+    (`transcript._load_sql` scopes the sub-select on the owner too), so an invented one
+    reaches nothing.
+    """
+    if before is None:
+        return None
+    try:
+        return UUID(before)
+    except ValueError:
+        return None
+
+
+def conversation_out(page: ConversationPage) -> CopilotConversationOut:
+    return CopilotConversationOut(
+        turns=[
+            CopilotStoredTurnOut(
+                id=str(turn.id),
+                # `role` is a CHECK-constrained column, so the cast is a type assertion
+                # rather than a trust decision — the database admits no third value.
+                role="user" if turn.role == "user" else "assistant",
+                content=turn.content,
+                screen_route=turn.screen_route,
+                said_at=turn.said_at,
+            )
+            for turn in page.turns
+        ],
+        has_more=page.has_more,
+    )
+
+
 __all__ = [
     "ADMIN",
     "CLIENT",
@@ -361,5 +398,7 @@ __all__ = [
     "StoredTurn",
     "append_exchange",
     "clear",
+    "conversation_out",
     "load",
+    "turn_cursor",
 ]

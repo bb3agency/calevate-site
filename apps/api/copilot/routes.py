@@ -40,7 +40,6 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncIterator
 from typing import Annotated
-from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
@@ -62,7 +61,6 @@ from apps.api.copilot.schemas import (
     CopilotDoneEvent,
     CopilotFact,
     CopilotFillEvent,
-    CopilotStoredTurnOut,
     CopilotTextEvent,
 )
 from apps.api.core.auth import client_request_ip, requires
@@ -73,43 +71,6 @@ from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.crm.assist import ASSIST_FEATURE_COPILOT, meter_assist
 from apps.api.db.session import tenant_session
-
-
-def _turn_cursor(before: str | None) -> UUID | None:
-    """The `before` cursor as a uuid, or None.
-
-    A MALFORMED CURSOR IS `None`, NOT A 422. It is an opaque token this API issued, so a
-    client sending a broken one is a client with a stale page — and answering the newest
-    page is a recovery, where a validation error is a chat panel that refuses to open and
-    cannot be talked out of it. The value is a predicate on the caller's OWN rows
-    (`transcript._load_sql` scopes the sub-select on the owner too), so an invented one
-    reaches nothing.
-    """
-    if before is None:
-        return None
-    try:
-        return UUID(before)
-    except ValueError:
-        return None
-
-
-def _conversation_out(page: transcript.ConversationPage) -> CopilotConversationOut:
-    return CopilotConversationOut(
-        turns=[
-            CopilotStoredTurnOut(
-                id=str(turn.id),
-                # `role` is a CHECK-constrained column, so the cast is a type assertion
-                # rather than a trust decision — the database admits no third value.
-                role="user" if turn.role == "user" else "assistant",
-                content=turn.content,
-                screen_route=turn.screen_route,
-                said_at=turn.said_at,
-            )
-            for turn in page.turns
-        ],
-        has_more=page.has_more,
-    )
-
 
 log = get_logger(__name__)
 
@@ -898,9 +859,9 @@ async def load_copilot_conversation(
         owner_id=principal.user_id,
         run_started_at=run_started_at,
         limit=limit,
-        before=_turn_cursor(before),
+        before=transcript.turn_cursor(before),
     )
-    return _conversation_out(page)
+    return transcript.conversation_out(page)
 
 
 @router.delete(

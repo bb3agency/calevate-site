@@ -53,19 +53,21 @@ from collections.abc import AsyncIterator
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Body, Depends, Request
+from fastapi import APIRouter, Body, Depends, Query, Request
 from fastapi.sse import EventSourceResponse, ServerSentEvent
 from sqlalchemy import text
 
 from apps.api.billing.ai_quota import new_assist_ref
 from apps.api.billing.platform_ai import require_platform_ai
 from apps.api.compliance.audit import write_audit
-from apps.api.copilot import admin_memory, memory, service, write_tools
+from apps.api.copilot import admin_memory, memory, service, session_run, transcript, write_tools
 from apps.api.copilot import prompt as prompt_module
 from apps.api.copilot.context import live_state_block
 from apps.api.copilot.sanitize import assert_redacted
 from apps.api.copilot.schemas import (
     AdminCopilotAskIn,
+    CopilotConversationClearedOut,
+    CopilotConversationOut,
     CopilotDoneEvent,
     CopilotFact,
     CopilotFillEvent,
@@ -118,6 +120,24 @@ client's.
 
 Requires `copilot:admin` — held by operators and superadmins.\
 """
+
+
+def _operator_id(principal: Principal) -> UUID:
+    """The operator's `admin_users.id`, or a refusal.
+
+    Unreachable through `requires("copilot:admin", realm="admin")`, which resolves it.
+    Raised rather than answered with an empty page, because "you have no conversation" is
+    a false statement to make to somebody whose conversation we merely failed to look up.
+    """
+    if principal.user_id is None:  # pragma: no cover - the realm dependency resolves it
+        raise ProblemError(
+            kind="permission",
+            code="copilot_conversation_not_yours",
+            title="The assistant's conversation belongs to a person",
+            detail="This credential is not an operator, so it has no conversation.",
+            remediation="Sign in to the operator console and open the assistant there.",
+        )
+    return principal.user_id
 
 
 def _error_event(problem: ProblemError) -> ServerSentEvent:
@@ -288,6 +308,15 @@ async def ask_admin_copilot(
     acted: list[str] = []
     answer_parts: list[str] = []
 
+    # WHICH SIGN-IN RUN THIS ANSWER BELONGS TO (D-540) — the admin realm's own, so an
+    # operator's conversation ends with their shift and never leaks into the next one.
+    # Read before the model call for `copilot/routes.py`'s reason.
+    run_started_at = (
+        await session_run.current_run_start(realm="admin", subject_id=principal.user_id)
+        if principal.user_id is not None
+        else None
+    )
+
     # 4. THE METER, THE AUDIT AND THE MEMORY, in ONE transaction of their own — the record
     #    of a payment that has already happened. Nothing between the run and the meter may
     #    raise: a completed answer is money spent whether or not it was any good.
@@ -375,6 +404,25 @@ async def ask_admin_copilot(
             # 5. THE MEMORY, after the audit so a memory write can never be what stops an
             #    `audit_log` entry landing, and in the same transaction so a memory of an
             #    answer whose ledger rows rolled back is unreachable.
+            # 5a. THE TRANSCRIPT (D-540), before the memory and in the same transaction,
+            #     for `copilot/routes.py`'s reason: what the PERSON can scroll goes first,
+            #     because a loss between the two should fall on the copy nobody can tell
+            #     is missing. The admin table carries no tenant and no retention category
+            #     — see `copilot/models.AdminCopilotConversationTurn` — so this thread's
+            #     whole clock is the operator's own 8-hour absolute session bound.
+            if run_started_at is not None:
+                await transcript.append_exchange(
+                    record_session,
+                    realm=transcript.ADMIN,
+                    owner_id=principal.user_id,
+                    # The account on screen, which on this table is `viewing_tenant_id`:
+                    # context, never ownership.
+                    tenant_id=tenant_id,
+                    run_started_at=run_started_at,
+                    screen_route=payload.screen.route,
+                    question=payload.question,
+                    answer="".join(answer_parts),
+                )
             await admin_memory.remember_exchange(
                 record_session,
                 admin_user_id=principal.user_id,
@@ -520,6 +568,68 @@ async def ask_admin_copilot(
             metered=metered,
         ),
     )
+
+
+@router.get(
+    "/copilot/conversation",
+    response_model=CopilotConversationOut,
+    openapi_extra=permission_meta("copilot:admin"),
+    summary="The operator's own conversation with the admin assistant — durable, paged",
+)
+async def load_admin_copilot_conversation(
+    principal: AdminCopilotUser,
+    limit: Annotated[int, Query(ge=1, le=transcript.PAGE_MAX)] = transcript.PAGE_DEFAULT,
+    before: Annotated[str | None, Query()] = None,
+) -> CopilotConversationOut:
+    """One page of this operator's live conversation (D-540).
+
+    `untenanted_session`, and it is the correct one rather than a convenient one:
+    `admin_copilot_conversation_turns` carries no `tenant_id` and no policy (these are the
+    platform's own rows — `db/registry.py` holds the standing justification), so there is
+    no tenant to scope to and `admin_session` would widen `organizations` for no reason.
+    The `admin_user_id` predicate is the whole of the scoping, exactly as on
+    `admin_copilot_memories`.
+
+    The thread is NOT scoped on the account the operator happens to be viewing. It is one
+    conversation and it follows them across screens — which is the founder's decision 3
+    (the screen is recorded per message) applied to a console where "the screen" includes
+    "whose account". `viewing_tenant_id` is on every row, so the provenance of a turn is
+    recoverable; what is not on offer is a separate thread per client, which would change
+    underneath an operator the moment the assistant moved them.
+    """
+    operator = _operator_id(principal)
+    run_started_at = await session_run.current_run_start(realm="admin", subject_id=operator)
+    if run_started_at is None:
+        return CopilotConversationOut(turns=[], has_more=False)
+    async with untenanted_session() as session:
+        page = await transcript.load(
+            session,
+            realm=transcript.ADMIN,
+            owner_id=operator,
+            run_started_at=run_started_at,
+            limit=limit,
+            before=transcript.turn_cursor(before),
+        )
+    return transcript.conversation_out(page)
+
+
+@router.delete(
+    "/copilot/conversation",
+    response_model=CopilotConversationClearedOut,
+    openapi_extra=permission_meta("copilot:admin"),
+    summary="Start again — forget this operator's assistant conversation",
+)
+async def clear_admin_copilot_conversation(
+    principal: AdminCopilotUser,
+) -> CopilotConversationClearedOut:
+    """Forget this operator's whole conversation. No audit row, for the client route's
+    reason: what is audited is every answer and every change, not a person clearing a
+    panel."""
+    async with untenanted_session() as session:
+        cleared = await transcript.clear(
+            session, realm=transcript.ADMIN, owner_id=_operator_id(principal)
+        )
+    return CopilotConversationClearedOut(cleared=cleared)
 
 
 __all__ = ["router"]
