@@ -39,8 +39,14 @@ from tests.poller_guarantee_test import _age, _staged
 def _stub_storage(monkeypatch: pytest.MonkeyPatch) -> None:
     """The recording copy needs a bucket; nothing here is about object storage."""
 
-    async def _fake_copy(*, source_url: str, tenant_id: uuid.UUID, call_id: uuid.UUID) -> str:
-        return f"recordings/{tenant_id}/{call_id}.wav"
+    async def _fake_copy(
+        *, source_url: str, tenant_id: uuid.UUID, call_id: uuid.UUID, leg: str = "call"
+    ) -> str:
+        # `leg` NAMES WHICH OF A CALL'S TWO RECORDINGS (D-533): a call handed to a
+        # person has a second one, and the two must not land on one key. Defaulted so
+        # this stub reads the way the pipeline calls it for an ordinary call.
+        suffix = "" if leg == "call" else "-transfer"
+        return f"recordings/{tenant_id}/{call_id}{suffix}.wav"
 
     monkeypatch.setattr(pipeline_module, "copy_recording", _fake_copy)
 

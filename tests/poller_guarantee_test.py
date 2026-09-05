@@ -56,8 +56,14 @@ RUN = uuid.uuid4().hex[:12]
 def _stub_storage(monkeypatch: pytest.MonkeyPatch) -> None:
     """The recording copy needs a bucket; nothing here is about object storage."""
 
-    async def _fake_copy(*, source_url: str, tenant_id: UUID, call_id: UUID) -> str:
-        return f"recordings/{tenant_id}/{call_id}.wav"
+    async def _fake_copy(
+        *, source_url: str, tenant_id: UUID, call_id: UUID, leg: str = "call"
+    ) -> str:
+        # `leg` NAMES WHICH OF A CALL'S TWO RECORDINGS (D-533): a call handed to a
+        # person has a second one, and the two must not land on one key. Defaulted so
+        # this stub reads the way the pipeline calls it for an ordinary call.
+        suffix = "" if leg == "call" else "-transfer"
+        return f"recordings/{tenant_id}/{call_id}{suffix}.wav"
 
     monkeypatch.setattr(pipeline, "copy_recording", _fake_copy)
 

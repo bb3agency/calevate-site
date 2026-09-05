@@ -141,6 +141,12 @@ class Call(PKMixin, TimestampMixin, Base):
     ended_at: Mapped[datetime | None]
     duration_s: Mapped[int | None] = mapped_column(Integer)
     recording_url: Mapped[str | None] = mapped_column(Text)  # OUR storage, never engine's
+    # THE SECOND RECORDING — the transferred leg, when this call was handed to a person
+    # (D-533, migration b8d1f04c73a9). OUR object key on the same terms as the column
+    # above: same bucket, same `recordings/` prefix, same retention clock, cleared by the
+    # same sweep and the same erasure. NULL on every call that never handed over, which is
+    # almost all of them.
+    transfer_recording_url: Mapped[str | None] = mapped_column(Text)
     disclosure_played: Mapped[bool | None] = mapped_column(Boolean)
     consent_recording: Mapped[str | None] = mapped_column(String)
     outcome_tag: Mapped[str | None] = mapped_column(String)

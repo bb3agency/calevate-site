@@ -34,7 +34,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from hashlib import sha256
-from typing import Any, Literal, NoReturn
+from typing import Any, Final, Literal, NoReturn
 from uuid import UUID
 
 from arq import Retry
@@ -106,6 +106,7 @@ from apps.api.reliability.service import (
     mark_inbox_failed,
     mark_inbox_processed,
 )
+from apps.workers import storage
 from apps.workers.extraction import extract_call
 from apps.workers.handoff import settle_handoff
 from apps.workers.moments import derive_moments, merge_moments
@@ -741,9 +742,73 @@ async def run_post_call_pipeline(ctx: dict[str, Any], payload: dict[str, Any]) -
         )
 
 
-async def _copy_recording_once(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> str:
-    """Pull the engine's audio into our bucket, ONCE per call however many times the
-    pipeline runs. Returns what happened, for the stage span.
+#: Which recording of a call, and which column holds OUR key for it once it is copied.
+#:
+#: **A TABLE RATHER THAN A SECOND FUNCTION** (D-533). A call that was handed to a person
+#: has two recordings, and the second one needs exactly what the first needs: the same
+#: fetch with the same address vetting and the same byte cap, the same "have we already
+#: copied it" guard, the same bucket and prefix, the same retention clock and the same
+#: erasure. Everything that could differ is in this table; everything else is one function
+#: below. A `_copy_transfer_recording_once` beside it would have been the D-103 defect on
+#: the one path where being wrong loses a caller's voice.
+_RECORDING_LEGS: Final[tuple[tuple[storage.RecordingLeg, str], ...]] = (
+    ("call", "recording_url"),
+    ("transfer", "transfer_recording_url"),
+)
+
+
+async def _copy_recordings(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) -> str:
+    """Both of this call's recordings, each copied at most once. One outcome per leg.
+
+    THE SECOND LEG EXISTS ONLY WHEN A CALLER WAS HANDED TO A PERSON, which is why its
+    absence is `none_offered` and not a failure: `snapshot.handoff` is None on every call
+    the AI handled alone.
+
+    **EACH LEG FAILS ON ITS OWN.** A `StorageUnavailableError` on either raises and the
+    whole job retries, which is right — a lost recording is unrecoverable — but the
+    already-copied guard means the retry does not re-fetch the leg that succeeded. Order is
+    first leg then second, deliberately: the AI half is the one every call has and the one
+    the 90-day floor is written about, so a partial success keeps the more important half.
+
+    **WHAT THE SECOND LEG COSTS, SAID PLAINLY RATHER THAN LEFT TO BE DISCOVERED (D-533).**
+    It is object storage we pay for and **it is not metered** — and neither is the first
+    leg's: there is no storage unit type in `billing/models.CLIENT_BILLED_UNIT_TYPES` and
+    never has been, because recording storage is a fixed platform overhead bounded by the
+    `recordings/` lifecycle ceiling rather than a per-call vendor charge, which is what hard
+    rule 7's `unit_cost_paid` is about. So this change does not introduce an unmetered cost
+    class; it roughly DOUBLES an existing one, on escalated calls only. The ceiling is real
+    and computable: one object is capped at `storage.MAX_RECORDING_BYTES`
+    (`CALL_CAP_MAX_S * 32_000`), so a handed-over call is bounded by twice that. The
+    vendor's OWN charge for the transferred leg is a different and still-open question —
+    `handoff_attempts.leg_cost_reported` and OPERATIONS §2 gate 46c.
+    """
+    outcomes: list[str] = []
+    for leg, column in _RECORDING_LEGS:
+        source = (
+            snapshot.recording_url
+            if leg == "call"
+            else (snapshot.handoff.recording_url if snapshot.handoff is not None else None)
+        )
+        outcomes.append(
+            await _copy_recording_once(
+                tenant_id, call_id, source_url=source, leg=leg, column=column
+            )
+        )
+    return "+".join(
+        f"{leg}:{outcome}" for (leg, _), outcome in zip(_RECORDING_LEGS, outcomes, strict=True)
+    )
+
+
+async def _copy_recording_once(
+    tenant_id: UUID,
+    call_id: UUID,
+    *,
+    source_url: str | None,
+    leg: storage.RecordingLeg,
+    column: str,
+) -> str:
+    """Pull ONE of the engine's recordings into our bucket, ONCE per call however many
+    times the pipeline runs. Returns what happened, for the stage span.
 
     **THE GUARD IS THE POINT, AND IT IS ABOUT RE-DRIVES, NOT ABOUT SAVING BANDWIDTH
     (D-148).**
@@ -798,12 +863,15 @@ async def _copy_recording_once(tenant_id: UUID, call_id: UUID, snapshot: Executi
     Storage failures still raise, and must: a lost recording is unrecoverable and TRAI's
     90-day floor is our obligation, not the vendor's.
     """
-    if not snapshot.recording_url:
+    if not source_url:
         return "none_offered"
+    # `column` is OURS — it comes from `_RECORDING_LEGS`, a module constant of two literals,
+    # and never from a payload or a caller's argument. Named here because an interpolated
+    # identifier is the shape a reader has to be able to dismiss in one glance.
     async with tenant_session(tenant_id) as session:
         held = (
             await session.execute(
-                text("SELECT recording_url FROM calls WHERE id = :id AND tenant_id = :tid"),
+                text(f"SELECT {column} FROM calls WHERE id = :id AND tenant_id = :tid"),
                 {"id": call_id, "tid": tenant_id},
             )
         ).scalar()
@@ -811,16 +879,22 @@ async def _copy_recording_once(tenant_id: UUID, call_id: UUID, snapshot: Executi
         return "already_copied"
     try:
         key = await copy_recording(
-            source_url=snapshot.recording_url, tenant_id=tenant_id, call_id=call_id
+            source_url=source_url, tenant_id=tenant_id, call_id=call_id, leg=leg
         )
     except StorageUnavailableError as exc:
         # Re-raise so ARQ retries (it is an `arq.Retry` subclass carrying its own defer).
-        alert("WORKER_DELIVERY", "recording_copy_failed", detail=str(exc), call_id=str(call_id))
+        alert(
+            "WORKER_DELIVERY",
+            "recording_copy_failed",
+            detail=str(exc),
+            call_id=str(call_id),
+            leg=leg,
+        )
         raise
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
-                "UPDATE calls SET recording_url = :key, updated_at = now() "
+                f"UPDATE calls SET {column} = :key, updated_at = now() "
                 "WHERE id = :id AND tenant_id = :tid"
             ),
             {"key": key, "id": call_id, "tid": tenant_id},
@@ -984,7 +1058,7 @@ async def _post_call_stages(tenant_id: UUID, call_id: UUID, execution_id: str) -
 
     # STEP 1 — recording first, always. Everything else can be recomputed.
     with span("pipeline.recording_copy", call_id=str(call_id)) as stage:
-        set_span_attributes(stage, outcome=await _copy_recording_once(tenant_id, call_id, snapshot))
+        set_span_attributes(stage, outcome=await _copy_recordings(tenant_id, call_id, snapshot))
 
     # STEP 1b — the vendor's own document, archived under this call's prefix (D-126).
     # After the recording because the recording is the artefact a third party can take

@@ -235,21 +235,19 @@ async def settle_handoff(
             "handoff_unreached_callback",
             extra={"tenant_id": str(tenant_id), "booked": booked},
         )
-    if leg.recording_present:
-        # A SECOND RECORDING OF THIS CALLER EXISTS AND WE DO NOT HOLD IT. Not copied under
-        # our retention policy, not reachable by a DPDP erasure, and served from the
-        # vendor's own route. Recorded as a column so a client's erasure can be answered
-        # honestly, and alarmed the first time per fingerprint so an operator knows the
-        # obligation is live rather than theoretical — OPERATIONS §2 gate 46b.
-        alert(
-            "CORE_LOGIC",
-            "handoff_leg_recording_unretained",
-            detail=(
-                "a transferred leg carries its own recording on the vendor's side, which "
-                "this system does not copy, retain or erase — OPERATIONS §2 gate 46b"
-            ),
-            engine_call_id=snapshot.engine_call_id,
-        )
+    # **THE `handoff_leg_recording_unretained` ALARM USED TO BE RAISED HERE AND IS GONE**
+    # (the founder's decision, 5 Sep 2026). It said that a second recording of this caller
+    # existed on the vendor's side which we did not copy, retain or erase — a standing
+    # obligation an operator had to be told about. It is no longer true: the transferred
+    # leg is fetched by `pipeline._copy_recordings` into `calls.transfer_recording_url`,
+    # expires on the same retention clock and is destroyed or scheduled by the same
+    # erasure. An alarm whose condition has been fixed is worse than no alarm — it teaches
+    # an operator to ignore the family. What can still go wrong is the FETCH, and that has
+    # its own alarm (`recording_copy_failed`, which now names the leg) and its own retry.
+    #
+    # `leg.recording_present` stays on the row, because "was there a second recording" is a
+    # question an erasure certificate and a retention answer still have to answer on a call
+    # whose bytes we could not get.
     return leg.outcome
 
 

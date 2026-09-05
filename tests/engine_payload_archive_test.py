@@ -44,8 +44,14 @@ def _stub_recording(monkeypatch: pytest.MonkeyPatch) -> None:
     """The recording copy is an environment concern; the archive is the subject. Same
     substitution `pipeline_audit_test` and `smoke_pipeline_test` both make."""
 
-    async def _fake_copy(*, source_url: str, tenant_id: UUID, call_id: UUID) -> str:
-        return f"recordings/{tenant_id}/{call_id}.wav"
+    async def _fake_copy(
+        *, source_url: str, tenant_id: UUID, call_id: UUID, leg: str = "call"
+    ) -> str:
+        # `leg` NAMES WHICH OF A CALL'S TWO RECORDINGS (D-533): a call handed to a
+        # person has a second one, and the two must not land on one key. Defaulted so
+        # this stub reads the way the pipeline calls it for an ordinary call.
+        suffix = "" if leg == "call" else "-transfer"
+        return f"recordings/{tenant_id}/{call_id}{suffix}.wav"
 
     monkeypatch.setattr("apps.workers.pipeline.copy_recording", _fake_copy)
 

@@ -832,14 +832,21 @@ async def _sweep_in_batches(
 # the floor by construction. Destroying the bytes at that moment is not the open decision
 # SEC-COMP §4 reserves — that one is about audio YOUNGER than the floor, which this
 # statement cannot select.
+# **BOTH RECORDINGS OF THE CALL, AND THE PREDICATE IS AN `OR` FOR A REASON** (D-533). A
+# call that was handed to a person holds two objects; a call whose first leg has already
+# been swept but which somehow still holds a transfer object must still be selectable, or
+# that object is unreachable for ever. `COALESCE`-ing the two into one column would have
+# meant deleting one and clearing both.
 _RECORDING_SELECT_SQL = f"""
-SELECT c.id, c.recording_url FROM calls c
-WHERE c.recording_url IS NOT NULL AND {_CLOCK} < :cutoff
+SELECT c.id, c.recording_url, c.transfer_recording_url FROM calls c
+WHERE (c.recording_url IS NOT NULL OR c.transfer_recording_url IS NOT NULL)
+  AND {_CLOCK} < :cutoff
 ORDER BY {_CLOCK} LIMIT :batch
 """
 
 _RECORDING_CLEAR_SQL = """
-UPDATE calls SET recording_url = NULL, updated_at = now() WHERE id = ANY(:ids)
+UPDATE calls SET recording_url = NULL, transfer_recording_url = NULL, updated_at = now()
+WHERE id = ANY(:ids)
 """
 
 # SCHEDULED DESTRUCTIONS — the erasures that were owed and could not yet be performed.
@@ -1064,9 +1071,20 @@ async def _sweep_objects_in_batches(
     before the object and you orphan the bytes; treat an outage as "nothing there" and you
     lose them silently), and the second and third copies are where the drift starts.
 
-    `select_sql` returns `(id, object_key)` oldest-first under `:batch`. `finish_sql`
-    takes `:ids` and must leave those rows no longer matching `select_sql`, so the loop
-    terminates. Returns (rows, deferred).
+    `select_sql` returns `(id, object_key, …)` oldest-first under `:batch`: the FIRST
+    column is the row id and **every column after it is an object key or NULL**.
+    `finish_sql` takes `:ids` and must leave those rows no longer matching `select_sql`, so
+    the loop terminates. Returns (rows, deferred).
+
+    **ONE ROW MAY NAME MORE THAN ONE OBJECT, and that widening is what let the transferred
+    leg join this machinery instead of getting a second copy of it (D-533).** A call that
+    was handed to a person has two recordings — the part the AI handled and the transferred
+    leg — and both have to die together, in one batch, before the pointers are cleared. The
+    alternative that was rejected was a SELECT emitting one row per object: it would have
+    let a call's two objects fall either side of a `LIMIT :batch`, and the clear then nulls
+    both pointers while one object is still in the bucket, which is precisely the orphaning
+    this function's shape exists to prevent. Keeping the row as the unit keeps that
+    property; the only thing that changed is how many keys a row may carry.
 
     A store that will not answer STOPS this arm rather than failing the tick: every other
     category still expires, the references stay pointing at objects that still exist, and
@@ -1082,7 +1100,11 @@ async def _sweep_objects_in_batches(
         if not rows:
             return done, False
         try:
-            await storage.delete_objects([str(row[1]) for row in rows])
+            # EVERY key on the row, not `row[1]` — see the docstring. `None` is a call
+            # with no second recording, which is almost all of them.
+            await storage.delete_objects(
+                [str(key) for row in rows for key in row[1:] if key is not None]
+            )
         except storage.StorageUnavailableError as exc:
             log.warning(deferred_event, extra={"reason": str(exc), "pending": len(rows)})
             return done, True
@@ -1472,11 +1494,19 @@ async def _erase_engine_payloads(
 # The recordings this erasure reached, split by whether destroying them is lawful TODAY.
 # Read BEFORE the pointer clear — afterwards the question is unanswerable, which is how
 # the whole collision stayed invisible.
+# BOTH RECORDINGS, for `_RECORDING_SELECT_SQL`'s reason and one that matters more here: an
+# erasure that reached the AI half of a call and left the transferred leg behind would issue
+# a certificate saying the recording was destroyed while a recording of the same person,
+# talking to a member of the client's staff, sat in the bucket. `unnest` rather than two
+# columns because the caller's loop is per OBJECT — a hold row is per object, and always
+# was (`recording_erasure_holds` is unique on `(tenant_id, object_key)`), so emitting one
+# row per key is what makes the widening a no-op downstream instead of a second branch.
 _ERASURE_RECORDINGS_SQL = f"""
-SELECT c.id, c.recording_url,
+SELECT c.id, k.object_key,
        {_CLOCK} + make_interval(days => :floor) AS lawful_at
 FROM calls c
-WHERE c.id = ANY(:ids) AND c.recording_url IS NOT NULL
+CROSS JOIN LATERAL unnest(ARRAY[c.recording_url, c.transfer_recording_url]) AS k(object_key)
+WHERE c.id = ANY(:ids) AND k.object_key IS NOT NULL
 """
 
 # `ON CONFLICT DO NOTHING` on the (tenant_id, object_key) unique: a retried erasure — the
@@ -1518,6 +1548,13 @@ async def _erase_recordings(
     the POINTER clear conditional on age — the caller still nulls `recording_url` for
     every matched call, exactly as before, which is what §4 forbids changing without the
     decision.
+
+    **A CALL MAY HAVE TWO RECORDINGS AND THIS FUNCTION NEVER HAD TO LEARN THAT** (D-533):
+    the SELECT emits one row per OBJECT, the loop below was already per object, and a hold
+    row was already per object. Both legs of a handed-over call are therefore judged
+    against the same floor, destroyed in the same statement or deferred to the same
+    schedule, and counted in the same return — which is what makes the certificate's
+    numbers describe the audio rather than the calls.
 
     What it settles is the part that was never a question: a recording PAST the floor.
     There is no rule requiring its retention, DPDP §12(3) obliges erasure "unless
@@ -1888,6 +1925,11 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             await session.execute(
                 text(
                     "UPDATE calls SET from_e164 = NULL, to_e164 = NULL, recording_url = NULL, "
+                    # THE SECOND RECORDING'S POINTER TOO (D-533). `_erase_recordings` above
+                    # has already destroyed or scheduled the object; leaving this column
+                    # set would leave a key naming bytes that are gone, and the retention
+                    # sweep would then try to delete them again.
+                    "transfer_recording_url = NULL, "
                     "summary = NULL, erased_subject_ref = :ref, updated_at = now() "
                     "WHERE id = ANY(:ids)"
                 ),
@@ -2367,6 +2409,9 @@ async def _erase_tenant_calls(
         await session.execute(
             text(
                 "UPDATE calls SET from_e164 = NULL, to_e164 = NULL, recording_url = NULL, "
+                # The second recording's pointer, for the reason the tenant-erasure arm
+                # gives (D-533).
+                "transfer_recording_url = NULL, "
                 "summary = NULL, updated_at = now() WHERE id = ANY(:ids)"
             ),
             {"ids": call_ids},

@@ -336,12 +336,19 @@ export function Handover({ agent }: { agent: Agent }) {
                 </div>
                 <p className="mt-1 text-ink-muted">{attempt.explanation}</p>
                 {attempt.second_recording_at_platform && (
-                  /* SAID ON THE SCREEN because a client answering a deletion request has
-                     to know it exists: the phone system records the second call separately
-                     and Calevate does not hold that recording. */
+                  /* ⚠ THIS USED TO SAY CALEVATE DID NOT HOLD THE RECORDING AND THAT THE
+                     CLIENT HAD TO ASK US ABOUT DELETING IT. True when written, and not any
+                     more (D-533, the founder's decision of 5 Sep 2026): the second
+                     recording is fetched into our own storage, expires on this account's
+                     own retention policy, and is destroyed by the same erasure as every
+                     other recording. The row still says the second recording EXISTS —
+                     a client answering a deletion request is entitled to know what a call
+                     actually produced — but what it tells them to DO has changed, and
+                     leaving the old sentence would have them route a request we already
+                     handle. */
                   <p className="mt-1 text-xs text-ink-faint">
-                    The phone system recorded this second call separately. Calevate does not
-                    hold that recording — ask us if someone asks you to delete it.
+                    This part of the call was recorded separately. It is kept and deleted on
+                    the same terms as the rest of the call.
                   </p>
                 )}
               </li>

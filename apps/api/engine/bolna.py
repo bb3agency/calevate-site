@@ -1407,11 +1407,13 @@ def _check_cost_plausibility(
 #
 #   * `recording_url` — "Recording URL for the transferred call", a SECOND recording of the
 #     same caller, served from the vendor's own route (`GET /recordings/transfer/
-#     {execution-id}`, `bolna-findings/mirror/pages/changelog/may-2026.md:100-103`).
-#     `pipeline`'s recording copy reads `ExecutionSnapshot.recording_url` and nothing else,
-#     so that audio is still never copied, never retained under our policy and never
-#     reached by a DPDP erasure. `HandoffLeg.recording_present` is how a human finds out it
-#     exists; OPERATIONS §2 gate 46b is where it is settled.
+#     {execution-id}`, `bolna-findings/mirror/pages/changelog/may-2026.md:87-119`).
+#     **IT IS NOW CARRIED UP AND COPIED** (the founder's decision, 5 Sep 2026): gate 46b
+#     asked whether a recording of a caller's voice may sit on a third party's disk beyond
+#     the reach of our erasure, and the answer is no — so the leg's audio joins
+#     `calls.transfer_recording_url`, the retention clock and the erasure path that already
+#     exist for the first leg, rather than getting a second machine. This comment used to
+#     say the opposite and is the reason the field exists at all.
 #   * `cost` — "Total cost incurred for this transferred call". Whether that figure is
 #     already inside `total_cost` or is a second charge is not answerable from the mirror,
 #     so `HandoffLeg.cost_reported` records only that one was stated. Gate 46c.
@@ -1466,11 +1468,20 @@ def _handoff_leg(payload: dict[str, Any]) -> HandoffLeg | None:
         duration_s = int(duration)
     elif isinstance(duration, str) and duration.strip().isdigit():
         duration_s = int(duration.strip())
+    recording_url = leg.get("recording_url")
+    # A STRING WE WILL FETCH, so it is narrowed here rather than downstream: `copy_recording`
+    # vets the address on every hop (D-129), and handing it a non-string would be an
+    # AttributeError inside the pipeline instead of a call with no second recording.
+    recording = recording_url if isinstance(recording_url, str) and recording_url.strip() else None
     return HandoffLeg(
         outcome=_HANDOFF_OUTCOMES.get(raw_status, "unknown"),
         raw_status=raw_status,
         duration_s=duration_s,
-        recording_present=bool(leg.get("recording_url")),
+        # DERIVED FROM THE URL, not read separately: "there is a second recording" and
+        # "here is where it is" must not be able to disagree, because the first is what an
+        # erasure certificate reports and the second is what makes the report true.
+        recording_present=recording is not None,
+        recording_url=recording,
         cost_reported=leg.get("cost") is not None,
     )
 

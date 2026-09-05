@@ -52,7 +52,7 @@ from apps.api.integrations import service as integrations
 from apps.workers import campaign_dispatch, pipeline, storage
 from apps.workers.storage import StorageUnavailableError
 from arq import Retry
-from calevate_shared.engine import CostBreakdown, ExecutionSnapshot
+from calevate_shared.engine import CostBreakdown, ExecutionSnapshot, HandoffLeg
 from calevate_shared.events import TranscriptTurn
 from httpx import ASGITransport, AsyncClient
 from main import app as voice_app  # apps/voice-runtime is on the pytest path (D-18)
@@ -72,8 +72,17 @@ def _stub_storage(monkeypatch: pytest.MonkeyPatch) -> None:
     a test that asserts on the stored key is asserting on the real key shape.
     """
 
-    async def _fake_copy(*, source_url: str, tenant_id: UUID, call_id: UUID) -> str:
-        return storage.recording_key(tenant_id, call_id)
+    async def _fake_copy(
+        *, source_url: str, tenant_id: UUID, call_id: UUID, leg: str = "call"
+    ) -> str:
+        # `leg` NAMES WHICH OF A CALL'S TWO RECORDINGS (D-533): a call handed to a
+        # person has a second one, and the two must not land on one key. Defaulted so
+        # this stub reads the way the pipeline calls it for an ordinary call.
+        return (
+            storage.recording_key(tenant_id, call_id)
+            if leg == "call"
+            else storage.transfer_recording_key(tenant_id, call_id)
+        )
 
     monkeypatch.setattr(pipeline, "copy_recording", _fake_copy)
     # The ladder's SHAPE is what these tests are about, never its pace.
@@ -551,9 +560,18 @@ async def test_a_re_drive_does_not_re_fetch_a_recording_we_already_hold() -> Non
     tenant_id, execution_id, call_id = await _staged("recopy")
     fetches = {"n": 0}
 
-    async def _counting_copy(*, source_url: str, tenant_id: UUID, call_id: UUID) -> str:
+    async def _counting_copy(
+        *, source_url: str, tenant_id: UUID, call_id: UUID, leg: str = "call"
+    ) -> str:
         fetches["n"] += 1
-        return storage.recording_key(tenant_id, call_id)
+        # `leg` NAMES WHICH OF A CALL'S TWO RECORDINGS (D-533). This call never handed
+        # over, so only the first leg is ever offered a source and only it is counted —
+        # which is what makes the count below still a count of RE-FETCHES.
+        return (
+            storage.recording_key(tenant_id, call_id)
+            if leg == "call"
+            else storage.transfer_recording_key(tenant_id, call_id)
+        )
 
     original = pipeline.copy_recording
     pipeline.copy_recording = _counting_copy  # type: ignore[assignment]
@@ -566,6 +584,139 @@ async def test_a_re_drive_does_not_re_fetch_a_recording_we_already_hold() -> Non
     assert fetches["n"] == 1, f"the vendor's audio was fetched {fetches['n']} times for one call"
     key = await _scalar(tenant_id, "SELECT recording_url FROM calls WHERE id = :c", c=call_id)
     assert key == storage.recording_key(tenant_id, call_id)
+
+
+def _snapshot_with_handoff(execution_id: str, *, transfer_url: str | None) -> ExecutionSnapshot:
+    """A completed call that was handed to a person, with or without a second recording."""
+    return ExecutionSnapshot(
+        engine_call_id=execution_id,
+        direction="inbound",
+        status="completed",
+        raw_status="completed",
+        terminal=True,
+        billable_ready=True,
+        recording_url="https://api.bolna.ai/recordings/call/x",
+        handoff=HandoffLeg(
+            outcome="connected",
+            raw_status="completed",
+            recording_present=transfer_url is not None,
+            recording_url=transfer_url,
+        ),
+    )
+
+
+async def test_both_recordings_of_a_handed_over_call_are_copied_to_their_own_keys() -> None:
+    """A CALL HANDED TO A PERSON HAS TWO RECORDINGS AND BOTH ARE OURS (D-533).
+
+    The founder's decision of 5 Sep 2026: the transferred leg is treated exactly like our
+    own recordings — fetched, on the same retention clock, reached by the same erasure.
+    Before it, the second half of the conversation (the half a member of the client's staff
+    actually spoke) sat on the vendor's disk beyond the reach of any erasure of ours.
+
+    **THE TWO KEYS MUST DIFFER**, which is the assertion worth writing down: writing the
+    transferred leg to `recording_key` would silently destroy the audio of the part the AI
+    handled, and no notice, retention policy or certificate would ever mention it.
+    """
+    tenant_id, execution_id, call_id = await _staged("twolegs")
+    copied: list[tuple[str, str]] = []
+
+    async def _recording_copy(
+        *, source_url: str, tenant_id: UUID, call_id: UUID, leg: str = "call"
+    ) -> str:
+        key = (
+            storage.recording_key(tenant_id, call_id)
+            if leg == "call"
+            else storage.transfer_recording_key(tenant_id, call_id)
+        )
+        copied.append((leg, source_url))
+        return key
+
+    original = pipeline.copy_recording
+    pipeline.copy_recording = _recording_copy  # type: ignore[assignment]
+    try:
+        outcome = await pipeline._copy_recordings(
+            tenant_id,
+            call_id,
+            _snapshot_with_handoff(execution_id, transfer_url="https://api.bolna.ai/x/transfer"),
+        )
+    finally:
+        pipeline.copy_recording = original  # type: ignore[assignment]
+
+    assert outcome == "call:copied+transfer:copied"
+    assert [leg for leg, _ in copied] == ["call", "transfer"], (
+        "the AI half is copied first: a partial success must keep the leg every call has"
+    )
+    async with tenant_session(tenant_id) as session:
+        row = (
+            await session.execute(
+                text("SELECT recording_url, transfer_recording_url FROM calls WHERE id = :c"),
+                {"c": call_id},
+            )
+        ).first()
+    assert row is not None
+    assert row[0] == storage.recording_key(tenant_id, call_id)
+    assert row[1] == storage.transfer_recording_key(tenant_id, call_id)
+    assert row[0] != row[1], "one object cannot be both halves of the conversation"
+
+
+async def test_a_call_nobody_handed_over_copies_one_recording_and_asks_for_no_second() -> None:
+    """The ordinary call, which is almost all of them. `none_offered` rather than a failure:
+    `snapshot.handoff` is None whenever the AI handled the whole call, and a stage that
+    treated that as a missing artefact would fail every unescalated call in the fleet."""
+    tenant_id, execution_id, call_id = await _staged("oneleg")
+    legs: list[str] = []
+
+    async def _recording_copy(
+        *, source_url: str, tenant_id: UUID, call_id: UUID, leg: str = "call"
+    ) -> str:
+        legs.append(leg)
+        return storage.recording_key(tenant_id, call_id)
+
+    original = pipeline.copy_recording
+    pipeline.copy_recording = _recording_copy  # type: ignore[assignment]
+    try:
+        snapshot = _snapshot_with_handoff(execution_id, transfer_url=None).model_copy(
+            update={"handoff": None}
+        )
+        outcome = await pipeline._copy_recordings(tenant_id, call_id, snapshot)
+    finally:
+        pipeline.copy_recording = original  # type: ignore[assignment]
+
+    assert outcome == "call:copied+transfer:none_offered"
+    assert legs == ["call"], "the vendor was asked for a recording that does not exist"
+
+
+async def test_a_second_leg_the_vendor_named_no_recording_for_is_not_invented() -> None:
+    """A handover HAPPENED and the execution carries no URL for it. `recording_present` is
+    derived from the URL so the two cannot disagree — and the stage asks for nothing rather
+    than fetching the first leg twice, which is what a `recording_url` fallback would do."""
+    tenant_id, execution_id, call_id = await _staged("nourl")
+    legs: list[str] = []
+
+    async def _recording_copy(
+        *, source_url: str, tenant_id: UUID, call_id: UUID, leg: str = "call"
+    ) -> str:
+        legs.append(leg)
+        return storage.recording_key(tenant_id, call_id)
+
+    original = pipeline.copy_recording
+    pipeline.copy_recording = _recording_copy  # type: ignore[assignment]
+    try:
+        outcome = await pipeline._copy_recordings(
+            tenant_id, call_id, _snapshot_with_handoff(execution_id, transfer_url=None)
+        )
+    finally:
+        pipeline.copy_recording = original  # type: ignore[assignment]
+
+    assert outcome == "call:copied+transfer:none_offered"
+    assert legs == ["call"]
+    async with tenant_session(tenant_id) as session:
+        held = (
+            await session.execute(
+                text("SELECT transfer_recording_url FROM calls WHERE id = :c"), {"c": call_id}
+            )
+        ).scalar()
+    assert held is None, "a key was written for audio nobody fetched"
 
 
 async def test_an_expired_vendor_link_cannot_block_the_repair_of_a_lost_extraction(
@@ -618,7 +769,9 @@ async def test_a_first_copy_that_storage_refuses_still_fails_loudly(
     fired: list[tuple[str, str]] = []
     monkeypatch.setattr(pipeline, "alert", lambda s, code, **kw: fired.append((str(s), str(code))))
 
-    async def _refused(*, source_url: str, tenant_id: UUID, call_id: UUID) -> str:
+    async def _refused(
+        *, source_url: str, tenant_id: UUID, call_id: UUID, leg: str = "call"
+    ) -> str:
         raise StorageUnavailableError("recording upload failed: ClientError")
 
     monkeypatch.setattr(pipeline, "copy_recording", _refused)

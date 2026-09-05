@@ -262,6 +262,134 @@ async def test_an_erasure_past_the_floor_destroys_the_audio(s3: FakeS3) -> None:
     assert scope[retention.HOLD_UNTIL_KEY] is None
 
 
+async def _hand_over(s3: FakeS3, *, tenant_id: uuid.UUID, call_id: uuid.UUID) -> str:
+    """Give a call its SECOND recording — the transferred leg (D-533).
+
+    The key comes from `storage.transfer_recording_key` for `_call_with_recording`'s reason:
+    the erasure and the sweep read the key back out of the column, so a literal would pass
+    while proving nothing about the shape the pipeline writes.
+    """
+    key = storage.transfer_recording_key(tenant_id, call_id)
+    s3.objects[key] = RECORDING_BYTES
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE calls SET transfer_recording_url = :k WHERE id = :c"),
+            {"k": key, "c": call_id},
+        )
+    return key
+
+
+async def test_an_erasure_reaches_the_transferred_leg_as_well(s3: FakeS3) -> None:
+    """A CALL THAT WAS HANDED TO A PERSON HAS TWO RECORDINGS, AND BOTH ARE THE SAME
+    CALLER'S VOICE (D-533).
+
+    This is the shape of the defect the whole module exists to catch, one level down.
+    Before the transferred leg was copied at all it sat on the vendor's disk and no erasure
+    could reach it; the danger AFTER copying it is subtler and worse — the audio is now
+    ours, so a certificate that says "the recording was destroyed" is a statement about
+    OUR bucket, and it is false if the erasure only reached one of the two objects. The
+    assertion is therefore on the STORE, on both keys, exactly as this file's docstring
+    insists.
+
+    The count matters too: `DESTROYED_COUNT_KEY` is what the data principal is told, and a
+    2 here is what makes it a count of the audio rather than a count of the calls.
+    """
+    tenant_id, agent_id = await _tenant()
+    phone = "+919876500115"
+    call_id, first = await _call_with_recording(
+        s3, tenant_id=tenant_id, agent_id=agent_id, days_ago=200, phone=phone
+    )
+    second = await _hand_over(s3, tenant_id=tenant_id, call_id=call_id)
+    assert first != second, "the transferred leg is its own object, never a replacement"
+    request_id = await _file_request(tenant_id, phone)
+
+    await retention.execute_deletion_request(
+        {}, {"tenant_id": str(tenant_id), "request_id": str(request_id)}
+    )
+
+    assert first not in s3.objects, "the AI half survived an erasure"
+    assert second not in s3.objects, (
+        "the half a member of the client's staff actually spoke survived an erasure, and "
+        "the certificate said the recording was destroyed"
+    )
+    async with tenant_session(tenant_id) as session:
+        pointers = (
+            await session.execute(
+                text("SELECT recording_url, transfer_recording_url FROM calls WHERE id = :c"),
+                {"c": call_id},
+            )
+        ).first()
+    assert pointers == (None, None), "a pointer naming bytes that are gone"
+    proof = await _proof(tenant_id, request_id)
+    assert proof is not None
+    scope = proof["scope"]
+    assert isinstance(scope, dict)
+    assert scope[retention.DESTROYED_COUNT_KEY] == 2, (
+        "the certificate counts CALLS rather than recordings, so a handed-over call reads "
+        "as one destruction when there were two"
+    )
+
+
+async def test_a_transferred_leg_inside_the_floor_is_scheduled_like_the_first(
+    s3: FakeS3,
+) -> None:
+    """Both legs are judged against the same floor and deferred to the same schedule.
+
+    Two holds, not one: `recording_erasure_holds` was already unique on
+    `(tenant_id, object_key)` rather than on the call, which is the reason this widening
+    needed no migration and no second mechanism. If it ever becomes one hold per call, the
+    second object is orphaned by the pointer clear exactly as the first one was before
+    holds existed.
+    """
+    tenant_id, agent_id = await _tenant()
+    phone = "+919876500116"
+    call_id, first = await _call_with_recording(
+        s3, tenant_id=tenant_id, agent_id=agent_id, days_ago=10, phone=phone
+    )
+    second = await _hand_over(s3, tenant_id=tenant_id, call_id=call_id)
+    request_id = await _file_request(tenant_id, phone)
+
+    await retention.execute_deletion_request(
+        {}, {"tenant_id": str(tenant_id), "request_id": str(request_id)}
+    )
+
+    assert s3.objects.get(first) == RECORDING_BYTES
+    assert s3.objects.get(second) == RECORDING_BYTES, "under-floor audio is not destroyed early"
+    holds = await _holds(tenant_id)
+    assert sorted(key for key, _after, _erased in holds) == sorted([first, second])
+    # The SAME instant for both: they are one conversation and one clock, so a caller told
+    # "it will be destroyed on the 3rd" is told one date rather than two.
+    assert len({after for _key, after, _erased in holds}) == 1
+
+
+async def test_the_retention_sweep_takes_both_recordings_of_a_handed_over_call(
+    s3: FakeS3,
+) -> None:
+    """The ordinary path — nobody asked to be forgotten, the tenant's policy simply
+    expired. Both objects go, in ONE batch, before either pointer is cleared: a call whose
+    two objects fell either side of a batch boundary would have its pointers nulled with
+    one object still in the bucket, which is the orphaning `_sweep_objects_in_batches`
+    exists to prevent."""
+    tenant_id, agent_id = await _tenant()
+    call_id, first = await _call_with_recording(
+        s3, tenant_id=tenant_id, agent_id=agent_id, days_ago=200, phone="+919876500117"
+    )
+    second = await _hand_over(s3, tenant_id=tenant_id, call_id=call_id)
+
+    await retention.sweep_tenant(tenant_id)
+
+    assert first not in s3.objects
+    assert second not in s3.objects
+    async with tenant_session(tenant_id) as session:
+        pointers = (
+            await session.execute(
+                text("SELECT recording_url, transfer_recording_url FROM calls WHERE id = :c"),
+                {"c": call_id},
+            )
+        ).first()
+    assert pointers == (None, None)
+
+
 async def test_an_erasure_inside_the_floor_schedules_the_audio_instead_of_orphaning_it(
     s3: FakeS3,
 ) -> None:

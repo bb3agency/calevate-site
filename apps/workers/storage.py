@@ -29,7 +29,7 @@ import os
 import threading
 from collections.abc import Iterable, Sequence
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import boto3
@@ -50,6 +50,12 @@ DOWNLOAD_TIMEOUT_S = 60.0
 #: How many `Location` hops a recording fetch will follow, each one re-vetted. A
 #: presigned URL redirecting once to a CDN is ordinary; a chain is not, and an
 #: unbounded one is a redirect loop a worker would sit in until its timeout.
+#: WHICH of a call's recordings. A call the AI handled alone has one; a call that was
+#: handed to a person has two, because the voice platform records the transferred leg as an
+#: object of its own (D-533). Closed, because each value is an object KEY and a free-form
+#: string here would be a key nobody derived.
+RecordingLeg = Literal["call", "transfer"]
+
 RECORDING_REDIRECT_LIMIT = 3
 #: The largest recording we will pull off a vendor's link. DERIVED, not picked: the
 #: platform refuses to run a call longer than `CALL_CAP_MAX_S` (one hour), and 32 kB/s is
@@ -229,6 +235,30 @@ def recording_key(tenant_id: UUID, call_id: UUID) -> str:
     return f"recordings/{tenant_id}/{call_id}.wav"
 
 
+def transfer_recording_key(tenant_id: UUID, call_id: UUID) -> str:
+    """The TRANSFERRED LEG's audio for the same call — the second recording (D-533).
+
+    A SIBLING OF `recording_key`, NOT A SECOND SCHEME, and every property that function
+    argues for is inherited deliberately:
+
+    * **The same `recordings/` prefix**, so the object-lifecycle rule that bounds this
+      bucket's growth already covers it and no new rule is written (`object_lifecycle_test`
+      pins that the prefix is what the rule is scoped to). A `transfer-recordings/` prefix
+      would have been an unbounded bucket nobody noticed for seven years.
+    * **A pure function of (tenant, call)**, with no wall clock — D-148's whole argument. A
+      key that depended on WHEN the copy ran would give one call two objects across a month
+      boundary, of which the database names one, and the DPDP erasure would destroy that one
+      and certify the destruction while the other sat in the bucket.
+    * **The tenant and the call in the key**, which is what an erasure enumerates by.
+
+    The suffix is what makes it a DIFFERENT object from the first leg's. It has to be: this
+    is a second recording of the same conversation, not a replacement, and writing it to
+    `recording_key`'s key would silently destroy the audio of the part of the call the AI
+    handled — which no notice, no retention policy and no certificate would ever mention.
+    """
+    return f"recordings/{tenant_id}/{call_id}-transfer.wav"
+
+
 ENGINE_PAYLOAD_PREFIX = "engine-payloads"
 
 
@@ -315,8 +345,16 @@ async def _fetch_recording(source_url: str) -> bytes:
     raise StorageUnavailableError(f"recording fetch exceeded {RECORDING_REDIRECT_LIMIT} redirects")
 
 
-async def copy_recording(*, source_url: str, tenant_id: UUID, call_id: UUID) -> str:
+async def copy_recording(
+    *, source_url: str, tenant_id: UUID, call_id: UUID, leg: RecordingLeg = "call"
+) -> str:
     """Stream the engine's recording into our bucket. Returns the object key.
+
+    `leg` NAMES WHICH RECORDING OF THIS CALL, and it is a closed two-value type rather than
+    a `key: str` parameter (D-533). A caller that could pass a key could pass any key, and
+    the one invariant this function has always had — that the object it writes is at a
+    location derived from (tenant, call) and from nothing a caller chose — is what D-148's
+    whole argument rests on. Naming the LEG keeps the derivation here.
 
     THE URL IS THE VENDOR'S, AND IT IS VETTED LIKE ANY OTHER (D-129). `source_url` arrives
     on an engine payload or a poller snapshot, so it is not ours and not a tenant's — it
@@ -347,7 +385,11 @@ async def copy_recording(*, source_url: str, tenant_id: UUID, call_id: UUID) -> 
     against the call rather than a 422 nobody is listening for.
     """
     settings = get_settings()
-    key = recording_key(tenant_id, call_id)
+    key = (
+        recording_key(tenant_id, call_id)
+        if leg == "call"
+        else transfer_recording_key(tenant_id, call_id)
+    )
     try:
         # ONE deadline over the whole thing — hops, lookups and bytes. See
         # `RECORDING_FETCH_DEADLINE_S`: httpx's timeout is per operation, so without this
@@ -385,8 +427,10 @@ async def copy_recording(*, source_url: str, tenant_id: UUID, call_id: UUID) -> 
         await asyncio.to_thread(_put)
     except (BotoCoreError, ClientError) as exc:
         raise StorageUnavailableError(f"recording upload failed: {type(exc).__name__}") from exc
-    # Key only — never the URL, and never the phone number in the log line.
-    log.info("recording_stored", extra={"call_id": str(call_id), "bytes": len(audio)})
+    # Key only — never the URL, and never the phone number in the log line. `leg` is ours
+    # and names which of a call's two recordings this was, so an operator reading the log
+    # of an escalated call can tell one fetch from the other.
+    log.info("recording_stored", extra={"call_id": str(call_id), "bytes": len(audio), "leg": leg})
     return key
 
 
@@ -881,6 +925,7 @@ __all__ = [
     "RECORDING_FETCH_DEADLINE_S",
     "RECORDING_REDIRECT_LIMIT",
     "RECORDING_RETRY_DEFER_S",
+    "RecordingLeg",
     "StorageUnavailableError",
     "archive_payload",
     "build_delivery_body_document",
@@ -895,4 +940,5 @@ __all__ = [
     "read_delivery_body",
     "recording_key",
     "store_delivery_body",
+    "transfer_recording_key",
 ]

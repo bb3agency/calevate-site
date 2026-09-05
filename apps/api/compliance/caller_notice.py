@@ -421,15 +421,24 @@ def _handoff_paragraph(draft: CallerNoticeDraft) -> str:
     list — `_memory_paragraph`'s argument exactly: a notice describing a transfer that
     cannot happen over-discloses, and one silent about a transfer that can under-discloses.
 
-    **IT SAYS THE SECOND RECORDING EXISTS, and that is the sentence worth the section.**
-    The voice platform records the transferred leg as an object of its own
-    (`HandoffLeg.recording_present`), which is a recording of this caller that Calevate
-    does not hold and cannot erase on the client's behalf — so a caller asking for erasure
-    is asking for something the client must route to us, and a notice that quietly counted
-    it as "the call recording" would be describing one recording where there are two. The
-    blank is marked rather than filled: how long the platform keeps it is
-    OPERATIONS §2 gate 46b, and a plausible number here would be a guess published as a
-    fact.
+    **IT SAYS THE RECORDING CONTINUES, and that is the sentence worth the section.** The
+    voice platform records the transferred leg as a SEPARATE object, so a call that was
+    handed over produces two recordings of the same caller — and a notice that mentioned
+    one where there are two would describe the call inaccurately in the direction that
+    matters. It is also the question a reader of this section will actually have: they have
+    just been told they may be put through to a person, and "was that part recorded too?"
+    is the next thought.
+
+    ⚠ **THIS PARAGRAPH USED TO CARRY A MARKED BLANK AND SAY THE OPPOSITE**, because it was
+    written while the second recording was not ours: it read *"recorded separately from the
+    first part of your call"* followed by `{{HOW LONG THAT SECOND RECORDING IS KEPT IS SET
+    BY OUR CALLING PROVIDER'S PLATFORM AND NOT BY US}}`. The founder's decision (5 Sep 2026)
+    made the transferred leg ours — fetched into our own storage, on the tenant's own
+    retention clock, destroyed by the same erasure — so the blank is not filled in, it is
+    GONE, and the period is the one this document already prints under "How long we keep
+    it". Pointing at that list rather than restating a number is the same discipline
+    `_memory_paragraph` follows: one place per fact, so a tenant who shortens their policy
+    does not leave a second sentence behind saying the old figure.
     """
     if not draft.handoff_agents:
         return ""
@@ -441,10 +450,10 @@ the line ({named}) — if you ask to speak to a person, or if the assistant judg
 somebody should. When that happens we ring one of our own staff and connect you; you are
 talking to a person from that point on, and they see why you called.
 
-That second connection is a separate telephone call, made by our calling platform, and it
-is recorded separately from the first part of your call. {{{{HOW LONG THAT SECOND
-RECORDING IS KEPT IS SET BY OUR CALLING PROVIDER'S PLATFORM AND NOT BY US — ASK CALEVATE
-FOR THE PERIOD AND STATE IT HERE}}}}
+The recording does not stop when you are put through. That second part of the call is
+recorded as well, it is kept for the same period as the rest of the call — see "How long we
+keep it" below — and everything under "Your rights" applies to it in the same way,
+including asking us to erase it.
 
 """
 

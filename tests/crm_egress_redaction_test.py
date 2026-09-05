@@ -554,8 +554,14 @@ async def test_the_post_call_pipeline_redacts_the_summary_before_it_enters_the_o
     # The recording copy reaches the network, which this sandbox refuses at the proxy —
     # and the recording is not what this test is about. Same stub `smoke_pipeline_test`
     # applies, and only the fetch: everything downstream of it runs for real.
-    async def _fake_copy(*, source_url: str, tenant_id: uuid.UUID, call_id: uuid.UUID) -> str:
-        return f"recordings/{tenant_id}/{call_id}.mp3"
+    async def _fake_copy(
+        *, source_url: str, tenant_id: uuid.UUID, call_id: uuid.UUID, leg: str = "call"
+    ) -> str:
+        # `leg` NAMES WHICH OF A CALL'S TWO RECORDINGS (D-533): a call handed to a
+        # person has a second one, and the two must not land on one key. Defaulted so
+        # this stub reads the way the pipeline calls it for an ordinary call.
+        suffix = "" if leg == "call" else "-transfer"
+        return f"recordings/{tenant_id}/{call_id}{suffix}.mp3"
 
     monkeypatch.setattr("apps.workers.pipeline.copy_recording", _fake_copy)
 

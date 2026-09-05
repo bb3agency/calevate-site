@@ -84,7 +84,20 @@ our system can reach the audio thereafter), destroys the audio bytes outright on
 past the floor, and for audio still inside the 90-day floor writes a row to
 `recording_erasure_holds` carrying a lawful `erase_after` — the earliest instant the floor
 permits destruction — which the retention sweep honours automatically without a second
-request (migration `9c1d3e7a05f4`). `ERASURE_LIMITATIONS` and `ERASURE_EXCEPTIONS` state
+request (migration `9c1d3e7a05f4`).
+
+**A CALL MAY HAVE TWO RECORDINGS AND ALL OF THAT APPLIES TO BOTH (D-533).** A caller who
+asked for a person was handed to one, and the voice platform records that second leg as an
+object of its own — the half of the conversation a member of the client's staff actually
+had. It is copied into our bucket like the first (`calls.transfer_recording_url`), and
+`retention._erase_recordings` reads BOTH columns, so both are destroyed in the same
+statement or deferred to the same schedule and both are counted in the certificate's own
+numbers. Nothing here needed a second mechanism: the hold row was already keyed per OBJECT,
+not per call. The alternative — erasing the AI half and leaving the human half — would have
+issued a certificate saying the recording was destroyed while a recording of the same person
+sat in the bucket, which is the precise failure this whole notice exists to avoid.
+
+`ERASURE_LIMITATIONS` and `ERASURE_EXCEPTIONS` state
 that position — in the reader's own terms, citing DPDP rather than our own filenames, and
 naming the floor as Calevate's policy (see `ErasureLimitation`) — so whoever hands the
 certificate to a data principal is describing a scheduled destruction with a stated date,

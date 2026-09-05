@@ -233,9 +233,12 @@ describe("what the handover panel promises about the person answering", () => {
     expect(container.textContent).toContain("we will not ring anyone");
   });
 
-  it("tells a client the second recording exists and that Calevate does not hold it", async () => {
-    // A client answering a deletion request has to know. It is on the row rather than in a
-    // help article, because that is where they are looking when somebody asks.
+  it("tells a client the second recording exists and is kept on the same terms", async () => {
+    // A client answering a deletion request has to know a call produced TWO recordings,
+    // and what to do about it. The "what to do" half changed with the founder's decision
+    // of 5 Sep 2026 — we now hold the second one and the same erasure reaches it — so this
+    // assertion moved with the copy rather than being deleted: the row still has to say
+    // the second recording exists.
     const { container } = await renderClientPage(
       page,
       routes({
@@ -256,8 +259,12 @@ describe("what the handover panel promises about the person answering", () => {
       }),
     );
     await screen.findByText("Recent handovers");
-    expect(container.textContent).toContain("does not");
-    expect(container.textContent).toContain("hold that recording");
+    expect(container.textContent).toContain("recorded separately");
+    expect(container.textContent).toContain("same terms as the rest of the call");
+    // AND THE WITHDRAWN SENTENCE MUST NOT COME BACK. A screen telling a client to route an
+    // erasure to us for something our own erasure already destroys would have them promise
+    // their caller a step nobody performs.
+    expect(container.textContent).not.toContain("Calevate does not hold");
   });
 
   it("sends the whole reordered list in one save", async () => {

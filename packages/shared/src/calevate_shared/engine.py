@@ -3926,11 +3926,32 @@ class HandoffLeg(BaseModel):
     #: The vendor's own word, kept verbatim for the operator. Not branched on.
     raw_status: str
     duration_s: int | None = None
-    #: A SECOND recording of the same caller exists on the vendor's side. `pipeline`'s
-    #: recording copy reads `ExecutionSnapshot.recording_url` and nothing else, so this
-    #: audio is not copied, not retained under our policy and not reached by a DPDP
-    #: erasure — which is a stated gap with a gate against it, not an oversight.
+    #: A SECOND recording of the same caller exists on the vendor's side.
+    #:
+    #: **IT IS NOW COPIED, RETAINED AND ERASED LIKE ANY OTHER RECORDING**, and this field
+    #: kept its name rather than gaining a second one: it still answers "does a second
+    #: recording exist", which is what an erasure certificate and a retention answer need
+    #: to know even on a call whose bytes we could not fetch. The URL beside it is what
+    #: made the difference (see `recording_url`).
     recording_present: bool = False
+    #: WHERE THAT SECOND RECORDING IS, so the pipeline can pull it into our own bucket.
+    #:
+    #: **THIS FIELD USED TO BE DELIBERATELY ABSENT, AND THE REASON IT WAS ABSENT IS A
+    #: DECISION THAT HAS SINCE BEEN TAKEN.** It read: "the URL is not carried because
+    #: nothing here may copy audio that no notice covers (OPERATIONS §2 gate 46b)". The
+    #: founder took that decision on 5 Sep 2026 — the transferred leg is treated exactly
+    #: like our own recordings — so the audio is fetched, carries the same retention clock
+    #: and is reached by the same erasure path. Withholding the handle now would leave a
+    #: recording of a caller's voice on a third party's disk that no erasure of ours can
+    #: reach, which is the gap the decision closed.
+    #:
+    #: SAME CLASS AS `ExecutionSnapshot.recording_url` AND HANDLED THE SAME WAY: the
+    #: vendor serves both from one endpoint family keyed on the execution
+    #: (`/recordings/call/{id}` and `/recordings/transfer/{id}`), the resolved pre-signed
+    #: link expires after 24 hours and is never stored or cached, and what our column holds
+    #: afterwards is OUR object key (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/
+    #: changelog/may-2026.md:87-119`, which names both fields in one list).
+    recording_url: str | None = None
     #: The vendor reported a cost for this leg SEPARATELY from the execution's own. Hard
     #: rule 7 meters what `CostBreakdown` carries; whether this figure is already inside
     #: `total_cost` or is a second charge is OPERATIONS §2 gate 46c, and until that is
