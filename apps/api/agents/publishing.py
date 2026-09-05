@@ -933,8 +933,17 @@ async def _drift_of(
         detail=(
             # `verify_publish`'s wording assumes a write just happened. Here nothing did,
             # so the one verdict whose sentence would be actively misleading is respelled.
+            #
+            # IT ENUMERATES `judge`'s `checked` TUPLE AND MUST KEEP DOING SO. The
+            # handover destination joined that tuple with D-533 and this sentence did
+            # not, so the one drift a roster can produce read back as "a different
+            # script, opening line, truthful-answer rule or voice" — four properties
+            # that are all identical — and sent whoever opened the screen looking at
+            # the script. A verdict that names the wrong cause is worse than a verdict
+            # with no detail at all.
             "The voice platform is running a different script, opening line, "
-            "truthful-answer rule or voice from the one this agent last published."
+            "truthful-answer rule, voice or handover destination from the one this "
+            "agent last published."
             if verdict.state == "not_applied"
             else verdict.detail
         ),

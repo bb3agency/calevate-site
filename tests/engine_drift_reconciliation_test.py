@@ -59,6 +59,9 @@ SCRIPT = "Sunrise Clinic receptionist. Greet in Telugu, then take the appointmen
 VOICE = "bulbul:v3:anushka"
 DASHBOARD_EDIT = "Whatever the vendor's console was used to write at 3am."
 NEW_SCRIPT = "Sunrise Clinic receptionist. Quote the NEW price list."
+#: A number nobody in this repository published — the vendor's Tools tab is a form, and
+#: anyone with console access can put a phone on it (`_agent_handoff_destinations`).
+STRANGER = "+919000000099"
 
 
 # --- doubles -----------------------------------------------------------------
@@ -341,6 +344,51 @@ async def test_the_sweep_finds_a_publish_that_landed_after_our_side_failed() -> 
     assert detected_at is not None
     # The engine really is running the script our tables have never heard of.
     assert NEW_SCRIPT in engine._agents[ref].system_prompt
+
+
+async def test_a_handover_drift_says_so_instead_of_blaming_the_script() -> None:
+    """The console-added destination — a stranger's phone on a client's agent (D-533).
+
+    `judge` puts the handover destination in `checked`, so it can be the ONLY thing that
+    differs; `_drift_of` respells the `not_applied` sentence and, until this test, that
+    sentence enumerated four properties that were all identical. An operator reading it
+    went looking at the script. A verdict that names the wrong cause is worse than one
+    with no detail, so the sentence has to cover everything `judge` scores.
+    """
+
+    class ConsoleAddedDestination(RecordingEngine):
+        """Reads back one extra transfer number nobody here published.
+
+        `edited` is off until the publish has happened, because the publish's OWN
+        read-back scores the same property and would refuse the agent — correctly, and
+        that is a different test. The console edit lands afterwards, which is the case
+        only the sweep can see.
+        """
+
+        edited = False
+
+        async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
+            snapshot = await super().get_agent(ref)
+            if not self.edited:
+                return snapshot
+            return snapshot.model_copy(
+                update={"handoff_destinations": (*snapshot.handoff_destinations, STRANGER)}
+            )
+
+    engine = ConsoleAddedDestination()
+    tenant_id, agent_id, ref = await _published_agent(engine)
+    await _only(ref)
+    engine.edited = True
+
+    with _engine(engine):
+        drift = await publishing.engine_drift_for(tenant_id=tenant_id, agent_id=agent_id)
+
+    assert drift.state == "not_applied"
+    assert drift.handoff_applied is False
+    assert drift.prompt_applied is True, "the script is identical; only the handover moved"
+    assert "handover destination" in drift.detail, (
+        "the drift sentence does not name the property that actually differs: " + drift.detail
+    )
 
 
 async def test_the_sweep_never_republishes_over_a_drift() -> None:
