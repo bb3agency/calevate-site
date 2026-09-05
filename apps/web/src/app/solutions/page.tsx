@@ -97,19 +97,33 @@ const SOLUTIONS: readonly Solution[] = [
       "It holds the call in Telugu, Hindi or English. Telugu is where a new agent starts, because that is the database's own default rather than a note in a guide.",
       // apps/api/crm/service.py:27 count_after_hours_calls -> after_hours_captured_7d.
       "Your dashboard counts how many enquiries arrived outside your own opening hours, so the thing you could not see before is now a number you can read.",
+      // D-533. apps/api/agents/handoff.py::on_duty walks the roster in order and returns
+      // the first member active and inside their own hours; publishing.py:841 fixes that
+      // number at publish; bolna.py:1028 emits the tool. Outside everyone's hours
+      // `handoff=None` and the adapter emits no transfer tool at all, so the agent does
+      // not know the number — which is why the sentence can be this absolute.
+      "It puts a caller through to one of your team when you have set up a handover list, and never outside the hours that person gave you. Nobody’s personal mobile can ring at 11pm, because at 11pm the agent has no number to ring.",
     ],
     yours: [
       "Your opening hours, so the after-hours count means something.",
       "The sentence it opens with, and whether it volunteers the AI line at the start.",
       "The list of things it has to find out from a caller.",
+      "Who takes a call it hands over, in the order you want them tried, and the hours each of them is available.",
     ],
     never: [
       "It does not look anything up mid-call. What it can say is compiled into the agent before the call — see “Your answers” below.",
-      // `BOLNA_CAPABILITIES.transfer=False` (`apps/api/engine/bolna.py:2996`) and the same
-      // on the other adapter (`cartesia.py:367`): "nothing this tree publishes configures a
-      // transfer tool" (`bolna.py:1260`). So this is stronger than a policy — the agent has
-      // no way to do it.
-      "It does not put a caller through to a person. Call transfer is not something this platform does today, so a caller who needs your staff is written down for you to ring back rather than handed over mid-call.",
+      // NOT "it cannot transfer a caller" — that WAS true and stopped being true. D-533
+      // built the escalation path (`apps/api/agents/handoff.py`), the router is mounted
+      // (`apps/api/main.py:218`), `publish_agent` resolves the on-duty member
+      // (`agents/publishing.py:841`) and the adapter emits the tool
+      // (`engine/bolna.py:1028 _handoff_tool`). The `transfer=False` capability constant
+      // reads like proof of the opposite and is not: its own file records that the alarm
+      // it fed "is now a feature" (`bolna.py:1390-1396`). What is genuinely unavailable is
+      // narrower and is what these two lines say.
+      "It does not whisper the background to your colleague before joining you up. Playing a message into their ear first needs control of the caller’s phone line, which sits with the voice platform and not with us — so the reason for the call reaches them as a message on their phone as it rings.",
+      // handoff.py:22-26, VERIFIED-OSS bolna-ai/bolna@cd2e192
+      // task_manager.py:3116-3126 — the engine latches after the first handover.
+      "It does not ring your team one after another during the call. The first person on duty is chosen before the call and is the only number it can reach; if they miss it the caller becomes a call-back rather than a call that keeps hunting.",
     ],
   },
   {
