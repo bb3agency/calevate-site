@@ -183,9 +183,9 @@ def _load_sql(realm: _Realm) -> str:
     FROM {realm.table}
     WHERE {realm.owner} = :owner
       AND run_started_at = :run
-      AND (:before IS NULL OR (created_at, id) < (
+      AND (CAST(:before AS uuid) IS NULL OR (created_at, id) < (
             SELECT b.created_at, b.id FROM {realm.table} b
-            WHERE b.id = :before AND b.{realm.owner} = :owner))
+            WHERE b.id = CAST(:before AS uuid) AND b.{realm.owner} = :owner))
     ORDER BY created_at DESC, id DESC
     LIMIT :limit
     """
