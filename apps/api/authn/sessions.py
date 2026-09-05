@@ -686,6 +686,7 @@ __all__ = [
 # rotation would read as a NEW run, and proving a second factor would wipe the conversation
 # the person was in the middle of having.
 
+#: One session's interval, as a CTE both queries share. Spelled once so the two cannot
 #: disagree about what "ended" means — a divergence would make the lazy check and the
 #: sweep clear conversations on different clocks.
 _INTERVALS = """
