@@ -412,9 +412,23 @@ describe("§5.7 defect 9 — a dropped connection and a dead session are differe
 
   it("offers RETRY and claims nothing about the credential when unreachable", () => {
     const view = gate("unreachable");
-    expect(view.container.textContent).toContain("We could not reach Calevate");
-    expect(view.container.textContent).toContain("has not been ended");
+    expect(view.container.textContent).toContain("We could not check your session");
+    expect(view.container.textContent).toContain(
+      "we do not know whether your session is still good",
+    );
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
+  });
+
+  /**
+   * D-539. The panel used to assert "your session has not been ended" — a claim about the
+   * SERVER from a browser that had just failed to reach it, and false for exactly the
+   * person whose session HAD ended. It was photographed on the live console. What the
+   * browser may claim is only that this screen did not sign anybody out.
+   */
+  it("does not assert that the session survived, because it cannot know that", () => {
+    const view = gate("unreachable");
+    expect(view.container.textContent).not.toContain("has not been ended");
+    expect(view.container.textContent).toContain("Nothing on this screen has signed you out");
   });
 
   it("sends people to the door when signed out, instead of describing it", () => {

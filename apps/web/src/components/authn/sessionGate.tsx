@@ -163,18 +163,31 @@ export function SessionGate({
     return frame(
       <Card>
         <div className="space-y-3 text-sm text-ink-muted">
-          {/* NOT "you are signed out". Nothing here is evidence of that — see the file
-              docstring. The copy is about the REQUEST, and it says explicitly that the
-              session was not ended, because the reflex on seeing a session screen fail is
-              to assume it was. */}
+          {/* NOT "you are signed out" — nothing here is evidence of that (see the file
+              docstring) — AND NOT "your session has not been ended" EITHER, WHICH IS WHAT
+              THIS SAID (D-539).
+
+              That sentence was a claim about the SERVER, made by a browser that had just
+              failed to get an answer out of it. It is false exactly when it matters most:
+              a person whose session really had expired read "your session has not been
+              ended" under a heading blaming their connection, and went looking for a
+              network problem that did not exist. It was reported from the live console,
+              with a photograph of this panel.
+
+              What this browser can actually vouch for is narrower and is all that is
+              claimed now: THIS TAB has not signed anybody out, and we do not know what the
+              server would say. Both remedies stay on screen because either could be the
+              right one. */}
           <NoticeBox
             tone="warn"
             icon={<PlugZap aria-hidden className="h-4 w-4" />}
-            title="We could not reach Calevate"
+            title="We could not check your session"
           >
             <p className="mt-1">
-              Your session has not been ended — we simply could not ask about
-              it. This is usually the connection.
+              Calevate did not answer, so we do not know whether your session
+              is still good — this is usually the connection. Nothing on this
+              screen has signed you out. Try again, or sign in if it keeps
+              failing.
             </p>
           </NoticeBox>
           <div className="flex flex-wrap gap-2">
