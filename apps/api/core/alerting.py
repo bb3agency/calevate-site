@@ -116,6 +116,15 @@ FailureStage = Literal[
     "WORKER_TERMINAL",
     "WORKER_STALL",
     "PROCESS_RESTART",
+    # Not an application stage either: it happened in a VISITOR'S BROWSER and reached us
+    # only because the browser was told to tell us (D-541). The Content-Security-Policy
+    # collector is the whole of it — `apps/api/security/routes.py` — and the stage exists
+    # for `HOST_BACKUP`'s reason rather than to be tidy: an operator reads the stage first
+    # (`runbooks/alarm-index.md`), and `ROUTE_HANDLER` on a CSP violation would tell them
+    # a handler refused something of ours when what actually happened is that a browser
+    # refused a subresource on a page of ours. The wrong half of the system to start
+    # looking in.
+    "BROWSER_RUNTIME",
     # Not an application stage: the host-side backup chain (`scripts/backup/notify.sh`)
     # emits it from outside Python entirely, so nothing here calls `alert()` with it.
     # It is a member because the alternative was worse — the backup work found no stage

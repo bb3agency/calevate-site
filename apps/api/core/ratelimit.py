@@ -130,6 +130,14 @@ PROFILES: dict[str, LimitProfile] = {
     # The payment provider's callback. Its own bucket because losing one of these means
     # a client paid and was not credited until the reconciliation sweep.
     "webhook_payment": LimitProfile("webhook_payment", per_client=300, per_tenant=None),
+    # Browser-tier violation reports (D-541). Its own profile because the caller is a
+    # BROWSER with no session and no tenant, and because the traffic shape is unlike every
+    # other unauthenticated surface here: one page load that trips a policy can emit a
+    # handful of reports in a second and then nothing for a day. 60/min per IP absorbs a
+    # genuinely broken screen without letting a single address turn the collector into a
+    # log-writing amplifier; there is no tenant dimension because a report names no tenant
+    # (and `security/csp_reports.py` strips the page path that would have implied one).
+    "csp_report": LimitProfile("csp_report", per_client=60, per_tenant=None),
     # Anything the table does not name: 404 probes, a path that has not been routed yet.
     # NOT reachable from a mounted API route — the census test fails the build first —
     # so this exists purely so that scanning for unrouted paths is not free.
@@ -228,6 +236,7 @@ RULES: tuple[Rule, ...] = (
     Rule("/v1/auth/**", "auth"),
     Rule("/hooks/v1/ingest/**", "webhook_ingest"),
     Rule("/hooks/v1/razorpay", "webhook_payment"),
+    Rule("/reports/v1/csp", "csp_report", _m("POST")),
     # --- families -----------------------------------------------------------------
     Rule("/v1/**", "client_api"),
     Rule("/v1/admin/**", "admin_api"),

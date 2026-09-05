@@ -148,6 +148,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.secret_routes import router as ops_secrets_router
     from apps.api.quality.routes import router as quality_router
     from apps.api.quality.sampling_routes import router as qa_sampling_router
+    from apps.api.security.routes import router as csp_report_router
     from apps.api.tenancy.routes import router as tenancy_router
     from apps.api.tenancy.signup_routes import router as signup_router
 
@@ -384,6 +385,15 @@ def _mount_routers(application: FastAPI) -> None:
     # decides money and it is not a credential. There is no write route (`ops/fx_routes.py`
     # argues why); the operator's control is the declared fallback in the config panel.
     application.include_router(ops_fx_router)
+    # The browser-tier CSP violation collector (D-541). Its own literal `/reports/v1`
+    # prefix, which collides with nothing above, so mount order is not load-bearing here.
+    # It is the one route in this process with NO credential — a browser's reporting agent
+    # holds none and can be given none — which is why the prefix is declared in
+    # `core.rbac.PUBLIC_PREFIXES` and in `scripts/check_public_routes.UNAUTHENTICATED_ROUTES`
+    # with its admission control named, and why it is deliberately absent from
+    # `core.loadshed.ALWAYS_ALLOWED_PREFIXES`: telemetry about a refused subresource is the
+    # first thing that should be dropped under load, not the last.
+    application.include_router(csp_report_router)
 
 
 _mount_routers(app)

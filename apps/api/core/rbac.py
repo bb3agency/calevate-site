@@ -477,6 +477,16 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # (`apps/api/actions/routes.invoke_action`). The trailing slash keeps this to the invoke
     # path; the client-realm `/v1/actions/calendar/**` routes declare `org:manage` normally.
     "/v1/actions/invoke/",
+    # The Content-Security-Policy violation collector (D-541). Unauthenticated in a
+    # stronger sense than anything else on this list: a browser's reporting agent holds no
+    # credential and cannot be given one, so there is no signature, no shared secret, no
+    # source-IP allowlist and no cookie behind it. What stands in is ADMISSION CONTROL —
+    # a strict content type, a 16 KiB bounded read, its own rate-limit profile, and a
+    # refusal of any report whose `document-uri` is not one of our own console origins —
+    # and `apps/api/security/routes.py` says in its own docstring that this is weaker than
+    # a credential rather than pretending otherwise. The trailing slash keeps the
+    # exemption to the reporting surface; there is exactly one route under it.
+    "/reports/v1/",
     # The engine-called INBOUND caller-details fetch (D-513). Same class as the invoke
     # path one line up and unauthenticated for the same reason — Bolna holds no Calevate
     # session — but its credential is a Bearer token WE choose and paste into their agent

@@ -12,7 +12,9 @@ somebody with no row here. It is in `make guardrails` and in CI.
 
 **Read the stage first.** `ROUTE_HANDLER` = something arrived and was refused;
 `CORE_LOGIC` = a decision inside the app; `OUTBOX_DISPATCH`/`WORKER_*` = the reliability
-path; `PROCESS_RESTART` = a service going down; `HOST_BACKUP` = the host chain, outside
+path; `PROCESS_RESTART` = a service going down; `BROWSER_RUNTIME` = it happened in a
+VISITOR'S BROWSER and reached us only because the browser was told to report it, so the
+place to look is a console screen and not a server; `HOST_BACKUP` = the host chain, outside
 every Python process (OPERATIONS §4).
 
 **Noise bounds apply to all of them.** One page per `stage:code` per 15 minutes, 20/hour
@@ -188,6 +190,7 @@ different — read the `note:` lines.
 | `unhandled_exception` | ROUTE_HANDLER | An exception escaped every handler and the caller got a generic 500. The exception class is appended to the code. | Always a bug. Find the traceback by the `path` id in the alert. |
 | `client_ip_unresolved` | ROUTE_HANDLER | No trusted hop vouched for a caller's address. `audit_log.ip` and per-caller rate limits are degraded. | The edge's real-IP chain (SEC-COMP §5). Usually a proxy config change. |
 | `signal_received` | PROCESS_RESTART | A service received SIGTERM/SIGINT and is draining. Expected during a deploy. | Only actionable if unexpected — an unplanned restart is an OOM or a crash loop. |
+| `csp_violation` | BROWSER_RUNTIME | **A browser refused to load or run something on one of our console pages, and the Content-Security-Policy is ENFORCING (D-541) — so whatever it was did not happen.** Either a screen is broken for whoever hit it, or an injection attempt was contained; this alarm cannot tell you which, and both are worth reading. The detail names the DIRECTIVE that refused, the ORIGIN (or CSP keyword — `inline` is what an injected script looks like from here) that was refused, and the console plus its first path segment. It carries nothing else on purpose: the page path past that segment is the tenant slug, `referrer` is dropped entirely, `script-sample` is the offending script's own bytes, and `original-policy` contains the request's nonce (hard rule 6, and `apps/api/security/csp_reports.py` argues each). One page per 15 minutes for the whole platform — every violation shares this one code so a storm collapses into a counter that rides the next delivery. | **Read the directive first.** `script-src` with `blocked_origin: inline` is the one to treat as an incident until proven otherwise — it means a script that carries no nonce tried to run on a page holding another business's data, which is precisely the case the policy exists for; go to the screen named in `document_realm` and read what the page renders from user or model input. Anything else is far more likely to be OUR policy being wrong about a legitimate origin: `media-src` means a call recording would not play (the object store origin — check `NEXT_PUBLIC_MEDIA_ORIGIN` was set in the deploy build, since empty falls back to the local MinIO), `frame-src`/`script-src` with a `razorpay.com` origin means Checkout needs an origin the policy does not name (OPERATIONS §2 gate 44 — their docs are egress-blocked from the build environment, so no origin was ever guessed), `connect-src` means the API base url and the policy disagree. **The fix for a legitimate origin is `apps/web/src/lib/security/csp.ts`, never a broader policy typed in a hurry** — and reverting `CSP_HEADER_NAME` to `-Report-Only` stands the whole containment layer down, so it is a fire exit and not a fix. Violations caused by the visitor's own browser extensions are dropped before this fires. |
 
 ### Quality
 

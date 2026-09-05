@@ -386,6 +386,24 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         # unsigned engine's webhooks use (D-31). The symbol appears in the handler's module.
         credential="SOURCE_IP_ALLOWLIST_BY_ENGINE",
     ),
+    "POST /reports/v1/csp": PublicRoute(
+        why=(
+            "The Content-Security-Policy violation collector (D-541), and the ONE route in "
+            "this process with no credential of any kind: a browser's reporting agent holds "
+            "nothing of ours and can be given nothing, so there is no signature, no shared "
+            "secret, no allowlisted address and no cookie to name here. The credential slot "
+            "below is filled by ADMISSION CONTROL and the name says so — a strict content "
+            "type checked before the body is read, a 16 KiB bounded stream, its own "
+            "rate-limit profile, and a refusal of every report whose `document-uri` is not "
+            "one of our own console origins, which is what stops the endpoint being free "
+            "log storage for somebody else's website. It writes no row, answers 204 to "
+            "everything it accepts and to everything it cannot read, and what it logs has "
+            "been stripped to origins and directive names (hard rule 6)."
+        ),
+        # Not authentication and the symbol is named to admit it. A stranger can put our
+        # origin in a JSON body; what this refuses is a report about a page we do not serve.
+        credential="require_own_console_origin",
+    ),
     "GET /v1/engine/caller-data/{engine}": PublicRoute(
         why=(
             "The engine (Bolna) calls this at inbound call setup to ask what the agent "

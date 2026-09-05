@@ -250,14 +250,20 @@ and the chain's key is the one that rotates.
 
 One alert function with a normalized `failure_stage` enum (ROUTE_HANDLER | CORE_LOGIC
 | OUTBOX_DISPATCH | WORKER_DELIVERY | WORKER_TERMINAL | WORKER_STALL
-| PROCESS_RESTART | HOST_BACKUP) — "where in the pipeline did this die" answerable without
-reading code. **`QUEUE_ENQUEUE` was in that list and in the type and was passed by
+| PROCESS_RESTART | BROWSER_RUNTIME | HOST_BACKUP) — "where in the pipeline did this die"
+answerable without reading code. **`QUEUE_ENQUEUE` was in that list and in the type and was passed by
 nothing** (D-412): an operator reading this line could wait for a stage that could not
 arrive, while the two enqueue failures the system really raises are stamped by the
 component that owns the enqueue — `OUTBOX_DISPATCH`/`outbox_queue_unreachable` in
 `dispatcher.dispatch_outbox` and `ROUTE_HANDLER`/`tool_enqueue_timeout` in voice-runtime's
 tool endpoint. `scripts/check_wiring.unemittable_alarm_stages` now fails CI on a stage
 nothing can send, so this list, the type and the call sites cannot drift apart again.
+`BROWSER_RUNTIME` is not an application stage either: it happened in a VISITOR'S BROWSER
+and reached us only because the browser was told to report it (D-541 — the
+Content-Security-Policy collector, `apps/api/security/`, is the whole of it). It is a
+member for `HOST_BACKUP`'s reason rather than for tidiness: an operator reads the stage
+first, and `ROUTE_HANDLER` on a CSP violation sends them looking at a handler of ours when
+what happened is a browser refusing a subresource on a page of ours.
 `HOST_BACKUP` is not an application stage: it is the host-side backup chain
 (D-50), emitted by `scripts/backup/notify.sh` from outside Python entirely, so no Python
 call site passes it. It exists as a member rather than being mislabelled as
