@@ -184,6 +184,21 @@ def _load_sql(realm: Realm) -> str:
     written in one statement and can share a `created_at`, and a transcript that renders
     the answer above the question is worse than no transcript.
 
+    **A CURSOR THAT NAMES NO ROW OF THIS OWNER'S IS TREATED AS NO CURSOR**, which is the
+    same recovery `turn_cursor` gives a malformed one, for the same reason and a likelier
+    cause. The `before` token is an opaque id this API issued; the row behind it can be
+    gone by the time it comes back — `_drop_stale` runs on EVERY read, and 200 turns is a
+    ceiling a long conversation genuinely reaches — and the old shape answered that with an
+    empty page, because a scalar sub-select over no rows is NULL and `(a, b) < (NULL, NULL)`
+    is NULL, so every row was filtered out. An empty page means "there is nothing older",
+    which a paging panel renders as the top of a conversation that still has two hundred
+    turns in it. `NOT EXISTS` makes the unknown cursor fall through to the newest page
+    instead, which is a recovery the person can see past.
+
+    THE SUB-SELECT IS STILL SCOPED TO THE OWNER, so the widening is not a hole: another
+    person's turn id matches no `cursor_row` and therefore reads as unknown, answering THIS
+    caller's newest page. It can never position a read inside somebody else's conversation.
+
     `tenant_id` is in NO predicate on the client table, and its absence is the tenancy
     argument rather than an oversight: every caller runs inside `db.session.tenant_session`
     and the table carries a FORCEd `tenant_isolation` policy, so a hand-written
@@ -194,13 +209,18 @@ def _load_sql(realm: Realm) -> str:
     table = _identifier(realm.table, "table")
     owner = _identifier(realm.owner, "owner column")
     return f"""
+    WITH cursor_row AS (
+      SELECT b.created_at, b.id FROM {table} b
+      WHERE CAST(:before AS uuid) IS NOT NULL
+        AND b.id = CAST(:before AS uuid)
+        AND b.{owner} = :owner
+    )
     SELECT id, role, content, screen_route, created_at
     FROM {table}
     WHERE {owner} = :owner
       AND run_started_at = :run
-      AND (CAST(:before AS uuid) IS NULL OR (created_at, id) < (
-            SELECT b.created_at, b.id FROM {table} b
-            WHERE b.id = CAST(:before AS uuid) AND b.{owner} = :owner))
+      AND (NOT EXISTS (SELECT 1 FROM cursor_row)
+           OR (created_at, id) < (SELECT created_at, id FROM cursor_row))
     ORDER BY created_at DESC, id DESC
     LIMIT :limit
     """

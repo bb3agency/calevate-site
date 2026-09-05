@@ -327,3 +327,167 @@ async def test_no_live_session_is_no_run() -> None:
     await _open_session(user_id, started=now - timedelta(hours=9), ends=now - timedelta(hours=4))
     assert await session_run.current_run_start(realm="client", subject_id=user_id) is None
     assert user_id not in await session_run.subjects_with_live_sessions(realm="client")
+
+
+async def test_a_cursor_whose_turn_was_trimmed_answers_the_newest_page() -> None:
+    """A `before` cursor pointing at a turn the CEILING has since evicted must recover to
+    the newest page, not to silence.
+
+    `turn_cursor` already settles the doctrine for the cursor it can inspect — a malformed
+    token answers the newest page, because "an opaque token this API issued" coming back
+    broken means a stale client, and a chat panel that refuses to open cannot be talked out
+    of it. A well-formed cursor whose ROW is gone is the same client in the same state, and
+    it is the more likely half: 200 turns is a real ceiling and `_drop_stale` runs on every
+    read. Answering it with an empty page says "there is nothing older", which a paging
+    panel renders as the top of a conversation that in fact still has 200 turns in it.
+    """
+    tenant_id, user_id = await _tenant_with_user()
+    run = datetime.now(UTC)
+    async with tenant_session(tenant_id) as session:
+        for index in range(3):
+            await transcript.append_exchange(
+                session,
+                realm=transcript.CLIENT,
+                owner_id=user_id,
+                tenant_id=tenant_id,
+                run_started_at=run,
+                screen_route="/leads",
+                question=f"question {index}",
+                answer=f"answer {index}",
+            )
+        page = await transcript.load(
+            session, realm=transcript.CLIENT, owner_id=user_id, run_started_at=run
+        )
+        evicted = page.turns[0].id
+        await session.execute(
+            text("DELETE FROM copilot_conversation_turns WHERE id = :id"), {"id": evicted}
+        )
+        resumed = await transcript.load(
+            session,
+            realm=transcript.CLIENT,
+            owner_id=user_id,
+            run_started_at=run,
+            before=evicted,
+        )
+    assert resumed.turns != (), "a cursor whose row is gone answered with silence"
+    # The NEWEST page, exactly as a malformed cursor gets: the recovery is the same one.
+    assert resumed.turns[-1].content.endswith("answer 2")
+
+
+async def test_a_cursor_from_another_person_is_not_a_read_of_their_page() -> None:
+    """…and the recovery does not become a hole. A cursor is scoped to the OWNER's own
+    rows, so somebody else's turn id is an unknown cursor and answers this person's newest
+    page — never a page positioned in a stranger's conversation."""
+    tenant_id, user_id = await _tenant_with_user()
+    other_id = uuid.uuid4()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO users (id, email, created_at, updated_at) "
+                "VALUES (:id, :email, now(), now())"
+            ),
+            {"id": other_id, "email": f"{other_id}@example.com"},
+        )
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                "INSERT INTO memberships (id, tenant_id, user_id, role, created_at, updated_at) "
+                "VALUES (:id, :tid, :uid, 'owner', now(), now())"
+            ),
+            {"id": uuid.uuid4(), "tid": tenant_id, "uid": other_id},
+        )
+    run = datetime.now(UTC)
+    async with tenant_session(tenant_id) as session:
+        for owner in (user_id, other_id):
+            await transcript.append_exchange(
+                session,
+                realm=transcript.CLIENT,
+                owner_id=owner,
+                tenant_id=tenant_id,
+                run_started_at=run,
+                screen_route="/leads",
+                question=f"question from {owner}",
+                answer=f"answer for {owner}",
+            )
+        theirs = await transcript.load(
+            session, realm=transcript.CLIENT, owner_id=other_id, run_started_at=run
+        )
+        mine = await transcript.load(
+            session,
+            realm=transcript.CLIENT,
+            owner_id=user_id,
+            run_started_at=run,
+            before=theirs.turns[0].id,
+        )
+    assert [turn.content for turn in mine.turns] == [
+        f"question from {user_id}",
+        f"answer for {user_id}",
+    ]
+
+
+async def test_an_idle_slide_cannot_move_the_run_a_conversation_belongs_to() -> None:
+    """`idle_expires_at` moves FORWARD under every request (`authn/sessions.verify_session`
+    slides it past `IDLE_WRITE_FLOOR`), so it moves while a person is mid-conversation and
+    while a `GET /copilot/conversation` is in flight.
+
+    It can only ever LENGTHEN an interval, and a longer interval can only make the cover
+    test more true — so the run start can move earlier but never later. It cannot move
+    earlier either, and that is the half worth pinning: a slide requires the session to be
+    live at the instant of the slide (`at >= idle_expires_at` refuses first), and a session
+    live now already covers everything created before now. So the answer is stable.
+    """
+    _, user_id = await _tenant_with_user()
+    now = datetime.now(UTC)
+    desktop = await _open_session(
+        user_id, started=now - timedelta(hours=4), ends=now + timedelta(minutes=20)
+    )
+    await _open_session(user_id, started=now - timedelta(hours=1), ends=now + timedelta(hours=2))
+    before = await session_run.current_run_start(realm="client", subject_id=user_id)
+
+    async with credential_session() as session:
+        await session.execute(
+            text("UPDATE auth_sessions SET idle_expires_at = :idle WHERE id = :id"),
+            {"idle": now + timedelta(hours=12), "id": desktop},
+        )
+    assert await session_run.current_run_start(realm="client", subject_id=user_id) == before
+
+
+async def test_two_sign_ins_seconds_apart_are_one_run() -> None:
+    """A person opening the console on a phone while their laptop is signed in is not
+    starting a second conversation. The intervals overlap, so it is one island — and the
+    run is the FIRST of the two, not the most recent sign-in."""
+    _, user_id = await _tenant_with_user()
+    now = datetime.now(UTC)
+    first = now - timedelta(seconds=9)
+    await _open_session(user_id, started=first, ends=now + timedelta(hours=8))
+    await _open_session(user_id, started=now - timedelta(seconds=2), ends=now + timedelta(hours=8))
+    started = await session_run.current_run_start(realm="client", subject_id=user_id)
+    assert started is not None
+    assert abs((started - first).total_seconds()) < 1
+
+
+async def test_a_dead_island_after_a_live_one_cannot_be_read_as_the_run() -> None:
+    """The run start is `max(created_at)` over the sessions no earlier session covers, and
+    the liveness test in that query is NOT correlated to the row it picks. So the property
+    it rests on has to hold: while any session is live, no LATER session can be an island
+    start, because the live one covers everything created after it. A conversation must not
+    be wiped by a short-lived session that opened and closed inside a live run."""
+    _, user_id = await _tenant_with_user()
+    now = datetime.now(UTC)
+    anchor = now - timedelta(hours=6)
+    await _open_session(user_id, started=anchor, ends=now + timedelta(hours=6))
+    # A tab opened and closed an hour ago, entirely inside the live session's interval.
+    closed = await _open_session(
+        user_id, started=now - timedelta(hours=2), ends=now - timedelta(hours=1)
+    )
+    async with credential_session() as session:
+        await session.execute(
+            text(
+                "UPDATE auth_sessions SET revoked_at = :at, revoked_reason = 'signed_out' "
+                "WHERE id = :id"
+            ),
+            {"at": now - timedelta(hours=1), "id": closed},
+        )
+    started = await session_run.current_run_start(realm="client", subject_id=user_id)
+    assert started is not None
+    assert abs((started - anchor).total_seconds()) < 1
