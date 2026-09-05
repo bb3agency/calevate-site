@@ -223,7 +223,15 @@ async def get_recording(
     from apps.workers.storage import presigned_url
 
     ttl_s = recording_link_ttl_s(ref.duration_s)
-    url = presigned_url(ref.key, ttl_s=ttl_s)
+    # `inline`, EXPLICITLY, and it is the only call site that asks for it. The browser
+    # PLAYS this URL — `components/callAudioPlayer.tsx` puts it in an `<audio src>` — so
+    # the default `attachment` risks a player that downloads instead of playing, and
+    # whether a browser honours the header on a media subresource is not something this
+    # repository can test (see `storage.presigned_url`). The exception is safe here for a
+    # reason that does not generalise: this object is audio WE wrote from the vendor's
+    # bytes under a key we minted. The object a CLIENT uploaded is never played, and it
+    # keeps the default.
+    url = presigned_url(ref.key, ttl_s=ttl_s, disposition="inline")
     if url is None:
         raise ProblemError(
             kind="dependency",

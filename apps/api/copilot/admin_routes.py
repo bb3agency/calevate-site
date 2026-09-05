@@ -620,14 +620,45 @@ async def load_admin_copilot_conversation(
     summary="Start again — forget this operator's assistant conversation",
 )
 async def clear_admin_copilot_conversation(
+    request: Request,
     principal: AdminCopilotUser,
 ) -> CopilotConversationClearedOut:
-    """Forget this operator's whole conversation. No audit row, for the client route's
-    reason: what is audited is every answer and every change, not a person clearing a
-    panel."""
+    """Forget this operator's whole conversation.
+
+    ⚠ **IT WRITES AN AUDIT ROW, AND THE EARLIER ARGUMENT FOR NOT WRITING ONE IS
+    WITHDRAWN.** That argument — "what is audited is every answer and every change, not a
+    person clearing a panel" — is true as far as it goes: every `admin_copilot.ask` row
+    survives this, so the RECORD of what an operator asked is untouched and clearing the
+    panel destroys only a convenience copy.
+
+    It is still the wrong call here, for a reason outside this route. SEC-COMP §5's
+    invariant is that EVERY admin-realm mutation writes an audit row, and
+    `tests/admin_read_audit_test._NOT_AN_AUDITED_MUTATION` — the register of sanctioned
+    exceptions — is **empty**. Exempting this would have opened that register for the
+    first time, and a register that exists gets used: the next reader with a mutation that
+    feels minor now has a precedent instead of an absolute. An invariant with no exceptions
+    is worth more than this row costs, and this row costs one INSERT on a rare operator
+    action.
+
+    Ids and a COUNT only, no content (hard rule 6): the turns being destroyed are the
+    operator's own words and an assistant's answers, and the point of the row is that the
+    clearing happened, by whom and how much — never what was said.
+    """
+    operator = _operator_id(principal)
     async with untenanted_session() as session:
-        cleared = await transcript.clear(
-            session, realm=transcript.ADMIN, owner_id=_operator_id(principal)
+        cleared = await transcript.clear(session, realm=transcript.ADMIN, owner_id=operator)
+        await write_audit(
+            session,
+            action="admin_copilot.conversation_cleared",
+            actor=principal,
+            # PLATFORM-LEVEL, not a tenant's: an operator's assistant panel belongs to no
+            # client, and attributing it to whichever account happened to be open would put
+            # a row in that client's trail for something that was not about them.
+            tenant_id=None,
+            object_type="admin_copilot_conversation",
+            object_id=str(operator),
+            ip=client_request_ip(request),
+            summary={"turns_cleared": cleared},
         )
     return CopilotConversationClearedOut(cleared=cleared)
 

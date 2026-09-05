@@ -85,6 +85,29 @@ def test_the_disposition_is_inside_the_signature_and_not_merely_appended(
     assert _query(ours)["X-Amz-Signature"] != _query(bare)["X-Amz-Signature"]
 
 
+def test_the_recording_player_asks_for_inline_and_nothing_else_does() -> None:
+    """The one exception, pinned at the CALL SITE rather than trusted to a comment.
+
+    `crm/routes` feeds a recording's URL to an `<audio src>`, so it asks for `inline`;
+    every other caller takes the `attachment` default. Asserted over the SOURCE because
+    the alternative — importing three routers — drags their dependency trees into a test
+    about one keyword argument. If a second call site ever needs `inline`, this fails and
+    the next person has to argue it rather than inherit it.
+    """
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[1]
+    asking = {
+        path.relative_to(root).as_posix()
+        for path in root.joinpath("apps").rglob("*.py")
+        if 'disposition="inline"' in path.read_text(encoding="utf-8")
+    }
+    assert asking == {"apps/api/crm/routes.py"}, (
+        "only the call-recording link is played rather than downloaded; a new caller "
+        f"asking for `inline` needs its own argument. Found: {sorted(asking)}"
+    )
+
+
 def test_every_caller_inherits_it_because_it_is_signed_here(_object_store: None) -> None:
     """The three call sites — the CRM recording link, the knowledge-base original and the
     integration delivery body — all reach the object store through this one function, so

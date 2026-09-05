@@ -888,7 +888,9 @@ def _chunks(keys: Sequence[str], size: int) -> Iterable[Sequence[str]]:
         yield keys[start : start + size]
 
 
-def presigned_url(key: str, *, ttl_s: int = PRESIGN_TTL_S) -> str | None:
+def presigned_url(
+    key: str, *, ttl_s: int = PRESIGN_TTL_S, disposition: str = "attachment"
+) -> str | None:
     """A short-lived read URL for one object, or None.
 
     ⚠ **IT SIGNS `Content-Disposition: attachment`, AND THAT IS A SECURITY CONTROL RATHER
@@ -909,6 +911,22 @@ def presigned_url(key: str, *, ttl_s: int = PRESIGN_TTL_S) -> str | None:
     we handed out — `tests/presigned_disposition_test.py` asserts exactly that by signing
     the same key with and without it and requiring the signatures to differ.
 
+    ⚠ **`disposition` IS A PARAMETER BECAUSE ONE CALLER PLAYS THE OBJECT RATHER THAN
+    HANDING IT OVER.** `components/callAudioPlayer.tsx` feeds a recording's presigned URL
+    to an `<audio src>`. Whether a browser honours `Content-Disposition` on a MEDIA
+    SUBRESOURCE is a claim about four browsers that this repository cannot test — MinIO is
+    not running here and the specifications are egress-blocked — so it is **UNVERIFIED**,
+    and a control whose safety rests on an unverified browser behaviour is the wrong shape
+    when the failure is "no client can play any recording". The default stays `attachment`,
+    so a new caller is safe without thinking; the audio player asks for `inline`
+    EXPLICITLY, which makes the exception visible at the one place it applies instead of
+    silently weakening it for everything.
+
+    That exception is narrow on its own merits rather than by assertion: a recording is
+    audio WE wrote from the vendor's bytes under a key we minted, and its content type is
+    ours. The dangerous object is the one a CLIENT uploaded, and that one is never played —
+    it is downloaded, at the default.
+
     REJECTED: relying on the CSP. A presigned URL points at the OBJECT STORE's origin,
     not ours, so our `Content-Security-Policy` header is not in that response's path at
     all and could never have covered this.
@@ -926,7 +944,7 @@ def presigned_url(key: str, *, ttl_s: int = PRESIGN_TTL_S) -> str | None:
             Params={
                 "Bucket": settings.object_store_bucket,
                 "Key": key,
-                "ResponseContentDisposition": "attachment",
+                "ResponseContentDisposition": disposition,
             },
             ExpiresIn=ttl_s,
         )
