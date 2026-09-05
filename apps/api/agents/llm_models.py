@@ -717,17 +717,52 @@ def dashboard_leg_reason(
     ladder states the snapshot's — which is the honest split, because the ladder really is
     running on the snapshot until it refreshes.
     """
-    permitted = dashboard_data_use_attested() if attested is None else attested
-    ground: str | None = None
-    if provider in DASHBOARD_TERMS_UNREAD:
-        ground = UNREAD_DASHBOARD_TERMS_REASON
-    elif provider in DASHBOARD_NEEDS_DATA_USE_ATTESTATION and provider not in permitted:
-        ground = NO_DATA_USE_ATTESTATION_REASON
-    elif provider not in DASHBOARD_ADDRESSABLE_PROVIDERS:
+    ground = client_content_data_use_reason(provider, attested=attested)
+    if ground is None and provider not in DASHBOARD_ADDRESSABLE_PROVIDERS:
         ground = NO_DASHBOARD_LEG_REASON
     if ground is None or audience == "operator":
         return ground
     return CLIENT_DASHBOARD_UNAVAILABLE_REASON
+
+
+def client_content_data_use_reason(
+    provider: LlmProvider, *, attested: frozenset[LlmProvider] | None = None
+) -> str | None:
+    """Why a CLIENT'S OWN CONTENT may not be sent to `provider` at all, or `None` when it may.
+
+    ═══ WHY THIS IS SEPARATE FROM `dashboard_leg_reason` (which now calls it) ═══
+
+    That function answers TWO questions at once and only one of them is about the vendor: a
+    compliance ground (has anybody read this vendor's data-use terms, and has an operator
+    attested our account's tier) and an engineering one (can this repository build a
+    dashboard chat request for it). The compliance half is a fact about the PROVIDER and is
+    the same fact for every surface that sends a client's content to it. The engineering
+    half is about one surface.
+
+    It was split because a SECOND such surface arrived and asked the wrong question. The
+    knowledge-base OCR leg (`workers/document_ocr.py`) sends a photograph a client uploaded
+    — for this market a photographed printed page, which in a clinic can carry a patient's
+    name — to Google, and it gated itself on `unofferable_reason`, which asks whether the
+    model is selectable, credentialled and PRICED. Nothing on that path asked the one
+    question this platform built a whole ops surface, a table and an attestation ladder to
+    answer. Asking `dashboard_leg_reason` there would have been wrong in the other
+    direction: it would have refused OCR on `NO_DASHBOARD_LEG_REASON`, an engineering fact
+    about a chat surface OCR does not use.
+
+    ⚠ **THE IN-CALL LEG IS NOT GOVERNED BY THIS AND MUST NOT BE ROUTED THROUGH IT.** That
+    leg sends raw caller speech under a disclosed notice and its own consent regime
+    (`ops/dashboard_data_use_routes.py` states the same exclusion); this is the gate for
+    content a client hands us OUTSIDE a call.
+
+    `attested` has `dashboard_leg_reason`'s meaning and its reason: the default reads the
+    in-process snapshot, and a caller that has just read the store passes what it read.
+    """
+    permitted = dashboard_data_use_attested() if attested is None else attested
+    if provider in DASHBOARD_TERMS_UNREAD:
+        return UNREAD_DASHBOARD_TERMS_REASON
+    if provider in DASHBOARD_NEEDS_DATA_USE_ATTESTATION and provider not in permitted:
+        return NO_DATA_USE_ATTESTATION_REASON
+    return None
 
 
 def dashboard_leg_providers() -> frozenset[LlmProvider]:
@@ -983,6 +1018,7 @@ __all__ = [
     "SelectableModel",
     "TenantModelLeg",
     "available_models",
+    "client_content_data_use_reason",
     "dashboard_data_use_attested",
     "dashboard_leg_providers",
     "dashboard_leg_reason",

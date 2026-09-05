@@ -116,7 +116,7 @@ from calevate_shared.engine import (
     google_openai_compat_base_url,
 )
 
-from apps.api.agents.llm_models import unofferable_reason
+from apps.api.agents.llm_models import client_content_data_use_reason, unofferable_reason
 from apps.api.core.logging import get_logger
 from apps.api.core.settings import get_settings
 from apps.workers import chat
@@ -209,7 +209,36 @@ def ocr_leg() -> chat.ChatLeg:
     there: `billing/rates.llm_inr_per_ktok` RAISES on an unattested model, so an OCR leg
     that ran without the attestation would deliver work it cannot bill, which is an
     UNMETERED cost and not a free one.
+
+    ═══ AND A FOURTH CONDITION, WHICH THOSE THREE DO NOT CONTAIN ═══
+
+    **`unofferable_reason` IS A QUESTION ABOUT A MODEL. THIS IS A QUESTION ABOUT A
+    VENDOR'S TERMS, AND THIS MODULE SENDS A CLIENT'S CONTENT TO ONE.** Selectable,
+    credentialled and priced says nothing about whether the account we hold with that
+    vendor is on a tier where they train on what we submit — and that is the exact
+    question this platform built `platform_dashboard_data_use`, an ops screen and an
+    operator attestation ladder to answer before a client's SCREEN reaches a model.
+
+    What travels here is stronger than a screen: a photograph of a printed page a client
+    uploaded, which in this market is a clinic's own list and can carry a patient's name.
+    So the gate is the same one, asked through the half of it that is about the vendor
+    rather than about a chat surface — `client_content_data_use_reason`, which
+    `dashboard_leg_reason` now also calls. Asking `dashboard_leg_reason` itself would
+    refuse OCR on `NO_DASHBOARD_LEG_REASON`, an engineering fact about a surface this
+    module does not use.
+
+    It is asked FIRST, for `credit_routes.grant_credits`' reason in a different register:
+    when several grounds are true at once, report the one whose remedy is not "install a
+    key" — an operator who fixes the credential and comes back to a compliance refusal has
+    been sent to do the wrong job.
+
+    THE IN-CALL LEG IS UNAFFECTED. That leg sends raw caller speech under a disclosed
+    notice and its own consent regime, and `client_content_data_use_reason` states in as
+    many words that it does not govern it.
     """
+    terms = client_content_data_use_reason(LLM_MODELS[DOCUMENT_OCR_MODEL].provider)
+    if terms is not None:
+        raise OcrUnavailableError(reason=terms)
     reason = unofferable_reason(DOCUMENT_OCR_MODEL)
     if reason is not None:
         raise OcrUnavailableError(reason=reason)

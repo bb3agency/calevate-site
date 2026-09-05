@@ -78,12 +78,46 @@ def _client(*replies: object) -> tuple[httpx.AsyncClient, list[httpx.Request]]:
 
 @pytest.fixture(autouse=True)
 def _offerable(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The two live conditions, satisfied. Both are an operator's act in production —
-    `unofferable_reason` reads the installed credential and the price attestation — so a
-    test that wants the leg to work has to stand in for both, and the tests that want it
-    NOT to work turn one back off."""
+    """The THREE live conditions, satisfied. Every one of them is an operator's act in
+    production — `unofferable_reason` reads the installed credential and the price
+    attestation, and `client_content_data_use_reason` reads the vendor data-use
+    attestation — so a test that wants the leg to work has to stand in for all three, and
+    the tests that want it NOT to work turn one back off.
+
+    The data-use one is third and is the one a reader is most likely to think belongs to
+    another surface: it is the gate on a client's own content reaching a vendor at all, and
+    a photographed price list is content of exactly that kind."""
     monkeypatch.setattr(document_ocr, "unofferable_reason", lambda _model: None)
+    monkeypatch.setattr(document_ocr, "client_content_data_use_reason", lambda _provider: None)
     monkeypatch.setattr(get_settings(), "gemini_api_key", "gk-test", raising=False)
+
+
+def test_no_ocr_until_somebody_has_attested_what_this_vendor_does_with_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A CLIENT'S PHOTOGRAPH IS CLIENT CONTENT, AND IT REACHES A VENDOR HERE.
+
+    This leg gated itself on `unofferable_reason` alone — selectable, credentialled,
+    priced — none of which asks whether the account we hold with that vendor is on a tier
+    where they train on what we submit. That question has an ops screen, a table and an
+    attestation ladder behind it, built so a client's SCREEN could not reach a model
+    without it; a photograph of a clinic's own printed page is stronger content than a
+    screen, and it was going out with the question unasked.
+
+    IT IS REPORTED BEFORE THE CREDENTIAL AND THE PRICE, so an operator who installs a key
+    and comes back is not sent to do the wrong job twice.
+    """
+    monkeypatch.setattr(
+        document_ocr,
+        "client_content_data_use_reason",
+        lambda _provider: "nobody has attested this vendor's data-use position",
+    )
+    monkeypatch.setattr(
+        document_ocr, "unofferable_reason", lambda _model: "no attested price on file"
+    )
+    with pytest.raises(OcrUnavailableError) as refusal:
+        document_ocr.ocr_leg()
+    assert refusal.value.reason == "nobody has attested this vendor's data-use position"
 
 
 # --- THE ACCURACY GATE ---------------------------------------------------------------
