@@ -77,6 +77,13 @@ _REMEDIATION: Final[dict[EngineCapabilityName, str]] = {
         "deployed to it separately — so this agent cannot be published to it. Contact us "
         "before configuring an agent for this account."
     ),
+    "script_override": (
+        "The voice platform in use cannot change what a published agent says without "
+        "republishing it, so callers will reach their usual agent during a maintenance "
+        "window instead of hearing the maintenance message. Warn affected clients "
+        "directly, or keep the window short enough that ordinary inbound traffic is not "
+        "affected."
+    ),
     "campaigns": (
         "Campaigns are dispatched by Calevate rather than by the voice platform; nothing "
         "needs configuring on the platform side."

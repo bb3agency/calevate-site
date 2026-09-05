@@ -504,6 +504,19 @@ async def _run_tick() -> str:
     platform = await get_platform_status()
     if platform.outbound_halted:
         return "halted_by_big_red_switch"
+    # THE MAINTENANCE DRAIN (D-544). Returning here rather than letting the per-contact
+    # gate refuse each one is not merely cheaper — it is the difference between a drain
+    # that finishes and one that does not. Claiming a contact writes rows, and refusing it
+    # writes more; a tick that claims a whole batch and refuses it thirty times a minute
+    # keeps the outbox non-empty, which is one of the two things `InFlight` counts. So the
+    # tick that would have created the work simply does not run.
+    #
+    # `check_dispatch` still carries the same refusal (`MAINTENANCE_DRAIN_RULE`) for every
+    # OTHER way a dial can start — the client's own "call this lead" button, the callback
+    # dialler, the escalation path. This is the batch dialler declining to begin, not the
+    # enforcement.
+    if not platform.accepting_new_work:
+        return "paused_for_maintenance"
 
     pool = _outbound_pool()
     if pool <= 0:

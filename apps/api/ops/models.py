@@ -28,6 +28,7 @@ from typing import Any
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     Date,
     ForeignKey,
     Identity,
@@ -42,7 +43,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from apps.api.db.base import Base
+from apps.api.db.base import Base, PKMixin
 
 #: A vendor LIST PRICE, in **USD per MILLION tokens** — the unit
 #: `calevate_shared.engine.LlmPrice` publishes and `billing/rates.py` converts from. Six
@@ -410,13 +411,153 @@ class PlatformDashboardDataUse(Base):
     source_note: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+#: How long a DRAIN may run before the window activates anyway (D-544).
+#:
+#: Fifteen minutes, and every part of that number is a measurement in this repo rather
+#: than a round figure. What draining waits for is (a) live calls and (b) durable queued
+#: work. A call is bounded by `agents.call_cap_seconds` — the fleet ceiling is 15 minutes
+#: (`agents/publishing.CallCapResult`), so one full-length call started one second before
+#: the window opened is the worst honest case. Queued work is bounded by the outbox
+#: dispatcher's 10-second tick times its 5-attempt ladder, which is far shorter. So the
+#: bound is "the longest call we allow, and not a minute of round-number padding on top";
+#: anything still running past it is not draining, it is wedged, and the answer to wedged
+#: is an operator reading the straggler list rather than a longer wait.
+#:
+#: It is a per-window COLUMN with this as its default rather than a constant the code
+#: reads, because the operator scheduling the window is the one who knows whether tonight
+#: is a schema migration (wait) or a config push (do not).
+DEFAULT_MAX_DRAIN_MINUTES = 15
+
+#: How far ahead of `starts_at` clients are told (D-544). Twenty-four hours is the notice
+#: period `apps/web/src/lib/legal/terms.ts` already promises ("reasonable notice of planned
+#: maintenance where we can"), and it is long enough that a client who dials a campaign
+#: every morning sees the banner before they build tomorrow's list.
+ADVANCE_NOTICE_HOURS = 24
+
+#: The lifecycle of one window. Read `ops/maintenance.py` for the transitions; this tuple
+#: is the DATABASE's copy of the same vocabulary and is interpolated into the CHECK below.
+#:
+#: THE TWO STATES THAT MATTER ARE `draining` AND `active`, and the whole feature is the
+#: distinction between them. `draining` = we have stopped ACCEPTING work; in-flight work
+#: is still running and is not killed. `active` = in-flight work reached zero (or the
+#: drain deadline passed) and the platform is now shut to clients.
+MAINTENANCE_STATES: tuple[str, ...] = (
+    "scheduled",
+    "draining",
+    "active",
+    "completed",
+    "cancelled",
+)
+
+#: The states a window is still LIVE in — the ones at most one window may be in at a time
+#: (`ux_platform_maintenance_windows_open` enforces it), and the ones the tick advances.
+MAINTENANCE_OPEN_STATES: tuple[str, ...] = ("scheduled", "draining", "active")
+
+
+class PlatformMaintenanceWindow(PKMixin, Base):
+    """ONE planned outage: when it starts, when it ends, why, and where it has got to.
+
+    PLATFORM-SCOPED AND DELIBERATELY SO. A maintenance window is one fact for the whole
+    deployment at one instant, exactly like the big red switch and the load-shed mode it
+    drives, so it carries no `tenant_id`, it is reachable only from the admin realm behind
+    `ops:manage`, and it is registered in `db/registry.RLS_EXEMPT_TENANT_COLUMNS` with that
+    as the written reason (rule 7(a) of `check_rls_coverage` fires on the `platform_`
+    prefix, which is how this table is made impossible to forget).
+
+    NOT APPEND-ONLY, and the reasoning is `tenant_trials`': the row IS a state machine and
+    an append-only version would need a second table to answer the one question it exists
+    to answer ("what is happening right now"). The immutable history of who scheduled,
+    amended, cancelled or forced it is `audit_log`, written in the same transaction as
+    every transition.
+
+    THE FOUR NOTICE STAMPS ARE THE DEDUPE, and they are columns rather than a second table
+    for one reason: the fan-out must happen EXACTLY once per window per kind across an
+    arbitrary number of worker processes, and a `UPDATE ... SET advance_notice_at = now()
+    WHERE id = :id AND advance_notice_at IS NULL` returning rowcount 1 is that guarantee in
+    one statement (BACKEND-PATTERNS §5's CAS doctrine). A worker that loses the race sends
+    nothing and moves on.
+    """
+
+    __tablename__ = "platform_maintenance_windows"
+    __table_args__ = (
+        CheckConstraint(f"state IN {MAINTENANCE_STATES!r}", name="state_enum"),
+        CheckConstraint("ends_at > starts_at", name="ends_after_start"),
+        CheckConstraint("max_drain_minutes BETWEEN 1 AND 240", name="max_drain_minutes_range"),
+        # A forced activation is a fact about an activation, so it cannot be recorded on a
+        # window that never activated. Without this a cancelled window could carry
+        # `forced = true` and the ops screen would report a drain that never ran.
+        CheckConstraint("NOT forced OR activated_at IS NOT NULL", name="forced_implies_activated"),
+    )
+
+    #: What clients are shown, in the operator's own words. NOT NULL and non-blank at the
+    #: boundary: a lockout page reading "maintenance" and nothing else is the generic error
+    #: this whole feature exists to replace.
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+    starts_at: Mapped[datetime] = mapped_column(nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(nullable=False)
+    state: Mapped[str] = mapped_column(Text, nullable=False, server_default="scheduled")
+    #: This window's drain bound, defaulted from `DEFAULT_MAX_DRAIN_MINUTES`.
+    max_drain_minutes: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=str(DEFAULT_MAX_DRAIN_MINUTES)
+    )
+    #: Stamped when the window enters `draining`; `drain_deadline_at` is derived from it and
+    #: stored rather than recomputed so the console and the tick read one instant.
+    draining_since: Mapped[datetime | None] = mapped_column()
+    drain_deadline_at: Mapped[datetime | None] = mapped_column()
+    activated_at: Mapped[datetime | None] = mapped_column()
+    #: True when the drain deadline expired with work still in flight. The window is ACTIVE
+    #: either way; this is what tells the operator which kind of ACTIVE they are looking at.
+    forced: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    #: What was still running at the moment of a FORCED activation — `{"calls": n,
+    #: "jobs": n, "tenants": [...]}`. JSONB and not columns because it is a report an
+    #: operator reads once, and NULL on a clean activation is the honest value.
+    stragglers: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    #: THE LAST DRAIN PROBE, and the instant it was taken — `{"calls": n, "jobs": n,
+    #: "tenants_unreached": n, "complete": bool}`.
+    #:
+    #: Written by the worker tick, read by the ops console. The console does NOT run the
+    #: probe itself, and that is the decision rather than a shortcut: the probe is a
+    #: fleet-wide walk (`calls` is FORCE-RLS'd, so it is one tenant session at a time —
+    #: `workers/fleet_walk.py` exists because these walks outgrow a job timeout, never
+    #: mind a request), and running it per page load would put an O(tenants) walk on an
+    #: HTTP path. Storing it also makes the screen and the state machine provably agree:
+    #: the operator sees the numbers the activation decision was actually taken on, with
+    #: `probed_at` saying how old they are, instead of a second measurement that can
+    #: disagree with the first.
+    in_flight: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    probed_at: Mapped[datetime | None] = mapped_column()
+    ended_at: Mapped[datetime | None] = mapped_column()
+    cancelled_at: Mapped[datetime | None] = mapped_column()
+    #: The mode `platform_state.load_shed_mode` held when this window activated, so
+    #: completion RESTORES rather than assuming `normal`. A window that opened during a
+    #: `reduced` shed must not silently end the shed as well as itself.
+    restore_load_shed_mode: Mapped[str | None] = mapped_column(Text)
+    #: The three client notices and the amendment, each stamped once by a CAS.
+    advance_notice_at: Mapped[datetime | None] = mapped_column()
+    amended_notice_at: Mapped[datetime | None] = mapped_column()
+    active_notice_at: Mapped[datetime | None] = mapped_column()
+    ended_notice_at: Mapped[datetime | None] = mapped_column()
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id")
+    )
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 __all__ = [
+    "ADVANCE_NOTICE_HOURS",
+    "DEFAULT_MAX_DRAIN_MINUTES",
     "FX_RATE",
+    "MAINTENANCE_OPEN_STATES",
+    "MAINTENANCE_STATES",
     "USD_PER_MTOK",
     "FxRateObservation",
     "PlatformConfigVersion",
     "PlatformDashboardDataUse",
     "PlatformEngineHealth",
+    "PlatformMaintenanceWindow",
     "PlatformModelPrice",
     "PlatformSecret",
     "PlatformSetting",

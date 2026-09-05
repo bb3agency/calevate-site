@@ -1889,6 +1889,95 @@ async def test_a_declared_handoff_reaches_the_engine_or_is_refused_by_name(
     )
 
 
+async def test_a_script_override_changes_the_words_and_nothing_else(
+    engine: VoiceEngine,
+) -> None:
+    """WHAT A CALLER HEARS DURING MAINTENANCE IS A PROPERTY OF THE ENGINE (D-544).
+
+    The founder's correction to the first maintenance design was "play a message instead
+    of the call not connecting", and the whole of it comes down to one write: with a
+    window open, a published inbound agent has to be SAYING something different, and
+    afterwards it has to be saying its own words again. Both halves are claims about the
+    vendor's agent record, so both are read back rather than inferred from a 2xx.
+
+    Three outcomes, and no fourth:
+
+    1. `script_override=False` ⇒ REFUSED, naming `script_override`. Silently doing nothing
+       is the dangerous direction and the one an adapter reaches by accident: the window
+       would run, the operator's screen would say the message was applied, and a client's
+       callers would spend the outage in an ordinary conversation with an agent whose tool
+       endpoints and database are being taken away underneath them.
+    2. `script_override=True` ⇒ the new greeting and the new prompt are BOTH on the engine
+       afterwards. Both, because a greeting alone leaves the agent to carry on the
+       conversation after the maintenance sentence, which is the half-measure that reads
+       as working.
+    3. AND NOTHING ELSE MOVED. This is the clause's real content and the reason it is not
+       just "update_agent with two fields": the override is a PARTIAL write on a live
+       agent, so the name — a field the same vendor endpoint can also set — must be exactly
+       what it was. An adapter that reached for the full-replacement write to implement
+       this would pass (1) and (2) and fail here, having quietly rebuilt the agent from
+       whatever config it happened to hold.
+
+    Skipped where the engine hosts no agent of ours: `agent_hosting` refuses one step
+    earlier and a refusal naming the wrong capability is not evidence about this one.
+    """
+    caps = engine.capabilities
+    if not caps.hosts_agents():
+        pytest.skip("no agent record on this shape; `agent_hosting` covers it")
+
+    maintenance_line = "Calevate is down for planned maintenance until 02:30."
+    maintenance_prompt = "Say the maintenance sentence, then end the call politely."
+
+    if not caps.script_override:
+        refused: Exception | None = None
+        try:
+            await engine.override_call_script(
+                "any-ref", opening_line=maintenance_line, system_prompt=maintenance_prompt
+            )
+        except Exception as exc:
+            refused = exc
+        assert refused is not None, (
+            "this adapter declares no script override and accepted one anyway — an "
+            "operator would be told the maintenance message was applied while callers "
+            "hold ordinary conversations through the outage"
+        )
+        assert getattr(refused, "capability", None) == "script_override", (
+            "the refusal does not name `script_override`, so the maintenance worker "
+            "cannot tell it apart from a transient engine failure and will report the "
+            "message as merely undelivered rather than unsupported"
+        )
+        return
+
+    cfg = _agent_config(engine, name="Sunrise Clinic receptionist")
+    ref = await engine.create_agent(cfg)
+    await engine.override_call_script(
+        ref, opening_line=maintenance_line, system_prompt=maintenance_prompt
+    )
+    during = await engine.get_agent(ref)
+    assert during.carries_greeting_marker(maintenance_line) is True, (
+        "the maintenance greeting is not on the engine, so a caller during the window "
+        "hears the agent's ordinary opening line and learns nothing"
+    )
+    assert during.carries_prompt_marker(maintenance_prompt) is True, (
+        "the maintenance prompt is not on the engine, so the agent says the maintenance "
+        "sentence and then carries on doing business through the outage"
+    )
+    assert during.name == cfg.name, (
+        "the override moved a field it was not asked to move. It is a PARTIAL write on a "
+        "live agent; an implementation that rebuilds the whole agent object will lose "
+        "whatever that object holds and this repository does not model"
+    )
+
+    # AND THE AGENT COMES BACK. Not through the override — the restore is a republish
+    # from our own record (see the Protocol note) — which is exactly what this asserts.
+    await engine.update_agent(ref, cfg)
+    after = await engine.get_agent(ref)
+    assert after.carries_greeting_marker(cfg.opening_line) is True, (
+        "an agent republished after a maintenance window still holds the maintenance "
+        "greeting, so every caller after the window is told the platform is down"
+    )
+
+
 async def test_inbound_binding_matches_the_declaration_either_way(engine: VoiceEngine) -> None:
     """AN AGENT ASSIGNED TO A NUMBER IS AN AGENT THE ENGINE KNOWS ABOUT (D-420).
 

@@ -46,6 +46,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Literal
 
 from sqlalchemy import text
@@ -143,10 +144,47 @@ _MEMO_TTL_S = 5.0
 _CACHE_TTL_S = 15
 
 
+#: Where a PLANNED maintenance window has got to, as the hot path needs to know it (D-544).
+#: `none` covers "no window" and "a window that is only scheduled" alike — a scheduled
+#: window changes nothing about how a request is served, so the shed decision must not see
+#: a third case it would have to remember to ignore.
+MaintenancePhase = Literal["none", "draining", "active"]
+
+
 @dataclass(frozen=True, slots=True)
 class PlatformStatus:
     mode: LoadShedMode
     outbound_halted: bool
+    #: THE MAINTENANCE WINDOW, CARRIED ON THE HOT PATH — and the one place this dataclass
+    #: departs from the rule it states about `halt_reason` (D-544).
+    #:
+    #: `halt_reason` is deliberately NOT here because it is only ever for a human reading
+    #: the ops screen, and the ops screen can afford an uncached read. These three are for
+    #: a human too, but the human is a CLIENT and the place they read them is the 503 that
+    #: refused their request — one per shed request, on a path that must not grow a second
+    #: database round trip. They ride along on the read that was already happening: one
+    #: LEFT JOIN in `_read_durable`, one extra hash field in the cache.
+    #:
+    #: `maintenance_reason` and `maintenance_ends_at` are what turn "temporarily
+    #: unavailable" into "we are upgrading the telephony stack; back at 02:30 IST", which
+    #: is the founder's requirement that a locked-out client sees a page rather than a
+    #: generic error.
+    maintenance: MaintenancePhase = "none"
+    maintenance_ends_at: datetime | None = None
+    maintenance_reason: str | None = None
+
+    @property
+    def accepting_new_work(self) -> bool:
+        """May the platform start something NEW — a dial, a campaign claim, a call?
+
+        False from the moment a window starts DRAINING, which is the half of the two-state
+        model that has no expression in `mode`: a draining platform is still `normal` to
+        every load-shed decision (the portal stays open, reads and writes still serve) and
+        must nevertheless refuse to begin anything that would keep the drain from
+        finishing. One property, asked by `compliance.check_dispatch` and by the campaign
+        tick, so "stopped accepting" has one definition.
+        """
+        return self.maintenance == "none"
 
 
 _memo: tuple[float, PlatformStatus] | None = None
@@ -170,6 +208,13 @@ async def get_platform_status(*, force_refresh: bool = False) -> PlatformStatus:
                 status = PlatformStatus(
                     mode=_coerce_mode(cached.get("mode")),
                     outbound_halted=cached.get("outbound_halted") == "1",
+                    maintenance=_coerce_phase(cached.get("maintenance")),
+                    # `fromisoformat` of an absent key is not attempted: a cache written
+                    # by an older process has no such field, which reads as "no window"
+                    # — the same answer the durable read would give if there were none,
+                    # and bounded by the 15-second TTL either way.
+                    maintenance_ends_at=_parse_instant(cached.get("maintenance_ends_at")),
+                    maintenance_reason=cached.get("maintenance_reason") or None,
                 )
         except Exception:
             log.warning("loadshed_cache_unavailable")
@@ -212,24 +257,90 @@ async def _cache_write(status: PlatformStatus) -> None:
             mapping={
                 "mode": status.mode,
                 "outbound_halted": "1" if status.outbound_halted else "0",
+                # Redis hash values are strings, so absence is spelled as the empty
+                # string and read back as None. A `del` of the field would leave the
+                # previous window's end time behind on a key this module rewrites in
+                # place, which is the stale-cache shape the TTL argument above exists
+                # to rule out.
+                "maintenance": status.maintenance,
+                "maintenance_ends_at": (
+                    status.maintenance_ends_at.isoformat()
+                    if status.maintenance_ends_at is not None
+                    else ""
+                ),
+                "maintenance_reason": status.maintenance_reason or "",
             },
         )
         pipe.expire(_REDIS_KEY, _CACHE_TTL_S)
         await pipe.execute()
 
 
+#: The switch, and the window, in ONE round trip.
+#:
+#: A LEFT JOIN LATERAL rather than a second query, because this runs on the miss path of a
+#: cache every request consults and `db/session.MAX_NESTED_CONNECTIONS` is 2 — a second
+#: statement here is cheap, but a second CONNECTION is not, and the two facts must in any
+#: case describe the same instant. `platform_state` is a one-row table, so the join adds an
+#: index lookup on a table with at most one open row (`ux_platform_maintenance_windows_open`
+#: is unique over exactly those states).
+#:
+#: `scheduled` is not selected: a scheduled window changes nothing about how a request is
+#: served, and carrying it here would put a phase on the hot path that every reader has to
+#: remember to ignore. The console reads the row directly for that.
+_DURABLE_SQL = text(
+    "SELECT s.load_shed_mode, s.outbound_halted, w.state, w.ends_at, w.reason "
+    "FROM platform_state s "
+    "LEFT JOIN LATERAL ("
+    "  SELECT state, ends_at, reason FROM platform_maintenance_windows "
+    "  WHERE state IN ('draining', 'active') ORDER BY starts_at LIMIT 1"
+    ") w ON true WHERE s.id = 1"
+)
+
+
 async def _read_durable() -> PlatformStatus:
     async with untenanted_session() as session:
-        row = (
-            await session.execute(
-                text("SELECT load_shed_mode, outbound_halted FROM platform_state WHERE id = 1")
-            )
-        ).first()
+        row = (await session.execute(_DURABLE_SQL)).first()
     if row is None:
         # Missing row = a fresh database, not an emergency. Fail OPEN here (and only
         # here): the durable default is what the seed script writes.
         return PlatformStatus(mode="normal", outbound_halted=False)
-    return PlatformStatus(mode=_coerce_mode(row[0]), outbound_halted=bool(row[1]))
+    return PlatformStatus(
+        mode=_coerce_mode(row[0]),
+        outbound_halted=bool(row[1]),
+        maintenance=_coerce_phase(row[2]),
+        maintenance_ends_at=row[3],
+        maintenance_reason=row[4],
+    )
+
+
+def _coerce_phase(value: object) -> MaintenancePhase:
+    """Anything that is not one of the two live phases is `none`.
+
+    Fail-OPEN like `_coerce_mode` and for the same reason: this value comes from our own
+    table, and the cost of reading an unexpected word as "no window" is that a drain does
+    not refuse a dial for one cache TTL. The cost of the opposite default would be a
+    platform that stops accepting work because of a typo.
+    """
+    if value in ("draining", "active"):
+        return value
+    return "none"
+
+
+def _parse_instant(value: str | None) -> datetime | None:
+    """A cached ISO-8601 instant, or None — never an exception.
+
+    A malformed value is a cache we wrote wrongly or a cache somebody else wrote; either
+    way the answer is "unknown end time", which downgrades the 503's `Retry-After` to its
+    floor and degrades nothing else. Raising here would 500 every shed request.
+    """
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        log.warning("loadshed_cache_bad_instant")
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 def _coerce_mode(value: str | None) -> LoadShedMode:
@@ -358,6 +469,7 @@ __all__ = [
     "ALWAYS_ALLOWED_PATHS",
     "ALWAYS_ALLOWED_PREFIXES",
     "LoadShedMode",
+    "MaintenancePhase",
     "PlatformStatus",
     "get_platform_status",
     "is_always_allowed",

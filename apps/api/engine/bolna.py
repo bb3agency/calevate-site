@@ -3313,6 +3313,15 @@ BOLNA_CAPABILITIES = EngineCapabilities(
     inbound_binding=True,
     transfer=False,
     in_call_handoff=True,
+    # `PATCH /v2/agent/{id}` updates a CLOSED list of attributes, and BOTH halves of a
+    # script override are on it: `agent_welcome_message` ("First message the agent speaks
+    # when a call connects") and the top-level `agent_prompts` keyed `task_1`
+    # (`bolna-findings/mirror/pages/api-reference/agent/v2/patch_update.md:19,24,30,
+    # 57-65`). It is the same page `update_agent` cites for why PATCH cannot do the FULL
+    # replacement — that argument is about `tasks`/`vector_store` being absent from the
+    # closed list, and it is exactly why PATCH is the right instrument for this narrower
+    # write: nothing outside the two attributes we name can move.
+    script_override=True,
     webhook_auth="source_ip",
 )
 
@@ -3832,6 +3841,45 @@ class BolnaEngine:
         preserved = _agent_vector_ids(_agent_object(await self._request("GET", f"/v2/agent/{ref}")))
         await self._request(
             "PUT", f"/v2/agent/{ref}", json=self._agent_body(cfg, vector_ids=preserved)
+        )
+
+    async def override_call_script(
+        self, ref: EngineAgentRef, *, opening_line: str, system_prompt: str
+    ) -> None:
+        """`PATCH /v2/agent/{id}` — the narrow write, and the one place PATCH is right.
+
+        `update_agent` above argues at length why PATCH cannot do a full replacement: it
+        updates a CLOSED list of attributes and *"Any other field in the body is ignored"*,
+        `tasks` is not on that list, and `vector_store` lives inside
+        `tasks[].tools_config` (`bolna-findings/mirror/pages/api-reference/agent/v2/
+        patch_update.md:9,19-31`). Every word of that is the reason PATCH is CORRECT here.
+        The two attributes a maintenance override needs are both on the closed list —
+        `agent_welcome_message` in `agent_config` ("First message the agent speaks when a
+        call connects", `patch_update.md:24`) and the top-level `agent_prompts` keyed
+        `task_1` (`patch_update.md:30,33,57-65`) — and being closed is the guarantee: the
+        knowledge base, the synthesizer, the model, the webhook and the tools cannot move,
+        because there is no field in this body that addresses them.
+
+        **NO PRESERVING READ, unlike `update_agent`, and that is the saving.** The read
+        there exists because a full replacement omits what it does not model; a partial
+        update omits nothing, so there is nothing to preserve. One request per agent per
+        edge of a window instead of two.
+
+        **THE RESPONSE IS NOT PARSED.** Their page documents 200 with
+        `{"message": "success", "state": "updated"}` (`patch_update.md:11`); that is a
+        string we would be checking against our own guess at its spelling, and the 2xx is
+        the signal. What actually proves the override landed is the read-back the caller
+        does at the END of the window, when `publish_agent` restores the agent through the
+        verified path — see the Protocol's note on why the restore is not this method.
+        """
+        require_capability("script_override", engine=self)
+        await self._request(
+            "PATCH",
+            f"/v2/agent/{ref}",
+            json={
+                "agent_config": {"agent_welcome_message": opening_line},
+                "agent_prompts": {"task_1": {"system_prompt": system_prompt}},
+            },
         )
 
     async def delete_agent(self, ref: EngineAgentRef) -> None:

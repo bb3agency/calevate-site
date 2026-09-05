@@ -224,6 +224,11 @@ DEFAULT_FAKE_CAPABILITIES = EngineCapabilities(
     # a number fixed at publish, so the default fake is what exercises the handoff seam
     # offline -- the publish carrying it, and the read-back proving the engine holds it.
     in_call_handoff=True,
+    # Bolna's shape once more (D-544): the agent record holds the greeting and the prompt,
+    # so the maintenance script override is a real write against it and the default fake is
+    # what exercises the seam offline — the override landing, and the read-back proving the
+    # engine now says the other thing.
+    script_override=True,
     webhook_auth="none",
 )
 
@@ -276,6 +281,13 @@ DICTATED_SPEECH_CAPABILITIES = EngineCapabilities(
     # shape `create_agent` refuses one step earlier, on `agent_hosting`, so a suite with
     # only that profile would report the handoff clause green having never run it.
     in_call_handoff=False,
+    # **THE PROFILE THAT MAKES THE REFUSAL REACHABLE** (D-544), and it is here rather than
+    # on the external-deployment shape for the reason `in_call_handoff` is: on that shape
+    # `create_agent` refuses one step earlier on `agent_hosting`, so a suite with only that
+    # profile would report this clause green having never run it. An engine that hosts our
+    # agent and still will not let its script be swapped alone is the case
+    # `workers/maintenance.py` has to tell the operator about.
+    script_override=False,
     webhook_auth="hmac",
 )
 
@@ -311,6 +323,9 @@ EXTERNAL_DEPLOYMENT_CAPABILITIES = EngineCapabilities(
     campaigns=False,
     knowledge_base=True,
     number_series=frozenset(),
+    # False for `CARTESIA_CAPABILITIES`' reason and not as a second axis: there is no agent
+    # record here whose script could be overridden.
+    script_override=False,
     # **THE ONE PROFILE THAT REFUSES BOTH TELEPHONY CAPABILITIES, and it is forced rather
     # than chosen** (D-420). This shape is Cartesia Line: its outbound body names ONE
     # `from_number_id` read from adapter-wide config — one number for the whole platform,
@@ -461,6 +476,34 @@ class FakeEngine:
         self._assert_this_engine_hosts_agents()
         self._assert_speech_is_ours(cfg)
         self._agents[ref] = cfg
+
+    async def override_call_script(
+        self, ref: EngineAgentRef, *, opening_line: str, system_prompt: str
+    ) -> None:
+        """Swap what the agent SAYS, keeping everything else it is (D-544).
+
+        `model_copy(update=...)` and not a mutation: `AgentConfig` is the record the rest
+        of the fake answers `get_agent` from, and rebuilding it with two fields replaced is
+        what makes the read-back prove the override landed — the property the conformance
+        clause actually measures. A fake that stored the strings in a side dict would let
+        an adapter forget to send them and still pass.
+
+        Refuses on an unknown ref rather than creating one, for `get_agent`'s reason: a
+        caller overriding an agent that does not exist is a caller about to report a
+        maintenance message that no caller will ever hear.
+        """
+        require_capability("script_override", engine=self)
+        cfg = self._agents.get(ref)
+        if cfg is None:
+            raise ProblemError(
+                kind="dependency",
+                code="engine_agent_missing",
+                title="No such agent on the engine",
+                detail=f"The voice platform holds no agent {ref}.",
+            )
+        self._agents[ref] = cfg.model_copy(
+            update={"opening_line": opening_line, "system_prompt": system_prompt}
+        )
 
     async def delete_agent(self, ref: EngineAgentRef) -> None:
         """Forget the agent AND its knowledge LINKAGE — but not the account's objects.

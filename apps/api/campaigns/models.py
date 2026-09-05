@@ -107,6 +107,23 @@ class Campaign(PKMixin, TimestampMixin, Base):
     calling_hours: Mapped[dict[str, object] | None] = mapped_column(JSONB)
     engine_campaign_ref: Mapped[str | None] = mapped_column(Text)
     launched_at: Mapped[datetime | None]
+    #: WHICH MAINTENANCE WINDOW PAUSED THIS CAMPAIGN, if one did (D-544).
+    #:
+    #: The whole of "a campaign halted by maintenance must come back where it was". The
+    #: pause itself is the ordinary `running -> paused` CAS every other pauser uses, so the
+    #: campaign's contacts, attempt counts and retry ladder are untouched and a resume
+    #: continues rather than restarting. What this column adds is the ONE thing the status
+    #: alone cannot express: which paused campaigns are OURS to resume. Without it the
+    #: window's end would either resume nothing (and silently kill every campaign it
+    #: stopped) or resume everything paused (and restart the campaigns a client paused on
+    #: purpose, or the ones `complaint_spike` stopped for a TCCCPR reason).
+    #:
+    #: NULLed in the same statement that resumes, so it is never a record of history — the
+    #: history is `audit_log`. A FK with `ON DELETE SET NULL`: a deleted window must not
+    #: strand a campaign, and a stranded NULL simply means nobody will auto-resume it.
+    paused_by_maintenance_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("platform_maintenance_windows.id", ondelete="SET NULL")
+    )
     # Consent provenance for THIS campaign's contact list (SEC-COMP §3). It sits on the
     # campaign rather than in `consent_ledger` because the ledger answers a different
     # question at a different time: per phone, per call, AFTER the conversation. The

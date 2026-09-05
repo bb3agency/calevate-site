@@ -25,6 +25,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 
 from calevate_shared.client_address import client_ip
 from fastapi import FastAPI
@@ -43,7 +44,12 @@ from apps.api.core.context import (
     principal_var,
 )
 from apps.api.core.errors import PROBLEM_CONTENT_TYPE, ProblemError
-from apps.api.core.loadshed import get_platform_status, is_always_allowed, is_shed
+from apps.api.core.loadshed import (
+    PlatformStatus,
+    get_platform_status,
+    is_always_allowed,
+    is_shed,
+)
 from apps.api.core.logging import get_logger
 from apps.api.core.ratelimit import (
     bucket_subject,
@@ -322,22 +328,106 @@ class LoadShedMiddleware:
             return
         status = await get_platform_status()
         if is_shed(status, path=path, method=method):
-            problem = ProblemError(
-                kind="transient",
-                code="service_load_shed",
-                title="Temporarily unavailable",
-                # 503 is the ONE status allowed to keep its detailed message (§3).
-                detail=(
-                    "Calevate is briefly not accepting this request while we manage a spike "
-                    "in load. Please try again shortly."
-                ),
-                status=503,
-                remediation="Retry shortly; the operations team has been notified.",
-                headers={"Retry-After": "30"},
-            )
-            await _problem_response(problem, path)(scope, receive, send)
+            await _problem_response(_shed_problem(status), path)(scope, receive, send)
             return
         await self.app(scope, receive, send)
+
+
+#: The floor under a maintenance `Retry-After`, in seconds.
+#:
+#: A client whose request is refused thirty seconds before the window closes should not be
+#: told to come back in three — the API is still shut for those three seconds, the retry
+#: fails, and a browser that honours the header hammers the door. Thirty seconds is the
+#: same figure the load-shed refusal has always used and it is comfortably inside every
+#: client-side retry budget in `apps/web`.
+_RETRY_AFTER_FLOOR_S = 30
+
+#: The ceiling. `Retry-After` is advisory and a very large one is worse than useless: a
+#: client told to wait four hours will not come back when the window closes early, and the
+#: console's own polling would stop. One hour is longer than any window we intend to run
+#: and short enough that an over-long one self-corrects.
+_RETRY_AFTER_CEILING_S = 3600
+
+
+def _shed_problem(status: PlatformStatus) -> ProblemError:
+    """The 503 a shed request gets — and WHICH 503, which is the part that matters.
+
+    ═══ WHY 503, AND WHERE THE HEADER COMES FROM ═══
+
+    RFC 9110 §15.6.4 defines 503 (Service Unavailable) as the server being temporarily
+    unable to handle the request "due to a temporary overload or scheduled maintenance",
+    and says the server MAY send `Retry-After` to suggest how long to wait; §10.2.3 defines
+    that field, whose value is either delay-seconds or an HTTP-date. Planned downtime is
+    therefore not an approximation of 503, it is one of the two cases the status code was
+    written for — which is why this is a 503 and not a 500 (nothing failed), a 403 (nothing
+    is forbidden), a 423 Locked (WebDAV, about a resource) or a 200 carrying a maintenance
+    page (a lie to every non-browser client, and cacheable).
+    ⚠ EVIDENCE CLASS: the RFC's own hosts (`rfc-editor.org`, `httpwg.org`,
+    `datatracker.ietf.org`) are ALL egress-blocked from this container, so the section
+    numbers and the two value forms above are corroborated from secondary sources read on
+    5 Sep 2026, not from the RFC text itself. The delay-seconds form is what this repo
+    already emits everywhere (`authn/throttle.py`, `tenancy/signup.py`) and it is what is
+    emitted here.
+
+    ═══ WHY THE TWO REFUSALS ARE DIFFERENT ═══
+
+    A load shed and a maintenance window produce the same status code and mean opposite
+    things to the person reading them. A shed is US FAILING to keep up and it ends when it
+    ends; a window is US HAVING TOLD THEM, with a reason they were given in advance and an
+    end time on the calendar. Collapsing them — which is what this function replaced —
+    meant a client who had read the banner, planned around the window and come back at the
+    stated time was told "we are managing a spike in load", with a `Retry-After` of thirty
+    seconds that was wrong by hours.
+
+    So the maintenance arm carries the operator's own sentence as the `detail` (503 is the
+    one status allowed to keep its detailed message — BACKEND-PATTERNS §3) and a
+    `Retry-After` computed from the window's own end. `code` differs too, because `code` is
+    the stable identifier the console switches on: `platform_maintenance` is what makes
+    `apps/web` render the maintenance page instead of the transient-error toast.
+    """
+    if status.maintenance == "active":
+        detail = status.maintenance_reason or (
+            "Calevate is closed for planned maintenance. Your agents' recordings, leads "
+            "and settings are untouched and will be here when we reopen."
+        )
+        return ProblemError(
+            kind="transient",
+            code="platform_maintenance",
+            title="Down for planned maintenance",
+            detail=detail,
+            status=503,
+            remediation=(
+                "Nothing to do at your end — the console comes back on its own when the "
+                "window closes. Inbound calls are still being answered."
+            ),
+            headers={"Retry-After": str(_retry_after_s(status.maintenance_ends_at))},
+        )
+    return ProblemError(
+        kind="transient",
+        code="service_load_shed",
+        title="Temporarily unavailable",
+        # 503 is the ONE status allowed to keep its detailed message (§3).
+        detail=(
+            "Calevate is briefly not accepting this request while we manage a spike "
+            "in load. Please try again shortly."
+        ),
+        status=503,
+        remediation="Retry shortly; the operations team has been notified.",
+        headers={"Retry-After": str(_RETRY_AFTER_FLOOR_S)},
+    )
+
+
+def _retry_after_s(ends_at: datetime | None) -> int:
+    """Seconds until the window closes, clamped into [floor, ceiling].
+
+    An unknown end (no window on the row, or a cache entry this process could not parse)
+    falls to the floor rather than raising or guessing long: the caller is refused either
+    way, and the only thing at stake is how soon they are invited back.
+    """
+    if ends_at is None:
+        return _RETRY_AFTER_FLOOR_S
+    remaining = int((ends_at - datetime.now(UTC)).total_seconds())
+    return max(_RETRY_AFTER_FLOOR_S, min(remaining, _RETRY_AFTER_CEILING_S))
 
 
 class RateLimitMiddleware:

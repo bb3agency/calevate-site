@@ -353,6 +353,33 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
                 return httpx.Response(404, json={"error": "unknown agent"})
             agents[agent_id] = json.loads(request.content or b"{}")
             return httpx.Response(200, json={"status": "ok"})
+        if path.startswith("/v2/agent/") and request.method == "PATCH":
+            # THE CLOSED LIST, MODELLED AS A CLOSED LIST (D-544). The vendor documents
+            # PATCH as touching *only* the attributes present in the body and IGNORING
+            # every other field (`bolna-findings/mirror/pages/api-reference/agent/v2/
+            # patch_update.md:9,19`), so this stub merges exactly the two an override
+            # sends and leaves the rest of the stored object alone. A stub that replaced
+            # the object would make the conformance clause's "and nothing else moved"
+            # assertion unfalsifiable — the very defect it exists to catch.
+            agent_id = path.rsplit("/", 1)[-1]
+            stored = agents.get(agent_id)
+            if stored is None:
+                return httpx.Response(404, json={"error": "unknown agent"})
+            patch = json.loads(request.content or b"{}")
+            config_patch = patch.get("agent_config") or {}
+            assert set(config_patch) <= {
+                "agent_name",
+                "agent_welcome_message",
+                "webhook_url",
+                "synthesizer",
+                "ingest_source_config",
+                "telephony_provider",
+                "calling_guardrails",
+            }, "PATCH carried an agent_config attribute the vendor documents as ignored"
+            stored.setdefault("agent_config", {}).update(config_patch)
+            for task, prompt in (patch.get("agent_prompts") or {}).items():
+                stored.setdefault("agent_prompts", {})[task] = prompt
+            return httpx.Response(200, json={"message": "success", "state": "updated"})
         if path == "/v2/agent/all" and request.method == "GET":
             # A BARE ARRAY, which is what `AgentListV2` is declared as in the vendor's
             # pinned OAS (`type: array` of `AgentV2`), each row carrying a top-level `id`.

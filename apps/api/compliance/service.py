@@ -128,6 +128,30 @@ DIAL_REFUSING_CONSENT_STATUSES: frozenset[str] = frozenset(CONSENT_STATUSES) - {
 BIG_RED_SWITCH_RULE = "big_red_switch"
 BIG_RED_SWITCH_REASON = "Outbound calling is halted platform-wide by the operations team."
 
+#: THE DRAIN'S REFUSAL (D-544). Not a halt and not a shed: a planned maintenance window
+#: has opened and the platform has stopped ACCEPTING new work while the work already
+#: running finishes.
+#:
+#: It is a separate rule from `big_red_switch` because the two are separate facts an
+#: operator reads on the same screen — a halt is somebody pulling a lever because
+#: something is wrong, a drain is a window on the calendar doing exactly what it said it
+#: would — and `compliance_blocks{rule=...}` is the metric that has to tell them apart
+#: (`runbooks/campaign-stall.md` §8 promises it can).
+#:
+#: NOT A MEMBER OF `PERSON_LEVEL_REFUSALS`, which is the load-bearing half. A maintenance
+#: refusal is a fact about the CLOCK, not about the person: the contact goes back on the
+#: retry ladder rather than being settled, so a campaign stopped by a window resumes
+#: through the same contacts it was working when the window opened. Settling them here
+#: would be the founder's "must come back where it was" quietly failing — every contact
+#: refused during the drain would be terminally done, and the campaign would complete
+#: having never rung them.
+MAINTENANCE_DRAIN_RULE = "platform_maintenance"
+MAINTENANCE_DRAIN_REASON = (
+    "Calevate is in a planned maintenance window, so no new calls are being started "
+    "right now. Calls already in progress are finishing normally, your campaign keeps "
+    "its place, and dialling resumes by itself when the window closes."
+)
+
 #: The refusals that are facts about the PERSON, not about the account, the agent, the
 #: paperwork or the clock — the ones that do not become false by waiting.
 #:
@@ -530,6 +554,24 @@ async def check_dispatch(
             rule=BIG_RED_SWITCH_RULE,
             reason=BIG_RED_SWITCH_REASON,
         )
+    # THE DRAIN, SECOND — after the halt and before everything else (D-544). Second
+    # because a halt is the more serious fact and an operator reading one refusal should
+    # read that one; before everything else for the reason the halt is first, which is
+    # that both are TRUE OF EVERY DIAL ON THE PLATFORM and cost one already-cached read.
+    # Checking them after the per-tenant work would spend a dozen queries to reach an
+    # answer that did not depend on any of them.
+    #
+    # `accepting_new_work` and not `mode == "maintenance"`: the whole point of the two
+    # states is that DRAINING refuses new work while the load-shed mode is still `normal`
+    # and the portal is still open. Reading the mode here would let the platform keep
+    # dialling for the entire drain, which is the one thing a drain cannot survive — every
+    # new call restarts the clock it is waiting on.
+    if not platform.accepting_new_work:
+        return DispatchDecision(
+            allowed=False,
+            rule=MAINTENANCE_DRAIN_RULE,
+            reason=MAINTENANCE_DRAIN_REASON,
+        )
 
     # Before the agent, the paperwork and the money: an account we have STOPPED does not
     # get to be told its agent is unpublished. Costs one primary-key read on a row this
@@ -838,6 +880,8 @@ __all__ = [
     "DIAL_REFUSING_CONSENT_STATUSES",
     "INDIA_E164_PREFIX",
     "IST",
+    "MAINTENANCE_DRAIN_REASON",
+    "MAINTENANCE_DRAIN_RULE",
     "NO_CREDITS_REASON",
     "PERSON_LEVEL_REFUSALS",
     "SELF_SERVE_TIERS",

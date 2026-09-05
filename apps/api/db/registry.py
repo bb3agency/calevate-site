@@ -377,6 +377,17 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "every column-driven sweep and invite a policy that would let one client's "
         "session see, or worse clear, the global halt. Holds no PII."
     ),
+    "platform_maintenance_windows": (
+        "platform-scoped, admin realm only (D-544). One planned outage for every client "
+        "at the same instant — the same shape and the same argument as platform_state "
+        "above, and it drives that row: activating a window is what writes "
+        "load_shed_mode = 'maintenance'. There is no tenant whose row this could be, and "
+        "a decorative tenant_id would invite a policy letting one client's session read "
+        "or CLEAR the platform's own outage state. Holds an operator's sentence, five "
+        "timestamps, a state word and a straggler COUNT: no tenant id, no call, no "
+        "number, no name. Clients read it only through the two surfaces that project it "
+        "for them — the banner route and the 503 problem body — never the row."
+    ),
     "platform_engine_health": (
         "platform-scoped. One row per (engine, minute) counting the voice engine's "
         "server-side failures, which is the state behind the `engine_error_spike` alarm "

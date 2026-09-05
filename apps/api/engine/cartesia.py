@@ -374,6 +374,13 @@ CARTESIA_CAPABILITIES = EngineCapabilities(
     inbound_binding=False,
     transfer=False,
     in_call_handoff=False,
+    # FALSE, AND NOT BECAUSE THE VENDOR SAYS SO. There is no agent record of ours on this
+    # engine to override (`agent_hosting="external_deployment"`): our script reaches a
+    # Cartesia call as per-call data on the dial, so there is nothing standing between
+    # calls whose words could be changed. A True here would be a claim about an object
+    # that does not exist, and its API reference has not been read by anyone here in any
+    # case (see this module's header).
+    script_override=False,
     webhook_auth="hmac",
 )
 
@@ -619,6 +626,28 @@ class CartesiaEngine:
         require_capability("agent_hosting", engine=self)
         raise AssertionError(  # unreachable while `agent_hosting` is `external_deployment`
             "agent hosting was declared available but Cartesia holds no agent of ours"
+        )
+
+    async def override_call_script(
+        self, ref: EngineAgentRef, *, opening_line: str, system_prompt: str
+    ) -> None:
+        """REFUSES BY NAME (D-544), and there is nothing here that could be made to work.
+
+        A script override edits the WORDS an agent record holds between calls. This engine
+        holds no agent record of ours (`agent_hosting = "external_deployment"`): our prompt
+        reaches a Cartesia call as per-call data on the dial, and its writable agent fields
+        are `{description, name, tts_language, tts_voice}` — see `update_agent`. There is
+        no greeting and no prompt on the object to replace.
+
+        Refuses on `script_override` rather than on `agent_hosting`, and the distinction is
+        the one the capability seam exists for: the operator running a maintenance window
+        needs to be told THIS engine will not carry the caller message, which is a
+        different sentence from "this engine holds no agents" and lands in a different
+        runbook. `workers/maintenance.py` alerts on the refusal and runs the window anyway.
+        """
+        require_capability("script_override", engine=self)
+        raise AssertionError(  # unreachable while `script_override` is False
+            "script override was declared available but Cartesia holds no agent of ours"
         )
 
     async def delete_agent(self, ref: EngineAgentRef) -> None:

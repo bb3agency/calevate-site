@@ -116,6 +116,7 @@ EngineCapabilityName = Literal[
     "inbound_binding",
     "transfer",
     "in_call_handoff",
+    "script_override",
 ]
 
 #: The speech legs, in the order a call uses them. Derived from the type so a leg added
@@ -247,6 +248,23 @@ class EngineCapabilities(BaseModel):
     #: saved and watched the agent go live would learn it was never wired the first time a
     #: caller asked for a person — which is the moment escalation exists for.
     in_call_handoff: bool
+    #: Can a PUBLISHED agent's spoken script — its first line and its task prompt — be
+    #: replaced on its own, without rewriting the rest of the agent object (D-544)?
+    #:
+    #: THE ONE THING PLANNED MAINTENANCE NEEDS FROM AN ENGINE, and it is a narrower ask
+    #: than `update_agent` deliberately. During a maintenance window an inbound caller must
+    #: hear a sentence saying so rather than reaching an agent whose tools and database are
+    #: about to move — the founder's "play a message instead of the call not connecting" —
+    #: and that is a change to WHAT THE AGENT SAYS, not to what it is. Doing it through the
+    #: full-replacement write would mean sending a whole agent body twice per window per
+    #: agent, with the KB-preservation read that write needs (`bolna.update_agent`), and
+    #: would record the maintenance script as if it were the agent's configuration.
+    #:
+    #: Under False the window still runs and callers still reach a working agent; what they
+    #: do not get is the message. `workers/maintenance.py` says so in the operator's alert
+    #: rather than pretending, which is the whole reason this is a declared capability and
+    #: not a `try`/`except` around a vendor call.
+    script_override: bool
     #: How this engine's webhooks are proved authentic. Must equal what `verify_webhook`
     #: actually reports, and must equal `WEBHOOK_AUTH_BY_ENGINE[name]` — the receiver in
     #: `apps/voice-runtime` reads that table rather than importing an adapter (hard rule
@@ -295,6 +313,8 @@ class EngineCapabilities(BaseModel):
             # engine have agents" is never the question — every voice engine does — the
             # question is whether one of OURS can live there.
             return self.hosts_agents()
+        if name == "script_override":
+            return self.script_override
         if name == "campaigns":
             return self.campaigns
         if name == "knowledge_base":
@@ -4388,6 +4408,40 @@ class VoiceEngine(Protocol):
         ...
 
     async def update_agent(self, ref: EngineAgentRef, cfg: AgentConfig) -> None: ...
+
+    async def override_call_script(
+        self, ref: EngineAgentRef, *, opening_line: str, system_prompt: str
+    ) -> None:
+        """Replace what a PUBLISHED agent SAYS, without rewriting what it IS (D-544).
+
+        The narrow write planned maintenance needs: the agent keeps its voice, its number,
+        its knowledge base, its model and its webhook, and starts saying something else.
+        `update_agent` is the wrong instrument for it in both directions — it is a full
+        replacement (so it must first read the agent back to avoid wiping engine-side
+        state it does not model), and it takes an `AgentConfig`, which is our RECORD of
+        what the agent is. A maintenance script is not that record and must never be
+        written into it: the window ends, and the agent has to go back to being itself.
+
+        **THE RESTORE IS NOT THIS METHOD.** Coming out of a window, `agents.service.
+        publish_agent` re-publishes from our own row through the verified path, so the
+        agent's script is restored from the source of truth and read back rather than from
+        whatever this method was handed on the way in. That asymmetry is deliberate: the
+        override is temporary and unverified-by-design, the restore is permanent and
+        verified, and using one mechanism for both would mean either trusting an override
+        we never checked or paying for a read-back on a change we are about to undo.
+
+        REFUSES BY NAME when `capabilities.script_override` is False
+        (`engine_lacks("script_override")`), rather than silently doing nothing. A window
+        that could not change what callers hear is a fact the operator has to be told,
+        because the alternative is a client's callers holding an ordinary conversation with
+        an agent whose tool endpoints are about to be taken away.
+
+        Both arguments are OURS end to end — composed by `workers/maintenance.py` from the
+        window's reason — so hard rule 5's floor still applies to the prompt: the composed
+        script carries the truthful-answer directive and the agent's disclosure lines, and
+        `check_compliance_invariants` reads the composer, not this signature.
+        """
+        ...
 
     async def get_agent(self, ref: EngineAgentRef) -> AgentSnapshot:
         """Read ONE agent's current configuration back out of the engine.
