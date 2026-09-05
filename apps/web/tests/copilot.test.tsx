@@ -152,9 +152,11 @@ function stubCopilot(options: {
   quota?: Record<string, unknown>;
   confirm?: { status: number; body: Record<string, unknown> };
   confirmThrows?: boolean;
+  conversation?: { turns: unknown[]; has_more: boolean };
 }) {
   const bodies: string[] = [];
   const confirms: string[] = [];
+  const conversations: string[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -181,6 +183,24 @@ function stubCopilot(options: {
         }
         return sse(options.chunks ?? []);
       }
+      if (path.startsWith("/v1/copilot/conversation")) {
+        // THE STORED CONVERSATION (D-540), which every panel mount now loads. Answered
+        // here rather than left to the `unexpected request` throw below, because the hook
+        // swallows a load failure by design — so an unanswered route would make every
+        // test in this file start from an empty panel for the RIGHT reason by accident,
+        // and would go on doing so if the load ever became load-bearing.
+        conversations.push(init?.method ?? "GET");
+        if (init?.method === "DELETE") {
+          return new Response(JSON.stringify({ cleared: 2 }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          });
+        }
+        return new Response(
+          JSON.stringify(options.conversation ?? { turns: [], has_more: false }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
       if (path.startsWith("/v1/billing/ai-quota")) {
         return new Response(JSON.stringify(options.quota ?? {}), {
           status: 200,
@@ -190,7 +210,7 @@ function stubCopilot(options: {
       throw new Error(`unexpected request: ${path}`);
     }),
   );
-  return { bodies, confirms };
+  return { bodies, confirms, conversations };
 }
 
 async function ask(question: string) {

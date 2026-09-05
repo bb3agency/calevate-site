@@ -445,6 +445,11 @@ class TestRlsCoverage:
             # client-facing figure reads it.
             "platform_ai_usage",
             "admin_copilot_memories",
+            # D-540: the ADMIN copilot's CONVERSATION, the verbatim twin of the memories
+            # one line up and exempt for exactly its reason. `admin_user_id` is an
+            # `admin_users.id`, the turns are an operator's questions about platform
+            # state, and `viewing_tenant_id` is again CONTEXT rather than a payer.
+            "admin_copilot_conversation_turns",
             # The state behind `engine_error_spike` (OPERATIONS §4): one row per
             # (engine, minute) of vendor server errors. Platform state for the same
             # reason `platform_state` is — the engine is answering or it is not, for
