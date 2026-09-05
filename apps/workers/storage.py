@@ -891,6 +891,28 @@ def _chunks(keys: Sequence[str], size: int) -> Iterable[Sequence[str]]:
 def presigned_url(key: str, *, ttl_s: int = PRESIGN_TTL_S) -> str | None:
     """A short-lived read URL for one object, or None.
 
+    ⚠ **IT SIGNS `Content-Disposition: attachment`, AND THAT IS A SECURITY CONTROL RATHER
+    THAN A CONVENIENCE.** Every object behind this function is bytes SOMEBODY ELSE
+    supplied — a knowledge-base upload from a client, a call recording of a caller's
+    voice, an integration's delivery body — and an object store replays the
+    `Content-Type` it was stored with. So a presigned GET renders attacker-chosen bytes
+    in the reader's browser, and the reader is usually the person our own console told to
+    click the link. The September 2026 audit found the upload path storing the type the
+    UPLOADER chose (fixed at `kb/uploads.stored_content_type`, by deriving it from the
+    accepted extension); this is the second lock on that door, and it lives HERE rather
+    than at that one call site because all three callers have the same exposure —
+    `crm/routes.py:226`, `kb/uploads.py:678`, `integrations/service.py:878`.
+
+    `attachment` makes the browser SAVE rather than render, so a `text/html` object that
+    slipped past every type check still cannot execute. It is signed INTO the URL as a
+    query parameter, so it is covered by the signature and cannot be stripped from a link
+    we handed out — `tests/presigned_disposition_test.py` asserts exactly that by signing
+    the same key with and without it and requiring the signatures to differ.
+
+    REJECTED: relying on the CSP. A presigned URL points at the OBJECT STORE's origin,
+    not ours, so our `Content-Security-Policy` header is not in that response's path at
+    all and could never have covered this.
+
     SYNCHRONOUS, alone in this module, and that is now defensible rather than an
     oversight: with the client cached, signing is a local HMAC over a canonical request —
     0.17ms, measured, no socket — so moving it to a thread would cost a handoff to save
@@ -901,7 +923,11 @@ def presigned_url(key: str, *, ttl_s: int = PRESIGN_TTL_S) -> str | None:
     try:
         url = _client().generate_presigned_url(
             "get_object",
-            Params={"Bucket": settings.object_store_bucket, "Key": key},
+            Params={
+                "Bucket": settings.object_store_bucket,
+                "Key": key,
+                "ResponseContentDisposition": "attachment",
+            },
             ExpiresIn=ttl_s,
         )
     except (BotoCoreError, ClientError) as exc:
