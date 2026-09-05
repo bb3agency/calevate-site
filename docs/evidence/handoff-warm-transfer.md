@@ -110,7 +110,7 @@ attempt `unreached` and books the caller a call-back at the soonest lawful time.
 | The founder's decision | What ships | Achievable as asked? |
 | --- | --- | --- |
 | One ordered hunt list, no departments | `agent_handoff_members` — ordered, per-agent, RLS'd, edited as one whole-list PUT | **Yes**, resolved before the call rather than during it |
-| A spoken whisper before bridging | Nothing on the human's ear; a brief queued to a channel that does not exist yet | **No** — §2, gate 46d |
+| A spoken whisper before bridging | Nothing on the human's ear; a brief queued to a channel that does not exist yet | **No** — §2, gate 46d; deferred by the founder 4 Sep 2026, see §4a |
 | Try the next number, then a call-back | The call-back, booked automatically from a leg nobody answered | **Half** — §3 |
 | Never transfer outside business hours | The publish carries NO transfer tool at all outside every member's hours | **Yes**, and structurally rather than by prompt |
 
@@ -121,6 +121,45 @@ request to a model. `handoff=None` means the adapter emits no tool and the model
 to fire. **Unknown hours count as nobody on duty** — the deliberate inversion of FLOWS §3's
 "24/7 by default", because the thing at stake is a named person's private mobile rather than
 whether an AI answers the phone.
+
+## 4a. Two founder decisions, and what each one settled
+
+**4 Sep 2026 — the carrier-owned leg is DEFERRED, not rejected.** §5 below was put to the
+founder with its full cost: a carrier relationship and its DLT consequences, the in-call
+latency budget moving onto our own infrastructure, and a reversal of D-05's "the client
+holds the connection". The answer was *"not now — ship what works"*. The design in §4 is
+therefore CONFIRMED rather than a compromise, and this document exists so that nobody
+re-derives §2 and §3 from scratch when the question comes back. **What reopens it, named
+rather than left to judgement**: a paying client asking for the whisper by name, or this
+deployment taking a carrier account for another reason (number provisioning is the likely
+one). At that point §5 is the work and none of it has to be re-established.
+
+**5 Sep 2026 — the transferred leg's recording is OURS.** The decision half of gate 46b is
+closed: *treat it like our own recordings*. It is fetched into `calls.transfer_recording_url`
+by the same copy stage, expires on the tenant's own retention policy, and is destroyed or
+scheduled by the same erasure — so the third row of the table above ("the second recording
+exists and we do not hold it") is no longer the state of this system. Two things are worth
+recording because they shaped the change:
+
+* **It joined the existing machinery.** `_sweep_objects_in_batches` went from "one key per
+  row" to "the keys on this row"; `_erase_recordings` needed no new logic at all, because
+  its loop was already per object and `recording_erasure_holds` was already unique on
+  `(tenant_id, object_key)`. A SELECT emitting one row per OBJECT was rejected: a call's two
+  objects could then fall either side of a batch limit, and the pointer clear would null
+  both while one object was still in the bucket.
+* **The caller notice was wrong in the dangerous direction.** It said the second recording
+  was kept by the platform "and not by us" and carried a marked blank for a period nobody
+  could state. Both it and the client's own screen now say the recording does not stop when
+  a caller is put through, that it is kept for the same period as the rest of the call, and
+  that the erasure right reaches it — which is what makes the spoken "this call is being
+  recorded" true of the whole call rather than of its first half.
+
+WHAT IS STILL UNKNOWN ABOUT THAT RECORDING, and is the narrowed gate 46b: whether the fetch
+needs a credential we do not send (an open question about the FIRST leg too, and always has
+been), whether the object is the transferred leg alone or the whole bridged call, and —
+the half with a data-protection consequence — **whether the platform keeps its own copy
+after we have ours, and for how long.** Our erasure reaches our object and cannot reach
+theirs.
 
 ## 5. What would change the answer
 
@@ -143,9 +182,13 @@ whether an AI answers the phone.
   yields empty strings, never a broken transfer. Gate 46.
 * **Whether the transferred leg's `cost` is already inside `total_cost`.** Gate 46c. Nothing
   meters it (hard rule 7).
-* **How long the platform keeps the transferred leg's recording, and whether that recording
-  can be switched off.** Gate 46b. This one is a live data-protection obligation, not a
-  curiosity: a caller's audio exists at the vendor that our erasure path cannot reach.
+* **Whether the platform keeps its own copy of the transferred leg after we have fetched
+  ours, and for how long.** Gate 46b, narrowed. We now hold and erase our own copy (§4a), so
+  what is left is the vendor's — our erasure reaches our object and cannot reach theirs.
+* **Whether the recording endpoint needs a credential we do not send.** The changelog says
+  it *"enforces access controls at the Bolna layer"* and `storage._fetch_recording` sends
+  none. ⚠ That is an open question about the FIRST leg too and has been since the endpoint
+  changed; the transfer leg inherits it and introduces nothing new.
 * **Whether the hosted platform runs the OSS code read above.** The mirror and the OSS agree
   on every point this document turns on, which is the strongest available evidence and is
   still not a measurement. `api.bolna.ai` is unreachable from this container and no
