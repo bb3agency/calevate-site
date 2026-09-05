@@ -135,6 +135,26 @@ BODIES: dict[str, dict[str, Any] | None] = {
         "corrects_entry_id": str(uuid.uuid4()),
         "reason": "census",
     },
+    # D-535. Grant, trial start and trial end all demand an operator's own words, so an
+    # empty body would 422 and this census would stop measuring the 404 it is about. The
+    # amount is inside `MIN_GRANT_INR..MAX_GRANT_INR` for the same reason the adjustment's
+    # is positive: the ceiling is checked BEFORE the tenant is looked at, so a figure
+    # outside it would make the entry vacuous.
+    "POST /v1/admin/tenants/{tenant_id}/credits/grants": {
+        "amount_inr": "1000.00",
+        "grant_ref": "GRANT-CENSUS-1",
+        "reason": "census",
+    },
+    # D-536. `days` is inside `MIN_TRIAL_DAYS..MAX_TRIAL_DAYS` and is part of the step-up
+    # string, so the two have to agree — `_confirmation_for` builds the header from the
+    # same number.
+    "POST /v1/admin/tenants/{tenant_id}/trial": {"days": 14, "reason": "census"},
+    # `outcome` is one of `TRIAL_HUMAN_OUTCOMES`; `expired` is refused by the validator
+    # before the tenant is looked at.
+    "POST /v1/admin/tenants/{tenant_id}/trial/end": {
+        "outcome": "stopped",
+        "reason": "census",
+    },
     "POST /v1/admin/tenants/{tenant_id}/credits/restatements": {
         "payment_ref": "UTR-CENSUS-1",
         "corrected_amount_inr": "900",
@@ -204,6 +224,7 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "GET /v1/admin/tenants/{tenant_id}/invoice": None,
     "GET /v1/admin/tenants/{tenant_id}/margin": None,
     "GET /v1/admin/tenants/{tenant_id}/spend": None,
+    "GET /v1/admin/tenants/{tenant_id}/trial": None,
     "GET /v1/admin/tenants/{tenant_id}/whatsapp-alerts": None,
     "DELETE /v1/admin/tenants/{tenant_id}/invitations/{invitation_id}": None,
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/publish": None,
@@ -232,6 +253,12 @@ def _confirmation_for(key: str, ids: dict[str, str]) -> str | None:
             "restate_topup:UTR-CENSUS-1:900.00"
         ),
         "POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute": f"recompute_spend_cap:{subject}",
+        # Bound to the AMOUNT, not to the tenant (`credit_grant_confirmation`), and
+        # quantized to paise — so it must match `BODIES`' figure exactly.
+        "POST /v1/admin/tenants/{tenant_id}/credits/grants": "grant_credits:1000.00",
+        # Bound to BOTH the tenant and the days, because days are the only bound a trial
+        # has (`start_trial_confirmation`). The trial END takes no step-up.
+        "POST /v1/admin/tenants/{tenant_id}/trial": f"start_trial:{subject}:14",
         "POST /v1/admin/tenants/{tenant_id}/campaigns/{campaign_id}/preference-scrub": (
             f"record_preference_scrub:{ids.get('campaign_id', '')}"
         ),
