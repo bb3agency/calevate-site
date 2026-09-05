@@ -866,9 +866,7 @@ def _sources_this_tool_cannot_read(sources: Sequence[Mapping[str, Any]]) -> list
     return [
         str(source["name"])[:80]
         for source in sources
-        if source["published_at"] is not None
-        and source["is_active"]
-        and not source["chunks"]
+        if source["published_at"] is not None and source["is_active"] and not source["chunks"]
     ][:_MAX_NAMED_SOURCES]
 
 

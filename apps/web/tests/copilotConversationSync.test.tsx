@@ -237,7 +237,7 @@ function stubAskAndConversation(
   let read = 0;
   vi.stubGlobal(
     "fetch",
-    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    vi.fn(async (input: RequestInfo | URL) => {
       const path = String(input).replace(API_BASE, "");
       if (path.startsWith("/v1/copilot/ask")) {
         return sse([
