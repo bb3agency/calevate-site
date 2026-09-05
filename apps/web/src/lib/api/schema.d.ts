@@ -348,9 +348,26 @@ export interface paths {
         post?: never;
         /**
          * Start again — forget this operator's assistant conversation
-         * @description Forget this operator's whole conversation. No audit row, for the client route's
-         *     reason: what is audited is every answer and every change, not a person clearing a
-         *     panel.
+         * @description Forget this operator's whole conversation.
+         *
+         *     ⚠ **IT WRITES AN AUDIT ROW, AND THE EARLIER ARGUMENT FOR NOT WRITING ONE IS
+         *     WITHDRAWN.** That argument — "what is audited is every answer and every change, not a
+         *     person clearing a panel" — is true as far as it goes: every `admin_copilot.ask` row
+         *     survives this, so the RECORD of what an operator asked is untouched and clearing the
+         *     panel destroys only a convenience copy.
+         *
+         *     It is still the wrong call here, for a reason outside this route. SEC-COMP §5's
+         *     invariant is that EVERY admin-realm mutation writes an audit row, and
+         *     `tests/admin_read_audit_test._NOT_AN_AUDITED_MUTATION` — the register of sanctioned
+         *     exceptions — is **empty**. Exempting this would have opened that register for the
+         *     first time, and a register that exists gets used: the next reader with a mutation that
+         *     feels minor now has a precedent instead of an absolute. An invariant with no exceptions
+         *     is worth more than this row costs, and this row costs one INSERT on a rare operator
+         *     action.
+         *
+         *     Ids and a COUNT only, no content (hard rule 6): the turns being destroyed are the
+         *     operator's own words and an assistant's answers, and the point of the row is that the
+         *     clearing happened, by whom and how much — never what was said.
          */
         delete: operations["clear_admin_copilot_conversation_v1_admin_copilot_conversation_delete"];
         options?: never;
@@ -4113,8 +4130,10 @@ export interface paths {
          *
          *     **It belongs to YOU, not to one device.** Sign in on a phone while a desktop tab is open
          *     and both show the same thread — the desktop's copy simply does not know about the phone's
-         *     newest turn until it loads again, which is the whole of the concurrency story here:
-         *     there is no realtime channel and none is needed (see `load_copilot_conversation`).
+         *     newest turn until it reads this again, which is the whole of the concurrency story here:
+         *     there is no realtime channel and none is needed (see `load_copilot_conversation`). The
+         *     console re-reads it when its tab gets focus and after every exchange (D-542), so the two
+         *     converge the moment either is looked at.
          *
          *     **It ends when your LAST session ends.** Signing out on one device does not take the
          *     thread away from another, but signing out of the last one does, and so does letting the
