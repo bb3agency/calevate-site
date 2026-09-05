@@ -100,8 +100,15 @@ class TestWiring:
         twos — a flow that existed for one realm and not the other would mean the boundary
         had been drawn in the wrong place. 36 leaves room for the frontend slice to add
         nothing and for one more pair; a third pair is the conversation this tripwire is
-        for."""
-        assert len(exempt) <= 36, sorted(exempt)
+        for.
+
+        RAISED 36 -> 37 by D-541, and by ONE rather than by a pair because this addition is
+        not a realm flow: `POST /reports/v1/csp` is the browser's own reporting agent
+        telling us the Content-Security-Policy refused something, and there is one policy
+        across both consoles. It is also the only entry in the registry with no credential
+        at all — every other row names a signature, a secret, an allowlisted address or a
+        cookie — so it is the row to re-read first if this bound is ever raised again."""
+        assert len(exempt) <= 37, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------
