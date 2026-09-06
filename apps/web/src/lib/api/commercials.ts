@@ -196,24 +196,29 @@ export interface LifecycleCopy {
   action: string;
   /** What pressing it does to the client, said before it is pressed. */
   consequence: string;
-  tone: "ok" | "warn" | "stop";
   /** Does the API require a reason? Mirrors `_NEEDS_REASON` in `admin/routes.py`. */
   needsReason: boolean;
 }
+
+// ⚠ `tone` WAS HERE AND WAS DELETED WITH THE MOVE IT DESCRIBED (D-545). It existed to
+// pick `DANGER_BUTTON` for the one irreversible entry (`churned`, tone `stop`); both
+// remaining moves are reversible, so every value it could take was `ok` or `warn` and
+// nothing read it. A field with one reader that loses its reader is a field to delete,
+// not to leave for the next person to wonder about — the same rule that put it here in
+// the first place (ux-audit F-3 found it authored and unread). The danger styling now
+// lives on the closure screen, where the irreversible act went.
 
 export const LIFECYCLE_COPY: Record<LifecycleStatus, LifecycleCopy> = {
   active: {
     action: "Reactivate",
     consequence:
       "Outbound dialling resumes at the next dial: campaigns, the call-this-lead button and lead callbacks all start placing calls again.",
-    tone: "ok",
     needsReason: false,
   },
   suspended: {
     action: "Suspend",
     consequence:
       "Outbound dialling stops at the next dial — campaigns included. Inbound answering is deliberately unaffected: their own customers still get through. Reversible from this screen.",
-    tone: "warn",
     needsReason: true,
   },
 };
