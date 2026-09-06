@@ -229,21 +229,24 @@ async def test_the_close_needs_the_header_and_the_header_is_bound_to_this_client
         assert (await closure.read_closure(session, tenant_id=tenant_id)).is_closed is False
 
 
-@pytest.mark.asyncio
-async def test_the_status_route_s_confirmation_does_not_open_this_door() -> None:
-    """The two closes are different acts and must not share one confirmation.
-
-    `admin/routes.close_account_confirmation` guards ending a relationship; this route
-    additionally sets a date after which the business's records are destroyed. A
-    confirmation captured for the first must not authorise the second.
-    """
-    from apps.api.admin.routes import close_account_confirmation as status_confirmation
-
-    token, tenant_id = await _admin(), await _tenant()
-    assert status_confirmation(tenant_id) != close_account_confirmation(tenant_id)
-
-    response = await _close(token, tenant_id, confirm=status_confirmation(tenant_id))
-    assert response.status_code == 403
+# ⚠ A TEST WAS REMOVED HERE AND THE PROPERTY IT GUARDED IS STRONGER NOW, NOT WEAKER.
+#
+# `test_the_status_route_s_confirmation_does_not_open_this_door` asserted that the status
+# route's confirmation and this route's were different strings — because there were TWO
+# ways to end a relationship, and a token captured for the quiet one must not authorise
+# the destructive one.
+#
+# D-546 removed the first door (the founder's decision: one way to close a client, and it
+# always tells them). `admin/routes.close_account_confirmation` went with it, so the old
+# test could not even import — there is no second confirmation left to confuse this one
+# with, because there is no second close.
+#
+# The replacement lives in `tenant_lifecycle_test.py`, which owns that surface: it asserts
+# the status route refuses `churned` with a 422 NAMING the two settable states, that
+# nothing is half-applied, and that the refusal reads as "not a value" rather than "not
+# from this state". It is not duplicated here, because one property asserted in two files
+# is the drift this repo's "one way per problem" rule exists to stop — and the file that
+# owns the refusal is the one that owns the route.
 
 
 # --- the undo ----------------------------------------------------------------------
