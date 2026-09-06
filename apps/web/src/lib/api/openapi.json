@@ -17580,6 +17580,26 @@
         "title": "SourceOut",
         "type": "object"
       },
+      "SpeakingRatePointOut": {
+        "additionalProperties": false,
+        "description": "A chars-per-call-minute figure and the TTS \u20b9/min it implies at the live rate card.\n\nBoth are exact decimal STRINGS \u2014 a speaking rate is priced by multiplying it, so it is\nmoney's shadow and crosses the wire the way money does (hard rule 7).",
+        "properties": {
+          "chars_per_minute": {
+            "title": "Chars Per Minute",
+            "type": "string"
+          },
+          "tts_inr_per_minute": {
+            "title": "Tts Inr Per Minute",
+            "type": "string"
+          }
+        },
+        "required": [
+          "chars_per_minute",
+          "tts_inr_per_minute"
+        ],
+        "title": "SpeakingRatePointOut",
+        "type": "object"
+      },
       "SpendCapRecomputeOut": {
         "additionalProperties": false,
         "description": "What the flag was, what it is now, and the numbers that decided it.\n\nAn operator running this mid-incident needs to know not just whether the tenant is\nreleased but WHY \u2014 a recompute that leaves `capped` true has done its job and the\nceiling is simply still below the spend. Reporting the counters and the effective\nceiling next to the flag is what turns \"it did not work\" into \"the ceiling is 2 and\nthey have used 3\".",
@@ -20480,6 +20500,94 @@
           "cost_to_us_inr"
         ],
         "title": "TrialStatusOut",
+        "type": "object"
+      },
+      "TtsSpeakingRateOut": {
+        "additionalProperties": false,
+        "description": "GET /v1/admin/spend/tts-speaking-rate \u2014 pilot gate 12's number, or the refusal.\n\n`measured` is the field to read first. When it is False the three rate fields are\nnull, `reason` says how many calls there are and how many are needed, and the assumed\nband is the figure still in force. A screen that printed the band as if it were the\nmeasurement \u2014 or printed a placeholder rate \u2014 would be the hard-rule-11 failure the\nthreshold exists to prevent; there is no number here to print in that state.",
+        "properties": {
+          "assumed_high": {
+            "$ref": "#/components/schemas/SpeakingRatePointOut"
+          },
+          "assumed_low": {
+            "$ref": "#/components/schemas/SpeakingRatePointOut"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "clients": {
+            "title": "Clients",
+            "type": "integer"
+          },
+          "measured": {
+            "title": "Measured",
+            "type": "boolean"
+          },
+          "minimum_calls": {
+            "title": "Minimum Calls",
+            "type": "integer"
+          },
+          "p50": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeakingRatePointOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "p95": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeakingRatePointOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "pooled": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SpeakingRatePointOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "tts_inr_per_10k_chars": {
+            "title": "Tts Inr Per 10K Chars",
+            "type": "string"
+          }
+        },
+        "required": [
+          "measured",
+          "calls",
+          "clients",
+          "minimum_calls",
+          "reason",
+          "p50",
+          "p95",
+          "pooled",
+          "assumed_low",
+          "assumed_high",
+          "tts_inr_per_10k_chars"
+        ],
+        "title": "TtsSpeakingRateOut",
         "type": "object"
       },
       "UnattributedSpendOut": {
@@ -23581,6 +23689,35 @@
           }
         },
         "summary": "Every live client's month \u2014 revenue, our cost, margin \u2014 worst margin first",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "billing:read"
+      }
+    },
+    "/v1/admin/spend/tts-speaking-rate": {
+      "get": {
+        "description": "TRD \u00a710.1's \"360-540 chars per call-minute\" assumption, replaced by a reading.\n\nThe SAME walk as `fleet_spend` and for the same reason: `transcript_turns` and `calls`\nare FORCE-RLS'd, an untenanted read of either returns zero rows and reports success,\nso the directory comes from the `app.admin` session and every call is sampled inside\nits own client's `tenant_session`. The samples are pooled in memory and summarised\nonce (`tts_speaking_rate.summarize`), which is the only place two tenants' figures\nmeet \u2014 as integers, after every row has been read under its own policy.\n\nBelow `TTS_SPEAKING_RATE_MIN_CALLS` the response says so and carries no rate.",
+        "operationId": "fleet_tts_speaking_rate_v1_admin_spend_tts_speaking_rate_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TtsSpeakingRateOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How many TTS characters a call-minute really costs \u2014 measured from transcripts",
         "tags": [
           "admin"
         ],

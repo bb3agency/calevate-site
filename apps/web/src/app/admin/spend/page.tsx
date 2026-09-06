@@ -14,9 +14,15 @@ import {
   StatTile,
   formatCount,
   formatINR,
+  formatRupeeRate,
 } from "@/components/ui";
 import { currentISTMonth } from "@/lib/api/invoice";
-import { useFleetSpend, type FleetTenant } from "@/lib/api/spend";
+import {
+  useFleetSpend,
+  useTtsSpeakingRate,
+  type FleetTenant,
+  type SpeakingRatePoint,
+} from "@/lib/api/spend";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
@@ -204,7 +210,117 @@ export default function FleetSpendPage() {
           </Card>
         </>
       )}
+
+      {/* Its own read, deliberately outside the month: the speaking rate is a property of
+          the whole transcript archive, not of a billing month, and a failed fleet walk
+          must not hide it (nor the reverse). */}
+      <TtsSpeakingRateCard />
     </div>
+  );
+}
+
+/**
+ * A chars-per-minute figure as the server spelled it, with trailing zeros dropped so
+ * "300.0000" reads as 300 — string surgery, never `Number()`, the digits are the server's.
+ */
+function trimRate(value: string): string {
+  return value.includes(".") ? value.replace(/\.?0+$/, "") : value;
+}
+
+function RatePoint({ point }: { point: SpeakingRatePoint }) {
+  return (
+    <>
+      <span className="font-semibold tabular-nums text-ink">{trimRate(point.chars_per_minute)}</span>{" "}
+      chars/min → {formatRupeeRate(point.tts_inr_per_minute)}/min
+    </>
+  );
+}
+
+/**
+ * THE TTS SPEAKING RATE — MEASURED (pilot gate 12, TRD §10.1).
+ *
+ * TRD §10.1 prices the TTS leg from an ASSUMPTION — the agent speaks 40–60% of a call at
+ * ~900 chars/min, so 360–540 TTS characters per call-minute — and says in its own words
+ * that the ratio is unmeasured and is the single biggest lever on the TTS line. This card
+ * is the measurement: characters in the AGENT's transcript turns ÷ call minutes, over every
+ * live client, read one RLS session at a time by the server.
+ *
+ * BELOW THE THRESHOLD THERE IS NO FIGURE ON THIS CARD, and that is the point of it. A rate
+ * from three calls printed under the word "measured" would be the exact hard-rule-11
+ * failure the repository keeps correcting, so the server sends `measured: false` with the
+ * sample size, and this card says how many calls it has and how many it needs — never a
+ * placeholder, and never the assumed band dressed as a reading. The band is printed in
+ * both states, labelled as what it is: the fallback, or the figure this replaced.
+ */
+function TtsSpeakingRateCard() {
+  const query = useTtsSpeakingRate();
+  const rate = query.data;
+  return (
+    <Card title="TTS speaking rate — measured">
+      {query.error ? (
+        <ProblemNotice error={query.error} onRetry={() => void query.refetch()} />
+      ) : !rate ? (
+        <Skeleton rows={3} label="Reading every client's transcripts" />
+      ) : rate.measured && rate.p50 && rate.p95 && rate.pooled ? (
+        <div className="space-y-3 text-sm text-ink-muted">
+          <p>
+            <span className="font-semibold text-ink">{formatCount(rate.calls)}</span> calls with a
+            transcript across{" "}
+            <span className="font-semibold text-ink">{formatCount(rate.clients)}</span>{" "}
+            {rate.clients === 1 ? "client" : "clients"}, priced at ₹{rate.tts_inr_per_10k_chars}{" "}
+            per 10,000 characters.
+          </p>
+          <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-3">
+            <div>
+              <dt className="text-[13px] font-medium">Pooled (Σ chars ÷ Σ minutes)</dt>
+              <dd>
+                <RatePoint point={rate.pooled} />
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[13px] font-medium">Typical call (p50)</dt>
+              <dd>
+                <RatePoint point={rate.p50} />
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[13px] font-medium">Talkative tail (p95)</dt>
+              <dd>
+                <RatePoint point={rate.p95} />
+              </dd>
+            </div>
+          </dl>
+          <p>
+            Replaces the assumed {trimRate(rate.assumed_low.chars_per_minute)}–
+            {trimRate(rate.assumed_high.chars_per_minute)} chars/min (
+            {formatRupeeRate(rate.assumed_low.tts_inr_per_minute)}–
+            {formatRupeeRate(rate.assumed_high.tts_inr_per_minute)}/min) in TRD §10.1. The pooled
+            figure is what the TTS leg really costs per call-minute — re-derive the cost floor
+            from it, not from the band.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3 text-sm text-ink-muted">
+          <p>
+            <span className="font-semibold text-ink">Not enough calls to measure yet:</span>{" "}
+            {formatCount(rate.calls)} of {formatCount(rate.minimum_calls)} needed
+            {rate.clients > 0
+              ? ` (across ${formatCount(rate.clients)} ${rate.clients === 1 ? "client" : "clients"})`
+              : ""}
+            .
+          </p>
+          {rate.reason && <p>{rate.reason}</p>}
+          <p>
+            Until then the cost floor rests on TRD §10.1&apos;s assumed{" "}
+            {trimRate(rate.assumed_low.chars_per_minute)}–
+            {trimRate(rate.assumed_high.chars_per_minute)} chars/min (
+            {formatRupeeRate(rate.assumed_low.tts_inr_per_minute)}–
+            {formatRupeeRate(rate.assumed_high.tts_inr_per_minute)}/min), which is an
+            assumption and not a reading.
+          </p>
+        </div>
+      )}
+    </Card>
   );
 }
 

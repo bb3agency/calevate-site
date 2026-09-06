@@ -127,6 +127,28 @@ export function useFleetSpend(month?: string): UseQueryResult<FleetSpend> {
 }
 
 /**
+ * Pilot gate 12's number: how many TTS characters a call-minute really uses, measured from
+ * our own transcripts. Admin realm only — it is a fact about OUR cost floor, not any
+ * client's month.
+ *
+ * `measured` is the field to read first. When it is false the three rate fields are null
+ * and `reason` says how many calls there are and how many are needed; the screen prints
+ * THAT and never a placeholder rate. `assumed_low` / `assumed_high` are always present:
+ * TRD §10.1's 360–540 chars/min band, the figure the measurement replaces — or, below the
+ * threshold, the figure still in force. Every rate and rupee is an exact decimal STRING.
+ */
+export type TtsSpeakingRate = Schemas["TtsSpeakingRateOut"];
+export type SpeakingRatePoint = Schemas["SpeakingRatePointOut"];
+
+export function useTtsSpeakingRate(): UseQueryResult<TtsSpeakingRate> {
+  return useQuery({
+    queryKey: ["admin", "tts-speaking-rate"],
+    queryFn: () =>
+      apiRequest<TtsSpeakingRate>(adminSession(), "/v1/admin/spend/tts-speaking-rate"),
+  });
+}
+
+/**
  * What `charge_basis` MEANS, in the client's words — one table, read by both realms.
  *
  * The label and the sentence live together because they are one claim: an operator on the

@@ -4,11 +4,11 @@ import { describe, expect, it } from "vitest";
 import FleetSpendPage from "@/app/admin/spend/page";
 import TenantSpendPage from "@/app/admin/tenants/[tenantId]/spend/page";
 import type { Me } from "@/lib/api/client";
-import type { FleetSpend, Spend, TenantSpend } from "@/lib/api/spend";
+import type { FleetSpend, Spend, TenantSpend, TtsSpeakingRate } from "@/lib/api/spend";
 
 import { renderAdminRoute } from "./adminRoute";
 import { renderBillingHub } from "./billingHub";
-import { problem, renderClientPage, stillLoading } from "./harness";
+import { problem, stillLoading } from "./harness";
 
 /**
  * PER-RUPEE ATTRIBUTION, in both realms — and the wall between them.
@@ -268,6 +268,34 @@ const tenantPage = <TenantSpendPage params={Promise.resolve({ tenantId: "t1" })}
 const CLIENT_ROUTE = `/v1/billing/spend?month=${IST_MONTH}`;
 const TENANT_ROUTE = `/v1/admin/tenants/t1/spend?month=${IST_MONTH}`;
 const FLEET_ROUTE = `/v1/admin/spend?month=${IST_MONTH}`;
+const TTS_ROUTE = "/v1/admin/spend/tts-speaking-rate";
+
+/** Pilot gate 12's number in the MEASURED state — 4-decimal strings, never parsed. */
+const TTS_MEASURED: TtsSpeakingRate = {
+  measured: true,
+  calls: 41,
+  clients: 2,
+  minimum_calls: 20,
+  reason: null,
+  p50: { chars_per_minute: "412.0000", tts_inr_per_minute: "1.2360" },
+  p95: { chars_per_minute: "688.5000", tts_inr_per_minute: "2.0655" },
+  pooled: { chars_per_minute: "437.1429", tts_inr_per_minute: "1.3114" },
+  assumed_low: { chars_per_minute: "360.0000", tts_inr_per_minute: "1.0800" },
+  assumed_high: { chars_per_minute: "540.0000", tts_inr_per_minute: "1.6200" },
+  tts_inr_per_10k_chars: "30.0000",
+};
+
+/** The refusal: twelve calls, twenty needed, no rate anywhere in the payload. */
+const TTS_UNMEASURED: TtsSpeakingRate = {
+  ...TTS_MEASURED,
+  measured: false,
+  calls: 12,
+  clients: 1,
+  reason: "12 calls with a transcript; a figure is published from 20 or more. TRD §10.1's assumed band stays in force.",
+  p50: null,
+  p95: null,
+  pooled: null,
+};
 
 describe("the client's spend screen", () => {
   it("prints the server's rupee digits, grouped Indian-style and never parsed", async () => {
@@ -476,7 +504,10 @@ describe("the operator's half", () => {
   });
 
   it("walks the whole fleet and marks a losing client in words, not only in colour", async () => {
-    const { container } = await renderAdminRoute(<FleetSpendPage />, { [FLEET_ROUTE]: FLEET });
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: FLEET,
+      [TTS_ROUTE]: TTS_MEASURED,
+    });
     await screen.findByText("Vasavi Dental");
     // Worst margin first is the SERVER's order and is rendered as sent — a second sort
     // here would be a second opinion about priority.
@@ -490,9 +521,48 @@ describe("the operator's half", () => {
   it("refuses out loud when the walk fails, and reports no fleet total", async () => {
     const { container } = await renderAdminRoute(<FleetSpendPage />, {
       [FLEET_ROUTE]: problem(504, { title: "The walk timed out", detail: "Try a smaller month." }),
+      [TTS_ROUTE]: TTS_MEASURED,
     });
     await screen.findByText("Try a smaller month.");
     expect(container.textContent).not.toContain("₹0.00");
     expect(container.textContent).not.toContain("No live clients this month");
+  });
+
+  it("publishes the measured TTS speaking rate with the band it replaced", async () => {
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: FLEET,
+      [TTS_ROUTE]: TTS_MEASURED,
+    });
+    await screen.findByText("TTS speaking rate — measured");
+    const text = container.textContent ?? "";
+    // The server's digits, trailing zeros trimmed by string surgery and never re-rounded:
+    // 437.1429 stays 437.1429 (a float path would print 437.14290000000005 somewhere).
+    expect(text).toContain("437.1429");
+    expect(text).toContain("₹1.3114/min");
+    expect(text).toContain("412");
+    expect(text).toContain("688.5");
+    expect(text).toContain("₹2.0655/min");
+    expect(text).toContain("41 calls with a transcript across 2 clients");
+    // The band is labelled as the figure this REPLACED, and is still on the card.
+    expect(text).toContain("Replaces the assumed 360–540 chars/min (₹1.0800–₹1.6200/min)");
+    expect(text).not.toContain("Not enough calls");
+  });
+
+  it("refuses to print a figure below the threshold and says how many calls it needs", async () => {
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: FLEET,
+      [TTS_ROUTE]: TTS_UNMEASURED,
+    });
+    await screen.findByText("Not enough calls to measure yet:");
+    const text = container.textContent ?? "";
+    expect(text).toContain("12 of 20 needed (across 1 client)");
+    expect(text).toContain(TTS_UNMEASURED.reason);
+    // The band is printed as an ASSUMPTION, and none of the measured-state figures leak
+    // in from the null fields or from a placeholder.
+    expect(text).toContain("assumption and not a reading");
+    expect(text).toContain("360–540 chars/min");
+    expect(text).not.toContain("437.1429");
+    expect(text).not.toContain("₹1.3114");
+    expect(text).not.toContain("Replaces the assumed");
   });
 });
