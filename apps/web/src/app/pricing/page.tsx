@@ -128,45 +128,27 @@ export default async function PricingPage() {
   const rateCard = await fetchPublicRateCard();
   return (
     <MarketingPage>
+      {/* THE PRICE IS THE HEADLINE, and this page used to bury it (6 Sep 2026).
+          It opened with a box titled "Why there is no price on this page" — an apology
+          served to somebody whose entire reason for arriving was to see a number, and
+          published while the self-serve rate WAS live and the deepest credit pack already
+          delivered a lower one. The managed-plan caveat is real and is kept, at the
+          bottom, in one line, where a reader who needs it will look for it.
+          `rateCard` is null only when the API cannot be reached; the fallback says so
+          rather than printing a figure we cannot stand behind. */}
       <PageIntro
         eyebrow="Pricing"
-        title="You are billed for the minutes your agents actually talk"
-        lede="Not per seat, not per agent, not per number. This page is the shape of the bill and how it is put together; the figures are agreed with you, because a number published here would be a quote nobody could honour for every business."
+        title={
+          rateCard === null
+            ? "You are billed for the minutes your agents actually talk"
+            : `${formatRateINR(rateCard.list_rate_inr_per_min)} a minute of talk time`
+        }
+        lede={
+          rateCard === null
+            ? "Not per seat, not per agent, not per number — you pay for the minutes your agents actually talk. Our live rate card could not be loaded just now, so there is no figure on this page we can stand behind; reload in a moment."
+            : `From ${formatRateINR(rateCard.from_inr_per_min)} a minute with prepaid credit. No monthly fee, no per-seat charge, no charge per agent or per number, and nothing to sign — you are billed for the minutes your agents actually talk, and credit does not expire.`
+        }
       />
-
-      {/* --- Why no number ------------------------------------------------------ */}
-      <section className="border-t border-line bg-surface/40">
-        <div className={`${SHELL} ${SECTION}`}>
-          <div className="flex items-start gap-3 rounded-2xl border border-brand/40 bg-brand-soft/30 p-5 sm:p-6 dark:bg-brand-strong/10">
-            <Info
-              aria-hidden
-              className="mt-0.5 h-5 w-5 shrink-0 text-brand-strong dark:text-brand-bright"
-            />
-            <div>
-              <h2 className="text-[17px] font-semibold text-ink">
-                Why there is no price on this page
-              </h2>
-              <p className="mt-2 max-w-2xl text-base text-pretty text-ink-muted">
-                What a business pays depends on how much it calls and gets called, which
-                voice it uses and which language model it runs on — so we quote it for your
-                business rather than publishing one number and changing it for every client.
-                We would rather say that plainly than print a figure we would have to walk
-                back on the first call.
-              </p>
-              <p className="mt-3 max-w-2xl text-base text-pretty text-ink-muted">
-                That is about a MANAGED plan, agreed with you. Our self-serve rate is
-                published and is right below — you can start on it today without talking to
-                anybody, and put your own numbers into the{" "}
-                <Link href="/roi" className={INLINE_LINK}>
-                  cost comparison
-                </Link>{" "}
-                to see what it works out at, with every assumption on both sides shown,
-                including the ones that argue against us.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
 
       {/* --- Self-serve rate card (D-545) --------------------------------------- */}
       <section id="self-serve" className="scroll-mt-20 border-t border-line">
@@ -244,6 +226,36 @@ export default async function PricingPage() {
               </p>
             </>
           )}
+        </div>
+      </section>
+
+      {/* The caveat that used to open the page, in its right size and its right place:
+          after the reader has seen what things cost. Managed-plan figures genuinely are
+          not publishable — every money column on `plans` is nullable with no default and
+          two of them record in their own comments that the figure is a founder decision —
+          but that is a footnote to a price list, not a substitute for one. */}
+      <section className="border-t border-line bg-surface/40">
+        <div className={`${SHELL} ${SECTION}`}>
+          <div className="flex items-start gap-3">
+            <Info
+              aria-hidden
+              className="mt-0.5 h-5 w-5 shrink-0 text-brand-strong dark:text-brand-bright"
+            />
+            <p className="max-w-2xl text-base text-pretty text-ink-muted">
+              <span className="font-medium text-ink">Calling a lot, or need it shaped
+              differently?</span>{" "}
+              Above a certain volume a monthly plan with minutes included usually costs less
+              than paying by the minute, and those are agreed with you rather than published
+              — what they should say depends on your call pattern, which voice you use and
+              which language model you run on. Everything above still applies to them. Put
+              your own numbers into the{" "}
+              <Link href="/roi" className={INLINE_LINK}>
+                cost comparison
+              </Link>{" "}
+              first; it shows every assumption on both sides, including the ones that argue
+              against us.
+            </p>
+          </div>
         </div>
       </section>
 

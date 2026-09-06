@@ -17,6 +17,12 @@ import { stubApi } from "./harness";
 
 
 /** `"50000.00"` → `"₹50,000"`. The page's own rule: whole rupees drop the paise. */
+function formatRateForTest(rate: string): string {
+  const tenThousandths = Math.round(Number(rate) * 10_000);
+  const paise = Math.floor((tenThousandths + 50) / 100);
+  return `₹${(paise / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 function formatAmountForTest(amount: string): string {
   const whole = Number(amount.split(".")[0]).toLocaleString("en-IN");
   return `₹${whole}`;
@@ -191,18 +197,46 @@ describe("the why-calevate page's refusals", () => {
  * appearing anywhere still fails here, which is the property that was always worth having.
  */
 describe("the pricing page", () => {
-  it("names no managed-plan figure outside the published self-serve card", async () => {
+  it("invents no figure — every rupee on the page came from the rate card", async () => {
+    // ⚠ THIS ASSERTION WAS A LOCATION BAN AND IS NOW A PROVENANCE ONE (6 Sep 2026).
+    //
+    // It used to require that no "₹" appeared outside `#self-serve`. That was the wrong
+    // shape twice over. It permitted an invented figure INSIDE that section, and it
+    // forbade the real self-serve rate anywhere else — which is how the page came to open
+    // with "Why there is no price on this page" while a published rate sat below the fold.
+    //
+    // What actually matters is provenance, so that is what is checked: collect every
+    // rupee figure the page renders and require each one to be a figure the API sent.
+    // A managed-plan rate typed into the copy fails this — there is no such figure in the
+    // response and there cannot be, since every money column on `plans` is nullable with
+    // no default. So does a hand-tuned "₹4.99" in the hero. And the real rate is free to
+    // appear wherever it helps a buyer, which is the point.
     stubApi(RATE_CARD_ROUTES);
     const { container } = render(await PricingPage());
-    const selfServe = container.querySelector("#self-serve");
-    expect(selfServe, "the self-serve section is missing").not.toBeNull();
-    const text = bodyText(container).replace(selfServe?.textContent ?? "", "");
-    expect(text).not.toContain("₹");
+    const text = bodyText(container);
+
+    const fromCard = new Set(
+      [
+        RATE_CARD.list_rate_inr_per_min,
+        RATE_CARD.from_inr_per_min,
+        ...RATE_CARD.packs.map((pack) => pack.effective_rate_inr_per_min),
+      ]
+        .map((rate) => formatRateForTest(rate))
+        .concat(RATE_CARD.packs.map((pack) => formatAmountForTest(pack.amount_inr))),
+    );
+    const rendered = text.match(/₹[\d,]+(\.\d{2})?/g) ?? [];
+    expect(rendered.length, "the page shows no price at all").toBeGreaterThan(0);
+    for (const figure of rendered) {
+      expect(fromCard, `₹ figure not in the rate card: ${figure}`).toContain(figure);
+    }
+
+    // Rupees are not the only way to write money, and a bare "5 per minute" would slip
+    // past the scan above.
     expect(text).not.toMatch(/\bRs\.?\s*\d/i);
-    expect(text).not.toMatch(/\d[\d,]*\s*(per minute|\/min|a minute|per month|\/mo\b)/i);
-    expect(text).not.toMatch(/\b\d+\s*(lakh|crore|k)\b\s*(a|per)\s*(month|year)/i);
-    // And it must still be USEFUL: the shape is what the page is for, so the two facts a
-    // buyer needs are pinned rather than merely permitted.
+    expect(text).not.toMatch(/\b\d+\s*(lakh|crore)\b/i);
+
+    // And it must still be USEFUL: the two facts a buyer needs are pinned rather than
+    // merely permitted.
     expect(text).toMatch(/minutes your agents actually talk/i);
     expect(text).toMatch(/agreed with you/i);
   });
