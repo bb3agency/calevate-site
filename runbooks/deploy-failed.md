@@ -151,6 +151,83 @@ this automatically — it is a judgement, not a step.
 The revision to downgrade *to* is on the failure banner (`db rev`), which is the whole
 reason it is recorded before the migration runs.
 
+## 3a. Failed at `migrations` with `db rev : unreadable` — the database is not reachable
+
+**This is NOT §3.** §3 is a migration that ran and failed. This is a migration that never
+ran, because nothing could connect. The banner looks almost identical and the remedies are
+opposite: §3 asks you to think about schema state, and here there IS no schema state to
+think about — nothing was applied, nothing is partial, and there is nothing to downgrade.
+
+**The tell is the banner itself.** `db rev : unreadable` means `alembic current` failed
+BEFORE any migration was attempted (`scripts/vps-deploy.sh` reads the revision first, and
+its `|| echo "unreadable"` is that failure). A migration that genuinely failed prints a
+real revision there. `db rev : not read` is a third thing — the variable was never set.
+
+**FIRST OBSERVED 6 Sep 2026, and the cause was boot ordering.** The host rebooted.
+Postgres started before dockerd created `docker0`, so the address it is configured to bind
+did not yet exist on any interface; the bind failed, Postgres logged a warning, and it came
+up on `127.0.0.1` ALONE. Everything then looked healthy and nothing worked: `pg_isready`
+with no arguments tests the UNIX SOCKET and answered "accepting connections", the app
+containers reported `(healthy)` because their compose healthcheck is `/healthz/live` which
+touches no dependency on purpose (§4 and `apps/api/core/health.py` — that is correct, not a
+bug), and every database call got `connection refused`.
+
+### Confirm it in one command
+
+```
+sudo ss -tlnp | grep 5432
+sudo -u postgres psql -tAc "SHOW listen_addresses"
+docker network inspect bridge -f "{{range .IPAM.Config}}{{.Gateway}}{{end}}"
+```
+
+**`ss` is the instrument, not `psql` and not `pg_isready`.** You are looking for a LISTEN
+line per address in `listen_addresses`. One line where the setting names two is the whole
+diagnosis: the second bind failed. Check the gateway Docker reports against the address
+Postgres is configured for — if they differ, the bridge subnet moved and the fix is the
+config, not a restart.
+
+### Fix
+
+```
+sudo systemctl restart postgresql && sudo ss -tlnp | grep 5432
+```
+
+docker0 exists now, so the restart binds both. Expect TWO lines. Then re-run the same
+deploy — nothing about it needs changing, and `--expected-sha` will confirm the checkout is
+still where it was.
+
+⚠ **DO NOT SET `listen_addresses = '*'`.** It makes the error go away and binds the PUBLIC
+interface, leaving only ufw in front — and ufw does not filter Docker. It satisfies the
+words of "must include the Docker bridge gateway" while defeating its purpose, which is
+the failure class CLAUDE.md hard rule 12 names. Name localhost and the bridge gateway
+specifically.
+
+### Stop it recurring
+
+Ordering only — a broken Docker must never keep the database down, so no `Requires`:
+
+```
+sudo mkdir -p /etc/systemd/system/postgresql@.service.d
+sudo tee /etc/systemd/system/postgresql@.service.d/after-docker.conf <<'EOF'
+[Unit]
+After=docker.service
+EOF
+sudo systemctl daemon-reload
+```
+
+**Verify it landed on the unit that actually runs**, because a drop-in on the wrong name
+is invisible until the next reboot:
+
+```
+systemctl show postgresql@16-main -p After | tr ' ' '\n' | grep docker
+```
+
+⚠ **UNTESTED AGAINST A REBOOT at the time of writing (6 Sep 2026).** The immediate fix was
+verified — two LISTEN lines, deploy green, migrations applied. The drop-in was not, because
+that needs a reboot nobody wanted mid-incident. Confirm it at the next planned restart.
+
+---
+
 ## 4. Failed at `swap <service>` — the new image is running and unhealthy
 
 This is the only branch where production is degraded. The service was recreated with the
