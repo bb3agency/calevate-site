@@ -175,6 +175,12 @@ bug), and every database call got `connection refused`.
 ### Confirm it in one command
 
 ```
+# The two that MISLEAD, shown so you recognise them rather than trust them.
+# Both answer about the UNIX SOCKET and both said "fine" through the whole outage:
+pg_isready
+sudo -u postgres psql -tAc "SELECT 1"
+
+# The three that ANSWER:
 sudo ss -tlnp | grep 5432
 sudo -u postgres psql -tAc "SHOW listen_addresses"
 docker network inspect bridge -f "{{range .IPAM.Config}}{{.Gateway}}{{end}}"
