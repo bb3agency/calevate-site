@@ -188,6 +188,22 @@ support is the gate, and it fails for the cheap options:
   like-for-like table prices Cartesia Sonic at **≈₹2.7–3.0/1,000 chars ≈ ₹1.0–1.6/call-min**
   vs Sarvam Bulbul v3 at **₹3.00/1,000 chars** — i.e. **the same order, not cheaper**, and
   Cartesia's own SDK cannot be run through Bolna as a Sarvam substitute anyway. **No saving.**
+  > ⚠ **THE SECOND HALF OF THAT SENTENCE IS FALSE AND WAS FALSE WHEN WRITTEN (corrected
+  > 6 Sep 2026).** Cartesia is a FIRST-CLASS Bolna TTS provider: `sonic-3`, `sonic-3.5` and
+  > `sonic-preview` (Sonic 3.6 beta), every Cartesia voice, with our own key installed at
+  > `platform.bolna.ai/auth/cartesia` — VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/
+  > providers/voice/cartesia.md`. No SDK of Cartesia's is involved; BYOK into the engine is
+  > the supported path and always was. The claim was reasoned from Cartesia **Line**, the
+  > ORCHESTRATOR, whose STT/TTS genuinely are not swappable — the exact layer confusion
+  > TRD §10.4's "compare like with like" rule and this file's own discipline exist to stop.
+  > **The price half stands**: at the model layer the two are the same order, so a move to
+  > Sonic is a QUALITY decision that costs roughly nothing, not a saving and not a penalty.
+  > ⚠ **AND `$299/mo` IS LINE'S PLAN, NOT THE TTS API'S.** TRD §10.4a's Startup-tier fixed
+  > fee and its 1/3/5/10 agent-slot ceiling price the orchestrator. Whether the TTS API
+  > alone needs a paid monthly plan to run ten concurrent streams is **UNKNOWN** —
+  > `cartesia.ai` is egress-blocked here (re-measured 6 Sep 2026), and it is the one figure
+  > that decides the leg. It is answerable in a minute by a human logged in to
+  > `cartesia.ai/pricing`, the way the Gnani price was.
 - **ElevenLabs Flash/Turbo v2.5 — Telugu on the fast models is unconfirmed.** REPORTED
   (search, 25 Aug 2026): Flash v2.5 lists 32 languages and Telugu is not clearly among them;
   a Telugu marketing page exists but may route to Multilingual v2, not Flash. And ElevenLabs
