@@ -113,6 +113,10 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "POST /v1/admin/tenants/{tenant_id}/closure": {"reason": "Census"},
     "DELETE /v1/admin/tenants/{tenant_id}/closure": None,
     "GET /v1/admin/tenants/{tenant_id}/closure": None,
+    # D-546. A GET takes no body, and an absent tenant must 404 here like every
+    # other tenant-path read: the profile carries a client's billing email, so a
+    # softer answer would let an operator probe which tenant ids exist.
+    "GET /v1/admin/tenants/{tenant_id}/profile": None,
     # An EMPTY body is the ordinary resend — "send it again to the address it has" — and
     # it is the one that reaches the tenant lookup rather than the address validator.
     "POST /v1/admin/tenants/{tenant_id}/invitations/{invitation_id}/resend": {},
