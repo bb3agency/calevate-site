@@ -58,6 +58,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.rates import (
+    ROUNDING,
     TTS_ASSUMED_CHARS_PER_CALL_MINUTE,
     tts_inr_per_call_minute,
 )
@@ -75,6 +76,14 @@ TTS_SPEAKING_RATE_MIN_CALLS: Final[int] = 20
 #: Chars-per-minute figures are quantized to four places, the same scale as every rupee
 #: here (`billing/models.MONEY`), so a rate prints like the rupee it implies. The
 #: arithmetic that produces them is exact; only the published spelling is rounded.
+#:
+#: ROUNDING IS PASSED EXPLICITLY WHEREVER THIS IS USED, and `money_rounding_mode_test`
+#: is what caught its absence. A bare `quantize()` takes the process-global `decimal`
+#: context — ROUND_HALF_EVEN by default and mutable by any library in the image — so the
+#: figure this module publishes would have depended on what else happened to be imported.
+#: This is not rupees, but it is the number the TTS cost leg is re-derived from, so it
+#: uses the same `billing.rates.ROUNDING` as the money it feeds rather than a second
+#: convention nobody could keep straight.
 _RATE_Q: Final[Decimal] = Decimal("0.0001")
 _SECONDS_PER_MINUTE: Final[Decimal] = Decimal(60)
 
@@ -162,7 +171,7 @@ async def sample_tenant(session: AsyncSession, *, tenant_id: UUID) -> list[CallS
 
 def _point(chars_per_minute: Decimal) -> SpeakingRatePoint:
     return SpeakingRatePoint(
-        chars_per_minute=chars_per_minute.quantize(_RATE_Q),
+        chars_per_minute=chars_per_minute.quantize(_RATE_Q, rounding=ROUNDING),
         tts_inr_per_minute=tts_inr_per_call_minute(chars_per_minute),
     )
 
