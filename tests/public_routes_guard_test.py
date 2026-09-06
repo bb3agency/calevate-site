@@ -107,8 +107,17 @@ class TestWiring:
         telling us the Content-Security-Policy refused something, and there is one policy
         across both consoles. It is also the only entry in the registry with no credential
         at all — every other row names a signature, a secret, an allowlisted address or a
-        cookie — so it is the row to re-read first if this bound is ever raised again."""
-        assert len(exempt) <= 37, sorted(exempt)
+        cookie — so it is the row to re-read first if this bound is ever raised again.
+
+        RAISED 37 -> 38 by D-545, again by ONE and again not a realm flow: `GET
+        /v1/public/rate-card` is the marketing site's server reading the self-serve rate
+        card so `/pricing` can lead with "from ₹X/min" and the ROI calculator can run at
+        the live list rate instead of a typed copy of it. It is the SECOND row with no
+        credential, and the first that is a plain read rather than a report: its body is
+        five code constants and one console setting, identical for everyone, served by
+        the same builder as the authenticated `/packs` read. A third credential-less row
+        is the conversation this tripwire is for."""
+        assert len(exempt) <= 38, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

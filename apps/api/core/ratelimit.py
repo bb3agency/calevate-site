@@ -138,6 +138,15 @@ PROFILES: dict[str, LimitProfile] = {
     # log-writing amplifier; there is no tenant dimension because a report names no tenant
     # (and `security/csp_reports.py` strips the page path that would have implied one).
     "csp_report": LimitProfile("csp_report", per_client=60, per_tenant=None),
+    # The public self-serve rate card (D-545). Its own profile because the caller is
+    # unlike every other: it is OUR OWN marketing site's server, so the per-IP dimension
+    # is a ceiling on the whole site's page views rather than on one person — every
+    # `/pricing`, `/roi` and homepage render is one read from one address. 600/min is
+    # ten page views a second, which is the edge's `browser` zone rate for the same
+    # reason (`infra/nginx/rate-zones.conf.template`), and the route costs one settings
+    # read and five Decimal divisions — no database, no vendor, nothing a flood can
+    # amplify. No tenant dimension because there is no tenant.
+    "public_read": LimitProfile("public_read", per_client=600, per_tenant=None),
     # Anything the table does not name: 404 probes, a path that has not been routed yet.
     # NOT reachable from a mounted API route — the census test fails the build first —
     # so this exists purely so that scanning for unrouted paths is not free.
@@ -242,6 +251,10 @@ RULES: tuple[Rule, ...] = (
     # required to be tighter than the family beneath it — there is no family beneath this
     # path, because `/reports` is its own top-level surface.
     Rule("/reports/v1/csp", "csp_report"),
+    # A FAMILY rule too (no method set): `/v1/public/` is the unauthenticated read
+    # surface, and anything mounted under it later inherits this ceiling rather than
+    # `client_api`'s — which was sized for one signed-in person, not for a site.
+    Rule("/v1/public/**", "public_read"),
     # --- families -----------------------------------------------------------------
     Rule("/v1/**", "client_api"),
     Rule("/v1/admin/**", "admin_api"),

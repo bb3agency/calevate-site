@@ -279,6 +279,10 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="`packs` is one row per member of `billing.credit_packs.PACK_CATALOGUE`, a static "
         "tuple whose size is a pricing decision, never a caller's row count."
     ),
+    "GET /v1/public/rate-card": BoundedByConstruction(
+        by="the same `CreditPacksOut` the `/packs` read returns, from the same builder "
+        "(`payment_routes.rate_card_out`) — one row per `PACK_CATALOGUE` member."
+    ),
     "GET /v1/ops/secrets": BoundedByConstruction(
         by="the vendor-credential registry in `ops/secrets.py` — one row per known key."
     ),

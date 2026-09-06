@@ -423,6 +423,19 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         # (`inbound-tab.md:38-42`) and it is the credential this row promises.
         credential="compare_digest",
     ),
+    "GET /v1/public/rate-card": PublicRoute(
+        why=(
+            "The self-serve rate card for the public site (D-545): the live list rate, "
+            "the lowest effective rate a pack delivers, and the pack ladder priced at that "
+            "rate. GENUINELY OPEN, and it must be: the reader is the marketing site's "
+            "server, which holds no session, and the body is five code constants plus one "
+            "console setting, identical for everyone — no tenant, no principal, nothing "
+            "about the caller is read or returned. The same builder serves the "
+            "authenticated `/v1/billing/topups/packs`, so this discloses nothing a "
+            "signed-in client could not already see. Reads nothing but a setting, writes "
+            "nothing, its own `public_read` rate profile and a 60s public cache."
+        )
+    ),
 }
 
 

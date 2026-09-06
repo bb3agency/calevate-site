@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { ScrollRegion } from "@/components/ui";
+import { fetchPublicRateCard, formatAmountINR, formatRateINR } from "@/lib/api/rateCard";
 import Link from "next/link";
 
 import { Check, Info, Receipt, ShieldCheck, Wallet } from "lucide-react";
@@ -114,7 +116,16 @@ const PLAN_SHAPE: readonly { term: string; detail: string }[] = [
   },
 ];
 
-export default function PricingPage() {
+export default async function PricingPage() {
+  // D-545. This page carries TWO price stories and they must not be confused for each
+  // other. A MANAGED plan is quoted per business and genuinely has no published number —
+  // every rate column on `plans` is nullable with no default, which is why this page has
+  // always refused to print one. The SELF-SERVE rate card is the opposite: it is a real,
+  // published price an operator can change from the console, and the pack ladder already
+  // delivers a lower effective rate than the list. Publishing it is not a softening of
+  // the no-number rule; it is the other half of the truth, and withholding it was making
+  // the page read as though we would not say what anything costs.
+  const rateCard = await fetchPublicRateCard();
   return (
     <MarketingPage>
       <PageIntro
@@ -143,15 +154,96 @@ export default function PricingPage() {
                 back on the first call.
               </p>
               <p className="mt-3 max-w-2xl text-base text-pretty text-ink-muted">
-                What you can do without talking to anybody is put your own numbers into the{" "}
+                That is about a MANAGED plan, agreed with you. Our self-serve rate is
+                published and is right below — you can start on it today without talking to
+                anybody, and put your own numbers into the{" "}
                 <Link href="/roi" className={INLINE_LINK}>
                   cost comparison
-                </Link>
-                . It runs at our published self-serve rate and shows every assumption on
-                both sides, including the ones that argue against us.
+                </Link>{" "}
+                to see what it works out at, with every assumption on both sides shown,
+                including the ones that argue against us.
               </p>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* --- Self-serve rate card (D-545) --------------------------------------- */}
+      <section id="self-serve" className="scroll-mt-20 border-t border-line">
+        <div className={`${SHELL} ${SECTION}`}>
+          <Eyebrow index="00">Self-serve</Eyebrow>
+          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+            {rateCard === null
+              ? "Our self-serve rate"
+              : `Start today from ${formatRateINR(rateCard.from_inr_per_min)} a minute`}
+          </h2>
+          {rateCard === null ? (
+            <p role="status" className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+              Our live rate card could not be loaded just now, so there is no figure here we
+              can stand behind. Reload in a moment — we would rather show nothing than a
+              price that may be out of date.
+            </p>
+          ) : (
+            <>
+              <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+                Pay as you go at {formatRateINR(rateCard.list_rate_inr_per_min)} a minute of
+                talk time, with no monthly fee and nothing to sign. Buy credit in advance and
+                the rate comes down — the same minutes, priced lower per minute the more you
+                put on the account at once. Credit does not expire.
+              </p>
+              {/* `ScrollRegion`, not a bare `overflow-x-auto` div: a scroll container
+                  that no keyboard can reach is unusable without a mouse, and
+                  `tests/responsive.test.ts` enforces it. */}
+              <ScrollRegion label="Prepaid credit packs" className="mt-10 sm:mt-12">
+                <table className="w-full min-w-[34rem] border-collapse text-left text-sm">
+                  <caption className="sr-only">
+                    Prepaid credit packs, with the effective per-minute rate and talk time
+                    each one buys
+                  </caption>
+                  <thead>
+                    <tr className="border-b border-line text-ink-muted">
+                      <th scope="col" className="py-3 pr-4 font-medium">You put on</th>
+                      <th scope="col" className="py-3 pr-4 font-medium">Extra credit</th>
+                      <th scope="col" className="py-3 pr-4 font-medium">Works out at</th>
+                      <th scope="col" className="py-3 font-medium">Talk time</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rateCard.packs.map((pack) => (
+                      <tr key={pack.pack_id} className="border-b border-line/60">
+                        <th scope="row" className="py-3 pr-4 font-medium text-ink">
+                          {formatAmountINR(pack.amount_inr)}
+                          {pack.best_value ? (
+                            <span className="ml-2 rounded-full bg-brand-soft/60 px-2 py-0.5 text-xs font-medium text-brand-strong dark:bg-brand-strong/20 dark:text-brand-bright">
+                              Best value
+                            </span>
+                          ) : null}
+                        </th>
+                        <td className="py-3 pr-4 text-ink-muted">
+                          {pack.bonus_pct === "0" || pack.bonus_pct === "0.00"
+                            ? "—"
+                            : `+${pack.bonus_pct}%`}
+                        </td>
+                        <td className="py-3 pr-4 text-ink">
+                          {formatRateINR(pack.effective_rate_inr_per_min)}/min
+                        </td>
+                        <td className="py-3 text-ink-muted">
+                          {pack.talk_time_minutes.toLocaleString("en-IN")} min
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </ScrollRegion>
+              <p className="mt-6 max-w-2xl text-sm text-pretty text-ink-muted">
+                Talk time is what these buy at the effective rate — the minutes your agents
+                actually speak for, not connected time. Everything on this page about what is
+                metered, what a plan carries and how an invoice is assembled applies to
+                self-serve too; the only difference is that this price is published and a
+                managed plan is agreed with you.
+              </p>
+            </>
+          )}
         </div>
       </section>
 

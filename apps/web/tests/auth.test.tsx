@@ -191,11 +191,11 @@ describe("the credential that reaches the wire", () => {
 });
 
 describe("the doors a person can actually reach", () => {
-  it("gives a returning client somewhere to click from the front page", () => {
+  it("gives a returning client somewhere to click from the front page", async () => {
     // The landing page named `/c/your-slug` and stopped, because there was no sign-in
     // route to point at. There is one now, and an unlinked route is not a door.
     stubApi({});
-    render(<Home />);
+    render(await Home());
     // `getAllBy`, not `getBy`: the redesigned page offers the door twice on purpose —
     // once in the sticky header, where a returning client looks first, and once in the
     // "Already a client" card beside the workspace URL. The property this test exists

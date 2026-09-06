@@ -5139,6 +5139,11 @@
         "additionalProperties": false,
         "description": "The pack rate card. `list_rate_inr_per_min` is published beside the packs so the\nscreen can show what a minute lists at (and, on the 0%-bonus pack, that the effective\nrate equals it) without a second source of the number.",
         "properties": {
+          "from_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "From Inr Per Min",
+            "type": "string"
+          },
           "list_rate_inr_per_min": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "List Rate Inr Per Min",
@@ -5154,6 +5159,7 @@
         },
         "required": [
           "list_rate_inr_per_min",
+          "from_inr_per_min",
           "packs"
         ],
         "title": "CreditPacksOut",
@@ -36236,6 +36242,34 @@
           "crm"
         ],
         "x-calevate-permission": "calls:read"
+      }
+    },
+    "/v1/public/rate-card": {
+      "get": {
+        "description": "Unauthenticated and identical for everyone. The live list rate (`self_serve_inr_per_min`), the lowest effective rate any pack delivers, and the static pack catalogue priced at that rate: amount, bonus, effective per-minute rate and talk time. The same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about the caller is read or returned.",
+        "operationId": "read_public_rate_card_v1_public_rate_card_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreditPacksOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The self-serve rate card \u2014 list rate and credit packs \u2014 for the public site",
+        "tags": [
+          "public"
+        ]
       }
     },
     "/v1/quality/reports": {

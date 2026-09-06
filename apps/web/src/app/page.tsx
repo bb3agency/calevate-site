@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { fetchPublicRateCard } from "@/lib/api/rateCard";
 
 import {
   ArrowRight,
@@ -444,7 +445,16 @@ const SAME_QUESTION: { lang: string; label: string; text: string }[] = [
   { lang: "en", label: "English", text: "Is the doctor available tomorrow?" },
 ];
 
-export default function Home() {
+export default async function Home() {
+  // THE CARD IS FETCHED HERE, ONCE, AND HANDED DOWN. The calculator is the only thing on
+  // this page that prices anything, and it must price from the live rate rather than a
+  // number typed into the bundle (D-545). `null` is a first-class answer: the calculator
+  // renders "the comparison cannot run right now" rather than a stale figure.
+  //
+  // No `try` around it — `fetchPublicRateCard` never throws; it logs and returns null.
+  // A `catch` here would be a second way to say the same thing, and the one that drifts.
+  const rateCard = await fetchPublicRateCard();
+
   const devSlug = process.env.NEXT_PUBLIC_DEV_ORG_SLUG;
 
   return (
@@ -882,7 +892,7 @@ export default function Home() {
               behind “Adjust assumptions”, where you can change any of it.
             </p>
           </Reveal>
-          <RoiCalculator />
+          <RoiCalculator rateCard={rateCard} />
 
           {/*
            * THE SAME DOOR, OFFERED AGAIN AT THE ONE POINT ON THE PAGE WHERE THE READER

@@ -559,6 +559,23 @@ server {
         include /etc/nginx/snippets/calevate-proxy.conf;
     }
 
+    # The public self-serve rate card (D-545), on the `browser` zone rather than
+    # `client_api`'s — and the reason is WHO calls it. Its one caller is the marketing
+    # site's own Next server, which renders `/`, `/pricing` and `/roi` per request and
+    # reads this once for each render from ONE address. `client_api` is 120r/m per IP,
+    # sized for one signed-in person; here that would be a ceiling of 120 page views a
+    # minute on the whole site, hit exactly when the site is being looked at, and the
+    # page's honest degrade ("the rate card could not be loaded") would fire on a
+    # LinkedIn post. The route costs the API one settings read and five decimal
+    # divisions — no database, nothing a flood amplifies — which is the `browser`
+    # zone's own definition of its content. The app's `public_read` profile (600/min)
+    # is the authoritative limit behind this.
+    location ^~ /v1/public/ {
+        limit_req zone=browser burst=120 nodelay;
+        proxy_pass http://calevate_api;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+    }
+
     location / {
         limit_req zone=client_api burst=30 nodelay;
         proxy_pass http://calevate_api;

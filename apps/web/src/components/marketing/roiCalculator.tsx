@@ -26,11 +26,11 @@
  * The landing page deliberately publishes no plan price (see `app/page.tsx` — D-11's
  * managed pricing is per-client and unquotable). This section is the one exception, and
  * it earns it by being a TOOL rather than a tag: it shows Calevate's published self-serve
- * rate (`self_serve_inr_per_min`, ₹5.00/min) as the input to a comparison the prospect
- * runs themselves, with every assumption on both sides exposed and adjustable. A number a
- * buyer can change and check is not the "quote nobody can honour" the page bans; a fixed
- * "₹X/month" would be. `publicLanding.test.tsx` scopes its price/percent bans to exclude
- * this section for exactly that reason, and keeps them in force everywhere else.
+ * rate (`self_serve_inr_per_min`, read live — see below) as the input to a comparison the
+ * prospect runs themselves, with every assumption on both sides exposed and adjustable. A
+ * number a buyer can change and check is not the "quote nobody can honour" the page bans;
+ * a fixed "₹X/month" would be. `publicLanding.test.tsx` scopes its price/percent bans to
+ * exclude this section for exactly that reason, and keeps them in force everywhere else.
  *
  * ## Honesty is the whole design
  *
@@ -48,12 +48,28 @@
  * argument is arithmetic the buyer drives — which they cannot dispute, because the inputs
  * are theirs.
  *
- * ## No network
+ * ## Where the price comes from, and which price it DEFAULTS to
  *
- * The page is public and unauthenticated. This component fetches nothing; the price is the
- * `CALEVATE_PAISE_PER_MIN` constant, kept in lockstep with the backend config value.
+ * This component fetches nothing itself. The page that renders it (`/` and `/roi`, both
+ * server components) reads `GET /v1/public/rate-card` at request time through
+ * `lib/api/rateCard.ts` and hands the card in as a prop: the live list rate
+ * (`self_serve_inr_per_min`, an operator's console setting) and the prepaid pack ladder
+ * with each pack's effective rate. Nothing here is typed — the `500` paise that used to
+ * live in `lib/roi.ts` is gone from every page (D-545).
+ *
+ * **It DEFAULTS to the LIST rate, not to the cheapest pack.** The ₹50,000 pack is the
+ * card's "from" figure and a buyer can pick it in the assumptions — but pre-selecting it
+ * would price Calevate at its best case against a telecaller at a mid benchmark, which is
+ * stacking the deck, and this tool's entire credibility argument (above) is that it does
+ * not. So at the default the arithmetic is exactly what it was at the typed constant, and
+ * `tests/roi.test.ts`'s ₹52,000 / ₹1,16,000 / ₹12,000 pins hold untouched.
+ *
+ * **When the card cannot be loaded the comparison does not run.** `rateCard` is `null`,
+ * the section says so in words, and no figure is shown — never a stale or typed rate,
+ * because a wrong price on a public page is the one claim hard rule 11 is about.
  */
 
+import Link from "next/link";
 import { useId, useMemo, useState } from "react";
 import {
   Bot,
@@ -63,6 +79,14 @@ import {
   UserRound,
 } from "lucide-react";
 
+import {
+  cheapestPack,
+  formatAmountINR,
+  formatRateINR,
+  ratePaisePerMin,
+  type PublicRateCard,
+  type RateCardPack,
+} from "@/lib/api/rateCard";
 import {
   COVERAGE,
   computeRoi,
@@ -269,8 +293,80 @@ function hoursFromMinutes(minutes: number): number {
   return Math.round(minutes / 60);
 }
 
-export function RoiCalculator() {
+/**
+ * The rate the comparison runs at: the list rate, or one pack's effective rate. `"list"`
+ * is a value no pack id can take (`credit_packs.PACK_CATALOGUE` ids are the rung names),
+ * so the one string state cannot be ambiguous.
+ */
+const LIST_RATE = "list";
+
+/**
+ * The rate in force for a choice, as the 4dp string the API sent. Total: an unknown id
+ * (a pack the card no longer carries) resolves to the list rate rather than to nothing,
+ * so a stale choice can never price the comparison at `NaN`.
+ */
+function rateFor(card: PublicRateCard, choice: string): {
+  rate: string;
+  pack: RateCardPack | undefined;
+} {
+  const pack = choice === LIST_RATE ? undefined : card.packs.find((p) => p.pack_id === choice);
+  return { rate: pack ? pack.effective_rate_inr_per_min : card.list_rate_inr_per_min, pack };
+}
+
+/**
+ * The picker's options: the list rate FIRST (it is the default, and a radiogroup's first
+ * option is where a keyboard user lands), then every pack with its effective rate and
+ * talk time — the two numbers a buyer reasons about, both from the response.
+ */
+function rateOptions(card: PublicRateCard): readonly { id: string; label: string; caption: string }[] {
+  return [
+    {
+      id: LIST_RATE,
+      label: `Pay as you go — ${formatRateINR(card.list_rate_inr_per_min)}/min`,
+      caption: "The list rate. Top up any amount; nothing to commit to.",
+    },
+    ...card.packs.map((pack) => ({
+      id: pack.pack_id,
+      label: `${formatAmountINR(pack.amount_inr)} pack — ${formatRateINR(pack.effective_rate_inr_per_min)}/min`,
+      caption: `${pack.talk_time_minutes.toLocaleString("en-IN")} min of talk time · ${pack.bonus_pct}% bonus credit${pack.best_value ? " · best value" : ""}`,
+    })),
+  ];
+}
+
+export function RoiCalculator({ rateCard }: { rateCard: PublicRateCard | null }) {
+  if (rateCard === null) {
+    // THE HONEST STATE. The marker stays so `publicLanding.test.tsx` still scopes its
+    // bans the same way, and there is no rupee figure anywhere in it to scope off.
+    return (
+      <div
+        data-roi-calculator
+        role="status"
+        className="mt-10 rounded-2xl border border-line bg-surface p-5 sm:mt-12 sm:p-8"
+      >
+        <h3 className="text-lg font-semibold text-ink">The comparison cannot run right now</h3>
+        <p className="mt-2 max-w-2xl text-sm text-pretty text-ink-muted">
+          Our live rate card could not be loaded, so there is no honest per-minute figure to
+          price Calevate at — and we would rather show nothing than a figure that may be out
+          of date. Reload in a moment, or{" "}
+          <Link href="/pricing" className="font-medium text-brand-strong underline-offset-4 hover:underline dark:text-brand-bright">
+            read how the bill is shaped
+          </Link>{" "}
+          while you wait.
+        </p>
+      </div>
+    );
+  }
+  return <PricedCalculator card={rateCard} />;
+}
+
+function PricedCalculator({ card }: { card: PublicRateCard }) {
   const [mode, setMode] = useState<Mode>("answers");
+  // DEFAULTS TO THE LIST RATE. See the header: pre-selecting the cheapest pack would be
+  // the one thing this tool promises not to do.
+  const [rateChoice, setRateChoice] = useState<string>(LIST_RATE);
+  const { rate: selectedRate, pack: selectedPack } = rateFor(card, rateChoice);
+  const calevatePaisePerMin = ratePaisePerMin(selectedRate);
+  const cheapest = cheapestPack(card);
   const [callsPerDay, setCallsPerDay] = useState(USAGE.callsPerDay.default);
   const [avgMinutes, setAvgMinutes] = useState(USAGE.avgMinutes.default);
   const [workingDays, setWorkingDays] = useState(USAGE.workingDays.default);
@@ -300,6 +396,7 @@ export function RoiCalculator() {
         avgMinutes,
         workingDays,
         coverageHours,
+        calevatePaisePerMin,
         callsPerAgentPerDay,
         talkHoursPerDay,
         basePerAgentInr,
@@ -311,6 +408,7 @@ export function RoiCalculator() {
       avgMinutes,
       workingDays,
       coverageHours,
+      calevatePaisePerMin,
       callsPerAgentPerDay,
       talkHoursPerDay,
       basePerAgentInr,
@@ -331,6 +429,7 @@ export function RoiCalculator() {
         avgMinutes,
         workingDays,
         coverageHours,
+        calevatePaisePerMin,
         callsPerAgentPerDay,
         talkHoursPerDay,
         basePerAgentInr,
@@ -343,6 +442,7 @@ export function RoiCalculator() {
       avgMinutes,
       workingDays,
       coverageHours,
+      calevatePaisePerMin,
       callsPerAgentPerDay,
       talkHoursPerDay,
       basePerAgentInr,
@@ -465,7 +565,7 @@ export function RoiCalculator() {
               landing tests assert across all of them. */}
           <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-ink">
             <h3 className="text-sm font-semibold text-ink">
-              Adjust assumptions — hours covered, working days, and the rest of the model
+              Adjust assumptions — how you pay, hours covered, working days, and the rest of the model
             </h3>
             <span className="shrink-0 text-xs font-medium text-brand-strong group-open:hidden">
               Adjust
@@ -480,6 +580,23 @@ export function RoiCalculator() {
             comparison on your own numbers.
           </p>
           <div className="mt-6 space-y-6">
+            {/* How you pay — the ONE assumption on the Calevate side, and the reason it
+                sits here rather than among the three primary questions: the default is
+                the list rate, and a picker in the buyer's face would invite the cheapest
+                pack to become the number they remember. Every label is derived from the
+                card the page fetched; the legend carries the "from" figure the site
+                leads with, named with the pack that delivers it. */}
+            <RadioCards
+              legend={
+                cheapest
+                  ? `How you pay — from ${formatRateINR(card.from_inr_per_min)}/min with the ${formatAmountINR(cheapest.amount_inr)} pack`
+                  : "How you pay"
+              }
+              options={rateOptions(card)}
+              value={rateChoice}
+              onChange={setRateChoice}
+              columns={2}
+            />
             {/* Coverage — the honest "always on" lever, and an ASSUMPTION rather than one
                 of the three questions a buyer arrives with. A person works one shift; to
                 keep a line answered longer you staff more shifts, and that is where an
@@ -687,9 +804,24 @@ export function RoiCalculator() {
                 {formatPaiseINR(result.calevatePaise)}
               </p>
               <p className="mt-1.5 text-sm text-ink-muted">
-                Variable and pay-as-you-go at ₹5.00/min — it rises with your calls and falls to
-                zero on a quiet day. No headcount to carry between the busy months.
+                Variable and pay-as-you-go at {formatRateINR(selectedRate)}/min
+                {selectedPack
+                  ? ` on the ${formatAmountINR(selectedPack.amount_inr)} pack`
+                  : ", the list rate"}{" "}
+                — it rises with your calls and falls to zero on a quiet day. No headcount to
+                carry between the busy months.
               </p>
+              {cheapest && !selectedPack && (
+                <p className="mt-2 text-xs text-ink-faint">
+                  From {formatRateINR(card.from_inr_per_min)}/min with the{" "}
+                  {formatAmountINR(cheapest.amount_inr)} pack — pick one under “Adjust
+                  assumptions”, or see the{" "}
+                  <Link href="/pricing#self-serve" className="font-medium text-brand-strong underline-offset-4 hover:underline dark:text-brand-bright">
+                    full rate card
+                  </Link>
+                  .
+                </p>
+              )}
             </div>
           </>
         )}
@@ -868,8 +1000,12 @@ export function RoiCalculator() {
             <ul className="list-disc space-y-2 pl-5">
               <li>
                 <span className="font-medium text-ink">Calevate</span> = calls a day ×
-                average length × ₹5.00/min × working days. ₹5.00/min is our published
-                self-serve rate.
+                average length × {formatRateINR(selectedRate)}/min × working days.{" "}
+                {formatRateINR(card.list_rate_inr_per_min)}/min is our published self-serve
+                list rate, read live from our own rate card when this page loaded; a prepaid
+                pack brings it down to{" "}
+                {cheapest ? `${formatRateINR(card.from_inr_per_min)}/min` : "less"} and the
+                comparison starts at the list rate rather than the cheapest pack on purpose.
               </li>
               <li>
                 <span className="font-medium text-ink">Telecallers needed</span> = calls a
