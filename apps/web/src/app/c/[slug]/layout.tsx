@@ -18,6 +18,7 @@ import {
   SidebarGroupHeading,
   SidebarLabel,
   sidebarFadeClass,
+  sidebarNavClass,
   sidebarPanelClass,
   useSidebarCollapse,
 } from "@/components/sidebarCollapse";
@@ -156,7 +157,7 @@ function Sidebar({
 
       <SidebarCollapseToggle isCollapsed={isCollapsed} onToggle={toggle} />
 
-      <nav className="custom-scrollbar relative flex-1 overflow-y-auto px-3 py-4">
+      <nav className={sidebarNavClass}>
         {groups.map((group) => (
           <div key={group.heading ?? "main"} className="mb-6">
             {group.heading && (
