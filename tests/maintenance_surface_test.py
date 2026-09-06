@@ -27,12 +27,14 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest import mock
 
 import pytest
 from apps.api.campaigns.service import (
     pause_campaigns_for_maintenance,
     resume_campaigns_after_maintenance,
 )
+from apps.api.compliance import service as compliance_service
 from apps.api.compliance.service import MAINTENANCE_DRAIN_RULE, PERSON_LEVEL_REFUSALS
 from apps.api.core.errors import ProblemError
 from apps.api.core.loadshed import (
@@ -52,6 +54,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from apps.api.ops.maintenance import claim_notice, read_window, schedule_window
 from apps.api.ops.maintenance_routes import maintenance_confirmation
+from apps.workers import campaign_dispatch
 from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 from sqlalchemy import text
@@ -172,6 +175,74 @@ async def test_draining_stops_new_work_without_shedding_anything() -> None:
 
     normal = PlatformStatus(mode="normal", outbound_halted=False)
     assert normal.accepting_new_work is True
+
+
+async def test_the_dial_gate_itself_refuses_during_a_drain() -> None:
+    """`accepting_new_work` being False is a PROPERTY; this is the CALL SITE that reads it.
+
+    The property above and this refusal are two different things to get wrong, and only
+    one of them stops a phone ringing. A `check_dispatch` that computed the right answer
+    and never consulted it would pass every assertion in this file about `PlatformStatus`
+    while dialling straight through a window — which is the exact defect class D-420
+    exists for: a screen with nothing behind it.
+
+    Asserted with NO tenant, agent or number that exists, deliberately: the drain check
+    sits above every per-tenant query (`compliance/service.py:557-569`), so a refusal
+    reached with three unusable UUIDs is also proof that it costs nothing per dial. If
+    somebody moves it below the paperwork this test starts failing on a database error
+    rather than quietly getting slower.
+    """
+    draining = PlatformStatus(
+        mode="normal",
+        outbound_halted=False,
+        maintenance="draining",
+        maintenance_ends_at=datetime.now(UTC) + timedelta(minutes=10),
+        maintenance_reason="Upgrading the telephony stack.",
+    )
+
+    async def _draining() -> PlatformStatus:
+        return draining
+
+    with mock.patch.object(compliance_service, "get_platform_status", _draining):
+        async with untenanted_session() as session:
+            decision = await compliance_service.check_dispatch(
+                session,
+                tenant_id=uuid.uuid4(),
+                agent_id=uuid.uuid4(),
+                phone_e164="+919000000000",
+            )
+
+    assert decision.allowed is False
+    assert decision.rule == MAINTENANCE_DRAIN_RULE
+
+
+async def test_the_batch_dialler_declines_to_begin_during_a_drain() -> None:
+    """THE OTHER HALF, and it is not redundant with the gate above.
+
+    `check_dispatch` refusing every contact one at a time would keep the drain from ever
+    finishing: claiming a contact writes rows and refusing it writes more, and pending
+    outbox rows are one of the two things `InFlight` counts. A tick that claimed a batch
+    and refused it thirty times a minute would hold the platform in `draining` against a
+    counter it was itself feeding. So the tick returns BEFORE it claims anything.
+
+    The outcome string is asserted because it is what an operator watching a stalled drain
+    reads to tell "the dialler is waiting for the window" from "the dialler is broken".
+    """
+    draining = PlatformStatus(
+        mode="normal",
+        outbound_halted=False,
+        maintenance="draining",
+        maintenance_ends_at=datetime.now(UTC) + timedelta(minutes=10),
+        maintenance_reason="Upgrading the telephony stack.",
+    )
+
+    async def _draining(*_a: object, **_k: object) -> PlatformStatus:
+        return draining
+
+    with mock.patch.object(campaign_dispatch, "get_platform_status", _draining):
+        outcome = await campaign_dispatch._run_tick()
+
+    assert outcome == "paused_for_maintenance"
 
 
 async def test_the_drain_refusal_is_not_person_level() -> None:
