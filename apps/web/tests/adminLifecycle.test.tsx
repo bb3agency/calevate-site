@@ -19,13 +19,16 @@ import { renderAdminRoute, routeParams } from "./adminRoute";
  *
  * 1. **A failed read is a refusal, never a state.** "Active" printed over a 503 is how
  *    an operator suspends the wrong client — the §52 rule at its most expensive.
- * 2. **Each move says what it does to the client before it is made**, including the two
- *    facts nobody can guess from a dropdown: outbound stops and inbound does not, and
- *    closing an account is not undoable here.
+ * 2. **Each move says what it does to the client before it is made**, including the fact
+ *    nobody can guess from a dropdown: outbound stops and inbound does not.
  * 3. **A stop must explain itself.** The API refuses a reasonless suspension; the screen
  *    refuses first so the operator is not told after typing.
- * 4. **A closed account offers no controls at all**, because the API answers 409.
+ * 4. **A closed account offers no controls at all**, because the API answers 409 — and it
+ *    points at the screen that CAN reopen it, which this one deliberately cannot.
  * 5. **An unchanged result is reported as unchanged**, not as a change that happened.
+ * 6. **CLOSING IS NOT REACHABLE FROM HERE AT ALL (D-546)**, which is the assertion that
+ *    keeps the collapse from being undone by a well-meaning re-add: there is exactly one
+ *    way to close a client, and it is `/closure`, which tells them and can be undone.
  */
 
 const TENANT = "0192f0aa-7777-7000-8000-0000000000d1";
@@ -149,12 +152,21 @@ describe("the account state screen", () => {
     ).toBe("active");
   });
 
-  it("offers no control at all on a closed account", async () => {
+  it("offers no state control on a closed account, and points at the one that reopens it", async () => {
     const { container } = await render({ [TENANT_PATH]: tenant("churned") });
 
     await screen.findByText("This account is closed");
     expect(screen.queryByRole("button", { name: /Reactivate/ })).toBeNull();
-    expect(container.textContent).toContain("cannot be reopened here");
+    // NOT "cannot be reopened", which is what this said before D-546 and was true of this
+    // screen while reading as true of the product. The undo exists; it is one click away.
+    expect(container.textContent).toContain("This screen cannot reopen it");
+    // Two of them, and deliberately: the header sentence names the screen for an account
+    // in any state, and the closed notice names it again where the operator is standing.
+    const links = screen.getAllByRole("link", { name: /Closing the account/ });
+    expect(links.length).toBeGreaterThan(0);
+    for (const link of links) {
+      expect(link.getAttribute("href")).toBe(`/admin/tenants/${TENANT}/closure`);
+    }
   });
 
   it("reports an already-in-state result as unchanged", async () => {
@@ -171,51 +183,42 @@ describe("the account state screen", () => {
     expect(container.textContent).toContain("no audit row was written");
   });
 
-  it("arms Close the account only after a reason AND a typed CLOSE — and styles it as danger", async () => {
+  it("cannot close an account at all — there is one door and it is not this one", async () => {
+    /**
+     * THE D-546 COLLAPSE, pinned. Two ways to end a client relationship existed and the
+     * reachable one was the worse one: this dropdown wrote `churned`, told the client
+     * nothing, set no erasure deadline and had no undo. What replaced it is not a nicer
+     * dialog on this screen — it is that this screen cannot do it.
+     *
+     * Asserted on the DROPDOWN's options rather than only on the absence of a button,
+     * because a re-added option with a disabled button would pass the weaker check and
+     * would still be a second door the moment somebody enabled it.
+     */
+    await render();
+
+    const select = (await screen.findByLabelText("New state")) as HTMLSelectElement;
+    const options = Array.from(select.options).map((option) => option.value);
+    expect(options).toEqual(["active", "suspended"]);
+    expect(screen.queryByRole("button", { name: /Close the account/ })).toBeNull();
+    // The typed word went with the move it guarded; nothing left here is irreversible.
+    expect(screen.queryByLabelText(/to confirm/)).toBeNull();
+  });
+
+  it("sends the suspend with no confirmation header — the header went with the close", async () => {
     const { calls } = await render({
-      [`POST ${STATUS_PATH}`]: { tenant_id: TENANT, status: "churned", changed: true },
+      [`POST ${STATUS_PATH}`]: { tenant_id: TENANT, status: "suspended", changed: true },
     });
 
-    // Switch the move to the irreversible one.
-    fireEvent.change(await screen.findByLabelText("New state"), {
-      target: { value: "churned" },
-    });
-
-    const button = (await screen.findByRole("button", {
-      name: /Close the account/,
-    })) as HTMLButtonElement;
-    // LIFECYCLE_COPY.tone === "stop" must reach the pixels: rose, never the brand green
-    // that Reactivate wears. A refactor back to ActionButton goes red here.
-    expect(button.className).toContain("bg-rose-600");
-    expect(button.disabled).toBe(true);
-
-    // A reason alone is not enough for the one move this screen cannot undo.
-    fireEvent.change(screen.getByLabelText("Why"), { target: { value: "contract ended" } });
-    expect(
-      (screen.getByRole("button", { name: /Close the account/ }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-    expect(screen.getByText(/Type CLOSE above to confirm/)).toBeDefined();
-
-    // A near-miss does not arm it.
-    const confirm = screen.getByLabelText(/to confirm/);
-    fireEvent.change(confirm, { target: { value: "close" } });
-    expect(
-      (screen.getByRole("button", { name: /Close the account/ }) as HTMLButtonElement).disabled,
-    ).toBe(true);
-
-    fireEvent.change(confirm, { target: { value: "CLOSE" } });
-    await waitFor(() => {
-      expect(
-        (screen.getByRole("button", { name: /Close the account/ }) as HTMLButtonElement).disabled,
-      ).toBe(false);
-    });
-    fireEvent.click(screen.getByRole("button", { name: /Close the account/ }));
+    fireEvent.change(await screen.findByLabelText("Why"), { target: { value: "non-payment" } });
+    fireEvent.click(screen.getByRole("button", { name: /Suspend/ }));
     await waitFor(() => {
       expect(calls.some((call) => call.method === "POST" && call.path === STATUS_PATH)).toBe(true);
     });
+    // A confirmation attached to a reversible act is a confirmation of nothing, and it
+    // teaches an operator to clear the prompt without reading it.
     expect(
-      JSON.parse(calls.find((call) => call.method === "POST")?.body ?? "{}").status,
-    ).toBe("churned");
+      calls.find((call) => call.method === "POST")?.headers["X-Confirm-Action"],
+    ).toBeUndefined();
   });
 
   it("keeps Suspend one click — the reversible move takes no typed word", async () => {

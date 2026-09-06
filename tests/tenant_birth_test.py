@@ -41,7 +41,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin import routes as admin_routes
+from apps.api.admin import closure_routes
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
@@ -54,6 +54,7 @@ from tests.member_invitations_test import mailed_invitation_token
 TENANTS = "/v1/admin/tenants"
 INVITATIONS = "/v1/admin/tenants/{tenant_id}/invitations"
 STATUS = "/v1/admin/tenants/{tenant_id}/status"
+CLOSURE = "/v1/admin/tenants/{tenant_id}/closure"
 ACCEPT = "/v1/auth/client/invitations/accept"
 
 
@@ -96,27 +97,38 @@ async def _invite(token: str, tenant_id: UUID, email: str, role: str = "owner") 
 
 
 async def _set_status(token: str, tenant_id: UUID, status: str, reason: str | None = None) -> Any:
-    """Closing an account carries the step-up header; every other transition does not.
+    """Suspend or reactivate. This route can no longer close an account (D-546).
 
-    `close_account` gained a second factor in "Closing a client account needs a second
-    factor", and this helper was not updated with it — so six tests here that only ever
-    wanted to REACH the closed state were asserting against a 403 about confirmation.
-    The header is sent for the TERMINAL status alone, deliberately: sending it on every
-    transition
-    would make this helper unable to observe a step-up requirement arriving on one of
-    the others. The refusal itself keeps its own coverage in `tenant_lifecycle_test`,
-    which asserts the remediation names `close_account:{tenant_id}`.
+    THE HEADER THIS HELPER USED TO SEND IS GONE, and so is the branch that decided when to
+    send it. `admin/routes._TERMINAL_STATUS` and `close_account_confirmation` were deleted
+    with the transition they guarded: closing moved to `POST .../closure`, which mails the
+    client, sets the date their records are destroyed and can be undone — three things a
+    status flip did none of. Use `_close` below for a closed account.
     """
     body: dict[str, Any] = {"status": status}
     if reason is not None:
         body["reason"] = reason
-    headers = dict(_auth(token))
-    # The route's own constant and the route's own token builder, not literals: a rename
-    # of either moves this helper with it instead of leaving a 403 nobody expects.
-    if status == admin_routes._TERMINAL_STATUS:
-        headers["X-Confirm-Action"] = admin_routes.close_account_confirmation(tenant_id)
     async with _client() as http:
-        return await http.post(STATUS.format(tenant_id=tenant_id), headers=headers, json=body)
+        return await http.post(
+            STATUS.format(tenant_id=tenant_id), headers=dict(_auth(token)), json=body
+        )
+
+
+async def _close(token: str, tenant_id: UUID, reason: str) -> Any:
+    """Close an account the one way the product offers, header and all.
+
+    The route's OWN confirmation builder rather than a literal, for the reason the old
+    helper gave: a rename moves this with it instead of leaving a 403 nobody expects.
+    """
+    async with _client() as http:
+        return await http.post(
+            CLOSURE.format(tenant_id=tenant_id),
+            headers={
+                **dict(_auth(token)),
+                "X-Confirm-Action": closure_routes.close_account_confirmation(tenant_id),
+            },
+            json={"reason": reason},
+        )
 
 
 async def _founder(email: str) -> str:
@@ -232,7 +244,7 @@ async def test_a_closed_account_cannot_be_given_a_key() -> None:
     dead tenant into somebody's inbox."""
     token = await _make_admin("operator")
     tenant_id = await _tenant()
-    await _set_status(token, tenant_id, "churned", "offboarded at the client's request")
+    await _close(token, tenant_id, "offboarded at the client's request")
 
     response = await _invite(token, tenant_id, f"{uuid.uuid4().hex[:8]}@clinic.example")
 
@@ -318,7 +330,7 @@ async def test_a_key_cut_before_the_account_closed_cannot_be_redeemed_after() ->
     email = f"owner-{uuid.uuid4().hex[:8]}@clinic.example"
     assert (await _invite(operator, tenant_id, email)).status_code == 201
     invite_token = await mailed_invitation_token(email)
-    await _set_status(operator, tenant_id, "churned", "client sold the business")
+    await _close(operator, tenant_id, "client sold the business")
 
     response = await _accept(invite_token)
 
@@ -354,7 +366,7 @@ async def test_a_refused_redemption_creates_no_membership() -> None:
     email = f"owner-{uuid.uuid4().hex[:8]}@clinic.example"
     await _invite(operator, tenant_id, email)
     invite_token = await mailed_invitation_token(email)
-    await _set_status(operator, tenant_id, "churned", "offboarded")
+    await _close(operator, tenant_id, "offboarded")
 
     await _accept(invite_token)
     members = await _scalar(tenant_id, "SELECT count(*) FROM memberships")
@@ -404,7 +416,7 @@ async def test_the_owner_of_a_closed_account_is_told_it_closed_not_that_they_are
         before = await http.get("/v1/leads", headers=_auth(token))
     assert before.status_code == 200, before.text
 
-    await _set_status(operator, tenant_id, "churned", "contract ended")
+    await _close(operator, tenant_id, "contract ended")
 
     async with _client() as http:
         after = await http.get("/v1/leads", headers=_auth(token))
@@ -475,7 +487,7 @@ async def test_a_churned_client_still_reaches_the_transition_and_gets_its_409() 
     `churned` — the state `transition_status` found — not "no such client"."""
     token = await _make_admin("operator")
     tenant_id = await _tenant()
-    await _set_status(token, tenant_id, "churned", "offboarded")
+    await _close(token, tenant_id, "offboarded")
 
     response = await _set_status(token, tenant_id, "active")
 
@@ -751,8 +763,8 @@ async def test_churning_a_client_leaves_its_data_on_the_retention_clock(s3: Fake
     `tests/pipeline_audit_test.py` pins the SOFT-DELETED half of this (D-115, and the
     sweep is deliberately unfiltered on `organizations.deleted_at`). The half that was
     never asserted is the one an operator actually produces: `POST
-    /v1/admin/tenants/{id}/status` with `churned`, which is the only way the status is
-    ever written. A sweep that skipped ended accounts — the obvious "don't waste ticks on
+    /v1/admin/tenants/{id}/closure`, which since D-546 is the only way an account is ever
+    closed. A sweep that skipped ended accounts — the obvious "don't waste ticks on
     dead tenants" optimisation — would stop exactly the countdown the offboarding starts,
     and it would look like a performance win in review.
 
@@ -772,7 +784,7 @@ async def test_churning_a_client_leaves_its_data_on_the_retention_clock(s3: Fake
     key = await _scalar(tenant_id, "SELECT recording_url FROM calls WHERE id = :c", c=call_id)
     s3.objects[str(key)] = b"audio"
 
-    closed = await _set_status(token, tenant_id, "churned", "offboarded, export delivered")
+    closed = await _close(token, tenant_id, "offboarded, export delivered")
     await apply_retention({})
 
     assert closed.status_code == 200, closed.text

@@ -6283,7 +6283,7 @@
       },
       "EditTenantIn": {
         "additionalProperties": false,
-        "description": "The client's OWN details, and nothing else on the row.\n\n`extra=\"forbid\"` and exactly two fields, matching `service.EDITABLE_TENANT_FIELDS`.\n`status`, `plan_tier`, the closure columns and the model choice each have their own\nroute, their own permission and \u2014 for three of them \u2014 their own step-up; a\ngeneral-purpose PATCH over `organizations` would quietly become a second door to all of\nthem. `slug` is not offered because it is in client URLs and a trigger makes it\nimmutable.\n\nThe BUSINESS ADDRESS is deliberately not here. It lives in the intake answer sheet\n(`organizations.intake`, `admin/intake.Branch.address`) because a business can have\nseveral branches and the agent quotes them on the call, and it is already editable from\nthe console at `POST /v1/admin/tenants/{id}/agents/{id}/intake`. A second address on\nthe organisation row would be a second answer to \"where are you\", and the one the agent\nreads would not be the one the operator just typed.",
+        "description": "The client's OWN details, and nothing else on the row.\n\n`extra=\"forbid\"` and exactly the fields in `service.EDITABLE_TENANT_FIELDS`.\n`status`, `plan_tier`, the closure columns and the model choice each have their own\nroute, their own permission and \u2014 for four of them \u2014 their own step-up; a\ngeneral-purpose PATCH over `organizations` would quietly become a second door to all of\nthem. `slug` is not offered because it is in client URLs and a trigger makes it\nimmutable.\n\n**D-545 ADDED `vertical_template` AND THAT IS THE WHOLE OF \"EVERYTHING EXCEPT THE\nSLUG\".** The founder's words were taken to the column list rather than to a wish-list:\n`service.EDITABLE_TENANT_FIELDS` records what walking `Organization` found, and why\nthere is no `phone` and no `language` field here to widen towards.\n\nThe BUSINESS ADDRESS is deliberately not here. It lives in the intake answer sheet\n(`organizations.intake`, `admin/intake.Branch.address`) because a business can have\nseveral branches and the agent quotes them on the call, and it is already editable from\nthe console at `POST /v1/admin/tenants/{id}/agents/{id}/intake`. A second address on\nthe organisation row would be a second answer to \"where are you\", and the one the agent\nreads would not be the one the operator just typed.",
         "properties": {
           "billing_email": {
             "anyOf": [
@@ -6309,6 +6309,24 @@
               }
             ],
             "title": "Name"
+          },
+          "vertical_template": {
+            "anyOf": [
+              {
+                "enum": [
+                  "clinic",
+                  "real_estate",
+                  "insurance",
+                  "education",
+                  "custom"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vertical Template"
           }
         },
         "title": "EditTenantIn",
@@ -6323,6 +6341,11 @@
             },
             "title": "Changed",
             "type": "array"
+          },
+          "pending_notices_retargeted": {
+            "default": 0,
+            "title": "Pending Notices Retargeted",
+            "type": "integer"
           },
           "tenant_id": {
             "format": "uuid",
@@ -12036,8 +12059,7 @@
           "status": {
             "enum": [
               "active",
-              "suspended",
-              "churned"
+              "suspended"
             ],
             "title": "Status",
             "type": "string"
@@ -19218,6 +19240,69 @@
         "title": "TenantNumberCostOut",
         "type": "object"
       },
+      "TenantProfileOut": {
+        "additionalProperties": false,
+        "description": "A client's business record as the correction form reads it back (D-545).\n\nITS OWN ROUTE RATHER THAN A WIDER `GET /v1/admin/tenants/{id}`, and the reason is the\naddress. That endpoint is the DIRECTORY row \u2014 `service.tenant_overview` runs the same\nstatement for every account when the console lists clients \u2014 so adding `billing_email`\nto it would disclose every client's contact address on the roster, on the detail screen\nand in the copilot's surface facts, to serve one form. One tenant, one read, recorded\nas an impersonation read because a business's contact address is that business's own\ndata (D-482 L-1).\n\n`slug` is here and is NOT editable, deliberately: the form shows it greyed with the\nreason beside it, because a field an operator cannot find is a field they will ask\nabout, and \"it is in every URL your client has bookmarked\" is the answer.",
+        "properties": {
+          "billing_email": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Billing Email"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          },
+          "vertical_template": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vertical Template"
+          },
+          "verticals": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Verticals",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "name",
+          "slug",
+          "status",
+          "billing_email",
+          "vertical_template",
+          "verticals"
+        ],
+        "title": "TenantProfileOut",
+        "type": "object"
+      },
       "TenantSpendOut": {
         "additionalProperties": false,
         "description": "GET /v1/admin/tenants/{tenant_id}/spend \u2014 one client's month, both directions.\n\nThe four header figures are D-12's margin, in D-12's OWN definitions \u2014 the retainer\nplus `calling_revenue_inr` against the sum of `_ROW_COST_SQL`, with `margin_pct` the\none shared function `margin_for_tenant` and the fleet board both call. They are folded\nout of `period_attribution`'s single scan rather than read from a second\n`margin_for_tenant` call, and that is a partition fix rather than a shortcut: a second\ncall is a second statement at a second instant over an append-only table the meter\nwrites to all month, so on an open month the header's `cost_inr` could exceed the\n`by_unit` lines beneath it by one completing call \u2014 the parts silently not adding up,\non the page whose whole promise is that they do. Same rows, same expressions, so on a\nmonth nobody is dialling in this is `margin_for_tenant` to the paisa, which is the\nidentity `tests/spend_attribution_test.py` pins.",
@@ -23839,7 +23924,7 @@
         "x-calevate-permission": "admin:tenants"
       },
       "patch": {
-        "description": "Edits the two details that are the client's own: the business name and the billing address notices are sent to. Every changed field is audited under its own action with the value it replaced. Saving unchanged values returns `changed: []` and writes nothing. The billing address is NOT a login identity \u2014 the credential is the member's own address and this grants nobody access \u2014 but it IS where the account's notices go, so the PREVIOUS address is told that it changed and given a way to object. Refused for a client whose data has been erased. The business ADDRESS, plan tier, credits, lifecycle state, KYC and DLT registration each have their own screen; this route deliberately cannot reach them.",
+        "description": "Edits the details that are the client's own: the business name, the billing address their notices are sent to, and the vertical template. Every changed field is audited under its own action with the value it replaced. Saving unchanged values returns `changed: []` and writes nothing. The billing address is NOT a login identity \u2014 the credential is the member's own address and this grants nobody access \u2014 but it IS where the account's notices go, so changing it needs the header `X-Confirm-Action: change_notice_address:<tenant_id>`, the PREVIOUS address is told that it changed and given a way to object, and the response says how many already-queued notices will now be delivered to the new address. Refused for a client whose data has been erased. The slug cannot change (it is in every URL the client holds, and a database trigger refuses it); the business ADDRESS lives in the intake answer sheet; plan tier, credits, lifecycle state, closure, KYC and DLT registration each have their own screen, and this route deliberately cannot reach any of them.",
         "operationId": "edit_tenant_v1_admin_tenants__tenant_id__patch",
         "parameters": [
           {
@@ -23850,6 +23935,22 @@
               "format": "uuid",
               "title": "Tenant Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
             }
           }
         ],
@@ -23881,7 +23982,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Correct a client's name or the address their notices go to",
+        "summary": "Correct a client's business record \u2014 everything about it except the slug",
         "tags": [
           "admin"
         ],
@@ -26539,6 +26640,47 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/profile": {
+      "get": {
+        "description": "The business name, the address this account's notices go to, the vertical template, the immutable slug and the verticals this client may be moved to. 404 for a client whose data has been erased, matching the PATCH exactly so the form and the save cannot disagree about which accounts exist.",
+        "operationId": "read_tenant_profile_v1_admin_tenants__tenant_id__profile_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TenantProfileOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The client's own business record \u2014 what the correction form edits",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/refunds": {
       "post": {
         "description": "Issues a refund at the provider and records it as a compensating credit_ledger entry (append-only, negative delta). Idempotent on a derived key so a double click issues one refund. Omit amount_inr for a full refund of the payment's top-up, or send a smaller amount for a partial refund.",
@@ -26661,7 +26803,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/status": {
       "post": {
-        "description": "Moves `organizations.status`. Suspending or closing an account stops its OUTBOUND calling at the next dial: `compliance.check_dispatch` refuses `account_suspended` / `account_closed`, so the campaign tick, the 'call this lead' button and the lead-callback webhook all stop, and the campaign launch gate names the same rule. Inbound answering is deliberately unaffected \u2014 the caller initiated it, and dropping it punishes them rather than the account. Idempotent: setting the state an account is already in returns 200 and writes no audit row. 409 names the state found when the move is not allowed from it \u2014 `churned` is terminal. 404 means no such client.",
+        "description": "Moves `organizations.status` between `active` and `suspended`. Suspending an account stops its OUTBOUND calling at the next dial: `compliance.check_dispatch` refuses `account_suspended`, so the campaign tick, the 'call this lead' button and the lead-callback webhook all stop, and the campaign launch gate names the same rule. Inbound answering is deliberately unaffected \u2014 the caller initiated it, and dropping it punishes them rather than the account. Idempotent: setting the state an account is already in returns 200 and writes no audit row. **This route can no longer CLOSE an account**: `POST /v1/admin/tenants/{tenant_id}/closure` is the one way, because closing owes the client a notice, an erasure date and an undo window that a bare status flip gave none of. 409 names the state found when the move is not allowed from it \u2014 a closed account is reopened by `DELETE .../closure` and by nothing here. 404 means no such client.",
         "operationId": "set_tenant_status_v1_admin_tenants__tenant_id__status_post",
         "parameters": [
           {
@@ -26672,22 +26814,6 @@
               "format": "uuid",
               "title": "Tenant Id",
               "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "x-confirm-action",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Confirm-Action"
             }
           }
         ],
@@ -26719,7 +26845,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Suspend, reactivate or close a client account \u2014 the switch that stops dialling",
+        "summary": "Suspend or reactivate a client account \u2014 the switch that stops dialling",
         "tags": [
           "admin"
         ],

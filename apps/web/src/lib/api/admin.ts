@@ -417,18 +417,36 @@ export function useRevokeTenantInvitation() {
  * mints the new one — which is why this is not "revoke, then invite again" and why the
  * list has to be refetched: `expires_at`, `last_sent_at` and `send_count` all moved.
  *
- * The address CORRECTION half of the route (`email` + `attestation`) is deliberately not
- * offered here: it is an operator attestation about a mailbox nothing verified, and it
- * needs its own confirmation and its own note field rather than riding a one-click resend.
+ * THE ADDRESS CORRECTION HALF IS NOW OFFERED (D-546), and this comment used to say it was
+ * deliberately not. It was the founder's actual case — *"until that mail sets up their
+ * business correctly"* is about a client who cannot receive the link at all — and leaving
+ * it out meant a mistyped address had no repair anywhere in the console: every self-service
+ * recovery mails the mailbox that does not work. What made it safe to leave out was never
+ * the risk; it was that it needs its OWN ceremony, which the Invitations screen now gives
+ * it — a separate control, a required note saying how the address was established, and the
+ * server recording it as an operator ATTESTATION (`admin.invitation_readdressed`) rather
+ * than as a verified mailbox. Sending `email` without `attestation` is a 422 by design.
  */
 export function useResendTenantInvitation() {
   const client = useQueryClient();
   return useMutation({
-    mutationFn: ({ tenantId, invitationId }: { tenantId: string; invitationId: string }) =>
+    mutationFn: ({
+      tenantId,
+      invitationId,
+      email,
+      attestation,
+    }: {
+      tenantId: string;
+      invitationId: string;
+      /** A CORRECTED address. Omitted means "send it again to the one on file". */
+      email?: string;
+      /** How that address was established out of band. Required with `email`. */
+      attestation?: string;
+    }) =>
       apiRequest<ResendInviteOut>(
         adminSession(),
         `/v1/admin/tenants/${tenantId}/invitations/${invitationId}/resend`,
-        { method: "POST", body: {} },
+        { method: "POST", body: email ? { email, attestation } : {} },
       ),
     onSuccess: (_data, { tenantId }) =>
       client.invalidateQueries({ queryKey: ["admin", "invitations", tenantId] }),

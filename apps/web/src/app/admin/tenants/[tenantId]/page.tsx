@@ -10,12 +10,15 @@ import {
   BookOpenCheck,
   Bot,
   BrainCircuit,
+  Building2,
+  CalendarX2,
   Coins,
   Eye,
   FileCheck2,
   Flag,
   Hash,
   IndianRupee,
+  KeyRound,
   PhoneCall,
   Power,
   ReceiptIndianRupee,
@@ -313,13 +316,45 @@ export default function TenantDetailPage({
           >
             Language model
           </NavLink>
-          {/* Suspend / reactivate / close. Separate from everything above because it is
-              the one control here that stops a client's outbound dialling outright. */}
+          {/* The client's OWN record — name, notice address, vertical. First of the three
+              account-management screens because it is the one an operator reaches for
+              most: a typo in a business name is the commonest correction there is, and
+              until D-546 the PATCH behind it had no caller at all. */}
+          <NavLink
+            href={`/admin/tenants/${tenantId}/profile`}
+            icon={<Building2 className="h-4 w-4" />}
+          >
+            Business details
+          </NavLink>
+          {/* Who holds a key to this account right now, and re-cutting one. Its own screen
+              rather than a panel here because it is STATE before it is a button — when the
+              last link went and how many have gone is what turns "they have not signed up"
+              into a decision — and because the address correction needs its own note field
+              and its own disclosure. */}
+          <NavLink
+            href={`/admin/tenants/${tenantId}/invitations`}
+            icon={<KeyRound className="h-4 w-4" />}
+          >
+            Invitations
+          </NavLink>
+          {/* Suspend / reactivate. Separate from everything above because it is the one
+              control here that stops a client's outbound dialling outright. */}
           <NavLink
             href={`/admin/tenants/${tenantId}/lifecycle`}
             icon={<Power className="h-4 w-4" />}
           >
             Account state
+          </NavLink>
+          {/* Ending the relationship: close now, erase after the grace window, undo in
+              between. The ONE way to close a client since D-546 — the Account state
+              dropdown used to offer a second one that told the client nothing and had no
+              way back. Its own screen because a closed account has to show what happens
+              next and by when, which is a countdown rather than a control. */}
+          <NavLink
+            href={`/admin/tenants/${tenantId}/closure`}
+            icon={<CalendarX2 className="h-4 w-4" />}
+          >
+            Closing the account
           </NavLink>
           {/* `?view=admin` tells the client-realm shell to build the IMPERSONATING
               session (admin token + X-Impersonate-Org) instead of a client one — see

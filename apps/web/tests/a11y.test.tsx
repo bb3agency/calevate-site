@@ -22,6 +22,9 @@ import CommercialsPage from "@/app/admin/tenants/[tenantId]/commercials/page";
 import TenantCreditsPage from "@/app/admin/tenants/[tenantId]/credits/page";
 import TenantNumbersPage from "@/app/admin/tenants/[tenantId]/numbers/page";
 import LifecyclePage from "@/app/admin/tenants/[tenantId]/lifecycle/page";
+import TenantClosurePage from "@/app/admin/tenants/[tenantId]/closure/page";
+import TenantProfilePage from "@/app/admin/tenants/[tenantId]/profile/page";
+import TenantInvitationsPage from "@/app/admin/tenants/[tenantId]/invitations/page";
 import HeldAccountsPage from "@/app/admin/holds/page";
 import NewClientPage from "@/app/admin/new/page";
 import GlobalDncPage from "@/app/admin/ops/dnc/page";
@@ -1152,6 +1155,52 @@ const PLAN_ROW = {
   created_at: "2026-08-01T04:00:00Z",
   states_pricing: true,
 };
+
+/** A client whose closure is filed and whose grace window is still running. */
+const CLOSED_ACCOUNT = {
+  tenant_id: "t1",
+  status: "churned",
+  closed_at: "2026-08-20T05:30:00Z",
+  erase_after: "2026-09-19T05:30:00Z",
+  reason: "The clinic has closed its second branch and is not renewing.",
+  closed_by: "0192f0aa-7777-7000-8000-0000000000d2",
+  erased_at: null,
+  restorable: true,
+  days_remaining: 13,
+};
+
+/** The business record the correction form reads back. */
+const TENANT_PROFILE = {
+  tenant_id: "t1",
+  name: "Sri Clinic",
+  slug: "acme",
+  status: "active",
+  billing_email: "accounts@sriclinic.example",
+  vertical_template: "clinic",
+  verticals: ["clinic", "real_estate", "insurance", "education", "custom"],
+};
+
+/** Two live keys: one just cut, one that has been re-sent four times. */
+const PENDING_INVITATIONS = [
+  {
+    id: "0192f0aa-8888-7000-8000-000000000001",
+    email: "owner@sriclinic.example",
+    role: "owner",
+    invited_at: "2026-09-05T05:30:00Z",
+    expires_at: "2026-09-08T05:30:00Z",
+    last_sent_at: "2026-09-05T05:30:00Z",
+    send_count: 1,
+  },
+  {
+    id: "0192f0aa-8888-7000-8000-000000000002",
+    email: "reception@sriclinic.example",
+    role: "staff",
+    invited_at: "2026-09-01T05:30:00Z",
+    expires_at: "2026-09-07T05:30:00Z",
+    last_sent_at: "2026-09-04T09:15:00Z",
+    send_count: 4,
+  },
+];
 
 const TENANT_ROUTES: Routes = {
   "/v1/admin/me": ADMIN_ME,
@@ -2941,10 +2990,50 @@ const ADMIN_SCREENS: Screen[] = [
     },
   },
   {
+    // Swept CLOSED, which is the state that renders the most markup on this screen: the
+    // closed notice with its link out, plus the whole erasure panel. An active account
+    // renders a two-option dropdown and a reason box, a strict subset.
     file: "admin/tenants/[tenantId]/lifecycle/page.tsx",
     realm: "admin",
     element: () => <LifecyclePage params={tenant} />,
-    routes: TENANT_ROUTES,
+    routes: {
+      ...TENANT_ROUTES,
+      "/v1/admin/tenants/t1": { ...TENANT_SUMMARY, status: "churned" },
+      "/v1/admin/tenants/t1/erasure": [],
+      "/v1/admin/tenants/t1/closure": CLOSED_ACCOUNT,
+    },
+  },
+  {
+    // A CLOSED account, on purpose: it renders the deadline description list, the
+    // countdown, the "their number still rings" disclosure and the reopen control — the
+    // heavier of this screen's two shapes. ⚠ The OPEN shape (reason textarea, typed
+    // confirmation, danger submit) is NOT scanned here, because this table is keyed by
+    // file and takes one entry per screen; every control it uses is a shared primitive
+    // swept elsewhere (`TypedConfirmation`, `FIELD`, `DANGER_BUTTON`), and its behaviour
+    // is driven in tests/adminAccountManagement.test.tsx.
+    file: "admin/tenants/[tenantId]/closure/page.tsx",
+    realm: "admin",
+    element: () => <TenantClosurePage params={tenant} />,
+    routes: { ...TENANT_ROUTES, "/v1/admin/tenants/t1/closure": CLOSED_ACCOUNT },
+  },
+  {
+    // The form's RESTING shape: three controls, the frozen slug row, and the vertical
+    // dropdown built from the server's own list. The typed confirmation only mounts once
+    // the address is edited, which this sweep cannot reach — it is `TypedConfirmation`,
+    // the shared primitive, and its markup is identical wherever it appears.
+    file: "admin/tenants/[tenantId]/profile/page.tsx",
+    realm: "admin",
+    element: () => <TenantProfilePage params={tenant} />,
+    routes: { ...TENANT_ROUTES, "/v1/admin/tenants/t1/profile": TENANT_PROFILE },
+  },
+  {
+    // TWO invitations on purpose — one freshly minted and one that has been re-sent four
+    // times — so both readings of the send counter render, and the list is not a single
+    // row whose plural nobody sees.
+    file: "admin/tenants/[tenantId]/invitations/page.tsx",
+    realm: "admin",
+    element: () => <TenantInvitationsPage params={tenant} />,
+    routes: { ...TENANT_ROUTES, "/v1/admin/tenants/t1/invitations": PENDING_INVITATIONS },
   },
   {
     file: "admin/tenants/[tenantId]/kyc/page.tsx",

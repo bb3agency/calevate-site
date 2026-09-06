@@ -142,6 +142,14 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     "POST /v1/integrations/endpoints/sheets": BoundedByConstruction(
         by="`events` of the ONE endpoint just created, a subset of `EVENT_TYPES`."
     ),
+    "GET /v1/admin/tenants/{tenant_id}/profile": BoundedByConstruction(
+        by=(
+            "`verticals` is `get_args(admin/routes.Vertical)` — the same closed `Literal` "
+            "the PATCH validates against, currently five members. It grows only when "
+            "somebody edits that type, never with a client's data, and it is DERIVED from "
+            "the type rather than retyped so the dropdown and the 422 cannot disagree."
+        )
+    ),
     "GET /v1/admin/tenants/{tenant_id}/feature-flags": BoundedByConstruction(
         by="the flag registry in `flags/service.py` — one row per DECLARED flag."
     ),

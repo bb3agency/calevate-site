@@ -838,8 +838,8 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Correct a client's name or the address their notices go to
-         * @description Edits the two details that are the client's own: the business name and the billing address notices are sent to. Every changed field is audited under its own action with the value it replaced. Saving unchanged values returns `changed: []` and writes nothing. The billing address is NOT a login identity — the credential is the member's own address and this grants nobody access — but it IS where the account's notices go, so the PREVIOUS address is told that it changed and given a way to object. Refused for a client whose data has been erased. The business ADDRESS, plan tier, credits, lifecycle state, KYC and DLT registration each have their own screen; this route deliberately cannot reach them.
+         * Correct a client's business record — everything about it except the slug
+         * @description Edits the details that are the client's own: the business name, the billing address their notices are sent to, and the vertical template. Every changed field is audited under its own action with the value it replaced. Saving unchanged values returns `changed: []` and writes nothing. The billing address is NOT a login identity — the credential is the member's own address and this grants nobody access — but it IS where the account's notices go, so changing it needs the header `X-Confirm-Action: change_notice_address:<tenant_id>`, the PREVIOUS address is told that it changed and given a way to object, and the response says how many already-queued notices will now be delivered to the new address. Refused for a client whose data has been erased. The slug cannot change (it is in every URL the client holds, and a database trigger refuses it); the business ADDRESS lives in the intake answer sheet; plan tier, credits, lifecycle state, closure, KYC and DLT registration each have their own screen, and this route deliberately cannot reach any of them.
          */
         patch: operations["edit_tenant_v1_admin_tenants__tenant_id__patch"];
         trace?: never;
@@ -1719,6 +1719,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/profile": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The client's own business record — what the correction form edits
+         * @description The business name, the address this account's notices go to, the vertical template, the immutable slug and the verticals this client may be moved to. 404 for a client whose data has been erased, matching the PATCH exactly so the form and the save cannot disagree about which accounts exist.
+         */
+        get: operations["read_tenant_profile_v1_admin_tenants__tenant_id__profile_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/refunds": {
         parameters: {
             query?: never;
@@ -1782,8 +1802,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Suspend, reactivate or close a client account — the switch that stops dialling
-         * @description Moves `organizations.status`. Suspending or closing an account stops its OUTBOUND calling at the next dial: `compliance.check_dispatch` refuses `account_suspended` / `account_closed`, so the campaign tick, the 'call this lead' button and the lead-callback webhook all stop, and the campaign launch gate names the same rule. Inbound answering is deliberately unaffected — the caller initiated it, and dropping it punishes them rather than the account. Idempotent: setting the state an account is already in returns 200 and writes no audit row. 409 names the state found when the move is not allowed from it — `churned` is terminal. 404 means no such client.
+         * Suspend or reactivate a client account — the switch that stops dialling
+         * @description Moves `organizations.status` between `active` and `suspended`. Suspending an account stops its OUTBOUND calling at the next dial: `compliance.check_dispatch` refuses `account_suspended`, so the campaign tick, the 'call this lead' button and the lead-callback webhook all stop, and the campaign launch gate names the same rule. Inbound answering is deliberately unaffected — the caller initiated it, and dropping it punishes them rather than the account. Idempotent: setting the state an account is already in returns 200 and writes no audit row. **This route can no longer CLOSE an account**: `POST /v1/admin/tenants/{tenant_id}/closure` is the one way, because closing owes the client a notice, an erasure date and an undo window that a bare status flip gave none of. 409 names the state found when the move is not allowed from it — a closed account is reopened by `DELETE .../closure` and by nothing here. 404 means no such client.
          */
         post: operations["set_tenant_status_v1_admin_tenants__tenant_id__status_post"];
         delete?: never;
@@ -8850,12 +8870,17 @@ export interface components {
          * EditTenantIn
          * @description The client's OWN details, and nothing else on the row.
          *
-         *     `extra="forbid"` and exactly two fields, matching `service.EDITABLE_TENANT_FIELDS`.
+         *     `extra="forbid"` and exactly the fields in `service.EDITABLE_TENANT_FIELDS`.
          *     `status`, `plan_tier`, the closure columns and the model choice each have their own
-         *     route, their own permission and — for three of them — their own step-up; a
+         *     route, their own permission and — for four of them — their own step-up; a
          *     general-purpose PATCH over `organizations` would quietly become a second door to all of
          *     them. `slug` is not offered because it is in client URLs and a trigger makes it
          *     immutable.
+         *
+         *     **D-545 ADDED `vertical_template` AND THAT IS THE WHOLE OF "EVERYTHING EXCEPT THE
+         *     SLUG".** The founder's words were taken to the column list rather than to a wish-list:
+         *     `service.EDITABLE_TENANT_FIELDS` records what walking `Organization` found, and why
+         *     there is no `phone` and no `language` field here to widen towards.
          *
          *     The BUSINESS ADDRESS is deliberately not here. It lives in the intake answer sheet
          *     (`organizations.intake`, `admin/intake.Branch.address`) because a business can have
@@ -8869,11 +8894,18 @@ export interface components {
             billing_email?: string | null;
             /** Name */
             name?: string | null;
+            /** Vertical Template */
+            vertical_template?: ("clinic" | "real_estate" | "insurance" | "education" | "custom") | null;
         };
         /** EditTenantOut */
         EditTenantOut: {
             /** Changed */
             changed: string[];
+            /**
+             * Pending Notices Retargeted
+             * @default 0
+             */
+            pending_notices_retargeted: number;
             /**
              * Tenant Id
              * Format: uuid
@@ -11402,7 +11434,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "active" | "suspended" | "churned";
+            status: "active" | "suspended";
         };
         /** LifecycleOut */
         LifecycleOut: {
@@ -14387,6 +14419,41 @@ export interface components {
             series: string;
         };
         /**
+         * TenantProfileOut
+         * @description A client's business record as the correction form reads it back (D-545).
+         *
+         *     ITS OWN ROUTE RATHER THAN A WIDER `GET /v1/admin/tenants/{id}`, and the reason is the
+         *     address. That endpoint is the DIRECTORY row — `service.tenant_overview` runs the same
+         *     statement for every account when the console lists clients — so adding `billing_email`
+         *     to it would disclose every client's contact address on the roster, on the detail screen
+         *     and in the copilot's surface facts, to serve one form. One tenant, one read, recorded
+         *     as an impersonation read because a business's contact address is that business's own
+         *     data (D-482 L-1).
+         *
+         *     `slug` is here and is NOT editable, deliberately: the form shows it greyed with the
+         *     reason beside it, because a field an operator cannot find is a field they will ask
+         *     about, and "it is in every URL your client has bookmarked" is the answer.
+         */
+        TenantProfileOut: {
+            /** Billing Email */
+            billing_email: string | null;
+            /** Name */
+            name: string;
+            /** Slug */
+            slug: string;
+            /** Status */
+            status: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
+            /** Vertical Template */
+            vertical_template: string | null;
+            /** Verticals */
+            verticals: string[];
+        };
+        /**
          * TenantSpendOut
          * @description GET /v1/admin/tenants/{tenant_id}/spend — one client's month, both directions.
          *
@@ -16768,7 +16835,9 @@ export interface operations {
     edit_tenant_v1_admin_tenants__tenant_id__patch: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };
@@ -18425,6 +18494,37 @@ export interface operations {
             };
         };
     };
+    read_tenant_profile_v1_admin_tenants__tenant_id__profile_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TenantProfileOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     issue_tenant_refund_v1_admin_tenants__tenant_id__refunds_post: {
         parameters: {
             query?: never;
@@ -18497,9 +18597,7 @@ export interface operations {
     set_tenant_status_v1_admin_tenants__tenant_id__status_post: {
         parameters: {
             query?: never;
-            header?: {
-                "x-confirm-action"?: string | null;
-            };
+            header?: never;
             path: {
                 tenant_id: string;
             };

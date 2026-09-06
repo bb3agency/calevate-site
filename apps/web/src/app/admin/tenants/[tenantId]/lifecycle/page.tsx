@@ -18,10 +18,10 @@ import {
   formatIST,
 } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
-import { TypeToConfirm, confirmMatches } from "@/app/admin/ops/opsLanguage";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { adminSession, useTenant } from "@/lib/api/admin";
 import { erasureConfirmation, useEraseTenant, useTenantErasures } from "@/lib/api/erasure";
+import { useClosure } from "@/lib/api/closure";
 import {
   LIFECYCLE_COPY,
   useSetTenantStatus,
@@ -35,7 +35,14 @@ import { useAdminAccess } from "@/app/admin/access";
 const CHOICES = Object.keys(LIFECYCLE_COPY) as LifecycleStatus[];
 
 /**
- * Account lifecycle — suspend, reactivate, close (SURFACES §1).
+ * Account lifecycle — suspend and reactivate (SURFACES §1).
+ *
+ * ⚠ **CLOSING LEFT THIS SCREEN ON 6 SEP 2026 (D-546), AND THIS DOC USED TO SAY IT WAS
+ * HERE.** The dropdown offered `churned`, which wrote a status and nothing else: the
+ * client was told nothing, no erasure deadline was set, and there was no undo. The proper
+ * close (`/closure`) does all three, so there is now exactly one door and it is that one.
+ * `churned` is still a state an account can BE in — this screen renders it, and every
+ * closed account holds it — but it is no longer one an operator can set from anywhere.
  *
  * `organizations.status` had a five-value CHECK from the first migration, was read by
  * the health board's ended-account filter, and was written by NOTHING: there was no
@@ -45,8 +52,7 @@ const CHOICES = Object.keys(LIFECYCLE_COPY) as LifecycleStatus[];
  * suspended or closed account, so suspending genuinely stops the campaigns.
  *
  * The screen's job beyond the button is to say what each move DOES before it is made.
- * Suspension stops outbound and leaves inbound alone; closing an account also locks its
- * users out and cannot be undone here. Neither is guessable from a dropdown.
+ * Suspension stops outbound and leaves inbound alone — not guessable from a dropdown.
  */
 export default function LifecyclePage({
   params,
@@ -89,8 +95,8 @@ export default function LifecyclePage({
           { key: "client", label: "Client", value: tenantQuery.data.name },
           { key: "status", label: "Account status now", value: tenantQuery.data.status },
           {
-            key: "terminal",
-            label: "Is this state terminal (a closed account cannot be reopened here)",
+            key: "closed",
+            label: "Is this account closed (reopening is on the Closing screen, not here)",
             value: tenantQuery.data.status === "churned" ? "yes" : "no",
           },
           {
@@ -138,9 +144,16 @@ export default function LifecyclePage({
         <h1 className="mt-1 text-xl font-semibold text-ink">Account state</h1>
         <p className="text-sm text-ink-muted">
           Currently <span className="font-medium text-ink">{tenant.status}</span>. Suspending
-          or closing an account stops its outbound dialling at the next dial — campaigns
-          included. Inbound answering is never affected: their own customers still get
-          through.
+          an account stops its outbound dialling at the next dial — campaigns included.
+          Inbound answering is never affected: their own customers still get through.
+          Ending the relationship for good is on{" "}
+          <Link
+            href={`/admin/tenants/${tenantId}/closure`}
+            className="font-medium text-brand-strong hover:underline"
+          >
+            Closing the account
+          </Link>
+          , which tells the client, sets the date their records go, and can be undone.
         </p>
       </div>
 
@@ -149,17 +162,7 @@ export default function LifecyclePage({
            a closed account is a new agreement, not a click. The API answers 409 naming
            the state, so this is a preview of a real refusal. */
         <>
-          <NoticeBox
-            tone="stop"
-            icon={<AlertTriangle className="h-5 w-5" />}
-            title="This account is closed"
-          >
-            <p className="mt-1 text-xs opacity-90">
-              Closed accounts cannot be reopened here. Their users have no access, their
-              data is on the retention clock, and restarting the relationship means a new
-              account with its own commercial terms.
-            </p>
-          </NoticeBox>
+          <ClosedNotice tenantId={tenantId} />
           <ErasurePanel tenantId={tenantId} tenantName={tenant.name} access={erase} />
         </>
       ) : (
@@ -198,18 +201,15 @@ function MoveForm({
     currentStatus === "active" ? "suspended" : "active",
   );
   const [reason, setReason] = useState("");
-  const [typed, setTyped] = useState("");
   const copy = LIFECYCLE_COPY[status];
   // The API refuses a reasonless suspension with a 422. Previewed here so an operator is
   // told before the click rather than after — and the server still enforces it.
-  const reasonMissing = copy.needsReason && reason.trim().length < 3;
-  // Closing an account is the one move here that cannot be undone from this screen, so it
-  // alone takes a typed confirmation — the same TypeToConfirm every other irreversible
-  // lever uses. Suspend stays one click: it is reversible and adding ceremony to the
-  // reversible act teaches operators to type past the ceremony (ux-audit F-3).
-  const needsTypedWord = copy.tone === "stop";
-  const wordMissing = needsTypedWord && !confirmMatches(typed.trim(), "CLOSE");
-  const blocked = reasonMissing || wordMissing;
+  //
+  // NO TYPED CONFIRMATION ON THIS SCREEN ANY MORE (D-546). It guarded the close, which
+  // moved to `/closure` and took its ceremony with it — a typed word AND the step-up
+  // header the API demands. Both moves left here are reversible, and ceremony on a
+  // reversible act teaches operators to type past ceremony (ux-audit F-3).
+  const blocked = copy.needsReason && reason.trim().length < 3;
 
   return (
     <Card title={`Move ${tenantName}`}>
@@ -238,8 +238,6 @@ function MoveForm({
               disabled={!write.allowed}
               onChange={(event) => {
                 setStatus(event.target.value as LifecycleStatus);
-                // The typed word arms ONE specific move; switching moves disarms it.
-                setTyped("");
                 move.reset();
               }}
               className={FIELD}
@@ -280,54 +278,67 @@ function MoveForm({
           </div>
         )}
 
-        {needsTypedWord && (
-          <TypeToConfirm
-            id="lifecycle-close-confirm"
-            word="CLOSE"
-            value={typed}
-            onChange={(value) => {
-              setTyped(value);
-              move.reset();
-            }}
-            disabled={!write.allowed}
-            hint="Closing cannot be undone from this screen — reopening a closed account is a new agreement."
-          />
-        )}
-
         <div className="flex flex-wrap items-center gap-3">
-          {/* Shared primary CTA for the reversible moves: the action label (copy.action)
-              stays mounted so the button's accessible name never flickers to "Applying…"
-              mid-request. The irreversible move ("Close the account", tone `stop`) takes
-              DANGER_BUTTON instead — LIFECYCLE_COPY.tone was authored for exactly this
-              and was previously read by nothing, so the account-killer rendered in the
-              same green as Reactivate (ux-audit F-3). */}
-          {copy.tone === "stop" ? (
-            <button
-              type="submit"
-              disabled={move.isPending || blocked || !write.allowed}
-              className={DANGER_BUTTON}
-            >
-              {move.isPending ? "Closing…" : copy.action}
-            </button>
-          ) : (
-            <ActionButton
-              type="submit"
-              loading={move.isPending}
-              disabled={blocked || !write.allowed}
-            >
-              {copy.action}
-            </ActionButton>
-          )}
+          {/* One CTA, because both moves left here are reversible. The action label
+              (copy.action) stays mounted so the button's accessible name never flickers
+              to "Applying…" mid-request. DANGER_BUTTON went with the close it was for
+              (D-546); it now lives on the Closing screen, where the irreversible act is. */}
+          <ActionButton
+            type="submit"
+            loading={move.isPending}
+            disabled={blocked || !write.allowed}
+          >
+            {copy.action}
+          </ActionButton>
           {blocked && (
             <span className="text-xs text-amber-700 dark:text-amber-400">
-              {reasonMissing
-                ? "A reason is required before this can be applied."
-                : "Type CLOSE above to confirm before this can be applied."}
+              A reason is required before this can be applied.
             </span>
           )}
         </div>
       </form>
     </Card>
+  );
+}
+
+/**
+ * What a CLOSED account gets instead of a dropdown — and, since D-546, a way out.
+ *
+ * The old panel said "closed accounts cannot be reopened here" and stopped, which was true
+ * of this screen and read as true of the product. It is not: `DELETE .../closure` reopens
+ * an account for as long as nothing has been erased, and the whole value of the grace
+ * window is that an operator who closed the wrong client can undo it. Telling them it was
+ * impossible was the more expensive half of having two ways to close a client.
+ *
+ * The COUNTDOWN is not repeated here. `days_remaining` is computed server-side on one
+ * clock and belongs beside the button that acts on it, and a deadline printed on two
+ * screens is a deadline that will disagree with itself.
+ */
+function ClosedNotice({ tenantId }: { tenantId: string }) {
+  const closure = useClosure(tenantId);
+
+  return (
+    <NoticeBox
+      tone="stop"
+      icon={<AlertTriangle className="h-5 w-5" />}
+      title="This account is closed"
+    >
+      <p className="mt-1 text-xs opacity-90">
+        Its users have no access and its outbound dialling has stopped. This screen cannot
+        reopen it — closing and reopening both live on{" "}
+        <Link href={`/admin/tenants/${tenantId}/closure`} className="font-medium underline">
+          Closing the account
+        </Link>
+        , together with the date their records are erased.
+      </p>
+      {/* Only ever an addition to the sentence above, never a replacement for it: a failed
+          or in-flight closure read must not leave a closed account looking unclosed. */}
+      {closure.data?.restorable && (
+        <p className="mt-2 text-xs opacity-90">
+          Nothing has been erased yet, so this close can still be undone.
+        </p>
+      )}
+    </NoticeBox>
   );
 }
 
