@@ -1314,7 +1314,7 @@ Vendors price at two different layers and the same-looking number means differen
 
 | Layer | What you buy | Representative price |
 |---|---|---|
-| **Model** (STT/TTS/LLM) | one leg of the pipeline | Cartesia Sonic TTS ≈ ₹2.7–3.0 / 1k chars ≈ **₹1.0–1.6 per call-min**; Sarvam Bulbul v3 ₹3.00 / 1k chars |
+| **Model** (STT/TTS/LLM) | one leg of the pipeline | Cartesia Sonic TTS **₹3.29–4.40 / 1k chars by plan tier, sold only as a monthly bundle** (Startup $49 / 1.25M chars, Scale $299 / 8M; no pay-as-you-go — `docs/evidence/cartesia-tts-verification-2026-09-06.md`; this cell said "≈ ₹2.7–3.0" until 6 Sep 2026 and that figure was REPORTED and wrong); Sarvam Bulbul v3 ₹3.00 / 1k chars, usage-billed |
 | **Orchestration, bundled** | the whole call, vendor's models included | Cartesia Line $0.06/min · Bolna bundled 6.00¢/min |
 | **Orchestration, BYOK** | the whole call, *our* models | Bolna BYOK (target ≤₹1.50) · Vapi $0.05/min **on top of** your model spend |
 | **Self-orchestrated** | nothing — you built it | ₹0 fee + ~₹0.20/min compute |

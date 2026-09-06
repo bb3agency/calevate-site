@@ -196,8 +196,12 @@ support is the gate, and it fails for the cheap options:
   > the supported path and always was. The claim was reasoned from Cartesia **Line**, the
   > ORCHESTRATOR, whose STT/TTS genuinely are not swappable — the exact layer confusion
   > TRD §10.4's "compare like with like" rule and this file's own discipline exist to stop.
-  > **The price half stands**: at the model layer the two are the same order, so a move to
-  > Sonic is a QUALITY decision that costs roughly nothing, not a saving and not a penalty.
+  > **The price half does NOT stand either (same day, later)**: the ₹2.7–3.0 figure was
+  > REPORTED and Comet's read of `cartesia.ai/pricing` refutes it — Sonic is sold only as a
+  > monthly bundle (Startup $49 / 1.25M chars, Scale $299 / 8M, no pay-as-you-go), which
+  > fitted to our volumes is ₹4.31/call-min at 1,000 min and ₹5.26 at 5,000 — above the
+  > retail price. The Startups Grant (12 months of Scale, free) is what makes it affordable;
+  > `docs/evidence/cartesia-tts-verification-2026-09-06.md` has the fitted table.
   > ⚠ **AND `$299/mo` IS LINE'S PLAN, NOT THE TTS API'S.** TRD §10.4a's Startup-tier fixed
   > fee and its 1/3/5/10 agent-slot ceiling price the orchestrator. Whether the TTS API
   > alone needs a paid monthly plan to run ten concurrent streams is **UNKNOWN** —
