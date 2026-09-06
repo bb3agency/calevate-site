@@ -1,6 +1,7 @@
-"""Self-serve top-ups: the order intent (client realm) and the payment webhook (machine).
+"""Self-serve top-ups: the order intent (client realm), the payment webhook (machine) and
+the PUBLIC rate card (nobody).
 
-Two surfaces, two routers, because they have nothing in common but the money:
+Three surfaces, three routers, because they have nothing in common but the money:
 
 - `router` — `POST /v1/billing/topups/intent`. A client-realm owner says "I want to
   add ₹2,500"; we price it, bind it to their tenant and hand back what a checkout
@@ -11,6 +12,20 @@ Two surfaces, two routers, because they have nothing in common but the money:
   payment landing during degraded mode is still a payment), authenticated by a
   signature rather than a session, inbox-deduped, and idempotent on the provider's own
   identifier.
+- `public_router` — `GET /v1/public/rate-card`. The marketing site says "what does a
+  minute cost, and what does a pack bring it down to"; we answer with the SAME priced
+  catalogue the authenticated `/packs` read returns, built by the same function, with no
+  session, no tenant and nothing else in the body. It exists because the site had no
+  honest way to know these numbers: `/packs` requires a principal the site does not
+  hold, and the alternative — typing the ladder into the web — is the drift
+  `apps/web/src/lib/roi.ts` used to apologise for in its own comment. One builder
+  (`rate_card_out`) serves both routes so a ladder change moves the site, the console
+  and the margin guard together or fails CI. Declared in `rbac.PUBLIC_PREFIXES` and in
+  `scripts/check_public_routes.UNAUTHENTICATED_ROUTES`, its own `public_read` rate
+  profile, and a `Cache-Control` that lets the edge and the site's server hold it for a
+  minute — the list rate is a LIVE console setting (`self_serve_inr_per_min`), so a
+  minute is the honest window: long enough that a burst of page views is not a burst of
+  API calls, short enough that an operator's change is what the site shows next.
 
 **What is honestly unfinished is marked as such.** Since D-98 the intent DOES create the
 provider-side order — `RazorpayOrders.create_order`, a real `POST /v1/orders` — but only
@@ -49,7 +64,7 @@ from decimal import ROUND_DOWN, Decimal
 from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from apps.api.admin.service import tenant_exists
@@ -117,6 +132,20 @@ log = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/billing/topups", tags=["billing"])
 webhook_router = APIRouter(prefix="/hooks/v1", tags=["billing-webhooks"])
+# The world's read of the rate card. `/v1/public/` is the prefix the RBAC registry skips
+# for it (`core/rbac.PUBLIC_PREFIXES`), and the trailing slash there keeps the exemption
+# to this surface. NOT mounted here; the integrator wires it into `main.py`.
+public_router = APIRouter(prefix="/v1/public", tags=["public"])
+
+#: How long a rate-card response may be served from a cache — the edge's, a proxy's or
+#: the marketing site's own server — before it is re-read. `self_serve_inr_per_min` is
+#: `applies: live` (`core/platform_config.py`), so a change from the console is what the
+#: site shows once the window lapses; 60s is the longest an operator's correction may lag
+#: on a public page and the shortest that turns a burst of page views into one API read.
+#: `public` because the body carries nothing about the caller: it is five constants and
+#: one live setting, identical for everyone, so a shared cache serving it to the next
+#: reader serves them exactly what their own request would have produced.
+RATE_CARD_CACHE_CONTROL: Final[str] = "public, max-age=60"
 # Refunds are an OPS action against a tenant, not a client-realm one — a client cannot
 # refund their own top-up. Mirrors `credit_routes.py`'s admin credits router prefix so the
 # two operator money surfaces sit together. NOT mounted here; the integrator wires it into
@@ -290,6 +319,13 @@ class CreditPacksOut(Strict):
     rate equals it) without a second source of the number."""
 
     list_rate_inr_per_min: Decimal
+    #: The LOWEST effective rate on the card — the number the marketing site leads with as
+    #: "from ₹X/min" — at rate precision (4dp), derived by the same function that prices
+    #: every row so it cannot name a rate no pack delivers. The founder's decision of
+    #: 5 Sep 2026: the list rate stays where it is and the site leads with what the packs
+    #: already deliver, because cutting the list rate would have put four of five packs
+    #: under `MIN_GROSS_MARGIN`. A derived minimum, never a typed one.
+    from_inr_per_min: Decimal
     packs: list[CreditPackOut]
 
 
@@ -405,12 +441,47 @@ def _pack_out(pack: CreditPack, *, list_rate: Decimal) -> CreditPackOut:
 async def read_credit_packs(_principal: TopUpRead) -> CreditPacksOut:
     """The rate card, priced at whatever `self_serve_inr_per_min` currently is — the same
     value calls are billed at, so the effective rates shown are the ones a client will
-    actually get. No tenant state is read; the catalogue is the same for everyone."""
-    list_rate = get_settings().self_serve_inr_per_min
+    actually get. No tenant state is read; the catalogue is the same for everyone — which
+    is why the public route below answers with the identical body."""
+    return rate_card_out(get_settings().self_serve_inr_per_min)
+
+
+def rate_card_out(list_rate: Decimal) -> CreditPacksOut:
+    """THE ONE PLACE THE RATE CARD IS PRICED FOR A READER. Both the authenticated `/packs`
+    read and the public `/v1/public/rate-card` read call this, so the two surfaces cannot
+    disagree about a rate, and `tests/public_rate_card_test.py` pins every row against
+    `pack_effective_rate_inr_per_min` directly — the function the margin guard scores.
+
+    `from_inr_per_min` is the minimum over the priced rows rather than a closed-form
+    `list_rate / (1 + max_bonus)`: the rows already reflect the real grant, rounding and
+    all, and the "from" figure must be one a pack actually delivers.
+    """
+    packs = [_pack_out(pack, list_rate=list_rate) for pack in PACK_CATALOGUE]
     return CreditPacksOut(
         list_rate_inr_per_min=to_paise(list_rate),
-        packs=[_pack_out(pack, list_rate=list_rate) for pack in PACK_CATALOGUE],
+        from_inr_per_min=min(pack.effective_rate_inr_per_min for pack in packs),
+        packs=packs,
     )
+
+
+@public_router.get(
+    "/rate-card",
+    response_model=CreditPacksOut,
+    summary="The self-serve rate card — list rate and credit packs — for the public site",
+    description=(
+        "Unauthenticated and identical for everyone. The live list rate "
+        "(`self_serve_inr_per_min`), the lowest effective rate any pack delivers, and the "
+        "static pack catalogue priced at that rate: amount, bonus, effective per-minute "
+        "rate and talk time. The same builder serves the authenticated "
+        "`/v1/billing/topups/packs`. Nothing about the caller is read or returned."
+    ),
+)
+async def read_public_rate_card(response: Response) -> CreditPacksOut:
+    """No principal, no tenant, no permission — deliberately, and declared as such in
+    `check_public_routes.UNAUTHENTICATED_ROUTES`. Reads one live setting and a code
+    constant; writes nothing; logs nothing (there is nothing about the caller to log)."""
+    response.headers["Cache-Control"] = RATE_CARD_CACHE_CONTROL
+    return rate_card_out(get_settings().self_serve_inr_per_min)
 
 
 @router.post(

@@ -5969,6 +5969,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/public/rate-card": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The self-serve rate card — list rate and credit packs — for the public site
+         * @description Unauthenticated and identical for everyone. The live list rate (`self_serve_inr_per_min`), the lowest effective rate any pack delivers, and the static pack catalogue priced at that rate: amount, bonus, effective per-minute rate and talk time. The same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about the caller is read or returned.
+         */
+        get: operations["read_public_rate_card_v1_public_rate_card_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/quality/reports": {
         parameters: {
             query?: never;
@@ -8260,6 +8280,8 @@ export interface components {
          *     rate equals it) without a second source of the number.
          */
         CreditPacksOut: {
+            /** From Inr Per Min */
+            from_inr_per_min: string;
             /** List Rate Inr Per Min */
             list_rate_inr_per_min: string;
             /** Packs */
@@ -25406,6 +25428,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PerformanceOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_public_rate_card_v1_public_rate_card_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreditPacksOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

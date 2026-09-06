@@ -131,6 +131,9 @@ def test_every_rule_names_a_profile_that_exists() -> None:
         ("/v1/ops/secrets/{key}/test", "POST", "costly"),
         ("/v1/auth/signup", "POST", "auth"),
         ("/healthz/ready", "GET", "exempt"),
+        # The public rate card must NOT fall into `client_api`: its one caller is the
+        # marketing site's server, so a per-person ceiling would be a per-site one.
+        ("/v1/public/rate-card", "GET", "public_read"),
     ],
 )
 def test_named_routes_land_in_the_profile_they_were_weighted_for(

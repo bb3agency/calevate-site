@@ -910,8 +910,10 @@ Calevate adaptations:
    error log shows one operator loading one console screen filling the burst and queueing
    30 deep, on hashed `_next/static` chunks and on the `?_rsc=` prefetch every sidebar
    `<Link>` fires. A Next App Router console is dozens of requests per screen; 1.5r/s
-   could not serve one. Renamed as well as retuned because it is applied in exactly three
-   places — the `location /` of the marketing, client and admin vhosts — and never was the
+   could not serve one. Renamed as well as retuned because it is applied in exactly four
+   places — the `location /` of the marketing, client and admin vhosts, and the api
+   vhost's `location ^~ /v1/public/` (D-545: the public rate card, whose one caller is
+   the marketing server and whose body has no database behind it) — and never was the
    catch-all the old name claimed. `_next/static/` now has its own location with no
    limiter at all: immutable, content-addressed, Cloudflare-cached, no database behind it.
 

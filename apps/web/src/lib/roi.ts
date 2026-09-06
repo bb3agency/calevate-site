@@ -27,14 +27,19 @@
  */
 
 /**
- * Calevate's self-serve price, in PAISE per minute.
+ * The rate the PURE MODEL runs at when a caller supplies none, in paise per minute.
  *
- * MUST TRACK `self_serve_inr_per_min` in `packages/shared/src/calevate_shared/config.py`
- * (default `Decimal("5.00")`). It is duplicated here rather than fetched because the
- * homepage is public and unauthenticated (no API call), and a marketing estimate at the
- * published self-serve rate is the honest thing to show. If the backend price moves, this
- * constant moves with it — they are one price with two spellings, and the second is where
- * drift starts. 500 paise = ₹5.00/min.
+ * THIS IS NOT WHERE THE SITE'S PRICE COMES FROM, and it used to be. It was a typed copy
+ * of `self_serve_inr_per_min` with a comment apologising that it would drift the day the
+ * server's value moved. Since D-545 the price is READ: the API publishes the live list
+ * rate and the pack ladder at `GET /v1/public/rate-card`, `lib/api/rateCard.ts` fetches
+ * it server-side, and both pages that render the calculator pass a rate from that
+ * response — or, when the card cannot be loaded, render "could not be loaded" and run
+ * nothing. No page passes this constant, and the calculator refuses to fall back to it.
+ *
+ * It survives for the model's OTHER callers: `tests/roi.test.ts` scores the arithmetic
+ * at a known rate, and a default keeps `RoiInputs` usable without one. It is a fixture
+ * of the model, not a claim about the backend price, and it is pinned as such.
  */
 export const CALEVATE_PAISE_PER_MIN = 500;
 
@@ -180,7 +185,13 @@ export interface RoiInputs {
   coverageHours?: number;
   /** Hours one human shift covers — defaults to {@link SHIFT_HOURS}. */
   shiftHours?: number;
-  /** Calevate price in paise/min — defaults to {@link CALEVATE_PAISE_PER_MIN}. */
+  /**
+   * Calevate price in paise/min, to a HUNDREDTH of a paisa — the API's 4dp rupee rate
+   * (`₹4.6296/min` is `462.96`; `lib/api/rateCard.ts::ratePaisePerMin` converts). A pack's
+   * effective rate is priced exactly rather than rounded to the paisa first; the line's
+   * single rounding still happens once, at the end. Defaults to
+   * {@link CALEVATE_PAISE_PER_MIN} for callers of the pure model; no page passes that.
+   */
   calevatePaisePerMin?: number;
   /** Dial ceiling: the most calls one telecaller can start in a day (dialling/wrap-limited). */
   callsPerAgentPerDay: number;
@@ -261,11 +272,15 @@ export function computeRoi(inputs: RoiInputs): RoiResult {
   // integer count of hundredths-of-a-minute and divide (with a single final round) only
   // once the multiply is done — never `minutes * price` in floating point.
   const minuteHundredths = Math.round(nonNeg(inputs.avgMinutes) * 100);
-  const calevatePaisePerMin = Math.round(
-    nonNeg(inputs.calevatePaisePerMin ?? CALEVATE_PAISE_PER_MIN),
+  // The rate is carried the same way, as an integer count of hundredths of a paisa, so
+  // a pack's 4dp effective rate multiplies exactly and the ONE division below is the
+  // only place anything is rounded. At a whole-paisa rate this is byte-identical to the
+  // old `/ 100` form: 500 paise is 50,000 hundredths over a divisor 100 times larger.
+  const rateHundredthsOfPaise = Math.round(
+    nonNeg(inputs.calevatePaisePerMin ?? CALEVATE_PAISE_PER_MIN) * 100,
   );
   const calevatePaise = Math.round(
-    (callsPerMonth * minuteHundredths * calevatePaisePerMin) / 100,
+    (callsPerMonth * minuteHundredths * rateHundredthsOfPaise) / 10_000,
   );
 
   // Telecaller headcount. A human's day is bounded BOTH ways: a dial ceiling (dialling,

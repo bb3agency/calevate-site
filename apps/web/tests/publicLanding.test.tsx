@@ -3,11 +3,12 @@ import { resolve } from "node:path";
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { ScrollTrigger } from "gsap/ScrollTrigger";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import Home from "@/app/page";
 import { LEGAL_DOCUMENTS } from "@/lib/legal";
 
+import { RATE_CARD_ROUTES } from "./fixtures/rateCard";
 import { stubApi } from "./harness";
 
 /**
@@ -97,9 +98,20 @@ function routePaths(appDir: string): Set<string> {
   return routes;
 }
 
+/**
+ * THE HOMEPAGE IS AN ASYNC SERVER COMPONENT NOW (D-545): it awaits the public rate card so
+ * the calculator prices from the live rate rather than a constant typed into the bundle.
+ * Every render below therefore calls and awaits it, and every one needs the card stubbed —
+ * without this the page renders "the comparison cannot run right now" and the arithmetic
+ * assertions fail against a state that is correct behaviour for a missing API.
+ */
+beforeEach(() => {
+  stubApi(RATE_CARD_ROUTES);
+});
+
 describe("the landing page's claims", () => {
-  it("names no price, plan or fee outside the ROI calculator", () => {
-    const { container } = render(<Home />);
+  it("names no price, plan or fee outside the ROI calculator", async () => {
+    const { container } = render(await Home());
     const text = textOutsideCalculator(container);
     expect(text).not.toContain("₹");
     expect(text).not.toMatch(/\bRs\.?\b/);
@@ -107,8 +119,8 @@ describe("the landing page's claims", () => {
     expect(text).not.toMatch(/pricing|no setup fee/i);
   });
 
-  it("claims no customers, logos or testimonials", () => {
-    const { container } = render(<Home />);
+  it("claims no customers, logos or testimonials", async () => {
+    const { container } = render(await Home());
     const text = container.textContent ?? "";
     expect(text).not.toMatch(/trusted by|customers use|businesses use|join \d/i);
     expect(text).not.toMatch(/\d+\+?\s*(businesses|clients|companies)/i);
@@ -132,8 +144,8 @@ describe("the landing page's claims", () => {
     }
   });
 
-  it("claims no uptime, accuracy or answer-rate figure", () => {
-    const { container } = render(<Home />);
+  it("claims no uptime, accuracy or answer-rate figure", async () => {
+    const { container } = render(await Home());
     // The percentage ban is scoped off the calculator (attrition and conversion-rate are
     // legitimate, adjustable inputs there); the uptime/accuracy word bans stay over the
     // WHOLE page, since none of those words belong in a cost tool either.
@@ -166,8 +178,8 @@ describe("the landing page's claims", () => {
    * the same misrepresentation. Certifications are in the same list because the company
    * holds none.
    */
-  it("claims no data residency, storage location or certification", () => {
-    const { container } = render(<Home />);
+  it("claims no data residency, storage location or certification", async () => {
+    const { container } = render(await Home());
     const text = container.textContent ?? "";
     expect(text).not.toMatch(/stays? in india|remains? in india|never leaves india/i);
     expect(text).not.toMatch(/stored in india|hosted in india|kept in india|held in india/i);
@@ -262,8 +274,8 @@ describe("the landing page's claims", () => {
    * by `compose_engine_prompt` on every publish). The page must claim that and not the
    * announcement.
    */
-  it("promises the AI disclosure no wider than D-163 leaves it", () => {
-    const { container } = render(<Home />);
+  it("promises the AI disclosure no wider than D-163 leaves it", async () => {
+    const { container } = render(await Home());
     const text = container.textContent ?? "";
     expect(text).not.toMatch(/every call says it is an ai/i);
     // "no configuration/setting turns it off" is only true of the ANSWER. Banned in the
@@ -274,8 +286,8 @@ describe("the landing page's claims", () => {
     expect(text).toMatch(/whether it volunteers that line[^.]*is your setting/i);
   });
 
-  it("does not advertise a self-serve door the deployment has switched off", () => {
-    const { container } = render(<Home />);
+  it("does not advertise a self-serve door the deployment has switched off", async () => {
+    const { container } = render(await Home());
     // `self_serve_signup_enabled` defaults OFF and the tests run with it unset, so the
     // page must say accounts are opened by hand. "Sign up free" over a closed door is
     // the exact shape this migration bans: a claim dressed as a button.
@@ -287,13 +299,30 @@ describe("the landing page's claims", () => {
     expect(link.getAttribute("href")).toBe("/signup");
   });
 
-  it("makes no network request", () => {
-    const calls = stubApi({});
-    render(<Home />);
-    expect(calls).toEqual([]);
+  it("makes exactly one request — the public rate card — and sends nobody with it", async () => {
+    // ⚠ THIS USED TO ASSERT ZERO REQUESTS, and the change is deliberate (D-545). The page
+    // is an async server component that awaits `GET /v1/public/rate-card`, because the
+    // alternative was a price typed into the bundle whose own comment admitted it would
+    // drift the day an operator changed the live rate.
+    //
+    // The invariant this test actually protects is INTACT and is now stated properly: the
+    // marketing page still tells no vendor anything about its reader. So the assertion is
+    // not "one call" — it is one call, to that path, carrying no identity. A second
+    // request appearing here, or a bearer token, or an org header, is the regression the
+    // original zero was standing in for.
+    const calls = stubApi(RATE_CARD_ROUTES);
+    render(await Home());
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.path).toBe("/v1/public/rate-card");
+    expect(calls[0]?.method).toBe("GET");
+    const headers = calls[0]?.headers ?? {};
+    const named = Object.keys(headers).map((name) => name.toLowerCase());
+    expect(named).not.toContain("authorization");
+    expect(named).not.toContain("x-org-slug");
+    expect(named).not.toContain("x-impersonation-grant");
   });
 
-  it("hands the document its scrollbar back, without reaching the app shells", () => {
+  it("hands the document its scrollbar back, without reaching the app shells", async () => {
     // THE MECHANISM CHANGED AND THE INVARIANT DID NOT (D-161). This used to assert an
     // `overflow-y-auto` container, because `globals.css` pins
     // `html, body { overflow: hidden }` for the `fixed inset-0` shells under /c and
@@ -308,7 +337,7 @@ describe("the landing page's claims", () => {
     // Asserted on the attribute rather than on a class: the attribute is the actual
     // contract with the stylesheet, and a class name is a detail either side could
     // rename without the other noticing.
-    const { container } = render(<Home />);
+    const { container } = render(await Home());
     const root = container.querySelector("[data-marketing-root]");
     expect(root).not.toBeNull();
     // And it must be the OUTERMOST element, because `:has()` on <html> only frees the
@@ -356,8 +385,10 @@ describe("the verticals section", () => {
    * carries `data-seed-fields` for exactly this: it is the ONE list this assertion is
    * about, and the marker says so rather than leaving the test to guess by position.
    */
-  it.each(CARD_TO_SEED)("shows %s the columns seed.py actually ships", (card, vertical) => {
-    const { container } = render(<Home />);
+  it.each(CARD_TO_SEED)(
+    "shows %s the columns seed.py actually ships",
+    async (card, vertical) => {
+    const { container } = render(await Home());
     // NOT `getByRole("heading")`: three of the four panels carry the `hidden` attribute,
     // which is exactly what removes them from the accessibility tree — the property the
     // tabs pattern depends on, and the reason a role query cannot see them. Every panel is
@@ -374,8 +405,8 @@ describe("the verticals section", () => {
     expect(chips).toEqual(seedLabels(vertical));
   });
 
-  it("does not imply a tested scenario suite behind all four", () => {
-    const { container } = render(<Home />);
+  it("does not imply a tested scenario suite behind all four", async () => {
+    const { container } = render(await Home());
     const text = container.textContent ?? "";
     // Only `cl_*` and `re_*` cases exist in `tests/fixtures/golden_transcripts.json`, so
     // exactly two cards may make the stronger claim and the other two must say plainly
@@ -400,8 +431,8 @@ describe("the verticals section", () => {
  * calculator instead. `docs/POSITIONING-QUALIFICATION-LAYER.md` names each refused figure.
  */
 describe("the qualification-layer section", () => {
-  it("makes the argument without a statistic, and without promising a replacement", () => {
-    const { container } = render(<Home />);
+  it("makes the argument without a statistic, and without promising a replacement", async () => {
+    const { container } = render(await Home());
     const heading = screen.getByRole("heading", {
       name: /Your salespeople should be closing/i,
     });
@@ -473,8 +504,8 @@ describe("the qualification-layer section", () => {
  * and then nothing guards the real claim.
  */
 describe("what the page promises the agent knows", () => {
-  it("never offers a document upload, because nothing in the product accepts one", () => {
-    const { container } = render(<Home />);
+  it("never offers a document upload, because nothing in the product accepts one", async () => {
+    const { container } = render(await Home());
     const text = container.textContent ?? "";
     expect(text).not.toMatch(
       /\bupload(ing|ed|s)?\b[^.]{0,60}\b(price list|rate card|brochure|document|documents|pdf|file|files|catalogue|menu|material)\b/i,
@@ -487,8 +518,8 @@ describe("what the page promises the agent knows", () => {
     expect(text).not.toMatch(/\bpdfs?\b|\bword docs?\b|\bdocx\b/i);
   });
 
-  it("never implies the agent looks something up while the caller waits", () => {
-    const { container } = render(<Home />);
+  it("never implies the agent looks something up while the caller waits", async () => {
+    const { container } = render(await Home());
     const text = container.textContent ?? "";
     // Retrieval verbs pointed at the client's own material — "searches your documents",
     // "reads your price list", "looks it up in your knowledge base". Every one of them
@@ -501,8 +532,8 @@ describe("what the page promises the agent knows", () => {
     expect(text).not.toMatch(/\banswers? any question\b/i);
   });
 
-  it("says instead what the agent really carries, so the omission cannot come back", () => {
-    const { container } = render(<Home />);
+  it("says instead what the agent really carries, so the omission cannot come back", async () => {
+    const { container } = render(await Home());
     const text = container.textContent ?? "";
     // The capability card: "built into the agent" is the T0 mechanism in the owner's own
     // words, and the approval half is the product property FLOWS §7 exists for.
@@ -535,8 +566,8 @@ function faqSection(container: HTMLElement): HTMLElement {
 }
 
 describe("the questions section", () => {
-  it("answers every question it asks", () => {
-    const { container } = render(<Home />);
+  it("answers every question it asks", async () => {
+    const { container } = render(await Home());
     const items = [...faqSection(container).querySelectorAll("details")];
     expect(items.length).toBeGreaterThan(0);
     for (const item of items) {
@@ -549,8 +580,8 @@ describe("the questions section", () => {
     }
   });
 
-  it("uses the platform's own disclosure widget, so it works with no script at all", () => {
-    const { container } = render(<Home />);
+  it("uses the platform's own disclosure widget, so it works with no script at all", async () => {
+    const { container } = render(await Home());
     // The whole page's rule is that it is finished without its bundle. A hand-built
     // accordion (button + aria-expanded + hidden panel) renders answers nobody can reach
     // when the bundle fails; `<details>` is keyboard-operable and announced without it.
@@ -559,12 +590,12 @@ describe("the questions section", () => {
     expect(container.querySelectorAll("[aria-expanded]").length).toBe(0);
   });
 
-  it("touches no animation for a reader who asked for none", () => {
+  it("touches no animation for a reader who asked for none", async () => {
     // `tests/setup.ts` reports `prefers-reduced-motion: reduce`, so no ScrollTrigger was
     // ever created and refreshing them on toggle would be work done for nothing — the
     // same rule `Reveal` and `SmoothScroll` follow.
     const refresh = vi.spyOn(ScrollTrigger, "refresh");
-    const { container } = render(<Home />);
+    const { container } = render(await Home());
     const first = faqSection(container).querySelector("details");
     expect(first).not.toBeNull();
     // `toggle` does not bubble, so there is no `fireEvent.toggle` helper — React attaches
@@ -605,8 +636,8 @@ describe("the page's structure asks for one thing, once", () => {
    * "How to get one" is the one deliberate exception and is pinned separately above: it
    * answers the question its own card heading asks.
    */
-  it("offers the same door under one name, at more than one point on the page", () => {
-    const { container } = render(<Home />);
+  it("offers the same door under one name, at more than one point on the page", async () => {
+    const { container } = render(await Home());
     const toSignup = [...container.querySelectorAll('a[href="/signup"]')];
     // Header, hero, the block under the calculator, the doors card and the closing panel.
     expect(toSignup.length).toBeGreaterThanOrEqual(4);
@@ -640,8 +671,8 @@ describe("the page's structure asks for one thing, once", () => {
    * DOM rather than on the words, because the words may legitimately be rewritten and the
    * order is the thing that regressed.
    */
-  it("says who it is for before it asks for anything", () => {
-    const { container } = render(<Home />);
+  it("says who it is for before it asks for anything", async () => {
+    const { container } = render(await Home());
     const hero = container.querySelector("h1")?.closest("section");
     expect(hero, "the hero section did not render").not.toBeNull();
 
@@ -668,8 +699,8 @@ describe("the page's structure asks for one thing, once", () => {
    * of value ahead of the sceptic's objections. See `app/page.tsx`'s header for why that
    * order and not the one it replaced.
    */
-  it("numbers its bands in the order they are read", () => {
-    const { container } = render(<Home />);
+  it("numbers its bands in the order they are read", async () => {
+    const { container } = render(await Home());
     const eyebrows = [...container.querySelectorAll("main p > span.font-mono")]
       .map((s) => s.textContent ?? "")
       .filter((t) => /^\d\d$/.test(t));
@@ -704,8 +735,8 @@ describe("the page's structure asks for one thing, once", () => {
    * links follow by deriving from `LEGAL_DOCUMENTS`. It reads both directions: every nav
    * href resolves to a `page.tsx`, and the header and footer offer the same site map.
    */
-  it("points every navigation item at a route that exists", () => {
-    const { container } = render(<Home />);
+  it("points every navigation item at a route that exists", async () => {
+    const { container } = render(await Home());
     const appDir = resolve(process.cwd(), "src", "app");
     const hrefs = new Set(
       [...container.querySelectorAll("header a[href], footer a[href]")]
@@ -749,8 +780,8 @@ describe("the page's structure asks for one thing, once", () => {
    * the next dispatch tick. Pinned so a later edit cannot swap one of them for a promise
    * nothing enforces.
    */
-  it("reverses risk with three things the product actually enforces", () => {
-    const { container } = render(<Home />);
+  it("reverses risk with three things the product actually enforces", async () => {
+    const { container } = render(await Home());
     const cost = container.querySelector("#cost");
     const text = cost?.textContent ?? "";
     expect(text).toContain("You approve every word before it goes live");
@@ -770,8 +801,8 @@ describe("the page's structure asks for one thing, once", () => {
    * no limited places, no closing date and no offer. Banned by shape rather than by
    * example, because the phrasing varies and the shape does not.
    */
-  it("manufactures no urgency or scarcity", () => {
-    const { container } = render(<Home />);
+  it("manufactures no urgency or scarcity", async () => {
+    const { container } = render(await Home());
     const text = container.textContent ?? "";
     expect(text).not.toMatch(/limited (time|offer|places?|spots?)|only \d+ (left|spots?|places?)/i);
     expect(text).not.toMatch(/act now|hurry|don'?t miss|last chance|ends (soon|today|in)/i);
@@ -847,9 +878,9 @@ describe("the footer's legal links", () => {
    * document is covered the moment it is registered. A hand-written expectation would be
    * the second enumeration whose drift this test exists to prevent.
    */
-  it("links to every legal document, derived from the registry", () => {
+  it("links to every legal document, derived from the registry", async () => {
     stubApi({});
-    render(<Home />);
+    render(await Home());
 
     for (const doc of LEGAL_DOCUMENTS) {
       const link = screen.getByRole("link", { name: doc.title });
@@ -857,9 +888,9 @@ describe("the footer's legal links", () => {
     }
   });
 
-  it("groups them in a labelled navigation landmark", () => {
+  it("groups them in a labelled navigation landmark", async () => {
     stubApi({});
-    render(<Home />);
+    render(await Home());
 
     // A bare list of links in a footer is reachable but unnavigable: a screen-reader user
     // moving by landmark needs this group to announce itself, and "Legal" is what
@@ -885,15 +916,15 @@ describe("the ROI calculator", () => {
     return el as HTMLElement;
   }
 
-  it("shows the published self-serve rate as its Calevate input", () => {
-    const { container } = render(<Home />);
+  it("shows the published self-serve rate as its Calevate input", async () => {
+    const { container } = render(await Home());
     // ₹5.00/min must appear, and it must be inside the calculator (never leaking into the
     // rest of the page, which the no-price bans still guard).
     expect(calc(container).textContent).toContain("₹5.00/min");
   });
 
-  it("computes headcount and recomputes live when call volume changes", () => {
-    const { container } = render(<Home />);
+  it("computes headcount and recomputes live when call volume changes", async () => {
+    const { container } = render(await Home());
     // Two controls share the "Calls a day" name (a number field and a slider); the
     // spinbutton is the one a buyer types into.
     const callsField = screen.getByRole("spinbutton", { name: "Calls a day" });
@@ -911,8 +942,8 @@ describe("the ROI calculator", () => {
     expect(calc(container).textContent).toMatch(/hire\s*1\s*telecaller(?!s)/);
   });
 
-  it("recomputes the Calevate monthly figure as inputs change", () => {
-    const { container } = render(<Home />);
+  it("recomputes the Calevate monthly figure as inputs change", async () => {
+    const { container } = render(await Home());
     // Default 200 × 26 × 2 min × ₹5 = ₹52,000.00.
     expect(calc(container).textContent).toContain("₹52,000.00");
     fireEvent.change(screen.getByRole("spinbutton", { name: "Calls a day" }), {
@@ -922,8 +953,8 @@ describe("the ROI calculator", () => {
     expect(calc(container).textContent).toContain("₹26,000.00");
   });
 
-  it("exposes an assumptions disclosure, closed by default and labelled illustrative", () => {
-    const { container } = render(<Home />);
+  it("exposes an assumptions disclosure, closed by default and labelled illustrative", async () => {
+    const { container } = render(await Home());
     // The calculator now carries two disclosures (the benchmark assumptions and the "How
     // we calculate" note). This asserts the ASSUMPTIONS one — where working days and the
     // telecaller benchmarks now live, collapsed so the two primary inputs stay uncluttered.
@@ -956,8 +987,8 @@ describe("the ROI calculator", () => {
     fireEvent.click(screen.getByRole("radio", { name: /Calevate calls first/i }));
   }
 
-  it("defaults to the head-to-head comparison and offers the two-stage one", () => {
-    render(<Home />);
+  it("defaults to the head-to-head comparison and offers the two-stage one", async () => {
+    render(await Home());
     const group = screen.getByRole("radiogroup", { name: "What you want Calevate to do" });
     expect(group).not.toBeNull();
     const answers = screen.getByRole("radio", { name: /Calevate answers the calls/i });
@@ -970,8 +1001,8 @@ describe("the ROI calculator", () => {
     expect(screen.queryByRole("spinbutton", { name: "Calevate's first call" })).toBeNull();
   });
 
-  it("reveals exactly two extra controls in the two-stage mode, both labelled", () => {
-    render(<Home />);
+  it("reveals exactly two extra controls in the two-stage mode, both labelled", async () => {
+    render(await Home());
     chooseTwoStage();
     expect(screen.getByRole("radio", { name: /Calevate calls first/i }).getAttribute("aria-checked")).toBe("true");
     // Labelled number field AND slider for each, the same pair every other input uses.
@@ -988,8 +1019,8 @@ describe("the ROI calculator", () => {
     expect(screen.queryByRole("spinbutton", { name: "Average call length" })).toBeNull();
   });
 
-  it("shows the worked two-stage arithmetic at 200 calls a day and 6-minute conversations", () => {
-    const { container } = render(<Home />);
+  it("shows the worked two-stage arithmetic at 200 calls a day and 6-minute conversations", async () => {
+    const { container } = render(await Home());
     chooseTwoStage();
     fireEvent.change(
       screen.getByRole("spinbutton", { name: "How long a real sales conversation runs" }),
@@ -1013,8 +1044,8 @@ describe("the ROI calculator", () => {
     expect(text).toMatch(/364[^]*hours a month/);
   });
 
-  it("says so plainly when the two-stage funnel costs MORE", () => {
-    const { container } = render(<Home />);
+  it("says so plainly when the two-stage funnel costs MORE", async () => {
+    const { container } = render(await Home());
     chooseTwoStage();
     // Everything on the list worth a conversation = nothing for a first call to filter, so
     // it is an extra call on top of the same team. A calculator that cannot lose is a
@@ -1025,8 +1056,8 @@ describe("the ROI calculator", () => {
     expect(calc(container).textContent).toMatch(/costs\s*₹[\d,]+\.\d\d\s*more a month, not less/);
   });
 
-  it("points a long-call buyer at the two-stage mode instead of losing the argument", () => {
-    const { container } = render(<Home />);
+  it("points a long-call buyer at the two-stage mode instead of losing the argument", async () => {
+    const { container } = render(await Home());
     // At six minutes the head-to-head comparison is not a comparison of alternatives. The
     // page must name that rather than quietly showing a losing number.
     expect(calc(container).textContent).not.toMatch(/is a sales conversation/);
@@ -1036,8 +1067,8 @@ describe("the ROI calculator", () => {
     expect(calc(container).textContent).toMatch(/6-minute call is a\s*sales conversation/);
   });
 
-  it("offers the missed-lead value as an opt-in, off by default", () => {
-    const { container } = render(<Home />);
+  it("offers the missed-lead value as an opt-in, off by default", async () => {
+    const { container } = render(await Home());
     const toggle = screen.getByRole("checkbox", {
       name: /value of the leads at stake/i,
     });

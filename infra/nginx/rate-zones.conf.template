@@ -57,8 +57,10 @@ limit_req_zone $binary_remote_addr zone=webhooks:10m rate=600r/m;
 limit_req_zone $binary_remote_addr zone=health:5m rate=60r/m;
 
 # THE BROWSER CONSOLES, and this zone is named for what uses it rather than for what it
-# used to be called. It is applied in exactly three places — the `location /` of the
-# marketing, client-console and admin-console vhosts — and nowhere else. It was called
+# used to be called. It is applied in exactly four places — the `location /` of the
+# marketing, client-console and admin-console vhosts, and the api vhost's
+# `location ^~ /v1/public/` (D-545), whose one caller is the marketing vhost's own server
+# and whose content is a rate card with no database behind it — and nowhere else. It was called
 # `default` and described as "everything not matched by a more specific location,
 # including the public lead-intake endpoint's IP dimension", which was never true of this
 # deployment: lead intake arrives on the api vhost, whose `location /` is `client_api`.

@@ -493,6 +493,16 @@ PUBLIC_PREFIXES: tuple[str, ...] = (
     # (`compliance/caller_data_routes`), because that is the mechanism their inbound data
     # -source feature offers. The trailing slash keeps this to the fetch itself.
     "/v1/engine/caller-data/",
+    # The public SELF-SERVE RATE CARD (D-545): the list rate and the credit-pack ladder,
+    # read by the marketing site's server to put "from ₹X/min" on `/pricing` and the live
+    # rate into the ROI calculator. Unauthenticated because its only reader holds no
+    # session and its only content is five code constants and one console setting,
+    # identical for everyone — there is no tenant, no principal and nothing about the
+    # caller in the body, and the same builder serves the authenticated `/packs` read
+    # (`billing/payment_routes.rate_card_out`). A GET that mutates nothing; the trailing
+    # slash keeps the exemption to this surface, and `check_public_routes` requires every
+    # route mounted under it to be declared by name.
+    "/v1/public/",
 )
 
 #: Path prefixes whose every route must enforce `realm="admin"`.

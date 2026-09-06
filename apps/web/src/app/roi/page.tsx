@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { fetchPublicRateCard } from "@/lib/api/rateCard";
 import Link from "next/link";
 
 import {
@@ -140,7 +141,12 @@ const AGAINST: readonly { term: string; detail: string }[] = [
   },
 ];
 
-export default function RoiPage() {
+export default async function RoiPage() {
+  // Same fetch as the homepage and for the same reason (D-545). Deliberately NOT hoisted
+  // into a shared helper: it is one awaited call, and a wrapper whose whole body is
+  // `await fetchPublicRateCard()` would be indirection with nothing inside it.
+  const rateCard = await fetchPublicRateCard();
+
   return (
     <MarketingPage>
       <PageIntro
@@ -160,7 +166,7 @@ export default function RoiPage() {
             Nothing here is submitted anywhere — the page makes no request and stores
             nothing. Change any input and every figure recomputes in front of you.
           </p>
-          <RoiCalculator />
+          <RoiCalculator rateCard={rateCard} />
         </div>
       </section>
 

@@ -12,7 +12,15 @@ import { LEGAL_DOCUMENTS } from "@/lib/legal";
 import { WHERE_IT_RUNS } from "@/lib/marketing/compliance";
 import { INDUSTRIES } from "@/lib/marketing/industries";
 
+import { RATE_CARD, RATE_CARD_ROUTES } from "./fixtures/rateCard";
 import { stubApi } from "./harness";
+
+
+/** `"50000.00"` → `"₹50,000"`. The page's own rule: whole rupees drop the paise. */
+function formatAmountForTest(amount: string): string {
+  const whole = Number(amount.split(".")[0]).toLocaleString("en-IN");
+  return `₹${whole}`;
+}
 
 /**
  * The seven interior marketing pages, held to the homepage's rules.
@@ -28,12 +36,26 @@ import { stubApi } from "./harness";
  * manufactured urgency, or proof we do not have.
  */
 
-const PAGES: readonly { name: string; element: () => React.ReactElement }[] = [
+/**
+ * `/pricing` and `/roi` are ASYNC server components since D-545 — they await the public
+ * rate card so no price on the site is a number typed into the bundle. `element()` is
+ * therefore awaited below, and the union is what lets the seven pages stay in one list
+ * rather than splitting into a sync table and an async one that drift apart.
+ */
+const PAGES: readonly {
+  name: string;
+  element: () => React.ReactElement | Promise<React.ReactElement>;
+}[] = [
+  // NOTE the two async entries are CALLED (`PricingPage()`) rather than elemented
+  // (`<PricingPage />`). An element whose type is an async function is not a thenable:
+  // awaiting it returns the element unchanged, React renders nothing, and every assertion
+  // below fails against an empty container for a reason that has nothing to do with the
+  // page. Calling it returns the promise of its tree, which is what `render` needs.
   { name: "/solutions", element: () => <SolutionsPage /> },
   { name: "/industries", element: () => <IndustriesPage /> },
   { name: "/why-calevate", element: () => <WhyCalevatePage /> },
-  { name: "/pricing", element: () => <PricingPage /> },
-  { name: "/roi", element: () => <RoiPage /> },
+  { name: "/pricing", element: () => PricingPage() },
+  { name: "/roi", element: () => RoiPage() },
   { name: "/security", element: () => <SecurityPage /> },
   { name: "/resources", element: () => <ResourcesPage /> },
 ];
@@ -66,9 +88,9 @@ function assertedText(container: HTMLElement): string {
 }
 
 describe("every marketing page", () => {
-  it.each(PAGES)("$name is a complete, single-headed document", ({ element }) => {
-    stubApi({});
-    const { container } = render(element());
+  it.each(PAGES)("$name is a complete, single-headed document", async ({ element }) => {
+    stubApi(RATE_CARD_ROUTES);
+    const { container } = render(await element());
     // One `<h1>`: these are documents, and a page with two of them (or none) has no
     // subject a screen-reader user can land on.
     expect(container.querySelectorAll("h1")).toHaveLength(1);
@@ -82,9 +104,9 @@ describe("every marketing page", () => {
     expect(bodyText(container).length).toBeGreaterThan(1500);
   });
 
-  it.each(PAGES)("$name claims no customer, logo or testimonial", ({ element }) => {
-    stubApi({});
-    const { container } = render(element());
+  it.each(PAGES)("$name claims no customer, logo or testimonial", async ({ element }) => {
+    stubApi(RATE_CARD_ROUTES);
+    const { container } = render(await element());
     const text = assertedText(container);
     expect(text).not.toMatch(/trusted by|our customers say|case study|success story/i);
     expect(text).not.toMatch(/\d+\+?\s*(businesses|clients|companies|customers)\b/i);
@@ -95,9 +117,9 @@ describe("every marketing page", () => {
     }
   });
 
-  it.each(PAGES)("$name manufactures no urgency", ({ element }) => {
-    stubApi({});
-    const { container } = render(element());
+  it.each(PAGES)("$name manufactures no urgency", async ({ element }) => {
+    stubApi(RATE_CARD_ROUTES);
+    const { container } = render(await element());
     const text = assertedText(container);
     expect(text).not.toMatch(/limited (time|offer|places?|spots?)|only \d+ (left|spots?)/i);
     // `ends soon` and `ends today`, not a bare `ends in` — "an enquiry that ends in"
@@ -106,9 +128,9 @@ describe("every marketing page", () => {
     expect(text).not.toMatch(/\bwait ?list\b|early bird|founding (member|client)s?/i);
   });
 
-  it.each(PAGES)("$name offers no audio and calls nothing a recorded sample", ({ element }) => {
-    stubApi({});
-    const { container } = render(element());
+  it.each(PAGES)("$name offers no audio and calls nothing a recorded sample", async ({ element }) => {
+    stubApi(RATE_CARD_ROUTES);
+    const { container } = render(await element());
     // There is no call audio in this repository. A "hear a sample call" control would be a
     // button with nothing behind it, which is the same defect as a link to a route nobody
     // mounted. `/why-calevate` names the phrase in order to REFUSE it, so the ban is on the
@@ -144,23 +166,37 @@ describe("the why-calevate page's refusals", () => {
 });
 
 /**
- * THE PRICING PAGE PUBLISHES NO NUMBER, AND THAT IS THE WHOLE POINT OF IT.
+ * THE PRICING PAGE PUBLISHES NO MANAGED-PLAN NUMBER, AND THE BAN IS NOW SCOPED TO SAY SO.
  *
- * Commercial terms are negotiated per client (D-11) and every money column on `plans` is
- * nullable with no default — two of them say in their own comments that the figure "is a
- * founder decision" and that no default may be invented. So a rate typed onto that page
- * would be a quote nobody can honour, invented by whoever was writing marketing copy. That
- * is the exact failure hard rule 11 exists for, and it is worse here than anywhere because
- * a price is the one claim a buyer relies on before they have met anybody.
+ * ⚠ THIS BAN USED TO COVER THE WHOLE PAGE. It was narrowed on 5 Sep 2026 (D-545), on
+ * purpose and with the founder's decision behind it — not because a figure got past it.
  *
- * The ban is on DIGITS NEXT TO MONEY rather than on the word "price", because the page's
- * entire job is to describe the shape of the bill.
+ * What has not changed: commercial terms for a MANAGED plan are negotiated per client
+ * (D-11) and every money column on `plans` is nullable with no default, two of them saying
+ * in their own comments that the figure "is a founder decision" and that no default may be
+ * invented. A managed rate typed onto this page would be a quote nobody can honour,
+ * invented by whoever was writing marketing copy — hard rule 11's exact failure, and worse
+ * here than anywhere, because a price is the one claim a buyer relies on before they have
+ * met anybody.
+ *
+ * What changed: the SELF-SERVE rate card is not that. It is a live, operator-set price
+ * (`self_serve_inr_per_min`) with a pack ladder whose effective rates are computed by the
+ * same functions the margin guard uses, fetched at request time from
+ * `GET /v1/public/rate-card` and never typed into the bundle. Refusing to print it was
+ * making the page read as though we would not say what anything costs — while the ₹50,000
+ * pack already delivered a rate below the list one.
+ *
+ * So the ban now runs against the page WITHOUT `#self-serve`, and a second test asserts
+ * that the figures inside that section are the ones the API sent. A managed-plan figure
+ * appearing anywhere still fails here, which is the property that was always worth having.
  */
 describe("the pricing page", () => {
-  it("describes the shape of the bill and names no figure", () => {
-    stubApi({});
-    const { container } = render(<PricingPage />);
-    const text = bodyText(container);
+  it("names no managed-plan figure outside the published self-serve card", async () => {
+    stubApi(RATE_CARD_ROUTES);
+    const { container } = render(await PricingPage());
+    const selfServe = container.querySelector("#self-serve");
+    expect(selfServe, "the self-serve section is missing").not.toBeNull();
+    const text = bodyText(container).replace(selfServe?.textContent ?? "", "");
     expect(text).not.toContain("₹");
     expect(text).not.toMatch(/\bRs\.?\s*\d/i);
     expect(text).not.toMatch(/\d[\d,]*\s*(per minute|\/min|a minute|per month|\/mo\b)/i);
@@ -171,9 +207,38 @@ describe("the pricing page", () => {
     expect(text).toMatch(/agreed with you/i);
   });
 
-  it("sends the reader to the one place a real figure lives", () => {
+  it("prints the self-serve card the API sent, and nothing it did not", async () => {
+    stubApi(RATE_CARD_ROUTES);
+    const { container } = render(await PricingPage());
+    const selfServe = container.querySelector("#self-serve");
+    const text = selfServe?.textContent ?? "";
+    // The headline figure is the card's own `from_inr_per_min`, rounded to the paisa by
+    // the page — 4.6296 is what the API sends and ₹4.63 is what a buyer reads.
+    expect(text).toContain("₹4.63");
+    expect(text).toContain("₹5.00");
+    // Every rung, priced. A ladder that silently rendered four of five would still pass a
+    // "contains ₹4.63" assertion, which is why this counts rows against the fixture.
+    expect(selfServe?.querySelectorAll("tbody tr")).toHaveLength(RATE_CARD.packs.length);
+    for (const pack of RATE_CARD.packs) {
+      expect(text).toContain(formatAmountForTest(pack.amount_inr));
+    }
+  });
+
+  it("shows no price at all when the rate card cannot be loaded", async () => {
+    // The honest state, and the reason it is asserted: a page that fell back to a typed
+    // constant would look identical to a working one while quoting a rate nobody set.
     stubApi({});
-    const { container } = render(<PricingPage />);
+    const { container } = render(await PricingPage());
+    const selfServe = container.querySelector("#self-serve");
+    const text = selfServe?.textContent ?? "";
+    expect(text).toMatch(/could not be loaded/i);
+    expect(text).not.toContain("₹");
+    expect(selfServe?.querySelector("table")).toBeNull();
+  });
+
+  it("sends the reader to the one place a real figure lives", async () => {
+    stubApi(RATE_CARD_ROUTES);
+    const { container } = render(await PricingPage());
     const hrefs = [...container.querySelectorAll("main a[href]")].map((a) =>
       a.getAttribute("href"),
     );
@@ -269,9 +334,9 @@ describe("the industries page", () => {
  * they were written and disagree about money by the time anybody noticed.
  */
 describe("the ROI page", () => {
-  it("renders the shared calculator, once", () => {
-    stubApi({});
-    const { container } = render(<RoiPage />);
+  it("renders the shared calculator, once", async () => {
+    stubApi(RATE_CARD_ROUTES);
+    const { container } = render(await RoiPage());
     expect(container.querySelectorAll("[data-roi-calculator]")).toHaveLength(1);
     // The methodology the homepage hides is OPEN here — that is the page's reason to exist.
     const text = bodyText(container);

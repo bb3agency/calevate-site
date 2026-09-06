@@ -94,6 +94,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.billing.ai_quota_routes import router as ai_quota_router
     from apps.api.billing.cap_routes import router as caps_router
     from apps.api.billing.credit_routes import router as credits_admin_router
+    from apps.api.billing.payment_routes import public_router as public_rate_card_router
     from apps.api.billing.payment_routes import refund_router
     from apps.api.billing.payment_routes import router as topups_router
     from apps.api.billing.payment_routes import webhook_router as razorpay_router
@@ -336,6 +337,10 @@ def _mount_routers(application: FastAPI) -> None:
     # swallow it. FastAPI matches in declaration order (see `voice_router` above).
     application.include_router(caps_router)
     application.include_router(topups_router)
+    # The public rate card (D-545): `GET /v1/public/rate-card`, the one unauthenticated
+    # read in the API that is not a probe, a webhook or an auth flow. Its own prefix so
+    # the RBAC exemption is exactly this surface (`core/rbac.PUBLIC_PREFIXES`).
+    application.include_router(public_rate_card_router)
     application.include_router(razorpay_router)
     application.include_router(refund_router)
     # The client's own invoice — the same `build_invoice` the admin route serves, in the
