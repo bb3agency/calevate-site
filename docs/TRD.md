@@ -1504,6 +1504,34 @@ A third vendor appears that we had not tracked: **Smallest.ai** (Indian TTS) at 
 *(Smallest's public rate reads ~$0.09/min of generated audio, which is too vague and too high
 to reconcile — do not build on it without direct verification.)*
 
+> ⚠⚠ **"SARVAM IS THEIR CHEAPEST TIER" IS TRUE AND HAS ALREADY MISLED A READER OF THIS
+> DOCUMENT. THE VENDOR IS NOT THE MODEL.** On 6 Sep 2026 a session read that sentence and
+> concluded that Outpero sell *"the identical Sarvam voice at ₹3/min — same inputs, 40%
+> cheaper"*, and carried that into a pricing recommendation. It is wrong, and the arithmetic
+> in this very section is what refutes it: **a ₹3/min tier cannot carry a Bulbul v3 TTS
+> leg.** §10.1 prices v3 at **₹1.08–1.62/call-minute** and v2 at **₹0.54–0.81** (v2 was live
+> at half the v3 rate). Add STT ₹0.50, an LLM leg and any telephony, and ₹3 does not close
+> on v3 at any plausible margin; on v2 it closes at roughly break-even.
+>
+> **FOUNDER EAR-TEST, 6 Sep 2026 (FOUNDER-OBSERVED, relayed):** the ₹3 tier "literally
+> robotic voices". That is consistent with **Bulbul v2** and not with v3, and it is the
+> evidence that settles which Sarvam model sits behind `rates.sarvam_per_min`. Their ₹7
+> premium is Cartesia; our single voice is **Bulbul v3**, two rungs above their cheapest
+> and one below their dearest, at ₹5.00.
+>
+> So the honest competitive line is **not** "they undercut us on the same voice" — it is
+> that our only voice is better than the one they sell at ₹3 and priced 29% under the one
+> they sell at ₹7. ⚠ **WHAT IS STILL UNVERIFIED, AND MUST NOT BE WRITTEN AS FACT:** whether
+> Bulbul v3 *matches* Cartesia's quality. That is an ear judgement nobody in this tree has
+> made on Telugu clinic sentences (§5 already lists it as "ear-test at verification"), so
+> "premium voice at the standard price" stays a claim awaiting a dated founder attestation.
+>
+> **THE GENERAL LESSON, which is why this note is this long:** the tier table above is
+> VERIFIED evidence about *which vendor* serves each rung, and says nothing about *which
+> model*. A verified fact read one field wider than it was measured is exactly the hard
+> rule 11 failure the rule was written for, and it happened here to a reader who had the
+> refuting numbers on the same page.
+
 | Input | Value | Confidence |
 |---|---|---|
 | STT (Sarvam) | ₹0.50/min | **verified rate** |
