@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
-from typing import Annotated, Any, Final, Literal
+from typing import Annotated, Any, Final, Literal, get_args
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Header, Query, Request
@@ -56,7 +56,7 @@ from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.db.transition import transition_status
 from apps.api.kb import service as kb_service
-from apps.workers.account_closure import enqueue_notice_address_changed
+from apps.workers.account_closure import NOTICE_JOB, enqueue_notice_address_changed
 
 log = get_logger(__name__)
 
@@ -297,15 +297,73 @@ async def get_tenant(
     return TenantSummary.model_validate(rows[0])
 
 
+def notice_address_confirmation(tenant_id: UUID) -> str:
+    """The `X-Confirm-Action` string for re-pointing where ONE client's notices go.
+
+    A named function for `closure_routes.close_account_confirmation`'s reason: the value
+    is part of an operator procedure, so changing its shape has to be a deliberate edit
+    that fails a test rather than a reformat leaving the console sending a refused header.
+
+    **WHY A CHANGE THAT GRANTS NOTHING TAKES A SECOND FACTOR.** `billing_email` is not a
+    login identity — `users.email` is the credential and `apps/api/authn/` is the only
+    thing that mints a session from one — so nobody gains access by moving it. What they
+    gain is the CHANNEL: every notice this account is owed (the closure notice with its
+    erasure date, the invoice, the hot-lead alert) is addressed from this column at
+    delivery time, so an unattended console can quietly redirect a business's mail without
+    touching a credential. That is the shape OWASP's registered-address control is written
+    for, and the half of it we can enforce here — the operator proving it is still them —
+    is worth the friction on a field that moves perhaps twice in an account's life.
+
+    Bound to the TENANT, so a confirmation captured while correcting one client's address
+    cannot be replayed against the next one in the directory.
+    """
+    return f"change_notice_address:{tenant_id}"
+
+
+async def _pending_account_notices(session: AsyncSession, *, tenant_id: UUID) -> int:
+    """How many of this account's notices are queued and not yet published.
+
+    Counts `outbox_messages` rows for the account-notice job that are still `pending` AND
+    carry no explicit recipient — those are exactly the rows that will resolve their
+    address at delivery time from the column this edit just moved. A row that already
+    carries `to` (the address-change notice itself) is not retargeted by anything and is
+    not counted.
+
+    `outbox_messages` has no tenant policy and deliberately cannot have one — the
+    dispatcher scans across every tenant to order the queue by age (`db/registry.py`
+    records the whole argument) — so the tenant is matched inside the payload, which is
+    where the producers put it.
+    """
+    return int(
+        (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM outbox_messages "
+                    "WHERE job = :job AND status = 'pending' "
+                    "  AND payload ->> 'tenant_id' = :tid "
+                    "  AND coalesce(payload ->> 'to', '') = ''"
+                ),
+                {"job": NOTICE_JOB, "tid": str(tenant_id)},
+            )
+        ).scalar()
+        or 0
+    )
+
+
 class EditTenantIn(BaseModel):
     """The client's OWN details, and nothing else on the row.
 
-    `extra="forbid"` and exactly two fields, matching `service.EDITABLE_TENANT_FIELDS`.
+    `extra="forbid"` and exactly the fields in `service.EDITABLE_TENANT_FIELDS`.
     `status`, `plan_tier`, the closure columns and the model choice each have their own
-    route, their own permission and — for three of them — their own step-up; a
+    route, their own permission and — for four of them — their own step-up; a
     general-purpose PATCH over `organizations` would quietly become a second door to all of
     them. `slug` is not offered because it is in client URLs and a trigger makes it
     immutable.
+
+    **D-545 ADDED `vertical_template` AND THAT IS THE WHOLE OF "EVERYTHING EXCEPT THE
+    SLUG".** The founder's words were taken to the column list rather than to a wish-list:
+    `service.EDITABLE_TENANT_FIELDS` records what walking `Organization` found, and why
+    there is no `phone` and no `language` field here to widen towards.
 
     The BUSINESS ADDRESS is deliberately not here. It lives in the intake answer sheet
     (`organizations.intake`, `admin/intake.Branch.address`) because a business can have
@@ -324,10 +382,24 @@ class EditTenantIn(BaseModel):
     #: access to anything. It is still a channel change, which is why the OLD address is
     #: told (see the route).
     billing_email: EmailStr | None = None
+    #: WHICH TEMPLATE THIS BUSINESS IS. It picks the extraction schema a new agent is born
+    #: with, decides whether the first-campaign hold and subscriber KYC apply through
+    #: `compliance/service`, and — the one an operator will not guess —
+    #: `compliance/caller_memory.SPDI_REFUSED_VERTICALS` refuses cross-call memory for a
+    #: `clinic`, so moving a client ONTO clinic can withdraw a capability their agents are
+    #: using today. That is why the route names the consequence rather than saving quietly.
+    #:
+    #: The SAME `Vertical` literal `CreateOrgIn` takes, not a second list: a value outside
+    #: it is a 422 that names the ones allowed, which is the refusal an operator can act on,
+    #: and one enum means the wizard and the correction cannot disagree about what a
+    #: vertical is. It does NOT retro-fit existing agents' extraction schemas — those are
+    #: per-agent rows an operator edits on the agent, and rewriting them from here would
+    #: destroy fields a client has been collecting into.
+    vertical_template: Vertical | None = None
 
     @model_validator(mode="after")
     def _something_must_change(self) -> EditTenantIn:
-        if self.name is None and self.billing_email is None:
+        if self.name is None and self.billing_email is None and self.vertical_template is None:
             raise ValueError("send at least one field to change")
         return self
 
@@ -340,30 +412,58 @@ class EditTenantOut(BaseModel):
     #: form unchanged returns `[]` — the honest result, and the one that keeps the audit
     #: chain a record of changes rather than of clicks.
     changed: list[str]
+    #: HOW MANY OF THIS ACCOUNT'S NOTICES WERE STILL UNSENT WHEN THE ADDRESS MOVED, so the
+    #: retarget is SAID rather than discovered (D-545).
+    #:
+    #: The finding it reports: `workers/account_closure.notify_account_closed` resolves its
+    #: recipients AT DELIVERY TIME (`_recipients` reads `organizations.billing_email` and
+    #: the account's active owners) and NOT at enqueue. Only the address-change notice
+    #: carries an explicit `to`, and only because by then the row no longer holds the
+    #: address it must reach. So a closure notice sitting in `outbox_messages` when this
+    #: edit commits WILL be delivered to the new address.
+    #:
+    #: That is left as the behaviour and reported instead of being changed, deliberately:
+    #: pinning recipients at enqueue would send a client's closure notice to an address the
+    #: operator has since established is dead, which is the failure the resend path exists
+    #: to fix. What was wrong was that it happened SILENTLY. It is now on the screen, in the
+    #: response, and in the audit summary of the address change.
+    #:
+    #: Zero for every edit that does not touch the address, and zero for the ordinary case
+    #: where nothing is queued.
+    pending_notices_retargeted: int = 0
 
 
 @router.patch(
     "/tenants/{tenant_id}",
     response_model=EditTenantOut,
     openapi_extra=permission_meta("admin:tenants"),
-    summary="Correct a client's name or the address their notices go to",
+    summary="Correct a client's business record — everything about it except the slug",
     description=(
-        "Edits the two details that are the client's own: the business name and the "
-        "billing address notices are sent to. Every changed field is audited under its own "
-        "action with the value it replaced. Saving unchanged values returns `changed: []` "
-        "and writes nothing. The billing address is NOT a login identity — the credential "
-        "is the member's own address and this grants nobody access — but it IS where the "
-        "account's notices go, so the PREVIOUS address is told that it changed and given a "
-        "way to object. Refused for a client whose data has been erased. The business "
-        "ADDRESS, plan tier, credits, lifecycle state, KYC and DLT registration each have "
-        "their own screen; this route deliberately cannot reach them."
+        "Edits the details that are the client's own: the business name, the billing "
+        "address their notices are sent to, and the vertical template. Every changed field "
+        "is audited under its own action with the value it replaced. Saving unchanged "
+        "values returns `changed: []` and writes nothing. The billing address is NOT a "
+        "login identity — the credential is the member's own address and this grants "
+        "nobody access — but it IS where the account's notices go, so changing it needs "
+        "the header `X-Confirm-Action: change_notice_address:<tenant_id>`, the PREVIOUS "
+        "address is told that it changed and given a way to object, and the response says "
+        "how many already-queued notices will now be delivered to the new address. "
+        "Refused for a client whose data has been erased. The slug cannot change (it is "
+        "in every URL the client holds, and a database trigger refuses it); the business "
+        "ADDRESS lives in the intake answer sheet; plan tier, credits, lifecycle state, "
+        "closure, KYC and DLT registration each have their own screen, and this route "
+        "deliberately cannot reach any of them."
     ),
 )
 async def edit_tenant(
     tenant_id: UUID,
     payload: EditTenantIn,
     request: Request,
+    # Resolved BEFORE the handler body, so the session read cannot happen inside an open
+    # transaction (`core/stepup.py` on `max_overflow=0`).
+    step_up: StepUpGate,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+    x_confirm_action: str | None = Header(default=None),
 ) -> EditTenantOut:
     """The edit, the notice to the OLD address and the audit rows, in one transaction.
 
@@ -388,12 +488,43 @@ async def edit_tenant(
     they have spoken to, not a self-service change by whoever holds a session, and there is
     no self-service edit of this field at all. The client-realm flow that would need both
     round trips does not exist yet, and D-538 records it as open rather than half-built.
+
+    **WHAT WAS FOUND ABOUT NOTICES ALREADY IN THE QUEUE (D-545), STATED RATHER THAN
+    QUIETLY CHANGED.** `workers/account_closure.notify_account_closed` resolves its
+    recipients when it RUNS, not when it is enqueued: `_recipients` reads
+    `organizations.billing_email` and the account's active owners at delivery. The only
+    notice that carries an address in its payload is the address-change notice itself, and
+    only because by the time it runs the row no longer holds the address it has to reach.
+    So a closure notice sitting in `outbox_messages` when this edit commits is delivered to
+    the NEW address.
+
+    That behaviour is kept. Pinning recipients at enqueue would mail a client's closure
+    notice — the one carrying a destruction date — to the address an operator has just
+    established is dead, which is the exact failure the invitation resend path exists to
+    repair. What was wrong is that it happened with nobody told: the count now comes back
+    in `pending_notices_retargeted`, is rendered on the screen beside the save, and is its
+    own audit row. `enqueue_notice_address_changed` is unaffected either way — it carries
+    its recipient explicitly and reaches the address being replaced.
+
+    **THE ADDRESS CHANGE TAKES A STEP-UP AND THE OTHER TWO FIELDS DO NOT.** The split is
+    `set_tenant_status`'s own rule applied to a field rather than a verb: a second factor
+    confirms the change that redirects something, and a business name or a vertical
+    template redirects nothing and is corrected by typing the right value again.
+    `notice_address_confirmation` argues why a change that grants no access still counts.
     """
+    if payload.billing_email is not None:
+        step_up.require(x_confirm_action, notice_address_confirmation(tenant_id))
+
     changes = {
         field: value
-        for field, value in (("name", payload.name), ("billing_email", payload.billing_email))
+        for field, value in (
+            ("name", payload.name),
+            ("billing_email", payload.billing_email),
+            ("vertical_template", payload.vertical_template),
+        )
         if value is not None
     }
+    retargeted = 0
     async with tenant_session(tenant_id) as scoped:
         previous_notice_address = (
             await scoped.execute(
@@ -418,11 +549,105 @@ async def edit_tenant(
                 # and the VALUE is in the operational record.
                 summary={"field": edit.field, "before": edit.before, "after": edit.after},
             )
-        if any(edit.field == "billing_email" for edit in edits) and previous_notice_address:
-            await enqueue_notice_address_changed(
-                scoped, tenant_id=tenant_id, to=str(previous_notice_address)
-            )
-    return EditTenantOut(tenant_id=tenant_id, changed=[edit.field for edit in edits])
+        if any(edit.field == "billing_email" for edit in edits):
+            retargeted = await _pending_account_notices(scoped, tenant_id=tenant_id)
+            if retargeted:
+                # A SECOND, SEPARATE ROW, because it is a second fact: "the address moved"
+                # and "N notices we had already promised this client will now go to the new
+                # one" are answers to different questions, and burying the count inside the
+                # first row's summary would put it where nobody queries for it.
+                await write_audit(
+                    scoped,
+                    action="organization.queued_notices_retargeted",
+                    actor=principal,
+                    tenant_id=tenant_id,
+                    object_type="organization",
+                    object_id=str(tenant_id),
+                    ip=client_request_ip(request),
+                    summary={"pending": retargeted},
+                )
+            if previous_notice_address:
+                await enqueue_notice_address_changed(
+                    scoped, tenant_id=tenant_id, to=str(previous_notice_address)
+                )
+    return EditTenantOut(
+        tenant_id=tenant_id,
+        changed=[edit.field for edit in edits],
+        pending_notices_retargeted=retargeted,
+    )
+
+
+class TenantProfileOut(BaseModel):
+    """A client's business record as the correction form reads it back (D-545).
+
+    ITS OWN ROUTE RATHER THAN A WIDER `GET /v1/admin/tenants/{id}`, and the reason is the
+    address. That endpoint is the DIRECTORY row — `service.tenant_overview` runs the same
+    statement for every account when the console lists clients — so adding `billing_email`
+    to it would disclose every client's contact address on the roster, on the detail screen
+    and in the copilot's surface facts, to serve one form. One tenant, one read, recorded
+    as an impersonation read because a business's contact address is that business's own
+    data (D-482 L-1).
+
+    `slug` is here and is NOT editable, deliberately: the form shows it greyed with the
+    reason beside it, because a field an operator cannot find is a field they will ask
+    about, and "it is in every URL your client has bookmarked" is the answer.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tenant_id: UUID
+    name: str
+    slug: str
+    status: str
+    billing_email: str | None
+    vertical_template: str | None
+    #: The verticals this account may be moved to, so the form's options and the API's
+    #: `Literal` cannot drift — a console offering a sixth vertical would otherwise learn
+    #: about the 422 from an operator.
+    verticals: list[str]
+
+
+@router.get(
+    "/tenants/{tenant_id}/profile",
+    response_model=TenantProfileOut,
+    openapi_extra=permission_meta("org:read"),
+    summary="The client's own business record — what the correction form edits",
+    description=(
+        "The business name, the address this account's notices go to, the vertical "
+        "template, the immutable slug and the verticals this client may be moved to. "
+        "404 for a client whose data has been erased, matching the PATCH exactly so the "
+        "form and the save cannot disagree about which accounts exist."
+    ),
+)
+async def read_tenant_profile(
+    tenant_id: UUID,
+    request: Request,
+    principal: Principal = Depends(requires("org:read", realm="admin")),
+) -> TenantProfileOut:
+    """`org:read`, not `admin:tenants`, and `list_tenant_invitations` above states why.
+
+    D-22 forbids gating a GET on a permission read-only impersonation refuses, and
+    `admin:tenants` is in `MUTATING_PERMISSIONS` — so gating this read on it would hide
+    "what address do we have for this client" from the support session whose job is to
+    read it back to them over the telephone. The PATCH keeps `admin:tenants`, because
+    changing it is the separate thing.
+    """
+    async with tenant_session(tenant_id) as scoped:
+        profile = await service.read_tenant_profile(scoped, tenant_id=tenant_id)
+        await record_admin_tenant_read(
+            scoped, request=request, principal=principal, tenant_id=tenant_id
+        )
+    return TenantProfileOut(
+        tenant_id=profile.tenant_id,
+        name=profile.name,
+        slug=profile.slug,
+        status=profile.status,
+        billing_email=profile.billing_email,
+        vertical_template=profile.vertical_template,
+        # DERIVED from the `Literal` the PATCH validates against, never retyped (D-104):
+        # a vertical added there appears here in the same edit or in neither.
+        verticals=list(get_args(Vertical)),
+    )
 
 
 @router.post(
@@ -2775,43 +3000,43 @@ async def record_commercial_terms(
 # the tenant is born into and moves out of, not switches. `churned` is absent as a
 # SOURCE from every entry — it is terminal here, and deliberately so: `core/auth.py`
 # already excludes a churned org from every membership resolution, so its users are
-# locked out and its data is on the retention clock. Re-opening that account is a new
-# agreement, which means a new tenant with its own commercial terms rather than a button
-# that silently un-ends an offboarding. A request to leave `churned` therefore gets the
-# 409 `transition_status` raises, naming the state it found.
+# locked out and its data is on the retention clock. A request to leave `churned`
+# therefore gets the 409 `transition_status` raises, naming the state it found;
+# `admin/closure_routes.py::restore` is the one door back and clears all four closure
+# columns together.
+#
+# ⚠ **`churned` IS NO LONGER A TARGET EITHER (D-545, 6 Sep 2026), AND THIS TABLE USED TO
+# CARRY IT.** It is still a legal STORED value — `tenancy/models.ORG_STATUSES` keeps it,
+# the CHECK constraint keeps it, `ck_organizations_closed_implies_churned` REQUIRES it for
+# every closed account, and rows hold it today — so nothing here rewrites history and no
+# migration was written. What it stopped being is something an operator can newly SELECT.
+#
+# The ground is that this route's close and `POST .../closure` were two ways to end one
+# client, and the reachable one was the worse one: it wrote a status, told the client
+# nothing, set no erasure deadline and had no undo, while the other does all three. Two
+# ways to do one thing is a defect even when both work (CLAUDE.md), and here the second one
+# also LOOKED terminal on a screen while the database was perfectly willing to reopen the
+# account. Closing now has exactly one door.
 _LIFECYCLE_FROM: dict[str, tuple[str, ...]] = {
     "active": ("prospect", "onboarding", "suspended"),
     "suspended": ("prospect", "onboarding", "active"),
-    "churned": ("prospect", "onboarding", "active", "suspended"),
 }
 
 # The states an operator must explain. Stopping a client's outbound calling is a support
 # fact somebody will have to answer for later, and "why is this account suspended" with
 # no answer is the ticket nobody can close (`record_kyc` refuses a reasonless rejection
 # for the same reason).
-_NEEDS_REASON = ("suspended", "churned")
-
-# The one transition on this route that cannot be undone, and therefore the one that is
-# confirmed with a second factor.
-_TERMINAL_STATUS = "churned"
-
-
-def close_account_confirmation(tenant_id: UUID) -> str:
-    """The step-up string for CLOSING one client's account for good.
-
-    A named function for the reason `spend_ceiling_confirmation` gives: the value is part
-    of an operator procedure, so changing its shape has to be a deliberate edit that fails
-    a test rather than a reformat that leaves the console sending a header the API
-    refuses. Bound to the TENANT, so a confirmation captured while closing one client
-    cannot be replayed against another.
-    """
-    return f"close_account:{tenant_id}"
+_NEEDS_REASON = ("suspended",)
 
 
 class LifecycleIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    status: Literal["active", "suspended", "churned"]
+    #: TWO MEMBERS, NOT THREE (D-545). `churned` was removed from the Literal rather than
+    #: only from `_LIFECYCLE_FROM`, so the refusal is a 422 naming the two states an
+    #: operator may set — and the generated console client cannot offer a third — instead
+    #: of a 409 that reads as "not from this state" and invites a retry from another one.
+    status: Literal["active", "suspended"]
     # Goes into the audit row verbatim. Required for the two stopping states.
     reason: str | None = Field(default=None, min_length=3, max_length=500)
 
@@ -2836,17 +3061,20 @@ class LifecycleOut(BaseModel):
     "/tenants/{tenant_id}/status",
     response_model=LifecycleOut,
     openapi_extra=permission_meta("admin:tenants"),
-    summary="Suspend, reactivate or close a client account — the switch that stops dialling",
+    summary="Suspend or reactivate a client account — the switch that stops dialling",
     description=(
-        "Moves `organizations.status`. Suspending or closing an account stops its "
-        "OUTBOUND calling at the next dial: `compliance.check_dispatch` refuses "
-        "`account_suspended` / `account_closed`, so the campaign tick, the 'call this "
-        "lead' button and the lead-callback webhook all stop, and the campaign launch "
-        "gate names the same rule. Inbound answering is deliberately unaffected — the "
-        "caller initiated it, and dropping it punishes them rather than the account. "
-        "Idempotent: setting the state an account is already in returns 200 and writes "
-        "no audit row. 409 names the state found when the move is not allowed from it "
-        "— `churned` is terminal. 404 means no such client."
+        "Moves `organizations.status` between `active` and `suspended`. Suspending an "
+        "account stops its OUTBOUND calling at the next dial: `compliance.check_dispatch` "
+        "refuses `account_suspended`, so the campaign tick, the 'call this lead' button "
+        "and the lead-callback webhook all stop, and the campaign launch gate names the "
+        "same rule. Inbound answering is deliberately unaffected — the caller initiated "
+        "it, and dropping it punishes them rather than the account. Idempotent: setting "
+        "the state an account is already in returns 200 and writes no audit row. **This "
+        "route can no longer CLOSE an account**: `POST /v1/admin/tenants/{tenant_id}/"
+        "closure` is the one way, because closing owes the client a notice, an erasure "
+        "date and an undo window that a bare status flip gave none of. 409 names the "
+        "state found when the move is not allowed from it — a closed account is reopened "
+        "by `DELETE .../closure` and by nothing here. 404 means no such client."
     ),
 )
 async def set_tenant_status(
@@ -2854,12 +3082,7 @@ async def set_tenant_status(
     payload: LifecycleIn,
     session: AdminSession,
     request: Request,
-    # Resolved BEFORE the handler body, so the session read cannot happen inside an open
-    # transaction -- `core/stepup.py` on `max_overflow=0`, the same ordering
-    # `ops/routes.py::set_platform` states.
-    step_up: StepUpGate,
     principal: Principal = Depends(requires("admin:tenants", realm="admin")),
-    x_confirm_action: str | None = Header(default=None),
 ) -> LifecycleOut:
     """The repo's shared state-transition primitive, not a second discriminator.
 
@@ -2883,32 +3106,25 @@ async def set_tenant_status(
     answered 404 for that same id on the screen the operator was looking at.
     `service.tenant_exists` is the ONE definition of "is this a live organization" (it
     exists precisely so every surface naming a tenant in its path answers a mistyped uuid
-    the same way), so it is asked here rather than having the predicate copied. `churned`
-    still reaches the transition and still gets the 409 that names it: closed and deleted
-    are different facts and only one of them is reversible.
+    the same way), so it is asked here rather than having the predicate copied. A CLOSED
+    account still reaches the transition and still gets the 409 that names `churned`:
+    closed and deleted are different facts, only one of them is reversible, and reopening
+    is `DELETE .../closure` — which clears the closure columns in the same statement, so it
+    cannot leave the row `ck_organizations_closed_implies_churned` refuses.
 
-    **CLOSING NEEDS A SECOND FACTOR; SUSPENDING DOES NOT**, and the split follows the
-    doctrine `record_commercial_terms` already applies on this router rather than a new
-    one: step-up confirms the move that runs in the DANGEROUS direction, not every write.
-    Suspend and reactivate are a pair — an operator who suspends the wrong account
-    reactivates it, and the reason field and audit row already make them answerable.
-    `churned` has no pair. It is terminal by construction (see `_LIFECYCLE_FROM`: no entry
-    lists it as a source), it locks every one of that client's users out through
-    `core/auth.py`, and it starts the retention clock on their data. Re-opening is a new
-    tenant and a new agreement.
+    **NO STEP-UP HERE ANY MORE, AND THAT IS BECAUSE THE DANGEROUS MOVE LEFT** (D-545).
+    This route used to carry one, on the `churned` transition alone: it was the only
+    irreversible act reachable from the console with nothing but a live admin session.
+    Closing now lives at `closure_routes.close`, which carries its own step-up bound to its
+    own confirmation string (`close_and_schedule_erasure:<id>`) — so the second factor
+    moved with the act rather than being deleted. What is left here is a reversible pair:
+    an operator who suspends the wrong account reactivates it, and the required reason and
+    the audit row already make both answerable. Adding ceremony to a reversible act is how
+    operators learn to type past ceremony.
 
-    That made it the only IRREVERSIBLE action reachable from this console with nothing but
-    a live admin session, while three reversible ones beside it — halting outbound
-    calling, raising a spend ceiling, minting a read-only view-as grant — each demanded a
-    code. An operator whose laptop is open at a coffee shop could end a client
-    relationship in two clicks and could not halt the dialler in ten. Found by walking
-    the console rather than the code, which is why it survived every guard: the step-up
-    census in `tests/authn_stepup_test.py` scopes itself to `apps/api/ops/` by an argued
-    rule, and this route is not there.
+    `close_account_confirmation` went with it. It named a header nothing now demands, and a
+    console still sending one would be sending a confirmation of nothing.
     """
-    if payload.status == _TERMINAL_STATUS:
-        step_up.require(x_confirm_action, close_account_confirmation(tenant_id))
-
     async with tenant_session(tenant_id) as scoped:
         if not await service.tenant_exists(scoped, tenant_id):
             raise ProblemError.not_found("Client")

@@ -18,8 +18,15 @@ What is pinned:
 3. **The three transition answers**, which is the whole contract of
    `db/transition.py::transition_status`: already-in-state is a SUCCESS, a different
    state is a 409 NAMING what was found, an absent row is a 404.
-4. **`churned` is terminal**, so re-opening an account is a new agreement rather than a
-   button that silently un-ends an offboarding.
+4. **`churned` is terminal ON THIS SURFACE**, so a status flip cannot un-end an
+   offboarding; `admin/closure_routes.py::restore` is the one door back.
+   ⚠ **AND SINCE D-545 IT CANNOT BE REACHED FROM THIS ROUTE AT ALL.** `LifecycleIn.status`
+   is a two-member `Literal` and `_LIFECYCLE_FROM` has no `churned` entry, because there
+   were two ways to close a client and the reachable one was the worse one: it told the
+   client nothing, set no erasure deadline and had no undo. Every case below that needs a
+   closed account now closes it through `POST .../closure`, which is the product's one
+   door — and `test_this_route_cannot_close_an_account` is what stops a second one
+   growing back.
 5. **Audit follows a real transition**, never a button press; and a stopping state must
    explain itself.
 6. **Closing an account does not touch `plans`** — the final invoice for the month a
@@ -36,7 +43,7 @@ from typing import Any
 from uuid import UUID
 
 import pytest
-from apps.api.admin.routes import close_account_confirmation
+from apps.api.admin.closure_routes import close_account_confirmation
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.db.base import uuid7
@@ -71,31 +78,42 @@ def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://api")
 
 
-async def _set_status(
-    token: str,
-    tenant_id: UUID,
-    status: str,
-    reason: str | None = None,
-    *,
-    confirm: bool = True,
-) -> Any:
-    """`confirm` sends the step-up header that CLOSING now requires.
+async def _set_status(token: str, tenant_id: UUID, status: str, reason: str | None = None) -> Any:
+    """Suspend or reactivate. NO STEP-UP HEADER, and this helper used to send one.
 
-    Defaulted on so every existing case here keeps testing the transition it was written
-    for rather than the gate; the two cases that test the gate itself pass it explicitly.
-    Suspend and reactivate ignore it -- the route only demands it for the terminal move.
+    It existed because the terminal move lived here and demanded a confirmation; D-545
+    moved that move to `_close` below and the header went with it. Both transitions this
+    route still offers are reversible, and a confirmation on a reversible act is a
+    confirmation of nothing.
     """
     body: dict[str, Any] = {"status": status}
     if reason is not None:
         body["reason"] = reason
-    headers = {"Authorization": f"Bearer {token}"}
-    if confirm:
-        headers["X-Confirm-Action"] = close_account_confirmation(tenant_id)
     async with _client() as http:
         return await http.post(
             STATUS.format(tenant_id=tenant_id),
-            headers=headers,
+            headers={"Authorization": f"Bearer {token}"},
             json=body,
+        )
+
+
+async def _close(token: str, tenant_id: UUID, reason: str) -> Any:
+    """Close an account the ONE way the product now offers (D-545).
+
+    Deliberately the real route rather than a `UPDATE organizations SET status` fixture:
+    the cases below are about what a CLOSED account does at the dial gate and the
+    transition primitive, and a status this test set by hand would be a state the product
+    can no longer reach — which is the fixture defect `test_a_soft_deleted_account_dials_
+    nothing` records having had.
+    """
+    async with _client() as http:
+        return await http.post(
+            f"/v1/admin/tenants/{tenant_id}/closure",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "X-Confirm-Action": close_account_confirmation(tenant_id),
+            },
+            json={"reason": reason},
         )
 
 
@@ -214,7 +232,7 @@ async def test_a_closed_account_dials_nothing_either() -> None:
     tenant_id, agent_id = await _dialable_tenant()
     token = await _make_admin("operator")
 
-    await _set_status(token, tenant_id, "churned", "offboarded at the client's request")
+    await _close(token, tenant_id, "offboarded at the client's request")
 
     decision = await _gate(tenant_id, agent_id)
     assert decision.allowed is False and decision.rule == "account_closed"
@@ -277,7 +295,7 @@ async def test_a_move_from_a_state_that_does_not_allow_it_is_a_409_naming_that_s
     to NAME the state found, or an operator is told "conflict" and nothing else."""
     tenant_id = await _tenant()
     token = await _make_admin("operator")
-    await _set_status(token, tenant_id, "churned", "offboarded")
+    await _close(token, tenant_id, "offboarded")
 
     response = await _set_status(token, tenant_id, "active")
 
@@ -330,7 +348,7 @@ async def test_closing_an_account_does_not_end_its_commercial_terms() -> None:
             {"i": uuid7(), "t": tenant_id},
         )
 
-    await _set_status(token, tenant_id, "churned", "offboarded")
+    await _close(token, tenant_id, "offboarded")
 
     async with tenant_session(tenant_id) as session:
         row = (
@@ -451,26 +469,49 @@ async def test_an_account_row_the_session_cannot_read_is_refused_not_waved_throu
 # ─────────────────── the second factor, and where the line is drawn ───────────────────
 
 
-async def test_closing_an_account_for_good_needs_a_second_factor() -> None:
-    """The IRREVERSIBLE move is the one that must be confirmed.
+async def test_this_route_cannot_close_an_account_at_all() -> None:
+    """THE D-545 COLLAPSE, pinned at the API.
 
-    `churned` is terminal by construction — no entry in `_LIFECYCLE_FROM` lists it as a
-    source — so this ends a client relationship, locks their users out through
-    `core/auth.py` and starts the retention clock. Until this gate existed it was the only
-    irreversible action on the operator console reachable with nothing but a live session,
-    while three REVERSIBLE ones beside it (halting outbound, raising a spend ceiling,
-    minting a view-as grant) each demanded a code.
+    There were two ways to end a client relationship. This one wrote a status: the client
+    was told nothing, no erasure deadline was set, and there was no way back. The other
+    (`POST .../closure`) mails the client, sets the date their records are destroyed and
+    can be undone for the whole grace window. Two ways to do one thing is a defect even
+    when both work, and here the reachable one was the worse one.
+
+    A 422 rather than a 409, deliberately, and that is what this asserts on: `churned` was
+    removed from `LifecycleIn`'s `Literal` and not merely from `_LIFECYCLE_FROM`, so the
+    refusal NAMES the two states an operator may set instead of reading as "not from this
+    state" and inviting a retry from another one. The generated console client cannot offer
+    a third value either.
     """
     token = await _make_admin()
     tenant_id = await _tenant()
 
-    response = await _set_status(token, tenant_id, "churned", "offboarded", confirm=False)
+    response = await _set_status(token, tenant_id, "churned", "offboarded")
 
-    assert response.status_code == 403, response.text
-    # The account did NOT move. The assertion that matters: a refusal that still closed
-    # the account would be worse than no gate, because the console would report a refusal.
-    assert await _status_of(tenant_id) != "churned"
-    assert f"close_account:{tenant_id}" in response.text
+    assert response.status_code == 422, response.text
+    assert await _status_of(tenant_id) != "churned", "no half-applied close"
+    # The states that remain, named in the refusal so an operator can act on it.
+    assert "active" in response.text and "suspended" in response.text
+
+
+async def test_the_status_route_still_cannot_reopen_a_closed_account() -> None:
+    """The other direction, unchanged by D-545 and worth keeping asserted.
+
+    `_LIFECYCLE_FROM["active"]` lists no `churned` source, so the one door back stays
+    `DELETE .../closure` — which clears `closed_at`, `erase_after`, `closure_reason` and
+    `closed_by` in the same statement. Widening this route instead would let the status
+    screen produce a row `ck_organizations_closed_implies_churned` refuses, handing the
+    operator a 500 for pressing a button the console offered them.
+    """
+    token = await _make_admin()
+    tenant_id = await _tenant()
+    await _close(token, tenant_id, "offboarded")
+
+    response = await _set_status(token, tenant_id, "active")
+
+    assert response.status_code == 409, response.text
+    assert await _status_of(tenant_id) == "churned"
 
 
 async def test_suspending_still_needs_no_second_factor() -> None:
@@ -482,14 +523,16 @@ async def test_suspending_still_needs_no_second_factor() -> None:
     routine support action, which is how a prompt stops being read — the same argument
     `tests/authn_stepup_test.py` makes for not gating every mutation in the product.
 
-    It also pins the gate to the TERMINAL status specifically, so a later edit that
-    widens it to every transition fails here instead of silently changing an operator
-    procedure.
+    ⚠ **IT IS NOW THE WHOLE OF THIS ROUTE'S POSTURE, NOT HALF OF A SPLIT** (D-545). It used
+    to pin the gate to the TERMINAL status specifically; that status left, and with it the
+    only reason this route ever read `X-Confirm-Action`. The second factor did not vanish —
+    it moved to `closure_routes.close`, bound to its own confirmation string, and
+    `tests/tenant_closure_test.py` is where it is asserted.
     """
     token = await _make_admin()
     tenant_id = await _tenant()
 
-    response = await _set_status(token, tenant_id, "suspended", "card declined", confirm=False)
+    response = await _set_status(token, tenant_id, "suspended", "card declined")
 
     assert response.status_code == 200, response.text
     assert await _status_of(tenant_id) == "suspended"

@@ -36,6 +36,7 @@ from uuid import UUID
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.admin.closure_routes import close_account_confirmation
+from apps.api.admin.routes import notice_address_confirmation
 from apps.api.compliance.service import account_stopped_blocker
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
@@ -739,11 +740,32 @@ async def test_the_pending_list_says_when_the_link_was_last_sent_and_how_many_ti
 # --- editing the client's own details --------------------------------------------------
 
 
-async def _patch(token: str, tenant_id: UUID, body: dict[str, Any]) -> Any:
+async def _patch(
+    token: str, tenant_id: UUID, body: dict[str, Any], *, confirm: str | bool | None = True
+) -> Any:
+    """`confirm=True` sends the step-up header a NOTICE-ADDRESS change now requires (D-545).
+
+    Defaulted on so every case here keeps testing the edit it was written for rather than
+    the gate; the case that tests the gate itself passes `confirm=None`, and a case testing
+    a BORROWED confirmation passes the string. The route demands it for `billing_email`
+    alone, so sending it unconditionally would make this helper unable to observe a step-up
+    arriving on one of the other fields — the trap `tenant_birth_test._set_status` recorded
+    walking into with the old close.
+    """
+    headers = {"Authorization": f"Bearer {token}"}
+    if confirm is True:
+        if "billing_email" in body:
+            headers["X-Confirm-Action"] = notice_address_confirmation(tenant_id)
+    elif isinstance(confirm, str):
+        headers["X-Confirm-Action"] = confirm
     async with _client() as http:
-        return await http.patch(
-            f"/v1/admin/tenants/{tenant_id}",
-            json=body,
+        return await http.patch(f"/v1/admin/tenants/{tenant_id}", json=body, headers=headers)
+
+
+async def _profile(token: str, tenant_id: UUID) -> Any:
+    async with _client() as http:
+        return await http.get(
+            f"/v1/admin/tenants/{tenant_id}/profile",
             headers={"Authorization": f"Bearer {token}"},
         )
 
@@ -804,7 +826,8 @@ async def test_changing_the_notice_address_tells_the_address_being_replaced() ->
 
 @pytest.mark.asyncio
 async def test_the_edit_cannot_reach_a_field_with_its_own_screen() -> None:
-    """`extra="forbid"` and a two-field whitelist. A general-purpose PATCH over
+    """`extra="forbid"` and a THREE-field whitelist (D-545 added the vertical). A
+    general-purpose PATCH over
     `organizations` would quietly become a second door to the lifecycle switch, the plan
     tier and the closure columns — each of which has its own permission and, for three of
     them, its own step-up."""
@@ -850,3 +873,168 @@ async def test_a_closed_client_s_details_can_still_be_corrected() -> None:
     response = await _patch(token, tenant_id, {"billing_email": "accounts@clinic.example"})
     assert response.status_code == 200
     assert response.json()["changed"] == ["billing_email"]
+
+
+# ═══════════════════ D-545: the rest of the business record ═══════════════════
+#
+# The founder's *"edit covers everything except the slug"*, taken to the COLUMN LIST and
+# not to a wish-list. What walking `tenancy/models.Organization` found is recorded in
+# `service.EDITABLE_TENANT_FIELDS`; what these cases pin is the three consequences of
+# widening it — the vertical is admitted and validated, the address takes a second factor,
+# and the notices already in the queue are SAID rather than silently retargeted.
+
+
+@pytest.mark.asyncio
+async def test_the_vertical_can_be_corrected_and_is_audited_under_its_own_action() -> None:
+    """The third editable field, and the last one on the row without a screen of its own.
+
+    Audited as `organization.vertical_template_changed` — its own action, like the other
+    two, because `audit_log` has no payload column and "who moved this client onto the
+    clinic template" must be a chained row rather than a summary field.
+    """
+    token, tenant_id = await _admin(), await _tenant()
+
+    response = await _patch(token, tenant_id, {"vertical_template": "real_estate"})
+
+    assert response.status_code == 200, response.text
+    assert response.json()["changed"] == ["vertical_template"]
+    assert "organization.vertical_template_changed" in await _audit_actions(tenant_id)
+    async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text("SELECT vertical_template FROM organizations WHERE id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+    assert stored == "real_estate"
+
+
+@pytest.mark.asyncio
+async def test_a_vertical_that_is_not_a_template_is_refused_by_name() -> None:
+    """A 422 that NAMES the verticals allowed, because an operator who typed a wrong one
+    needs the list rather than the word "invalid" — and because the same `Literal` the
+    console's dropdown is built from is the thing being enforced."""
+    token, tenant_id = await _admin(), await _tenant()
+
+    response = await _patch(token, tenant_id, {"vertical_template": "restaurant"})
+
+    assert response.status_code == 422, response.text
+    assert "clinic" in response.text
+
+
+@pytest.mark.asyncio
+async def test_changing_the_notice_address_needs_a_second_factor_bound_to_the_client() -> None:
+    """It grants nobody access — `users.email` is the credential — and it still takes a
+    confirmation, because it moves the CHANNEL every notice this account is owed is
+    addressed from at delivery time. An unattended console must not be able to redirect a
+    business's mail. Bound to the tenant, so a confirmation captured for one client cannot
+    be replayed against the next one in the directory."""
+    token = await _admin()
+    tenant_id, neighbour = await _tenant(), await _tenant()
+
+    bare = await _patch(token, tenant_id, {"billing_email": "new@clinic.example"}, confirm=None)
+    borrowed = await _patch(
+        token,
+        tenant_id,
+        {"billing_email": "new@clinic.example"},
+        confirm=notice_address_confirmation(neighbour),
+    )
+
+    assert bare.status_code == 403, bare.text
+    assert f"change_notice_address:{tenant_id}" in bare.text
+    assert borrowed.status_code == 403, borrowed.text
+    # The address did NOT move. A refusal that still wrote the column would be worse than
+    # no gate, because the console would report the refusal.
+    async with tenant_session(tenant_id) as session:
+        stored = (
+            await session.execute(
+                text("SELECT billing_email FROM organizations WHERE id = :t"), {"t": tenant_id}
+            )
+        ).scalar()
+    assert stored == "owner@clinic.example"
+
+
+@pytest.mark.asyncio
+async def test_correcting_a_name_needs_no_second_factor() -> None:
+    """The other half of the split, and the reason it is a test rather than a comment: a
+    business name redirects nothing and is corrected by typing the right value again.
+    Gating it too would train an operator to clear the prompt without reading it, which is
+    how a prompt stops being read."""
+    token, tenant_id = await _admin(), await _tenant()
+
+    response = await _patch(token, tenant_id, {"name": "Corrected Clinic"}, confirm=None)
+
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.asyncio
+async def test_a_notice_already_queued_follows_the_address_and_the_edit_says_so() -> None:
+    """THE FINDING D-545 REPORTS RATHER THAN CHANGES.
+
+    `workers/account_closure.notify_account_closed` resolves its recipients when it RUNS —
+    `_recipients` reads `billing_email` and the account's active owners at delivery — so a
+    notice still sitting in `outbox_messages` when the address moves is delivered to the
+    NEW one. That is KEPT: pinning recipients at enqueue would mail a closure notice, the
+    one carrying a destruction date, to the mailbox an operator has just established is
+    dead. What was wrong is that it happened with nobody told.
+
+    Driven through the real close so the queued row is one the product actually produces.
+    """
+    token, tenant_id = await _admin(), await _tenant()
+    await _close(token, tenant_id, confirm=close_account_confirmation(tenant_id))
+
+    response = await _patch(token, tenant_id, {"billing_email": "new@clinic.example"})
+
+    assert response.status_code == 200, response.text
+    # ONE: the closure notice. The address-change notice this edit queues carries its own
+    # explicit `to`, so it is not retargetable and is deliberately not counted.
+    assert response.json()["pending_notices_retargeted"] == 1
+    assert "organization.queued_notices_retargeted" in await _audit_actions(tenant_id)
+
+
+@pytest.mark.asyncio
+async def test_an_edit_that_does_not_touch_the_address_reports_no_retarget() -> None:
+    """The premise of the case above: if the count were always non-zero it would be
+    telling an operator about a consequence their edit did not have."""
+    token, tenant_id = await _admin(), await _tenant()
+    await _close(token, tenant_id, confirm=close_account_confirmation(tenant_id))
+
+    response = await _patch(token, tenant_id, {"name": "Renamed While Closing"})
+
+    assert response.json()["pending_notices_retargeted"] == 0
+    assert "organization.queued_notices_retargeted" not in await _audit_actions(tenant_id)
+
+
+@pytest.mark.asyncio
+async def test_the_profile_read_answers_what_the_form_edits_and_no_more() -> None:
+    """The read the console had to grow (D-545): `GET /v1/admin/tenants/{id}` is the
+    DIRECTORY row and carries no `billing_email`, deliberately — a roster listing every
+    client's contact address discloses one whenever anybody opens it.
+
+    `verticals` is DERIVED from the same `Literal` the PATCH validates against, so the
+    dropdown and the 422 cannot disagree about what a vertical is.
+    """
+    token, tenant_id = await _admin(), await _tenant()
+
+    response = await _profile(token, tenant_id)
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["billing_email"] == "owner@clinic.example"
+    assert body["slug"] and body["name"]
+    assert "clinic" in body["verticals"] and "real_estate" in body["verticals"]
+
+
+@pytest.mark.asyncio
+async def test_the_profile_read_refuses_an_erased_client_exactly_as_the_edit_does() -> None:
+    """One predicate, two surfaces. A form that renders an erased client's details next to
+    a Save button answering 404 is the disagreement `tenant_exists` was written to end."""
+    token, tenant_id = await _admin(), await _tenant()
+    await _close(token, tenant_id, confirm=close_account_confirmation(tenant_id))
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE organizations SET erase_after = NULL, deleted_at = now() WHERE id = :t"),
+            {"t": tenant_id},
+        )
+
+    assert (await _profile(token, tenant_id)).status_code == 404
+    assert (await _patch(token, tenant_id, {"name": "Ghost"})).status_code == 404

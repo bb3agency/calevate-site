@@ -323,12 +323,29 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # client account rather than on changing something. Counted the same way because the
     # census is about the pairing, not about the verb.
     #
-    # The sixteenth mutation is `admin/routes.py::set_tenant_status`, gated on the
-    # TERMINAL transition only. It was the one irreversible action on the operator console
-    # reachable with nothing but a live session, while three reversible ones beside it
-    # each demanded a code; found by walking the console rather than the code, because
+    # THE SIXTEENTH MUTATION CHANGED IDENTITY WITHOUT CHANGING THE COUNT (D-545), and the
+    # seat is worth reading rather than the number.
+    #
+    # It WAS `admin/routes.py::set_tenant_status`, gated on the terminal `churned`
+    # transition only — the one irreversible action on the operator console reachable with
+    # nothing but a live session, while three reversible ones beside it each demanded a
+    # code. That transition is gone: closing a client now goes through
+    # `closure_routes.close` (already the twenty-fifth entry below, with its own
+    # confirmation string), because it mails the client, sets the date their records are
+    # destroyed and can be undone — none of which a status flip did. What is left on that
+    # route is a reversible pair, and ceremony on a reversible act teaches an operator to
+    # type past ceremony.
+    #
+    # The seat is now `admin/routes.py::edit_tenant`, on the NOTICE-ADDRESS change alone.
+    # It guards a change that grants nobody access — `users.email` is the credential — and
+    # it is here because it moves a CHANNEL: every notice this account is owed is addressed
+    # from `billing_email` at delivery time, so an unattended console could redirect a
+    # business's mail, including a closure notice carrying a destruction date, without
+    # touching a credential. The other two editable fields take no gate.
+    #
+    # Both were found by walking the console rather than the code, because
     # `test_no_ops_console_write_can_ship_without_the_gate` below scopes itself to
-    # `apps/api/ops/` and this route is not there.
+    # `apps/api/ops/` and neither route is there.
     #
     # FOUR OF THE TWENTY ARE THE OPERATOR ALLOWLIST (`admin/operator_routes.py`): adding an
     # administrator, promoting or demoting one, revoking one, and re-issuing a setup link.

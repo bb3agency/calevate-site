@@ -559,7 +559,24 @@ class ResentInvitation:
 #: mints a session from it. What this column decides is where the account's NOTICES go
 #: (`workers/notifications`, `workers/account_closure`), which is why the caller notifies
 #: the old address as well as writing the new one.
-EDITABLE_TENANT_FIELDS: Final = ("name", "billing_email")
+#:
+#: ⚠ **D-545 (6 Sep 2026) WIDENED THIS FROM TWO TO THREE AND THAT IS THE WHOLE WIDENING**,
+#: because the founder's *"edit covers everything except the slug"* was taken to the COLUMN
+#: LIST rather than to a wish-list of fields. Walking `tenancy/models.Organization`, the
+#: business record holds exactly one more detail with no screen of its own —
+#: `vertical_template` — and every remaining column is either the slug, a surface with its
+#: own route and permission (`status`, `plan_tier`, `default_llm_model`, the closure four,
+#: `caller_memory_attested_*`, `staff_may_curate_knowledge`), a system column
+#: (`created_by`, `deleted_at`), or the intake answer sheet, which is edited on the intake
+#: screen where an operator can see the questions the answers belong to.
+#:
+#: **THERE IS NO `phone` AND NO `language` COLUMN ON `organizations`, AND THIS LIST WILL
+#: NOT INVENT ONE.** The business's telephone numbers live in the `intake` answer sheet
+#: (the agent quotes them on a call) and in `campaign_numbers`; the language a client is
+#: served in is `agents.language_primary`, chosen per AGENT because a clinic may answer in
+#: Telugu and call out in English. Adding either here would be a second place to write a
+#: fact that already has one.
+EDITABLE_TENANT_FIELDS: Final = ("name", "billing_email", "vertical_template")
 
 
 @dataclass(frozen=True, slots=True)
@@ -585,6 +602,65 @@ _EDIT_TENANT = (
 )
 
 
+@dataclass(frozen=True, slots=True)
+class TenantProfile:
+    """A client's own business record, as the edit form has to read it back.
+
+    EXISTS BECAUSE THE DIRECTORY DOES NOT CARRY THE ADDRESS. `tenant_overview` selects
+    `id, name, slug, status, vertical_template, plan_tier` for EVERY account in one pass,
+    and `billing_email` was deliberately not among them — a roster that lists every
+    client's contact address is a roster that discloses one whenever anybody opens it.
+    Widening that select to serve one form would have put the address on the directory,
+    the detail screen and the copilot's surface facts at once, so the read is its own,
+    scoped to one tenant, and recorded as an impersonation read at the route (D-482 L-1).
+
+    `slug` rides along and is deliberately NOT editable — the form shows it, greyed, with
+    the reason. A field a client has bookmarked into every URL they hold is worth saying
+    "this one cannot change" about, rather than leaving an operator to wonder why it is
+    missing.
+    """
+
+    tenant_id: UUID
+    name: str
+    slug: str
+    status: str
+    billing_email: str | None
+    vertical_template: str | None
+
+
+async def read_tenant_profile(session: AsyncSession, *, tenant_id: UUID) -> TenantProfile:
+    """The editable business record for one client, or a 404.
+
+    `deleted_at IS NULL` matches `edit_tenant_profile`'s own WHERE clause exactly, so the
+    form and the save agree about which accounts exist: a screen that renders an erased
+    client's details next to a Save button that answers 404 is the disagreement
+    `tenant_exists` was written to end.
+
+    A CLOSED account is readable and editable, on purpose. An operator on the telephone
+    with a departing client correcting the address their closure notice goes to is the
+    case that motivated the edit route at all.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT id, name, slug, status, billing_email, vertical_template "
+                "FROM organizations WHERE id = :tid AND deleted_at IS NULL"
+            ),
+            {"tid": tenant_id},
+        )
+    ).first()
+    if row is None:
+        raise ProblemError.not_found("Client")
+    return TenantProfile(
+        tenant_id=row[0],
+        name=row[1],
+        slug=row[2],
+        status=row[3],
+        billing_email=row[4],
+        vertical_template=row[5],
+    )
+
+
 async def edit_tenant_profile(
     session: AsyncSession, *, tenant_id: UUID, changes: Mapping[str, str]
 ) -> list[TenantFieldEdit]:
@@ -608,7 +684,7 @@ async def edit_tenant_profile(
     correcting the address their closure notice goes to is exactly the case.
 
     Raises on a field outside `EDITABLE_TENANT_FIELDS`. That is a programming error rather
-    than an operator input — the route's schema is `extra="forbid"` and names the two — so
+    than an operator input — the route's schema is `extra="forbid"` and names them all — so
     it raises rather than rendering a message, the shape `set_plan_tier` uses for the same
     class of defence in depth.
     """
@@ -1077,6 +1153,7 @@ __all__ = [
     "create_organization",
     "derive_slug",
     "edit_tenant_profile",
+    "read_tenant_profile",
     "resend_invitation",
     "set_plan_tier",
     "slugify",

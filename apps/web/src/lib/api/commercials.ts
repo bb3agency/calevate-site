@@ -63,10 +63,20 @@ export type CommercialTermsIn = Schemas["CommercialTermsIn"];
 
 export type RecordTermsOut = Schemas["RecordTermsOut"];
 
-export type LifecycleStatus = "active" | "suspended" | "churned";
+/**
+ * The two states an operator may SET on an account.
+ *
+ * ⚠ **`churned` IS NOT HERE AND THIS UNION USED TO CARRY IT (D-545).** It is still a state
+ * an account can BE in — every closed client holds it and `ClosureOut.status` reports it —
+ * but it is no longer one this console can move an account TO. Closing goes through
+ * `lib/api/closure.ts`, which tells the client, sets an erasure date and can be undone;
+ * the status flip did none of the three. Mirrors `LifecycleIn.status`, whose `Literal` the
+ * server narrowed in the same change, so sending a third value is a 422 naming these two.
+ */
+export type LifecycleStatus = "active" | "suspended";
 
 /**
- * The ADMIN realm's account lifecycle (active / suspended / churned) — not an agent's.
+ * The ADMIN realm's account lifecycle (active / suspended) — not an agent's.
  *
  * Stayed unqualified because `apps/api/agents/routes.py` named ITS result
  * `AgentLifecycleOut` rather than a second `LifecycleOut`. Two same-named models in one
@@ -81,18 +91,6 @@ export function commercialTermsPath(tenantId: string): string {
 
 export function tenantStatusPath(tenantId: string): string {
   return `/v1/admin/tenants/${tenantId}/status`;
-}
-
-/**
- * The step-up string for CLOSING one client's account for good — `admin/routes.py`'s
- * `close_account_confirmation`, mirrored.
- *
- * A named function on this side too, for `spendCapConfirmation`'s reason: bound to the
- * TENANT, so a confirmation captured while closing one client cannot be replayed against
- * another, and shaped by a deliberate edit rather than by a reformat.
- */
-export function closeAccountConfirmation(tenantId: string): string {
-  return `close_account:${tenantId}`;
 }
 
 export interface TermsStateCopy {
@@ -218,13 +216,6 @@ export const LIFECYCLE_COPY: Record<LifecycleStatus, LifecycleCopy> = {
     tone: "warn",
     needsReason: true,
   },
-  churned: {
-    action: "Close the account",
-    consequence:
-      "Outbound stops, and the account's users lose access entirely. This cannot be undone here — reopening a closed account is a new agreement. Their commercial terms are deliberately left alone so the final invoice still prices the month they left in.",
-    tone: "stop",
-    needsReason: true,
-  },
 };
 
 export function useCommercialTerms(
@@ -262,11 +253,12 @@ export function useSetTenantStatus(session: Session, tenantId: string) {
       apiRequest<LifecycleOut>(session, tenantStatusPath(tenantId), {
         method: "POST",
         body: reason ? { status, reason } : { status },
-        // ONLY on the terminal move, the way `useRecordCommercialTerms` sends its own:
-        // `churned` is irreversible, and a header attached to suspend and reactivate as
-        // well would be a confirmation of nothing and would train an operator to clear
-        // the prompt without reading it. The server demands it for `churned` alone.
-        ...(status === "churned" ? { confirmAction: closeAccountConfirmation(tenantId) } : {}),
+        // NO CONFIRMATION HEADER ANY MORE, because the move that needed one left (D-545).
+        // The header used to ride the `churned` transition alone; closing is now
+        // `lib/api/closure.ts`, which carries its own — bound to its own string, so a
+        // confirmation captured for ending a relationship cannot be replayed as an
+        // erasure. What is left here is a reversible pair, and ceremony on a reversible
+        // act is how operators learn to type past ceremony.
       }),
     onSuccess: () => {
       // The directory record carries `status`, and the detail screen prints it under the
