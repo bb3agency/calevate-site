@@ -477,3 +477,42 @@ but it sits on the HTTP non-streaming path, and Cartesia forces streaming, so **
 are not cached in the OSS**. The HTTP path is used only for handoff clips
 (`task_manager.py:6444`), which ARE cached process-wide per (voice, text)
 (`HANDOFF_CLIP_CACHE`, `:229-232,6430-6466`).
+
+---
+
+# ADDENDUM 2 — Comet re-verification (relayed by the founder, 6 Sep 2026)
+
+**What it corrected**: the report's "minutes included" column (~27 / ~133 / ~1,667 /
+~10,667) is minutes of CONTINUOUSLY GENERATED audio, and dividing a plan fee by it and
+calling the result a call-minute silently assumes the agent talks 100% of every call. **The
+fitted table at the top of this file never used that column** — it fits CHARACTERS
+(volume × `rates.TTS_ASSUMED_CHARS_PER_CALL_MINUTE`) to the plan whose allotment covers
+them — so its ₹4.31 / ₹5.26 / ₹1.32 stand, resting only on the 360–540 band already marked
+unmeasured. ₹ per call-minute cannot be produced from any vendor page; only a measured
+sample can (`billing/tts_speaking_rate.py` exists for this).
+
+**What it added, and it is load-bearing** — ESTIMATE, backed out of the vendor's own
+table: Cartesia's minutes column implies a fixed **750 characters per minute of continuous
+speech** (100,000/133 = 1,250,000/1,667 = 8,000,000/10,667). Against our 360–540 chars per
+CALL-minute that is an implied **agent talk ratio of 0.48–0.72**. Because Bolna's Cartesia
+synthesizer holds a context open only while a turn is being spoken (Addendum 1), the
+expected concurrent contexts on ten lines are:
+
+| chars/call-min | talk ratio | 10 lines, steady state | at the ~4× peak our sizing assumes |
+|---|---|---|---|
+| 360 | 0.48 | **4.8** | ~19 |
+| 540 | 0.72 | **7.2** | ~29 |
+
+**Startup's cap is 5.** At the high end of our own assumption it is exceeded at STEADY STATE,
+and every tier is exceeded at peak; the response is a 429 with no queue. So a paid self-serve
+plan below Scale (15) is not merely dear — it is a dead-air incident waiting for a busy
+morning. Scale, or the Startups Grant that gives Scale free, is the floor for ten lines.
+This is still arithmetic on an unmeasured band; gate 49's call sample settles the band and
+therefore this row.
+
+**Three figures downgraded to third-party, do not use**: the overage rate ($65/$45/$38 per
+million floats around blogs; Cartesia's own FAQ did not yield one on direct fetch —
+UNKNOWN); "2× credit rollover" is confirmed for the Startups Grant ONLY, not standard plans;
+the annual-billing prices ($4/$39/$239) are not on Cartesia's own page as fetched.
+Everything else in the report (sonic-3 sunset 20 Oct 2026, native 8 kHz μ-law, TTS-vs-Line
+concurrency split, the 1-unit-≈-4-conversations rule of thumb, grant terms) re-confirmed.
