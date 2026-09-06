@@ -78,6 +78,25 @@ from apps.api.billing.models import MONEY
 # on the axis where it moves money.
 TTS_INR_PER_10K_CHARS: Final[Decimal] = Decimal("30.0000")  # Bulbul v3
 
+# TRD §10.1's ASSUMED speaking rate — the band the whole TTS line is priced from, and the
+# one figure in the cost model that no vendor rate card can supply. §10.1 says it in its
+# own words: *"the agent speaks 40-60% of a call, at ~900 characters/minute of actual
+# speech → 360-540 TTS characters per call-minute. That ratio is itself unmeasured"*.
+# 360 = 0.40 x 900 and 540 = 0.60 x 900, chars of agent speech per minute of CALL.
+#
+# WHY IT IS A CONSTANT AND NOT A SENTENCE. It is a FALLBACK, not a fact: it is what the
+# cost floor rests on until `billing/tts_speaking_rate.py` has read enough real calls to
+# replace it, and the board that publishes the measurement prints this band beside it so
+# an operator can see what the number displaced. A band quoted in prose in two places
+# is the D-102/D-105 drift class on the axis that moves the most money
+# (₹0.27-0.40/min of a ₹3.70 floor), so `scripts/check_docs_drift.py` §4e diffs this
+# pair against §10.1's sentence in both directions. Chars per call-minute, as Decimal so
+# the ₹/min it implies is computed in the same arithmetic as every other rupee here.
+TTS_ASSUMED_CHARS_PER_CALL_MINUTE: Final[tuple[Decimal, Decimal]] = (
+    Decimal("360"),
+    Decimal("540"),
+)
+
 # Whether the engine's execution payload names the synthesizer model that served a call.
 # A greppable capability constant (the honesty device `scripts/check_docs_drift.py` §5 and
 # `tests/capability_claim_guard_test.py` verify against prose), discovered by AST, not a
@@ -774,6 +793,24 @@ def tts_cost_inr(chars: int) -> Decimal:
     return (tts_rate_inr_per_char() * Decimal(chars)).quantize(MONEY_Q, rounding=ROUNDING)
 
 
+def tts_inr_per_call_minute(chars_per_call_minute: Decimal) -> Decimal:
+    """What one minute of CALL costs on the TTS leg at a given speaking rate.
+
+    TRD §10.1's per-call-minute cell — ₹1.08-1.62 — is exactly this function over
+    `TTS_ASSUMED_CHARS_PER_CALL_MINUTE`, and the measured board
+    (`billing/tts_speaking_rate.py`) is the same function over what the transcripts say.
+    One function for both so the assumed and the measured figures can never be priced by
+    two arithmetics; multiply once, quantize once (`tts_rate_inr_per_char`'s contract).
+
+    A speaking rate is a Decimal and never a float: it is chars x 60 / seconds computed
+    exactly upstream, and a float here would put the one rounding this module exists to
+    avoid on the largest single leg of the cost model.
+    """
+    if chars_per_call_minute < 0:
+        raise ValueError("a speaking rate cannot be negative")
+    return (tts_rate_inr_per_char() * chars_per_call_minute).quantize(MONEY_Q, rounding=ROUNDING)
+
+
 def stt_rate_inr_per_second() -> Decimal:
     """Exact, unquantized: ₹30/hour is ₹0.008333… per second and no 4-decimal rupee holds
     it. Callers multiply by a duration and quantize ONCE — the same contract
@@ -1244,6 +1281,7 @@ __all__ = [
     "SARVAM_PRICED_LLM",
     "SELF_SERVE_COST_FLOOR_INR_PER_MIN",
     "STT_INR_PER_HOUR",
+    "TTS_ASSUMED_CHARS_PER_CALL_MINUTE",
     "TTS_INR_PER_10K_CHARS",
     "CommittedPlanMargin",
     "LlmPriceAttestation",
@@ -1267,5 +1305,6 @@ __all__ = [
     "stt_rate_inr_per_second",
     "surchargeable_models_are_dearer",
     "tts_cost_inr",
+    "tts_inr_per_call_minute",
     "tts_rate_inr_per_char",
 ]

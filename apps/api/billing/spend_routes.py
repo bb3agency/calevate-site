@@ -40,6 +40,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import service as admin_service
+from apps.api.billing import rates, tts_speaking_rate
 from apps.api.billing import service as billing
 from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.billing.attribution import (
@@ -342,6 +343,40 @@ class FleetSpendOut(Strict):
     margin_inr: str
     margin_pct: str | None
     tenants: list[FleetTenantOut]
+
+
+class SpeakingRatePointOut(Strict):
+    """A chars-per-call-minute figure and the TTS ₹/min it implies at the live rate card.
+
+    Both are exact decimal STRINGS — a speaking rate is priced by multiplying it, so it is
+    money's shadow and crosses the wire the way money does (hard rule 7).
+    """
+
+    chars_per_minute: str
+    tts_inr_per_minute: str
+
+
+class TtsSpeakingRateOut(Strict):
+    """GET /v1/admin/spend/tts-speaking-rate — pilot gate 12's number, or the refusal.
+
+    `measured` is the field to read first. When it is False the three rate fields are
+    null, `reason` says how many calls there are and how many are needed, and the assumed
+    band is the figure still in force. A screen that printed the band as if it were the
+    measurement — or printed a placeholder rate — would be the hard-rule-11 failure the
+    threshold exists to prevent; there is no number here to print in that state.
+    """
+
+    measured: bool
+    calls: int
+    clients: int
+    minimum_calls: int
+    reason: str | None
+    p50: SpeakingRatePointOut | None
+    p95: SpeakingRatePointOut | None
+    pooled: SpeakingRatePointOut | None
+    assumed_low: SpeakingRatePointOut
+    assumed_high: SpeakingRatePointOut
+    tts_inr_per_10k_chars: str
 
 
 # ------------------------------------------------------------------------ rendering
@@ -687,6 +722,74 @@ async def fleet_spend(
             # opened this page for. Ties by name so the order is stable between renders.
             for r in sorted(walked, key=lambda r: (_dec(r.margin["margin_inr"]), r.name))
         ],
+    )
+
+
+@router.get(
+    "/spend/tts-speaking-rate",
+    response_model=TtsSpeakingRateOut,
+    openapi_extra=permission_meta("billing:read"),
+    summary="How many TTS characters a call-minute really costs — measured from transcripts",
+)
+async def fleet_tts_speaking_rate(
+    directory: AdminSession, _: AdminSpendReader
+) -> TtsSpeakingRateOut:
+    """TRD §10.1's "360-540 chars per call-minute" assumption, replaced by a reading.
+
+    The SAME walk as `fleet_spend` and for the same reason: `transcript_turns` and `calls`
+    are FORCE-RLS'd, an untenanted read of either returns zero rows and reports success,
+    so the directory comes from the `app.admin` session and every call is sampled inside
+    its own client's `tenant_session`. The samples are pooled in memory and summarised
+    once (`tts_speaking_rate.summarize`), which is the only place two tenants' figures
+    meet — as integers, after every row has been read under its own policy.
+
+    Below `TTS_SPEAKING_RATE_MIN_CALLS` the response says so and carries no rate.
+    """
+    started = perf_counter()
+    rows = (await directory.execute(text(_DIRECTORY), {"ended": list(_ENDED_STATUSES)})).all()
+    samples: list[tts_speaking_rate.CallSample] = []
+    for org in rows:
+        tenant_id = UUID(str(org[0]))
+        async with tenant_session(tenant_id) as scoped:
+            samples.extend(await tts_speaking_rate.sample_tenant(scoped, tenant_id=tenant_id))
+
+    elapsed = perf_counter() - started
+    if elapsed > FLEET_BUDGET_S:
+        log.warning(
+            "tts_speaking_rate_walk_over_budget",
+            extra={
+                "clients": len(rows),
+                "calls": len(samples),
+                "elapsed_s": round(elapsed, 2),
+                "budget_s": FLEET_BUDGET_S,
+                "remedy": "the transcript archive has outgrown the per-tenant walk — "
+                "sample a window of recent calls per client (billing/tts_speaking_rate.py)",
+            },
+        )
+
+    return _speaking_rate_out(tts_speaking_rate.summarize(samples))
+
+
+def _point_out(point: tts_speaking_rate.SpeakingRatePoint) -> SpeakingRatePointOut:
+    return SpeakingRatePointOut(
+        chars_per_minute=str(point.chars_per_minute),
+        tts_inr_per_minute=str(point.tts_inr_per_minute),
+    )
+
+
+def _speaking_rate_out(rate: tts_speaking_rate.TtsSpeakingRate) -> TtsSpeakingRateOut:
+    return TtsSpeakingRateOut(
+        measured=rate.measured,
+        calls=rate.calls,
+        clients=rate.clients,
+        minimum_calls=rate.minimum_calls,
+        reason=rate.reason,
+        p50=None if rate.p50 is None else _point_out(rate.p50),
+        p95=None if rate.p95 is None else _point_out(rate.p95),
+        pooled=None if rate.pooled is None else _point_out(rate.pooled),
+        assumed_low=_point_out(rate.assumed_low),
+        assumed_high=_point_out(rate.assumed_high),
+        tts_inr_per_10k_chars=str(rates.TTS_INR_PER_10K_CHARS),
     )
 
 

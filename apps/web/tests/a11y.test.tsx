@@ -408,6 +408,24 @@ const TENANT_SPEND = {
 };
 
 /** The fleet board, with one client LOSING money so the marked row is swept too. */
+/**
+ * `GET /v1/admin/spend/tts-speaking-rate` in the MEASURED state — the branch with the most
+ * markup (a definition list of three rates). The unmeasured branch is a sentence.
+ */
+const TTS_SPEAKING_RATE = {
+  measured: true,
+  calls: 41,
+  clients: 2,
+  minimum_calls: 20,
+  reason: null,
+  p50: { chars_per_minute: "412.0000", tts_inr_per_minute: "1.2360" },
+  p95: { chars_per_minute: "688.5000", tts_inr_per_minute: "2.0655" },
+  pooled: { chars_per_minute: "437.1429", tts_inr_per_minute: "1.3114" },
+  assumed_low: { chars_per_minute: "360.0000", tts_inr_per_minute: "1.0800" },
+  assumed_high: { chars_per_minute: "540.0000", tts_inr_per_minute: "1.6200" },
+  tts_inr_per_10k_chars: "30.0000",
+};
+
 const FLEET_SPEND = {
   month: IST_MONTH,
   clients: 2,
@@ -2952,7 +2970,10 @@ const ADMIN_SCREENS: Screen[] = [
     file: "admin/spend/page.tsx",
     realm: "admin",
     element: () => <FleetSpendPage />,
-    routes: { [`/v1/admin/spend?month=${IST_MONTH}`]: FLEET_SPEND },
+    routes: {
+      [`/v1/admin/spend?month=${IST_MONTH}`]: FLEET_SPEND,
+      "/v1/admin/spend/tts-speaking-rate": TTS_SPEAKING_RATE,
+    },
   },
   {
     file: "admin/tenants/[tenantId]/first-campaign-review/page.tsx",

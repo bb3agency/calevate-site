@@ -1331,8 +1331,20 @@ platform, but because they skipped the platform entirely. Anyone assuming they p
 Every figure below is derived from a first-party rate card; the derivation is shown so it
 can be re-checked when a rate moves. **Assumption used throughout:** the agent speaks
 40–60% of a call, at ~900 characters/minute of actual speech → **360–540 TTS characters per
-call-minute**. That ratio is itself unmeasured — it is the single biggest lever on the TTS
-line and is a pilot measurement (gate 12).
+call-minute**. That ratio is the single biggest lever on the TTS line and is pilot gate 12's
+measurement — **now MEASURED from our own transcripts rather than assumed**:
+`GET /v1/admin/spend/tts-speaking-rate` (`billing/tts_speaking_rate.py`, the "TTS speaking
+rate — measured" card on the admin spend board) reads `length(COALESCE(text_redacted, text))`
+over the AGENT's turns ÷ `calls.duration_s` for every call with a transcript, across every
+live tenant one RLS session at a time, and publishes the p50, the p95 and the pooled
+(Σ chars / Σ minutes) chars per call-minute with the TTS ₹/min each implies at the rate
+above. **The band is the FALLBACK until the sample reaches twenty calls**
+(`TTS_SPEAKING_RATE_MIN_CALLS`; below that the route returns the sample size and
+`measured: false` and no figure — a rate from three calls displayed as measured would be
+hard rule 11's failure). The band lives in code as
+`billing/rates.py::TTS_ASSUMED_CHARS_PER_CALL_MINUTE` and `scripts/check_docs_drift.py` §4e
+diffs it against every statement of it in this document, so the two cannot drift. When the
+card reads measured, re-derive this section's floor from the POOLED figure.
 
 **Sarvam rate card, read live from `sarvam.ai/api-pricing` on 11 Aug 2026 and RE-READ off
 the founder's own Sarvam dashboard on 27 Aug 2026** (`indus.sarvam.ai/model-catalogue` and
@@ -1359,7 +1371,9 @@ universal across APIs. **Rate limits are the real constraint, not price** — 60
 
 **Cost per call-minute.** Assumption doing the most work: the agent speaks 40–60% of a call at
 ~900 characters/minute of speech → **360–540 TTS characters per call-minute**. That ratio is
-unmeasured and is the single biggest lever on the TTS line (pilot gate 12).
+the single biggest lever on the TTS line (pilot gate 12) and is now measured — see the
+paragraph opening this section: the band is the fallback until the admin spend board's
+"TTS speaking rate — measured" card reads `measured` at twenty or more calls.
 
 | Leg | Rate | Per call-minute |
 |---|---|---|
@@ -1461,7 +1475,10 @@ leg: Telugu/Indic character density.** §10.1's whole cost model rests on the as
 that, and because TTS is the largest single leg, a higher real character count pushes the
 cost toward — or past — the ceiling and compresses the margin below the accepted band. This
 is carried deliberately, not hedged in the price; the pilot's character-count measurement
-is what confirms or reprices it. `gpt-4.1-mini` remains a client-chosen upgrade billed as a
+is what confirms or reprices it — and that measurement now exists: the admin spend board's
+"TTS speaking rate — measured" card (`GET /v1/admin/spend/tts-speaking-rate`) publishes the
+pooled chars per call-minute and the ₹/min it implies once twenty calls have transcripts,
+and until then says how many it has. `gpt-4.1-mini` remains a client-chosen upgrade billed as a
 plan surcharge (D-455), not a change to this base rate.
 
 **Self-orchestrated comparison (phase 2).** Same BYOK subtotal + telephony, no platform

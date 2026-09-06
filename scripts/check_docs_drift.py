@@ -1372,6 +1372,57 @@ def tts_rate_card_drift(text: str | None = None) -> list[str]:
     return failures
 
 
+# --- 4e. the TTS speaking-rate band the cost floor rests on ------------------------
+#
+# WHY THIS EXISTS. 4b guards the PRICE of a character. Nothing guarded HOW MANY of them a
+# call-minute uses, and that second number is the bigger lever: TRD §10.1 prices the TTS
+# leg at ₹1.08-1.62/min from "360-540 TTS characters per call-minute", an assumption the
+# doc itself calls unmeasured. `billing/tts_speaking_rate.py` now measures it from our own
+# transcripts and the board that publishes the measurement prints the band beside it as
+# "what this replaces" — so the band exists in code as
+# `rates.TTS_ASSUMED_CHARS_PER_CALL_MINUTE`, and a band in prose that drifts from it makes
+# the board contradict the cost model it is supposed to be correcting.
+#
+# EVERY STATEMENT OF THE BAND IN THE TRD IS READ, not only §10.1's: the doc states it in
+# §10.1 (twice) and again in the pricing rationale beneath it, and a correction that lands
+# in one paragraph and not the others is the D-102/D-105 shape. Any statement disagreeing
+# with the constant is named; a doc that states NO band is named too, because a constant
+# nothing quotes is a constant nothing guards.
+
+#: `360-540 TTS characters per call-minute`, en dash (U+2013) or hyphen, bold or not, and the
+#: phrase may wrap across a line inside the bold run.
+_DOC_TTS_BAND = re.compile(
+    r"(\d[\d,]*)\s*[\u2013-]\s*(\d[\d,]*)\s+TTS\s+characters\s+per\s+call-minute",
+    re.IGNORECASE,
+)
+
+
+def doc_tts_speaking_rate_bands(text: str | None = None) -> list[tuple[Decimal, Decimal]]:
+    """Every (low, high) band the TRD states for TTS characters per call-minute."""
+    document = text if text is not None else TRD.read_text(encoding="utf-8")
+    return [(_decimal(low), _decimal(high)) for low, high in _DOC_TTS_BAND.findall(document)]
+
+
+def tts_speaking_rate_band_drift(text: str | None = None) -> list[str]:
+    """TRD's assumed band against `rates.TTS_ASSUMED_CHARS_PER_CALL_MINUTE`, both ways."""
+    from apps.api.billing.rates import TTS_ASSUMED_CHARS_PER_CALL_MINUTE
+
+    low, high = TTS_ASSUMED_CHARS_PER_CALL_MINUTE
+    stated = doc_tts_speaking_rate_bands(text)
+    if not stated:
+        return [
+            f"{_rel(TRD)} states no 'N-M TTS characters per call-minute' band, so "
+            "`billing/rates.py::TTS_ASSUMED_CHARS_PER_CALL_MINUTE` guards nothing"
+        ]
+    return [
+        f"{_rel(TRD)} assumes {doc_low:f}-{doc_high:f} TTS characters per call-minute, and "
+        f"`billing/rates.py::TTS_ASSUMED_CHARS_PER_CALL_MINUTE` is {low:f}-{high:f}. The "
+        "board prints the constant as the band the measurement replaces"
+        for doc_low, doc_high in dict.fromkeys(stated)
+        if (doc_low, doc_high) != (low, high)
+    ]
+
+
 # --- 4d. the STT rate card, the other half of the speech leg ---------------------------
 #
 # WHY THIS EXISTS SEPARATELY FROM 4b. Same defect, second leg, different UNIT — and the
@@ -2394,6 +2445,10 @@ def main() -> int:
         ("the cost model and the biller price a TTS rung differently", tts_rate_card_drift()),
         ("the cost model and the code disagree on the in-call LLM leg", llm_cost_curve_drift()),
         ("the cost model and the biller price the STT leg differently", stt_rate_card_drift()),
+        (
+            "the cost model and the code disagree on the assumed TTS speaking rate",
+            tts_speaking_rate_band_drift(),
+        ),
         ("the legal catalogue and the web bundle disagree", legal_catalogue_drift()),
         ("a deferral that no longer holds", stale_deferrals()),
         ("prose states a capability constant's value, and the tree disagrees", capability_drift()),
@@ -2423,6 +2478,8 @@ def main() -> int:
         f"{len(doc_tts_rates())} TTS rungs priced identically by TRD §10.1 and the biller, "
         f"{len(doc_stt_rates_per_hour()) + len(doc_stt_rates_per_minute())} STT rate "
         f"statements in TRD §10.1 agreeing with `STT_INR_PER_HOUR`, "
+        f"{len(doc_tts_speaking_rate_bands())} statements of the assumed TTS speaking-rate "
+        f"band matching `TTS_ASSUMED_CHARS_PER_CALL_MINUTE`, "
         f"{sum(len(points) for points in doc_llm_cost_points().values())} in-call LLM cost "
         f"points, across {len(doc_llm_cost_points())} models, matching "
         f"`llm_cost_inr_per_minute`, "

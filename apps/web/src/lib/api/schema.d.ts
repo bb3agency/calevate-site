@@ -762,6 +762,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/spend/tts-speaking-rate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * How many TTS characters a call-minute really costs — measured from transcripts
+         * @description TRD §10.1's "360-540 chars per call-minute" assumption, replaced by a reading.
+         *
+         *     The SAME walk as `fleet_spend` and for the same reason: `transcript_turns` and `calls`
+         *     are FORCE-RLS'd, an untenanted read of either returns zero rows and reports success,
+         *     so the directory comes from the `app.admin` session and every call is sampled inside
+         *     its own client's `tenant_session`. The samples are pooled in memory and summarised
+         *     once (`tts_speaking_rate.summarize`), which is the only place two tenants' figures
+         *     meet — as integers, after every row has been read under its own policy.
+         *
+         *     Below `TTS_SPEAKING_RATE_MIN_CALLS` the response says so and carries no rate.
+         */
+        get: operations["fleet_tts_speaking_rate_v1_admin_spend_tts_speaking_rate_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants": {
         parameters: {
             query?: never;
@@ -13677,6 +13706,19 @@ export interface components {
             version: number;
         };
         /**
+         * SpeakingRatePointOut
+         * @description A chars-per-call-minute figure and the TTS ₹/min it implies at the live rate card.
+         *
+         *     Both are exact decimal STRINGS — a speaking rate is priced by multiplying it, so it is
+         *     money's shadow and crosses the wire the way money does (hard rule 7).
+         */
+        SpeakingRatePointOut: {
+            /** Chars Per Minute */
+            chars_per_minute: string;
+            /** Tts Inr Per Minute */
+            tts_inr_per_minute: string;
+        };
+        /**
          * SpendCapRecomputeOut
          * @description What the flag was, what it is now, and the numbers that decided it.
          *
@@ -14835,6 +14877,35 @@ export interface components {
              * Format: uuid
              */
             trial_id: string;
+        };
+        /**
+         * TtsSpeakingRateOut
+         * @description GET /v1/admin/spend/tts-speaking-rate — pilot gate 12's number, or the refusal.
+         *
+         *     `measured` is the field to read first. When it is False the three rate fields are
+         *     null, `reason` says how many calls there are and how many are needed, and the assumed
+         *     band is the figure still in force. A screen that printed the band as if it were the
+         *     measurement — or printed a placeholder rate — would be the hard-rule-11 failure the
+         *     threshold exists to prevent; there is no number here to print in that state.
+         */
+        TtsSpeakingRateOut: {
+            assumed_high: components["schemas"]["SpeakingRatePointOut"];
+            assumed_low: components["schemas"]["SpeakingRatePointOut"];
+            /** Calls */
+            calls: number;
+            /** Clients */
+            clients: number;
+            /** Measured */
+            measured: boolean;
+            /** Minimum Calls */
+            minimum_calls: number;
+            p50: components["schemas"]["SpeakingRatePointOut"] | null;
+            p95: components["schemas"]["SpeakingRatePointOut"] | null;
+            pooled: components["schemas"]["SpeakingRatePointOut"] | null;
+            /** Reason */
+            reason: string | null;
+            /** Tts Inr Per 10K Chars */
+            tts_inr_per_10k_chars: string;
         };
         /**
          * UnattributedSpendOut
@@ -16537,6 +16608,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["FleetSpendOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    fleet_tts_speaking_rate_v1_admin_spend_tts_speaking_rate_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TtsSpeakingRateOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
