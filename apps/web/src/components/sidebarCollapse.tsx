@@ -212,6 +212,21 @@ export const SIDEBAR_IDENTITY_ROW_CLASS =
  * `bg-brand-strong` chip: the artwork is dark green ink on transparency and would render
  * green-on-green (`components/brand.tsx`).
  */
+/**
+ * The scrolling nav column, shared by both shells.
+ *
+ * HOISTED rather than typed twice (6 Sep 2026). The client layout and the admin layout
+ * each carried this exact class string, so tightening the top padding in one and not the
+ * other would have left the two shells subtly different — the drift CLAUDE.md's "one way
+ * per problem" rule exists to stop, and the reason the brand and toggle spacing already
+ * live in this file.
+ *
+ * `pt-1`, not `pt-4`: the gap above the first nav item is set by the toggle row directly
+ * above it, which has its own padding. Paying for it twice is what made the header block
+ * look empty.
+ */
+export const sidebarNavClass = "custom-scrollbar relative flex-1 overflow-y-auto px-3 pt-1 pb-4";
+
 export function SidebarBrand({
   isCollapsed,
   onClose,
@@ -223,8 +238,13 @@ export function SidebarBrand({
   title: string;
   subtitle: string;
 }) {
+  // `pt-5 pb-2`, not `py-5`. The brand, the collapse toggle and the nav each carried
+  // their own generous vertical padding, and stacked they put ~72px between the wordmark
+  // and the first nav item — a gap that read as a missing element rather than as
+  // breathing room. The space ABOVE the wordmark sets it off from the window edge and is
+  // unchanged; only the space between it and the toggle below closes.
   return (
-    <div className="flex items-center gap-3 overflow-hidden px-[18px] py-5">
+    <div className="flex items-center gap-3 overflow-hidden px-[18px] pt-5 pb-2">
       <BrandIcon size={36} />
       <SidebarLabel isCollapsed={isCollapsed}>
         <span className="block text-[17px] font-bold leading-none tracking-tight text-ink">
@@ -257,6 +277,9 @@ export function SidebarBrand({
  * `pr-[22px]` puts it exactly on the rail's centre line when collapsed (72 - 22 - 14 = 36)
  * and, expanded, within 2px of where the old collapse button sat.
  */
+// `pb-1`: the other half of the same gap. The toggle sits between two blocks that both
+// padded away from it, so it was the widest-spaced control in the shell while being the
+// least important one.
 export function SidebarCollapseToggle({
   isCollapsed,
   onToggle,
@@ -265,7 +288,7 @@ export function SidebarCollapseToggle({
   onToggle: () => void;
 }) {
   return (
-    <div className="hidden justify-end pb-2 pr-[22px] lg:flex">
+    <div className="hidden justify-end pb-1 pr-[22px] lg:flex">
       <button
         type="button"
         onClick={onToggle}
