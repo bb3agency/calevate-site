@@ -390,3 +390,90 @@ All of these are one-time or time-boxed credit grants, not durable per-unit disc
 
 49. [Powering India's Next Wave of Tech Trailblazers in Tier 2 & 3 Cities](https://razorpay.com/blog/razorpay-partners-with-meity-startup-hub/) - From AI and robotics to Web3 and climate-tech, MeitY Startup Hub (MSH), an initiative under the Mini...
 
+
+---
+
+# ADDENDUM — Does Bolna support pre-rendered audio? (6 Sep 2026)
+
+Two primary sources read directly, not relayed: the hash-pinned hosted-docs mirror, and
+`bolna-ai/bolna@master` on GitHub (reachable from this container; the docs host is not).
+**The commit SHA is UNKNOWN — GitHub's API 403s through our proxy — so the OSS citations are
+to `master` as fetched on 6 Sep 2026, not to a pin.**
+
+## The answer is YES, natively, but only on an agent shape we do not use
+
+VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/graph-agent/static-nodes.md:9,18`:
+
+> *"A static node pre-renders the audio for that message when the agent is saved and plays it
+> back from cache at runtime. **No LLM call. No TTS call.**"*
+
+with a cost table reading **"Static node · ~50ms (cached audio) · Zero"** against an LLM
+node's *"~800ms · LLM tokens + TTS characters"*, and naming *"greetings, hold messages,
+confirmations, goodbyes"* as the use case. `static_message` accepts a string or a
+`{lang: text}` map, rendering one clip per language in that language's own voice
+(`:43-44,55-66`); the cache rebuilds only when the agent is re-saved.
+
+**The catch, and it is structural.** Static nodes exist only under
+`agent_type: "graph_agent"` — the third arm of `LlmAgentV2`'s union
+(`api-reference/agent/v2/create.md:615-619`). This repository sends `simple_llm_agent`, and
+`knowledgebase_agent` when a KB is attached (`apps/api/engine/bolna.py:2653-2656`). A graph
+agent is a flow of nodes and edges, not one system prompt, so `compose_engine_prompt`, the
+publish read-back in `agents/verification.py`, `sweep_engine_drift` and every screen that
+renders "the agent's script" are all written against the arm we send. **OPERATIONS §2 gate 50
+is the measurement before any design**, and its questions (c) and (d) — does a graph agent
+read back in a shape the hard-rule-5 diff can score, and can it still carry `api_tools` and a
+`vector_store` — can each end it outright.
+
+## There is no "upload your own audio" field, anywhere
+
+A grep of the whole mirror for `prerecorded|pre-recorded|audio_url|welcome audio|play audio|
+mp3|wav` returns only ambient-noise and voice-preview hits. `agent_welcome_message` is a
+plain string (`create.md:190-193`, required per `overview.md:25`), as is
+`call_hangup_message` (`create.md:546-556`). `ambient_noise`/`ambient_noise_track` upload a
+background track (Plivo/Vobiz only, ≤10 MB — `agent-setup/call-tab.md:53-85`); that is noise
+under the speech, not speech.
+
+## The welcome may ALREADY be free, and we cannot tell from outside
+
+VERIFIED-OSS: `task_manager.py` accepts a `welcome_message_audio` kwarg (base64 PCM, with its
+own sample rate) and `__forced_first_message` plays `preloaded_welcome_audio` with
+`"cached": True` **instead of pushing the text to the synthesizer**; `welcome_pcm_upsampled`
+is `@lru_cache`d, commented *"because the welcome is identical across every call of an
+agent"*. So the orchestrator expects some backend to hand it pre-synthesised welcome audio —
+and the OSS repo does not contain that backend (`local_setup/quickstart_server.py` never sets
+the kwarg). Whether the HOSTED control plane does is **UNKNOWN**; the docs never say the
+welcome is cached and never say it is billed. **Gate 49 settles it for the price of one
+call**: read `ExecutionUsageBreakdown.synthesizer_characters` against the characters actually
+spoken. It is the cheapest question in the table and it may make gate 50 unnecessary for the
+greeting.
+
+Also VERIFIED-OSS, and both dead ends on hosted: `backchanneling` plays preset `.wav` files
+per voice rather than TTS (`create.md:442-465`; `task_manager.py:812-829`) but the text is not
+configurable; and the `use_fillers` / `FILLER_DICT` machinery that would serve "one moment
+please" from a preset directory **has no call site that passes `is_filler=True`**, and
+`use_fillers` is absent from the hosted schema — treat it as non-functional.
+
+## The Cartesia concurrency question, answered from Bolna's own code
+
+`cartesia_synthesizer.py` opens **one WebSocket per synthesizer instance, one instance per
+call** (`:233-237`; `stream_synthesizer.py:323-343,374-380`), and forces `stream=True`
+(`:36`). A Cartesia **context** is opened per TURN — a fresh `uuid4` when there is none, when
+the previous was finalised by `end_of_llm_stream`, or when `turn_id`/`sequence_id` changes
+(`:75-86`) — with chunks inside a turn sent as `"continue": True` (`:133`) and a barge-in
+cancelling the context (`:104`).
+
+So **concurrent Cartesia contexts = the number of agents SPEAKING at that instant**, not the
+number of calls. On ten lines that is bounded above by ten and in practice is ten × the talk
+ratio. Cartesia's own rule of thumb (one unit ≈ four conversations) assumes a 25% talk ratio;
+a clinic receptionist reading out appointment slots plausibly runs higher. **Startup's 5
+contexts may or may not carry ten lines, and the failure mode is a 429 with no queue — dead
+air mid-sentence.** This must be load-tested, never assumed. The Startups Grant's Scale tier
+(15) removes the question entirely for twelve months, which is a second reason to apply
+before committing to a plan.
+
+One more from the same read: `BaseSynthesizer._fetch_http_audio` has a text-keyed cache
+(`base_synthesizer.py:164-179`, `caching=True` by default at `cartesia_synthesizer.py:32`) —
+but it sits on the HTTP non-streaming path, and Cartesia forces streaming, so **in-call turns
+are not cached in the OSS**. The HTTP path is used only for handoff clips
+(`task_manager.py:6444`), which ARE cached process-wide per (voice, text)
+(`HANDOFF_CLIP_CACHE`, `:229-232,6430-6466`).
