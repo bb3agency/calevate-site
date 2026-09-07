@@ -522,3 +522,78 @@ async def test_the_sweep_redrives_exactly_the_statuses_the_model_calls_retryable
     assert mine == set(UPLOAD_RETRYABLE), (
         "the sweep re-drove " + str(sorted(mine)) + ", not " + str(sorted(UPLOAD_RETRYABLE))
     )
+
+
+@pytest.mark.asyncio
+async def test_the_sweep_reaches_link_sources_at_all(monkeypatch: pytest.MonkeyPatch) -> None:
+    """THE ARM THAT HAD NEVER RUN, AND THE ONE THING THE OTHER SWEEP TEST CANNOT SEE.
+
+    `_DUE_LINKS_SQL` inner-joined `kb_sources` and ran on `untenanted_session()`.
+    `kb_uploads` has an ops-read policy; `kb_sources` deliberately has none, because it
+    holds client content and `db/registry.py` records that withholding it is the price the
+    whole ops-read shape exists to avoid. So the join matched ZERO ROWS, ALWAYS: no URL
+    knowledge source has ever been re-read since the arm shipped, `change_detected_at` has
+    never been set, and nothing errored or alarmed to say so.
+
+    The suite missed it because every other link test calls `_recheck_link` directly —
+    which is the right unit test and is exactly why it could not catch this. This one
+    drives `sweep_kb_uploads` and asserts the CALL HAPPENED, so a query that selects
+    nothing fails here rather than passing quietly for another release.
+
+    It also pins the second half of the fix: the source name and its active flag are read
+    on the tenant's own seat, so an INACTIVE source is skipped rather than re-read.
+    """
+    tenant_id, agent_id = await _tenant_with_published_agent()
+    source_id = uuid.uuid4()
+
+    # Rows written directly rather than through `_upload_pdf`: the subject here is the
+    # sweep's QUERY, and going through the door would drag in object storage, which this
+    # assertion does not need and which is not running in every environment.
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text(
+                # `is_active` defaults to FALSE, and the scoped read filters on it — so
+                # a fixture that forgets it tests nothing and passes for the wrong reason.
+                "INSERT INTO kb_sources (id, tenant_id, agent_id, kind, name, is_active) "
+                "VALUES (:sid, :t, :a, 'url', 'Opening hours', true)"
+            ),
+            {"sid": source_id, "t": tenant_id, "a": agent_id},
+        )
+        # `_DUE_LINKS_SQL` takes `source_kind = 'url'` and a `last_checked_at` past
+        # `RESCRAPE_AFTER`; NULL counts as due.
+        await session.execute(
+            text(
+                "INSERT INTO kb_uploads (id, tenant_id, agent_id, source_id, source_kind, "
+                "source_url, last_checked_at) VALUES (gen_random_uuid(), :t, :a, :sid, "
+                "'url', 'https://example.test/hours', NULL)"
+            ),
+            {"t": tenant_id, "a": agent_id, "sid": source_id},
+        )
+
+    seen: list[tuple[uuid.UUID, str]] = []
+
+    async def _record(**kwargs: Any) -> bool:
+        seen.append((kwargs["upload_id"], kwargs["name"]))
+        return False
+
+    monkeypatch.setattr(kb_ingest, "_recheck_link", _record)
+    monkeypatch.setattr(kb_ingest, "ingest_kb_source", _noop_ingest)
+
+    await kb_ingest.sweep_kb_uploads({})
+    assert [name for _, name in seen] == ["Opening hours"], (
+        "the sweep did not reach the link arm at all — it saw " + str(seen)
+    )
+
+    # And an inactive source is filtered by the scoped read, not by a join.
+    seen.clear()
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE kb_sources SET is_active = false WHERE id = :sid"),
+            {"sid": source_id},
+        )
+    await kb_ingest.sweep_kb_uploads({})
+    assert seen == [], "a switched-off source was still re-read"
+
+
+async def _noop_ingest(ctx: dict[str, Any], payload: dict[str, Any]) -> str:
+    return "noop"

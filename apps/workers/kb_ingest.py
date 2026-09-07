@@ -44,6 +44,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import re
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
 from typing import Any, Final
 from uuid import UUID
@@ -460,13 +461,34 @@ async def _fail(
 # --- The sweep: stalled ingests, and links whose page moved --------------------------
 
 
+#: ⚠ **THIS QUERY USED TO JOIN `kb_sources`, AND THAT MADE THE WHOLE LINK ARM DEAD CODE**
+#: (found 7 Sep 2026). The sweep runs on `untenanted_session()`, `kb_uploads` has an
+#: ops-read policy and `kb_sources` deliberately has none — it holds client content, and
+#: `db/registry.py`'s `retention_worklist` entry states that not giving it one is the
+#: price the whole ops-read shape exists to avoid. So the inner join matched **zero rows,
+#: always**: no URL knowledge source has ever been re-read and `change_detected_at` has
+#: never been set. Nothing errored, nothing alarmed, and the tests missed it because they
+#: drive `_recheck_link` directly rather than the sweep.
+#:
+#: So the source's `name` and `is_active` are read in a SECOND, TENANT-SCOPED pass
+#: (`_due_link_sources`) rather than bought with a policy widening. Two round trips per
+#: tick against a `LIMIT`-ed page is the cost, and it is the right one: a policy on
+#: `kb_sources` would be permanent and platform-wide, to save one query on a cron.
 _DUE_LINKS_SQL = """
-SELECT u.id, u.tenant_id, u.source_id, u.agent_id, u.source_url, u.content_digest, s.name
-FROM kb_uploads u JOIN kb_sources s ON s.id = u.source_id
-WHERE u.source_kind = 'url' AND s.is_active = true
+SELECT u.id, u.tenant_id, u.source_id, u.agent_id, u.source_url, u.content_digest
+FROM kb_uploads u
+WHERE u.source_kind = 'url'
   AND (u.last_checked_at IS NULL OR u.last_checked_at < :due)
 ORDER BY u.last_checked_at NULLS FIRST
 LIMIT :limit
+"""
+
+#: The half that needs the tenant's own seat: is this source still active, and what is it
+#: called. Keyed by id and re-stating `tenant_id` because a scoped read that also names
+#: its tenant is the shape the rest of this repo uses — RLS is the floor, not the plan.
+_LINK_SOURCE_SQL = """
+SELECT id, name FROM kb_sources
+WHERE tenant_id = :tenant_id AND id = ANY(:source_ids) AND is_active = true
 """
 
 _STALLED_SQL = """
@@ -540,23 +562,61 @@ async def sweep_kb_uploads(ctx: dict[str, Any]) -> str:
         )
         redriven += 1
 
+    names = await _due_link_sources(due)
+
     changed = 0
+    checked = 0
     for row in due:
+        # A source that is inactive, or that the tenant's own seat cannot see, is not an
+        # error and not an alarm — it is a link whose source was switched off between the
+        # two reads. Skipping it is the whole reason the name lookup is a filter as well
+        # as a lookup.
+        name = names.get((UUID(str(row[1])), UUID(str(row[2]))))
+        if name is None:
+            continue
+        checked += 1
         if await _recheck_link(
             upload_id=UUID(str(row[0])),
             tenant_id=UUID(str(row[1])),
             agent_id=UUID(str(row[3])),
             url=str(row[4]),
             known_digest=row[5],
-            name=str(row[6]),
+            name=name,
         ):
             changed += 1
 
     log.info(
         "kb_upload_sweep",
-        extra={"redriven": redriven, "links": len(due), "changed": changed},
+        extra={"redriven": redriven, "links": checked, "changed": changed},
     )
-    return f"redriven={redriven} links={len(due)} changed={changed}"
+    return f"redriven={redriven} links={checked} changed={changed}"
+
+
+async def _due_link_sources(due: Sequence[Any]) -> dict[tuple[UUID, UUID], str]:
+    """`(tenant_id, source_id) -> name`, for the ACTIVE sources among the due rows.
+
+    One scoped read per tenant rather than one per row: a tick is `MAX_LINKS_PER_TICK`
+    rows and they cluster by tenant, so this is a handful of sessions at most. The
+    dictionary doubles as the active filter — an id absent from it is a source that is
+    switched off, or one this tenant's own seat cannot see, and either way the link is
+    not re-read.
+    """
+    by_tenant: dict[UUID, set[UUID]] = {}
+    for row in due:
+        by_tenant.setdefault(UUID(str(row[1])), set()).add(UUID(str(row[2])))
+
+    names: dict[tuple[UUID, UUID], str] = {}
+    for tenant_id, source_ids in by_tenant.items():
+        async with tenant_session(tenant_id) as session:
+            rows = (
+                await session.execute(
+                    text(_LINK_SOURCE_SQL),
+                    {"tenant_id": tenant_id, "source_ids": list(source_ids)},
+                )
+            ).all()
+        for source_id, name in rows:
+            names[(tenant_id, UUID(str(source_id)))] = str(name)
+    return names
 
 
 async def _recheck_link(
