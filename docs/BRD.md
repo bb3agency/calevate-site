@@ -113,8 +113,9 @@ used only for follow-up notifications); building our own STT/TTS/LLM; GPU self-h
   agent**, not per account. The discount for buying more is NOT bonus credits and is NOT an
   "effective" rate the buyer has to compute: it is the per-minute rate itself, falling with
   the pack, **frozen on the credit that purchase bought** and spent oldest-purchase-first
-  (§8's card). So there is no gap between the headline and the effective number for us to be
-  caught in, which is the trick §8 already refuses to play. Whether Cartesia's Telugu beats
+  (§6's card — ⚠ this pointed at "§8" in both places, which is Success Metrics and holds no
+  card). So there is no gap between the headline and the effective number for us to be
+  caught in, which is the trick §6 already refuses to play. Whether Cartesia's Telugu beats
   Bulbul v3 is still the ear test above; what is settled is that it costs more per minute
   and is priced accordingly. **Its Telugu VOICE IDS are UNKNOWN** — the vendor's library is
   behind a login (`docs/evidence/cartesia-tts-verification-2026-09-06.md` §A4) — so the
@@ -211,16 +212,41 @@ took is TWO VOICES × SIX PACKS, not three voice tiers (D-547):** Sarvam ₹5.00
 ₹4.50, Cartesia ₹8.00 falling to ₹6.00, across ₹2,000 / 5,000 / 10,000 / 15,000 / 25,000 /
 50,000. The Sarvam floor is the ₹4.12 worst-case minute (engine fee 1.76 + STT 0.50 + LLM
 0.24 + Bulbul v3 1.62, telephony excluded because the client pays their own carrier,
-D-474). **The Cartesia leg has no per-minute cost floor at all**, because its TTS cost is a
-MONTHLY PLAN rather than a per-character price — the plan's ₹/1,000 chars is only true when
-the whole allotment is consumed, and the overage rate past the allotment is **UNKNOWN**
-(VENDOR-PUBLISHED, relayed research over `cartesia.ai/pricing`, 7 Sep 2026;
+D-474). ⚠ **THE CARTESIA LEG HAS A FLOOR NOW, AND THIS PASSAGE USED TO SAY IT HAD "no
+per-minute cost floor at all".** That was true of the plan and is not true of the code: it
+is **₹4.3639/min** (`billing/rates.py::CARTESIA_COST_FLOOR_INR_PER_MIN`), the same three
+shared legs as the Sarvam floor plus **₹1.8628** of monthly plan spread over the
+platform-wide break-even minute count — about **2,315 Cartesia call-minutes a month**, the
+Startup allotment of 1,250,000 characters at the top of the assumed speaking band. Both
+floors are DERIVED from their legs in code, not typed, and the pack guard refuses any rate
+below its own voice's floor. **What is still true is the reason the old sentence existed:
+that floor is struck at the plan's BEST per-minute price and therefore understates our cost
+at both ends of the volume range** — below the break-even count the fee does not shrink, and
+above it the overage rate past the allotment is **UNKNOWN** (VENDOR-PUBLISHED, relayed
+research over `cartesia.ai/pricing`, 7 Sep 2026;
 `docs/evidence/cartesia-tts-verification-2026-09-06.md` §A1 — the host is egress-blocked
-from this repository, so nothing here was read at source). Its floor is therefore the
-platform-wide minute count, which makes Cartesia a decision about VOLUME and not only about
-price. **Do not publish a headline per-minute rate without the
-monthly fee beside it** — that is the trick we called out in their marketing, and the
+from this repository, so nothing here was read at source). So Cartesia remains a decision
+about VOLUME and not only about price, and the 27.3% margin on the cheapest Cartesia rate
+(₹6.00) is the headroom that UNKNOWN is being carried on. **Do not publish a headline
+per-minute rate without the monthly fee beside it** — that is the trick we called out in their marketing, and the
 effective-₹/min rule in TRD §10.2 applies to our own copy too.
+
+**WHAT A CLIENT CALLS THE TWO VOICES: "Clear" AND "Studio" — NO CLIENT-FACING SURFACE
+NAMES A VENDOR AS A PRODUCT TIER (founder, 7 Sep 2026).** A client buys **Clear** (spoken
+by Sarvam Bulbul v3) or **Studio** (spoken by Cartesia Sonic 3.5). The names are defined
+once, in code, at `apps/api/billing/rates.py::VOICE_TIER_LABELS`, and travel to every
+screen over the wire rather than being retyped in the web bundle — the same provenance
+discipline the marketing pages already hold every ₹ figure to. **The wire fields, the
+ledger, the lot rows and every column keep the VENDOR spelling** (`sarvam`, `cartesia`),
+because that is what they mean and renaming a vendor in a money column is how a leg becomes
+unauditable. Two reasons, and the first is commercial rather than cosmetic: **the vendor
+behind a tier must be able to change without a client-visible rename** — a client who bought
+"Cartesia" has been sold a supplier, and a client who bought "Studio" has been sold a voice.
+The second is accuracy: `standard`/`premium` are Outpero's own rung names (TRD §10.3, read
+out of their shipped bundle) and copying a competitor's ladder reads as a copy of the
+product, while `basic` would be a claim about the Sarvam voice this repository has no
+measurement to support — the ear test in R-10 has not been run, and TRD §10.3 records a
+reader already misled by exactly that kind of inference.
 
 **Motion A — MANAGED (unchanged, the client-#1 path and where the margin is):**
 - **Setup fee:** ₹40,000–₹75,000 one-time (agent build, KB curation, number + DLT setup,

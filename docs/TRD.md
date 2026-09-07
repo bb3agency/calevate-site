@@ -1211,7 +1211,11 @@ Razorpay for collection (phase 1 can invoice manually; ledger from day 1 is non-
 
 ## 10. Cost Model (verified July 2026; re-verify quarterly)
 
-Per-minute variable (₹): platform 1.5–2.0 (A-1) · STT 0.50 · TTS 1.08–1.62 (Bulbul v3)
+Per-minute variable (₹): platform 1.5–2.0 (A-1) · STT 0.50 · **TTS 1.08–1.62 on the Sarvam
+voice (Bulbul v3, billed per character) or 1.8628 on the Cartesia voice (Sonic 3.5 — a
+MONTHLY PLAN spread over the platform-wide break-even minute count,
+`billing/rates.py::cartesia_plan_inr_per_call_minute`; D-547 made the voice a per-agent
+choice, so this leg now has two values and the call decides which)**
 · **LLM 0.10–0.24 (`gpt-4o-mini` on Azure OpenAI East US 2 — the band is the one- to
 ten-minute curve, not a rate; supersedes D-400's 0.23–0.51 Gemini band and D-36's ₹0.00.
 On the `gpt-4.1-mini` switch it is 0.27–0.65 — 2.67x, see §10.1)**
@@ -1266,8 +1270,12 @@ is §10.1's **₹2.89–4.28**.
 > band is likely gone; their docs list only V3 — confirm pricing on account" (D-35 read
 > the card live on 11 Aug 2026 and found v2 live at half the v3 rate; the single-tier voice
 > decision has since WITHDRAWN the v2 rung entirely — `billing/rates.py::TTS_INR_PER_10K_CHARS`
-> is now one scalar, though `plans.overage_rate_value` still exists as a dormant founder
-> pricing lever), and "LLM 0.04–0.10" — which is stale in the OTHER direction now. D-36 replaced it
+> is one scalar for the SARVAM rung and stays one; ⚠ this clause used to read "is now one
+> scalar" full stop, and since **D-547** the card has a SECOND rung —
+> `CARTESIA_TTS_INR_PER_10K_CHARS`, the Cartesia Startup plan's fee over its allotment,
+> DERIVED rather than typed. Two rungs, two vendors, and NOT a return of v2: what D-547
+> added is a dearer voice, not the cheaper one this note records as withdrawn.
+> `plans.overage_rate_value` still exists as a dormant founder pricing lever), and "LLM 0.04–0.10" — which is stale in the OTHER direction now. D-36 replaced it
 > with ₹0.00 (Sarvam 105B, free per token), D-400 replaced that with a real,
 > duration-dependent leg, and **D-410 has repriced that leg onto `gpt-4o-mini`** — same
 > curve, a cheaper vendor price, and an output leg 4x its input leg rather than 8.3x.
@@ -1302,7 +1310,7 @@ Telephony (~₹0.35–0.50) is likewise constant. Only the platform fee and late
 | LiveKit Cloud (phase-2 candidate) | marginal ₹1.23 (agent + third-party SIP, two meters) but **$50/mo Ship floor dominates**: ₹4.40/min @1k min, ₹0.88/min @5k min; concurrency capped 5/20/600 | ✅ ap-south (Mumbai) VERIFIED — best-evidenced |
 | Pipecat Cloud (phase-2 candidate) | ~₹0.88 claimed — **entirely unverified** | regions unverified |
 | Self-host (DO BLR / Vultr Mumbai) | ₹2.1/min @1k, ₹0.85–1.2/min @5k (₹2,112/node ≈ 8–9 concurrent) | best possible physics (co-located), unmeasured |
-| ~~Cartesia **Line**~~ (D-88, re-examined Aug 2026) | ₹5.28/min ($0.06/min, Free→Startup) — **bundled, and now CONFIRMED bundled**: Line's LLM is fully BYOK via LiteLLM (`model=` + `api_key=`, 100+ providers) but **STT and TTS are not** — Ink 2 and Sonic 3.5 are the product and the SDK exposes no swap interface (first-party: the Line SDK README, `github.com/cartesia-ai/line`). So it is not comparable to a BYOK fee, and it **cannot host D-36's Sarvam stack**. Scale tier $0.014/min (₹1.23) is enterprise-negotiated with an unpublished commitment. Monthly plans to $299 (₹26,312); agent concurrency capped 1/3/5/10 by tier. Eliminated on **telephony**, not price: Cartesia numbers / imported Twilio / Voximplant, none of which is a DLT-registered Indian number | India story is REAL but enterprise-shaped: Blue Machines AI partnership (~Feb 2026) for India-**resident** processing, Bangalore office, Sonic 3 across the top 9 Indic languages incl. Telugu, on-prem/VPC/air-gapped, SOC 2 Type II + HIPAA + PCI L1. The earlier "English-first TTS" reading was **stale and is withdrawn**. Self-serve India region still unverified — `docs.cartesia.ai` and `www.cartesia.ai` are unreachable from our build environment |
+| ~~Cartesia **Line**~~ (D-88, re-examined Aug 2026) | ₹5.28/min ($0.06/min, Free→Startup) — **bundled, and now CONFIRMED bundled**: Line's LLM is fully BYOK via LiteLLM (`model=` + `api_key=`, 100+ providers) but **STT and TTS are not** — Ink 2 and Sonic 3.5 are the product and the SDK exposes no swap interface (first-party: the Line SDK README, `github.com/cartesia-ai/line`). So it is not comparable to a BYOK fee, and it **cannot host D-36's Sarvam stack**. Scale tier $0.014/min (₹1.23) is enterprise-negotiated with an unpublished commitment. Monthly plans to $299 (₹26,312); agent concurrency capped 1/3/5/10 by tier. Eliminated on **telephony**, not price: Cartesia numbers / imported Twilio / Voximplant, none of which is a DLT-registered Indian number. ⚠ **ELIMINATED AS AN ORCHESTRATOR, ADOPTED AS A TTS VENDOR — TWO DECISIONS ABOUT ONE COMPANY, AND CONFLATING THEM IS THE ERROR THIS CELL NOW NAMES (D-547, 7 Sep 2026).** The verdict above is unchanged and is about **Line**, their orchestration product: it is bundled, it cannot host D-36's Sarvam stack, and its telephony reaches no DLT-registered Indian number. What D-547 adopted is **Sonic 3.5 as our SECOND TTS leg on Bolna**, where Cartesia is a first-class voice provider (`bolna-findings/mirror/pages/providers/voice/cartesia.md:58-66`, VERIFIED-VENDOR-DOCS) and the credential store takes one `CARTESIA` entry (`providers.md:146-150`) — the MODEL layer of the table below, at the plan price §10.1 states, bought while the orchestrator stays Bolna. Nothing in this row is softened by that: buying a vendor's model is not buying their platform, which is the same like-for-like rule the paragraph under this table was written to enforce | India story is REAL but enterprise-shaped: Blue Machines AI partnership (~Feb 2026) for India-**resident** processing, Bangalore office, Sonic 3 across the top 9 Indic languages incl. Telugu, on-prem/VPC/air-gapped, SOC 2 Type II + HIPAA + PCI L1. The earlier "English-first TTS" reading was **stale and is withdrawn**. Self-serve India region still unverified — `docs.cartesia.ai` and `www.cartesia.ai` are unreachable from our build environment |
 | ~~Vapi~~ | ~~₹4.40/min~~ — survives full BYOK; exceeds the entire all-in target alone | ❌ US/EU only: +230–260ms hairpin |
 
 Two rules this table encodes (D-32): at launch volume **monthly floors dominate
@@ -1386,11 +1394,25 @@ true only when the allotment is exactly consumed.
 > and the allotment, never typed) and `scripts/check_docs_drift.py` §4b diffs this row
 > against them in both directions, as it does the Bulbul row above.
 
-> ⚠ **The single-tier voice decision (superseding D-36/D-35/D-34) WITHDREW the Bulbul v2
-> "value" rung.** There is one voice quality now — Sarvam Bulbul v3 — so there is one TTS
-> rate (₹30 / 10,000 chars) and one client price (₹5.00/min, `self_serve_inr_per_min`).
-> Bulbul v2 was live at half the v3 rate (which corrected D-20's "appears discontinued");
-> it is simply no longer offered, so it and its cost rows are gone from this card.
+> ⚠ **SUPERSEDED IN TWO OF ITS THREE CLAIMS BY D-547 (7 Sep 2026). THIS NOTE USED TO READ
+> "There is one voice quality now — Sarvam Bulbul v3 — so there is one TTS rate
+> (₹30 / 10,000 chars) and one client price (₹5.00/min, `self_serve_inr_per_min`)", AND
+> NEITHER THE SECOND NOR THE THIRD CLAUSE IS TRUE ANY MORE.** There are **two** voice
+> tiers, chosen per AGENT: the Sarvam voice and the Cartesia voice. So there are two TTS
+> rungs on this card — the Sarvam one above and the Cartesia one in the table beneath it —
+> and **twelve** client prices rather than one: six packs × two voices
+> (`apps/api/billing/credit_packs.py:185-223`, the table restated in the CLIENT PRICE AND
+> MARGIN passage at the end of this section), each of the two rates FROZEN on the credit
+> the purchase that bought it opened, so a later card cannot re-price credit already sold. ₹5.00/min survives as the SARVAM
+> rate on the two smallest packs — one cell of a card, not the rate — and
+> `self_serve_inr_per_min` survives only as the transition reader named in the plan's §10.
+>
+> **What the single-tier decision settled and D-547 does NOT reopen: Bulbul v2 stays
+> withdrawn as a client-facing rung.** It was live at half the v3 rate (which corrected
+> D-20's "appears discontinued"); it is simply no longer offered, so it and its cost rows
+> stay gone from this card. The second tier is a second VENDOR at a DEARER rate, not the
+> cheaper rung of the same vendor coming back (BRD R-10 records the same distinction as the
+> mitigation it changes).
 > ⚠ **Corrected R-04's premise; D-400 overtook that and D-410 has closed it** — D-36 recorded Sarvam's LLM as free per token, which was read at the time as making a paid LLM leg avoidable on COST grounds (**that premise is now withdrawn — see the correction note below**); the founder took a paid leg anyway, first on Vertex and then on Azure OpenAI — South India at D-410, `eastus2` since D-449 — for the reasons in D-400, D-410 and D-449. **R-04 itself is now CLOSED on every leg**: the retirement date died with the Gemini model. The ₹0.00 line below is what we gave up rather than what we run.
 
 **Cost per call-minute.** Assumption doing the most work: the agent speaks 40–60% of a call at
@@ -1473,7 +1495,7 @@ Paid-LLM rows are quoted at the **five-minute** figure — **₹0.16/min on `gpt
 |---|---|---|
 | Telephony (Exotel/Vobiz class) | ₹0.35–0.50 *(estimate)* | **UNVERIFIED** |
 | Engine platform fee (Bolna BYOK) | target ≤₹1.50 | **UNVERIFIED — pilot gate 12** |
-| **All-in, rented engine** | **₹3.43–4.28** | v3+Sarvam-LLM floor → v3+`gpt-4o-mini` ceiling at five minutes; **₹4.36 at ten**. The floor rose from the retired v2 combination (₹2.89) because the single-tier voice decision made Bulbul v3 the ONLY voice — there is no cheaper rung to floor against any more. On the `gpt-4.1-mini` switch the ceiling is **₹4.56 at five minutes and ₹4.77 at ten** |
+| **All-in, rented engine** | **₹3.43–4.28** | v3+Sarvam-LLM floor → v3+`gpt-4o-mini` ceiling at five minutes; **₹4.36 at ten**. The floor rose from the retired v2 combination (₹2.89) because the single-tier voice decision made Bulbul v3 the CHEAPEST voice we offer — there is no cheaper rung to floor against any more, and **D-547's second voice does not restore one**: Cartesia Sonic 3.5 is DEARER, so it raises the ceiling and leaves the floor exactly where it is. Swapping the TTS leg on any row above costs **+₹0.24 to +₹0.78/min** (₹1.8628 at the plan's break-even count against Bulbul v3's ₹1.08–1.62), which is why the two cost floors in `billing/rates.py` differ by ₹0.2428 — ₹4.1211 Sarvam against ₹4.3639 Cartesia, the same swap taken at the worst case of the character band. On the `gpt-4.1-mini` switch the ceiling is **₹4.56 at five minutes and ₹4.77 at ten** |
 
 > ⚠ **BOTH ENDS ADD THE SAME THREE THINGS:** a BYOK model subtotal from the table above, a
 > telephony estimate from the row above, and the engine platform fee. Written out:
@@ -1490,42 +1512,98 @@ Paid-LLM rows are quoted at the **five-minute** figure — **₹0.16/min on `gpt
 > floor is ₹3.69 and the ceiling ₹4.54. The ladder is written against the TARGET because
 > that is the number the pricing decisions were made on; gate 12 is what replaces it.
 
-**CLIENT PRICE AND MARGIN (the single-tier voice decision, superseding D-34's ₹6).** The
-self-serve client rate is **₹5.00/min** (`self_serve_inr_per_min`) — one voice quality,
-one client rate. Against the all-in cost band above (₹3.43–4.28/call-minute) the founder
-knowingly accepted a **~22–30% gross margin**: comfortable on the default stack at typical
-call lengths, thin at the ceiling. **The dominant risk is UNMEASURED and it is on the TTS
-leg: Telugu/Indic character density.** §10.1's whole cost model rests on the assumption of
-360–540 TTS characters per call-minute (pilot gate 12); Indic scripts can run denser than
-that, and because TTS is the largest single leg, a higher real character count pushes the
-cost toward — or past — the ceiling and compresses the margin below the accepted band. This
-is carried deliberately, not hedged in the price; the pilot's character-count measurement
-is what confirms or reprices it — and that measurement now exists: the admin spend board's
-"TTS speaking rate — measured" card (`GET /v1/admin/spend/tts-speaking-rate`) publishes the
-pooled chars per call-minute and the ₹/min it implies once twenty calls have transcripts,
-and until then says how many it has. `gpt-4.1-mini` remains a client-chosen upgrade billed as a
-plan surcharge (D-455), not a change to this base rate.
+**CLIENT PRICE AND MARGIN — SIX PACKS × TWO VOICES, EACH RATE FROZEN ON THE PURCHASE THAT
+BOUGHT IT (D-547, 7 Sep 2026; supersedes the single-tier voice decision here, which
+superseded D-34's ₹6).** ⚠ **This paragraph used to open *"the self-serve client rate is
+₹5.00/min (`self_serve_inr_per_min`) — one voice quality, one client rate"*, and there is
+no longer a single self-serve rate to state.** What a minute costs turns on two things:
+which PACK the credit being spent came from, and which VOICE the agent that took the call
+speaks with. The card is `apps/api/billing/credit_packs.py:185-223`; the margin column is
+`billing/credit_packs.py::card_margins` computed against each voice's own cost floor, and
+every figure below was read from that code, not restated from the plan:
+
+| Pack | Sarvam voice ₹/min | margin | Cartesia voice ₹/min | margin |
+|---|---|---|---|---|
+| `starter` ₹2,000 | 5.00 | 17.6% | 8.00 | 45.5% |
+| `growth` ₹5,000 | 5.00 | 17.6% | 7.00 | 37.7% |
+| `scale` ₹10,000 | 4.85 | 15.0% | 6.75 | 35.3% |
+| `plus` ₹15,000 | 4.70 | 12.3% | 6.50 | 32.9% |
+| `pro` ₹25,000 | 4.60 | 10.4% | 6.25 | 30.2% |
+| `max` ₹50,000 | 4.50 | 8.4% | 6.00 | 27.3% |
+
+**The two floors those margins are struck against are DERIVED, never typed:** ₹4.1211/min
+for the Sarvam voice (`SELF_SERVE_COST_FLOOR_INR_PER_MIN` = engine fee 1.76 + STT 0.50 +
+LLM 0.2411 + TTS 1.62) and ₹4.3639 for the Cartesia voice
+(`CARTESIA_COST_FLOOR_INR_PER_MIN` — the same three shared legs plus ₹1.8628 of monthly
+plan at the break-even minute count). Telephony is in neither, because the client pays
+their own carrier (D-474). Two properties of this card matter more than any single cell:
+
+1. **The whole Sarvam column is BELOW the 20% `MIN_GROSS_MARGIN` target and ABOVE cost,
+   and that is a decision rather than an omission.** The guard REFUSES a rate below its
+   voice's floor and only REPORTS one below the target (`credit_packs.card_refusals`
+   against `card_margins`), because a 20% refusal would refuse the card the founder chose.
+   8.4% at the `max` rung is the thinnest cell on the card and it is thin on purpose:
+   ₹50,000 buys a cheaper minute, and the fixed-cost recovery that makes it work is the
+   §10.2 amortisation, not this line.
+2. **A rate is frozen on the LOT a purchase opens, not on the account.** A later card
+   applies to later purchases; credit already sold keeps the two rates it was sold at, and
+   credit is spent oldest-purchase-first. That is what makes D-492's "a closed month is
+   never re-priced" true by construction rather than by a dated lookup.
+
+**The client-facing NAMES of the two tiers are not the vendors' (founder, 7 Sep 2026).** A
+client reads **"Clear"** (the Sarvam voice) and **"Studio"** (the Cartesia voice), defined
+once at `billing/rates.py::VOICE_TIER_LABELS` and crossed over the wire rather than copied
+into the web; the wire fields, the ledger, the lot rows and every column keep the vendor
+spelling, because renaming a vendor in a money column is how a leg becomes unauditable.
+Two names were excluded deliberately: `standard`/`premium` are Outpero's own rung names
+(§10.3, read out of their bundle), and `basic` would be a claim about the Sarvam voice this
+repository has no measurement to support — §10.3's ⚠⚠ note is the record of a reader
+misled by exactly that kind of inference.
+
+**The dominant risk is UNMEASURED and it is on the TTS leg: Telugu/Indic character
+density.** §10.1's whole cost model rests on the assumption of 360–540 TTS characters per
+call-minute (pilot gate 12); Indic scripts can run denser than that, and because TTS is the
+largest single leg, a higher real character count pushes the cost toward — or past — the
+ceiling and compresses the margin below the accepted band. On the Sarvam column, which
+starts at 17.6% and ends at 8.4%, there is less room for that than there was when this
+paragraph described a single 22–30% rate. This is carried deliberately, not hedged in the
+price; the pilot's character-count measurement is what confirms or reprices it — and that
+measurement now exists: the admin spend board's "TTS speaking rate — measured" card
+(`GET /v1/admin/spend/tts-speaking-rate`) publishes the pooled chars per call-minute and
+the ₹/min it implies once twenty calls have transcripts, and until then says how many it
+has. **Since D-547 that number is also a BILLED QUANTITY and not only a margin input**: a
+Cartesia call has no vendor character count to bill from, so the `tts_chars` row takes its
+`qty` from the same measurement (OPERATIONS §2 gate 12(h), and gate 51 for whether the
+engine reports anything at all). `gpt-4.1-mini` remains a client-chosen upgrade billed as a
+plan surcharge (D-455), not a change to any rate on this card.
 
 **Self-orchestrated comparison (phase 2).** Same BYOK subtotal + telephony, no platform
 fee, plus ~₹0.15–0.30/min compute (2 vCPU/4 GB node ≈ ₹2,112/mo, ~8–9 concurrent):
 **≈ ₹2.20–3.14/min** (re-derived at D-410 from the ₹1.70–2.34 BYOK constant above; it read
 ₹2.23–3.12 against the Gemini leg, so this one barely moved — the LLM change lands almost
-entirely inside the subtotal's own rounding). *(This is **Bulbul v3 — the one voice quality
-— across the whole 1–10 minute LLM curve**. The older blended phase-2 band of ≈₹1.9–2.6
-assumed a cheaper v2 TTS rung that the single-tier voice decision withdrew, so that band no
-longer applies.)* The delta is therefore still **≈ ₹0.9–1.5/min**,
+entirely inside the subtotal's own rounding). *(This is the **Bulbul v3 TTS leg across the whole
+1–10 minute LLM curve** — the CHEAPER of the two voices D-547 sells, and this parenthesis
+used to call it "the one voice quality". A Cartesia-voiced call adds ₹0.24–0.78/min to
+every figure in this comparison, on both sides of it, so the DELTA below is unchanged. The
+older blended phase-2 band of ≈₹1.9–2.6 assumed a cheaper v2 TTS rung that the single-tier
+voice decision withdrew and D-547 did not restore, so that band still does not apply.)* The delta is therefore still **≈ ₹0.9–1.5/min**,
 which is simply the platform fee: **both sides carry the identical BYOK leg, so a cheaper
 model moves the two totals together and the delta by nothing** — consistent with the
 ~2k min/month break-even already stated above.
 
 ### 10.3 Reconstructing Outpero's economics (why their ₹3/₹5/₹7 tiers work)
 
-> ⚠ **SUPERSEDED where it proposes a voice-quality ladder.** The single-tier voice
-> decision (superseding D-36/D-35/D-34) collapsed our own voice offering to ONE quality
-> (Bulbul v3) at ONE client rate (₹5.00/min). The competitor reconstruction below is kept
-> as analysis, but any "Bulbul v2 → Bulbul v3 → Cartesia" ladder it sketches for US is no
-> longer the plan — v2 is withdrawn and there is no cheaper voice rung to sell. The v2 cost
-> figures here are retained only as the historical inputs the reconstruction was built on.
+> ⚠ **SUPERSEDED where it proposes a voice-quality ladder — TWICE, AND THE SECOND TIME
+> REVERSED HALF OF THE FIRST.** The single-tier voice decision (superseding D-36/D-35/D-34)
+> collapsed our own voice offering to ONE quality (Bulbul v3) at ONE client rate (₹5.00/min),
+> and **D-547 (7 Sep 2026) has since made it TWO** — Bulbul v3 and Cartesia Sonic 3.5,
+> chosen per agent, priced as two per-minute rates on each of six packs. So the ladder this
+> section sketches is half-right in a way worth stating exactly: the **Cartesia rung is real
+> and is ours now**, and the **v2 rung is still withdrawn**, so our ladder goes UP from the
+> Sarvam voice rather than down. It is also not a ladder of "qualities" — it is a ladder of
+> VENDORS, and whether Cartesia's Telugu is better than Bulbul v3's is still the ear test
+> nobody in this tree has run (§5). The v2 cost figures here are retained only as the
+> historical inputs the reconstruction was built on.
 
 With the verified Sarvam rate card, their pricing reconciles cleanly — and the reconstruction
 is instructive because **they buy the same inputs we do.** Confidence is marked per line.
@@ -1558,8 +1636,12 @@ to reconcile — do not build on it without direct verification.)*
 > **FOUNDER EAR-TEST, 6 Sep 2026 (FOUNDER-OBSERVED, relayed):** the ₹3 tier "literally
 > robotic voices". That is consistent with **Bulbul v2** and not with v3, and it is the
 > evidence that settles which Sarvam model sits behind `rates.sarvam_per_min`. Their ₹7
-> premium is Cartesia; our single voice is **Bulbul v3**, two rungs above their cheapest
-> and one below their dearest, at ₹5.00.
+> premium is Cartesia; **so is our second voice, since D-547.** Our Sarvam voice is
+> **Bulbul v3** at ₹5.00 falling to ₹4.50 by pack — two rungs above their cheapest — and
+> our Cartesia voice is **Sonic 3.5** at ₹8.00 on the entry pack, passing under their ₹7
+> only at the ₹10,000 pack (₹6.75) and reaching ₹6.00 at ₹50,000. We start ABOVE them on
+> the same vendor's voice, for the reason this whole section exists: they pay nothing at
+> the orchestration layer and we pay a platform fee.
 >
 > So the honest competitive line is **not** "they undercut us on the same voice" — it is
 > that our only voice is better than the one they sell at ₹3 and priced 29% under the one
@@ -1957,6 +2039,13 @@ cannot do instead of pretending. The day the trigger fires, the remaining vendor
 gate 19, not a class.
 
 ### 10.6 Running two engines at once — the concrete Cartesia implementation plan
+
+> ⚠ **THIS SECTION IS ABOUT CARTESIA THE ENGINE (Line), NOT CARTESIA THE TTS VENDOR.**
+> D-547 adopted **Sonic 3.5 as our second voice on Bolna** — a MODEL-layer purchase, a
+> `CARTESIA` credential in the engine's provider store, and a synthesizer block in
+> `apps/api/engine/bolna.py`. It did **not** adopt `apps/api/engine/cartesia.py`, did not
+> reopen the orchestrator decision, and changes nothing below. The two decisions share a
+> company name and nothing else; §10's platform table now says so at the row itself.
 
 §10.5 says build FOR the switch. This is what that means in files, in order, with the one
 architectural change that actually matters.

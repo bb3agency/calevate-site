@@ -290,6 +290,41 @@ that is already degraded.
 previous release runs on the current schema. Do not pair a code rollback with a schema
 downgrade by reflex — see §3.
 
+**⚠ ONE THING IS LOST IF YOU DO DOWNGRADE PAST `c9f3a71e58d2` (credit lots, D-547): THE
+FROZEN RATES OF EVERY LOT OPENED SINCE THE UPGRADE.** That revision's downgrade drops
+`credit_lots` — the table holding, per purchase, the two per-minute rates that purchase was
+sold at. **No money moves and no wallet changes**: the balance lives on `credit_ledger`,
+lots never wrote a delta, and the zero-delta `lot_migration` marker rows are removed with
+the table so the next upgrade can re-run cleanly. What is gone is the TERMS: a client who
+bought a ₹15,000 pack at ₹4.70 / ₹6.50 has credits again priced by whatever the previous
+release charged — `self_serve_inr_per_min`, which still resolves — and re-upgrading opens
+their balance as ONE migration lot at the ₹5,000-pack rates (₹5.00 / ₹7.00), not at what
+they actually paid. **So before downgrading this revision, dump what you are about to
+delete** — it is the only copy:
+
+```
+# RUN IT AS postgres, NOT AS $DATABASE_URL. `credit_lots` is FORCE RLS, so the app role AND
+# the owner role are both subject to `tenant_isolation`, which is fail-closed on an unset
+# `app.tenant_id`: the dump would succeed, write a header and no rows, and tell you there
+# was nothing to lose. A superuser bypasses RLS and sees every tenant.
+# `\copy` is CLIENT-side, so the file is written by the OS user psql runs as -- postgres,
+# under sudo -- which is why it lands in /tmp and is moved afterwards. This repo has no
+# established dump directory (grepped: none); put it somewhere that survives the incident
+# and name the path in the record.
+OUT="/tmp/credit_lots-$(date -u +%Y%m%dT%H%M%SZ).csv"
+sudo -u postgres psql -d calevate -v ON_ERROR_STOP=1 \
+  -c "\copy (SELECT * FROM credit_lots ORDER BY opened_at) TO '$OUT' CSV HEADER"
+wc -l "$OUT"     # header + one line per lot. JUST the header means RLS ate it -- see above
+sudo mv "$OUT" /root/ && ls -l /root/"$(basename "$OUT")"
+```
+
+Then say so in the incident record, because it is a billing fact and not an operational
+one: any purchase made between the upgrade and the rollback needs its rates restored by
+hand when the release goes forward again. A code-only rollback (`--checkout <sha>`, the
+paragraph above) touches none of this — **it is the schema downgrade, and only the schema
+downgrade, that destroys the rates.** Prefer rolling the code back and leaving the schema
+alone, which is what §3 already tells you and what this revision is designed for.
+
 **And the deploy no longer dies trying.** `--all` puts the python services in the plan, so
 the migrate step runs — from the OLDER image. If the deploy you are rolling back carried a
 migration, the database is at a revision that image has no script for, and

@@ -4016,6 +4016,118 @@ gives the `meta.lots` entry as `{lot_id, credits, minutes, inr_per_min, voice_ti
 such a split, and the plan does not say which. DATA-MODEL states what the plan states and no
 more.
 
+## §77 — the pack card, the lots and the second voice: three phases landed, and the documents caught up
+
+**§76 recorded the model as prose, ahead of the code. This section records the code**, in
+one entry per phase that actually landed, and then the documents that were re-pointed at it
+in the same session. Every figure below was read from the tree on 7 Sep 2026 at the file and
+line named; nothing is restated from the plan.
+
+### Phase A — the pack card becomes six rungs × two rates, and the floor is derived
+
+`apps/api/billing/credit_packs.py:185-223` is the card: `starter` ₹2,000 (5.00 / 8.00),
+`growth` ₹5,000 (5.00 / 7.00), `scale` ₹10,000 (4.85 / 6.75), `plus` ₹15,000 (4.70 / 6.50),
+`pro` ₹25,000 (4.60 / 6.25), `max` ₹50,000 (4.50 / 6.00) — ₹ per minute, Sarvam voice then
+Cartesia voice. `bonus_pct`/`bonus_credits` stay on the wire at zero for one release
+(hard rule 8; `payments.py` still reads `bonus_credits`).
+
+**The two cost floors stopped being prose and became arithmetic.**
+`SELF_SERVE_COST_FLOOR_INR_PER_MIN` is **₹4.1211** — engine fee ₹1.76 (now derived as
+`ENGINE_PLATFORM_FEE_USD_PER_MIN` × `COST_MODEL_USD_INR` rather than retyped in rupees) +
+STT ₹0.50 + LLM ₹0.2411 + Bulbul v3 ₹1.62. `CARTESIA_COST_FLOOR_INR_PER_MIN` is **₹4.3639**
+— the same three shared legs plus **₹1.8628** of Cartesia Startup plan spread over the
+break-even count of ~2,315 Cartesia call-minutes a month. Telephony is in neither (D-474).
+
+**The guard refuses below cost and only reports below target, and that is the decision.**
+`card_margins` scores twelve cells; `card_refusals` returns a failure only for a rate under
+its own voice's floor or for a non-monotone column. The whole Sarvam column sits under the
+20% `MIN_GROSS_MARGIN` target on purpose — **17.6% at ₹5.00 down to 8.42% at ₹4.50** —
+while Cartesia runs 45.5% down to 27.3%. A 20%-refusal would have refused the founder's
+card. The ops console previews all twelve margins before writing, and a card write is
+twelve `pack:*:*` rows in `platform_list_rates` under ONE `effective_from` from a single
+clock read.
+
+**Evidence moved in both directions.** The Bolna platform fee went REPORTED →
+VERIFIED-VENDOR-DOCS on the vendor's own FAQ line (\$0.02/min,
+`bolna-findings/mirror/pages/frequently-asked-questions.md:39`), and the unreconciled
+\$0.06/min bundled figure (`pricing/preferred-models.md:11`) is recorded beside it rather
+than resolved — **no Bolna page reconciles the two**, and the BYOK fee's billing
+GRANULARITY is **UNKNOWN**. The Cartesia leg's whole plan arithmetic is REPORTED (a relayed
+research run; `cartesia.ai` is egress-blocked here) and its **overage rate past the
+allotment is UNKNOWN**, which is why the floor understates our cost at both ends of the
+volume range — stated at the constant, and the 27.3% headroom at ₹6.00 is what that UNKNOWN
+rides on.
+
+### Phase B1 — `credit_lots`: the table, the FIFO engine, and every live balance migrated
+
+Migration `c9f3a71e58d2`. The table carries, per purchase, the two rates that purchase was
+sold at; `credit_ledger` keeps the money and stays append-only, because drawing a lot down
+is an UPDATE and a ledger cannot hold one. Strict FORCEd RLS for every verb — not the
+`OR <guc> IS NULL` form `f2b91c47e0a3` exists to correct — plus a FIFO partial index and a
+`credit_lots_terms_frozen` trigger whose **allowlist is the MUTABLE set**, compared as
+`to_jsonb(NEW)` minus that set, so a column added next year is frozen by default.
+
+The build corrected three things in the plan, and the plan now records all three
+(ADDENDUM 4). The allowlist had to include `credits_total`, because ADDENDUM 2's downward
+restatement moves it and the trigger as specified would have refused the one path an
+operator has to correct a mis-recorded payment. `consume()` could not take a credit count:
+a call's demand is MINUTES and `minutes × rate` is not computable before the lots are
+walked, so it takes a discriminated `CallDemand`/`AiAssistDemand` instead. And `FOR UPDATE`
+was dropped deliberately — holding the row locks makes the CAS unable to lose, which turns
+its retry into an unreachable branch, and in the zero-tolerance `ledgers-and-money` ratchet
+area an unreachable branch is a failing gate rather than a free precaution.
+
+The data migration opens ONE lot per tenant whose newest ledger row is in credit, at
+**₹5.00 / ₹7.00** — the ₹5,000-pack rates, which is exactly what every existing balance was
+sold at — linked to a zero-delta `adjustment` marker so the ledger records where lots began.
+A zero or negative balance opens none. It runs inside the `NO FORCE`/`FORCE` bracket
+`tests/migration_rls_bracket_test.py` enforces, because unbracketed the INSERT would match
+zero rows and report success.
+
+### Phase C (partial) — Cartesia becomes a second voice, and the publish diff stops trusting the speaker
+
+The catalogue widens to two providers; `agents/voice_offer.py` mirrors `offerable_models()`
+with three ordered grounds, each a sentence the picker renders: no `cartesia_api_key`
+installed, no attested Cartesia TTS price (hard rule 7 — an unpriced minute is unmetered
+spend, not a free one), and the `cartesia_agent_cap` reached. `offerable_voices()` returns
+EVERY voice with its verdict, never a shorter list, so an operator can see which of the
+three is still missing.
+
+The Bolna adapter emits a real Cartesia synthesizer block, built from the config class in
+their open source rather than from their OpenAPI enum — which omits Cartesia and nine other
+providers they demonstrably support. Three landmines from that reading are assertions, not
+comments: their synthesizer defaults `model` to `sonic-english`, which Cartesia sunset on
+1 Jun 2026, so the block always sends `model` explicitly; their WebSocket URL pins
+`cartesia_version=2024-06-10` against Cartesia's current 2026-08-14; and it sends a voice
+object carrying a `mode` key Cartesia's current schema does not document. The last two are
+inside Bolna and not ours to fix, so they are recorded with their `repo@commit` citation
+where the next reader meets them.
+
+**The read-back was the real hole.** `verification.py` diffed the SPEAKER only, so an agent
+configured for Cartesia that the engine held as Sarvam scored a clean publish — the client
+hears one voice and every screen names the other. `holds_speech` now answers with provider,
+model and voice, and the diff compares all three. A **Cartesia voice still cannot be
+published**, and refuses by name (`cartesia_voice_incomplete`,
+`engine/bolna.py:571-598`): the catalogue ships EMPTY because the Telugu voice ids need one
+authenticated call that needs the key installed first.
+
+### The documents, re-pointed at what landed
+
+| Document | What it now says |
+|---|---|
+| `docs/TRD.md` §10 | The §10 header's TTS leg has two values, one per voice. The platform table's Cartesia row now says in its own cell that **eliminated as an ORCHESTRATOR and adopted as a TTS VENDOR are two decisions about one company** — Line is still eliminated on telephony, Sonic 3.5 is bought at the MODEL layer on Bolna — and §10.6 opens with the same disambiguation, because it is the section most likely to be misread as the adoption. §10.1's "there is one voice quality … one TTS rate … one client price" note is superseded in two of its three clauses and keeps the third (v2 stays withdrawn). §10.1's CLIENT PRICE AND MARGIN passage is rewritten as the six-by-two card with the twelve margins, the two derived floors, the below-target-by-design decision, the per-lot freeze, and the client-facing tier NAMES. The all-in cost row records that the second voice raises the ceiling and not the floor (+₹0.24–0.78/min, which is the ₹0.2428 between the two floors at the worst case). §10.3's Outpero note stops saying our offering is one quality at one rate. |
+| `docs/BRD.md` | §6 gains the naming decision: a client reads **"Clear"** and **"Studio"**, never a vendor name. ⚠ It also CORRECTS a sentence §76 left standing — "the Cartesia leg has no per-minute cost floor at all", true of the plan and false of the code, which has one at ₹4.3639 — while keeping the reason that sentence existed: the floor is struck at the plan's best price and understates our cost at both ends. Two "§8" cross-references that pointed at Success Metrics now point at §6, which is where the card is. |
+| `docs/OPERATIONS.md` §2 | New **gate 54**: the engine's own `Synthesizer.caching`, which their worked example posts as `true` (`graph-agent/full-example.md:188`) and which we have never set — it may already be doing the work gate 49 proposes, and building a cache in front of one that exists is the most expensive possible answer. Gates 51–53 stand as filed in §76 and are OPEN. |
+| `docs/ROADMAP.md` | **D-547** rewritten as a decision row rather than a plan summary: what was decided and why, the card and both floors with their code citations, the below-target decision, the naming decision, what has LANDED (A, B1, C-partial) against what has not (B2, D, E, F, frontend), and what is blocked outside this repository. It also supersedes its own earlier draft on two figures — the "no Cartesia floor" claim, and a "~1,400 Cartesia-min/month at ₹7" break-even that nothing in the code or the evidence file reproduces. |
+| `runbooks/deploy-failed.md` §4 | Rolling the CODE back touches none of this; downgrading past `c9f3a71e58d2` **destroys the frozen rates of every lot opened since the upgrade**, and no wallet moves because lots never wrote a delta. Dump `credit_lots` before you do it, and record it as a billing fact: re-upgrading re-opens every balance as one ₹5.00/₹7.00 migration lot, not at what the client paid. |
+| `docs/BUILD-LOG.md` | This section. |
+
+**What is still not built, said plainly**: Phase B2 (the callers — pipeline, payments,
+credit_routes, ai_quota — so a call is still NOT priced from a lot today), Phase D
+(`TtsPriceAttestation` and the margin panel), Phase E (the wire shapes), Phase F (Terms
+§6.1) and the frontend. **What is blocked outside this repository**: the Telugu voice ids,
+and OPERATIONS gates 51–54.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"
