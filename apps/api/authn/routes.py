@@ -241,6 +241,37 @@ class InviteAcceptWithPasswordOut(BaseModel):
     role: str
 
 
+class PasswordChangeIn(BaseModel):
+    """The signed-in password change. BOTH passwords, per ASVS 5.0 §6.2.3.
+
+    `new_password` is bounded by the same absolute constants as every other password field
+    here — the SHAPE, not the policy (see `LoginIn`); `authn/policy.py` refuses a short one
+    with the realm's real number in the message. `current_password` is bounded at
+    `MIN_PASSWORD_CHARS` too rather than at 1, because a value shorter than the KDF's floor
+    cannot be anybody's stored password and refusing it at the boundary costs an Argon2
+    verification we would otherwise perform to learn nothing.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    current_password: str = Field(min_length=MIN_PASSWORD_CHARS, max_length=MAX_PASSWORD_CHARS)
+    new_password: str = Field(min_length=MIN_PASSWORD_CHARS, max_length=MAX_PASSWORD_CHARS)
+
+
+class PasswordChangeOut(BaseModel):
+    """What changed, in numbers the console can put on the screen.
+
+    `revoked` is how many OTHER sessions this ended — the count a person who came here
+    because they think they were compromised actually wants to see. The caller's own
+    session is not in it: it was rotated, not revoked, and the response carries its new
+    cookie.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    revoked: int
+
+
 class RevokedOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -525,6 +556,54 @@ def _realm_router(realm: str) -> APIRouter:
             ip=client_request_ip(request),
         )
         return Response(status_code=204)
+
+    @router.post(
+        "/password/change",
+        response_model=PasswordChangeOut,
+        summary="Change your own password while signed in, ending every other session",
+    )
+    async def password_change(
+        payload: PasswordChangeIn,
+        request: Request,
+        response: Response,
+        verified: VerifiedSession = Depends(authed),
+    ) -> PasswordChangeOut:
+        """The self-service change (ASVS 5.0 §6.2.3, §7.4.3). See `service.change_password`.
+
+        DEPENDS ON `authed`, NOT `live`: on the admin realm a session that has not answered
+        its second factor may do exactly one thing, and changing the account's password is
+        not it — a password alone must never be able to replace itself, or the second
+        factor is a suggestion.
+
+        THE ADMIN REALM ALSO NEEDS A FRESH SECOND FACTOR, checked here rather than in the
+        service because freshness is a property of the SESSION the router holds and because
+        `authn/stepup.STEP_UP_REALM` is admin-only by construction — the client realm
+        stamps no `mfa_verified_at` for the check to read, so a shared check would be
+        vacuously true there and would read as protection that is not present. What stands
+        in on the client realm is the current password, which is demanded on both.
+
+        NO `X-Confirm-Action`, deliberately, and that is not the gap it looks like.
+        `core/stepup.StepUp` pairs freshness with an action echo because its subjects are
+        OPERATOR actions on OTHER people's tenants, where a screen can be made to send a
+        request it did not mean to. This route's only possible effect is on the caller's own
+        credential, and it already carries an unguessable value the caller had to type —
+        their current password — which no cross-site form can supply. Adding the header
+        would put an ops-console idiom on a consumer password form for no threat it closes.
+        """
+        _require_enabled()
+        enforce_same_origin(request)
+        if realm == stepup.STEP_UP_REALM and not stepup.is_fresh(verified.mfa_verified_at):
+            raise stepup.reauthentication_required("change_password")
+        changed = await service.change_password(
+            verified=verified,
+            current_password=payload.current_password,
+            new_password=payload.new_password,
+            ip=client_request_ip(request),
+        )
+        # The caller keeps working in the browser they are sitting at — with a NEW token.
+        # See `service.change_password` on why sparing the old one would spare the thief's.
+        _set_cookie(response, request, realm, changed.session)
+        return PasswordChangeOut(revoked=changed.revoked_others)
 
     @router.post(
         "/otp/request",

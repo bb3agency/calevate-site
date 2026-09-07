@@ -78,6 +78,7 @@ from apps.api.authn import otp, tokens
 from apps.api.authn.credentials import authenticate_subject, set_password
 from apps.api.authn.hashing import verify_password
 from apps.api.authn.models import AUTHN_REALMS
+from apps.api.authn.policy import normalize
 from apps.api.authn.sessions import (
     IssuedSession,
     VerifiedSession,
@@ -712,6 +713,180 @@ def _bad_token() -> ProblemError:
     )
 
 
+# ──────────────────────── password change (signed in) ────────────────────────
+
+
+def _wrong_current_password() -> ProblemError:
+    """The refusal for a change whose CURRENT password did not verify.
+
+    NAMED, unlike `_invalid_credentials`, and the difference is deliberate: the anonymous
+    sign-in path must not tell a stranger which half was wrong, but this caller already
+    holds a live session for the account they are changing, so there is no existence fact
+    left to leak — only a person who mistyped, who needs to be told which field to fix.
+    Answering "Sign-in failed" here would send them to the sign-in page they are already
+    past.
+    """
+    return ProblemError(
+        kind="auth",
+        code="invalid_current_password",
+        title="That is not your current password",
+        detail="The current password you entered does not match the one on your account.",
+        remediation=(
+            "Check the current password and try again. If you cannot remember it, sign "
+            "out and use the password-reset link on the sign-in page."
+        ),
+    )
+
+
+def _password_unchanged() -> ProblemError:
+    """Refuse a change that changes nothing.
+
+    Not a strength rule — `authn/policy.py` owns those. This is about the ACT: somebody
+    replacing a password they believe is compromised, who submits the same value twice by
+    accident, would be told "done", have every other session revoked, and walk away
+    believing the credential the attacker holds is dead. The revocation is real and the
+    reassurance is false, which is the worst combination available.
+    """
+    return ProblemError(
+        kind="validation",
+        code="password_unchanged",
+        title="That is the password you already have",
+        detail="The new password is the same as your current one, so nothing would change.",
+        remediation="Choose a different password — a passphrase of unrelated words.",
+        fields=[{"field": "new_password", "rule": "changed", "message": "must differ"}],
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class PasswordChange:
+    """What a self-service change produced: a fresh credential, and a body count.
+
+    Two values rather than one because the route needs both and they go to different
+    places — `session` into a `Set-Cookie`, `revoked_others` into the response body — and a
+    caller that had to count the revocations itself would be a second implementation of the
+    thing `change_password` just did.
+    """
+
+    session: IssuedSession
+    revoked_others: int
+
+
+async def change_password(
+    *,
+    verified: VerifiedSession,
+    current_password: str,
+    new_password: str,
+    ip: str | None,
+    now: datetime | None = None,
+) -> PasswordChange:
+    """Replace a signed-in person's own password. Returns the new session and what died.
+
+    THE SELF-SERVICE HALF OF `confirm_password_reset`, and it exists because the reset
+    flow's only proof is a mailbox: somebody who believes their account is compromised had
+    to sign OUT and depend on the very mailbox in doubt. `POST /logout/all` covered half of
+    that — it ends the sessions and leaves the attacker holding a credential that still
+    signs in.
+
+    WHAT PROVES IT IS THEM. The CURRENT PASSWORD, always, on both realms. ASVS 5.0 §6.2.3
+    is unambiguous — "Verify that password change functionality requires the user's current
+    and new password" (`0x15-V6-Authentication.md`, read 2026-09-07) — and in this system
+    it is the only evidence available on the client realm at all: step-up reads
+    `auth_sessions.mfa_verified_at`, which `service.MFA_REQUIRED_REALMS` never stamps
+    outside `admin`. The admin realm is held to BOTH (the freshness gate is applied at the
+    route, where `authn/stepup.py` lives), and neither substitutes for the other: an
+    emailed step-up code proves possession of the mailbox, which is exactly what an
+    attacker who has taken over the mailbox also has, and the password proves knowledge of
+    the credential being replaced.
+
+    WHAT SURVIVES AND WHAT DIES, which is the whole point of the endpoint:
+
+      * the caller's own session survives — ROTATED, not merely spared. A stolen cookie is
+        a copy of the victim's OWN token, so "revoke everything except the caller's row"
+        would spare precisely the session the attacker is holding. Rotation mints a new
+        token that only the person who answered this request receives, supersedes the row
+        both parties were sharing, and the revocation below then kills that superseded row
+        too. This is also ASVS 5.0 §7.2.4 ("a new session token on user authentication,
+        including re-authentication") applied at the moment a password was re-proved.
+      * every OTHER session in this realm dies (ASVS 5.0 §7.4.3). The standard asks for the
+        OPTION to end them; this ends them unconditionally, because the audience for a
+        self-service change is somebody who thinks they are compromised, and an unticked
+        box would be the default that fails them.
+
+    IF THE THIEF REPLAYS THE SUPERSEDED TOKEN, `verify_session` reads it as reuse and
+    revokes the whole family — including the fresh session this call just issued. That
+    signs the legitimate person out and it is the correct outcome, not a wart: the replay
+    IS evidence the token leaked, they know their new password, and nobody who does not is
+    getting in.
+
+    THE STORE, THE ROTATION AND THE REVOCATION SHARE ONE TRANSACTION, which is the contract
+    `credentials.set_password` states in its docstring and the census in
+    `tests/authn_credential_revocation_test.py` enforces on every caller.
+    """
+    realm, subject_id = verified.realm, verified.subject_id
+    at = now or datetime.now(UTC)
+
+    # The account is re-read rather than trusted from the session row (BACKEND-PATTERNS
+    # §7), and the address it carries is what `policy.assert_password_allowed` compares the
+    # new password against — the context half of the blocklist.
+    subject = await load_subject(realm, subject_id)
+    if subject is None:
+        raise _invalid_credentials()
+
+    await check(PASSWORD_BUDGET, realm=realm, subject_id=subject_id)
+    async with credential_session() as session:
+        ok = await authenticate_subject(
+            session, realm=realm, subject_id=subject_id, password=current_password, now=at
+        )
+    if not ok:
+        await _audit(
+            action="auth.password_change_failed", realm=realm, subject_id=subject_id, ip=ip
+        )
+        # The same counter a sign-in spends, on purpose: an attacker holding a live cookie
+        # but not the password must not get an unmetered oracle here that the sign-in form
+        # denies them.
+        await _spend_failure(PASSWORD_BUDGET, realm=realm, subject_id=subject_id)
+        raise _wrong_current_password()
+    await clear(PASSWORD_BUDGET, realm=realm, subject_id=subject_id)
+
+    # AFTER the current password is proved, so this cannot be used to test a guess against
+    # the stored one without spending the budget above.
+    if normalize(new_password) == normalize(current_password):
+        raise _password_unchanged()
+
+    async with credential_session() as session:
+        await set_password(
+            session,
+            realm=realm,
+            subject_id=subject_id,
+            password=new_password,
+            email=subject.email,
+            now=at,
+        )
+        rotated = await rotate_session(session, verified=verified, now=at)
+        revoked = await revoke_subject_sessions(
+            session,
+            realm=realm,
+            subject_id=subject_id,
+            # `subject_revoked` — the default — and NOT a new `password_changed` member.
+            # `authn/models.REVOCATION_REASONS` is a closed vocabulary mirrored by a CHECK
+            # constraint, and its own comment already names a password change as this
+            # reason. Widening it for one caller would cost a migration and give an
+            # operator reading the column a distinction they can already make from the
+            # `auth.password_changed` row this function writes to `audit_log`.
+            except_session_id=rotated.session_id,
+            now=at,
+        )
+    await _audit(
+        action="auth.password_changed",
+        realm=realm,
+        subject_id=subject_id,
+        ip=ip,
+        object_id=str(rotated.session_id),
+        summary={"revoked": revoked, "self_service": True},
+    )
+    return PasswordChange(session=rotated, revoked_others=revoked)
+
+
 # ──────────────────────────── OTP challenge ──────────────────────────────────
 
 
@@ -923,6 +1098,8 @@ __all__ = [
     "STEP_UP",
     "LoginOutcome",
     "LoginStatus",
+    "PasswordChange",
+    "change_password",
     "complete_second_factor",
     "complete_step_up",
     "confirm_otp",

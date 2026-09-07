@@ -67,12 +67,15 @@ of those are not rotations at all: `service.sign_in` ISSUES a new family (a sign
 prior session of ours to rotate, which is what makes it a fixation defence), and a role
 change REVOKES (`operators.set_operator_role` → `revoke_subject_sessions`; the role itself
 is re-read from `admin_users` on every request, so nothing is left to re-mint). The census
-in `tests/authn_session_test.py::test_the_only_rotation_callers_are_the_three_recorded_here`
+in `tests/authn_session_test.py::test_the_only_rotation_callers_are_the_four_recorded_here`
 reads the tree rather than this sentence, so the list below cannot go stale again:
 
   1. `service.complete_second_factor` — a second factor proved. A privilege change.
   2. `service.complete_step_up` — a factor re-proved for a dangerous act. A privilege change.
-  3. `service.refresh`, behind `POST /v1/auth/{realm}/session/refresh` — **NOT a privilege
+  3. `service.change_password`, behind `POST /v1/auth/{realm}/password/change` — the
+     current password was re-proved, which ASVS 5.0 7.2.4 treats as authentication; and
+     the caller's surviving session must not be the one a thief copied the cookie of.
+  4. `service.refresh`, behind `POST /v1/auth/{realm}/session/refresh` — **NOT a privilege
      change.** It is the console's idle-extension button (`apps/web/src/components/authn/
      adminIdleTimeoutModal.tsx`), so it is the one caller a client can reach at will and
      the one this decision actually rests on.
@@ -618,15 +621,26 @@ async def revoke_subject_sessions(
     realm: str,
     subject_id: UUID,
     reason: str = "subject_revoked",
+    except_session_id: UUID | None = None,
     now: datetime | None = None,
 ) -> int:
     """Sign one person out everywhere, in one realm. Returns how many sessions ended.
 
     This is the function every privilege change owes a call to — password change,
     deactivation, role removal — and ASVS 5.0 V7 is explicit that entitlement changes must
-    not leave live sessions behind. Scoped to ONE realm because the realms are separate
-    systems: revoking an operator's console sessions has nothing to say about the client
-    account they may also hold.
+    not leave live sessions behind (7.4.2, 7.4.3 —
+    https://github.com/OWASP/ASVS/blob/master/5.0/en/0x16-V7-Session-Management.md, read
+    2026-09-07). Scoped to ONE realm because the realms are separate systems: revoking an
+    operator's console sessions has nothing to say about the client account they may also
+    hold.
+
+    `except_session_id` SPARES EXACTLY ONE ROW, and it exists for one caller —
+    `service.change_password`, where signing the person out of the browser they are sitting
+    at is a punishment for taking the very action we want them to take (ASVS 7.4.3 asks
+    for every OTHER session, not for this one). It is an id rather than a `VerifiedSession`
+    so that the one legitimate use — sparing the row a rotation has just minted, which no
+    `VerifiedSession` exists for yet — is expressible. Default `None` keeps every other
+    caller at "everything, no exceptions", which is what a revocation should be.
     """
     _refuse_unknown_realm(realm)
     at = now or datetime.now(UTC)
@@ -634,9 +648,16 @@ async def revoke_subject_sessions(
         text(
             "UPDATE auth_sessions SET revoked_at = :now, revoked_reason = :reason, "
             "updated_at = :now WHERE realm = :realm AND subject_id = :sub "
-            "AND revoked_at IS NULL"
+            "AND revoked_at IS NULL "
+            "AND (CAST(:spare AS uuid) IS NULL OR id <> CAST(:spare AS uuid))"
         ),
-        {"now": at, "reason": reason, "realm": realm, "sub": subject_id},
+        {
+            "now": at,
+            "reason": reason,
+            "realm": realm,
+            "sub": subject_id,
+            "spare": except_session_id,
+        },
     )
     count = rowcount_of(result)
     log.info(

@@ -512,6 +512,14 @@ _ROTATION_CALLERS: dict[str, str] = {
         "a factor was re-proved for a dangerous act (D-178). Same shape: one person "
         "answering one emailed code."
     ),
+    "change_password": (
+        "the signed-in password change (POST /v1/auth/{realm}/password/change). A person "
+        "submitting a form, once — the same shape as the three below, never a background "
+        "call — and it rotates because the change RE-PROVES the current password (ASVS "
+        "5.0 7.2.4 asks for a new token on re-authentication) and because sparing the "
+        "caller's existing row would spare a stolen cookie, which is a COPY of that same "
+        "token. `service.change_password` argues both."
+    ),
     "refresh": (
         "the console's idle-extension button (POST /v1/auth/{realm}/session/refresh). The "
         "ONLY caller reachable at a client's discretion, and therefore the one the "
@@ -521,7 +529,7 @@ _ROTATION_CALLERS: dict[str, str] = {
 }
 
 
-def test_the_only_rotation_callers_are_the_three_recorded_here() -> None:
+def test_the_only_rotation_callers_are_the_four_recorded_here() -> None:
     """Walk `apps/api` for `rotate_session(` and require the enclosing functions to match.
 
     A source walk rather than a monkeypatch: the property is about which code EXISTS, not

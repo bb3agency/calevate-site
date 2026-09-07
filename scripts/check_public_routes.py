@@ -268,6 +268,27 @@ UNAUTHENTICATED_ROUTES: dict[str, PublicRoute] = {
         ),
         credential="verify_session",
     ),
+    "POST /v1/auth/admin/password/change": PublicRoute(
+        why=(
+            "The signed-in password change (ASVS 5.0 6.2.3 / 7.4.3). It is not open: it "
+            "takes the session cookie AND the caller's CURRENT password, and on this realm "
+            "a second factor proved inside REAUTH_MAX_AGE as well. It is here rather than "
+            "behind a permission because a person changing their own credential holds no "
+            "role that is relevant to it — the same reasoning as /logout/all, which is the "
+            "control this one completes."
+        ),
+        credential="verify_session",
+    ),
+    "POST /v1/auth/client/password/change": PublicRoute(
+        why=(
+            "The signed-in password change (ASVS 5.0 6.2.3 / 7.4.3). It is not open: it "
+            "takes the session cookie AND the caller's CURRENT password, which on the "
+            "client realm is the only presence evidence there is — no mfa_verified_at is "
+            "ever stamped here. It is here rather than behind a permission because a "
+            "person changing their own credential holds no role that is relevant to it."
+        ),
+        credential="verify_session",
+    ),
     "POST /v1/auth/admin/otp/request": PublicRoute(
         why=(
             "Issues a code to an already-authenticated subject for a step-up. The cookie is the "
