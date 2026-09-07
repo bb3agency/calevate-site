@@ -371,6 +371,30 @@ def test_only_a_material_revision_after_the_accepted_one_re_asks() -> None:
     )
 
 
+def test_the_second_voice_vendor_re_asks_the_two_documents_that_disclose_it() -> None:
+    """D-547 put a SECOND speech vendor into the privacy notice and the Addendum, and the
+    honest consequence of that is a client who accepted the previous revision has to
+    accept again: a new recipient of caller-derived text is a new disclosure, and the
+    Addendum's sub-processor warranty was narrowed for the one register row whose
+    data-processing agreement nobody has established can be entered.
+
+    Pinned as `material=True` on the CURRENT head of each, so flipping either flag to
+    cosmetic — the cheap way to avoid re-demanding acceptance — turns this red instead of
+    quietly letting an outdated acceptance keep an account dialling. The web mirror
+    carries the same two flags and `scripts/check_docs_drift.py` compares them.
+    """
+    for slug in ("privacy", "dpa"):
+        spec = _spec(slug)
+        assert spec.current.revision == "6", (
+            f"{slug} must be at the revision that discloses the second voice vendor"
+        )
+        assert spec.current.material is True, (
+            f"{slug} revision 6 discloses a new recipient of caller-derived text; a "
+            f"client who accepted revision 5 has not been told about it"
+        )
+        assert catalogue.reacceptance_required(spec, catalogue.version_of("5")) is True
+
+
 def test_only_the_blocking_documents_are_acceptable() -> None:
     """A sub-processor list is a notice we owe the client, not a promise they make us —
     demanding a signature on it would make every vendor change a consent event for every

@@ -77,6 +77,13 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       { revision: "3", material: true },
       { revision: "4", material: false },
       { revision: "5", material: false },
+      // D-547. The second voice quality brought a second speech vendor, and the notice
+      // now says so in the three places a reader would look: what it receives and what
+      // its own terms let it do with that (§6), that we cannot say where it processes
+      // (§8), and that voice synthesis is no longer wholly on the Indian provider. A NEW
+      // RECIPIENT of caller-derived text is a new disclosure under the notice's own
+      // §7 promise, so material.
+      { revision: "6", material: true },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -116,6 +123,12 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       { revision: "3", material: true },
       { revision: "4", material: false },
       { revision: "5", material: false },
+      // D-547. Clause 2 gains the second vendor whose published terms permit training,
+      // clause 5 narrows its own warranty for the one register row whose data-processing
+      // agreement nobody has established can be entered, and clause 9 stops saying voice
+      // synthesis is wholly on the Indian provider. A narrowed warranty and a new
+      // recipient are both changes to what somebody agreed to, so material.
+      { revision: "6", material: true },
     ],
     effectiveDate: "2026-09-02",
   },

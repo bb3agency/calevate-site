@@ -201,6 +201,19 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "identification is narrower, and nothing anybody agreed to changed "
                 "meaning.",
             ),
+            Revision(
+                "6",
+                True,
+                "The second voice quality brought a second speech vendor into the "
+                "notice. Section 6 states what that vendor's own published privacy "
+                "policy permits it to do with what it receives and what it receives "
+                "(the words an agent speaks, as text, a turn at a time — never the "
+                "caller's audio, transcript or recording); section 8 states that where "
+                "it processes has not been established and names no country for it; and "
+                "voice synthesis is no longer described as running wholly on the Indian "
+                "provider. MATERIAL — a new recipient of caller-derived text is a new "
+                "disclosure, not a clarification.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -318,6 +331,18 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "and no identification duty asks for them. Non-material — the "
                 "identification is narrower, and nothing anybody agreed to changed "
                 "meaning.",
+            ),
+            Revision(
+                "6",
+                True,
+                "Clause 2 gained the second vendor whose published terms permit training "
+                "on what it receives; clause 5 narrowed its own warranty for the one "
+                "register row whose data-processing agreement nobody has established can "
+                "be entered without an enterprise contract; clause 9 stopped saying "
+                "voice synthesis runs wholly on the Indian provider and records that "
+                "where the second vendor processes has not been established. MATERIAL — "
+                "a narrowed warranty and a new recipient both change what somebody "
+                "agreed to.",
             ),
         ),
         effective_date="2026-09-02",

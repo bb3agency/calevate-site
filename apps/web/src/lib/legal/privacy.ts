@@ -425,7 +425,7 @@ export const PRIVACY_POLICY: LegalDocument = {
               text:
                 "A client's caller data is used to run that client's service and for " +
                 "nothing else. WE do not use it to train models — and section 6 says " +
-                "exactly what one of our vendors' own terms permit, because a promise " +
+                "exactly what two of our vendors' own terms permit, because a promise " +
                 "wider than we can keep is worse than the true sentence. It is not " +
                 "pooled across " +
                 "clients, it is not sold, and it is not used to market to callers. The " +
@@ -675,6 +675,51 @@ export const PRIVACY_POLICY: LegalDocument = {
             "the sub-processor page carries the detail, and clause 2 of the Data " +
             "Processing Addendum is the operative text.",
         },
+        {
+          // The SECOND vendor whose training position we have to pass on rather than
+          // promise away. Everything attributed here is what that vendor's own published
+          // privacy policy says, read for us and relayed on 6-7 September 2026 —
+          // `docs/evidence/cartesia-tts-verification-2026-09-06.md` §A5, evidence class
+          // VENDOR-PUBLISHED, RELAYED. Its pages are egress-blocked from our build
+          // environment, so nobody here has opened them; that is why every clause below
+          // is framed as what the vendor's documents SAY, and why the sentences that are
+          // OURS (nothing has been sent to it; what it receives) are the only ones stated
+          // flatly — those two are read off this repository's own code.
+          //
+          // It names no company, because a voice quality is a product choice and a
+          // company name is a disclosure: the sub-processor register is where the name
+          // belongs, and section 3.6 there is what this points at.
+          kind: "para",
+          text:
+            "Since 7 September 2026 there are two such vendors, which is why the " +
+            "paragraph above says two. An agent can speak in either of two voice " +
+            "qualities, and the second of them is synthesised by a different company " +
+            "from the one that hears the call. Its own published privacy policy says it " +
+            "may use the information it receives to generate output and to train and " +
+            "enhance the models behind its services, and offers an opt-out form whose " +
+            "effect is forward-only — it stops future use for training and does not " +
+            "reach anything used before the day it is submitted. Its no-retention " +
+            "option, under which submitted text and generated audio are not kept at " +
+            "all, is sold only on its enterprise plan; on the plans we could buy, what " +
+            "it keeps is governed by its published data-processing agreement instead, " +
+            "and we have not established what those periods are.",
+        },
+        {
+          kind: "para",
+          text:
+            "What reaches that company is narrower than the word voice suggests, and it " +
+            "is worth being exact: the words the agent is about to speak, sent as text a " +
+            "turn at a time, which can include a detail you have just given where the " +
+            "agent repeats it back to confirm it. Not your own audio, not the transcript " +
+            "of what you said, not the recording, and nothing from a client's " +
+            "dashboard. Nothing has been sent to it yet: no credential for it is " +
+            "installed on this system, no voice in that quality can be chosen, and the " +
+            "product refuses rather than quietly working without one. A client who " +
+            "would rather none of this applied to their callers can keep every agent on " +
+            "the other voice quality, and that company then receives nothing of theirs. " +
+            "Section 3.6 of the sub-processor page names it and carries the rest, " +
+            "including the three things about it nobody has established.",
+        },
       ],
     },
     {
@@ -751,11 +796,19 @@ export const PRIVACY_POLICY: LegalDocument = {
           kind: "definitions",
           items: [
             {
-              term: "Speech runs on an Indian COMPANY, which is not the same as staying in India; the language model runs outside India, and where depends on the model you choose",
+              term: "Speech recognition runs on an Indian COMPANY, which is not the same as staying in India; one of the two voice qualities is spoken by another company we cannot place at all; the language model runs outside India, and where depends on the model you choose",
               detail:
-                "Speech recognition and voice synthesis run on an Indian provider, on " +
-                "both call legs, and so does the first pass that reads your transcript " +
-                "and pulls the fields out of it. That names the COMPANY, not the country " +
+                "Speech recognition — turning what you say into text — runs on an " +
+                "Indian provider on both call legs, and so does the first pass that " +
+                "reads your transcript " +
+                "and pulls the fields out of it. So does voice synthesis, the step that " +
+                "turns the agent's words into the voice you hear, for agents set to the " +
+                "first of the two voice qualities the product offers; the second quality " +
+                "is spoken by a different company, and it has an entry of its own below " +
+                "because we cannot tell you where that one processes. This entry used to " +
+                "say voice synthesis ran on the Indian provider for every agent, and " +
+                "since 7 September 2026 that is true only of the first quality. " +
+                "Calling the provider Indian names the COMPANY, not the country " +
                 "the processing happens in, and until 27 August 2026 this notice let you " +
                 "read it as both. That provider's published privacy policy says personal " +
                 "data may be transferred to and processed in countries outside India, " +
@@ -809,6 +862,35 @@ export const PRIVACY_POLICY: LegalDocument = {
                 "provider's console and filed as dated evidence, not proved by a build " +
                 "check. The other providers place their processing on their own terms. " +
                 "See the sub-processor page, section 3.2.",
+            },
+            {
+              // The one entry in this section that names NO country, deliberately. §A5 of
+              // the relayed reading records no region and no residency commitment
+              // anywhere in that vendor's documents, and this is the section a reader
+              // comes to for exactly that answer — so the gap is stated as a gap. The
+              // United-States sentence quoted here is about who the service is FOR, and
+              // is quoted rather than paraphrased so it cannot be read as a location.
+              term:
+                "The second voice quality is spoken by a company we cannot place, and we " +
+                "would rather say so than name a country",
+              detail:
+                "An agent speaks in one of two voice qualities. The second is " +
+                "synthesised by a different company from the one described above, and " +
+                "we have not established where it processes: its published documents, " +
+                "as read to us, name no region and make no data-residency commitment, " +
+                "and our build environment cannot reach its pages for us to check. So " +
+                "the sub-processor register's location cell for it says NOT VERIFIED, " +
+                "and this notice will not fill that in with a plausible country. Assume " +
+                "processing outside India. Its privacy policy does say that its " +
+                "services \u201care designed for users in the United States only and " +
+                "are not intended for users located outside the United States\u201d — a " +
+                "statement about who the service is for rather than about where the " +
+                "processing happens, which is why it is quoted here rather than " +
+                "summarised into a location. What reaches it is the words the agent " +
+                "speaks, as text, a turn at a time, and section 6 sets out both that " +
+                "and what its terms permit it to do with them. Nothing has been sent to " +
+                "it yet. Section 3.6 of the sub-processor page names the company and " +
+                "lists what nobody here has established about it.",
             },
             {
               term:

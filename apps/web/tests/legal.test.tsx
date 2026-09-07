@@ -869,6 +869,105 @@ describe("what each document must contain", () => {
   });
 
   /**
+   * THE NOTICE AND THE ADDENDUM CARRY THE SECOND VOICE VENDOR TOO (D-547).
+   *
+   * The register discloses it; that is not enough on its own. A client reads the privacy
+   * notice to find out who receives their callers' words and what may be done with them,
+   * and reads the Addendum for the operative version of both — so a disclosure that lives
+   * only on the register is the OMISSION shape F-16 was, not a disclosure.
+   *
+   * Three claims are pinned in each document and each is bounded by
+   * `docs/evidence/cartesia-tts-verification-2026-09-06.md` §A5 (VENDOR-PUBLISHED,
+   * RELAYED — that vendor's pages are egress-blocked from this container and nobody here
+   * has opened them):
+   *
+   *  - what its own published policy permits it to do with what it gets (train, with a
+   *    forward-only opt-out) and the retention answer we do NOT have;
+   *  - what it actually receives, which is narrower than "voice" reads — the agent's
+   *    words as text, never the caller's audio, transcript or recording;
+   *  - that WHERE it processes is unestablished, and is not softened into a country.
+   *
+   * And the withdrawn sentence may not grow back: until 7 September 2026 both documents
+   * said voice synthesis ran on the Indian provider full stop, which is now true only of
+   * the first of two voice qualities.
+   */
+  it("carries the second voice vendor into the notice and the addendum, and places it nowhere", () => {
+    const privacy = textOf(bySlug("privacy")).replace(/\s+/g, " ");
+    const dpa = textOf(bySlug("dpa")).replace(/\s+/g, " ");
+
+    for (const [slug, prose] of [
+      ["privacy", privacy],
+      ["dpa", dpa],
+    ] as const) {
+      // Its published training position, as the VENDOR'S and never as our finding.
+      expect(prose, `/legal/${slug} omits the vendor's training position`).toMatch(
+        /train and enhance the models behind its services/,
+      );
+      expect(prose, `/legal/${slug} omits that the opt-out is not retrospective`).toMatch(
+        /forward-only/,
+      );
+      // The retention gap. "Enterprise only" without "and we do not know what applies to
+      // us instead" would read as though the answer were settled.
+      expect(prose, `/legal/${slug} omits the enterprise-only limit`).toMatch(
+        /only on its enterprise plan/,
+      );
+      expect(prose, `/legal/${slug} claims to know its retention`).toMatch(
+        /we have not established what those periods are/,
+      );
+      // What it receives, and the three things it must never be read as receiving.
+      expect(prose, `/legal/${slug} does not say what the vendor receives`).toMatch(
+        /words (?:the|your) agent is about to speak, (?:sent )?as text,? a turn at a time/,
+      );
+      expect(prose, `/legal/${slug} does not exclude the caller's audio`).toMatch(
+        /(?:Not|never) (?:your own|the caller's) audio/,
+      );
+      // Nothing has been sent yet — ours, read off the code, and the one claim here that
+      // is stated flatly.
+      expect(prose, `/legal/${slug} omits that nothing has been sent to it`).toMatch(
+        /[Nn]othing has been sent to it/,
+      );
+    }
+
+    // WHERE it processes is unknown in both, and neither resolves it to a country.
+    expect(privacy).toMatch(/we have not established where it processes/);
+    expect(privacy).toMatch(/will not fill that in with a plausible country/);
+    expect(dpa).toMatch(/where that company processes is a thing we have not established/);
+
+    // The DPA's sub-processor warranty is narrowed for the row whose agreement nobody has
+    // established can be entered. Without this the clause promises a contract we have not
+    // shown exists.
+    expect(dpa).toMatch(/we do not represent to you that one is in place/);
+
+    // THE WITHDRAWN SENTENCE. Both documents once put voice synthesis wholly on the
+    // Indian provider; softening the new text back towards that is the regression.
+    for (const [slug, prose] of [
+      ["privacy", privacy],
+      ["dpa", dpa],
+    ] as const) {
+      expect(
+        prose,
+        `/legal/${slug} puts voice synthesis wholly on the speech provider again — it ` +
+          `runs there for the first voice quality only`,
+      ).not.toMatch(/[Ss]peech recognition,? (?:and )?voice synthesis and the first/);
+    }
+    expect(
+      privacy,
+      "the privacy notice must say which voice quality stays with the Indian provider",
+    ).toMatch(/first of the two voice qualities/);
+    expect(
+      dpa,
+      "the Addendum must say which voice quality stays with the Indian provider",
+    ).toMatch(/first of the two voice qualities/);
+
+    // The company's NAME stays on the register. A voice quality is a product choice, and
+    // a vendor name in a product sentence is what `VOICE_TIER_LABELS` exists to prevent;
+    // the DPA-wide ban is asserted above, so this is the notice's half.
+    expect(privacy, "the privacy notice names the voice-synthesis vendor").not.toMatch(
+      /Cartesia/,
+    );
+  });
+
+  /**
    * CLAUSE NUMBERS ARE CROSS-REFERENCES AND NOTHING TYPE-CHECKS ONE.
    *
    * Found by this audit: sub-processors are DPA clause 5, and the DPA twice plus the
