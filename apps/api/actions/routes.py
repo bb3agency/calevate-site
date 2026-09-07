@@ -86,8 +86,16 @@ async def invoke_action(engine: str, tool_id: UUID, request: Request) -> dict[st
 
     raw = await request.body()
     try:
+        # `RecursionError`, not just `ValueError`: `json.loads` raises THAT on a deeply
+        # nested document, and catching only the decode error made a body of ten thousand
+        # open brackets an unhandled 500 on an endpoint the engine calls mid-call. A 500
+        # here is not cosmetic — it fires the catch-all `unhandled_exception` alert, whose
+        # fingerprint `alerting._admit` then suppresses for 15 minutes, so one hostile POST
+        # a quarter hour keeps this process's real crash alarm quiet. The voice-runtime
+        # receiver has caught both since it was written (`webhook_routes._receive` step 3);
+        # this route is the same threat model and was missing the second half.
         received = json.loads(raw or b"{}")
-    except ValueError:
+    except (ValueError, RecursionError):
         received = {}
     if not isinstance(received, dict):
         received = {}

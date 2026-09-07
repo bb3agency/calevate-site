@@ -40,7 +40,7 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -51,7 +51,7 @@ from apps.api.billing.ai_quota import (
     read_ai_quota,
 )
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
@@ -175,7 +175,9 @@ async def get_ai_quota(
         "block already bought and charges nothing. Requires `org:manage`."
     ),
 )
-async def buy_ai_extra(payload: AiExtraIn, session: Session, principal: QuotaBuyer) -> AiQuotaOut:
+async def buy_ai_extra(
+    payload: AiExtraIn, session: Session, request: Request, principal: QuotaBuyer
+) -> AiQuotaOut:
     """One transaction: the debit and the record of who agreed to it move together.
 
     The audit row is written only when money actually moved (`charged`) — the convention
@@ -197,6 +199,13 @@ async def buy_ai_extra(payload: AiExtraIn, session: Session, principal: QuotaBuy
             tenant_id=tenant_id,
             object_type="credit_ledger",
             object_id=result.quota.month,
+            # WHERE the person was when they accepted the charge. SEC-COMP §5 asks every
+            # audit row for "actor, tenant, at, ip" and this one carried the first three,
+            # so the only debit a CLIENT can raise against their own wallet was the one
+            # audited row on this ledger that could not place the actor — precisely the
+            # row a disputed charge or a stolen session turns on. `client_request_ip`, not
+            # the socket peer, which behind nginx is our own edge (D-131/D-139).
+            ip=client_request_ip(request),
             # Rupee amounts and a month. No phone number, transcript or extraction is
             # reachable from this path (hard rule 6), and the figures are exactly the
             # ones the person was shown before they pressed accept.

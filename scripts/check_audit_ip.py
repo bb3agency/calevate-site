@@ -20,7 +20,18 @@ app boot and no network, which is this repo's line for `scripts/check_*` (the sa
 `check_model_residency` is a script and the §52 surface guard is a vitest). It also has to
 run over files that no test imports.
 
-TWO CHECKS, because there are two ways to lose the property:
+THREE CHECKS, because there are three ways to lose the property — and the third was
+missing for as long as this file existed. Checks 1 and 2 police HOW the address is
+derived and never WHETHER it is recorded, so a handler that simply omitted `ip=` was
+invisible to a gate whose own first sentence quotes SEC-COMP §5 asking every audit row to
+carry "actor, tenant, at, ip". Two did: `billing/cap_routes.set_caps` (a client lowering
+their own spending limit) and `billing/ai_quota_routes.buy_ai_extra` (a client accepting
+a charge against their own wallet) each wrote actor, tenant and target and no address,
+while the ADMIN half of the same ledger recorded one on every write. A green run said
+nothing about them, which is the failure mode this repo names most often: a guardrail
+whose name is broader than its assertion.
+
+The three:
 
 1. **No handler reads the socket peer.** A peer read anywhere under `apps/api` outside the
    permitted functions is the defect returning. Not `ip=` specifically: the next author
@@ -30,6 +41,16 @@ TWO CHECKS, because there are two ways to lose the property:
    function it was granted for is a hole with a comment on it, so each allowance names its
    function and fails if that function stops containing the read — which is what would
    happen if somebody "simplified" a resolver back to something else.
+3. **A human-actor audit row carries an address.** `write_audit(..., actor=<principal>)`
+   says a PERSON did this, and a person reached us over a connection we can name. So a
+   call passing a real `actor=` must also pass `ip=`. The rule keys on the actor rather
+   than on "is this a route handler", because the actor is the thing that makes the
+   address both available and meaningful: `actor=None` / `actor_type="system"` is the
+   scheduler, the post-call pipeline or an engine callback, which have no caller address
+   and must not invent one — `campaigns/scheduling.py` says exactly that where it audits a
+   launch nobody was at the keyboard for. Those stay exempt BY CONSTRUCTION rather than by
+   an allowlist somebody has to maintain, so the exemption cannot be claimed by a handler
+   that just forgot the argument.
 
 **BOTH SPELLINGS OF THE PEER READ, which is what this check missed when it shipped.** Its
 own rationale is that the next author will write it differently, and a different spelling
@@ -138,9 +159,77 @@ def _peer_reads(tree: ast.AST) -> list[tuple[int, str | None]]:
     ]
 
 
+def _human_actor_audits_without_ip(tree: ast.AST) -> list[tuple[int, str | None]]:
+    """`write_audit(..., actor=<a real principal>, ...)` calls that pass no `ip=`.
+
+    WHY `actor=` AND NOT "is this a route handler". A route handler is not decidable from
+    syntax without guessing at decorators and dependency aliases, and guessing is how a
+    guard grows an allowlist. The actor is decidable and is also the fact that MATTERS: a
+    row naming a person is a row whose address exists and is evidence, and a row with
+    `actor=None` or `actor_type="system"` is the scheduler or the post-call pipeline, for
+    which there is no caller address and inventing one would be worse than omitting it.
+
+    `actor=None` is read as the system spelling, matching `write_audit`'s own contract
+    (`integrations/service.py` passes `actor=None, actor_type="system"` explicitly). Any
+    other expression — `principal`, `actor`, `p.principal` — is a person until proven
+    otherwise, which is the direction a compliance guard should fail in.
+    """
+    enclosing: dict[int, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+            for child in ast.walk(node):
+                if _is_write_audit(child):
+                    enclosing[id(child)] = node.name
+
+    found: list[tuple[int, str | None]] = []
+    for node in ast.walk(tree):
+        if not _is_write_audit(node):
+            continue
+        assert isinstance(node, ast.Call)
+        keywords = {keyword.arg: keyword.value for keyword in node.keywords if keyword.arg}
+        actor = keywords.get("actor")
+        if actor is None or (isinstance(actor, ast.Constant) and actor.value is None):
+            continue
+        if "ip" in keywords:
+            continue
+        found.append((node.lineno, enclosing.get(id(node))))
+    return found
+
+
+def _is_write_audit(node: ast.AST) -> bool:
+    """A call to `write_audit`, imported directly or reached through a module alias."""
+    if not isinstance(node, ast.Call):
+        return False
+    func = node.func
+    if isinstance(func, ast.Name):
+        return func.id == "write_audit"
+    return isinstance(func, ast.Attribute) and func.attr == "write_audit"
+
+
+def _human_actor_audit_count(tree: ast.AST) -> int:
+    """How many `write_audit` calls name a person — the population check 3 governs.
+
+    Reported in the OK line so a green run states what it actually inspected. A guard that
+    prints "OK" without a number cannot be told apart from one whose walk matched nothing,
+    which is how this file's first two checks would have looked the day an import rename
+    silently emptied them.
+    """
+    total = 0
+    for node in ast.walk(tree):
+        if not _is_write_audit(node):
+            continue
+        assert isinstance(node, ast.Call)
+        actor = next((k.value for k in node.keywords if k.arg == "actor"), None)
+        if actor is None or (isinstance(actor, ast.Constant) and actor.value is None):
+            continue
+        total += 1
+    return total
+
+
 def main() -> int:
     problems: list[str] = []
     seen: set[tuple[Path, str]] = set()
+    human_actor_audits = 0
 
     for path in sorted(SCOPE.rglob("*.py")):
         try:
@@ -148,6 +237,19 @@ def main() -> int:
         except SyntaxError as exc:  # pragma: no cover - a broken file fails its own gate
             problems.append(f"{path.relative_to(REPO_ROOT).as_posix()}: could not parse ({exc})")
             continue
+
+        human_actor_audits += _human_actor_audit_count(tree)
+        for lineno, function in _human_actor_audits_without_ip(tree):
+            problems.append(
+                f"{path.relative_to(REPO_ROOT).as_posix()}:{lineno} writes an audit row "
+                f"in `{function or '<module>'}` naming a PERSON as the actor but passes no "
+                f'`ip=`. SEC-COMP §5 asks every audit row for "actor, tenant, at, ip", '
+                f"and a row that cannot place the actor cannot answer the question an "
+                f"audit trail exists for — whether the person who did this was where they "
+                f"should have been. Pass `ip=core.auth.{PERMITTED_FUNCTION}(request)`, or "
+                f"if nobody was at the keyboard say so with `actor=None, "
+                f'actor_type="system"` (campaigns/scheduling.py is the worked example).'
+            )
 
         for lineno, function in _peer_reads(tree):
             if function is not None and (path, function) in PERMITTED:
@@ -179,7 +281,10 @@ def main() -> int:
         return 1
 
     named = ", ".join(function for _, function in PERMITTED)
-    print(f"AUDIT IP: OK (callers of the socket peer: {named})")
+    print(
+        f"AUDIT IP: OK (callers of the socket peer: {named}; "
+        f"{human_actor_audits} human-actor audit row(s) all carrying an address)"
+    )
     return 0
 
 

@@ -134,6 +134,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import re
 from dataclasses import asdict, dataclass, field
 from enum import StrEnum
 from typing import Any, Final, Protocol, runtime_checkable
@@ -170,6 +171,27 @@ MAX_BODY_BYTES: Final = 1_048_576
 # Meta's dashboard caps the challenge at a short random string; echoing an unbounded
 # body back to whoever asked is a reflection primitive, so it is bounded here.
 MAX_CHALLENGE_LEN: Final = 1024
+
+# The longest a Meta object id may be before we refuse to carry it, and the characters
+# it may not contain. Both exist for the same reason `apps/voice-runtime/engine_intake.
+# _keyable` exists, and the defect they close was live on this path rather than
+# hypothetical: `leadgen_id` becomes `webhook_inbox_events.event_key`, which carries a
+# UNIQUE btree index, so a signed delivery naming a ~2.7 KiB id made Postgres answer
+# `index row size N exceeds btree version 4 maximum` and the whole request became an
+# unhandled 500 — driven against the live receiver, which answered 500 and raised the
+# catch-all `unhandled_exception:OperationalError` alert. That last part is the expensive
+# half: `alerting._admit` suppresses a fingerprint for 15 minutes, so one oversized
+# notification every quarter hour keeps this process's real crash alarm permanently quiet.
+# A NUL byte is the same story one layer down — psycopg refuses it outright in a text
+# column — and the rest of the C0 range is log- and key-injection material for a value we
+# copy verbatim into a durable key.
+#
+# 128 is several times any id Meta actually mints (their samples are 15-16 digits) and far
+# under the ~2704-byte index-tuple ceiling, so it cannot start dropping real leads. An id
+# we refuse makes the notification unkeyable, and `extract_lead_notifications` already
+# skips those — the same answer it gives a change that names no id at all.
+MAX_OBJECT_ID_LEN: Final = 128
+_CONTROL_CHARS: Final = re.compile(r"[\x00-\x1f\x7f]")
 
 
 # --- the capability seam -------------------------------------------------------
@@ -463,10 +485,27 @@ def _as_id(value: Any) -> str:
     would key a lead on a number that is not the lead's.
     """
     if isinstance(value, str):
-        return value.strip()
+        return _keyable(value.strip())
     if isinstance(value, int) and not isinstance(value, bool):
+        # An `int` cannot be over-long or carry a control character, so it needs no
+        # filtering — running it through `_keyable` anyway would only invite the reader
+        # to think it might.
         return str(value)
     return ""
+
+
+def _keyable(candidate: str) -> str:
+    """`candidate` if it can safely become a durable key, else `""`.
+
+    Returning the EMPTY STRING rather than raising, because every caller already has an
+    answer for "this field was not usable": `leadgen_id` empty makes the notification
+    unkeyable and it is skipped, and every other id empty simply drops out of
+    `provenance()`. A refusal that raised would turn one malformed field in a batch into
+    a 500 for the batch, which is the outcome this bound exists to remove.
+    """
+    if len(candidate) > MAX_OBJECT_ID_LEN or _CONTROL_CHARS.search(candidate):
+        return ""
+    return candidate
 
 
 def extract_lead_notifications(payload: Any) -> list[LeadNotification]:
@@ -587,6 +626,7 @@ __all__ = [
     "LEAD_RETRIEVAL_IMPLEMENTED",
     "MAX_BODY_BYTES",
     "MAX_CHALLENGE_LEN",
+    "MAX_OBJECT_ID_LEN",
     "NO_ANSWERS_REASON",
     "NO_CONSENT_FIELD_RULE",
     "NO_RETRIEVER_REASON",

@@ -555,3 +555,44 @@ def test_the_only_rotation_callers_are_the_three_recorded_here() -> None:
         "schedule. Add the caller here with the sentence that keeps that premise true, or "
         "reopen the grace-window decision."
     )
+
+
+def test_the_module_advertises_every_name_this_package_imports_from_it() -> None:
+    """`__all__` is not a REBIND, and it was one.
+
+    D-540's relocation appended a second `__all__ = [...]` at the foot of
+    `authn/sessions.py`, which replaced the list two hundred lines up rather than adding
+    to it: the module went on to advertise `current_run_start` and
+    `subjects_with_live_sessions` and to hide the eighteen names the rest of `authn`,
+    `core/auth.py` and `copilot` actually import from it. Nothing failed, because no
+    caller in this tree uses `import *` — which is exactly why it survived the move, and
+    why it needs an assertion rather than a reader.
+
+    Driven off the real import sites rather than a typed list, so a name added to the
+    module and imported somewhere cannot be omitted from `__all__` without this going red.
+    """
+    import ast
+    from pathlib import Path
+
+    from apps.api.authn import sessions
+
+    root = Path(__file__).resolve().parent.parent
+    module = "apps.api.authn.sessions"
+    imported: set[str] = set()
+    for path in sorted((root / "apps").rglob("*.py")):
+        if path.name == "sessions.py" and path.parent.name == "authn":
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module == module:
+                imported |= {alias.name for alias in node.names}
+
+    exported = set(sessions.__all__)
+    assert imported, "nothing imports from authn.sessions — this census has lost its subject"
+    assert imported <= exported, (
+        f"`authn/sessions.__all__` omits {sorted(imported - exported)}, which "
+        "application code imports from it. A second `__all__ = [...]` at the foot of a "
+        "module REBINDS the first one; append with `+=`."
+    )
+    # And the two names the appended half carries, which is what made the rebind invisible.
+    assert {"current_run_start", "subjects_with_live_sessions"} <= exported

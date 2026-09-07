@@ -575,3 +575,55 @@ def test_the_window_is_never_the_loosest_clock_in_the_request() -> None:
     assert REALM_TIMEOUTS["admin"].idle >= REAUTH_MAX_AGE
     assert REALM_TIMEOUTS["admin"].absolute > REAUTH_MAX_AGE
     assert COOKIE_NAMES["admin"].startswith("__Host-")
+
+
+def test_a_route_that_declares_the_gate_cannot_forget_to_ask_it_anything() -> None:
+    """The census above runs one way only, and this is the other way.
+
+    `test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it` walks
+    from each `step_up.require(...)` CALL to the declaration and counts the sites. What it
+    cannot see is the opposite mistake: a handler that takes `StepUpGate` in its signature
+    and never calls `.require()` on it. The count does not move — the declaration is still
+    there and the other twenty-nine calls are still there — the route still resolves the
+    admin session before the body runs, and NOTHING gates the mutation. Reading the
+    handler is the only way to tell, which is exactly the shape `core/rbac.py` refuses to
+    rely on for permissions: "declaring is not enforcing. `permission_meta()` writes a
+    string; the lock is `requires()`."
+
+    So the parameter has to be USED. Walked over the whole of `apps/api` rather than a
+    list of route modules, because a seventh module taking the gate is precisely the case
+    a hand-maintained list misses.
+    """
+    import ast
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent / "apps" / "api"
+    checked = 0
+    unasked: list[str] = []
+    for path in sorted(root.rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        if "StepUpGate" not in source:
+            continue
+        tree = ast.parse(source, filename=str(path))
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            gated = [
+                arg.arg
+                for arg in [*node.args.args, *node.args.kwonlyargs]
+                if arg.annotation is not None
+                and "StepUpGate" in (ast.get_source_segment(source, arg.annotation) or "")
+            ]
+            if not gated:
+                continue
+            checked += 1
+            body = ast.get_source_segment(source, node) or ""
+            if not any(f"{name}.require(" in body for name in gated):
+                unasked.append(f"{path.name}::{node.name}")
+
+    assert checked, "nothing in apps/api takes StepUpGate — this census has lost its subject"
+    assert not unasked, (
+        f"{unasked} declare `StepUpGate` and never call `.require(...)` on it. Resolving "
+        "the gate reads the admin session and refuses nothing; the mutation ships "
+        "ungated while both the declaration and the sibling census still look right."
+    )

@@ -33,7 +33,10 @@ the same for the PREVIOUS page. None of that may reach a log line. So:
 * `document-uri` → **origin plus the FIRST path segment, and nothing else.** The first
   segment is the realm (`/c`, `/admin`, `/auth`, or empty for the landing page); the
   SECOND is the tenant slug. Keeping one segment answers "which console" — which is what
-  a CSP fix needs — and keeping two would identify the client.
+  a CSP fix needs — and keeping two would identify the client. The segment is kept only
+  when it has the SHAPE of one of ours (`_SAFE_SEGMENT`); anything else leaves the bare
+  origin, because this field is chosen by an unauthenticated sender and lands in an
+  operator's mailbox. `document_realm` argues both halves.
 * `referrer` → **dropped entirely.** It is a whole URL from a page we are not even being
   told about, and it answers no question that fixing a policy asks.
 * `blocked-uri` → **origin only** when it is a URL, verbatim when it is one of the CSP
@@ -58,9 +61,18 @@ log line is memory somebody else is spending.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
+
+#: What a realm segment may look like before it is allowed into a log line or an alarm
+#: body. The consoles' own first segments are `c`, `admin`, `auth`, `legal`, `signup` and
+#: their siblings — short, lowercase, unreserved. An allowlist rather than a denylist of
+#: control characters, for the reason every other sender-supplied field in this module is
+#: rewritten rather than filtered: `document_realm` explains what reaches an operator.
+#: Bounded to 64 so the answer stays legible even though `_clip` already caps the input.
+_SAFE_SEGMENT = re.compile(r"[A-Za-z0-9._~-]{1,64}")
 
 #: The CSP source keywords that appear in `blocked-uri` instead of a URL. Kept verbatim
 #: because they are our vocabulary — `inline` is the single most useful value this
@@ -178,6 +190,33 @@ def document_realm(raw: object) -> str | None:
     """`https://app.calevate.tech/c/acme/leads/018f?q=x` → `https://app.calevate.tech/c`.
 
     One segment, never two: the second is the tenant slug. See the module docstring.
+
+    ═══ THE FIRST SEGMENT, NOT THE FIRST NON-EMPTY ONE ═══
+
+    This used to be `next(segment for segment in path.split("/") if segment)`, which is
+    the first NON-EMPTY segment — a different function on any path with an empty one at
+    the front. A `document-uri` of `https://app.calevate.tech//acme/leads` has path
+    `//acme/leads`, so the old spelling skipped the empty segment and returned
+    `https://app.calevate.tech/acme` — the SECOND segment of the real path, which on
+    `/c/{slug}` is exactly the tenant slug this function exists to drop (hard rule 6).
+    The route serves no such URL today (`apps/web/src/app/c/[slug]`, so the slug is
+    always segment two), but that is a property of the console's route table rather than
+    of this stripper, and a public endpoint's redaction may not rest on somebody else's
+    routing staying the way it is. A leading `/` means segment one is EMPTY and the
+    honest answer is the bare origin, so `[1]` is taken literally.
+
+    ═══ AND IT IS CHECKED AGAINST A SHAPE, BECAUSE THE SENDER CHOOSES IT ═══
+
+    Nothing authenticates this route, so `raw` is a string a stranger picked. It reaches
+    an operator's log line AND the body of an `alert()` that is mailed out
+    (`routes.receive_csp_report`), and admission control does not stop it: a report whose
+    origin is ours passes `require_own_console_origin` whatever the segment says. A
+    segment that is not the shape of a path segment we serve is therefore DROPPED rather
+    than forwarded — the caller still gets the origin, which is the part that answers
+    "which console", and an unauthenticated stranger cannot write a sentence of their own
+    into an operator's mailbox. `urlsplit` already removes tab/CR/LF from the whole URL
+    (CPython's `_UNSAFE_URL_BYTES_TO_REMOVE`, the bpo-43882 fix), so this is about the
+    rest of the character space rather than about newline injection.
     """
     text = _clip(raw)
     if text is None:
@@ -185,9 +224,13 @@ def document_realm(raw: object) -> str | None:
     parts = urlsplit(text)
     if not parts.scheme or not parts.netloc:
         return None
-    first = next((segment for segment in parts.path.split("/") if segment), "")
+    segments = parts.path.split("/")
+    # `path` is "" or starts with "/", so index 0 is the empty string before the leading
+    # slash and index 1 is the first real segment. Anything else is a relative path this
+    # field cannot legitimately carry.
+    first = segments[1] if len(segments) > 1 else ""
     origin = f"{parts.scheme.lower()}://{parts.netloc}"
-    return f"{origin}/{first}" if first else origin
+    return f"{origin}/{first}" if _SAFE_SEGMENT.fullmatch(first) else origin
 
 
 def _from_report_uri_body(body: dict[str, Any]) -> CspViolation | None:

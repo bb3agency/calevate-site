@@ -16,7 +16,7 @@ import json
 import time
 from collections import Counter
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -315,7 +315,7 @@ async def meta_leadgen(webhook_id: UUID, request: Request) -> MetaLeadgenAckOut:
 
     notifications = meta.extract_lead_notifications(payload)
     outcomes: Counter[str] = Counter()
-    for notification in notifications:
+    for notification in notifications[:MAX_LEADGEN_PER_DELIVERY]:
         outcomes[
             await _absorb_leadgen(
                 webhook_id=webhook_id,
@@ -324,6 +324,20 @@ async def meta_leadgen(webhook_id: UUID, request: Request) -> MetaLeadgenAckOut:
                 received_at=received_at,
             )
         ] += 1
+    if len(notifications) > MAX_LEADGEN_PER_DELIVERY:
+        # NOT dropped and NOT acked: counted as deferred, which is the one outcome that
+        # turns into the 503 below, so Meta's own at-least-once ladder redelivers rather
+        # than us inventing a second queue for the overflow. Alerted because reaching it
+        # means one of two things and an operator has to be the one to say which: a batch
+        # bigger than we sized for (move the constant) or somebody driving work through a
+        # signed endpoint (leave it). Ids and counts only, never a lead (hard rule 6).
+        outcomes[_DEFERRED] += len(notifications) - MAX_LEADGEN_PER_DELIVERY
+        alert(
+            "ROUTE_HANDLER",
+            "meta_batch_over_cap",
+            detail=f"{len(notifications)} notifications, cap {MAX_LEADGEN_PER_DELIVERY}",
+            webhook_id=str(webhook_id),
+        )
     ack = MetaLeadgenAckOut(
         received=len(notifications),
         accepted=outcomes["accepted"],
@@ -357,6 +371,31 @@ async def meta_leadgen(webhook_id: UUID, request: Request) -> MetaLeadgenAckOut:
             remediation="Meta will redeliver this notification; no action is needed.",
         )
     return ack
+
+
+#: The most leadgen notifications one delivery may put us to work for.
+#:
+#: THE BODY CAP IS NOT THIS BOUND, and that is the whole point. `meta.MAX_BODY_BYTES` is a
+#: megabyte and a minimal `leadgen` change is about fifty bytes, so one signed delivery
+#: could carry ~20,000 of them — and `_absorb_leadgen` costs a Graph round trip plus up to
+#: three transactions EACH. That is a request that holds a worker for minutes, spends the
+#: client's Graph quota, and is bounded by nothing: an unbounded loop over caller-supplied
+#: items, in a handler, on the one surface a caller can drive at will once they hold the
+#: app secret. Measured before this bound existed: 300 notifications in one 20 KiB POST
+#: walked 300 claims in a single request, and nothing in the code says 300 is the limit.
+#:
+#: The number is chosen from OUR cost, not from a vendor figure — what Meta's own maximum
+#: batch size is has NOT been verified here, and guessing it would be dressing an
+#: assumption as a bound. 250 puts the worst case of one delivery at 250 external round
+#: trips, which is the most this endpoint may reasonably hold a connection for; a real
+#: batch is a handful, so nothing legitimate is near it.
+#:
+#: The overflow is DEFERRED rather than dropped, so it travels the 503 path below and Meta
+#: redelivers. A batch that is permanently over the cap therefore makes no progress past
+#: it — accepted deliberately, because such a batch is not a shape this integration
+#: produces, and the alert beside it is what tells an operator to raise the constant if it
+#: ever turns out to be one.
+MAX_LEADGEN_PER_DELIVERY: Final = 250
 
 
 # The fourth outcome, spelled once. It is deliberately NOT a field of

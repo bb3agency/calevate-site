@@ -131,4 +131,52 @@ describe("Next.js route modules", () => {
         "into `src/lib/`, or `next build` fails with a message that names no line",
     ).toEqual([]);
   });
+
+  /**
+   * NOTHING MAY RE-ENABLE PRERENDERING, and the reason is the enforced CSP.
+   *
+   * `src/app/layout.tsx` exports `dynamic = "force-dynamic"` and the comment above it says
+   * why: the policy `src/middleware.ts` serves carries a per-request nonce, and an inline
+   * `<script>` with no nonce is refused whatever `'self'` says — a host-source expression
+   * has never permitted an inline script. A statically prerendered App Router route ships
+   * its RSC payload as exactly that: bare `self.__next_f.push(...)` tags baked into the
+   * HTML at build time, minted before any request and so before any nonce exists. The
+   * result is not a subtle degradation; it is a blank page, and it has already been a
+   * production white screen once.
+   *
+   * `force-dynamic` on the ROOT layout covers every route in the tree — which is what makes
+   * the failure mode so quiet, because re-opening the hole does not mean deleting that line.
+   * A single `export const dynamic = "force-static"`, a `revalidate`, or a `dynamicParams`
+   * on any one page re-enables prerendering for that segment, and the page that breaks is
+   * the one nobody opened during review. (`legal/[slug]/page.tsx` exports
+   * `generateStaticParams`, which is inert under the root's `force-dynamic` and is left
+   * alone deliberately: it describes the slug set and prerenders nothing while the root
+   * says dynamic.)
+   *
+   * So the caching fields are legal on the ROOT LAYOUT and nowhere else. If a route ever
+   * genuinely needs to be static, the nonce has to stop being the mechanism first.
+   */
+  it("lets only the root layout speak about rendering mode, so nothing re-prerenders", () => {
+    const CACHING = new Set(["dynamic", "dynamicParams", "revalidate", "fetchCache", "experimental_ppr"]);
+    const rootLayout = join(APP_DIR, "layout.tsx");
+    expect(
+      namedExports(readFileSync(rootLayout, "utf8")),
+      "the root layout must keep `export const dynamic` — removing it serves every route " +
+        "prerendered RSC scripts with no nonce, which the enforced CSP blocks",
+    ).toContain("dynamic");
+    expect(readFileSync(rootLayout, "utf8")).toContain('dynamic = "force-dynamic"');
+
+    const offenders: string[] = [];
+    for (const file of modules) {
+      if (file === rootLayout) continue;
+      for (const name of namedExports(readFileSync(file, "utf8"))) {
+        if (CACHING.has(name)) offenders.push(`${file.slice(APP_DIR.length + 1)} exports \`${name}\``);
+      }
+    }
+    expect(
+      offenders,
+      "only `src/app/layout.tsx` may set a rendering-mode field — see the comment above",
+    ).toEqual([]);
+  });
 });
+

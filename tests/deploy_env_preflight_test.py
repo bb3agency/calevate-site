@@ -21,6 +21,7 @@ import base64
 from collections.abc import Callable, Mapping
 
 import pytest
+from apps.api.core.envelope import _local_kek
 from calevate_shared.config import Settings
 from scripts.check_deploy_env import (
     REFUSAL_CODES,
@@ -37,6 +38,10 @@ from scripts.check_deploy_env import (
 # Base64 of 32 bytes — the shape `core/envelope._decode_kek` demands. A fixed value, not
 # `os.urandom`, so a failure is reproducible.
 GOOD_KEK = base64.b64encode(b"kek-material-that-is-32-bytes-ok").decode()
+#: The development KEK this repository derives and publishes, spelled for `prod`.
+#: Imported rather than retyped, for `_LEGACY_KEY_TEMPLATE`'s reason: a copy would go
+#: green the day the seed changed.
+PUBLISHED_KEK = base64.b64encode(_local_kek("prod")).decode()
 OTHER_KEK = base64.b64encode(b"retired-material-also-32-byteslo").decode()
 # 32 bytes each, and pairwise distinct — the property `distinct_secrets` is about.
 GOOD_HMAC = "audit-chain-key-of-thirty-two-by"
@@ -134,6 +139,11 @@ MUTATIONS: tuple[tuple[str, Callable[[dict[str, str]], None]], ...] = (
     ("redis_host_unreachable_from_container", _set("REDIS_URL", "redis://127.0.0.1:6379/0")),
     # Not base64 of 32 bytes: every console-managed credential stays ciphertext.
     ("platform_kek_unusable", _set("PLATFORM_KEK", "not-a-key")),
+    # Well-formed, 32 bytes, and computable by anyone with a checkout: the key that
+    # unwraps every DEK in `platform_secrets` set to the development constant
+    # `core/envelope._LOCAL_KEK_SEED` derives. `audit_chain_secret_is_published_constant`
+    # below is the same defect on a key whose leak is only half as bad.
+    ("platform_kek_is_published_constant", _set("PLATFORM_KEK", PUBLISHED_KEK)),
     # A retired slot holding the active value is a rotation that never happened (D-86).
     ("retired_key_equals_active", _set("PLATFORM_KEK_RETIRED", GOOD_KEK)),
     ("hmac_key_too_short", _set("AUDIT_CHAIN_SECRET", "short")),

@@ -83,7 +83,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
+from apps.api.core.settings import ENVIRONMENTS, get_settings
 
 log = get_logger(__name__)
 
@@ -109,6 +109,35 @@ NONCE_BYTES = 12
 #: under `local`. A fallback that applied everywhere would not be a development
 #: convenience, it would be a production key with a development name.
 _LOCAL_KEK_SEED = b"calevate-local-dev-platform-kek/"
+
+
+def _local_kek(app_env: str) -> bytes:
+    """The public development key for one environment name. See `_LOCAL_KEK_SEED`."""
+    return hashlib.sha256(_LOCAL_KEK_SEED + app_env.encode()).digest()
+
+
+#: EVERY SPELLING OF THE PUBLISHED DEVELOPMENT KEY, refused as a CONFIGURED value outside
+#: `local`.
+#:
+#: The fallback above is safe only because it is unreachable outside `local`. Nothing
+#: stopped an operator from taking the value it produces — the seed is printed in this
+#: file, the derivation is three lines below it, so the key is computable by anyone who
+#: has read this repository — and pasting it into a real deployment's `PLATFORM_KEK`.
+#: `build_ring` would then accept it as a perfectly well-formed 32-byte key, and every
+#: vendor credential in `platform_secrets` would be decryptable from a public repo.
+#:
+#: THIS IS `distinct_secrets`' `audit_chain_secret_is_published_constant` REFUSAL, one key
+#: over, and the asymmetry was the whole defect: the audit chain refused its published
+#: generation-0 constant while the KEK — whose leak is strictly worse, because the ledger
+#: constant only lets you FORGE and this one lets you READ — accepted its own. Spelled as
+#: every `ENVIRONMENTS` name rather than just `local`, for the reason
+#: `check_deploy_env.distinct_secrets` spells the audit constant that way: the seed is
+#: mixed with `app_env`, so a value lifted off a box that had `APP_ENV=staging` is a
+#: different 32 bytes and just as public.
+#:
+#: A frozenset of `bytes`, compared after decoding, so base64 whitespace or padding
+#: variants cannot spell around it.
+_PUBLISHED_LOCAL_KEKS: frozenset[bytes] = frozenset(_local_kek(name) for name in ENVIRONMENTS)
 
 # How the value is spelled in the environment. Base64 of 32 random bytes, e.g.
 #   python -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())"
@@ -321,9 +350,20 @@ def build_ring(*, kek: str | None, retired: str | None, app_env: str) -> KekRing
     """
     if kek:
         material = _decode_kek(kek, env_var="PLATFORM_KEK")
+        if app_env != "local" and material in _PUBLISHED_LOCAL_KEKS:
+            # See `_PUBLISHED_LOCAL_KEKS`. Refused HERE rather than only in
+            # `scripts/check_deploy_env.py` because that gate reads a `.env` FILE, and
+            # this value can also arrive from a compose `environment:` block, a systemd
+            # unit or an exported shell variable that no file check ever sees. The one
+            # door every configured KEK passes through is this function.
+            raise _unusable_kek(
+                "PLATFORM_KEK",
+                "is the development key this repository publishes, which anyone who has "
+                "read it can derive",
+            )
     elif app_env == "local":
         # Deterministic, public, and scoped to `local` — see `_LOCAL_KEK_SEED`.
-        material = hashlib.sha256(_LOCAL_KEK_SEED + app_env.encode()).digest()
+        material = _local_kek(app_env)
     else:
         raise _unusable_kek("PLATFORM_KEK", "is not set")
 

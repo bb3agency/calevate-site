@@ -33,12 +33,14 @@ from apps.api.core.envelope import (
     Envelope,
     Kek,
     KekRing,
+    _local_kek,
     build_ring,
     last_four,
     seal,
     unseal,
 )
 from apps.api.core.errors import ProblemError
+from apps.api.core.settings import ENVIRONMENTS
 
 CONTEXT = "platform_secret:bolna_api_key"
 SECRET = "bn-live-8f3c9a21d4e7b6f5"
@@ -221,6 +223,45 @@ def test_local_gets_a_derived_kek_and_no_other_environment_does() -> None:
     for env in ("staging", "prod"):
         with pytest.raises(ProblemError):
             build_ring(kek=None, retired=None, app_env=env)
+
+
+def test_the_published_local_kek_is_refused_as_a_configured_value_outside_local(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The fallback above is only safe because it is unreachable outside `local` — and
+    for a while nothing stopped an operator PASTING the value it produces into a real
+    deployment's `PLATFORM_KEK`.
+
+    The seed and the derivation are printed in `core/envelope.py`, so the key is
+    computable by anyone with a checkout, and it is the key that unwraps every DEK in
+    `platform_secrets`. That is `check_deploy_env`'s
+    `audit_chain_secret_is_published_constant` refusal one key over, and strictly worse:
+    the published ledger constant only lets a reader FORGE, this one lets them READ every
+    vendor credential the platform holds.
+
+    Every `ENVIRONMENTS` spelling, because the seed is mixed with `app_env` — a value
+    lifted off a box that said `staging` is different 32 bytes and just as public.
+    """
+    for name in ENVIRONMENTS:
+        published = base64.b64encode(_local_kek(name)).decode()
+        for deployed in ("staging", "prod"):
+            caplog.clear()
+            with caplog.at_level(logging.ERROR), pytest.raises(ProblemError) as raised:
+                build_ring(kek=published, retired=None, app_env=deployed)
+            assert raised.value.code == "platform_kek_unusable"
+            assert "publishes" in _operator_reason(caplog)
+            _assert_reader_can_act_on_it(raised.value)
+
+
+def test_local_may_still_state_its_own_derived_kek_explicitly() -> None:
+    """The refusal above is scoped to a REAL deployment, not to the dev box the constant
+    exists for: under `local` the fallback already produces this exact key, so refusing
+    an operator who spells it out would refuse the state the process is in anyway."""
+    spelled = base64.b64encode(_local_kek("local")).decode()
+    assert (
+        build_ring(kek=spelled, retired=None, app_env="local").active.material
+        == build_ring(kek=None, retired=None, app_env="local").active.material
+    )
 
 
 def test_a_broken_retired_kek_is_dropped_rather_than_fatal() -> None:

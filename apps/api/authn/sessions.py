@@ -764,4 +764,12 @@ async def subjects_with_live_sessions(
         return frozenset(rows)
 
 
-__all__ = ["current_run_start", "subjects_with_live_sessions"]
+# APPENDED, NOT REASSIGNED. A second `__all__ = [...]` at the foot of the file is a
+# REBIND: it replaced the list two hundred lines up, so this module advertised two names
+# and hid the eighteen the rest of the package imports from it — `issue_session`,
+# `verify_session`, `rotate_session`, `revoke_subject_sessions` and the rest. Nothing
+# breaks today because no caller uses `import *`, which is exactly why it survived the
+# move that created it (D-540's relocation, see the banner above): the defect is
+# invisible until the first star-import or export sweep, and then it is a session layer
+# that looks like it has no public API.
+__all__ += ["current_run_start", "subjects_with_live_sessions"]

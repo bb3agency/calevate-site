@@ -31,6 +31,7 @@ from apps.api.engine import get_engine
 from apps.api.kb import service, uploads
 from apps.workers import kb_ingest
 from sqlalchemy import text
+from sqlalchemy.exc import DBAPIError
 from tests.conftest import FakeS3
 from tests.kb_workflow_test import _tenant_with_published_agent
 
@@ -102,6 +103,72 @@ async def test_a_neighbours_upload_rows_are_zero_and_so_are_its_object_keys(
     async with untenanted_session() as session:
         # The ops view sees it — proving the zero above is the POLICY and not an empty table.
         assert (await session.execute(text("SELECT count(*) FROM kb_uploads"))).scalar() >= 1
+
+
+async def test_the_ops_read_on_uploads_stops_at_reading(s3: FakeS3) -> None:
+    """The untenanted sweep may SEE every tenant's upload rows and may not TOUCH one.
+
+    `sweep_kb_uploads` opens an `untenanted_session()` to find rows stalled mid-ingest
+    across the fleet, which is why the table carries an ops policy at all. Migration
+    `b3f7c21ea940` bought that read with a `FOR ALL` policy whose WITH CHECK was widened
+    the same way, so the same session could also UPDATE, DELETE and INSERT across every
+    tenant — and `original_key`/`document_key` are object-storage keys that one route turns
+    into a presigned URL for the client's own PDF, so a repointed key hands a neighbour's
+    document out under this tenant's name.
+
+    `f2b91c47e0a3` splits the two: `tenant_isolation` is the strict own-tenant form for
+    every verb, and a second `FOR SELECT` policy carries the sweep — `retention_worklist`'s
+    shape, which is this repo's one answer to "a global work queue over a tenant table".
+
+    Rowcounts rather than exceptions, because that is what FORCEd RLS produces: an UPDATE
+    or DELETE that can see no row reports zero and raises nothing. The INSERT is the one
+    that raises, because a WITH CHECK is a refusal.
+    """
+    tenant_a, agent_a = await _tenant_with_published_agent()
+    tenant_b, agent_b = await _tenant_with_published_agent()
+    row = await _upload_pdf(tenant_a, agent_a)
+    upload_id = uuid.UUID(str(row["id"]))
+
+    async with untenanted_session() as session:
+        # The read the sweep depends on. Unchanged, and asserted here so the fix cannot be
+        # "close it entirely" — that would silently stop every stalled ingest re-driving.
+        assert (
+            await session.execute(
+                text("SELECT count(*) FROM kb_uploads WHERE id = :u"), {"u": upload_id}
+            )
+        ).scalar() == 1
+
+        repointed = await session.execute(
+            text("UPDATE kb_uploads SET original_key = :k WHERE id = :u"),
+            {"k": f"kb-uploads/{tenant_b}/stolen/doc.pdf", "u": upload_id},
+        )
+        assert repointed.rowcount == 0, "an untenanted session repointed a tenant's object key"
+
+        removed = await session.execute(
+            text("DELETE FROM kb_uploads WHERE id = :u"), {"u": upload_id}
+        )
+        assert removed.rowcount == 0, "an untenanted session deleted a tenant's upload row"
+
+        with pytest.raises(DBAPIError) as refused:
+            await session.execute(
+                text(
+                    "INSERT INTO kb_uploads (id, tenant_id, agent_id, source_id, "
+                    "source_kind, source_url, ingest_status, created_at, updated_at) "
+                    "VALUES (gen_random_uuid(), :t, :a, :s, 'url', 'https://example.test/', "
+                    "'received', now(), now())"
+                ),
+                {"t": tenant_b, "a": agent_b, "s": row["source_id"]},
+            )
+        assert "row-level security" in str(refused.value)
+
+    # And the row the tenant owns is untouched by all of it.
+    async with tenant_session(tenant_a) as session:
+        key = (
+            await session.execute(
+                text("SELECT original_key FROM kb_uploads WHERE id = :u"), {"u": upload_id}
+            )
+        ).scalar()
+    assert key is not None and str(tenant_a) in str(key)
 
 
 # --- 2. The door ---------------------------------------------------------------------

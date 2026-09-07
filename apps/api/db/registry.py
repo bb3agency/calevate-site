@@ -195,6 +195,14 @@ TENANT_TABLES = [
     # and FORCE-RLS'd because every row either IS the client's content or dereferences
     # to it — `original_key` and `document_key` are object-storage keys pointing at the
     # document itself, which is `check_rls_coverage` rule 7(b)'s subject exactly.
+    # Its policy is ASYMMETRIC in `retention_worklist`'s exact shape and for its exact
+    # reason (migration f2b91c47e0a3): `tenant_isolation` is the strict own-tenant form
+    # for every verb, and a second `FOR SELECT` policy lets the UNTENANTED session that
+    # `workers/kb_ingest.sweep_kb_uploads` opens find rows stalled mid-ingest across the
+    # fleet. `b3f7c21ea940` bought that read by widening the `FOR ALL` policy's WITH CHECK
+    # too, which let an untenanted session UPDATE, DELETE and cross-tenant INSERT here —
+    # measured, and closed. Both USING clauses consult the GUC, so this stays an ordinary
+    # tenant table and NOT an `RLS_EXEMPT_TENANT_COLUMNS` entry.
     "kb_uploads",
     # The retrieval projection (D-502, migration `dc1aaeeeff02`): one row per published
     # chunk, holding a tsvector and an embedding and no content of its own. Tenant-scoped

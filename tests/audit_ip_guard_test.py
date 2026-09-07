@@ -254,3 +254,124 @@ def test_prose_naming_the_pattern_is_not_a_finding(tmp_path: Path, mention: str)
     _tree(tmp_path, resolver=PERMITTED_RESOLVER, extra={"admin/routes.py": body + CLEAN_HANDLER})
     result = _run(tmp_path)
     assert result.returncode == 0, result.stdout
+
+
+# --- check 3: a row naming a person carries an address -------------------------
+#
+# The defect these controls exist for was LIVE and the guard was green over it: two
+# client-realm money routes — `billing/cap_routes.set_caps` and
+# `billing/ai_quota_routes.buy_ai_extra` — wrote actor, tenant and target and no `ip`,
+# because checks 1 and 2 police how the address is DERIVED and never whether it is
+# RECORDED. Both are the plainest kind of disputable act (a spending limit moved, a
+# charge accepted against a wallet), and the admin half of the same ledger had recorded
+# an address on every write since D-139.
+
+#: A person did this, and the row cannot say where from.
+HUMAN_ACTOR_NO_IP = """
+async def set_caps(payload, session, principal):
+    await write_audit(
+        session,
+        action="billing.caps.set",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="plans",
+        object_id="x",
+        summary={"cap_minutes": 10},
+    )
+"""
+
+#: Nobody was at the keyboard. `campaigns/scheduling.py` and `integrations/service.py`
+#: are the live shapes: the scheduler and the post-call pipeline have no caller address,
+#: and inventing one would be worse than omitting it.
+SYSTEM_ACTOR_NO_IP = """
+async def fire_scheduled_launch(session, tenant_id):
+    await write_audit(
+        session,
+        action="campaign.launched",
+        actor=None,
+        actor_type="system",
+        tenant_id=tenant_id,
+        object_type="campaign",
+        object_id="x",
+        summary={"via": "schedule"},
+    )
+
+
+async def widen_delivery(session, tenant_id):
+    await write_audit(
+        session,
+        action="integration.raw_transcript_included",
+        actor_type="system",
+        tenant_id=tenant_id,
+        object_type="call",
+        object_id="x",
+    )
+"""
+
+#: The same human act, done right. Kept beside the offender so the two differ in one line.
+HUMAN_ACTOR_WITH_IP = """
+from apps.api.core.auth import client_request_ip
+
+
+async def set_caps(payload, session, request, principal):
+    await write_audit(
+        session,
+        action="billing.caps.set",
+        actor=principal,
+        tenant_id=principal.tenant_id,
+        object_type="plans",
+        object_id="x",
+        ip=client_request_ip(request),
+        summary={"cap_minutes": 10},
+    )
+"""
+
+
+def test_an_audit_row_naming_a_person_without_an_ip_is_refused(tmp_path: Path) -> None:
+    """The finding, reproduced. SEC-COMP §5 asks every audit row for "actor, tenant, at,
+    ip"; a row with three of the four cannot answer whether the person who moved the
+    money was where they should have been, which is the question the column exists for.
+    """
+    _tree(tmp_path, resolver=PERMITTED_RESOLVER, extra={"billing/cap_routes.py": HUMAN_ACTOR_NO_IP})
+    result = _run(tmp_path)
+    assert result.returncode == 1, result.stdout
+    assert "AUDIT IP: FAIL" in result.stdout
+    assert "apps/api/billing/cap_routes.py" in result.stdout
+    assert "set_caps" in result.stdout, "the message must name the function"
+    assert "client_request_ip" in result.stdout, "and the remedy"
+
+
+def test_the_same_row_with_an_address_passes(tmp_path: Path) -> None:
+    """The precision control on the fix: the two trees differ in exactly the `ip=` line,
+    so a red run above is about the missing address and not about the shape of the call."""
+    _tree(
+        tmp_path, resolver=PERMITTED_RESOLVER, extra={"billing/cap_routes.py": HUMAN_ACTOR_WITH_IP}
+    )
+    result = _run(tmp_path)
+    assert result.returncode == 0, result.stdout
+
+
+def test_a_system_actor_needs_no_address_and_is_not_a_finding(tmp_path: Path) -> None:
+    """The exemption, and it is BY CONSTRUCTION rather than by an allowlist: a job the
+    scheduler ran has no caller address, so demanding one would push authors to stamp a
+    plausible value into an evidentiary column. Both live spellings — `actor=None` beside
+    `actor_type="system"`, and `actor_type` alone — must pass, or the guard teaches the
+    next author to satisfy it with a lie."""
+    _tree(
+        tmp_path,
+        resolver=PERMITTED_RESOLVER,
+        extra={"campaigns/scheduling.py": SYSTEM_ACTOR_NO_IP},
+    )
+    result = _run(tmp_path)
+    assert result.returncode == 0, result.stdout
+
+
+def test_the_ok_line_states_how_many_rows_it_inspected(tmp_path: Path) -> None:
+    """A green run that names no population is indistinguishable from a walk that matched
+    nothing — the way an import rename would silently empty this check. The count is the
+    difference between "OK" and "OK, and here is what that was said about"."""
+    _tree(
+        tmp_path, resolver=PERMITTED_RESOLVER, extra={"billing/cap_routes.py": HUMAN_ACTOR_WITH_IP}
+    )
+    result = _run(tmp_path)
+    assert "1 human-actor audit row(s) all carrying an address" in result.stdout, result.stdout

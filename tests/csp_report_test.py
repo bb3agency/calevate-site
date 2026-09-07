@@ -18,7 +18,7 @@ import json
 
 import pytest
 from apps.api.main import app
-from apps.api.security import csp_reports
+from apps.api.security import csp_reports, routes
 from apps.api.security.routes import MAX_REPORT_BYTES
 from httpx import ASGITransport, AsyncClient
 
@@ -251,3 +251,53 @@ async def test_extension_noise_and_foreign_origins_page_nobody(
     assert await _post(_legacy_body(**{"blocked-uri": "moz-extension://x/y.js"})) == 204
     assert await _post(_legacy_body(**{"document-uri": "https://not-ours.example/p"})) == 204
     assert fired == []
+
+
+# --- the segment that reaches an operator, when the sender chooses the path -----------
+# `document_realm` is admission control's input AND an alarm body's substance, and the
+# sender picks it. Both tests below FAIL on the "first non-empty segment" spelling this
+# function carried until the audit that added them.
+
+
+def test_a_leading_empty_segment_does_not_promote_the_tenant_slug_into_the_realm() -> None:
+    """`//acme-dental/leads` must not answer with segment TWO of the real path.
+
+    The old spelling skipped empty segments, so a path whose first segment is empty
+    returned the next one — which on `/c/{slug}` is the tenant slug this function exists
+    to drop (hard rule 6). A leading slash means segment one is empty and the honest
+    answer is the bare origin.
+    """
+    [violation] = csp_reports.parse_reports(
+        _legacy_body(**{"document-uri": "https://app.calevate.tech//acme-dental/leads/018f"})
+    )
+    assert violation.document_realm == "https://app.calevate.tech"
+    assert "acme-dental" not in str(violation)
+
+
+def test_a_realm_segment_that_is_not_shaped_like_ours_is_dropped_not_forwarded() -> None:
+    """Nothing authenticates this route, and the realm reaches an operator's mailbox.
+
+    `require_own_console_origin` admits the report because the ORIGIN is ours; it says
+    nothing about the segment. A segment a stranger wrote is therefore kept only when it
+    has the shape of one this product serves, so the alarm body cannot be a sentence of
+    somebody else's choosing.
+    """
+    hostile = "https://app.calevate.tech/URGENT: wire funds to attacker/leads"
+    [violation] = csp_reports.parse_reports(_legacy_body(**{"document-uri": hostile}))
+    assert violation.document_realm == "https://app.calevate.tech"
+    # Still admitted — the origin is ours — which is precisely why the segment matters.
+    assert routes.require_own_console_origin(violation) is True
+
+
+def test_an_ordinary_console_realm_still_survives_the_shape_check() -> None:
+    for path, expected in (
+        ("/c/acme-dental/leads", "https://app.calevate.tech/c"),
+        ("/admin/tenants/018f", "https://app.calevate.tech/admin"),
+        ("/auth/reset-password?token=abc", "https://app.calevate.tech/auth"),
+        ("/", "https://app.calevate.tech"),
+        ("", "https://app.calevate.tech"),
+    ):
+        [violation] = csp_reports.parse_reports(
+            _legacy_body(**{"document-uri": f"https://app.calevate.tech{path}"})
+        )
+        assert violation.document_realm == expected, path

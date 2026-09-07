@@ -66,6 +66,8 @@ Run:
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 import re
 import sys
 from collections.abc import Mapping, Sequence
@@ -78,7 +80,7 @@ from urllib.parse import SplitResult, urlsplit
 # second copy of a constant whose whole purpose is that it must never be signed with again.
 # A guard that retyped it would go green the day the original changed.
 from apps.api.compliance.audit import _LEGACY_KEY_TEMPLATE
-from apps.api.core.envelope import build_ring
+from apps.api.core.envelope import _PUBLISHED_LOCAL_KEKS, build_ring
 from apps.api.core.errors import ProblemError
 from apps.api.core.platform_config import managed_fields
 from apps.api.core.settings import (
@@ -216,6 +218,7 @@ REFUSAL_CODES: frozenset[str] = frozenset(
         "redis_url_unparseable",
         "redis_host_unreachable_from_container",
         "platform_kek_unusable",
+        "platform_kek_is_published_constant",
         "retired_key_equals_active",
         "hmac_key_too_short",
         "hmac_key_reused_across_purposes",
@@ -425,9 +428,40 @@ def platform_kek(env: Mapping[str, str]) -> list[Finding]:
     the rule it is checking, and it converts every one of them — absent outside `local`,
     not base64, not 32 bytes — into a refusal before the deploy instead of a
     `ProblemError` at the first read of the first vendor credential."""
+    configured = env.get("PLATFORM_KEK") or None
+    # NAMED SEPARATELY BEFORE `build_ring` RUNS, and only for the RENDERING. The rule
+    # itself lives in `envelope.build_ring` and is not restated here — this branch
+    # re-derives nothing, it compares against the same frozenset the refusal is built on.
+    # What it buys is the message: `_unusable_kek`'s `ProblemError` is deliberately CLIENT
+    # prose ("there is nothing for you to fix"), because its other two doors are a shop
+    # owner signing in and a client pasting a WhatsApp key, and the operator half of that
+    # remediation was moved into the log line. This gate writes no log line and has
+    # exactly one reader — the person running the deploy — so it has to say the
+    # actionable thing itself.
+    if configured and _stated_env(env) != "local":
+        try:
+            material = base64.b64decode(configured.strip(), validate=True)
+        except (binascii.Error, ValueError):
+            # Not a base64 problem to report here: `build_ring` below owns that refusal
+            # and words it. An empty stand-in simply cannot match the frozenset.
+            material = b""
+        if material in _PUBLISHED_LOCAL_KEKS:
+            return [
+                Finding(
+                    "platform_kek_is_published_constant",
+                    ("PLATFORM_KEK",),
+                    "is the development key this repository DERIVES AND PUBLISHES "
+                    "(`core/envelope._LOCAL_KEK_SEED`). Anyone who has read this "
+                    "repository can compute it, and it is the key that unwraps every DEK "
+                    "in `platform_secrets` — so every vendor credential this deployment "
+                    "holds would be readable from a checkout. Generate a real one with: "
+                    'python -c "import base64,os; '
+                    'print(base64.b64encode(os.urandom(32)).decode())"',
+                )
+            ]
     try:
         build_ring(
-            kek=env.get("PLATFORM_KEK") or None,
+            kek=configured,
             retired=env.get("PLATFORM_KEK_RETIRED") or None,
             app_env=_stated_env(env),
         )

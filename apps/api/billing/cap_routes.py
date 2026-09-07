@@ -42,14 +42,14 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.caps import CapView, apply_client_caps, read_caps, read_spend_counters
 from apps.api.billing.service import current_billing_month, to_paise
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import requires
+from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.logging import get_logger
@@ -215,7 +215,9 @@ async def get_caps(session: Session, principal: CapsRead) -> CapsOut:
         "Incoming calls are never affected."
     ),
 )
-async def set_caps(payload: CapsIn, session: Session, principal: CapsWrite) -> CapsOut:
+async def set_caps(
+    payload: CapsIn, session: Session, request: Request, principal: CapsWrite
+) -> CapsOut:
     """One transaction: the cap and the gate's flag move together.
 
     `apply_client_caps` recomputes `spend_state.capped` from the counters already in the
@@ -243,6 +245,14 @@ async def set_caps(payload: CapsIn, session: Session, principal: CapsWrite) -> C
         tenant_id=tenant_id,
         object_type="plans",
         object_id=str(tenant_id),
+        # WHERE the person was when they moved their own spending limit. SEC-COMP §5 asks
+        # every audit row for "actor, tenant, at, ip", and this row carried the first three
+        # — so a limit lowered to zero by a stolen session was indistinguishable in the
+        # trail from one the owner set at their desk. `client_request_ip` and not the
+        # socket peer, which behind nginx is our own edge (D-131/D-139); the admin half of
+        # this same ledger (`credit_routes.py`) has always recorded it, and this half is
+        # the one a CLIENT reaches.
+        ip=client_request_ip(request),
         # Ceilings and a boolean, nothing else. No phone number, transcript or
         # extraction appears anywhere on this path (hard rule 6). `write_audit`'s
         # parameter is called `summary` and that is fine — the RAW_PII_FIELDS pattern of
