@@ -147,6 +147,25 @@ PROFILES: dict[str, LimitProfile] = {
     # read and five Decimal divisions — no database, no vendor, nothing a flood can
     # amplify. No tenant dimension because there is no tenant.
     "public_read": LimitProfile("public_read", per_client=600, per_tenant=None),
+    # The engine's in-call door (`/v1/actions/invoke/**`). Its own profile for the reason
+    # `webhook_ingest` has one, and the relationship inverts the same way: the caller is
+    # the VOICE ENGINE, dialling from its own single egress address on behalf of EVERY
+    # tenant at once, so the per-caller dimension is a near-global ceiling and the
+    # per-`tool_id` dimension is the tenant's own. Under `client_api` this route resolved
+    # to 240/min keyed on that one address, which is ~4 in-call actions a second FOR THE
+    # WHOLE PLATFORM — and each one holds a synchronous 8s vendor round trip and a
+    # credential decrypt, so the ceiling was reachable by a handful of busy clinics and
+    # the 429 lands mid-call, as silence. 600 is the same number and the same argument as
+    # `webhook_ingest`. The tenant ceiling is what actually bounds abuse here: a tool id
+    # belongs to one tenant, ten concurrent lines invoking an action every few seconds is
+    # single-digit-per-minute traffic, and 120 is far past that while still stopping a
+    # runaway agent from spending one client's vendor quota without limit.
+    "engine_action": LimitProfile(
+        "engine_action",
+        per_client=600,
+        per_tenant=120,
+        tenant_from_last_path_segment=True,
+    ),
     # Anything the table does not name: 404 probes, a path that has not been routed yet.
     # NOT reachable from a mounted API route — the census test fails the build first —
     # so this exists purely so that scanning for unrouted paths is not free.
@@ -292,9 +311,24 @@ RULES: tuple[Rule, ...] = (
     # caller doing this at `client_api` rates is stuffing an append-only contract ledger,
     # and every row of it is evidence somebody has to read later.
     Rule("/v1/legal/acceptances", "costly", _m("POST")),
+    # The engine's in-call door. A FAMILY rule (no method set), like `/hooks/v1/ingest/**`
+    # and `/v1/public/**`: this is a surface of its own with its own caller, not a cost
+    # weight over `/v1/**`. See the profile for why it is LOOSER per-caller and tighter
+    # per-tenant than the family it replaces.
+    Rule("/v1/actions/invoke/**", "engine_action"),
     Rule("/v1/lead-sources/*/test", "costly", _m("POST")),
+    # Sends a REAL request to the tenant's configured endpoint and can deliver a real
+    # WhatsApp message. Its two siblings above and below are `costly` for exactly that
+    # reason; this one resolved to `client_api` (240/min), which made an authenticated
+    # money-burner and a public-host prober out of the one action surface a person clicks.
+    Rule("/v1/agents/*/actions/*/test", "costly", _m("POST")),
     Rule("/v1/lead-sources/*/meta/**", "costly", _m("POST")),
     Rule("/v1/integrations/endpoints/**", "costly", _m("POST")),
+    # The ADMIN copilot (`copilot/admin_routes.py`). `/v1/copilot/ask` is weighted for the
+    # reason its comment gives — an LLM call, several per click — and this one is the same
+    # code path spending the PLATFORM's money rather than a client's, so it had the
+    # stronger claim on a weight and was the one without it.
+    Rule("/v1/admin/copilot/ask", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/invitations", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/agents/*/publish", "costly", _m("POST")),
     Rule("/v1/admin/tenants/*/agents/*/apply", "costly", _m("POST")),
