@@ -89,6 +89,11 @@ TENANT_TABLES = [
     "usage_events",
     "plans",
     "credit_ledger",
+    # The credits ONE purchase created, with that purchase's per-minute rates frozen on
+    # them (D-547, migration c9f3a71e58d2). Tenant money, isolated like the ledger it
+    # hangs off — and NOT in APPEND_ONLY_TABLES: a debit decrements `credits_remaining`,
+    # which is the one thing this table exists to let a wallet do.
+    "credit_lots",
     # One-time charges (the onboarding setup fee, migration c7e1a4b90d63). Tenant money:
     # what this client was billed once, read by the invoice.
     "one_time_charges",

@@ -153,6 +153,8 @@ Files: `billing/credit_packs.py`, `billing/rates.py`, `billing/payment_routes.py
 5. `rates.py` module prose (`:1-24, 65-70, 103, 778`), `credit_packs.py` prose (`:1-46, 130-158`), `voices.py:14` — rewritten; `scripts/check_docs_drift.py` §4b gains the second TTS rung so TRD §10.1 and `rates.py` are compared on both.
 
 ### Phase B — lots and the FIFO debit
+B1 — DONE (uncommitted, 7 Sep 2026): table, migration, lots.py, tests. B2 (callers) pending Phase A.
+
 Files: `billing/models.py`, `billing/service.py`, `billing/lots.py` (new), `workers/pipeline.py`, `billing/payments.py`, `billing/credit_routes.py`, `billing/ai_quota.py`, `compliance/service.py`, migration, tests.
 1. `billing/lots.py`: `open_lot(session, tenant_id, *, credits, rates, source, pack_id, ledger_entry_id)` and `consume(session, tenant_id, *, minutes, voice_tier, call_id) -> list[LotSplit]`. Both run INSIDE the caller's transaction and INSIDE the existing per-tenant advisory lock (`service.py:233-248`); `consume` reads open lots FIFO with `FOR UPDATE`, decrements with a CAS `UPDATE ... WHERE credits_remaining = :seen` (BACKEND-PATTERNS §5), closes a lot at zero.
 2. `record_entry` (`service.py:305-397`) is not changed; a new `record_usage_from_lots` wraps it: computes the rupee delta as the SUM of splits, writes one `usage` row with `meta.lots`, and the overdraft part (if any) priced at the last split's rate (Q5). Idempotency is the existing `(tenant_id,'usage',call_id)` unique (`service.py:917-935`) — a replay finds the row and makes no second consumption.
@@ -163,7 +165,7 @@ Files: `billing/models.py`, `billing/service.py`, `billing/lots.py` (new), `work
 7. `ai_quota.py:1189-1196` debits the same wallet in rupees, not minutes: it consumes lots FIFO at face value (₹1 = 1 credit), no rate. Documented in the lot split as `voice_tier = NULL`.
 8. Tests (each a file, per BACKEND-PATTERNS §9): FIFO order; a split across two lots priced at two rates; a debit larger than all lots (overdraft, priced at the last lot's rate); repayment then lot open on the next top-up; replay makes no second consumption; a lot's rates cannot be updated (trigger); cross-tenant zero rows; invariant 1 after a randomised sequence of top-ups and debits; the migration opens one lot per positive balance and none for a negative one.
 
-### Phase C — the Cartesia voice tier  ⚠ SEE ADDENDUM 3: C.3 IS NOW A BUILD, NOT A REFUSAL
+### Phase C — PARTIAL DONE (uncommitted, 7 Sep 2026): C.1,2,3,4,5,6,7,8-helper; C.3 built to ADDENDUM 3's schema, gate 52 narrowed to hosted-platform acceptance
 Files: `agents/voices.py`, `agents/voice_routes.py`, `agents/verification.py`, `engine/bolna.py`, `agents/llm_models.py` (pattern) → `agents/voice_offer.py` (new), `core/platform_config.py`, `packages/shared/.../engine.py`, `packages/shared/.../model_lifecycle.py` (or a TTS twin), tests + conformance.
 1. **Catalogue**: `TtsModel = Literal["bulbul:v3", "sonic-3.5"]`; `Voice.provider: Literal["sarvam","cartesia"]`; Cartesia entries from Q1 with `voice_id_for()` unchanged in shape (`"sonic-3.5:<voice_id>"`). `sonic-3` is deliberately NOT in the catalogue (Bolna: use 3.5 in production, `cartesia.md:66`; a sunset of 20 Oct 2026 for `sonic-3` is REPORTED by Comet from `docs.cartesia.ai` and is NOT on Bolna's page — recorded as REPORTED, not asserted). The `_NOTE` at `voices.py:306` stops hardcoding ₹30/10k.
 2. **Offerability**: `offerable_voices()` mirrors `offerable_models()` (`llm_models.py:452-500`): a Cartesia voice is offered only when `cartesia_api_key` is installed (`secret_probes.py:145`), a Cartesia price is attested (§3.5), AND the `cartesia_agent_cap` (Q10) is not exceeded — each refusal a named reason the picker renders. `GET /v1/agents/voices` (`voice_routes.py:230`) returns the reason per unavailable voice, never a shorter list.
@@ -567,3 +569,48 @@ Telugu-English mixing.
 - **New gate 54** (Bolna's own synthesizer cache) joins §9.
 - Plan §0 Q1 is answered as to SHAPE; the ids remain a one-command lookup after the key is
   installed.
+
+---
+
+# ADDENDUM 4 — Three corrections the build made to this plan (7 Sep 2026, Phase B1)
+
+Implementing §3.1 and §4.B found one place where this document contradicted itself and two
+where its API could not be written. All three are now the spec.
+
+## 4.1 The terms-frozen trigger allowlist was self-contradictory (MY ERROR)
+§3.1 said the trigger permits UPDATEs to `credits_remaining`, `closed_at`, `updated_at` only.
+ADDENDUM 2 §2.2 then required `credits_total` to move on a restatement. **Both cannot hold**;
+a restatement would have been refused by the trigger written to §3.1.
+**The allowlist is `credits_remaining, credits_total, closed_at, updated_at`.** Frozen: the
+two rates, `source`, `pack_id`, `override_of_pack_id`, `ledger_entry_id`, `opened_at`,
+`tenant_id`. The trigger compares `to_jsonb(NEW) - allowlist` against OLD's, so **a column
+added later is frozen by default** — the safe direction.
+
+## 4.2 `consume()` takes a DEMAND, not a credit count
+§4.B.1's signature was `consume(..., credits_wanted, voice_tier, kind)`. A call's demand is
+**MINUTES**, and `minutes × rate` cannot be computed before the lots are walked, because the
+rate is a property of each lot. So credits-wanted is unknowable at the call site.
+**The real shape**: `consume(session, *, tenant_id, demand)` where demand is
+`CallDemand(minutes, voice_tier, fallback_inr_per_min)` or `AiAssistDemand(credits)` — the
+discriminated type carries `kind` and `voice_tier`, so they are not separate parameters that
+could disagree with it. Overdraft is one split with `lot_id=None` at the last consumed lot's
+rate, or the fallback when there were no lots at all.
+Also: `open_lot`'s `credits` parameter is `credits_inr` — `credits` shadows a builtin and
+ruff's A002 is a CI gate.
+
+## 4.3 `FOR UPDATE` is NOT taken, and the reason is the ratchet
+§4.B.1 said the FIFO read should be `FOR UPDATE`. It should not. Holding the row locks makes
+the CAS **unable to lose**, which turns the retry into an unreachable defensive branch — and
+`ledgers-and-money` is a zero-tolerance ratchet area, so an unreachable branch is a failing
+gate, not a harmless precaution. BACKEND-PATTERNS §5 puts the guard in the write, and that is
+enough here: the per-tenant advisory lock is the serialisation, the CAS is the backstop
+against a caller that forgets to take it. A lost race costs one re-read and one retry and
+cannot double-spend, because the guard is the value the arithmetic was based on. Eight losses
+raise `credit_lots_contended`.
+
+## Recorded from the same lane, for B2
+- The data migration must sit inside a `NO FORCE`/`FORCE` bracket on `organizations` and
+  `credit_ledger` — `tests/migration_rls_bracket_test.py` enforces it.
+- `VoiceTier` is spelled in `lots.py` and `Voice.provider` in `agents/voices.py`;
+  `tests/credit_lots_vocabulary_test.py` fails if they drift. B2 reconciles them to one.
+- Overdraft REPAYMENT (§4.B.5) is deliberately unbuilt in B1 — it belongs with the callers.

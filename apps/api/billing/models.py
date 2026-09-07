@@ -542,6 +542,105 @@ class CreditLedgerEntry(PKMixin, Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 
+LOT_SOURCES = ("topup", "grant", "bonus_legacy", "migration", "override")
+
+
+class CreditLot(PKMixin, TimestampMixin, Base):
+    """The credits ONE purchase created, with that purchase's two per-minute rates
+    frozen onto them (D-547, PLAN §2.1, migration c9f3a71e58d2).
+
+    WHY A SECOND TABLE BESIDE `credit_ledger` AND NOT TWO COLUMNS ON IT. A pack discount
+    is delivered as a CHEAPER MINUTE, not as bonus credits, so "what does a minute cost
+    this client?" stops having one answer per tenant and gains one answer per purchase.
+    The ledger cannot hold that: it is append-only (hard rule 4) and a debit has to
+    DECREMENT whatever it draws from, which is an UPDATE. So the money stays on the
+    ledger — one signed balance, unchanged — and the TERMS live here, on a row that is
+    allowed to shrink.
+
+    WHAT IS FROZEN, AND WHAT MOVES. `sarvam_inr_per_min` / `cartesia_inr_per_min`,
+    `source`, `pack_id`, `override_of_pack_id`, `tenant_id`, `ledger_entry_id` and
+    `opened_at` are the TERMS of a sale that already happened; nothing may edit them and
+    the `credit_lots_terms_frozen` trigger refuses an UPDATE that tries (invariant
+    §2.3.3). `credits_remaining`, `closed_at` and `updated_at` move as the lot is spent.
+    `credits_total` moves too, and only on one path: an operator RESTATING a
+    mis-recorded payment (ADDENDUM 2 §2.2) — which is why the trigger's allowlist has
+    four columns and not three, and why its name says TERMS rather than "immutable".
+    A restatement changes HOW MUCH was sold, never WHAT IT WAS SOLD AT.
+
+    NOT APPEND-ONLY, deliberately, so it is NOT in `APPEND_ONLY_TABLES`: the ledger is
+    the audit trail (every debit appends a `usage` row carrying its `meta.lots` splits,
+    invariant §2.3.5) and this table is the derived, mutable position those rows are
+    re-derivable against — `SUM(credits_remaining) == balance` whenever the balance is
+    non-negative (invariant §2.3.1).
+
+    `ledger_entry_id` is UNIQUE: the credit-adding row that opened the lot names it
+    exactly once, so a replayed payment cannot open a second lot for money that arrived
+    once. That is the same guarantee `ux_credit_ledger_tenant_reason_ref` gives the
+    ledger, expressed on this side of the link rather than trusted from the other.
+    """
+
+    __tablename__ = "credit_lots"
+    __table_args__ = (
+        CheckConstraint(f"source IN {LOT_SOURCES!r}", name="source_enum"),
+        CheckConstraint("credits_total > 0", name="total_positive"),
+        CheckConstraint(
+            "credits_remaining >= 0 AND credits_remaining <= credits_total",
+            name="remaining_within_total",
+        ),
+        CheckConstraint("sarvam_inr_per_min > 0", name="sarvam_rate_positive"),
+        # Invariant §2.3.6 at the row level: the premium voice is never the cheap one.
+        # A card that inverted them would sell a Cartesia minute below a Sarvam minute
+        # and every margin figure downstream would be struck against the wrong leg.
+        CheckConstraint(
+            "cartesia_inr_per_min >= sarvam_inr_per_min", name="cartesia_not_below_sarvam"
+        ),
+        # THE FIFO SCAN, and the only index this table needs. `billing/lots.py::consume`
+        # reads `WHERE tenant_id = :t AND closed_at IS NULL ORDER BY opened_at, id`;
+        # partial on the predicate because a spent lot is the steady state and is never
+        # scanned again. Declared in migration c9f3a71e58d2 — autogenerate cannot diff a
+        # partial index, so the migration is its source of truth.
+        Index(
+            "ix_credit_lots_fifo",
+            "tenant_id",
+            "opened_at",
+            "id",
+            postgresql_where=text("closed_at IS NULL"),
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: Where the credits came from — `LOT_SOURCES`. It is not derivable from the ledger
+    #: reason: `grant` and `bonus_legacy` are both `bonus`-shaped money on the ledger and
+    #: are sold at different rates (PLAN §0 Q4), and `migration` and `override` have no
+    #: ledger reason of their own at all.
+    source: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The catalogue row the rates were copied from, for a lot that came from a pack.
+    #: NULL for a grant, a migration, or a free-amount top-up priced by the Q3 rule.
+    pack_id: Mapped[str | None] = mapped_column(Text)
+    #: For an operator RATE OVERRIDE (PLAN §0 Q6, "sell this lot at pack X's rates"): the
+    #: pack whose rates were borrowed. Named on the lot rather than in an audit note only,
+    #: because the rate a client is spending at must be explainable from the lot itself.
+    override_of_pack_id: Mapped[str | None] = mapped_column(Text)
+    credits_total: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    credits_remaining: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    sarvam_inr_per_min: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    cartesia_inr_per_min: Mapped[Decimal] = mapped_column(MONEY, nullable=False)
+    ledger_entry_id: Mapped[UUID] = mapped_column(
+        ForeignKey("credit_ledger.id", ondelete="RESTRICT"), nullable=False, unique=True
+    )
+    #: FIFO's sort key, and its own column rather than `created_at` because the two answer
+    #: different questions: `opened_at` is when the client bought these credits (a
+    #: migration lot back-dates nothing, but an operator correction may), `created_at` is
+    #: when this row was written.
+    opened_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    #: Set the moment `credits_remaining` reaches zero, and cleared again if an upward
+    #: restatement puts credits back on it. NULL is the whole of "open" — the FIFO index
+    #: is partial on it, so a lot's state is a fact the query planner can use.
+    closed_at: Mapped[datetime | None] = mapped_column()
+
+
 class PlatformAiSpend(Base):
     """WHAT THE DASHBOARD-AI KEY HAS COST **US** THIS MONTH, across every tenant.
 
