@@ -36,6 +36,11 @@ import {
   confirmMatches,
 } from "@/app/admin/ops/opsLanguage";
 import {
+  ttsPricesOf,
+  useAttestTtsPrice,
+  type TtsPrice,
+} from "@/app/admin/ops/ttsPricing";
+import {
   useAttestModelPrice,
   useModelPrices,
   type ModelPrice,
@@ -55,6 +60,10 @@ const PROVIDER_LABELS: Record<string, string> = {
   azure_openai: "Azure OpenAI",
   openai: "OpenAI",
   google: "Google",
+  // The two VOICE vendors. Same table, because the question a reader has is the same one
+  // ("whose invoice is this?") and two tables would be two spellings of "Cartesia".
+  sarvam: "Sarvam",
+  cartesia: "Cartesia",
 };
 
 function providerLabel(provider: string): string {
@@ -169,6 +178,13 @@ export function ModelPricingPanel({
             ))}
           </ul>
         )}
+
+        {/* THE VOICE LEG, on the same panel and for the same reason (D-547): a price an
+            operator reads off their own invoice is one act whichever vendor sold it, and
+            splitting the two would leave the newer one somewhere nobody looks. It is read
+            from the SAME payload — an API that does not publish it yet renders a stated
+            absence, never an empty table that reads as "no voices are priced". */}
+        {state.status === "read" && <TtsPricesSection payload={state.list} access={access} />}
       </div>
     </Card>
   );
@@ -450,6 +466,279 @@ function AttestForm({
           disabled={!ready || save.isPending}
           className={PRIMARY_BUTTON_SM}
         >
+          <Save aria-hidden className="h-3.5 w-3.5" />
+          {save.isPending ? "Saving…" : "Confirm price"}
+        </button>
+        <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * VOICE (TTS) PRICES — the leg where an unattested price BLOCKS A TIER rather than merely
+ * looking empty.
+ *
+ * ## Why this section says something stronger than the model rows above it
+ *
+ * A language model with no attested price is one model a client cannot choose. A VOICE with
+ * no attested price is a whole product tier that cannot be sold — and the failure mode if
+ * we shipped it anyway is worse than an unavailable option, because the vendor bills us
+ * directly under BYOK and the engine reports the synthesizer leg as ₹0. Every Cartesia
+ * minute would then meter as free and the margin board would show a profit that does not
+ * exist (`ops/model_pricing.tts_price_is_billable` is the one door; hard rule 7).
+ *
+ * ## The vendor is named, deliberately
+ *
+ * No client-facing surface names a vendor as a product tier — they read "Clear" and
+ * "Studio". THIS SCREEN IS THE EXCEPTION and it must be: an operator typing a figure off a
+ * Cartesia invoice, or installing a Cartesia key next door, needs to know which of the two
+ * names on the row is the one their invoice is headed with. Both are printed, and the tier
+ * label crosses the wire rather than being spelled again here.
+ */
+function TtsPricesSection({
+  payload,
+  access,
+}: {
+  payload: unknown;
+  access: { allowed: boolean; reason: string | null };
+}) {
+  const rows = ttsPricesOf(payload);
+
+  return (
+    <section className="space-y-2 border-t border-line pt-4">
+      <div>
+        <h3 className="text-sm font-semibold text-ink">Voice prices</h3>
+        <p className="text-xs text-ink-faint">
+          What 1,000 spoken characters cost us on each voice, in rupees. On a monthly plan
+          this is the plan&apos;s marginal rate — the committed spend divided by the
+          characters it buys — which only you, holding the invoice, can work out.
+        </p>
+      </div>
+
+      {rows === null ? (
+        // NOT an empty list and NOT a zero. Either this deployment's API does not publish
+        // the voice prices yet or the payload was not the shape this build validates; both
+        // are "we do not know", and a priced-looking table would be the invention §52 and
+        // hard rule 11 both refuse.
+        <NoticeBox
+          tone="warn"
+          icon={<CircleHelp aria-hidden className="h-5 w-5" />}
+          title="This deployment did not send any voice prices"
+        >
+          <p className="mt-1">
+            Nothing is shown rather than a table of guessed figures. A voice whose price is
+            not confirmed cannot be sold at all — every minute on it would meter as costing
+            nothing — so treat this as unknown, not as free.
+          </p>
+        </NoticeBox>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((row) => (
+            <li key={row.provider}>
+              <TtsPriceRow price={row} access={access} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** The one-line verdict for a voice, and why it is not the model row's verdict. */
+export function ttsVerdict(price: TtsPrice): { label: string; tone: "ok" | "warn" } {
+  if (price.offerable) return { label: "On sale to customers", tone: "ok" };
+  const missing: string[] = [];
+  if (!price.credential_installed) missing.push("a vendor key");
+  if (!price.price_billable) missing.push("a confirmed price");
+  if (missing.length === 0) return { label: "Not on sale", tone: "warn" };
+  return { label: `Blocked — needs ${missing.join(" and ")}`, tone: "warn" };
+}
+
+function TtsPriceRow({
+  price,
+  access,
+}: {
+  price: TtsPrice;
+  access: { allowed: boolean; reason: string | null };
+}) {
+  const [open, setOpen] = useState(false);
+  const v = ttsVerdict(price);
+
+  return (
+    <div className="rounded-md border border-line p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          {/* VENDOR, then the tier the client reads, then the synthesizer model. Three
+              facts an operator needs together: whose invoice, which product, which model
+              id the engine is actually asked for. */}
+          <p className="text-sm text-ink">
+            {providerLabel(price.provider)} · {price.tier_label}
+          </p>
+          <p className="mt-0.5 text-xs text-ink-faint">
+            <MonoValue>{price.tts_model}</MonoValue>
+          </p>
+        </div>
+        <span
+          className={`inline-flex items-center gap-1 text-xs font-medium ${
+            v.tone === "ok" ? "text-brand" : "text-amber-600"
+          }`}
+        >
+          {v.tone === "ok" ? (
+            <BadgeCheck aria-hidden className="h-3.5 w-3.5" />
+          ) : (
+            <TriangleAlert aria-hidden className="h-3.5 w-3.5" />
+          )}
+          {v.label}
+        </span>
+      </div>
+
+      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+        <dt className="text-ink-faint">Price (₹ per 1,000 characters)</dt>
+        <dd className="text-ink">
+          {price.inr_per_1k_chars ? (
+            <MonoValue>{price.inr_per_1k_chars}</MonoValue>
+          ) : (
+            <span className="text-ink-faint">not confirmed</span>
+          )}
+        </dd>
+        {price.attested_at && (
+          <>
+            <dt className="text-ink-faint">Confirmed</dt>
+            <dd className="text-ink">
+              {formatIST(price.attested_at)}
+              {price.attested_by ? ` · ${price.attested_by}` : ""}
+            </dd>
+          </>
+        )}
+        {price.source_note && (
+          <>
+            <dt className="text-ink-faint">Source</dt>
+            <dd className="text-ink">{price.source_note}</dd>
+          </>
+        )}
+      </dl>
+
+      {/* THE CONSEQUENCE, NOT THE GAP. "No price yet" is a blank; this is what the blank
+          does — the voice cannot be offered, and if it somehow were, its minutes would
+          meter at nothing. A leg that needs no attestation says WHY in the server's words
+          rather than looking like an oversight. */}
+      {price.billable_without_attestation_reason ? (
+        <p className="mt-2 text-xs text-ink-faint">
+          {price.billable_without_attestation_reason}
+        </p>
+      ) : !price.price_attested ? (
+        <div className="mt-2 rounded-lg border border-line bg-app px-3 py-2">
+          <p className="text-xs font-medium text-ink">
+            This voice cannot be sold until its price is confirmed
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+            We pay {providerLabel(price.provider)} directly for this voice, so the call
+            platform reports its cost as ₹0. Without your figure every minute on it would be
+            metered as free and the margin board would show a profit that is not there —
+            which is why the voice picker refuses the tier by name instead.
+          </p>
+        </div>
+      ) : null}
+
+      {access.allowed ? (
+        <div className="mt-3">
+          {open ? (
+            <AttestTtsForm price={price} onDone={() => setOpen(false)} />
+          ) : (
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_SM}
+              onClick={() => setOpen(true)}
+            >
+              <Coins aria-hidden className="h-3.5 w-3.5" />
+              {price.price_attested ? "Update price" : "Confirm price"}
+            </button>
+          )}
+        </div>
+      ) : (
+        <p className="mt-3 text-xs text-ink-faint">
+          {access.reason ?? "Your admin account cannot change platform configuration."}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function AttestTtsForm({ price, onDone }: { price: TtsPrice; onDone: () => void }) {
+  const [inr, setInr] = useState("");
+  const [sourceNote, setSourceNote] = useState("");
+  const [confirm, setConfirm] = useState("");
+
+  const save = useAttestTtsPrice();
+  const word = "CONFIRM";
+  const valid = useFormValidation();
+  const ready = confirmMatches(confirm, word);
+
+  return (
+    <form
+      className="space-y-3"
+      noValidate
+      onSubmit={valid.onSubmit(() => {
+        if (!ready || save.isPending) return;
+        save.mutate(
+          {
+            provider: price.provider,
+            // The exact string typed — no Number(), no rounding (hard rule 7). ₹3.4496 is
+            // four decimals of a division somebody did against an invoice.
+            inrPer1kChars: inr.trim(),
+            sourceNote: sourceNote.trim(),
+          },
+          { onSuccess: onDone },
+        );
+      })}
+    >
+      {save.error && <WriteFailure error={save.error} actionLabel="Confirm price" />}
+
+      <label className="block">
+        <span className={FIELD_LABEL}>Price (₹ per 1,000 characters)</span>
+        <input
+          {...valid.field("inrPer1k", "Enter the rate your plan works out to.")}
+          required
+          value={inr}
+          onChange={(e) => setInr(e.target.value)}
+          inputMode="decimal"
+          className={`${FIELD} font-mono`}
+        />
+        {valid.error("inrPer1k")}
+        <span className={FIELD_HINT}>
+          On a monthly plan: the committed spend divided by the characters it buys. Characters
+          beyond the allotment cost whatever the vendor&apos;s overage rate is, which we have
+          not read anywhere — so name the plan and the period below.
+        </span>
+      </label>
+
+      <label className="block">
+        <span className={FIELD_LABEL}>Source</span>
+        <input
+          {...valid.field("ttsSourceNote", "Say where this figure came from.")}
+          required
+          minLength={3}
+          value={sourceNote}
+          onChange={(e) => setSourceNote(e.target.value)}
+          placeholder="e.g. Cartesia Startup plan, Sep 2026 invoice: ₹4,312 ÷ 1.25M chars"
+          className={FIELD}
+        />
+        {valid.error("ttsSourceNote")}
+      </label>
+
+      <TypeToConfirm
+        id={`confirm-tts-price-${price.provider}`}
+        word={word}
+        value={confirm}
+        onChange={setConfirm}
+        hint="A correction is added as a new entry — nothing is overwritten — so a past month still resolves the price that was live in it."
+      />
+
+      <div className="flex gap-2">
+        <button type="submit" disabled={!ready || save.isPending} className={PRIMARY_BUTTON_SM}>
           <Save aria-hidden className="h-3.5 w-3.5" />
           {save.isPending ? "Saving…" : "Confirm price"}
         </button>

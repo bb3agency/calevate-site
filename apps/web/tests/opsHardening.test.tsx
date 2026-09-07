@@ -32,6 +32,7 @@ import {
   OPS_MODEL_PRICES_PATH,
   type ModelPrices,
 } from "@/lib/api/opsModelPricing";
+import { OPS_RATE_CARD_PATH } from "@/app/admin/ops/rateCard";
 import {
   OPS_DASHBOARD_DATA_USE_PATH,
   type DashboardDataUseList,
@@ -194,6 +195,43 @@ const MODEL_PRICES: ModelPrices = {
   as_of: "2026-08-23T00:00:00Z",
 };
 
+/**
+ * THE CARD IN FORCE — two rungs of the six, one thin and one healthy.
+ *
+ * `starter` on the Sarvam voice is the founder's own deliberately thin rung (17.60% against
+ * a 20% target, and well above the ₹4.1211 the minute costs); `max` on Cartesia clears the
+ * target. Two cells are enough for every case in this file, and the pairing is the point:
+ * the panel has to render one as a warning and neither as a refusal.
+ */
+const RATE_CARD = {
+  effective_from: "2026-09-07T04:30:00Z",
+  target_gross_margin_pct: "20",
+  cells: [
+    {
+      pack_id: "starter",
+      amount_inr: "2000.00",
+      voice_tier: "sarvam",
+      tier_label: "Clear",
+      inr_per_min: "5.0000",
+      cost_floor_inr_per_min: "4.1211",
+      gross_margin_pct: "17.60",
+      below_target: true,
+      below_floor: false,
+    },
+    {
+      pack_id: "max",
+      amount_inr: "50000.00",
+      voice_tier: "cartesia",
+      tier_label: "Studio",
+      inr_per_min: "6.0000",
+      cost_floor_inr_per_min: "4.3639",
+      gross_margin_pct: "27.27",
+      below_target: false,
+      below_floor: false,
+    },
+  ],
+};
+
 // The exchange-rate panel shares the same screen, and is stubbed for the same reason as
 // the prices above: an unstubbed route paints a `ProblemNotice` over a screen these cases
 // assert the exact controls of. A LIVE rate, because the degraded states have their own
@@ -265,6 +303,11 @@ function opsRoutes(extra: Routes = {}, identity: unknown = SUPERADMIN): Routes {
       [ADMIN_ME_PATH]: identity,
       [OPS_CONFIG_PATH]: configList([configField()]),
       [OPS_MODEL_PRICES_PATH]: MODEL_PRICES,
+      // The rate card shares the `/admin/ops/config` screen since D-547 — the same reason
+      // every other panel's route is stubbed here: an unrouted request throws in the
+      // harness, and a panel left unreadable paints a notice over a screen these cases
+      // assert the exact controls of.
+      [OPS_RATE_CARD_PATH]: RATE_CARD,
       [OPS_DASHBOARD_DATA_USE_PATH]: DASHBOARD_DATA_USE,
       [OPS_FX_RATE_PATH]: FX_RATE,
       [OPS_SECRETS_PATH]: SECRETS,

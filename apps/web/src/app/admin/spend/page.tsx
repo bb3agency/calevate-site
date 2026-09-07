@@ -23,6 +23,13 @@ import {
   type FleetTenant,
   type SpeakingRatePoint,
 } from "@/lib/api/spend";
+import {
+  speakingRateByProviderOf,
+  ttsPlanSpendOf,
+  vendorName,
+  type SpeakingRateByProvider,
+  type TtsPlanSpend,
+} from "@/app/admin/spend/ttsCost";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
@@ -211,6 +218,11 @@ export default function FleetSpendPage() {
         </>
       )}
 
+      {/* WHAT THE VOICE VENDORS ACTUALLY BILLED, beside what the calls attributed. Inside
+          the month, unlike the card below it, because a plan fee IS a month: it is paid
+          whether or not anybody spoke. */}
+      <TtsPlanCard board={data} />
+
       {/* Its own read, deliberately outside the month: the speaking rate is a property of
           the whole transcript archive, not of a billing month, and a failed fleet walk
           must not hide it (nor the reverse). */}
@@ -290,6 +302,7 @@ function TtsSpeakingRateCard() {
               </dd>
             </div>
           </dl>
+          <SpeakingRateByVendor rate={rate} />
           <p>
             Replaces the assumed {trimRate(rate.assumed_low.chars_per_minute)}–
             {trimRate(rate.assumed_high.chars_per_minute)} chars/min (
@@ -310,6 +323,9 @@ function TtsSpeakingRateCard() {
             .
           </p>
           {rate.reason && <p>{rate.reason}</p>}
+          {/* The per-vendor prices still render below the threshold: whether a voice has a
+              confirmed price at all is not a measurement and does not wait on one. */}
+          <SpeakingRateByVendor rate={rate} />
           <p>
             Until then the cost floor rests on TRD §10.1&apos;s assumed{" "}
             {trimRate(rate.assumed_low.chars_per_minute)}–
@@ -368,5 +384,138 @@ function FleetRow({ tenant }: { tenant: FleetTenant }) {
         {tenant.margin_pct === null ? "not billed yet" : `${tenant.margin_pct}%`}
       </td>
     </tr>
+  );
+}
+
+/**
+ * PLAN SPEND vs ATTRIBUTED — the two voice-cost figures, kept apart on purpose.
+ *
+ * Under BYOK we pay the voice vendor directly and the call platform charges nothing for the
+ * synthesizer leg, so a Cartesia call's cost is not something the engine reports: it is the
+ * attested rupees-per-1,000-characters times the characters our own transcripts say the
+ * agent spoke. That is the ATTRIBUTED figure, and it is the one the fleet table above is
+ * built from.
+ *
+ * The vendor, meanwhile, bills a monthly plan whether or not anybody speaks. That is PLAN
+ * SPEND, and it belongs to the platform rather than to any client — folding it into the
+ * fleet margin would add cost with no matching revenue and break the partition the board
+ * rests on (`AbsorbedAiSpendOut` makes the identical argument one ledger over).
+ *
+ * The gap between them is the allotment nobody used. It is the server's own subtraction:
+ * this card renders `unused_inr` and never computes it, because a difference worked out in
+ * a browser is float arithmetic on money and would be a second answer to what we paid.
+ */
+function TtsPlanCard({ board }: { board: unknown }) {
+  const rows = ttsPlanSpendOf(board);
+  if (board === undefined) return null;
+
+  return (
+    <Card title="Voice vendors — plan spend against attributed">
+      {rows === null ? (
+        // §52: "no plan spend was published" is not "the voices cost us nothing". A ₹0 plan
+        // fee on this board would show a fleet margin that does not exist.
+        <p className="text-sm text-ink-muted">
+          This deployment did not publish what the voice vendors billed, so nothing is shown
+          rather than a zero. The client figures above are unaffected — they are what the
+          calls were charged; this card is what we paid the vendor for the month.
+        </p>
+      ) : (
+        <ul className="space-y-3">
+          {rows.map((row) => (
+            <li key={row.provider}>
+              <TtsPlanRow row={row} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </Card>
+  );
+}
+
+function TtsPlanRow({ row }: { row: TtsPlanSpend }) {
+  return (
+    <div className="rounded-md border border-line p-3">
+      {/* VENDOR FIRST, then the name the client reads. An operator reconciling this against
+          an invoice is holding a document with the vendor's name at the top of it. */}
+      <p className="text-sm font-medium text-ink">
+        {vendorName(row.provider)} · {row.tier_label} · {row.month}
+      </p>
+      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
+        <div>
+          <dt className="text-ink-faint">Plan spend</dt>
+          <dd className="tabular-nums text-ink">{formatINR(row.plan_inr)}</dd>
+        </div>
+        <div>
+          <dt className="text-ink-faint">Attributed to calls</dt>
+          <dd className="tabular-nums text-ink">{formatINR(row.attributed_inr)}</dd>
+        </div>
+        <div>
+          <dt className="text-ink-faint">Allotment unused</dt>
+          {/* The SERVER's subtraction. "—" where it did not send one: a blank is honest,
+              and a difference computed here would be a second answer to what we paid. */}
+          <dd className="tabular-nums text-ink-muted">
+            {row.unused_inr === null ? "—" : formatINR(row.unused_inr)}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-ink-faint">Characters spoken</dt>
+          <dd className="tabular-nums text-ink-muted">{row.chars}</dd>
+        </div>
+      </dl>
+      <p className="mt-2 text-xs text-ink-faint">
+        {row.inr_per_1k_chars
+          ? `Attributed at the confirmed ${formatRupeeRate(row.inr_per_1k_chars)} per 1,000 characters, counted from our own transcripts.`
+          : "No price is confirmed for this vendor, so its calls attribute no cost at all — confirm the price on the ops model-prices panel before reading this row as a margin."}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * THE MEASURED RATE, PER VENDOR — the same characters, priced at each vendor's own figure.
+ *
+ * The card above this one measures how many characters a call-minute really uses. For a
+ * BYOK vendor that count is not a check on an assumption: it IS the billed quantity, so
+ * this strip says what a minute costs on each voice at the price an operator attested, and
+ * says plainly when there is no price to apply.
+ */
+function SpeakingRateByVendor({ rate }: { rate: unknown }) {
+  const rows = speakingRateByProviderOf(rate);
+  if (rows === null) return null;
+  return (
+    <div className="mt-3 border-t border-line pt-3">
+      <p className="text-[13px] font-medium text-ink">What that rate costs on each voice</p>
+      <ul className="mt-1 space-y-1 text-sm text-ink-muted">
+        {rows.map((row) => (
+          <li key={row.provider}>
+            <VendorRateLine row={row} />
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function VendorRateLine({ row }: { row: SpeakingRateByProvider }) {
+  const vendor = `${vendorName(row.provider)} (${row.tier_label})`;
+  if (!row.price_attested || row.inr_per_1k_chars === null) {
+    return (
+      <>
+        <span className="font-semibold text-ink">{vendor}</span>: no confirmed price, so the
+        characters above meter at nothing and this voice cannot be sold. Confirm it on the
+        ops model-prices panel.
+      </>
+    );
+  }
+  return (
+    <>
+      <span className="font-semibold text-ink">{vendor}</span>: {formatRupeeRate(row.inr_per_1k_chars)}{" "}
+      per 1,000 characters
+      {/* The server's own multiplication or nothing at all. The browser does not multiply a
+          chars/min figure by a price to invent a per-minute cost. */}
+      {row.pooled_inr_per_minute !== null
+        ? ` → ${formatRupeeRate(row.pooled_inr_per_minute)}/min at the pooled rate above.`
+        : "."}
+    </>
   );
 }

@@ -26,6 +26,7 @@ import {
   Skeleton,
   formatINR,
   formatIST,
+  formatRupeeRate,
 } from "@/components/ui";
 import { WriteFailure } from "@/app/admin/writeFailure";
 import { adminSession, useTenant } from "@/lib/api/admin";
@@ -53,6 +54,15 @@ import {
   type TopUpResult,
 } from "@/lib/api/credits";
 
+import {
+  lotOf,
+  lotRestatementOf,
+  lotsOf,
+  overridePacksOf,
+  useApplyLotOverride,
+  type CreditLot,
+  type OverridePack,
+} from "./lots";
 import { useAdminAccess } from "@/app/admin/access";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
@@ -195,6 +205,10 @@ export default function CreditsPage({
   // the control it sits under, and three identical explanations on one screen would leave
   // an operator unsure which button any of them is about.
   const uprate = useAdminAccess("admin:tenants", "restate a payment on this client's wallet");
+  // Fourth control, fourth sentence, same permission — see the three above. Re-pricing a
+  // lot is the one act on this screen that moves a term the client was sold, so its note
+  // names that act rather than "this client's wallet".
+  const reprice = useAdminAccess("admin:tenants", "sell one of this client's lots at another pack's rates");
 
   if (tenantQuery.isLoading) return <Skeleton rows={6} />;
   // A 403, a 500 or a dropped connection is not "no such client".
@@ -232,6 +246,16 @@ export default function CreditsPage({
       ) : (
         <>
           <BalancePanel wallet={state.wallet} />
+          {/* WHAT THE BALANCE IS MADE OF (D-547). One number can no longer say what a
+              minute costs: credit is spent oldest purchase first and each purchase froze
+              its own two rates, so the wallet is a queue of priced lots and an operator
+              answering "why is their runway shorter than I expected" reads it here. */}
+          <LotsPanel
+            wallet={state.wallet}
+            tenantId={tenantId}
+            write={reprice}
+            clientName={tenant.name}
+          />
           <RecordPanel
             clientName={tenant.name}
             wallet={state.wallet}
@@ -751,6 +775,10 @@ function Outcome({ result }: { result: TopUpResult }) {
         Entry <span className="font-mono">{result.entry_id}</span>, on the ledger below
         and there permanently.
       </p>
+      {/* AND THE LOT IT OPENED. A payment is no longer just an amount: it is credit at two
+          frozen rates, and those rates are what the client's minutes cost from now until
+          this lot is spent. */}
+      <LotReceipt result={result} lead="It opened lot" />
     </NoticeBox>
   );
 }
@@ -1104,6 +1132,11 @@ function CorrectionOutcome({
               <span className="font-mono">{result.entry_id}</span>, on the ledger below
               and there permanently. The entry it cancels is still there too.
             </p>
+            {/* A correction that CREDITS BACK is a gift, and a gift opens a lot at the list
+                rates (plan §0 Q4) — so the receipt names it, exactly as a payment's does.
+                One that takes credit away restates the corrected entry's own lot instead,
+                and publishes no new one. */}
+            <LotReceipt result={result} lead="It opened lot" />
           </>
         ) : (
           <p className="mt-1 text-xs">
@@ -1474,6 +1507,7 @@ function RestatementOutcome({
         ledger below as <span className="font-mono">{result.ref}</span> and there
         permanently. The entry it completes is still there too.
       </p>
+      <LotRestatementReceipt result={result} />
     </NoticeBox>
   );
 }
@@ -1739,5 +1773,370 @@ function Field({
         </span>
       )}
     </div>
+  );
+}
+
+/**
+ * THE LOT LINE — one lot, its remaining credits and the two rates frozen onto it.
+ *
+ * Both vendors are named beside the label the client reads. On this screen that is
+ * required rather than merely allowed: the operator who has to answer "why is this client's
+ * Studio minute ₹8.00 when the card says ₹6.50" is reading a lot that was opened before the
+ * card moved, and they cannot connect that to the Cartesia invoice they attested unless the
+ * vendor is on the row.
+ */
+function LotLine({ lot }: { lot: CreditLot }) {
+  return (
+    <div className="rounded-md border border-line p-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <p className="text-sm font-medium text-ink">
+          {formatINR(lot.credits_remaining)} left of {formatINR(lot.credits_total)}
+        </p>
+        <p className="text-xs text-ink-faint">
+          opened {formatIST(lot.opened_at)} · {lot.source}
+          {lot.pack_id ? ` · ${lot.pack_id}` : ""}
+        </p>
+      </div>
+      <p className="mt-1 text-xs text-ink-muted">
+        Sarvam ({lot.sarvam_label}) {formatRupeeRate(lot.sarvam_inr_per_min)}/min · Cartesia (
+        {lot.cartesia_label}) {formatRupeeRate(lot.cartesia_inr_per_min)}/min
+      </p>
+      {lot.override_of_pack_id && (
+        <p className="mt-1 text-xs text-ink-faint">
+          Sold at <span className="font-mono">{lot.override_of_pack_id}</span>&apos;s rates by
+          an operator — recorded in the audit log.
+        </p>
+      )}
+      <p className="mt-1 break-all text-[11px] text-ink-faint">
+        <span className="font-mono">{lot.lot_id}</span>
+      </p>
+    </div>
+  );
+}
+
+/**
+ * THE WALLET AS A QUEUE OF PRICED PURCHASES, and the one control that re-prices one.
+ *
+ * Two things are stated here that an operator cannot get anywhere else:
+ *
+ * 1. **Spending order.** Oldest lot first, so the rate in force is the top row's — not the
+ *    best rate on the wallet and not the newest.
+ * 2. **What a restatement does and does not do.** It moves a lot's totals; it never moves
+ *    its rates. That is the promise the client bought, and the only deliberate exception is
+ *    the override below, which is a separate act with its own confirmation and its own
+ *    audit row.
+ */
+function LotsPanel({
+  wallet,
+  tenantId,
+  write,
+  clientName,
+}: {
+  wallet: Credits;
+  tenantId: string;
+  write: { allowed: boolean; reason: string | null };
+  clientName: string;
+}) {
+  const lots = lotsOf(wallet);
+  const packs = overridePacksOf(wallet);
+
+  return (
+    <Card title="Credit lots — what the balance is made of">
+      <p className="text-sm text-ink-muted">
+        Each purchase, grant or correction opens a lot carrying the two per-minute rates it
+        was sold at. Calls are charged to the OLDEST lot first, at that lot&apos;s rate for
+        the voice the agent speaks with. Restating a payment moves a lot&apos;s totals and{" "}
+        <span className="font-semibold">never its rates</span> — that is what the client was
+        sold, and nothing on this screen except the re-pricing control below can change it.
+      </p>
+
+      {lots === null ? (
+        // §52 with money on it: "this deployment does not publish lots yet" and "this
+        // wallet has no lots" are opposite facts, and a table of invented rates is the one
+        // thing that must not appear on a screen an operator prices minutes from.
+        <NoticeBox
+          tone="warn"
+          icon={<CircleHelp aria-hidden className="h-5 w-5" />}
+          title="This deployment did not send the lots behind this balance"
+        >
+          <p className="mt-1 text-xs">
+            The balance above is real; what it is made of was not received, so no rates are
+            shown rather than guessed ones. Every other control on this screen still works —
+            a top-up, a correction and a restatement each say afterwards what they did to the
+            lots.
+          </p>
+        </NoticeBox>
+      ) : lots.length === 0 ? (
+        <EmptyState
+          title="No open lots"
+          hint="Either nothing has been credited yet, or every lot has been spent. A negative balance is overdraft: the next payment repays it before a new lot opens."
+        />
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {lots.map((lot) => (
+            <li key={lot.lot_id}>
+              <LotLine lot={lot} />
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {lots !== null && lots.length > 0 && (
+        <OverridePanel
+          lots={lots}
+          packs={packs}
+          tenantId={tenantId}
+          write={write}
+          clientName={clientName}
+        />
+      )}
+    </Card>
+  );
+}
+
+/** The override draft. Strings throughout, and the lot is CHOSEN rather than typed. */
+interface OverrideDraft {
+  lotId: string;
+  packId: string;
+  confirm: string;
+  reason: string;
+}
+
+const NO_OVERRIDE: OverrideDraft = { lotId: "", packId: "", confirm: "", reason: "" };
+
+/**
+ * SELL THIS LOT AT ANOTHER PACK'S RATES — the founding-client promotion, and every
+ * negotiated deal after it (plan §0 Q6).
+ *
+ * It exists as a control rather than as a manual grant because a grant can only give more
+ * CREDIT, and what is being promised is a cheaper MINUTE. The two are not interchangeable:
+ * a bigger grant on the list rate still bills their calls at the list rate.
+ *
+ * Its shape follows from what it does — it moves a term that is otherwise frozen:
+ *
+ * - **The lot is chosen, never typed**, from the lots this screen has already read, so the
+ *   rates it currently carries are visible at the moment of choosing.
+ * - **The pack is chosen from the SERVER's ladder**, with the rates it would freeze printed
+ *   beside it. This console does no arithmetic and quotes no rate it was not sent.
+ * - **The confirmation is the LOT's own id and goes on the wire.** A word would become
+ *   muscle memory; a lot id is different every time and cannot be typed past. The header
+ *   sent is bound to the lot, so a confirmation captured for one purchase cannot re-price
+ *   another.
+ * - **A reason is required**, because this is the one act on this screen that makes the
+ *   wallet disagree with the card the money was taken under, and the audit row is the only
+ *   place that disagreement is ever explained.
+ */
+function OverridePanel({
+  lots,
+  packs,
+  tenantId,
+  write,
+  clientName,
+}: {
+  lots: CreditLot[];
+  packs: OverridePack[] | null;
+  tenantId: string;
+  write: { allowed: boolean; reason: string | null };
+  clientName: string;
+}) {
+  const [draft, setDraft] = useState<OverrideDraft>(NO_OVERRIDE);
+  const apply = useApplyLotOverride(tenantId);
+  const chosen = lots.find((lot) => lot.lot_id === draft.lotId) ?? null;
+  const pack = packs?.find((row) => row.pack_id === draft.packId) ?? null;
+  const ready =
+    chosen !== null &&
+    pack !== null &&
+    draft.reason.trim().length >= 3 &&
+    draft.confirm.trim() === chosen.lot_id;
+
+  if (packs === null) {
+    return (
+      <div className="mt-4 border-t border-line pt-4">
+        <p className="text-xs text-ink-faint">
+          Re-pricing a lot at another pack&apos;s rates is not offered here: this deployment
+          did not send the pack ladder, and a control that let you choose a pack whose rates
+          it could not show you would be re-pricing a client&apos;s minutes blind.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-4 space-y-3 border-t border-line pt-4">
+      <div>
+        <h3 className="text-sm font-semibold text-ink">Sell a lot at another pack&apos;s rates</h3>
+        <p className="text-xs text-ink-muted">
+          For a promotion or a negotiated deal: {clientName}&apos;s credit stays exactly as
+          it is, and the minutes it buys become cheaper. It changes a term this client was
+          sold, so it is recorded in the audit log with your reason and cannot be undone —
+          only re-priced again.
+        </p>
+      </div>
+
+      {apply.error && <WriteFailure error={apply.error} actionLabel="Re-price this lot" />}
+      {apply.isSuccess && (
+        <NoticeBox
+          tone="ok"
+          icon={<CheckCircle2 aria-hidden className="h-5 w-5" />}
+          title="Re-priced — the lot now carries that pack's rates"
+        >
+          <p className="mt-1 text-xs">
+            The lot list above has been re-read. Credit did not move; only what a minute
+            drawn from that lot costs.
+          </p>
+        </NoticeBox>
+      )}
+
+      <label className="block">
+        <span className={FIELD_LABEL}>Which lot</span>
+        <select
+          value={draft.lotId}
+          onChange={(e) =>
+            // The confirmation is the LOT id, so changing the lot must clear it — otherwise
+            // a confirmation typed for one purchase would arm the write against another.
+            setDraft((was) => ({ ...was, lotId: e.target.value, confirm: "" }))
+          }
+          className={FIELD}
+        >
+          <option value="">Choose a lot…</option>
+          {lots.map((lot) => (
+            <option key={lot.lot_id} value={lot.lot_id}>
+              {formatINR(lot.credits_remaining)} left · opened {formatIST(lot.opened_at)} ·{" "}
+              {formatRupeeRate(lot.sarvam_inr_per_min)} /{" "}
+              {formatRupeeRate(lot.cartesia_inr_per_min)} per min
+            </option>
+          ))}
+        </select>
+        <span className={FIELD_HINT}>
+          Only this lot is re-priced. Credit already spent is not re-billed — a call is
+          charged when it ends, at the rate the lot carried then.
+        </span>
+      </label>
+
+      <label className="block">
+        <span className={FIELD_LABEL}>Sell it at</span>
+        <select
+          value={draft.packId}
+          onChange={(e) => setDraft((was) => ({ ...was, packId: e.target.value }))}
+          className={FIELD}
+        >
+          <option value="">Choose a pack…</option>
+          {packs.map((row) => (
+            <option key={row.pack_id} value={row.pack_id}>
+              {row.pack_id} ({formatINR(row.amount_inr)}) · Sarvam {formatRupeeRate(row.sarvam_inr_per_min)} ·
+              Cartesia {formatRupeeRate(row.cartesia_inr_per_min)}
+            </option>
+          ))}
+        </select>
+        {pack && chosen && (
+          <span className={FIELD_HINT}>
+            This lot goes from Sarvam {formatRupeeRate(chosen.sarvam_inr_per_min)} / Cartesia{" "}
+            {formatRupeeRate(chosen.cartesia_inr_per_min)} to Sarvam{" "}
+            {formatRupeeRate(pack.sarvam_inr_per_min)} / Cartesia{" "}
+            {formatRupeeRate(pack.cartesia_inr_per_min)} per minute.
+          </span>
+        )}
+      </label>
+
+      <label className="block">
+        <span className={FIELD_LABEL}>Reason</span>
+        <input
+          value={draft.reason}
+          onChange={(e) => setDraft((was) => ({ ...was, reason: e.target.value }))}
+          minLength={3}
+          maxLength={500}
+          placeholder="e.g. founding-client promotion, approved 7 Sep"
+          className={FIELD}
+        />
+        <span className={FIELD_HINT}>
+          Recorded in the audit log beside the pack this lot now borrows its rates from.
+        </span>
+      </label>
+
+      <label className="block">
+        <span className={FIELD_LABEL}>Type the lot id to confirm</span>
+        <input
+          value={draft.confirm}
+          onChange={(e) => setDraft((was) => ({ ...was, confirm: e.target.value }))}
+          className={`${FIELD} font-mono`}
+          placeholder={chosen ? chosen.lot_id : "choose a lot first"}
+          disabled={chosen === null}
+        />
+        <span className={FIELD_HINT}>
+          The id of the lot above, typed out. It is different every time, so it cannot become
+          muscle memory the way a fixed word would.
+        </span>
+      </label>
+
+      {!write.allowed && <RestrictionNote reason={write.reason} />}
+
+      <button
+        type="button"
+        disabled={!ready || !write.allowed || apply.isPending}
+        onClick={() =>
+          apply.mutate(
+            { lotId: draft.lotId, packId: draft.packId, reason: draft.reason.trim() },
+            { onSuccess: () => setDraft(NO_OVERRIDE) },
+          )
+        }
+        className={PRIMARY_BUTTON}
+      >
+        {apply.isPending ? "Re-pricing…" : "Re-price this lot"}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * THE LOT A WRITE OPENED, on the receipt for that write.
+ *
+ * Rendered from the write's OWN answer, never from the wallet re-read: the point is to name
+ * the object this click created, and a list read a moment later cannot say which of five
+ * lots that was. Absent on a deployment whose API does not publish it — in which case
+ * nothing is claimed, because "we opened a lot at these rates" is exactly the sentence that
+ * must not be invented.
+ */
+function LotReceipt({ result, lead }: { result: unknown; lead: string }) {
+  const lot = lotOf(result);
+  if (lot === null) return null;
+  return (
+    <p className="mt-2 text-xs">
+      {lead} <span className="font-mono">{lot.lot_id}</span> — {formatINR(lot.credits_total)} at
+      Sarvam ({lot.sarvam_label}) {formatRupeeRate(lot.sarvam_inr_per_min)}/min and Cartesia ({lot.cartesia_label})
+      {formatRupeeRate(lot.cartesia_inr_per_min)}/min. Those rates are frozen on it: a later change to the rate
+      card does not move them.
+    </p>
+  );
+}
+
+/**
+ * WHAT A RESTATEMENT DID TO THE LOT — totals moved, rates untouched, and the shortfall.
+ *
+ * The rates sentence is not decoration. A restatement is the one write on this screen that
+ * touches an existing lot, so it is the one an operator would reasonably fear had re-priced
+ * a client's credit; saying it did not, at the moment it did not, is what makes the promise
+ * checkable rather than merely true.
+ */
+function LotRestatementReceipt({ result }: { result: unknown }) {
+  const restated = lotRestatementOf(result);
+  if (restated === null) return null;
+  const { lot, shortfall_inr } = restated;
+  return (
+    <>
+      <p className="mt-2 text-xs">
+        Lot <span className="font-mono">{lot.lot_id}</span> now holds{" "}
+        {formatINR(lot.credits_remaining)} of {formatINR(lot.credits_total)}. Its rates are
+        unchanged at Sarvam ({lot.sarvam_label}) {formatRupeeRate(lot.sarvam_inr_per_min)}/min and Cartesia (
+        {lot.cartesia_label}) {formatRupeeRate(lot.cartesia_inr_per_min)}/min —{" "}
+        <span className="font-semibold">a restatement moves totals, never rates.</span>
+      </p>
+      {shortfall_inr && (
+        <p className="mt-2 text-xs">
+          {formatINR(shortfall_inr)} of the correction was more than the lot had left, so it
+          became overdraft on the wallet. The next payment repays that before it opens a new
+          lot.
+        </p>
+      )}
+    </>
   );
 }

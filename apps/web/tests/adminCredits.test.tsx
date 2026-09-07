@@ -954,3 +954,196 @@ describe("restating an under-recorded payment", () => {
     expect(container.textContent).toContain("two payments where the bank shows one");
   });
 });
+
+/**
+ * CREDIT LOTS ON THE ADMIN WALLET (D-547).
+ *
+ * What these pin, worst consequence first:
+ *
+ * 1. **A restatement must be seen NOT to move the rates.** It is the one write on this
+ *    screen that touches an existing lot, and the promise the client bought is that a
+ *    purchase keeps the rates it was sold at. A console that showed the totals moving and
+ *    said nothing about the rates leaves an operator unable to tell a client the truth.
+ * 2. **A lot list that was not sent renders as "not sent", never as "no lots" or ₹0 rates.**
+ *    A wallet's rates are what its minutes cost; a defaulted zero would read as free
+ *    minutes, and an empty list would read as a client with nothing to spend.
+ * 3. **Re-pricing a lot is bound to that lot.** The confirmation is the lot's own id, so a
+ *    confirmation typed for one purchase cannot re-price another, and the step-up header
+ *    carries the same binding to the server.
+ * 4. **The vendor is named beside the tier**, for the reason the ops console names it: the
+ *    operator answering "why is their Studio minute ₹8" has to connect that rate to the
+ *    Cartesia invoice they attested.
+ */
+
+const LOT = "0192f0aa-5555-7000-8000-0000000000e1";
+
+function lot(over: Record<string, unknown> = {}) {
+  return {
+    lot_id: LOT,
+    source: "topup",
+    pack_id: "starter",
+    override_of_pack_id: null,
+    credits_total: "2000.00",
+    credits_remaining: "1200.00",
+    sarvam_inr_per_min: "5.0000",
+    cartesia_inr_per_min: "8.0000",
+    sarvam_label: "Clear",
+    cartesia_label: "Studio",
+    opened_at: "2026-08-12T05:30:00Z",
+    closed_at: null,
+    ...over,
+  };
+}
+
+const OVERRIDE_PACKS = [
+  {
+    pack_id: "pro",
+    amount_inr: "25000.00",
+    sarvam_inr_per_min: "4.6000",
+    cartesia_inr_per_min: "6.2500",
+  },
+];
+
+/** The wallet read, with the lot fields the D-547 routes publish. */
+function walletWithLots(over: Record<string, unknown> = {}) {
+  return { ...credits(), lots: [lot()], override_packs: OVERRIDE_PACKS, ...over };
+}
+
+describe("what the balance is made of", () => {
+  it("lists each lot with both rates, both vendors and the client's own words for them", async () => {
+    const { container } = await render({ [CREDITS_READ]: walletWithLots() });
+
+    await screen.findByText("Credit lots — what the balance is made of");
+    expect(container.textContent).toContain("₹1,200.00 left of ₹2,000.00");
+    // VENDOR and tier label together — the admin console's deliberate exception.
+    expect(container.textContent).toContain("Sarvam (Clear) ₹5.0000/min");
+    expect(container.textContent).toContain("Cartesia (Studio) ₹8.0000/min");
+    // The promise, stated where the lots are listed.
+    expect(container.textContent).toContain("never its rates");
+  });
+
+  it("says the lots were not sent rather than inventing rates or an empty wallet", async () => {
+    const { container } = await render();
+
+    await screen.findByText("This deployment did not send the lots behind this balance");
+    expect(container.textContent).not.toContain("₹0.0000/min");
+    expect(container.textContent).not.toContain("No open lots");
+  });
+
+  it("names the lot a payment opened, with the rates frozen onto it", async () => {
+    const { container } = await render({
+      [CREDITS_READ]: walletWithLots(),
+      [`POST ${CREDITS_PATH}`]: { ...result(), lot: lot({ credits_total: "2500.10" }) },
+    });
+
+    await fillTopUp("UTR-900042", "2500.10");
+    submit();
+
+    await screen.findByText(/Recorded — ₹2,500.10 credited/);
+    expect(container.textContent).toContain("It opened lot");
+    expect(container.textContent).toContain("Those rates are frozen on it");
+  });
+
+  it("says a restatement moved the totals and left the rates alone", async () => {
+    const { container } = await render({
+      [CREDITS_READ]: walletWithLots(),
+      [`POST ${RESTATE_PATH}`]: {
+        ...restatement(),
+        lot: lot({ credits_total: "50000.00", credits_remaining: "48200.00" }),
+        lot_shortfall_inr: null,
+      },
+    });
+
+    await fillRestatement(REF, "50000.00");
+    fireEvent.click(restateButton());
+
+    await screen.findByText(/Restated — ₹47,500.00 credited/);
+    // THE REGRESSION THIS TEST EXISTS FOR: the rates sentence, in the words that make the
+    // promise checkable at the moment it is kept.
+    expect(container.textContent).toContain("a restatement moves totals, never rates");
+    expect(container.textContent).toContain("Sarvam (Clear) ₹5.0000/min");
+  });
+
+  it("states the overdraft a downward restatement could not absorb", async () => {
+    const { container } = await render({
+      [CREDITS_READ]: walletWithLots(),
+      [`POST ${RESTATE_PATH}`]: {
+        ...restatement(),
+        lot: lot({ credits_total: "8000.00", credits_remaining: "0.00" }),
+        lot_shortfall_inr: "1000.00",
+      },
+    });
+
+    await fillRestatement(REF, "50000.00");
+    fireEvent.click(restateButton());
+
+    await screen.findByText(/Restated — ₹47,500.00 credited/);
+    expect(container.textContent).toContain("₹1,000.00 of the correction was more than the lot");
+    expect(container.textContent).toContain("repays that before it opens a new lot");
+  });
+});
+
+describe("selling a lot at another pack's rates", () => {
+  it("sends the pack, the reason and a step-up bound to the lot", async () => {
+    const { calls } = await render({
+      [CREDITS_READ]: walletWithLots(),
+      [`POST /v1/admin/tenants/${TENANT}/credit-lots/${LOT}/override`]: { ok: true },
+    });
+
+    await screen.findByText("Sell a lot at another pack's rates");
+    fireEvent.change(screen.getByLabelText(/Which lot/), { target: { value: LOT } });
+    fireEvent.change(screen.getByLabelText(/Sell it at/), { target: { value: "pro" } });
+    fireEvent.change(screen.getByLabelText(/^Reason/), {
+      target: { value: "founding-client promotion" },
+    });
+    fireEvent.change(screen.getByLabelText(/Type the lot id to confirm/), {
+      target: { value: LOT },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^Re-price this lot$/ }));
+
+    await waitFor(() => {
+      const write = calls.find((call) => call.method === "POST" && call.path.includes("/override"));
+      expect(write).toBeDefined();
+      expect(write?.body).toContain('"pack_id":"pro"');
+      expect(write?.headers["X-Confirm-Action"]).toBe(`override_lot_rates:${LOT}`);
+    });
+  });
+
+  it("holds the write until the lot's own id is typed, and clears it when the lot changes", async () => {
+    await render({
+      [CREDITS_READ]: walletWithLots({ lots: [lot(), lot({ lot_id: `${LOT}9` })] }),
+    });
+
+    await screen.findByText("Sell a lot at another pack's rates");
+    const button = () =>
+      screen.getByRole("button", { name: /^Re-price this lot$/ }) as HTMLButtonElement;
+    fireEvent.change(screen.getByLabelText(/Which lot/), { target: { value: LOT } });
+    fireEvent.change(screen.getByLabelText(/Sell it at/), { target: { value: "pro" } });
+    fireEvent.change(screen.getByLabelText(/^Reason/), { target: { value: "promo" } });
+    expect(button().disabled).toBe(true);
+
+    fireEvent.change(screen.getByLabelText(/Type the lot id to confirm/), {
+      target: { value: LOT },
+    });
+    expect(button().disabled).toBe(false);
+
+    // Changing the lot must CLEAR the confirmation, not merely fail to match it: a box
+    // still holding another purchase's id, beside a dead button, reads as a bug in the
+    // button rather than as a confirmation that no longer applies.
+    fireEvent.change(screen.getByLabelText(/Which lot/), { target: { value: `${LOT}9` } });
+    expect(
+      (screen.getByLabelText(/Type the lot id to confirm/) as HTMLInputElement).value,
+    ).toBe("");
+    expect(button().disabled).toBe(true);
+  });
+
+  it("offers no re-pricing at all when the pack ladder was not published", async () => {
+    const { container } = await render({
+      [CREDITS_READ]: walletWithLots({ override_packs: undefined }),
+    });
+
+    await screen.findByText("Credit lots — what the balance is made of");
+    expect(screen.queryByRole("button", { name: /^Re-price this lot$/ })).toBeNull();
+    expect(container.textContent).toContain("re-pricing a client's minutes blind");
+  });
+});

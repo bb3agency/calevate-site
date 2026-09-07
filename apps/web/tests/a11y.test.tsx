@@ -981,6 +981,39 @@ const OPS_KEK = {
  * would leave that warning unswept — but the panel's own stale/fallback rendering is
  * covered by its own suite, and this fixture's job is the screen around it.
  */
+/**
+ * The rate card in force — one thin rung and one healthy one, so the sweep sees the table,
+ * the margin badges and the thin-margin warning box rather than only the empty state.
+ */
+const OPS_RATE_CARD = {
+  effective_from: "2026-09-07T04:30:00Z",
+  target_gross_margin_pct: "20",
+  cells: [
+    {
+      pack_id: "starter",
+      amount_inr: "2000.00",
+      voice_tier: "sarvam",
+      tier_label: "Clear",
+      inr_per_min: "5.0000",
+      cost_floor_inr_per_min: "4.1211",
+      gross_margin_pct: "17.60",
+      below_target: true,
+      below_floor: false,
+    },
+    {
+      pack_id: "max",
+      amount_inr: "50000.00",
+      voice_tier: "cartesia",
+      tier_label: "Studio",
+      inr_per_min: "6.0000",
+      cost_floor_inr_per_min: "4.3639",
+      gross_margin_pct: "27.27",
+      below_target: false,
+      below_floor: false,
+    },
+  ],
+};
+
 const OPS_FX_RATE = {
   base_currency: "USD",
   quote_currency: "INR",
@@ -2656,6 +2689,10 @@ const ADMIN_SCREENS: Screen[] = [
         permissions: [...ADMIN_ME.permissions, "platform:config", "platform:secrets"],
       },
       "/v1/ops/config": OPS_CONFIG,
+      // POPULATED, so the twelve-cell rate card renders its TABLE here rather than its
+      // "could not read" notice — a scrolling table of rates inside a config screen is
+      // markup this sweep has nowhere else to see (D-547).
+      "/v1/ops/rate-card": OPS_RATE_CARD,
       "/v1/ops/fx-rate": OPS_FX_RATE,
       "/v1/ops/model-prices": OPS_MODEL_PRICES,
       "/v1/ops/dashboard-data-use": OPS_DASHBOARD_DATA_USE,
