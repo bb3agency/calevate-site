@@ -6,6 +6,8 @@ import type { Invoice } from "@/lib/api/invoice";
 import type { Wallet, WalletLedger } from "@/lib/api/wallet";
 
 import { expectNoA11yViolations } from "./a11y";
+import { WALLET_LOTS_PATH } from "@/app/c/[slug]/billing/lots";
+
 import { renderBillingHub } from "./billingHub";
 import { problem, stillLoading } from "./harness";
 
@@ -45,6 +47,7 @@ const LEDGER = "/v1/billing/wallet/ledger?limit=50";
 const ATTEMPTS = "/v1/billing/wallet/topups";
 const CAPABILITY = "/v1/billing/topups/capability";
 const PACKS = "/v1/billing/topups/packs";
+const LOTS_ROUTE = WALLET_LOTS_PATH;
 
 function wallet(over: Partial<Wallet> = {}): Wallet {
   return {
@@ -112,12 +115,21 @@ const LEDGER_ROWS: WalletLedger = {
 };
 
 const PACK_CARD = {
-  // SYNTHETIC, and deliberately not the real ladder: the list rate here is ₹8.00 and the
-  // catalogue's is ₹5.00, so these amounts, bonuses and talk times are internally
-  // consistent test data rather than packs we sell. The real rungs are pinned in
-  // `tests/credit_packs_test.py`; a fixture that tracked them would break on every
-  // repricing while proving nothing this file is about (D-526).
+  // SYNTHETIC, and deliberately not the real ladder: the rates here are ₹8.00 and ₹10.00
+  // where the catalogue's entry rung is ₹5.00 / ₹8.00, so these amounts and talk times are
+  // internally consistent test data rather than packs we sell. The real rungs are pinned in
+  // `tests/credit_packs_test.py` and in `tests/topup.test.tsx`; a fixture that tracked them
+  // would break on every repricing while proving nothing this file is about (D-526).
+  //
+  // The two tier LABELS are what a client reads for the two voice qualities. They come from
+  // the API (`billing/rates.py::VOICE_TIER_LABELS`) and the browser holds no copy, so every
+  // screen here that names a quality is naming one this fixture sent.
   list_rate_inr_per_min: "8.00",
+  from_inr_per_min: "8.00",
+  from_sarvam_inr_per_min: "8.00",
+  from_cartesia_inr_per_min: "10.00",
+  sarvam_tier_label: "Clear",
+  cartesia_tier_label: "Studio",
   packs: [
     {
       pack_id: "starter",
@@ -126,11 +138,49 @@ const PACK_CARD = {
       bonus_credits: "0.00",
       total_credits: "1000.00",
       bonus_pct: "0",
+      sarvam_inr_per_min: "8.0000",
+      cartesia_inr_per_min: "10.0000",
+      sarvam_minutes: 125,
+      cartesia_minutes: 100,
       effective_rate_inr_per_min: "8.0000",
       talk_time_minutes: 125,
       best_value: false,
     },
   ],
+};
+
+/**
+ * THE LOT QUEUE, as `GET /v1/billing/wallet/lots` answers it (D-547).
+ *
+ * TWO lots at two different pairs of rates, oldest first, because one lot proves nothing:
+ * the whole point of the queue is that a wallet holds several prices at once, the oldest is
+ * what the next call is charged at, and a client should be able to read
+ * *"3,200 credits at ₹4.70 / ₹6.50, then 2,000 at ₹5.00 / ₹8.00"* off the screen. The
+ * per-quality runway is the SERVER's — summed lot by lot at each lot's own rate — and is
+ * deliberately not 5,200 ÷ any single number, which is the arithmetic lots exist to retire.
+ */
+const LOTS = {
+  tiers: [
+    { provider: "sarvam", label: "Clear", minutes_left: "1080" },
+    { provider: "cartesia", label: "Studio", minutes_left: "800" },
+  ],
+  lots: [
+    {
+      lot_id: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+      opened_at: "2026-08-01T09:00:00Z",
+      credits_remaining: "3200.0000",
+      sarvam_inr_per_min: "4.7000",
+      cartesia_inr_per_min: "6.5000",
+    },
+    {
+      lot_id: "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
+      opened_at: "2026-08-20T09:00:00Z",
+      credits_remaining: "2000.0000",
+      sarvam_inr_per_min: "5.0000",
+      cartesia_inr_per_min: "8.0000",
+    },
+  ],
+  overdraft_inr: "0.00",
 };
 
 /**
@@ -195,6 +245,7 @@ function routes(over: Record<string, unknown> = {}) {
     [ATTEMPTS]: [],
     [CAPABILITY]: { online_payments_available: true, provider_orders_available: true },
     [PACKS]: PACK_CARD,
+    [LOTS_ROUTE]: LOTS,
     [INVOICE_ROUTE]: BILL_OF_SUPPLY,
     ...over,
   };
@@ -214,7 +265,17 @@ describe("the hero: how much, and how long it lasts", () => {
     // THE WORKING, not only the conclusion: an owner who disagrees with "10 days" can see
     // the ₹340 a day it came from.
     await screen.findByText(/₹340\.00 a day over the last 30 days/);
-    await screen.findByText(/425 minutes/);
+    // THE MINUTES ARE A PAIR NOW, one figure per voice quality, and both come from the lot
+    // queue — summed lot by lot at each lot's own frozen rate (D-547). The single "about N
+    // minutes at today's rate" that used to sit here divided one balance by one LIST rate,
+    // which is exactly the arithmetic lots retired: there is no "today's rate" when a
+    // wallet holds two purchases at two prices, and the answer differs by voice besides.
+    await screen.findByText(/1,080 minutes/);
+    await screen.findByText(/800 minutes/);
+    expect(container.textContent).toContain("on Clear");
+    expect(container.textContent).toContain("on Studio");
+    // `wallet.minutes_left` is 425 on this fixture and is no longer rendered anywhere.
+    expect(container.textContent).not.toContain("425 minutes");
     // Nothing on this screen is a sum the browser worked out.
     expect(container.textContent).not.toContain("₹12,100.00 spent");
   });
@@ -381,6 +442,128 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
   });
 });
 
+describe("the credit itself: what is left, and at which rates", () => {
+  it("lists the purchases oldest first with both rates, so the price of the next minute is on screen", async () => {
+    const { container } = await renderBillingHub(routes());
+
+    // THE SENTENCE THIS PANEL EXISTS TO MAKE READABLE (plan §5 F1): "3,200 credits at
+    // ₹4.70 / ₹6.50, then 2,000 at ₹5.00 / ₹8.00". A single balance with a single price
+    // cannot say it, and a client who bought the cheaper minute could not see they had.
+    const table = await screen.findByRole("table", { name: /in the order it will be spent/i });
+    const rows = within(table).getAllByRole("row");
+    // Header, then the two lots IN SPEND ORDER. The order is the fact: the first row is
+    // what the next call is charged at, which is why it — and not the newest purchase —
+    // carries the marker.
+    expect(within(rows[1]).getByText("₹3,200.00")).toBeTruthy();
+    expect(within(rows[1]).getByText("Spent first")).toBeTruthy();
+    expect(within(rows[1]).getByText("₹4.7000/min")).toBeTruthy();
+    expect(within(rows[1]).getByText("₹6.5000/min")).toBeTruthy();
+    expect(within(rows[2]).getByText("₹2,000.00")).toBeTruthy();
+    expect(within(rows[2]).getByText("₹5.0000/min")).toBeTruthy();
+    expect(within(rows[2]).getByText("₹8.0000/min")).toBeTruthy();
+    expect(within(rows[2]).queryByText("Spent first")).toBeNull();
+    // The columns are named by the SERVER's words for the two qualities, never the
+    // vendors' — which company synthesises a voice is not a product tier a client reads.
+    expect(within(table).getByRole("columnheader", { name: "Clear" })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: "Studio" })).toBeTruthy();
+    for (const vendor of ["Sarvam", "sarvam", "Cartesia", "cartesia"]) {
+      expect(container.textContent).not.toContain(vendor);
+    }
+    await expectNoA11yViolations(container, "c/[slug]/billing — credit lots");
+  });
+
+  it("renders whatever the server calls the two qualities, never a name held here", async () => {
+    // PROVENANCE, not spelling. "Clear" and "Studio" are today's words and the browser
+    // holds no copy of them: they are defined once in `billing/rates.py::VOICE_TIER_LABELS`
+    // and travel with the figures they name, so renaming a tier is a Python change and no
+    // client can ever meet both names. A lookup table on this side would pass every other
+    // assertion in this file and fail exactly this one.
+    const { container } = await renderBillingHub(
+      routes({
+        [LOTS_ROUTE]: {
+          ...LOTS,
+          tiers: [
+            { provider: "sarvam", label: "Everyday", minutes_left: "1080" },
+            { provider: "cartesia", label: "Premium", minutes_left: "800" },
+          ],
+        },
+      }),
+    );
+
+    const table = await screen.findByRole("table", { name: /in the order it will be spent/i });
+    expect(within(table).getByRole("columnheader", { name: "Everyday" })).toBeTruthy();
+    expect(within(table).getByRole("columnheader", { name: "Premium" })).toBeTruthy();
+    expect(container.textContent).toContain("1,080 minutes on Everyday");
+    expect(container.textContent).toContain("800 minutes on Premium");
+    // The names this build happens to ship with are nowhere on screen, because nothing
+    // here knows them.
+    expect(within(table).queryByRole("columnheader", { name: "Clear" })).toBeNull();
+    expect(within(table).queryByRole("columnheader", { name: "Studio" })).toBeNull();
+  });
+
+  it("says nothing about rates at all when the server cannot answer for the lots", async () => {
+    // THE STATE OF EVERY DEPLOYMENT WHOSE API HAS NOT SHIPPED THE ROUTE, and the one place
+    // this screen could most easily lie: `wallet.minutes_left` is right there, and it is
+    // one balance divided by one LIST rate. Rendering it would quote a per-minute price
+    // nobody is charged (hard rule 7), so nothing is rendered instead.
+    const { container } = await renderBillingHub(
+      routes({ [LOTS_ROUTE]: problem(404, { title: "Not found" }) }),
+    );
+
+    await screen.findByText("₹3,400.00");
+    expect(screen.queryByRole("table", { name: /in the order it will be spent/i })).toBeNull();
+    expect(container.textContent).not.toContain("minutes on");
+    expect(container.textContent).not.toContain("425 minutes");
+    // And no failure notice either: the balance, the runway in days and the history are
+    // all still true and still on screen. An absent lot list is not an outage.
+    expect(screen.queryByRole("alert")).toBeNull();
+  });
+
+  it("tells an overdrawn wallet what it owes and what clears it, with no rates to quote", async () => {
+    // Plan §0 Q5 and ADDENDUM 2 §2.2: a wallet can go negative mid-call, and the next
+    // purchase repays that BEFORE it opens its own lot. Every lot is empty at that point,
+    // so there is no rate to print — what a client needs is the figure and the sentence.
+    const { container } = await renderBillingHub(
+      routes({
+        [LOTS_ROUTE]: {
+          tiers: [
+            { provider: "sarvam", label: "Clear", minutes_left: "0" },
+            { provider: "cartesia", label: "Studio", minutes_left: "0" },
+          ],
+          lots: [],
+          overdraft_inr: "1000.00",
+        },
+        [WALLET]: wallet({ balance_inr: "-1000.00", is_low: true, outbound_stopped: true }),
+      }),
+    );
+
+    await screen.findByText(/run ₹1,000.00 past the credit on the account/);
+    await screen.findByText(/next top-up clears that first/);
+    expect(screen.queryByRole("table", { name: /in the order it will be spent/i })).toBeNull();
+    expect(container.textContent).not.toContain("/min");
+  });
+
+  it("renders no lot panel at all for a wallet with nothing in it and nothing owed", async () => {
+    // Day one. The hero above already says the balance is empty; a table of headings over
+    // no rows says it a second time in a worse register.
+    await renderBillingHub(
+      routes({
+        [LOTS_ROUTE]: {
+          tiers: [
+            { provider: "sarvam", label: "Clear", minutes_left: "0" },
+            { provider: "cartesia", label: "Studio", minutes_left: "0" },
+          ],
+          lots: [],
+          overdraft_inr: "0.00",
+        },
+      }),
+    );
+
+    await screen.findByText("₹3,400.00");
+    expect(screen.queryByText("Your credit and what it costs a minute")).toBeNull();
+  });
+});
+
 describe("where the money went", () => {
   it("names the three things that draw the wallet down and never invents a fourth", async () => {
     const { container } = await renderBillingHub(routes());
@@ -451,6 +634,105 @@ describe("the ledger and its receipts", () => {
     expect(within(rows[2]).getByRole("button", { name: /receipt for the payment/i })).toBeTruthy();
     // The sign is in the DIGITS, not only in a colour (WCAG 1.4.1).
     expect(within(rows[1]).getByText("-₹42.50")).toBeTruthy();
+  });
+
+  it("expands a call charge into the purchases it was drawn from, at each one's rate", async () => {
+    // ONE DEBIT, TWO PRICES. A wallet holds several purchases at several frozen rates and
+    // a call is charged FIFO across them, so a single rupee figure on the row cannot show
+    // what a client was actually charged per minute. The splits are the LEDGER's own
+    // (`meta.lots`, plan §2.3 invariant 5) — nothing here divides a charge by a rate or
+    // guesses which purchase paid for what.
+    await renderBillingHub(
+      routes({
+        [LEDGER]: {
+          entries: [
+            {
+              id: "77777777-7777-4777-8777-777777777777",
+              delta_inr: "-60.00",
+              reason: "usage",
+              ref: "call:12",
+              balance_after_inr: "3400.00",
+              occurred_at: "2026-08-30T09:00:00Z",
+              payment_ref: null,
+              lots: [
+                {
+                  kind: "call",
+                  lot_id: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+                  credits: "47.00",
+                  minutes: "10.0000",
+                  inr_per_min: "4.7000",
+                  voice_tier: "sarvam",
+                },
+                {
+                  kind: "call",
+                  lot_id: "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
+                  credits: "13.00",
+                  minutes: "2.6000",
+                  inr_per_min: "5.0000",
+                  voice_tier: "sarvam",
+                },
+              ],
+            },
+            {
+              id: "88888888-8888-4888-8888-888888888888",
+              delta_inr: "-12.00",
+              reason: "adjustment",
+              ref: "ai:9",
+              balance_after_inr: "3460.00",
+              occurred_at: "2026-08-29T09:00:00Z",
+              payment_ref: null,
+              lots: [
+                {
+                  kind: "ai_assist",
+                  lot_id: "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+                  credits: "12.00",
+                },
+              ],
+            },
+          ],
+          payments: [],
+        },
+      }),
+      "Transactions",
+    );
+
+    const table = await screen.findByRole("table", { name: /credit history/i });
+    const expander = within(table).getByRole("button", { name: /Calls \(2 purchases\)/ });
+    // A DISCLOSURE, closed by default: the splits answer "why is this figure what it is",
+    // which most readers never ask of most rows.
+    expect(expander.getAttribute("aria-expanded")).toBe("false");
+    fireEvent.click(expander);
+    await waitFor(() => expect(expander.getAttribute("aria-expanded")).toBe("true"));
+
+    const detail = document.getElementById(expander.getAttribute("aria-controls") ?? "");
+    expect(detail?.textContent).toContain("₹47.00");
+    expect(detail?.textContent).toContain("10.0000 min at ₹4.7000/min on Clear");
+    expect(detail?.textContent).toContain("2.6000 min at ₹5.0000/min on Clear");
+    // NOTHING IS SUMMED HERE: the row's own -₹60.00 is the server's, and the splits are
+    // shown beside it rather than added up to check it.
+    expect(within(table).getByText("-₹60.00")).toBeTruthy();
+
+    // AN AI-ASSIST SPLIT IS A DIFFERENT SENTENCE, because it is a different thing: it buys
+    // rupees of help, not minutes of talk, and carries no rate and no voice at all
+    // (ADDENDUM 2 §2.1). A "—" where the rate would be is the tri-state defect that
+    // addendum exists to avoid.
+    const assist = within(table).getByRole("button", { name: /Correction we made \(1 purchase\)/ });
+    fireEvent.click(assist);
+    const assistDetail = document.getElementById(assist.getAttribute("aria-controls") ?? "");
+    await waitFor(() =>
+      expect(assistDetail?.textContent).toContain("₹12.00 of extra AI help"),
+    );
+    expect(assistDetail?.textContent).not.toContain("/min");
+  });
+
+  it("leaves a row unexpandable when the server publishes no splits for it", async () => {
+    // The state of every API build that has not shipped `WalletEntryOut.lots`, and of every
+    // row that is not a wallet debit. The history is still complete and still true; there
+    // is simply nothing to open, and no control is offered that would open nothing.
+    await renderBillingHub(routes(), "Transactions");
+    const table = await screen.findByRole("table", { name: /credit history/i });
+    expect(within(table).queryByRole("button", { name: /purchase/ })).toBeNull();
+    expect(within(table).getByText("Calls")).toBeTruthy();
   });
 
   it("names a refund and a correction in words a client uses, not in ours", async () => {

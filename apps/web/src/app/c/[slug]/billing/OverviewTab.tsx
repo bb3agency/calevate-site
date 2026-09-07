@@ -1,12 +1,15 @@
 "use client";
 
 import type { Wallet } from "@/lib/api/wallet";
+import type { CreditPacks } from "@/lib/api/billing";
 import type { Session } from "@/lib/api/client";
 
+import { LotsPanel } from "./LotsPanel";
 import { UnfinishedPayments } from "./UnfinishedPayments";
 import { WalletHero } from "./WalletHero";
 import { WhatCallsCost } from "./WhatCallsCost";
 import { WhereItWent } from "./WhereItWent";
+import type { TierLabels, WalletLots } from "./lots";
 
 /**
  * OVERVIEW — the tab that answers "what am I paying?" without being asked twice.
@@ -22,11 +25,14 @@ import { WhereItWent } from "./WhereItWent";
  *    much they call — and the number they plan around is the days. `WalletHero` also
  *    carries the talk time the balance buys, which is the same fact in the unit a person
  *    running a phone line thinks in.
- * 2. **Unfinished payments**, when there are any, before anything that would start
+ * 2. **The credit itself, purchase by purchase** (`LotsPanel`). Since D-547 a balance is
+ *    several purchases at several frozen rates, spent oldest first, so "what have I got"
+ *    and "what does a minute cost" are one question with a list for an answer.
+ * 3. **Unfinished payments**, when there are any, before anything that would start
  *    another one.
- * 3. **Where it went** over the same window the runway was measured on, so a spike is
+ * 4. **Where it went** over the same window the runway was measured on, so a spike is
  *    explained on the screen it appears on.
- * 4. **What calls cost** — the rules the balance goes down by, stated plainly and with
+ * 5. **What calls cost** — the rules the balance goes down by, stated plainly and with
  *    the GST position said out loud. It is the same component the Credits tab renders.
  *
  * ## It computes nothing
@@ -49,21 +55,28 @@ export function OverviewTab({
   session,
   wallet,
   funded,
-  listRate,
+  lots,
+  card,
+  labels,
 }: {
   session: Session;
   wallet: Wallet;
   /** Has anything ever moved on this wallet? `null` while the history is in flight. */
   funded: boolean | null;
-  /** The server's `list_rate_inr_per_min`, or `null` when this session may not read it. */
-  listRate: string | null;
+  /** This wallet's open lots and per-quality runway, when the server can answer for them. */
+  lots: WalletLots | undefined;
+  /** The pack card, or `undefined` when this session may not read prices. */
+  card: CreditPacks | undefined;
+  /** What a client calls each voice quality, from that card. */
+  labels: TierLabels | undefined;
 }) {
   return (
     <div className="space-y-5">
-      <WalletHero wallet={wallet} funded={funded} />
+      <WalletHero wallet={wallet} funded={funded} lots={lots} />
+      {lots && <LotsPanel lots={lots} />}
       <UnfinishedPayments session={session} />
       <WhereItWent drawdown={wallet.drawdown} windowDays={wallet.runway.window_days} />
-      <WhatCallsCost listRate={listRate} />
+      <WhatCallsCost card={card} labels={labels} />
     </div>
   );
 }

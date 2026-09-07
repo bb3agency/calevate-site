@@ -3,7 +3,14 @@
 import { useSearchParams } from "next/navigation";
 import { use, useState, type ReactNode } from "react";
 
-import { ProblemNotice, RestrictionNote, ScrollRegion, Skeleton } from "@/components/ui";
+import {
+  ProblemNotice,
+  RestrictionNote,
+  ScrollRegion,
+  Skeleton,
+  formatINR,
+  formatRupeeRate,
+} from "@/components/ui";
 import { useCreditPacks } from "@/lib/api/billing";
 import { useMe } from "@/lib/api/hooks";
 import { currentISTMonth } from "@/lib/api/invoice";
@@ -14,6 +21,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
 import { CreditsTab } from "./CreditsTab";
+import { readTierLabels, readWalletLots, useWalletLots } from "./lots";
 import { InvoicedAccount } from "./InvoicedAccount";
 import { OverviewTab } from "./OverviewTab";
 import { TransactionsTab } from "./TransactionsTab";
@@ -95,10 +103,30 @@ export default function BillingPage({ params }: { params: Promise<{ slug: string
   const ledger = useWalletLedger(session);
   const funded = ledger.data ? ledger.data.entries.length > 0 : null;
 
-  /* The list rate the explainer quotes. `/v1/billing/topups/packs` is `billing:read`, so
-     for a staff session this stays `undefined` and the explainer drops the one sentence
-     that needs a rupee figure rather than inventing one. */
+  /* The rate card the explainer and the pack chooser quote. `/v1/billing/topups/packs` is
+     `billing:read`, so for a staff session this stays `undefined` and the explainer drops
+     the sentences that need a rupee figure rather than inventing one. */
   const packs = useCreditPacks(session);
+  /* The tier NAMES a client reads ("Clear", "Studio"), from the same response. Held
+     nowhere in this tree: no client-facing surface names a vendor as a product tier
+     (founder, 7 Sep 2026), and a copy in TypeScript is how the two definitions drift
+     until one client meets both. Absent on a build that does not send them yet, and
+     every panel then renders no quality name and no per-minute rate at all. */
+  const labels = readTierLabels(packs.data);
+
+  /*
+   * THE LOT QUEUE — what credit is left, at which two rates, in the order it is spent, and
+   * the runway in minutes on each quality (D-547).
+   *
+   * Its own read rather than a field on the wallet, and validated at the seam rather than
+   * typed: a balance under lots is several purchases at several frozen rates, and NOTHING
+   * on this screen may quote a per-minute price that is not one of them. So a build whose
+   * API cannot answer (the route is the billing lane's, in flight as this is written)
+   * renders no lot list, no runway pair and no rate — never `wallet.minutes_left`, which
+   * divides one balance by one LIST rate and is the arithmetic lots exist to retire.
+   */
+  const lotsRead = useWalletLots(session);
+  const lots = readWalletLots(lotsRead.data);
 
   /* One month for the two panels that can look backwards — the per-agent breakdown and the
      statement. Held HERE rather than in each tab so a client who picks July on one does not
@@ -202,12 +230,43 @@ export default function BillingPage({ params }: { params: Promise<{ slug: string
             { key: "balance_inr", label: "Calling credit balance (INR)", value: wallet.data.balance_inr },
             { key: "runway", label: "How long the credit lasts", value: runwaySentence(wallet.data.runway) },
             {
+              /* PER VOICE QUALITY, because one balance no longer buys one number of
+                 minutes: each purchase freezes its own two rates and the answer depends
+                 on which voice the agent that takes the call speaks with. Named with the
+                 API's own words for the qualities, never the vendors'. */
               key: "minutes_left",
-              label: "Minutes of calling the balance buys",
+              label: "Minutes of calling the credit buys, per voice quality",
               value:
-                wallet.data.minutes_left === null
-                  ? "not priced on this deployment"
-                  : String(wallet.data.minutes_left),
+                lots === undefined
+                  ? "we cannot say — this deployment does not publish the per-purchase rates yet"
+                  : lots.tiers
+                      .map(
+                        (tier) =>
+                          `${tier.label}: ${
+                            tier.minutes_left === null ? "not priced" : `${tier.minutes_left} minutes`
+                          }`,
+                      )
+                      .join("; "),
+            },
+            {
+              key: "credit_lots",
+              label: "The credit on the account, oldest purchase first, with its rates",
+              value:
+                lots === undefined
+                  ? "we have not read the purchases behind this balance"
+                  : lots.lots.length === 0
+                    ? "no credit is left on the account"
+                    : lots.lots
+                        .map(
+                          (lot) =>
+                            `${formatINR(lot.credits_remaining)} of credit at ${lots.tiers
+                              .map(
+                                (tier) =>
+                                  `${formatRupeeRate(lot.rates[tier.provider])}/min on ${tier.label}`,
+                              )
+                              .join(" or ")}`,
+                        )
+                        .join(", then "),
             },
             {
               key: "outbound_stopped",
@@ -274,7 +333,6 @@ export default function BillingPage({ params }: { params: Promise<{ slug: string
   }
   const billingRefused = me.data !== undefined && !me.data.permissions.includes("billing:read");
 
-  const listRate = packs.data?.list_rate_inr_per_min ?? null;
 
   /**
    * The wallet, for the two tabs that cannot be rendered without it — §52, all three arms.
@@ -307,7 +365,13 @@ export default function BillingPage({ params }: { params: Promise<{ slug: string
     switch (tab) {
       case "credits":
         return withWallet(() => (
-          <CreditsTab session={session} listRate={listRate} billingRefused={billingRefused} />
+          <CreditsTab
+            session={session}
+            lots={lots}
+            card={packs.data}
+            labels={labels}
+            billingRefused={billingRefused}
+          />
         ));
       case "transactions":
         return (
@@ -315,6 +379,7 @@ export default function BillingPage({ params }: { params: Promise<{ slug: string
             session={session}
             month={month}
             onMonthChange={setMonth}
+            labels={labels}
             billingRefused={billingRefused}
           />
         );
@@ -330,7 +395,14 @@ export default function BillingPage({ params }: { params: Promise<{ slug: string
         );
       default:
         return withWallet((data) => (
-          <OverviewTab session={session} wallet={data} funded={funded} listRate={listRate} />
+          <OverviewTab
+            session={session}
+            wallet={data}
+            funded={funded}
+            lots={lots}
+            card={packs.data}
+            labels={labels}
+          />
         ));
     }
   };

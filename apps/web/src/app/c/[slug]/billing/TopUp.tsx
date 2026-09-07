@@ -13,7 +13,6 @@ import {
   formatCount,
   formatINR,
   formatRupeeRate,
-  hasNonZeroDigit,
 } from "@/components/ui";
 import {
   MAX_TOPUP_INR,
@@ -28,6 +27,16 @@ import {
 import { useWriteAccess } from "@/lib/api/hooks";
 import { openRazorpayCheckout, paymentFailedProblem } from "@/lib/razorpayCheckout";
 import type { ApiProblem, Session } from "@/lib/api/client";
+
+import {
+  VOICE_TIERS,
+  formatWhole,
+  packForAmount,
+  packMinutes,
+  packRate,
+  readTierLabels,
+  type TierLabels,
+} from "./lots";
 
 /**
  * Adding credit — all the way to a completed payment.
@@ -84,6 +93,12 @@ export function TopUp({ session }: { session: Session }) {
   // form that will 403 them, and an operator in "view as client" cannot spend a client's
   // money from a client screen (D-22).
   const write = useWriteAccess(session, "org:manage", "add credit");
+  /* WHAT A CLIENT CALLS EACH VOICE QUALITY, read from the card the server sent and held
+     nowhere else. No client-facing surface names a vendor as a tier (founder, 7 Sep 2026),
+     so a build whose card carries no labels prints no quality names and no per-minute
+     rates — an unnamed pair of rupee figures beside one another is worse than silence,
+     because a reader assigns the cheaper one to whichever voice they were thinking of. */
+  const labels = readTierLabels(packs.data);
 
   /**
    * Open the provider's window for an order the SERVER created.
@@ -174,6 +189,7 @@ export function TopUp({ session }: { session: Session }) {
         {packs.data && (
           <PackChooser
             packs={packs.data.packs}
+            labels={labels}
             payable={false}
             disabled
             pendingPackId={null}
@@ -242,15 +258,17 @@ export function TopUp({ session }: { session: Session }) {
 
       {intent.error && <ProblemNotice error={intent.error} />}
 
-      {/* The pack rate card — the productized way to add credit. A bigger pack buys
-          proportionally more calling because it grants bonus credits; the effective rate
-          and talk time are the server's own figures, priced at the live list rate. */}
+      {/* The pack rate card — the productized way to add credit. A bigger pack buys a
+          cheaper minute on both voice qualities (D-547); the rates and the talk times are
+          the server's own figures, and the pack a client picks freezes its two rates on
+          the credit it opens. */}
       {packs.isLoading && <Skeleton rows={4} />}
       {packs.error && <ProblemNotice error={packs.error} onRetry={() => void packs.refetch()} />}
       {packs.data && (
         <>
           <PackChooser
             packs={packs.data.packs}
+            labels={labels}
             payable={payable}
             disabled={!write.allowed || busy}
             pendingPackId={intent.isPending ? pending : null}
@@ -260,23 +278,27 @@ export function TopUp({ session }: { session: Session }) {
               intent.mutate({ packId }, { onSuccess: onIntent });
             }}
           />
-          {/* ONE LINE UNDER THE PRICES, because this is the card a client compares against
-              somebody else's, and the thing that makes ours comparable is the one thing a
-              price list cannot show: every rate on it buys the SAME voice. Prices with no
-              quality attached invite the reader to assume the cheapest one is the worst.
-              `WhatCallsCost` argues it properly on the same screen; this is the sentence
-              that has to survive being read on its own, next to the number — and it is now
-              ONE sentence rather than three, because the founder's verdict on this panel
-              was that nobody reads the third. */}
-          <p className="text-sm text-ink-muted">
-            Every pack buys the same calling — the same voice on every call. A bigger pack
-            only makes each minute cheaper.
-          </p>
+          {/* ONE LINE UNDER THE PRICES. It used to say every pack buys the same voice, which
+              was true of a one-quality catalogue and is now false: a pack quotes TWO rates
+              and which one prices a call depends on the voice the agent that took it speaks
+              with. What survives is the sentence that has to be read next to the numbers —
+              the price you buy at is fixed on the purchase, so a rate change later leaves
+              credit you already own alone. `WhatCallsCost` argues both properly on the same
+              screen. Only rendered with the names, for `labels`' reason above. */}
+          {labels && (
+            <p className="text-sm text-ink-muted">
+              Every pack buys both voice qualities — you choose which one each agent speaks
+              with. A bigger pack makes each minute cheaper, and the rates on the pack you
+              buy stay with that credit until you have spent it.
+            </p>
+          )}
         </>
       )}
 
       {/* An "other amount" for a client who wants a figure that is not a pack. Same route,
-          no bonus — packs are where the volume bonus lives. */}
+          and it is NOT rateless: a free amount takes the rates of the largest pack whose
+          price it reaches (plan §0 Q3), so somebody typing ₹4,999 is not punished for
+          missing a rung by a rupee. */}
       <form
         className="flex flex-wrap items-center gap-2"
         noValidate
@@ -314,6 +336,20 @@ export function TopUp({ session }: { session: Session }) {
         <span className="text-xs text-ink-faint">
           ₹{MIN_TOPUP_INR.toLocaleString("en-IN")} to ₹{MAX_TOPUP_INR.toLocaleString("en-IN")}
         </span>
+        {/* WHAT THIS AMOUNT BUYS AT, BEFORE THE BUTTON. A free amount is priced by the
+            server at the largest pack it reaches, and a client who cannot see that before
+            paying discovers their rates afterwards — on a purchase whose terms are then
+            frozen and cannot be corrected. It is a full-width row of the same form so it
+            sits under the field on a phone rather than beside it. */}
+        {packs.data && labels && (
+          <p
+            role="status"
+            aria-label="What this amount buys"
+            className="w-full text-sm text-brand-strong"
+          >
+            <AmountRates packs={packs.data.packs} labels={labels} amount={amount} />
+          </p>
+        )}
       </form>
 
       {order && (
@@ -430,13 +466,26 @@ const PAYMENT_FAILED: ApiProblem = paymentFailedProblem();
  *
  * The taste half: it was somebody else's table, and it looked it.
  *
- * The half that matters: **a table answers "what do these five packs cost?" and nobody
+ * The half that matters: **a table answers "what do these six packs cost?" and nobody
  * arrives with that question.** They arrive with "how much calling do I need, and what
  * does that come to?" — and a table makes the reader do the division themselves, across
  * six columns, on a phone, before they can act. ₹4.6296/min is the unit an accountant
  * thinks in; "about 10,800 minutes" is the unit somebody running a phone line thinks in.
- * Both are here. The talk time leads and the rupees follow, which is the reverse of the
- * old first column.
+ * Both are here. The talk time leads and the rupees follow.
+ *
+ * ## TWO RATES AND TWO TALK TIMES, AND THE "EXTRA CREDIT" COLUMN IS GONE (D-547)
+ *
+ * A pack no longer grants bonus credits; a bigger pack buys a CHEAPER MINUTE, on each of
+ * the two voice qualities, and the rates it quotes are frozen on the purchase. So the card
+ * carries a pair of everything and the bonus line was DELETED rather than emptied —
+ * `bonus_pct` and `bonus_credits` are still on the wire at zero for one release (plan §10)
+ * and rendering "no bonus credit" off them would keep a retired idea on the screen a client
+ * buys from. What replaced it is the fact that actually differs between the rungs.
+ *
+ * The two qualities are named by the SERVER (`CreditPacksOut.*_tier_label`). Without those
+ * names this renders no rate and no talk time at all: two unnamed rupee figures side by
+ * side are worse than none, because a reader assigns the cheaper one to whichever voice
+ * they had in mind, and no client-facing surface may fall back to the vendor's word.
  *
  * ## What was chosen, and what was rejected
  *
@@ -444,42 +493,41 @@ const PAYMENT_FAILED: ApiProblem = paymentFailedProblem();
  *   the table needed `min-w-[36rem]` and a sideways scroll on the phone this is read on.
  *   A card carries its own labels, so it reads at 320px and wraps instead of scrolling.
  * - **The recommendation is CARRIED by the card**, not bolted on: the best-value pack has
- *   the brand border, the tinted ground and a full-width band across its top. The old
- *   "BEST VALUE" pill sat in a cell of an otherwise identical row, which is the shape that
- *   makes a reader suspect the badge is decoration.
- * - **The bonus says what it means.** "FREE — +4,000 (8%)" is a column heading and a
- *   number; "4,000 credits free — 8% more calling for the same money" is the sentence the
- *   number was standing in for, and the bonus is the single most persuasive fact here.
+ *   the brand border, the tinted ground and a full-width band across its top.
  * - **A minutes matcher instead of a "compare" toggle.** REJECTED: a slider (invents
  *   precision the reader does not have and is a poor touch target), and a per-card "how
  *   many minutes is this?" hover (unreachable on a phone, invisible to a screen reader).
  *   What the reader can actually answer is roughly how many minutes a month they call, and
  *   from that the pack follows — so that is the one input, it is optional, and the panel
- *   is complete without it.
+ *   is complete without it. **It matches on the DEARER quality's minutes**, which is the
+ *   one direction that cannot mislead: a pack that covers a month of Studio calling covers
+ *   it on Clear too, and the reverse recommendation would fall short for anybody who picks
+ *   the dearer voice after buying.
  *
  * ## The rules this stayed inside
  *
  * Every figure is the SERVER's, rendered from its digits — `formatINR` for amounts,
- * `formatRupeeRate` for the rate (a rate is not a rupee amount and must not be rounded
- * like one), `formatCredits` for the credit counts. No money is put through `Number` here
+ * `formatRupeeRate` for the rates (a rate is not a rupee amount and must not be rounded
+ * like one), `formatWhole` for the credit counts. No money is put through `Number` here
  * (hard rule 7 reaches the browser). Nothing is hardcoded about how many packs exist or
  * what they cost: the catalogue is whatever `GET /v1/billing/topups/packs` sent, in the
  * order it sent it.
  *
  * The accessible name of every buy control still carries its AMOUNT, because a grid of
  * buttons all reading "Pay" is a list of identical controls in a screen reader and the
- * price is the only thing that tells them apart. That property is inherited from the table
- * this replaced and is asserted in `tests/topup.test.tsx` — see the button for why it is
- * now carried by the visible text instead of by an `aria-label`.
+ * price is the only thing that tells them apart.
  */
 function PackChooser({
   packs,
+  labels,
   payable,
   disabled,
   pendingPackId,
   onSelect,
 }: {
   packs: CreditPack[];
+  /** What a client calls each quality, from the card. Absent = no names, so no prices. */
+  labels: TierLabels | undefined;
   payable: boolean;
   disabled: boolean;
   pendingPackId: string | null;
@@ -515,13 +563,18 @@ function PackChooser({
       {/* The live region EXISTS before it has anything to say — a `role="status"` element
           inserted at the moment of the update is not reliably announced, because assistive
           technology subscribes to the region rather than to the insertion. */}
-      <p role="status" className="min-h-5 text-sm text-brand-strong">
+      <p
+        role="status"
+        /* NAMED, because this panel now holds a second live region — the one under the
+           free-amount field — and two unnamed status regions are two controls a screen
+           reader (and a test) cannot tell apart. */
+        aria-label="Which pack covers your month"
+        className="min-h-5 text-sm text-brand-strong"
+      >
         {monthly.trim() !== "" && wanted === null
           ? "Enter the number of minutes as digits — 600, say."
           : match
-            ? match.short
-              ? `About ${formatCount(wanted)} minutes a month is more than one pack. The largest is ${formatINR(match.pack.amount_inr)}, about ${formatCount(match.pack.talk_time_minutes)} minutes — add credit more than once, or talk to us about a monthly plan.`
-              : `About ${formatCount(wanted)} minutes a month? ${formatINR(match.pack.amount_inr)} covers it — about ${formatCount(match.pack.talk_time_minutes)} minutes of calling.`
+            ? matchSentence(match, wanted as number, labels)
             : ""}
       </p>
 
@@ -547,32 +600,32 @@ function PackChooser({
                   Covers your month
                 </p>
               )}
-              <p className="text-[11px] uppercase tracking-wide text-ink-muted">About</p>
               <p className="text-2xl font-semibold tabular-nums text-ink">
-                {formatCount(pack.talk_time_minutes)} min
+                {formatINR(pack.amount_inr)}
               </p>
               <p className="text-sm text-ink-muted">
-                of calling, for{" "}
-                <strong className="font-semibold tabular-nums text-ink">
-                  {formatINR(pack.amount_inr)}
-                </strong>
+                {formatWhole(pack.total_credits)} credits of calling
               </p>
-              <p className="mt-2 text-sm">
-                {hasNonZeroDigit(pack.bonus_pct) ? (
-                  <span className="font-medium text-brand">
-                    {formatCredits(pack.bonus_credits)} credits free — {pack.bonus_pct}% more
-                    calling for the same money
-                  </span>
-                ) : (
-                  <span className="text-ink-muted">
-                    Calling at the standard rate, with no bonus credit
-                  </span>
-                )}
-              </p>
-              <p className="mt-1 text-xs tabular-nums text-ink-muted">
-                {formatRupeeRate(pack.effective_rate_inr_per_min)}/min ·{" "}
-                {formatCredits(pack.total_credits)} credits
-              </p>
+              {labels && (
+                /* THE PAIR, one row per quality: what a minute costs on it and how long
+                   the credits last at that price. A `<dl>` rather than two sentences
+                   because it is two labelled values and a screen reader reads it as
+                   such. Both figures are the server's — the minutes are ITS floor of the
+                   division, not one taken here. */
+                <dl className="mt-3 space-y-1 text-sm">
+                  {VOICE_TIERS.map((tier) => (
+                    <div key={tier} className="flex items-baseline justify-between gap-2">
+                      <dt className="text-ink-muted">{labels[tier]}</dt>
+                      <dd className="tabular-nums text-ink">
+                        <strong className="font-semibold">
+                          {formatRupeeRate(packRate(pack, tier))}
+                        </strong>
+                        /min · {formatCount(packMinutes(pack, tier))} min
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
               {/* `mt-auto` on the WRAPPER so every button sits on the same line whatever
                   the card above it says — a grid whose actions are at four different
                   heights reads as four unrelated things. */}
@@ -609,6 +662,51 @@ function PackChooser({
 }
 
 /**
+ * WHAT A TYPED AMOUNT BUYS AT, in words, before the payment button.
+ *
+ * A free amount is priced by the server at the largest pack it reaches, and the smallest
+ * pack's rates below the first rung (`billing/service.py::lot_rates_for_amount`). Those
+ * rates are FROZEN on the purchase the moment it lands, so a client who only learns them
+ * from the wallet afterwards has bought terms they never saw. This says them first.
+ *
+ * It states no rate until the amount is a figure the server would accept — a half-typed
+ * "34" is not an amount, and quoting the smallest pack's rates against it would flicker a
+ * different answer with every keystroke. Nothing is computed: the rates are the catalogue's
+ * own digits and the pack is chosen by comparing them.
+ */
+function AmountRates({
+  packs,
+  labels,
+  amount,
+}: {
+  packs: CreditPack[];
+  labels: TierLabels;
+  amount: string;
+}) {
+  const typed = amount.trim();
+  if (typed === "") return null;
+  const pack = packForAmount(packs, typed);
+  if (pack === undefined) return null;
+  return (
+    <>
+      {formatINR(typed)} buys calling at{" "}
+      {VOICE_TIERS.map((tier, index) => (
+        <span key={tier}>
+          {index > 0 ? " and " : ""}
+          <strong className="font-semibold tabular-nums">
+            {formatRupeeRate(packRate(pack, tier))}
+          </strong>
+          /min on {labels[tier]}
+        </span>
+      ))}
+      {" — the "}
+      {formatINR(pack.amount_inr)} pack&rsquo;s rates. They stay with this credit until you
+      have spent it.
+    </>
+  );
+}
+
+/**
  * The minutes a reader typed, or `null` if they have not typed a usable number.
  *
  * Digits only, and deliberately not `parseInt`: `parseInt("600 or so")` is 600, which
@@ -625,33 +723,61 @@ function wantedMinutes(raw: string): number | null {
 }
 
 /**
+ * The sentence the matcher speaks, and the reason it names BOTH figures.
+ *
+ * A pack's talk time is now a pair, and which one applies is decided later, on a different
+ * screen, by whoever picks each agent's voice. So the recommendation is made on the DEARER
+ * quality (see `suggestPack`) and the sentence says both numbers: "₹5,000 covers it — about
+ * 714 minutes on Studio and 1,000 on Clear" is a fact a reader can act on, while a single
+ * figure would be a promise that holds for only one of the two choices in front of them.
+ *
+ * Without the server's names for the qualities it says only what it can: the pack, and that
+ * it covers the month whichever voice they choose.
+ */
+function matchSentence(
+  match: { pack: CreditPack; short: boolean },
+  wanted: number,
+  labels: TierLabels | undefined,
+): string {
+  const amount = formatINR(match.pack.amount_inr);
+  const dear = formatCount(packMinutes(match.pack, "cartesia"));
+  const cheap = formatCount(packMinutes(match.pack, "sarvam"));
+  const spread = labels
+    ? ` — about ${dear} minutes on ${labels.cartesia} and ${cheap} on ${labels.sarvam}`
+    : "";
+  if (match.short) {
+    return `About ${formatCount(wanted)} minutes a month is more than one pack. The largest is ${amount}${spread} — add credit more than once, or talk to us about a monthly plan.`;
+  }
+  return `About ${formatCount(wanted)} minutes a month? ${amount} covers it whichever voice you choose${spread}.`;
+}
+
+/**
  * The smallest pack whose talk time covers a month — or, when nothing does, the largest
  * one and a flag saying so.
  *
+ * **MATCHED ON THE DEARER QUALITY**, which is the change D-547 forced and the only
+ * direction that cannot mislead: a pack that covers a month of Studio calling covers the
+ * same month on Clear, while matching on the cheaper voice would recommend a pack that
+ * falls short for anybody who picks the dearer one after buying — and the voice is chosen
+ * per agent, later, on a screen this one does not control. The old single
+ * `talk_time_minutes` is deprecated on the wire and holds the CHEAPER figure, so reading it
+ * would have made exactly that mistake silently.
+ *
  * The catalogue is sorted here rather than assumed to arrive in order: nothing in
  * `CreditPacksOut` promises an ordering, and a chooser that silently depends on one would
- * recommend the wrong pack the day the server sorts by anything else. `talk_time_minutes`
- * is the server's own figure for each pack, so the comparison is between two numbers it
- * sent and computes no price.
+ * recommend the wrong pack the day the server sorts by anything else. Both figures are the
+ * server's own floor of its own division, so this compares two numbers it sent and computes
+ * no price.
  */
 function suggestPack(
   packs: CreditPack[],
   minutes: number,
 ): { pack: CreditPack; short: boolean } | null {
-  const ascending = [...packs].sort((a, b) => a.talk_time_minutes - b.talk_time_minutes);
+  const ascending = [...packs].sort(
+    (a, b) => packMinutes(a, "cartesia") - packMinutes(b, "cartesia"),
+  );
   const largest = ascending[ascending.length - 1];
   if (largest === undefined) return null;
-  const covering = ascending.find((pack) => pack.talk_time_minutes >= minutes);
+  const covering = ascending.find((pack) => packMinutes(pack, "cartesia") >= minutes);
   return covering ? { pack: covering, short: false } : { pack: largest, short: true };
-}
-
-/**
- * A credit COUNT (1 credit = ₹1) formatted with grouping. Only the integer part is shown —
- * credits are whole rupees to a client — and it is parsed off the STRING (never the whole
- * decimal through `Number`), so no money value is put through a binary float. The integer
- * part of a NUMERIC(12,4) string is a safe `parseInt`; the fraction is dropped on purpose.
- */
-function formatCredits(value: string): string {
-  const whole = value.split(".")[0];
-  return parseInt(whole, 10).toLocaleString("en-IN");
 }

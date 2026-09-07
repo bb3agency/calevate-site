@@ -444,6 +444,88 @@ describe("the client's spend screen", () => {
     expect(container.textContent).not.toContain("No calls this month");
   });
 
+  it("splits the month by voice quality, from the lot splits, with no total added here", async () => {
+    // WHAT REPLACED THE PLAN'S "REDUCED RATE" PAIR (plan §5 F1). `overage_rate_value_inr`
+    // is NULL on every plan that has ever existed, so the second rung it drove was a row
+    // no client could ever see. What a client's minutes actually cost at two prices is now
+    // a real fact and a different one: the two VOICE QUALITIES (D-547), whose minutes and
+    // charges the server reads off the ledger's own lot splits — so this panel and the
+    // credit history cannot disagree about a month.
+    const { container } = await renderBillingHub(clientRoutes({
+      "/v1/me": ME,
+      [CLIENT_ROUTE]: CLIENT_SPEND,
+      "/v1/usage": {
+        ...HUB_USAGE,
+        minutes_used: "140.5000",
+        month_charges_inr: "902.50",
+        sarvam_minutes: "120.50",
+        sarvam_charges_inr: "602.50",
+        sarvam_label: "Clear",
+        cartesia_minutes: "20.00",
+        cartesia_charges_inr: "300.00",
+        cartesia_label: "Studio",
+      },
+    }), "Usage");
+
+    await screen.findByText("Clear voice (120.50 min)");
+    expect(screen.getByText("Studio voice (20.00 min)")).toBeTruthy();
+    expect(screen.getByText("₹602.50")).toBeTruthy();
+    expect(screen.getByText("₹300.00")).toBeTruthy();
+    // NO TOTAL IS COMPUTED IN THE BROWSER (D-458): the month's figure is the server's
+    // `month_charges_inr`, and ₹902.50 is deliberately NOT ₹602.50 + ₹300.00 dressed up —
+    // a screen that added the two rupee strings would agree with itself and disagree with
+    // the statement the client is sent.
+    expect(screen.getByText("₹902.50")).toBeTruthy();
+    // The vendors are never named; the qualities are named by the server.
+    for (const vendor of ["Sarvam", "sarvam", "Cartesia", "cartesia"]) {
+      expect(container.textContent).not.toContain(vendor);
+    }
+    // And the retired pair is gone from the screen entirely.
+    expect(container.textContent).not.toContain("reduced rate");
+  });
+
+  it("quotes 'minutes left this month' only where it means a cap, never a prepaid wallet", async () => {
+    // ONE FIELD, TWO MEANINGS (`billing/service.py::usage_summary`): what is left of a
+    // monthly CAP for a plan that has one, and — for a prepaid wallet —
+    // `prepaid_minutes_left`, the balance divided by the LIST rate. D-547 made that second
+    // reading untrue of everybody: credit is spent at the rates frozen on each purchase,
+    // and the answer differs by voice quality as well. So the line stays for a capped plan
+    // and goes for a prepaid one, whose honest pair is on the Overview tab.
+    const capped = await renderBillingHub(clientRoutes({
+      "/v1/me": ME,
+      [CLIENT_ROUTE]: CLIENT_SPEND,
+      "/v1/usage": { ...HUB_USAGE, plan_tier: "managed", cap_minutes: 500, minutes_left: 380 },
+    }), "Usage");
+    await screen.findByText(/of calling left this month/);
+    expect(capped.container.textContent).toContain("380 minutes");
+
+    capped.unmount();
+
+    const prepaid = await renderBillingHub(clientRoutes({
+      "/v1/me": ME,
+      [CLIENT_ROUTE]: CLIENT_SPEND,
+      "/v1/usage": { ...HUB_USAGE, plan_tier: "prepaid", minutes_left: 380 },
+    }), "Usage");
+    await screen.findByText("Total so far");
+    expect(prepaid.container.textContent).not.toContain("of calling left this month");
+    expect(prepaid.container.textContent).not.toContain("380 minutes");
+  });
+
+  it("says nothing per voice when the month's payload carries no split", async () => {
+    // An API build before the per-quality fields, and the honest rendering of it: the
+    // month's totals are all still true and still on screen, and no quality is given a
+    // figure — one priced and the other blank would read as "that one is free".
+    const { container } = await renderBillingHub(clientRoutes({
+      "/v1/me": ME,
+      [CLIENT_ROUTE]: CLIENT_SPEND,
+    }), "Usage");
+
+    await screen.findByText("Total so far");
+    expect(container.textContent).not.toContain("voice (");
+    expect(container.textContent).not.toContain("Clear");
+    expect(container.textContent).not.toContain("Studio");
+  });
+
   it("tells a staff member why the screen is not theirs instead of collecting a 403", async () => {
     const { container } = await renderBillingHub(clientRoutes({
     "/v1/me": STAFF
@@ -564,5 +646,128 @@ describe("the operator's half", () => {
     expect(text).not.toContain("437.1429");
     expect(text).not.toContain("₹1.3114");
     expect(text).not.toContain("Replaces the assumed");
+  });
+});
+
+/**
+ * WHAT THE VOICE VENDORS COST US (D-547, plan Phase D) — two figures that must stay apart.
+ *
+ * Worst consequence first:
+ *
+ * 1. **A plan fee defaulted to zero.** Under BYOK the call platform bills us nothing for the
+ *    synthesizer leg, so a board that could not read the vendor's plan spend and printed
+ *    ₹0.00 would show a fleet margin that does not exist. The absence is stated instead.
+ * 2. **A difference computed in the browser.** The unused allotment is the SERVER's
+ *    subtraction; two rupee strings subtracted here would be float arithmetic on money and a
+ *    second answer to what we paid.
+ * 3. **An unattested price read as a margin.** A vendor with no confirmed price attributes
+ *    no cost at all, and the row has to say so rather than showing a healthy-looking zero.
+ * 4. **The measured speaking rate is now the BILLED QUANTITY on a BYOK voice**, not only a
+ *    check on TRD §10.1's band, so the card says what those characters cost per vendor.
+ */
+
+const TTS_PLAN = [
+  {
+    provider: "cartesia",
+    tier_label: "Studio",
+    month: IST_MONTH,
+    plan_inr: "4312.00",
+    attributed_inr: "1873.55",
+    unused_inr: "2438.45",
+    chars: "543100",
+    inr_per_1k_chars: "3.4496",
+  },
+];
+
+const BY_PROVIDER = [
+  {
+    provider: "sarvam",
+    tier_label: "Clear",
+    price_attested: false,
+    inr_per_1k_chars: "3.0000",
+    pooled_inr_per_minute: "1.3114",
+  },
+  {
+    provider: "cartesia",
+    tier_label: "Studio",
+    price_attested: true,
+    inr_per_1k_chars: "3.4496",
+    pooled_inr_per_minute: "1.5080",
+  },
+];
+
+describe("the voice vendors' bill on the money board", () => {
+  it("shows plan spend beside attributed spend, with the vendor named", async () => {
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: { ...FLEET, tts_plan: TTS_PLAN },
+      [TTS_ROUTE]: TTS_MEASURED,
+    });
+    await screen.findByText("Voice vendors — plan spend against attributed");
+    const text = container.textContent ?? "";
+    expect(text).toContain("Cartesia · Studio");
+    expect(text).toContain("₹4,312.00");
+    expect(text).toContain("₹1,873.55");
+    // The SERVER's difference, rendered as sent.
+    expect(text).toContain("₹2,438.45");
+    expect(text).toContain("543100");
+    expect(text).toContain("₹3.4496 per 1,000 characters");
+  });
+
+  it("says nothing rather than ₹0 when the plan spend was not published", async () => {
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: FLEET,
+      [TTS_ROUTE]: TTS_MEASURED,
+    });
+    await screen.findByText("Voice vendors — plan spend against attributed");
+    const text = container.textContent ?? "";
+    expect(text).toContain("did not publish what the voice vendors billed");
+    expect(text).not.toContain("Cartesia · Studio");
+  });
+
+  it("prints no unused figure when the server sent none, rather than subtracting here", async () => {
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: { ...FLEET, tts_plan: [{ ...TTS_PLAN[0], unused_inr: null }] },
+      [TTS_ROUTE]: TTS_MEASURED,
+    });
+    await screen.findByText("Voice vendors — plan spend against attributed");
+    // 4312.00 - 1873.55 is 2438.4500000000003 in IEEE-754; the absence of any such figure
+    // is the assertion.
+    expect(container.textContent).not.toContain("2,438.45");
+    expect(container.textContent).not.toContain("2438.45");
+  });
+
+  it("warns that an unpriced vendor attributes no cost at all", async () => {
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: {
+        ...FLEET,
+        tts_plan: [{ ...TTS_PLAN[0], inr_per_1k_chars: null, attributed_inr: "0.00" }],
+      },
+      [TTS_ROUTE]: TTS_MEASURED,
+    });
+    await screen.findByText("Voice vendors — plan spend against attributed");
+    expect(container.textContent).toContain("its calls attribute no cost at all");
+  });
+
+  it("says what the measured speaking rate costs on each voice, and where there is no price", async () => {
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: FLEET,
+      [TTS_ROUTE]: { ...TTS_MEASURED, by_provider: BY_PROVIDER },
+    });
+    await screen.findByText("What that rate costs on each voice");
+    const text = container.textContent ?? "";
+    expect(text).toContain("Cartesia (Studio): ₹3.4496 per 1,000 characters → ₹1.5080/min");
+    // The vendor with no confirmed price gets the consequence, not a figure — even though
+    // the payload carried a catalogue rate for it.
+    expect(text).toContain("Sarvam (Clear): no confirmed price");
+    expect(text).not.toContain("Sarvam (Clear): ₹3.0000");
+  });
+
+  it("still says which voices have no price when the rate itself is unmeasured", async () => {
+    const { container } = await renderAdminRoute(<FleetSpendPage />, {
+      [FLEET_ROUTE]: FLEET,
+      [TTS_ROUTE]: { ...TTS_UNMEASURED, by_provider: BY_PROVIDER },
+    });
+    await screen.findByText("Not enough calls to measure yet:");
+    expect(container.textContent).toContain("What that rate costs on each voice");
   });
 });

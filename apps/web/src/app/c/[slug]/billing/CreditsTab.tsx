@@ -1,11 +1,14 @@
 "use client";
 
 import { Card, RestrictionNote } from "@/components/ui";
+import type { CreditPacks } from "@/lib/api/billing";
 import type { Session } from "@/lib/api/client";
 
+import { LotsPanel } from "./LotsPanel";
 import { TopUp } from "./TopUp";
 import { UnfinishedPayments } from "./UnfinishedPayments";
 import { WhatCallsCost } from "./WhatCallsCost";
+import type { TierLabels, WalletLots } from "./lots";
 
 /**
  * CREDITS — the purchase surface: what a pack costs, what it buys, and the button.
@@ -16,10 +19,14 @@ import { WhatCallsCost } from "./WhatCallsCost";
  *    another (UX-DOCTRINE §4). A client who has just paid must not have to look past a
  *    rate card to find out whether it worked, and the failure mode of getting this wrong
  *    is two orders for one top-up.
- * 2. **The rate card and the button** (`TopUp`): what you pay, the credits, the bonus,
- *    the effective per-minute rate, the talk time it buys. Every figure is the server's,
- *    priced at the live list rate.
- * 3. **What calls cost** — the rules the balance goes down by, on the same tab a client
+ * 2. **The credit already on the account, purchase by purchase** (`LotsPanel`), because
+ *    what a new pack is worth depends on what is already queued in front of it: credit is
+ *    spent oldest first, so a client buying the ₹15,000 rates today still spends last
+ *    month's ₹5.00 minutes before they reach them. The same component the Overview tab
+ *    renders; the copy exists once.
+ * 3. **The rate card and the button** (`TopUp`): what you pay, the credits, and the two
+ *    per-minute rates with the talk time each buys. Every figure is the server's.
+ * 4. **What calls cost** — the rules the balance goes down by, on the same tab a client
  *    buys from. It is the same component the Overview tab renders; the copy exists once.
  *
  * ## The rate card renders even when the buttons cannot
@@ -40,18 +47,26 @@ import { WhatCallsCost } from "./WhatCallsCost";
  */
 export function CreditsTab({
   session,
-  listRate,
+  lots,
+  card,
+  labels,
   billingRefused,
 }: {
   session: Session;
-  /** The server's `list_rate_inr_per_min`, or `null` when this session may not read it. */
-  listRate: string | null;
+  /** This wallet's open lots, when the server can answer for them. */
+  lots: WalletLots | undefined;
+  /** The pack card, or `undefined` when this session may not read prices. */
+  card: CreditPacks | undefined;
+  /** What a client calls each voice quality, from that card. */
+  labels: TierLabels | undefined;
   /** True when this session does NOT hold `billing:read`. */
   billingRefused: boolean;
 }) {
   return (
     <div className="space-y-5">
       <UnfinishedPayments session={session} />
+
+      {lots && <LotsPanel lots={lots} />}
 
       <Card title="Add credit">
         {billingRefused ? (
@@ -61,7 +76,7 @@ export function CreditsTab({
         )}
       </Card>
 
-      <WhatCallsCost listRate={listRate} />
+      <WhatCallsCost card={card} labels={labels} />
     </div>
   );
 }

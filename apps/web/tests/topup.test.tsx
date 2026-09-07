@@ -112,17 +112,33 @@ const INTENT = "POST /v1/billing/topups/intent";
 const CALLBACK = "POST /v1/billing/topups/callback";
 
 /**
- * THE PACK RATE CARD, as the server sends it — the ₹2,000-floor ladder on round rungs
- * (D-526, `apps/api/billing/credit_packs.py::PACK_CATALOGUE`), at ₹5.00/min list.
+ * THE PACK RATE CARD, as the server sends it — the six-rung, two-rate card D-547 settled
+ * (`apps/api/billing/credit_packs.py::PACK_CATALOGUE`, plan §2.2).
  *
- * All FIVE packs, not a representative two, and that is the point of the fixture rather
+ * All SIX packs, not a representative two, and that is the point of the fixture rather
  * than its size: the panel hardcodes no amount and no pack count, so the thing worth
- * pinning is that it renders whatever arrives. Every figure here is the shape the server
- * emits — rupee amounts at 2dp, the rate at 4dp (a rate is not a rupee amount), the bonus
- * percent bare — because the panel formats digits and never parses them.
+ * pinning is that it renders whatever arrives. Every figure is the shape the server emits
+ * — rupee amounts at 2dp, the rates at 4dp (a rate is not a rupee amount) — because the
+ * panel formats digits and never parses them.
+ *
+ * The three DEPRECATED fields are here at the values the server actually sends for one
+ * release (plan §10): `bonus_credits` / `bonus_pct` at zero, `effective_rate_inr_per_min`
+ * and `talk_time_minutes` echoing the CHEAPER voice. They are in the fixture precisely so
+ * a screen that went on reading them would be caught printing the wrong voice's figure as
+ * though it were the pack's only one.
+ *
+ * `sarvam_tier_label` / `cartesia_tier_label` are what a CLIENT calls the two qualities.
+ * They are the API's words (`billing/rates.py::VOICE_TIER_LABELS`) and the browser holds
+ * no copy of them — which is why the panel is also driven WITHOUT them below, and asserted
+ * to print no vendor name and no unattributed rate in that state.
  */
 const PACK_CARD = {
   list_rate_inr_per_min: "5.00",
+  from_inr_per_min: "4.50",
+  from_sarvam_inr_per_min: "4.50",
+  from_cartesia_inr_per_min: "6.00",
+  sarvam_tier_label: "Clear",
+  cartesia_tier_label: "Studio",
   packs: [
     {
       pack_id: "starter",
@@ -131,6 +147,10 @@ const PACK_CARD = {
       bonus_credits: "0.00",
       total_credits: "2000.00",
       bonus_pct: "0",
+      sarvam_inr_per_min: "5.0000",
+      cartesia_inr_per_min: "8.0000",
+      sarvam_minutes: 400,
+      cartesia_minutes: 250,
       effective_rate_inr_per_min: "5.0000",
       talk_time_minutes: 400,
       best_value: false,
@@ -139,47 +159,85 @@ const PACK_CARD = {
       pack_id: "growth",
       amount_inr: "5000.00",
       paid_credits: "5000.00",
-      bonus_credits: "150.00",
-      total_credits: "5150.00",
-      bonus_pct: "3",
-      effective_rate_inr_per_min: "4.8544",
-      talk_time_minutes: 1030,
+      bonus_credits: "0.00",
+      total_credits: "5000.00",
+      bonus_pct: "0",
+      sarvam_inr_per_min: "5.0000",
+      cartesia_inr_per_min: "7.0000",
+      sarvam_minutes: 1000,
+      cartesia_minutes: 714,
+      effective_rate_inr_per_min: "5.0000",
+      talk_time_minutes: 1000,
       best_value: false,
     },
     {
       pack_id: "scale",
       amount_inr: "10000.00",
       paid_credits: "10000.00",
-      bonus_credits: "500.00",
-      total_credits: "10500.00",
-      bonus_pct: "5",
-      effective_rate_inr_per_min: "4.7619",
-      talk_time_minutes: 2100,
+      bonus_credits: "0.00",
+      total_credits: "10000.00",
+      bonus_pct: "0",
+      sarvam_inr_per_min: "4.8500",
+      cartesia_inr_per_min: "6.7500",
+      sarvam_minutes: 2061,
+      cartesia_minutes: 1481,
+      effective_rate_inr_per_min: "4.8500",
+      talk_time_minutes: 2061,
+      best_value: false,
+    },
+    {
+      pack_id: "plus",
+      amount_inr: "15000.00",
+      paid_credits: "15000.00",
+      bonus_credits: "0.00",
+      total_credits: "15000.00",
+      bonus_pct: "0",
+      sarvam_inr_per_min: "4.7000",
+      cartesia_inr_per_min: "6.5000",
+      sarvam_minutes: 3191,
+      cartesia_minutes: 2307,
+      effective_rate_inr_per_min: "4.7000",
+      talk_time_minutes: 3191,
       best_value: false,
     },
     {
       pack_id: "pro",
       amount_inr: "25000.00",
       paid_credits: "25000.00",
-      bonus_credits: "1750.00",
-      total_credits: "26750.00",
-      bonus_pct: "7",
-      effective_rate_inr_per_min: "4.6729",
-      talk_time_minutes: 5350,
+      bonus_credits: "0.00",
+      total_credits: "25000.00",
+      bonus_pct: "0",
+      sarvam_inr_per_min: "4.6000",
+      cartesia_inr_per_min: "6.2500",
+      sarvam_minutes: 5434,
+      cartesia_minutes: 4000,
+      effective_rate_inr_per_min: "4.6000",
+      talk_time_minutes: 5434,
       best_value: false,
     },
     {
       pack_id: "max",
       amount_inr: "50000.00",
       paid_credits: "50000.00",
-      bonus_credits: "4000.00",
-      total_credits: "54000.00",
-      bonus_pct: "8",
-      effective_rate_inr_per_min: "4.6296",
-      talk_time_minutes: 10800,
+      bonus_credits: "0.00",
+      total_credits: "50000.00",
+      bonus_pct: "0",
+      sarvam_inr_per_min: "4.5000",
+      cartesia_inr_per_min: "6.0000",
+      sarvam_minutes: 11111,
+      cartesia_minutes: 8333,
+      effective_rate_inr_per_min: "4.5000",
+      talk_time_minutes: 11111,
       best_value: true,
     },
   ],
+};
+
+/** The same card from an API build that has not started sending the two tier names. */
+const UNNAMED_CARD = {
+  ...PACK_CARD,
+  sarvam_tier_label: undefined,
+  cartesia_tier_label: undefined,
 };
 
 /**
@@ -322,15 +380,19 @@ describe("the top-up panel", () => {
     // tenant and no provider state, so it is exactly as true on a bank-transfer
     // deployment as on a card one.
     expect(screen.getByText("Best value"), "the rate card is gone").toBeTruthy();
-    expect(container.textContent).toContain("₹4.6296/min");
-    // The bonus, as the fact rather than as a column: this used to read "+4,000 (8%)" in
-    // a cell under a "FREE" heading, which is the number without the sentence it stood
-    // for. Both halves are asserted, because the count alone was already there.
-    expect(container.textContent).toContain("4,000 credits free");
-    expect(container.textContent).toContain("8% more calling for the same money");
-    // Talk time LEADS on a card, which is the whole reason the table went: it is the unit
-    // somebody running a phone line thinks in.
-    expect(container.textContent).toContain("10,800 min");
+    // BOTH RATES AND BOTH TALK TIMES, each under the name a client reads for that quality
+    // (D-547). A pack is no longer one price: what a minute costs depends on the voice the
+    // agent that takes the call speaks with, and a card that showed one number would be
+    // showing the cheaper one to somebody who may choose the dearer voice.
+    expect(container.textContent).toContain("₹4.5000/min · 11,111 min");
+    expect(container.textContent).toContain("₹6.0000/min · 8,333 min");
+    expect(container.textContent).toContain("Clear");
+    expect(container.textContent).toContain("Studio");
+    // THE "EXTRA CREDIT" COLUMN IS GONE, not emptied. `bonus_pct` and `bonus_credits` are
+    // still on the wire at zero for one release, and a card that went on rendering them
+    // would keep a retired idea on the screen a client buys from.
+    expect(container.textContent).not.toContain("credits free");
+    expect(container.textContent?.toLowerCase()).not.toContain("bonus");
     // And the button still names its amount even where it cannot pay — a grid of controls
     // all called "Select" is a list of identical names in a screen reader.
     expect(screen.getByRole("button", { name: "Select ₹50,000.00" })).toBeTruthy();
@@ -404,7 +466,13 @@ describe("the top-up panel", () => {
     // prints the amount TWICE — once as the headline and once inside the transfer
     // instruction — so `toContain` was satisfied by either of them and a float in the
     // other went unnoticed. A sabotage of the headline alone proved that. Both, or neither.
-    expectTextCount(container, "₹2,500.10", 2);
+    // THREE now, not two, and the third is the point of the change that added it: the
+    // panel prints the amount as the headline, again inside the transfer instruction, and
+    // again in the sentence saying which rates this amount buys at BEFORE the button. A
+    // float anywhere on that path would drop the last paisa in one of the three, so the
+    // count is asserted rather than mere presence — `toContain` is answered by any one of
+    // them and a sabotage of the other two goes unnoticed.
+    expectTextCount(container, "₹2,500.10", 3);
     // The two shapes a `Number()` leaves behind: the dropped trailing paisa, and the
     // ungrouped digits.
     expect(container.textContent).not.toMatch(/2,?500\.1(?!0)/);
@@ -450,21 +518,19 @@ describe("the top-up panel", () => {
       "Credits",
     );
 
-    // The rate card renders both packs with their server-priced figures — the effective
-    // rate and the bonus, neither computed in the browser.
+    // The rate card renders every pack with its server-priced figures — two rates, two
+    // talk times, none of them computed in the browser.
     await screen.findByText("Best value");
-    expect(container.textContent).toContain("₹4.6296/min"); // the max pack's effective rate
-    expect(container.textContent).toContain("4,000 credits free"); // its bonus credits
-    expect(container.textContent).toContain("8% more calling for the same money");
-    // Talk time first, rupees second — the order this panel is built around.
-    expect(container.textContent).toContain("10,800 min");
+    expect(container.textContent).toContain("₹4.5000/min · 11,111 min"); // max, cheaper voice
+    expect(container.textContent).toContain("₹6.0000/min · 8,333 min"); // max, dearer voice
+    expect(container.textContent).toContain("₹5.0000/min · 400 min"); // the entry rung
+    expect(container.textContent).toContain("₹8.0000/min · 250 min");
     expect(container.textContent).toContain("₹50,000.00");
-    // The zero-bonus pack says so rather than printing an em dash in a "Free" column.
-    expect(container.textContent).toContain("no bonus credit");
-    // WHATEVER THE SERVER SENDS, however many: five rungs arrive and five buy controls
-    // render, each named by its own amount. Nothing here knows what a pack costs.
-    expect(screen.getAllByRole("button", { name: /^Pay ₹/ })).toHaveLength(5);
-    expect(container.textContent).toContain("1,750 credits free");
+    // WHATEVER THE SERVER SENDS, however many: six rungs arrive and six buy controls
+    // render, each named by its own amount. Nothing here knows what a pack costs, and the
+    // ₹15,000 rung D-547 added needed no change here to appear.
+    expect(screen.getAllByRole("button", { name: /^Pay ₹/ })).toHaveLength(6);
+    expect(screen.getByRole("button", { name: "Pay ₹15,000.00" })).toBeTruthy();
 
     // Selecting a pack posts its id — never an amount — so the catalogue is the price.
     // Named by AMOUNT, because six buttons reading "Pay" are six identical names to a
@@ -480,43 +546,48 @@ describe("the top-up panel", () => {
     // THE QUESTION THE OLD TABLE MADE THE READER ANSWER THEMSELVES. Six columns of
     // arithmetic on a phone is not how somebody decides how much to put on their phone
     // system; "I call about this much" is. The recommendation is a comparison between two
-    // figures the SERVER sent (`talk_time_minutes`), and it prices nothing.
+    // figures the SERVER sent, and it prices nothing.
+    //
+    // IT MATCHES ON THE DEARER QUALITY, which is the property this test now pins and the
+    // only direction that cannot mislead: a pack covering a month of Studio calling covers
+    // it on Clear too, while the reverse would recommend a pack that falls short for
+    // anybody who picks the dearer voice afterwards — on a different screen, later.
     const { container } = await renderBillingHub(routes(), "Credits");
+    const suggestion = () =>
+      screen.getByRole("status", { name: "Which pack covers your month" }).textContent ?? "";
 
     const field = await screen.findByLabelText(
       "Roughly how many minutes do you call in a month?",
     );
 
-    // 200 minutes fits inside the entry pack — the SMALLEST that covers it, not the
-    // biggest that exists, which is the difference between a recommendation and an upsell.
+    // 200 minutes fits inside the entry pack on BOTH voices (250 on Studio) — the SMALLEST
+    // that covers it, not the biggest that exists, which is the difference between a
+    // recommendation and an upsell.
     fireEvent.change(field, { target: { value: "200" } });
-    const answer = await screen.findByRole("status");
-    expect(answer.textContent).toContain("₹2,000.00 covers it");
-    expect(answer.textContent).toContain("about 400 minutes");
+    await waitFor(() => expect(suggestion()).toContain("₹2,000.00 covers it"));
+    // Both figures, because the reader has not chosen a voice yet and one number would be
+    // a promise that holds for only one of the two choices in front of them.
+    expect(suggestion()).toContain("about 250 minutes on Studio and 400 on Clear");
     // The matched card says so where the reader is looking, not only in the sentence.
     expect(container.textContent).toContain("Covers your month");
 
-    // 500 minutes no longer fits the entry pack, so the answer moves up ONE rung — not to
-    // the deepest pack, and not to the badged one.
-    fireEvent.change(field, { target: { value: "500" } });
-    await waitFor(() =>
-      expect(screen.getByRole("status").textContent).toContain("₹5,000.00 covers it"),
-    );
-    expect(screen.getByRole("status").textContent).toContain("about 1,030 minutes");
+    // 300 minutes still fits the entry pack on the CHEAPER voice (400) and does not on the
+    // dearer one (250), so the answer moves up a rung. Reading the deprecated single
+    // `talk_time_minutes` — which holds the cheaper figure — would have kept the ₹2,000
+    // pack here and quietly under-bought for a Studio agent.
+    fireEvent.change(field, { target: { value: "300" } });
+    await waitFor(() => expect(suggestion()).toContain("₹5,000.00 covers it"));
+    expect(suggestion()).toContain("about 714 minutes on Studio and 1,000 on Clear");
 
     // More than the whole catalogue can hold is answered honestly rather than by
     // recommending a pack that does not cover it.
     fireEvent.change(field, { target: { value: "40000" } });
-    await waitFor(() =>
-      expect(screen.getByRole("status").textContent).toContain("more than one pack"),
-    );
+    await waitFor(() => expect(suggestion()).toContain("more than one pack"));
 
     // Not a number: a sentence they can act on, and no recommendation invented from it.
     fireEvent.change(field, { target: { value: "lots" } });
     await waitFor(() =>
-      expect(screen.getByRole("status").textContent).toContain(
-        "Enter the number of minutes as digits",
-      ),
+      expect(suggestion()).toContain("Enter the number of minutes as digits"),
     );
     expect(container.textContent).not.toContain("Covers your month");
 
@@ -527,6 +598,64 @@ describe("the top-up panel", () => {
       screen.queryByRole("button", { name: /^Pay ₹2,500.10 now$/ }),
       "the matcher must not start an order",
     ).toBeNull();
+  });
+
+  it("says what a free-entry amount buys at before the payment button", async () => {
+    // THE RATES A PURCHASE FREEZES ARE FROZEN THE MOMENT IT LANDS (D-547), so a client who
+    // only learns them from the wallet afterwards has bought terms they never saw. The rule
+    // is the server's (`billing/service.py::lot_rates_for_amount`: the largest pack the
+    // amount reaches, floored at the smallest) and this panel states it in words.
+    await renderBillingHub(routes(), "Credits");
+    const field = await screen.findByLabelText("Other amount");
+    const preview = () =>
+      screen.getByRole("status", { name: "What this amount buys" }).textContent ?? "";
+
+    fireEvent.change(field, { target: { value: "3400.00" } });
+    // ₹3,400 does not reach the ₹5,000 rung, so it buys at the ₹2,000 pack's rates — and
+    // it says the pack, because "why these rates" is the next question.
+    await waitFor(() => expect(preview()).toContain("₹5.0000/min on Clear"));
+    expect(preview()).toContain("₹8.0000/min on Studio");
+    expect(preview()).toContain("₹2,000.00 pack");
+    expect(preview()).toContain("₹3,400.00 buys calling");
+
+    // A rung crossed changes the answer, and the figures are the catalogue's own digits —
+    // no rate is interpolated between the rungs.
+    fireEvent.change(field, { target: { value: "16000" } });
+    await waitFor(() => expect(preview()).toContain("₹4.7000/min on Clear"));
+    expect(preview()).toContain("₹6.5000/min on Studio");
+    expect(preview()).toContain("₹15,000.00 pack");
+
+    // BELOW THE FIRST RUNG IS NOT "NO RATES": the server floors it at the smallest pack,
+    // and a client topping up ₹500 must not read that their credit is unpriced.
+    fireEvent.change(field, { target: { value: "500" } });
+    await waitFor(() => expect(preview()).toContain("₹5.0000/min on Clear"));
+
+    // A half-typed amount states nothing rather than flickering a rate per keystroke.
+    fireEvent.change(field, { target: { value: "16," } });
+    await waitFor(() => expect(preview()).toBe(""));
+  });
+
+  it("prints no rate and no vendor name when the card carries no tier names", async () => {
+    // THE NAMES ARE THE SERVER'S AND THERE IS NO FALLBACK. An API build that does not send
+    // `sarvam_tier_label` / `cartesia_tier_label` leaves this panel with two rupee figures
+    // it cannot attribute — and a reader shown an unnamed pair assigns the cheaper one to
+    // whichever voice they had in mind. So the prices go, and the vendor's word is never
+    // borrowed to keep them.
+    const { container } = await renderBillingHub(
+      routes({ [PACKS]: UNNAMED_CARD }),
+      "Credits",
+    );
+
+    await screen.findByText("Best value");
+    // The packs still render — a client can still buy — and every amount is still there.
+    expect(screen.getAllByRole("button", { name: /^Pay ₹/ })).toHaveLength(6);
+    expect(container.textContent).toContain("₹50,000.00");
+    expect(container.textContent).toContain("50,000 credits of calling");
+    // What is gone is every per-minute figure, on the cards and in the explainer.
+    expect(container.textContent).not.toContain("/min");
+    for (const vendor of ["sarvam", "cartesia", "Sarvam", "Cartesia"]) {
+      expect(container.textContent).not.toContain(vendor);
+    }
   });
 });
 

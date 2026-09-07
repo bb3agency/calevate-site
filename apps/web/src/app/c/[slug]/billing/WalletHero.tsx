@@ -2,8 +2,11 @@
 
 import { AlertTriangle, PhoneIncoming, Timer, Wallet } from "lucide-react";
 
-import { NOTICE_TONES, formatCount, formatINR } from "@/components/ui";
+import { NOTICE_TONES, formatINR } from "@/components/ui";
 import { runwaySentence, walletState, type Wallet as WalletData } from "@/lib/api/wallet";
+
+import { TierRunwayLines } from "./LotsPanel";
+import type { WalletLots } from "./lots";
 
 /**
  * The hero: what you have, and how long it lasts.
@@ -41,6 +44,7 @@ import { runwaySentence, walletState, type Wallet as WalletData } from "@/lib/ap
 export function WalletHero({
   wallet,
   funded,
+  lots,
 }: {
   wallet: WalletData;
   /**
@@ -48,6 +52,14 @@ export function WalletHero({
    * flight — see the day-one paragraph in the module comment.
    */
   funded: boolean | null;
+  /**
+   * The lot queue, when the server can answer for it. It carries the RUNWAY IN MINUTES —
+   * one figure per voice quality, summed lot by lot at each lot's own frozen rate (D-547).
+   * Absent, no minutes figure is printed at all: `wallet.minutes_left` divides one balance
+   * by one LIST rate, which is precisely the arithmetic lots exist to stop being true, and
+   * a wrong minute count is worse on this screen than none.
+   */
+  lots: WalletLots | undefined;
 }) {
   const state = walletState(wallet);
   /* DAY ONE IS NOT AN OUTAGE. A zero balance and an empty history is an account that
@@ -146,15 +158,12 @@ export function WalletHero({
               {wallet.runway.window_days} days.
             </p>
           )}
-          {wallet.minutes_left !== null && (
-            <p className="mt-1 text-xs text-ink-muted">
-              That is about{" "}
-              <strong className="font-semibold tabular-nums text-ink">
-                {formatCount(wallet.minutes_left)} minutes
-              </strong>{" "}
-              of calling at today&apos;s rate.
-            </p>
-          )}
+          {/* THE MINUTES, ONE FIGURE PER VOICE QUALITY — and the reason there are two is
+              the reason the old single line had to go. It read "about N minutes of calling
+              at today's rate", and under D-547 there is no "today's rate": what a minute
+              costs depends on the voice the agent speaks with AND on which purchase the
+              credit is drawn from. Two figures, both the server's, or none. */}
+          {lots && <TierRunwayLines lots={lots} />}
         </div>
       </div>
     </div>

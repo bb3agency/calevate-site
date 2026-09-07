@@ -16,12 +16,14 @@ import {
   formatRupeeRate,
   hasNonZeroDigit,
 } from "@/components/ui";
+import { isPrepaid } from "@/lib/api/billing";
 import { useCaps, useSetCaps } from "@/lib/api/caps";
 import { useClientRealm } from "@/lib/api/session";
 import { useUsage, useWriteAccess } from "@/lib/api/hooks";
 import type { Session } from "@/lib/api/client";
 
 import { SpendPanel } from "./SpendPanel";
+import { readVoiceUsage } from "./lots";
 
 /**
  * USAGE — what this month has cost, which agent spent it, and the limit that stops it.
@@ -75,6 +77,11 @@ export function UsageTab({
   refused: boolean;
 }) {
   const usage = useUsage(session);
+  /* THE TWO VOICE QUALITIES' SHARE OF THE MONTH, validated at the seam rather than typed:
+     the fields are on `UsagePanelOut` server-side (`apps/api/crm/schemas.py`) and reach
+     `schema.d.ts` at the shared regeneration. Named by the SERVER — a client reads the
+     quality's name, never the vendor's. */
+  const voices = readVoiceUsage(usage.data);
 
   if (refused) {
     return (
@@ -110,9 +117,19 @@ export function UsageTab({
             </div>
           )}
 
-          {data.minutes_left !== null && (
+          {data.minutes_left !== null && !isPrepaid(data.plan_tier) && (
             /* Runway framing: "about N minutes left" is what an owner plans around; a
-               rupee balance makes them do the division at the counter. */
+               rupee balance makes them do the division at the counter.
+
+               NOT FOR A PREPAID ACCOUNT, and that is a correction rather than a
+               restriction. `UsagePanelOut.minutes_left` is one field with two meanings
+               (`billing/service.py::usage_summary`): what is left of a monthly CAP for a
+               plan that has one, and — for a prepaid wallet — `prepaid_minutes_left`,
+               which divides the balance by the LIST rate. Under D-547 that second figure
+               is not true of anybody: credit is spent at the rates frozen on each
+               purchase and the answer differs by voice quality besides. The honest pair
+               is on the Overview tab, from the lot queue; here a prepaid account gets
+               nothing rather than a minute count nobody is charged at. */
             <p className="rounded-card border border-line bg-surface px-4 py-3 text-sm text-ink-muted">
               About{" "}
               <strong className="font-semibold tabular-nums text-ink">
@@ -156,56 +173,46 @@ export function UsageTab({
                 it against — an owner could not tell how it was arrived at, nor what the
                 next minute will cost them.
 
-                THE RUNGS ARE NOT VOICES AND MUST NOT BE WORDED AS ONE. This hint used to
-                read "premium voice" / "value voice", which is what `billing/invoice.py`'s
-                `_RUNG_WORDING` called them. There is ONE voice quality on this platform —
-                `billing/rates.py`'s header records that the premium/value VOICE ladder was
-                deleted outright, along with `TtsTier`, `billable_tier` and `tier_of_voice`
-                — and these two slots are a plan's standard and reduced overage RATES
-                (`plans.overage_rate` / `overage_rate_value`, the second NULL on every plan
-                today). Wording them as voices advertised a choice the client cannot make
-                and nobody offers. */}
+                ONE RATE ON THIS TILE, AND THE SECOND RUNG IS GONE FROM THE SCREEN. It used
+                to branch on `overage_rate_value_inr` — a plan's "reduced" overage rate,
+                NULL on every plan that has ever existed — and print a two-rate hint nobody
+                could ever see. What a client's minutes actually cost at two different
+                prices is now a real fact and a different one: the two VOICE QUALITIES
+                (D-547), which are below, from the lot splits, and named by the server. */}
             <StatTile
               label="Extra charges"
               value={formatINR(data.overage_cost_inr)}
               icon={<Coins className="h-5 w-5" />}
               tone="strong"
-              hint={
-                data.overage_rate_value_inr === null
-                  ? `${formatRupeeRate(data.overage_rate_inr)} per extra minute`
-                  : `${formatRupeeRate(data.overage_rate_inr)}/min standard rate, ${formatRupeeRate(
-                      data.overage_rate_value_inr,
-                    )}/min reduced rate`
-              }
+              hint={`${formatRupeeRate(data.overage_rate_inr)} per extra minute`}
             />
           </div>
 
           <Card title="This month">
             <dl className="space-y-2 text-sm">
               <Row label="Plan fee" value={formatINR(data.monthly_fee_inr)} />
-              {data.overage_rate_value_inr === null ? (
+              <Row
+                label={`Extra usage (${data.overage_minutes} min × ${formatRupeeRate(data.overage_rate_inr)})`}
+                value={formatINR(data.overage_cost_inr)}
+              />
+              {/* WHAT EACH VOICE QUALITY COST THIS MONTH (D-547), replacing the plan's
+                  "standard rate / reduced rate" pair that was NULL on every plan and
+                  therefore never rendered for anybody. These two are real: the minutes are
+                  a part of `minutes_used` and the charges are the rupees the LOT SPLITS
+                  took off the wallet, so this panel and the credit history cannot disagree
+                  about a month. NO TOTAL IS TAKEN HERE (D-458) — "Total so far" below is
+                  the server's own `month_charges_inr`, and adding two rupee strings in a
+                  browser is the arithmetic that ends with the screen and the statement a
+                  paisa apart. Absent on an API build that does not send them, and both
+                  rows go together: one quality priced and the other blank would read as
+                  "that one is free". */}
+              {voices?.map((voice) => (
                 <Row
-                  label={`Extra usage (${data.overage_minutes} min × ${formatRupeeRate(data.overage_rate_inr)})`}
-                  value={formatINR(data.overage_cost_inr)}
+                  key={voice.provider}
+                  label={`${voice.label} voice (${voice.minutes} min)`}
+                  value={formatINR(voice.charges_inr)}
                 />
-              ) : (
-                /* The same two rungs the statement prints, so the screen a client checks
-                   and the document they are sent tell one story. The COST is one row,
-                   because `overage_cost_inr` is one server-side number: splitting it here
-                   would mean the browser dividing a bill, and a paisa of disagreement with
-                   the statement is a support ticket. */
-                <>
-                  <Row
-                    label={`Extra usage, standard rate (${data.overage_minutes_premium} min × ${formatRupeeRate(data.overage_rate_inr)})`}
-                    value={`${data.overage_minutes_premium} min`}
-                  />
-                  <Row
-                    label={`Extra usage, reduced rate (${data.overage_minutes_value} min × ${formatRupeeRate(data.overage_rate_value_inr)})`}
-                    value={`${data.overage_minutes_value} min`}
-                  />
-                  <Row label="Extra usage total" value={formatINR(data.overage_cost_inr)} />
-                </>
-              )}
+              ))}
               {/* THE MODEL UPGRADE (D-455), on the screen because it is on the statement.
                   A client whose bill grew because they moved their agents onto a dearer
                   AI model has to be able to see WHICH decision did it — the line names the

@@ -17,6 +17,7 @@ import { useWalletLedger } from "@/lib/api/wallet";
 import type { Session } from "@/lib/api/client";
 
 import { WalletLedgerPanel } from "./WalletLedgerPanel";
+import type { TierLabels } from "./lots";
 import { walletStatementCsv } from "./statementCsv";
 
 /**
@@ -65,9 +66,16 @@ export function TransactionsTab({
   session,
   month,
   onMonthChange,
+  labels,
   billingRefused,
 }: {
   session: Session;
+  /**
+   * What a client calls each voice quality, from the pack card the hub already read. It
+   * reaches the history because a `usage` row expands to the credit it was drawn from, and
+   * each of those draws was priced for one quality — named by the API or not named at all.
+   */
+  labels: TierLabels | undefined;
   /** The IST billing month the statement is showing, `YYYY-MM`. */
   month: string;
   onMonthChange: (month: string) => void;
@@ -77,7 +85,7 @@ export function TransactionsTab({
   return (
     <div className="space-y-5">
       <WalletExport session={session} />
-      <WalletLedgerPanel session={session} />
+      <WalletLedgerPanel session={session} labels={labels} />
       <Statement
         session={session}
         month={month}
