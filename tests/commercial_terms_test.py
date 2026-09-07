@@ -43,6 +43,11 @@ from uuid import UUID
 from apps.api.admin import service as admin_service
 from apps.api.billing import service as billing
 from apps.api.billing.plans import IST, parse_billing_month
+from apps.api.billing.rates import (
+    MIN_GROSS_MARGIN,
+    SELF_SERVE_COST_FLOOR_INR_PER_MIN,
+    gross_margin_ratio,
+)
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
@@ -652,8 +657,14 @@ async def test_terms_whose_window_has_closed_report_lapsed_not_none() -> None:
 
 
 async def test_terms_that_price_a_minute_below_cost_are_refused() -> None:
-    """The one shape nobody intends. ₹7,000 for 2,000 minutes is ₹3.50/min against a ₹3.70
-    floor — it loses money on every minute, and worse the harder the client uses it."""
+    """The one shape nobody intends. ₹7,000 for 2,000 minutes is ₹3.50/min against the cost
+    floor — it loses money on every minute, and worse the harder the client uses it.
+
+    ⚠ The floor is READ, not typed. It was ₹3.70 until D-547 re-derived it from named legs
+    without telephony (the client pays the carrier, D-474) and it became ₹4.1211; a test
+    asserting the literal would have to be edited every time a vendor price moves, which is
+    the one edit that quietly turns a money guard into a rubber stamp.
+    """
     tenant_id = await _tenant()
     token = await _make_admin("operator")
 
@@ -670,7 +681,7 @@ async def test_terms_that_price_a_minute_below_cost_are_refused() -> None:
     # The refusal has to name WHICH rate and WHAT it must clear, or the operator is left
     # guessing which of the three numbers they typed to move.
     assert "committed" in body["detail"]
-    assert "3.70" in body["detail"]
+    assert str(SELF_SERVE_COST_FLOOR_INR_PER_MIN) in body["detail"]
     assert body["remediation"]
 
     # And nothing was written: a refused agreement must not leave a plan row behind.
@@ -695,27 +706,36 @@ async def test_a_below_cost_overage_is_refused_even_behind_a_healthy_bundle() ->
 
 
 async def test_a_thin_but_profitable_bundle_is_accepted_and_flagged() -> None:
-    """₹4.00/min clears the ₹3.70 cost but not the 20% target. That is a founder's call to
-    make — a lighthouse client, a displacement — so the route records it and SAYS so
-    rather than standing in the way of a commercial decision."""
+    """A rate a paise over the cost floor clears cost but not the 20% target. That is a
+    founder's call to make — a lighthouse client, a displacement — so the route records it
+    and SAYS so rather than standing in the way of a commercial decision.
+
+    The fee is DERIVED from the floor (+1 paise per minute) rather than typed at ₹4,000:
+    when D-547 re-derived the floor upward, ₹4.00/min stopped being 'thin' and became
+    'below cost', and this test would have been asserting the opposite posture to the one
+    it is named for.
+    """
     tenant_id = await _tenant()
     token = await _make_admin("operator")
+    thin_rate = SELF_SERVE_COST_FLOOR_INR_PER_MIN + Decimal("0.01")
 
     response = await _post(
         token,
         tenant_id,
-        {"monthly_fee_inr": "4000.00", "included_minutes": 1000},
+        {"monthly_fee_inr": str(thin_rate * 1000), "included_minutes": 1000},
     )
 
     assert response.status_code == 201, response.text
     margin = response.json()["margin"]
     assert margin["below_target_margin"] == ["committed"]
-    assert margin["effective_committed_rate_inr_per_min"] == "4.00"
-    # 7.5% of each rupee is ours; published as a FRACTION so it compares directly against
-    # `min_gross_margin` in the same payload.
-    assert margin["committed_gross_margin"] == "0.0750"
+    assert Decimal(margin["effective_committed_rate_inr_per_min"]) == thin_rate
+    # A FRACTION, so it compares directly against `min_gross_margin` in the same payload,
+    # and recomputed here through the shared formula rather than typed.
+    assert Decimal(margin["committed_gross_margin"]) == gross_margin_ratio(
+        rate=thin_rate, cost=SELF_SERVE_COST_FLOOR_INR_PER_MIN
+    ).quantize(Decimal("0.0001"))
     assert margin["min_gross_margin"] == "0.20"
-    assert margin["cost_floor_inr_per_min"] == "3.70"
+    assert Decimal(margin["cost_floor_inr_per_min"]) == SELF_SERVE_COST_FLOOR_INR_PER_MIN
     # The agreement really was recorded — a warning is not a refusal.
     assert len(await _plan_rows(tenant_id)) == 1
 
@@ -726,19 +746,28 @@ async def test_every_plan_read_carries_its_margin() -> None:
     tenant_id = await _tenant()
     token = await _make_admin("operator")
 
+    # A fee struck EXACTLY at the target margin, derived from the floor: the read-back is
+    # about the margin travelling with the plan, not about a particular rupee figure, and
+    # a typed one stops being at-target the moment the cost model moves (it did, D-547).
+    at_target = (SELF_SERVE_COST_FLOOR_INR_PER_MIN / (Decimal("1") - MIN_GROSS_MARGIN)).quantize(
+        Decimal("0.0001")
+    )
     assert (
         await _post(
             token,
             tenant_id,
-            {"monthly_fee_inr": "10000.00", "included_minutes": 2000, "overage_rate_inr": "8.0000"},
+            {
+                "monthly_fee_inr": str(at_target * 2000),
+                "included_minutes": 2000,
+                "overage_rate_inr": "8.0000",
+            },
         )
     ).status_code == 201
 
     in_effect = (await _get(token, tenant_id)).json()["in_effect"]
 
-    # ₹10,000 / 2,000 = ₹5.00/min, 26% margin at the ₹3.70 floor.
-    assert in_effect["margin"]["effective_committed_rate_inr_per_min"] == "5.00"
-    assert in_effect["margin"]["committed_gross_margin"] == "0.2600"
+    assert Decimal(in_effect["margin"]["effective_committed_rate_inr_per_min"]) == at_target
+    assert Decimal(in_effect["margin"]["committed_gross_margin"]) >= MIN_GROSS_MARGIN
     assert in_effect["margin"]["overage_rate_inr_per_min"] == "8.0000"
     assert in_effect["margin"]["below_target_margin"] == []
 

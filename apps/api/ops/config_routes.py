@@ -48,6 +48,7 @@ summary column, so a reason that lives only in the log stream is a reason nobody
 
 from __future__ import annotations
 
+import logging
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -55,12 +56,14 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, Request, 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.list_rates import SELF_SERVE_PER_MIN, record_list_rate
+from apps.api.billing.credit_packs import PACK_CATALOGUE, card_margins, card_refusals
+from apps.api.billing.list_rates import SELF_SERVE_PER_MIN, record_card
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
+from apps.api.core.logging import get_logger
 from apps.api.core.platform_config import (
     ConfigField,
     StoredRow,
@@ -88,6 +91,8 @@ from apps.api.ops.config_service import (
     read_sentinel,
     set_value,
 )
+
+log = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/ops/config", tags=["ops"])
 
@@ -505,7 +510,7 @@ async def set_config(
         # THE PRICE ACQUIRES A DATE (D-492). Same transaction as the row above, for the
         # reason the audit entry is: a rate change nobody can place in time re-prices every
         # month rendered after it.
-        await _record_list_rate(session, result, actor_id=principal.user_id, reason=payload.reason)
+        await _record_card(session, result, actor_id=principal.user_id, reason=payload.reason)
     return _write_out(response, result, tasks)
 
 
@@ -577,7 +582,7 @@ async def revert_config(
     )
     # A REVERT MOVES THE PRICE TOO, and it is the one an operator forgets: the value goes
     # back to the environment or the code default, which is a rate change like any other.
-    await _record_list_rate(session, result, actor_id=principal.user_id, reason=REVERT_REASON)
+    await _record_card(session, result, actor_id=principal.user_id, reason=REVERT_REASON)
     return _write_out(response, result, tasks)
 
 
@@ -667,7 +672,7 @@ def _projected_overrides(result: WriteResult) -> dict[str, Any]:
     """This process's stored overrides with `result` applied — the state one commit away.
 
     Extracted from `_projected_field`, which computed it inline, when a second caller
-    needed it: `_record_list_rate` has to know the value that will be IN FORCE after the
+    needed it: `_record_card` has to know the value that will be IN FORCE after the
     write, and for a REVERT that is not `result.new` (which is `None`) but whatever the
     environment or the code default takes over with. Two spellings of "the projection"
     would be two answers to what the platform is about to be running.
@@ -680,12 +685,12 @@ def _projected_overrides(result: WriteResult) -> dict[str, Any]:
     return overrides
 
 
-async def _record_list_rate(
+async def _record_card(
     session: AsyncSession, result: WriteResult, *, actor_id: UUID, reason: str
 ) -> None:
-    """Date the self-serve list price, in the same transaction as the setting it dates.
+    """Date the CARD in force, in the same transaction as the setting that triggered it.
 
-    **WHY A SECOND STORE FOR ONE NUMBER (D-492).** `platform_settings` is keyed by `key`:
+    **WHY A SECOND STORE FOR A PRICE (D-492).** `platform_settings` is keyed by `key`:
     changing `self_serve_inr_per_min` OVERWRITES the row, so the store that holds the price
     cannot say what the price WAS. Two money readers needed exactly that — a closed month's
     statement (`billing/service.calling_revenue_inr`) and a late-settling call's wallet debit
@@ -693,14 +698,31 @@ async def _record_list_rate(
     been charged at another one. `platform_list_rates` is the effective-dated home;
     `platform_settings` keeps its job, which is what the platform charges RIGHT NOW.
 
+    **AND WHY IT WRITES TWELVE ROWS NOW, NOT ONE (D-547).** The self-serve price is no
+    longer one number: it is six packs x two voices (`billing/credit_packs.PACK_CATALOGUE`),
+    and Phase B freezes a purchase's rates onto its lot from the card in force at that
+    instant. So the thing that has to acquire a valid time is the whole card, written under
+    ONE `effective_from` (`list_rates.record_card` argues why one instant matters). The
+    legacy `self_serve_inr_per_min` row is written alongside it, still holding the setting's
+    projected value, because every reader of `self_serve_rate_at` is still live (plan §10).
+
+    **THE MARGIN IS PREVIEWED, AND A BAD CARD IS REFUSED BEFORE ANYTHING IS WRITTEN.**
+    Twelve verdicts are computed (`credit_packs.card_margins`) and logged — thin rows at
+    `warning`, the rest at `info` — so the operator who pressed Save has the number beside
+    the act, and `card_refusals` is the veto: a rate below its voice's cost floor, or a card
+    that breaks invariant 6, raises a `ProblemError` and the transaction carries nothing.
+    Today the card is a code constant, so a refusal here means CI's own pack guard was
+    bypassed — which is the point of a second gate at the write path rather than only at the
+    build: `admin/routes.py` applies exactly this posture to a committed bundle's rates.
+
     Written HERE rather than inside `set_value`/`clear_value` because those are the generic
     config writers and this is a fact about one key; and on the caller's session, so the
     price and the record of when it changed commit together or neither does.
 
-    THE VALUE RECORDED IS THE PROJECTION, NOT `result.new`. A revert leaves no row and its
-    `new` is `None`, but the platform still starts charging something — whatever the
-    environment or the code default takes over with — and that is the figure a month
-    rendered afterwards has to resolve.
+    THE VALUE RECORDED FOR THE LEGACY KEY IS THE PROJECTION, NOT `result.new`. A revert
+    leaves no row and its `new` is `None`, but the platform still starts charging something
+    — whatever the environment or the code default takes over with — and that is the figure
+    a month rendered afterwards has to resolve.
 
     A NO-OP RECORDS NOTHING, for the reason `_audit` skips one: a double-clicked Save must
     not put two price changes into an append-only history that cannot be corrected by an
@@ -708,11 +730,37 @@ async def _record_list_rate(
     """
     if result.key != SELF_SERVE_PER_MIN or not result.recorded:
         return
+    refusals = card_refusals(PACK_CATALOGUE)
+    if refusals:
+        raise ProblemError(
+            kind="conflict",
+            code="rate_card_below_floor",
+            title="The rate card cannot be published",
+            detail=(
+                "Calevate refused to record this rate card because it would sell minutes "
+                "below what they cost: " + "; ".join(refusals)
+            ),
+        )
+    for pack_id, voice, verdict in card_margins(PACK_CATALOGUE):
+        log.log(
+            logging.WARNING if verdict.below_target else logging.INFO,
+            "rate_card_margin_preview",
+            extra={
+                "pack_id": pack_id,
+                "voice_tier": voice,
+                # Rates and margins are money-shaped and go out as strings for hard rule 7's
+                # reason: a float in a log line is a float somebody quotes back.
+                "inr_per_min": str(verdict.rate),
+                "cost_floor_inr_per_min": str(verdict.cost),
+                "gross_margin": None if verdict.margin is None else str(verdict.margin),
+                "below_target": verdict.below_target,
+            },
+        )
     settings, _ = project(_projected_overrides(result))
-    await record_list_rate(
+    await record_card(
         session,
-        rate_key=SELF_SERVE_PER_MIN,
-        inr_amount=settings.self_serve_inr_per_min,
+        card=PACK_CATALOGUE,
+        self_serve_inr_per_min=settings.self_serve_inr_per_min,
         recorded_by=actor_id,
         note=reason,
     )

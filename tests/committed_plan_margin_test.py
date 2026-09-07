@@ -43,8 +43,17 @@ def test_gross_margin_is_the_fraction_of_a_retail_rupee_that_is_not_cost() -> No
 
 
 def test_a_committed_rate_is_the_fee_divided_by_the_minutes_it_buys() -> None:
-    m = committed_plan_margin(monthly_fee=Decimal("10000.00"), included_min=2000, overage_rate=None)
-    assert m.effective_committed_rate == Decimal("5.00")
+    """The arithmetic, at a fee DERIVED from the floor rather than typed.
+
+    ⚠ It used to be a flat ₹10,000 / 2,000 min = ₹5.00, chosen because ₹5.00 cleared the
+    then-₹3.70 floor comfortably. D-547 re-derived the floor without telephony and it rose
+    to ₹4.1211 — at which ₹5.00 is only 17.6% and this test's `below_target() == ()` became
+    false. The fee is now struck at `AT_TARGET`, so the assertion is about the DIVISION and
+    the verdict, and it survives the next floor move too.
+    """
+    fee = (AT_TARGET * 2000).quantize(Decimal("0.01"))
+    m = committed_plan_margin(monthly_fee=fee, included_min=2000, overage_rate=None)
+    assert m.effective_committed_rate == fee / 2000
     assert m.below_cost() == ()
     assert m.below_target() == ()
     # No overage was set, so there is nothing to judge — not a zero-rupee overage.
@@ -100,9 +109,12 @@ def test_a_margin_exactly_at_the_target_clears_it() -> None:
 
 
 def test_a_thin_but_profitable_rate_is_warned_not_refused() -> None:
-    # ₹4.00/min: above the ₹3.70 cost, but only ~7.5% margin — a deliberate founder call,
-    # so it is surfaced rather than blocked.
-    m = committed_plan_margin(monthly_fee=Decimal("4000.00"), included_min=1000, overage_rate=None)
+    """A rate a whisker over the floor: above cost, well under the target, so it is
+    surfaced rather than blocked. DERIVED from the floor (+1 paise) rather than typed at
+    ₹4.00, which stopped being 'thin' and became 'below cost' when D-547 re-derived the
+    floor upward — the exact drift a literal cost in a test cannot notice."""
+    thin = SELF_SERVE_COST_FLOOR_INR_PER_MIN + Decimal("0.01")
+    m = committed_plan_margin(monthly_fee=thin * 1000, included_min=1000, overage_rate=None)
     assert m.below_cost() == ()
     assert m.below_target() == ("committed",)
 
@@ -142,7 +154,7 @@ def test_a_free_minute_is_a_loss_with_no_margin_to_display() -> None:
 
 def test_the_cost_basis_and_target_are_arguments_so_a_case_can_be_pinned() -> None:
     """The guard re-scores when the cost model moves, and a test can pin an exact case
-    without reaching into module state — the pattern `pack_gross_margin_ratio` set."""
+    without reaching into module state — the pattern `credit_packs.pack_rate_margin` keeps."""
     m = committed_plan_margin(
         monthly_fee=Decimal("4000.00"),
         included_min=1000,

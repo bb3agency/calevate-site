@@ -23,9 +23,13 @@ Three surfaces, three routers, because they have nothing in common but the money
   and the margin guard together or fails CI. Declared in `rbac.PUBLIC_PREFIXES` and in
   `scripts/check_public_routes.UNAUTHENTICATED_ROUTES`, its own `public_read` rate
   profile, and a `Cache-Control` that lets the edge and the site's server hold it for a
-  minute — the list rate is a LIVE console setting (`self_serve_inr_per_min`), so a
-  minute is the honest window: long enough that a burst of page views is not a burst of
-  API calls, short enough that an operator's change is what the site shows next.
+  minute. ⚠ **THAT WINDOW USED TO BE JUSTIFIED BY THE LIST RATE BEING A LIVE CONSOLE
+  SETTING, AND IT IS NOT ONE ANY MORE (D-547).** Every rate on this card now comes from
+  the STATIC catalogue — six packs x two voices — so the body changes only on a deploy,
+  and a minute is simply a cheap cache of a constant. `self_serve_inr_per_min` survives as
+  a readable setting and as `SELF_SERVE_PER_MIN`'s dated row (plan §10); it no longer
+  prices anything on this card, which is why `list_rate_inr_per_min` below is the
+  `starter` pack's Sarvam rate rather than the setting.
 
 **What is honestly unfinished is marked as such.** Since D-98 the intent DOES create the
 provider-side order — `RazorpayOrders.create_order`, a real `POST /v1/orders` — but only
@@ -72,7 +76,6 @@ from apps.api.billing.credit_packs import (
     PACK_CATALOGUE,
     CreditPack,
     pack_by_id,
-    pack_effective_rate_inr_per_min,
     pack_talk_time_minutes,
 )
 from apps.api.billing.payments import (
@@ -106,7 +109,7 @@ from apps.api.billing.payments import (
     verify_checkout_signature,
     verify_signature,
 )
-from apps.api.billing.rates import MONEY_Q, PREPAID_TIERS, ROUNDING
+from apps.api.billing.rates import MONEY_Q, PREPAID_TIERS, ROUNDING, VoiceTier
 from apps.api.billing.service import get_balance, plan_tier_of, to_paise
 from apps.api.billing.wallet import record_attempt, settle_attempt
 from apps.api.compliance.audit import write_audit
@@ -288,44 +291,69 @@ class CreditPackOut(Strict):
     STRING (hard rule 7) and stays one to the DOM — nothing here is a JSON number a browser
     would parse back through a float.
 
-    The EFFECTIVE RATE and TALK TIME are derived server-side from the live list rate and the
-    catalogue, so the table a client sees and the credits the receiver grants come from one
-    source and cannot drift.
+    TWO RATES AND TWO TALK TIMES (D-547): what a minute costs depends on the voice the
+    AGENT that takes the call speaks with, so a pack quotes both and the client picks per
+    agent. Everything is derived server-side from the static catalogue, so the table a
+    client sees and the rates a purchase freezes come from one source and cannot drift.
     """
 
     pack_id: str
     #: What the client pays (2dp), equal to the paid credits granted (1 credit = ₹1).
     amount_inr: Decimal
     paid_credits: Decimal
-    #: The volume bonus in credits (₹1 each) — the "free" column.
+    #: DEPRECATED (D-547, removed next release): always "0.00". Packs no longer grant bonus
+    #: credits — a bigger pack buys a cheaper minute instead. Read `sarvam_inr_per_min` /
+    #: `cartesia_inr_per_min`. Still emitted through `to_paise` at 2dp, the precision it has
+    #: always had on this wire: a deprecated field that changed shape would break the reader
+    #: it exists to keep working.
     bonus_credits: Decimal
+    #: Everything the wallet receives. Equal to `paid_credits` now that no pack bonuses.
     total_credits: Decimal
-    #: The volume bonus as a percent, e.g. "8".
+    #: DEPRECATED (D-547, removed next release): always "0". See `bonus_credits`.
     bonus_pct: Decimal
-    #: The price the client actually pays per minute on this pack, at rate precision (4dp,
-    #: NUMERIC(12,4)) — a RATE, not a rupee amount, so it is not rounded to paise (the
-    #: distinction `billing.service.rate_to_display` makes).
+    #: ₹/min on the Sarvam (Bulbul v3) voice, at rate precision (4dp, NUMERIC(12,4)) — a
+    #: RATE, not a rupee amount, so it is not rounded to paise (the distinction
+    #: `billing.service.rate_to_display` makes).
+    sarvam_inr_per_min: Decimal
+    #: ₹/min on the Cartesia (Sonic 3.5) voice. Never below `sarvam_inr_per_min`.
+    cartesia_inr_per_min: Decimal
+    #: Whole minutes the credits buy on the Sarvam voice, floored (you do not get a partial
+    #: minute, and rounding UP would advertise talk time the credits do not cover). A
+    #: display estimate, not a billed figure.
+    sarvam_minutes: int
+    #: The same on the Cartesia voice. Always the smaller of the two.
+    cartesia_minutes: int
+    #: DEPRECATED (D-547, removed next release): equal to `sarvam_inr_per_min`. It was the
+    #: bonus-derived effective rate; there is no single "effective rate" for a pack any
+    #: more, and this holds the cheaper of the two so an unmigrated reader under-quotes
+    #: rather than over-quotes.
     effective_rate_inr_per_min: Decimal
-    #: Whole minutes of calling the pack's credits buy at the list rate, floored (you do not
-    #: get a partial minute). A display estimate, not a billed figure.
+    #: DEPRECATED (D-547, removed next release): equal to `sarvam_minutes`.
     talk_time_minutes: int
     #: The single "best value" badge.
     best_value: bool
 
 
 class CreditPacksOut(Strict):
-    """The pack rate card. `list_rate_inr_per_min` is published beside the packs so the
-    screen can show what a minute lists at (and, on the 0%-bonus pack, that the effective
-    rate equals it) without a second source of the number."""
+    """The pack rate card: six packs, each with a Sarvam and a Cartesia ₹/min.
 
+    The "from" figures are DERIVED MINIMA over the rows below, never typed, so the site
+    cannot lead with a rate no pack delivers — the rule that survives D-547 unchanged.
+    """
+
+    #: What a minute lists at: the `starter` pack's Sarvam rate, ₹5.00. ⚠ It used to be the
+    #: live `self_serve_inr_per_min` setting; since D-547 the card is static and this is the
+    #: entry rung of it. The setting still exists and still dates a row
+    #: (`billing/list_rates.SELF_SERVE_PER_MIN`), and it no longer prices this card.
     list_rate_inr_per_min: Decimal
-    #: The LOWEST effective rate on the card — the number the marketing site leads with as
-    #: "from ₹X/min" — at rate precision (4dp), derived by the same function that prices
-    #: every row so it cannot name a rate no pack delivers. The founder's decision of
-    #: 5 Sep 2026: the list rate stays where it is and the site leads with what the packs
-    #: already deliver, because cutting the list rate would have put four of five packs
-    #: under `MIN_GROSS_MARGIN`. A derived minimum, never a typed one.
+    #: DEPRECATED (D-547, removed next release): equal to `from_sarvam_inr_per_min`. A
+    #: single "from" rate cannot describe a two-voice card; it holds the cheaper voice so an
+    #: unmigrated reader under-quotes rather than over-quotes.
     from_inr_per_min: Decimal
+    #: The lowest Sarvam rate any pack delivers — the marketing site's "from ₹X/min".
+    from_sarvam_inr_per_min: Decimal
+    #: The lowest Cartesia rate any pack delivers.
+    from_cartesia_inr_per_min: Decimal
     packs: list[CreditPackOut]
 
 
@@ -400,10 +428,23 @@ async def read_topup_capability(_principal: TopUpRead) -> TopUpCapabilityOut:
     )
 
 
-def _pack_out(pack: CreditPack, *, list_rate: Decimal) -> CreditPackOut:
-    """Price one pack for the table, from the live list rate. The effective rate and talk
-    time are derived here — never in the browser — so the money arithmetic lives in the one
-    language with an exact decimal type."""
+def _floored_minutes(pack: CreditPack, voice: VoiceTier) -> int:
+    """Whole minutes this pack buys on one voice.
+
+    Floored, never rounded: a client does not buy a fraction of a minute, and rounding UP
+    would advertise talk time the credits do not cover.
+    """
+    return int(
+        pack_talk_time_minutes(pack, voice=voice).quantize(Decimal("1"), rounding=ROUND_DOWN)
+    )
+
+
+def _pack_out(pack: CreditPack) -> CreditPackOut:
+    """Price one pack for the table, from the static catalogue. Every derivation happens
+    here — never in the browser — so the money arithmetic lives in the one language with an
+    exact decimal type."""
+    sarvam = pack.sarvam_inr_per_min.quantize(MONEY_Q, rounding=ROUNDING)
+    sarvam_minutes = _floored_minutes(pack, "sarvam")
     return CreditPackOut(
         pack_id=pack.pack_id,
         amount_inr=to_paise(pack.amount_inr),
@@ -411,18 +452,14 @@ def _pack_out(pack: CreditPack, *, list_rate: Decimal) -> CreditPackOut:
         bonus_credits=to_paise(pack.bonus_credits),
         total_credits=to_paise(pack.total_credits),
         bonus_pct=pack.bonus_pct,
-        # A rate, kept at NUMERIC(12,4): rounding it to paise would break the client's only
+        # Rates stay at NUMERIC(12,4): rounding one to paise would break the client's only
         # arithmetic on it (rate x minutes), the reason `rate_to_display` exists.
-        effective_rate_inr_per_min=pack_effective_rate_inr_per_min(
-            pack, list_rate=list_rate
-        ).quantize(MONEY_Q, rounding=ROUNDING),
-        # Floored to whole minutes: a client does not buy a fraction of a minute, and
-        # rounding UP would advertise talk time the credits do not cover.
-        talk_time_minutes=int(
-            pack_talk_time_minutes(pack, list_rate=list_rate).quantize(
-                Decimal("1"), rounding=ROUND_DOWN
-            )
-        ),
+        sarvam_inr_per_min=sarvam,
+        cartesia_inr_per_min=pack.cartesia_inr_per_min.quantize(MONEY_Q, rounding=ROUNDING),
+        sarvam_minutes=sarvam_minutes,
+        cartesia_minutes=_floored_minutes(pack, "cartesia"),
+        effective_rate_inr_per_min=sarvam,
+        talk_time_minutes=sarvam_minutes,
         best_value=pack.best_value,
     )
 
@@ -431,35 +468,44 @@ def _pack_out(pack: CreditPack, *, list_rate: Decimal) -> CreditPackOut:
     "/packs",
     response_model=CreditPacksOut,
     openapi_extra=permission_meta("billing:read"),
-    summary="The prepaid credit-pack rate card, priced at the live list rate",
+    summary="The prepaid credit-pack rate card: two per-minute rates on every pack",
     description=(
         "The static pack catalogue (`billing/credit_packs.py`), each pack priced for "
-        "display: paid + bonus credits, the effective per-minute rate, and the talk time "
-        "the credits buy. Selecting a pack starts a top-up intent with its `pack_id`."
+        "display: the credits, the Sarvam and Cartesia per-minute rates, and the talk time "
+        "the credits buy on each voice. Selecting a pack starts a top-up intent with its "
+        "`pack_id`. `bonus_credits`, `bonus_pct`, `effective_rate_inr_per_min` and "
+        "`talk_time_minutes` are DEPRECATED (D-547) and go next release."
     ),
 )
 async def read_credit_packs(_principal: TopUpRead) -> CreditPacksOut:
-    """The rate card, priced at whatever `self_serve_inr_per_min` currently is — the same
-    value calls are billed at, so the effective rates shown are the ones a client will
-    actually get. No tenant state is read; the catalogue is the same for everyone — which
-    is why the public route below answers with the identical body."""
-    return rate_card_out(get_settings().self_serve_inr_per_min)
+    """The rate card, straight off the static catalogue — the same rates a purchase will
+    freeze on its lot, so what a client is shown is what they get. No tenant state is read;
+    the catalogue is the same for everyone — which is why the public route below answers
+    with the identical body."""
+    return rate_card_out()
 
 
-def rate_card_out(list_rate: Decimal) -> CreditPacksOut:
+def rate_card_out() -> CreditPacksOut:
     """THE ONE PLACE THE RATE CARD IS PRICED FOR A READER. Both the authenticated `/packs`
     read and the public `/v1/public/rate-card` read call this, so the two surfaces cannot
     disagree about a rate, and `tests/public_rate_card_test.py` pins every row against
-    `pack_effective_rate_inr_per_min` directly — the function the margin guard scores.
+    `PACK_CATALOGUE` directly — the tuple the margin guard scores.
 
-    `from_inr_per_min` is the minimum over the priced rows rather than a closed-form
-    `list_rate / (1 + max_bonus)`: the rows already reflect the real grant, rounding and
-    all, and the "from" figure must be one a pack actually delivers.
+    NO ARGUMENT ANY MORE (D-547). It used to take the live `self_serve_inr_per_min` and
+    derive every row from it; the rates are now the catalogue's own, so passing anything in
+    would be passing a number this function must not use. `list_rate_inr_per_min` is the
+    `starter` pack's Sarvam rate — the entry rung, which is what "list rate" always meant.
+
+    The two "from" figures are minima over the priced rows rather than over the catalogue,
+    so a rate that quantization moved is the rate the site leads with.
     """
-    packs = [_pack_out(pack, list_rate=list_rate) for pack in PACK_CATALOGUE]
+    packs = [_pack_out(pack) for pack in PACK_CATALOGUE]
+    from_sarvam = min(pack.sarvam_inr_per_min for pack in packs)
     return CreditPacksOut(
-        list_rate_inr_per_min=to_paise(list_rate),
-        from_inr_per_min=min(pack.effective_rate_inr_per_min for pack in packs),
+        list_rate_inr_per_min=packs[0].sarvam_inr_per_min,
+        from_inr_per_min=from_sarvam,
+        from_sarvam_inr_per_min=from_sarvam,
+        from_cartesia_inr_per_min=min(pack.cartesia_inr_per_min for pack in packs),
         packs=packs,
     )
 
@@ -469,19 +515,20 @@ def rate_card_out(list_rate: Decimal) -> CreditPacksOut:
     response_model=CreditPacksOut,
     summary="The self-serve rate card — list rate and credit packs — for the public site",
     description=(
-        "Unauthenticated and identical for everyone. The live list rate "
-        "(`self_serve_inr_per_min`), the lowest effective rate any pack delivers, and the "
-        "static pack catalogue priced at that rate: amount, bonus, effective per-minute "
-        "rate and talk time. The same builder serves the authenticated "
-        "`/v1/billing/topups/packs`. Nothing about the caller is read or returned."
+        "Unauthenticated and identical for everyone. The list rate (the entry pack's "
+        "Sarvam rate), the lowest rate any pack delivers on each voice, and the static "
+        "pack catalogue: amount, credits, both per-minute rates and both talk times. The "
+        "same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about "
+        "the caller is read or returned."
     ),
 )
 async def read_public_rate_card(response: Response) -> CreditPacksOut:
     """No principal, no tenant, no permission — deliberately, and declared as such in
-    `check_public_routes.UNAUTHENTICATED_ROUTES`. Reads one live setting and a code
-    constant; writes nothing; logs nothing (there is nothing about the caller to log)."""
+    `check_public_routes.UNAUTHENTICATED_ROUTES`. Reads one code constant (it used to read
+    a live setting too, until D-547 made the whole card static); writes nothing; logs
+    nothing (there is nothing about the caller to log)."""
     response.headers["Cache-Control"] = RATE_CARD_CACHE_CONTROL
-    return rate_card_out(get_settings().self_serve_inr_per_min)
+    return rate_card_out()
 
 
 @router.post(

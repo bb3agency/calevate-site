@@ -144,7 +144,9 @@ Today `tts_chars` usage rows write `qty = 1` and `unit_cost_paid = CostBreakdown
 
 Order is by dependency. Each phase ends with its tests green standalone and the ratchet's `ledgers-and-money` area at zero uncovered (`scripts/check_coverage_ratchet.py:410-428`, `tests/fixtures/coverage_baseline.json`).
 
-### Phase A — the card: per-pack rates, two voices, ₹15,000
+### Phase A — DONE (uncommitted, 7 Sep 2026)
+
+The catalogue is six packs x two rates with `plus` (₹15,000) in the ladder, the margin guard judges each rate against its own re-derived, telephony-free cost floor (Sarvam ₹4.1211 / Cartesia ₹4.3639 — the whole Sarvam column clears cost and sits under the 20% target, deliberately), `platform_list_rates` takes twelve `pack:*:*` rows per card under one `effective_from` written from the ops console behind a margin preview and a refusal, and every deprecated wire field stays at zero for one release.
 Files: `billing/credit_packs.py`, `billing/rates.py`, `billing/payment_routes.py`, `billing/list_rates.py`, `ops/config_routes.py`, tests.
 1. `CreditPack` gains `sarvam_inr_per_min`, `cartesia_inr_per_min`; loses `bonus_pct`/`bonus_credits` (kept on the wire as deprecated zero fields for one release — §10). `PACK_CATALOGUE` becomes the §2.2 table; `plus` (₹15,000) added.
 2. `CreditPackOut` gains the two rates and `talk_time_minutes` becomes a pair (`sarvam_minutes`, `cartesia_minutes`); `CreditPacksOut.list_rate_inr_per_min` stays (= `starter.sarvam`), `from_inr_per_min` becomes `from_sarvam_inr_per_min` + `from_cartesia_inr_per_min`. The OpenAPI snapshot is regenerated (`check_openapi_fresh --write`, then `pnpm -C apps/web gen:api`).

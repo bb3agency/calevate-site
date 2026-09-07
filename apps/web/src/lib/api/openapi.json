@@ -5076,7 +5076,7 @@
       },
       "CreditPackOut": {
         "additionalProperties": false,
-        "description": "One purchasable pack, priced for display. Every rupee value is an exact decimal\nSTRING (hard rule 7) and stays one to the DOM \u2014 nothing here is a JSON number a browser\nwould parse back through a float.\n\nThe EFFECTIVE RATE and TALK TIME are derived server-side from the live list rate and the\ncatalogue, so the table a client sees and the credits the receiver grants come from one\nsource and cannot drift.",
+        "description": "One purchasable pack, priced for display. Every rupee value is an exact decimal\nSTRING (hard rule 7) and stays one to the DOM \u2014 nothing here is a JSON number a browser\nwould parse back through a float.\n\nTWO RATES AND TWO TALK TIMES (D-547): what a minute costs depends on the voice the\nAGENT that takes the call speaks with, so a pack quotes both and the client picks per\nagent. Everything is derived server-side from the static catalogue, so the table a\nclient sees and the rates a purchase freezes come from one source and cannot drift.",
         "properties": {
           "amount_inr": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -5097,6 +5097,15 @@
             "title": "Bonus Pct",
             "type": "string"
           },
+          "cartesia_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cartesia Inr Per Min",
+            "type": "string"
+          },
+          "cartesia_minutes": {
+            "title": "Cartesia Minutes",
+            "type": "integer"
+          },
           "effective_rate_inr_per_min": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Effective Rate Inr Per Min",
@@ -5110,6 +5119,15 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Paid Credits",
             "type": "string"
+          },
+          "sarvam_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Sarvam Inr Per Min",
+            "type": "string"
+          },
+          "sarvam_minutes": {
+            "title": "Sarvam Minutes",
+            "type": "integer"
           },
           "talk_time_minutes": {
             "title": "Talk Time Minutes",
@@ -5128,6 +5146,10 @@
           "bonus_credits",
           "total_credits",
           "bonus_pct",
+          "sarvam_inr_per_min",
+          "cartesia_inr_per_min",
+          "sarvam_minutes",
+          "cartesia_minutes",
           "effective_rate_inr_per_min",
           "talk_time_minutes",
           "best_value"
@@ -5137,11 +5159,21 @@
       },
       "CreditPacksOut": {
         "additionalProperties": false,
-        "description": "The pack rate card. `list_rate_inr_per_min` is published beside the packs so the\nscreen can show what a minute lists at (and, on the 0%-bonus pack, that the effective\nrate equals it) without a second source of the number.",
+        "description": "The pack rate card: six packs, each with a Sarvam and a Cartesia \u20b9/min.\n\nThe \"from\" figures are DERIVED MINIMA over the rows below, never typed, so the site\ncannot lead with a rate no pack delivers \u2014 the rule that survives D-547 unchanged.",
         "properties": {
+          "from_cartesia_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "From Cartesia Inr Per Min",
+            "type": "string"
+          },
           "from_inr_per_min": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "From Inr Per Min",
+            "type": "string"
+          },
+          "from_sarvam_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "From Sarvam Inr Per Min",
             "type": "string"
           },
           "list_rate_inr_per_min": {
@@ -5160,6 +5192,8 @@
         "required": [
           "list_rate_inr_per_min",
           "from_inr_per_min",
+          "from_sarvam_inr_per_min",
+          "from_cartesia_inr_per_min",
           "packs"
         ],
         "title": "CreditPacksOut",
@@ -6283,7 +6317,7 @@
       },
       "EditTenantIn": {
         "additionalProperties": false,
-        "description": "The client's OWN details, and nothing else on the row.\n\n`extra=\"forbid\"` and exactly the fields in `service.EDITABLE_TENANT_FIELDS`.\n`status`, `plan_tier`, the closure columns and the model choice each have their own\nroute, their own permission and \u2014 for four of them \u2014 their own step-up; a\ngeneral-purpose PATCH over `organizations` would quietly become a second door to all of\nthem. `slug` is not offered because it is in client URLs and a trigger makes it\nimmutable.\n\n**D-545 ADDED `vertical_template` AND THAT IS THE WHOLE OF \"EVERYTHING EXCEPT THE\nSLUG\".** The founder's words were taken to the column list rather than to a wish-list:\n`service.EDITABLE_TENANT_FIELDS` records what walking `Organization` found, and why\nthere is no `phone` and no `language` field here to widen towards.\n\nThe BUSINESS ADDRESS is deliberately not here. It lives in the intake answer sheet\n(`organizations.intake`, `admin/intake.Branch.address`) because a business can have\nseveral branches and the agent quotes them on the call, and it is already editable from\nthe console at `POST /v1/admin/tenants/{id}/agents/{id}/intake`. A second address on\nthe organisation row would be a second answer to \"where are you\", and the one the agent\nreads would not be the one the operator just typed.",
+        "description": "The client's OWN details, and nothing else on the row.\n\n`extra=\"forbid\"` and exactly the fields in `service.EDITABLE_TENANT_FIELDS`.\n`status`, `plan_tier`, the closure columns and the model choice each have their own\nroute, their own permission and \u2014 for four of them \u2014 their own step-up; a\ngeneral-purpose PATCH over `organizations` would quietly become a second door to all of\nthem. `slug` is not offered because it is in client URLs and a trigger makes it\nimmutable.\n\n**D-546 ADDED `vertical_template` AND THAT IS THE WHOLE OF \"EVERYTHING EXCEPT THE\nSLUG\".** The founder's words were taken to the column list rather than to a wish-list:\n`service.EDITABLE_TENANT_FIELDS` records what walking `Organization` found, and why\nthere is no `phone` and no `language` field here to widen towards.\n\nThe BUSINESS ADDRESS is deliberately not here. It lives in the intake answer sheet\n(`organizations.intake`, `admin/intake.Branch.address`) because a business can have\nseveral branches and the agent quotes them on the call, and it is already editable from\nthe console at `POST /v1/admin/tenants/{id}/agents/{id}/intake`. A second address on\nthe organisation row would be a second answer to \"where are you\", and the one the agent\nreads would not be the one the operator just typed.",
         "properties": {
           "billing_email": {
             "anyOf": [
@@ -13398,6 +13432,110 @@
         "title": "NumberPurchaseIn",
         "type": "object"
       },
+      "OfferedVoiceOut": {
+        "additionalProperties": false,
+        "description": "A catalogue voice AND whether it may be chosen on this deployment right now (D-547).\n\nTHE CATALOGUE AND THE VERDICT ARE TWO FACTS AND THEY TRAVEL TOGETHER, for\n`VoiceCatalogueOut`'s own reason one level up: a caller needs the rows and the verdict\nabout them, and inferring the verdict from which rows arrived is the bug. `selectable`\non the envelope answers \"may a voice be chosen here AT ALL\" (the engine's business,\nD-93); this answers \"may THIS one\" (the platform's \u2014 a key, a price, a cap), and the two\nare independent.\n\n**A SHORTER LIST WOULD BE THE WRONG ANSWER, AND FILTERING IS EXACTLY WHAT THIS SHAPE\nPREVENTS.** A Cartesia voice that is missing from the response is indistinguishable from\na Cartesia tier this product does not sell \u2014 so the operator who pasted the key an hour\nago has no way to see that the PRICE is what is still missing, and the client who asks\nfor the premium voice is told nothing at all. Every voice is returned; `reason` says why\nan unavailable one is unavailable, in a sentence naming the one action that fixes it.\n\nA SUPERSET OF `Voice` rather than an envelope around it: the picker renders the same\nfields it always did, and the two new ones are additive on the wire.",
+        "properties": {
+          "gender": {
+            "anyOf": [
+              {
+                "enum": [
+                  "female",
+                  "male",
+                  "neutral"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gender"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "is_default": {
+            "default": false,
+            "title": "Is Default",
+            "type": "boolean"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "languages": {
+            "items": {
+              "enum": [
+                "te-IN",
+                "hi-IN",
+                "en-IN"
+              ],
+              "type": "string"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "offerable": {
+            "title": "Offerable",
+            "type": "boolean"
+          },
+          "provider": {
+            "enum": [
+              "sarvam",
+              "cartesia"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "speaker": {
+            "title": "Speaker",
+            "type": "string"
+          },
+          "tts_model": {
+            "enum": [
+              "bulbul:v3",
+              "sonic-3.5"
+            ],
+            "title": "Tts Model",
+            "type": "string"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          },
+          "verified": {
+            "default": false,
+            "title": "Verified",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "provider",
+          "tts_model",
+          "speaker",
+          "languages",
+          "note",
+          "unavailable_reason",
+          "offerable"
+        ],
+        "title": "OfferedVoiceOut",
+        "type": "object"
+      },
       "OperatorCreateIn": {
         "additionalProperties": false,
         "properties": {
@@ -19242,7 +19380,7 @@
       },
       "TenantProfileOut": {
         "additionalProperties": false,
-        "description": "A client's business record as the correction form reads it back (D-545).\n\nITS OWN ROUTE RATHER THAN A WIDER `GET /v1/admin/tenants/{id}`, and the reason is the\naddress. That endpoint is the DIRECTORY row \u2014 `service.tenant_overview` runs the same\nstatement for every account when the console lists clients \u2014 so adding `billing_email`\nto it would disclose every client's contact address on the roster, on the detail screen\nand in the copilot's surface facts, to serve one form. One tenant, one read, recorded\nas an impersonation read because a business's contact address is that business's own\ndata (D-482 L-1).\n\n`slug` is here and is NOT editable, deliberately: the form shows it greyed with the\nreason beside it, because a field an operator cannot find is a field they will ask\nabout, and \"it is in every URL your client has bookmarked\" is the answer.",
+        "description": "A client's business record as the correction form reads it back (D-546).\n\nITS OWN ROUTE RATHER THAN A WIDER `GET /v1/admin/tenants/{id}`, and the reason is the\naddress. That endpoint is the DIRECTORY row \u2014 `service.tenant_overview` runs the same\nstatement for every account when the console lists clients \u2014 so adding `billing_email`\nto it would disclose every client's contact address on the roster, on the detail screen\nand in the copilot's surface facts, to serve one form. One tenant, one read, recorded\nas an impersonation read because a business's contact address is that business's own\ndata (D-482 L-1).\n\n`slug` is here and is NOT editable, deliberately: the form shows it greyed with the\nreason beside it, because a field an operator cannot find is a field they will ask\nabout, and \"it is in every URL your client has bookmarked\" is the answer.",
         "properties": {
           "billing_email": {
             "anyOf": [
@@ -21439,62 +21577,22 @@
             "type": "string"
           },
           "provider": {
-            "const": "sarvam",
+            "enum": [
+              "sarvam",
+              "cartesia"
+            ],
             "title": "Provider",
             "type": "string"
           },
           "speaker": {
-            "enum": [
-              "anushka",
-              "abhilash",
-              "manisha",
-              "vidya",
-              "arya",
-              "karun",
-              "hitesh",
-              "aditya",
-              "ritu",
-              "priya",
-              "neha",
-              "rahul",
-              "pooja",
-              "rohan",
-              "simran",
-              "kavya",
-              "amit",
-              "dev",
-              "ishita",
-              "shreya",
-              "ratan",
-              "varun",
-              "manan",
-              "sumit",
-              "roopa",
-              "kabir",
-              "aayan",
-              "shubh",
-              "ashutosh",
-              "advait",
-              "anand",
-              "tanya",
-              "tarun",
-              "sunny",
-              "mani",
-              "gokul",
-              "vijay",
-              "shruti",
-              "suhani",
-              "mohit",
-              "kavitha",
-              "rehan",
-              "soham",
-              "rupali"
-            ],
             "title": "Speaker",
             "type": "string"
           },
           "tts_model": {
-            "const": "bulbul:v3",
+            "enum": [
+              "bulbul:v3",
+              "sonic-3.5"
+            ],
             "title": "Tts Model",
             "type": "string"
           },
@@ -21534,7 +21632,7 @@
           },
           "voices": {
             "items": {
-              "$ref": "#/components/schemas/Voice"
+              "$ref": "#/components/schemas/OfferedVoiceOut"
             },
             "title": "Voices",
             "type": "array"
@@ -27293,7 +27391,7 @@
     },
     "/v1/agents/voices": {
       "get": {
-        "description": "Static data plus one capability read: no DB, no network, no tenant scoping.\n\nClient-realm readable on purpose \u2014 a client is legally the Principal Entity and\nshould be able to see what their own agent sounds like, exactly as they can read\nits disclosure line (`AgentOut.disclosure_line`). `requires()` defaults to\n`realm=\"any\"`, so an admin (including one impersonating, since this is a read) gets\nthe same answer \u2014 one catalog, no realm-specific truth.\n\nEntries carry `verified: false` until the Bolna pilot confirms each string is\nselectable (OPERATIONS \u00a72 gate 3); render that, do not hide it.\n\nThe capability read is the SAME selector `set_agent_voice` uses, and that is the whole\npoint: this endpoint is what the picker is built from, so if the two could disagree\nthe console would offer precisely the choice the write refuses.",
+        "description": "The catalogue, plus one capability read and \u2014 only when it could decide anything \u2014\none platform-wide count.\n\nClient-realm readable on purpose \u2014 a client is legally the Principal Entity and\nshould be able to see what their own agent sounds like, exactly as they can read\nits disclosure line (`AgentOut.disclosure_line`). `requires()` defaults to\n`realm=\"any\"`, so an admin (including one impersonating, since this is a read) gets\nthe same answer \u2014 one catalog, no realm-specific truth.\n\nEntries carry `verified: false` until the Bolna pilot confirms each string is\nselectable (OPERATIONS \u00a72 gate 3); render that, do not hide it.\n\n\u26a0 **\"NO DB, NO NETWORK\" USED TO BE THE FIRST LINE OF THIS DOCSTRING AND IS NO LONGER\nTRUE, WHICH IS WHY IT SAYS SO.** The Cartesia agent cap (D-547 \u00a70 Q10) is a count of\nlive Cartesia agents across every tenant, and a count is a query.\n`voice_offer.offered_catalogue()` measures it ONLY when the two cheap grounds have\nalready passed and the catalogue actually holds a Cartesia voice \u2014 which today, with the\nCartesia entries empty (`voices.CARTESIA_CATALOG_SOURCE`), is never. So this endpoint is\nstill static in practice, and stops being so exactly when the cap starts mattering.\n\nThe capability read is the SAME selector `set_agent_voice` uses, and that is the whole\npoint: this endpoint is what the picker is built from, so if the two could disagree\nthe console would offer precisely the choice the write refuses.",
         "operationId": "list_voices_v1_agents_voices_get",
         "responses": {
           "200": {
@@ -27313,7 +27411,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The voices an agent may speak in (client-readable; one Bulbul v3 quality)",
+        "summary": "The voices an agent may speak in, each with its availability (client-readable)",
         "tags": [
           "agents"
         ],
@@ -29851,7 +29949,7 @@
     },
     "/v1/billing/topups/packs": {
       "get": {
-        "description": "The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: paid + bonus credits, the effective per-minute rate, and the talk time the credits buy. Selecting a pack starts a top-up intent with its `pack_id`.",
+        "description": "The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: the credits, the Sarvam and Cartesia per-minute rates, and the talk time the credits buy on each voice. Selecting a pack starts a top-up intent with its `pack_id`. `bonus_credits`, `bonus_pct`, `effective_rate_inr_per_min` and `talk_time_minutes` are DEPRECATED (D-547) and go next release.",
         "operationId": "read_credit_packs_v1_billing_topups_packs_get",
         "responses": {
           "200": {
@@ -29871,7 +29969,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "The prepaid credit-pack rate card, priced at the live list rate",
+        "summary": "The prepaid credit-pack rate card: two per-minute rates on every pack",
         "tags": [
           "billing"
         ],
@@ -36372,7 +36470,7 @@
     },
     "/v1/public/rate-card": {
       "get": {
-        "description": "Unauthenticated and identical for everyone. The live list rate (`self_serve_inr_per_min`), the lowest effective rate any pack delivers, and the static pack catalogue priced at that rate: amount, bonus, effective per-minute rate and talk time. The same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about the caller is read or returned.",
+        "description": "Unauthenticated and identical for everyone. The list rate (the entry pack's Sarvam rate), the lowest rate any pack delivers on each voice, and the static pack catalogue: amount, credits, both per-minute rates and both talk times. The same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about the caller is read or returned.",
         "operationId": "read_public_rate_card_v1_public_rate_card_get",
         "responses": {
           "200": {

@@ -32,7 +32,7 @@ import httpx
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import payments
-from apps.api.billing.credit_packs import pack_by_id
+from apps.api.billing.credit_packs import CreditPack
 from apps.api.billing.payment_routes import (
     CheckoutCallbackIn,
     RefundIn,
@@ -996,9 +996,40 @@ def _refund_by_amount(prefix: str = "rfnd_AMT") -> Any:
     return responder
 
 
+#: A PRE-D-547 pack — two rates AND a 3% bonus. No catalogue pack carries a bonus any more
+#: (the discount is the pack's per-minute rates), but `_grant_pack_bonus` and its refund
+#: clawback stay in `billing/payments.py` for one release (hard rule 8's two-step, plan
+#: §10) and the rows they wrote are on an append-only ledger forever. So the clawback tests
+#: below drive a SYNTHETIC legacy pack rather than a live one; anything that fires for a
+#: real pack today is a defect, which `tests/credit_packs_test.py` asserts separately.
+LEGACY_BONUS_PACK = CreditPack(
+    pack_id="growth",
+    amount_inr=Decimal("5000"),
+    sarvam_inr_per_min=Decimal("5.00"),
+    cartesia_inr_per_min=Decimal("7.00"),
+    bonus_pct=Decimal("3"),
+)
+
+
+@pytest.fixture
+def legacy_bonus(monkeypatch: pytest.MonkeyPatch) -> CreditPack:
+    """Make `growth` a bonus-bearing pack again for the crediting and refund paths only.
+
+    `payments.py` imports `pack_by_id` by name, so the patch is on the payments module's own
+    binding: the catalogue itself is untouched and every other assertion in this file reads
+    the real card.
+    """
+    monkeypatch.setattr(
+        payments,
+        "pack_by_id",
+        lambda pack_id: LEGACY_BONUS_PACK if pack_id == LEGACY_BONUS_PACK.pack_id else None,
+    )
+    return LEGACY_BONUS_PACK
+
+
 async def _fund_pack(tenant_id: UUID, *, payment_id: str, pack_id: str) -> None:
-    """A pack purchase: paid credits plus the bonus, exactly as the webhook credits one."""
-    pack = pack_by_id(pack_id)
+    """A pack purchase, exactly as the webhook credits one."""
+    pack = payments.pack_by_id(pack_id)
     assert pack is not None
     payment = payments.CapturedPayment(
         payment_id=payment_id,
@@ -1073,13 +1104,14 @@ async def test_the_remaining_part_of_a_payment_is_still_refundable(
 
 async def test_a_full_refund_of_a_pack_takes_the_bonus_back_too(
     monkeypatch: pytest.MonkeyPatch,
+    legacy_bonus: CreditPack,
 ) -> None:
     """A pack grants paid credits plus a bonus we fund. Reversing the purchase reverses
     both, or the wallet keeps talk time nobody paid for."""
     tenant_id = await _tenant()
     pid = _payment_id("PACK")
-    pack = pack_by_id("growth")
-    assert pack is not None and pack.bonus_credits > 0
+    pack = legacy_bonus
+    assert pack.bonus_credits > 0
     await _fund_pack(tenant_id, payment_id=pid, pack_id="growth")
     assert await _balance(tenant_id) == pack.total_credits
     _install_refund(monkeypatch, _refund_by_amount("rfnd_PACK"))
@@ -1093,13 +1125,13 @@ async def test_a_full_refund_of_a_pack_takes_the_bonus_back_too(
 
 async def test_a_partial_refund_of_a_pack_takes_back_that_share_of_the_bonus(
     monkeypatch: pytest.MonkeyPatch,
+    legacy_bonus: CreditPack,
 ) -> None:
     """Half the purchase back, half the bonus back — and the second half later, once,
     with the two clawbacks summing to exactly the bonus granted."""
     tenant_id = await _tenant()
     pid = _payment_id("PACKHALF")
-    pack = pack_by_id("growth")
-    assert pack is not None
+    pack = legacy_bonus
     await _fund_pack(tenant_id, payment_id=pid, pack_id="growth")
     _install_refund(monkeypatch, _refund_by_amount("rfnd_HALF"))
 

@@ -1262,25 +1262,42 @@ def stale_deferrals(root: Path | None = None, deferrals: dict[str, str] | None =
 TRD = REPO_ROOT / "docs" / "TRD.md"
 TTS_RATE_HEADING = "### 10.1 Stack cost, computed from published rates"
 
-#: `| Text-to-Speech **Bulbul v3** | ₹30 / 10,000 chars |` — the vendor's own unit.
-#: ONLY v3 matches: the single-tier voice decision withdrew the v2 "value" rung, so a
-#: lingering `Bulbul v2` row in the doc is drift the check should NOT accidentally
+#: The product name a §10.1 TTS row is a claim about: `Bulbul v3` or `Sonic 3.5`, however
+#: the row bolds it. TWO RUNGS SINCE D-547, and they are two different VENDORS rather than
+#: two qualities of one — `Bulbul v2`, the withdrawn "value" rung of the old ladder, still
+#: matches nothing here, so a lingering v2 row in the doc stays drift the check refuses to
 #: reconcile against a code rate that no longer exists.
+_TTS_PRODUCT = r"(?:Bulbul\s*\*{0,2}v3|Sonic\s*\*{0,2}3\.5)"
+#: `| Text-to-Speech **Bulbul v3** | ₹30 / 10,000 chars |` — the vendor's own unit. The
+#: rate may sit in ANY later cell of the row, not only the next one: the Cartesia card
+#: carries the plan terms in between (`$49 / month, 1,250,000 credits`), and a pattern that
+#: demanded the adjacent cell would have silently read that row as stating no rate — the
+#: exact blindness `blind_spots()` exists to catch, arriving one column over.
 _DOC_TTS_10K = re.compile(
-    r"\|[^|\n]*Bulbul\s*\*{0,2}(v3)\*{0,2}[^|\n]*\|[^|\n]*?₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*/\s*10,?000\s*chars",
+    rf"\|[^|\n]*({_TTS_PRODUCT})\*{{0,2}}[^|\n]*\|[^\n]*?₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*/\s*10,?000\s*chars",
     re.IGNORECASE,
 )
 #: `| TTS — Bulbul **v3** | ₹3.00 / 1,000 chars | ... |` — the same rate, per 1,000.
 _DOC_TTS_1K = re.compile(
-    r"\|[^|\n]*Bulbul\s*\*{0,2}(v3)\*{0,2}[^|\n]*\|[^|\n]*?₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*/\s*1,?000\s*chars",
+    rf"\|[^|\n]*({_TTS_PRODUCT})\*{{0,2}}[^|\n]*\|[^\n]*?₹\s*([0-9][0-9,]*(?:\.[0-9]+)?)\s*/\s*1,?000\s*chars",
     re.IGNORECASE,
 )
 
-#: Which code key each doc row is a claim about. There is ONE voice quality (the
-#: single-tier voice decision) — the doc names the VENDOR's product (Bulbul v3) and the
-#: code holds one scalar rate — so the mapping is a single entry, stated once here rather
-#: than assumed by either side.
-TTS_DOC_ROW_TO_TIER: dict[str, str] = {"v3": "bulbul-v3"}
+#: Which code key each doc row is a claim about, keyed by the row's product name with its
+#: markdown bold and whitespace normalised away (`_tts_row_key`). TWO ENTRIES since D-547:
+#: the doc names the VENDOR's product, the code holds one constant per vendor, and the
+#: mapping between them is stated once here rather than assumed by either side.
+TTS_DOC_ROW_TO_TIER: dict[str, str] = {"bulbulv3": "bulbul-v3", "sonic3.5": "sonic-3.5"}
+
+
+def _tts_row_key(product: str) -> str:
+    """`**Bulbul** v3` / `Bulbul **v3**` / `Sonic 3.5` → the `TTS_DOC_ROW_TO_TIER` key.
+
+    Bold markers and whitespace are stripped rather than matched, because §10.1 bolds the
+    version in one table and the whole name in another, and a regex that encoded which is
+    which would fail on a reword that changed nothing about the price.
+    """
+    return product.replace("*", "").replace(" ", "").lower()
 
 
 def _decimal(text: str) -> Decimal:
@@ -1301,10 +1318,10 @@ def doc_tts_rates(text: str | None = None) -> dict[str, Decimal]:
     if body is None:
         return {}
     rates: dict[str, Decimal] = {}
-    for version, amount in _DOC_TTS_10K.findall(body):
-        rates[TTS_DOC_ROW_TO_TIER[version.lower()]] = _decimal(amount)
-    for version, amount in _DOC_TTS_1K.findall(body):
-        rates.setdefault(TTS_DOC_ROW_TO_TIER[version.lower()], _decimal(amount) * 10)
+    for product, amount in _DOC_TTS_10K.findall(body):
+        rates[TTS_DOC_ROW_TO_TIER[_tts_row_key(product)]] = _decimal(amount)
+    for product, amount in _DOC_TTS_1K.findall(body):
+        rates.setdefault(TTS_DOC_ROW_TO_TIER[_tts_row_key(product)], _decimal(amount) * 10)
     return rates
 
 
@@ -1314,31 +1331,37 @@ def doc_tts_rate_disagreements(text: str | None = None) -> list[str]:
     body = _section(document, TTS_RATE_HEADING, "\n### ")
     if body is None:
         return []
-    per_10k = {v.lower(): _decimal(a) for v, a in _DOC_TTS_10K.findall(body)}
-    per_1k = {v.lower(): _decimal(a) * 10 for v, a in _DOC_TTS_1K.findall(body)}
+    per_10k = {_tts_row_key(p): _decimal(a) for p, a in _DOC_TTS_10K.findall(body)}
+    per_1k = {_tts_row_key(p): _decimal(a) * 10 for p, a in _DOC_TTS_1K.findall(body)}
     return [
-        f"{_rel(TRD)} §10.1 prices Bulbul {version} at ₹{per_10k[version]}/10,000 chars in "
-        f"the Sarvam card and ₹{per_1k[version] / 10}/1,000 chars (= ₹{per_1k[version]}"
-        "/10,000) in the per-call-minute table — the same rate, stated twice, disagreeing"
-        for version in sorted(set(per_10k) & set(per_1k))
-        if per_10k[version] != per_1k[version]
+        f"{_rel(TRD)} §10.1 prices {TTS_DOC_ROW_TO_TIER[product]} at "
+        f"₹{per_10k[product]}/10,000 chars in the vendor card and "
+        f"₹{per_1k[product] / 10}/1,000 chars (= ₹{per_1k[product]}/10,000) in the "
+        "per-call-minute table — the same rate, stated twice, disagreeing"
+        for product in sorted(set(per_10k) & set(per_1k))
+        if per_10k[product] != per_1k[product]
     ]
 
 
 def code_tts_rates() -> dict[str, Decimal]:
-    """`billing/rates.py::TTS_INR_PER_10K_CHARS` — what a client is billed against.
+    """The TTS rates the cost model holds, one per voice tier.
 
     Imported rather than parsed, for the reason `conf_rate_zones` parses the DIRECTIVE
-    rather than the comment beside it: the value the code holds at runtime is the thing a
-    tenant's bill is computed from, and a source scan could be satisfied by a literal the
+    rather than the comment beside it: the value the code holds at runtime is the thing the
+    margin model is computed from, and a source scan could be satisfied by a literal the
     module never uses.
 
-    ONE ENTRY now — the constant is a single scalar since the single-tier voice decision
-    (it was a `Mapping[TtsTier, Decimal]`), keyed to the one doc row it must agree with.
+    TWO ENTRIES since D-547, and the second is DERIVED rather than typed:
+    `CARTESIA_TTS_INR_PER_10K_CHARS` is the Startup plan's fee over its allotment, so this
+    check is what makes TRD §10.1 restate the plan's marginal rate and not a rate somebody
+    rounded — if the plan fee or the allotment moves in code, the doc row fails here.
     """
-    from apps.api.billing.rates import TTS_INR_PER_10K_CHARS
+    from apps.api.billing.rates import CARTESIA_TTS_INR_PER_10K_CHARS, TTS_INR_PER_10K_CHARS
 
-    return {"bulbul-v3": TTS_INR_PER_10K_CHARS}
+    return {
+        "bulbul-v3": TTS_INR_PER_10K_CHARS,
+        "sonic-3.5": CARTESIA_TTS_INR_PER_10K_CHARS,
+    }
 
 
 def tts_rate_card_drift(text: str | None = None) -> list[str]:
@@ -1353,19 +1376,19 @@ def tts_rate_card_drift(text: str | None = None) -> list[str]:
     failures = list(doc_tts_rate_disagreements(text))
     failures += [
         f"{_rel(TRD)} §10.1 prices the {tier} TTS rung at ₹{rate}/10,000 chars, and "
-        "`billing/rates.py::TTS_INR_PER_10K_CHARS` has no such rung"
+        "`billing/rates.py` has no such rung"
         for tier, rate in sorted(declared.items())
         if tier not in billed
     ]
     failures += [
-        f"`billing/rates.py::TTS_INR_PER_10K_CHARS` bills the {tier} rung at ₹{rate}/10,000 "
-        f"chars, and {_rel(TRD)} §10.1's rate card does not state it"
+        f"`billing/rates.py` prices the {tier} rung at ₹{rate}/10,000 chars, and "
+        f"{_rel(TRD)} §10.1's rate card does not state it"
         for tier, rate in sorted(billed.items())
         if tier not in declared
     ]
     failures += [
         f"the {tier} TTS rung: {_rel(TRD)} §10.1 says ₹{declared[tier]}/10,000 chars, "
-        f"`billing/rates.py` bills ₹{billed[tier]}. A client is billed the code"
+        f"`billing/rates.py` holds ₹{billed[tier]}. The cost model is the code"
         for tier in sorted(set(declared) & set(billed))
         if declared[tier] != billed[tier]
     ]

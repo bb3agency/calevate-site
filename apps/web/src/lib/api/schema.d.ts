@@ -1973,8 +1973,9 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The voices an agent may speak in (client-readable; one Bulbul v3 quality)
-         * @description Static data plus one capability read: no DB, no network, no tenant scoping.
+         * The voices an agent may speak in, each with its availability (client-readable)
+         * @description The catalogue, plus one capability read and — only when it could decide anything —
+         *     one platform-wide count.
          *
          *     Client-realm readable on purpose — a client is legally the Principal Entity and
          *     should be able to see what their own agent sounds like, exactly as they can read
@@ -1984,6 +1985,14 @@ export interface paths {
          *
          *     Entries carry `verified: false` until the Bolna pilot confirms each string is
          *     selectable (OPERATIONS §2 gate 3); render that, do not hide it.
+         *
+         *     ⚠ **"NO DB, NO NETWORK" USED TO BE THE FIRST LINE OF THIS DOCSTRING AND IS NO LONGER
+         *     TRUE, WHICH IS WHY IT SAYS SO.** The Cartesia agent cap (D-547 §0 Q10) is a count of
+         *     live Cartesia agents across every tenant, and a count is a query.
+         *     `voice_offer.offered_catalogue()` measures it ONLY when the two cheap grounds have
+         *     already passed and the catalogue actually holds a Cartesia voice — which today, with the
+         *     Cartesia entries empty (`voices.CARTESIA_CATALOG_SOURCE`), is never. So this endpoint is
+         *     still static in practice, and stops being so exactly when the cap starts mattering.
          *
          *     The capability read is the SAME selector `set_agent_voice` uses, and that is the whole
          *     point: this endpoint is what the picker is built from, so if the two could disagree
@@ -3246,8 +3255,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * The prepaid credit-pack rate card, priced at the live list rate
-         * @description The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: paid + bonus credits, the effective per-minute rate, and the talk time the credits buy. Selecting a pack starts a top-up intent with its `pack_id`.
+         * The prepaid credit-pack rate card: two per-minute rates on every pack
+         * @description The static pack catalogue (`billing/credit_packs.py`), each pack priced for display: the credits, the Sarvam and Cartesia per-minute rates, and the talk time the credits buy on each voice. Selecting a pack starts a top-up intent with its `pack_id`. `bonus_credits`, `bonus_pct`, `effective_rate_inr_per_min` and `talk_time_minutes` are DEPRECATED (D-547) and go next release.
          */
         get: operations["read_credit_packs_v1_billing_topups_packs_get"];
         put?: never;
@@ -6027,7 +6036,7 @@ export interface paths {
         };
         /**
          * The self-serve rate card — list rate and credit packs — for the public site
-         * @description Unauthenticated and identical for everyone. The live list rate (`self_serve_inr_per_min`), the lowest effective rate any pack delivers, and the static pack catalogue priced at that rate: amount, bonus, effective per-minute rate and talk time. The same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about the caller is read or returned.
+         * @description Unauthenticated and identical for everyone. The list rate (the entry pack's Sarvam rate), the lowest rate any pack delivers on each voice, and the static pack catalogue: amount, credits, both per-minute rates and both talk times. The same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about the caller is read or returned.
          */
         get: operations["read_public_rate_card_v1_public_rate_card_get"];
         put?: never;
@@ -8298,9 +8307,10 @@ export interface components {
          *     STRING (hard rule 7) and stays one to the DOM — nothing here is a JSON number a browser
          *     would parse back through a float.
          *
-         *     The EFFECTIVE RATE and TALK TIME are derived server-side from the live list rate and the
-         *     catalogue, so the table a client sees and the credits the receiver grants come from one
-         *     source and cannot drift.
+         *     TWO RATES AND TWO TALK TIMES (D-547): what a minute costs depends on the voice the
+         *     AGENT that takes the call speaks with, so a pack quotes both and the client picks per
+         *     agent. Everything is derived server-side from the static catalogue, so the table a
+         *     client sees and the rates a purchase freezes come from one source and cannot drift.
          */
         CreditPackOut: {
             /** Amount Inr */
@@ -8311,12 +8321,20 @@ export interface components {
             bonus_credits: string;
             /** Bonus Pct */
             bonus_pct: string;
+            /** Cartesia Inr Per Min */
+            cartesia_inr_per_min: string;
+            /** Cartesia Minutes */
+            cartesia_minutes: number;
             /** Effective Rate Inr Per Min */
             effective_rate_inr_per_min: string;
             /** Pack Id */
             pack_id: string;
             /** Paid Credits */
             paid_credits: string;
+            /** Sarvam Inr Per Min */
+            sarvam_inr_per_min: string;
+            /** Sarvam Minutes */
+            sarvam_minutes: number;
             /** Talk Time Minutes */
             talk_time_minutes: number;
             /** Total Credits */
@@ -8324,13 +8342,18 @@ export interface components {
         };
         /**
          * CreditPacksOut
-         * @description The pack rate card. `list_rate_inr_per_min` is published beside the packs so the
-         *     screen can show what a minute lists at (and, on the 0%-bonus pack, that the effective
-         *     rate equals it) without a second source of the number.
+         * @description The pack rate card: six packs, each with a Sarvam and a Cartesia ₹/min.
+         *
+         *     The "from" figures are DERIVED MINIMA over the rows below, never typed, so the site
+         *     cannot lead with a rate no pack delivers — the rule that survives D-547 unchanged.
          */
         CreditPacksOut: {
+            /** From Cartesia Inr Per Min */
+            from_cartesia_inr_per_min: string;
             /** From Inr Per Min */
             from_inr_per_min: string;
+            /** From Sarvam Inr Per Min */
+            from_sarvam_inr_per_min: string;
             /** List Rate Inr Per Min */
             list_rate_inr_per_min: string;
             /** Packs */
@@ -8877,7 +8900,7 @@ export interface components {
          *     them. `slug` is not offered because it is in client URLs and a trigger makes it
          *     immutable.
          *
-         *     **D-545 ADDED `vertical_template` AND THAT IS THE WHOLE OF "EVERYTHING EXCEPT THE
+         *     **D-546 ADDED `vertical_template` AND THAT IS THE WHOLE OF "EVERYTHING EXCEPT THE
          *     SLUG".** The founder's words were taken to the column list rather than to a wish-list:
          *     `service.EDITABLE_TENANT_FIELDS` records what walking `Organization` found, and why
          *     there is no `phone` and no `language` field here to widen towards.
@@ -12007,6 +12030,65 @@ export interface components {
              */
             series: "140" | "160" | "standard";
         };
+        /**
+         * OfferedVoiceOut
+         * @description A catalogue voice AND whether it may be chosen on this deployment right now (D-547).
+         *
+         *     THE CATALOGUE AND THE VERDICT ARE TWO FACTS AND THEY TRAVEL TOGETHER, for
+         *     `VoiceCatalogueOut`'s own reason one level up: a caller needs the rows and the verdict
+         *     about them, and inferring the verdict from which rows arrived is the bug. `selectable`
+         *     on the envelope answers "may a voice be chosen here AT ALL" (the engine's business,
+         *     D-93); this answers "may THIS one" (the platform's — a key, a price, a cap), and the two
+         *     are independent.
+         *
+         *     **A SHORTER LIST WOULD BE THE WRONG ANSWER, AND FILTERING IS EXACTLY WHAT THIS SHAPE
+         *     PREVENTS.** A Cartesia voice that is missing from the response is indistinguishable from
+         *     a Cartesia tier this product does not sell — so the operator who pasted the key an hour
+         *     ago has no way to see that the PRICE is what is still missing, and the client who asks
+         *     for the premium voice is told nothing at all. Every voice is returned; `reason` says why
+         *     an unavailable one is unavailable, in a sentence naming the one action that fixes it.
+         *
+         *     A SUPERSET OF `Voice` rather than an envelope around it: the picker renders the same
+         *     fields it always did, and the two new ones are additive on the wire.
+         */
+        OfferedVoiceOut: {
+            /** Gender */
+            gender?: ("female" | "male" | "neutral") | null;
+            /** Id */
+            id: string;
+            /**
+             * Is Default
+             * @default false
+             */
+            is_default: boolean;
+            /** Label */
+            label: string;
+            /** Languages */
+            languages: ("te-IN" | "hi-IN" | "en-IN")[];
+            /** Note */
+            note: string;
+            /** Offerable */
+            offerable: boolean;
+            /**
+             * Provider
+             * @enum {string}
+             */
+            provider: "sarvam" | "cartesia";
+            /** Speaker */
+            speaker: string;
+            /**
+             * Tts Model
+             * @enum {string}
+             */
+            tts_model: "bulbul:v3" | "sonic-3.5";
+            /** Unavailable Reason */
+            unavailable_reason: string | null;
+            /**
+             * Verified
+             * @default false
+             */
+            verified: boolean;
+        };
         /** OperatorCreateIn */
         OperatorCreateIn: {
             /**
@@ -14420,7 +14502,7 @@ export interface components {
         };
         /**
          * TenantProfileOut
-         * @description A client's business record as the correction form reads it back (D-545).
+         * @description A client's business record as the correction form reads it back (D-546).
          *
          *     ITS OWN ROUTE RATHER THAN A WIDER `GET /v1/admin/tenants/{id}`, and the reason is the
          *     address. That endpoint is the DIRECTORY row — `service.tenant_overview` runs the same
@@ -15314,19 +15396,16 @@ export interface components {
             note: string;
             /**
              * Provider
-             * @constant
-             */
-            provider: "sarvam";
-            /**
-             * Speaker
              * @enum {string}
              */
-            speaker: "anushka" | "abhilash" | "manisha" | "vidya" | "arya" | "karun" | "hitesh" | "aditya" | "ritu" | "priya" | "neha" | "rahul" | "pooja" | "rohan" | "simran" | "kavya" | "amit" | "dev" | "ishita" | "shreya" | "ratan" | "varun" | "manan" | "sumit" | "roopa" | "kabir" | "aayan" | "shubh" | "ashutosh" | "advait" | "anand" | "tanya" | "tarun" | "sunny" | "mani" | "gokul" | "vijay" | "shruti" | "suhani" | "mohit" | "kavitha" | "rehan" | "soham" | "rupali";
+            provider: "sarvam" | "cartesia";
+            /** Speaker */
+            speaker: string;
             /**
              * Tts Model
-             * @constant
+             * @enum {string}
              */
-            tts_model: "bulbul:v3";
+            tts_model: "bulbul:v3" | "sonic-3.5";
             /**
              * Verified
              * @default false
@@ -15362,7 +15441,7 @@ export interface components {
             /** Selectable */
             selectable: boolean;
             /** Voices */
-            voices: components["schemas"]["Voice"][];
+            voices: components["schemas"]["OfferedVoiceOut"][];
         };
         /**
          * VoiceStateOut

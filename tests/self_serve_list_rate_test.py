@@ -52,7 +52,7 @@ from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.billing.service import margin_for_tenant, to_paise, usage_summary
 from apps.api.core.settings import Settings, get_settings
 from apps.api.db.session import tenant_session, untenanted_session
-from apps.api.ops.config_routes import _record_list_rate
+from apps.api.ops.config_routes import _record_card
 from apps.api.ops.config_service import WriteResult
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
@@ -406,7 +406,7 @@ async def test_a_console_price_change_dates_itself(monkeypatch: pytest.MonkeyPat
     """
     admin = await _admin()
     async with untenanted_session() as session:
-        await _record_list_rate(
+        await _record_card(
             session,
             WriteResult(key=SELF_SERVE_PER_MIN, old=None, new="7.25", version=1, revision=1),
             actor_id=admin,
@@ -419,7 +419,7 @@ async def test_a_console_price_change_dates_itself(monkeypatch: pytest.MonkeyPat
     # A no-op Save records nothing: the history is append-only and cannot be corrected by
     # an edit, so a double-clicked button must not put two price changes into it.
     async with untenanted_session() as session:
-        await _record_list_rate(
+        await _record_card(
             session,
             WriteResult(
                 key=SELF_SERVE_PER_MIN,
@@ -439,11 +439,15 @@ async def test_a_console_price_change_dates_itself(monkeypatch: pytest.MonkeyPat
                 {"k": SELF_SERVE_PER_MIN},
             )
         ).scalar_one()
+    # ONE row for THIS key, and a whole CARD alongside it (D-547): the console write dates
+    # the twelve `pack:*:*` rates as well, under one `effective_from`. Asserted here rather
+    # than only in `tests/list_rate_card_test.py` because the coupling is the point — the
+    # legacy key and the card come into force together or the two disagree.
     assert rows == 1
 
     # Another key's write is not this key's history.
     async with untenanted_session() as session:
-        await _record_list_rate(
+        await _record_card(
             session,
             WriteResult(key="db_pool_size", old=None, new="12", version=2, revision=1),
             actor_id=admin,
@@ -451,7 +455,9 @@ async def test_a_console_price_change_dates_itself(monkeypatch: pytest.MonkeyPat
         )
     async with untenanted_session() as session:
         rows = (
-            await session.execute(text("SELECT count(*) FROM platform_list_rates"))
+            await session.execute(
+                text("SELECT count(*) FROM platform_list_rates WHERE rate_key NOT LIKE 'pack:%'")
+            )
         ).scalar_one()
     assert rows == 1
 

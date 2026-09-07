@@ -2,12 +2,13 @@
 
 Three claims, each pinned against the SOURCE rather than against a number typed here:
 
-1. **Every effective rate on the wire is the function the margin guard scores.**
-   `pack_effective_rate_inr_per_min` is what `tests/credit_packs_test.py` runs
-   `MIN_GROSS_MARGIN` against; the route must publish exactly that, quantised the way
-   `_pack_out` quantises it, for every member of `PACK_CATALOGUE`. A ladder change moves
-   both or fails here — which is the whole reason the site reads this route instead of
-   holding its own copy of the table.
+1. **Every rate on the wire is the catalogue rate the margin guard scores.** `PACK_CATALOGUE`
+   is what `tests/credit_packs_test.py` runs `card_refusals` against; the route must publish
+   exactly those twelve rates, quantised the way `_pack_out` quantises them, for every
+   member. A ladder change moves both or fails here — which is the whole reason the site
+   reads this route instead of holding its own copy of the table. ⚠ Since D-547 the card is
+   STATIC: this body does not move when `self_serve_inr_per_min` does, and one test below
+   says so, because the previous behaviour was the opposite and the site cached it.
 2. **The route is reachable with no session and returns no field beyond the card.** The
    body's keys are asserted as an EQUALITY with the model's declared fields, so a field
    added to `CreditPacksOut` without a reader asking for it fails here rather than
@@ -22,18 +23,15 @@ from __future__ import annotations
 import uuid
 from decimal import ROUND_DOWN, Decimal
 
-from apps.api.billing.credit_packs import (
-    PACK_CATALOGUE,
-    pack_effective_rate_inr_per_min,
-    pack_talk_time_minutes,
-)
+import pytest
+from apps.api.billing.credit_packs import PACK_CATALOGUE, pack_talk_time_minutes
 from apps.api.billing.payment_routes import (
     RATE_CARD_CACHE_CONTROL,
     CreditPackOut,
     CreditPacksOut,
     rate_card_out,
 )
-from apps.api.billing.rates import MONEY_Q, ROUNDING
+from apps.api.billing.rates import MONEY_Q, ROUNDING, VOICE_TIERS
 from apps.api.core.ratelimit import profile_for
 from apps.api.core.rbac import PUBLIC_PREFIXES
 from apps.api.core.settings import get_settings
@@ -66,65 +64,95 @@ async def test_the_rate_card_answers_a_stranger_with_the_card_and_nothing_else()
     # Money is a string on the wire (hard rule 7) — never a JSON number a browser floats.
     assert isinstance(body["list_rate_inr_per_min"], str)
     assert isinstance(body["from_inr_per_min"], str)
+    assert isinstance(body["from_sarvam_inr_per_min"], str)
+    assert isinstance(body["from_cartesia_inr_per_min"], str)
     for pack in body["packs"]:
-        for field in ("amount_inr", "bonus_credits", "total_credits", "effective_rate_inr_per_min"):
+        for field in (
+            "amount_inr",
+            "bonus_credits",
+            "total_credits",
+            "sarvam_inr_per_min",
+            "cartesia_inr_per_min",
+            "effective_rate_inr_per_min",
+        ):
             assert isinstance(pack[field], str), field
     assert response.headers["cache-control"] == RATE_CARD_CACHE_CONTROL
 
 
-async def test_every_effective_rate_is_the_margin_guard_function_quantised_once() -> None:
-    """Derived, per pack, from the SAME call the margin guard makes — so this test knows
-    no rate of its own and cannot be satisfied by a typed ladder."""
-    list_rate = get_settings().self_serve_inr_per_min
+async def test_every_rate_on_the_wire_is_the_catalogue_rate_quantised_once() -> None:
+    """Derived, per pack per voice, from the SAME tuple the margin guard scores — so this
+    test knows no rate of its own and cannot be satisfied by a typed ladder."""
     async with _anonymous() as http:
         body = (await http.get(PATH)).json()
     by_id = {pack["pack_id"]: pack for pack in body["packs"]}
     assert list(by_id) == [pack.pack_id for pack in PACK_CATALOGUE]
     for pack in PACK_CATALOGUE:
-        expected_rate = pack_effective_rate_inr_per_min(pack, list_rate=list_rate).quantize(
-            MONEY_Q, rounding=ROUNDING
-        )
-        expected_minutes = int(
-            pack_talk_time_minutes(pack, list_rate=list_rate).quantize(
-                Decimal("1"), rounding=ROUND_DOWN
-            )
-        )
         row = by_id[pack.pack_id]
-        assert Decimal(row["effective_rate_inr_per_min"]) == expected_rate, pack.pack_id
-        assert row["talk_time_minutes"] == expected_minutes, pack.pack_id
+        for voice in VOICE_TIERS:
+            expected_rate = pack.inr_per_min(voice).quantize(MONEY_Q, rounding=ROUNDING)
+            expected_minutes = int(
+                pack_talk_time_minutes(pack, voice=voice).quantize(
+                    Decimal("1"), rounding=ROUND_DOWN
+                )
+            )
+            assert Decimal(row[f"{voice}_inr_per_min"]) == expected_rate, (pack.pack_id, voice)
+            assert row[f"{voice}_minutes"] == expected_minutes, (pack.pack_id, voice)
         assert Decimal(row["amount_inr"]) == pack.amount_inr
-        assert Decimal(row["bonus_pct"]) == pack.bonus_pct
-    # "from" is the LOWEST published row, and the list rate is the 0%-bonus pack's rate:
-    # the two ends of the ladder, both derived.
-    rates = [Decimal(row["effective_rate_inr_per_min"]) for row in by_id.values()]
-    assert Decimal(body["from_inr_per_min"]) == min(rates)
-    assert Decimal(body["list_rate_inr_per_min"]) == list_rate.quantize(Decimal("0.01"))
-    zero_bonus = [p for p in PACK_CATALOGUE if p.bonus_pct == 0]
-    assert zero_bonus, "the ladder has lost its list-rate rung"
-    assert Decimal(by_id[zero_bonus[0].pack_id]["effective_rate_inr_per_min"]) == list_rate
-
-
-def test_the_from_rate_is_derived_and_below_the_list_rate() -> None:
-    """The founder's decision (5 Sep 2026) is that the site leads with what the packs
-    already deliver: `from` must be a rate a pack produces, strictly under the list rate
-    while any pack carries a bonus — never a typed figure."""
-    list_rate = get_settings().self_serve_inr_per_min
-    card = rate_card_out(list_rate)
-    assert card.from_inr_per_min in {p.effective_rate_inr_per_min for p in card.packs}
-    assert any(p.bonus_pct > 0 for p in PACK_CATALOGUE)
-    assert card.from_inr_per_min < card.list_rate_inr_per_min
-    # And it moves with the list rate — it is a derivation, not a constant. Re-derived
-    # through the same function rather than doubled here: a rate quantised to 4dp does
-    # not double exactly, and a test that pretended it did would be pinning arithmetic
-    # the route does not perform.
-    doubled = rate_card_out(list_rate * 2)
-    assert doubled.from_inr_per_min == min(
-        pack_effective_rate_inr_per_min(pack, list_rate=list_rate * 2).quantize(
-            MONEY_Q, rounding=ROUNDING
-        )
-        for pack in PACK_CATALOGUE
+        assert Decimal(row["total_credits"]) == pack.total_credits
+    # The two "from" figures are the LOWEST published row per column, and the list rate is
+    # the ENTRY rung's Sarvam rate: the two ends of the ladder, both derived.
+    assert Decimal(body["from_sarvam_inr_per_min"]) == min(
+        Decimal(row["sarvam_inr_per_min"]) for row in by_id.values()
     )
-    assert doubled.from_inr_per_min > card.from_inr_per_min
+    assert Decimal(body["from_cartesia_inr_per_min"]) == min(
+        Decimal(row["cartesia_inr_per_min"]) for row in by_id.values()
+    )
+    assert Decimal(body["list_rate_inr_per_min"]) == PACK_CATALOGUE[0].sarvam_inr_per_min
+
+
+async def test_the_deprecated_fields_stay_on_the_wire_holding_the_safe_value() -> None:
+    """Plan §10's two-step: nothing an existing reader uses disappears in this release.
+
+    `bonus_pct`/`bonus_credits` are ZERO (no pack grants a bonus), and the two single-value
+    rate fields hold the SARVAM figure — the cheaper column — so an unmigrated reader
+    under-quotes a Cartesia minute rather than over-quoting it. Getting that direction wrong
+    would have the marketing site advertise a price we do not charge.
+    """
+    async with _anonymous() as http:
+        body = (await http.get(PATH)).json()
+    assert Decimal(body["from_inr_per_min"]) == Decimal(body["from_sarvam_inr_per_min"])
+    assert Decimal(body["from_inr_per_min"]) < Decimal(body["from_cartesia_inr_per_min"])
+    for row in body["packs"]:
+        assert Decimal(row["bonus_pct"]) == 0
+        assert Decimal(row["bonus_credits"]) == 0
+        assert Decimal(row["total_credits"]) == Decimal(row["paid_credits"])
+        assert Decimal(row["effective_rate_inr_per_min"]) == Decimal(row["sarvam_inr_per_min"])
+        assert row["talk_time_minutes"] == row["sarvam_minutes"]
+
+
+def test_the_from_rates_are_derived_and_below_the_list_rate() -> None:
+    """The founder's rule survives D-547: the site leads with a rate a pack actually
+    delivers, never a typed figure. Both columns fall across the ladder, so both "from"
+    figures come from the deepest pack and the Sarvam one is under the list rate."""
+    card = rate_card_out()
+    assert card.from_sarvam_inr_per_min in {p.sarvam_inr_per_min for p in card.packs}
+    assert card.from_cartesia_inr_per_min in {p.cartesia_inr_per_min for p in card.packs}
+    assert card.from_sarvam_inr_per_min < card.list_rate_inr_per_min
+    assert card.from_cartesia_inr_per_min > card.from_sarvam_inr_per_min
+
+
+def test_the_card_no_longer_moves_with_the_self_serve_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """⚠ THE BEHAVIOUR CHANGE, PINNED. This body used to be derived from the live
+    `self_serve_inr_per_min` console setting; since D-547 every rate comes from the static
+    catalogue and the setting prices nothing on this card. The setting stays readable (plan
+    §10) and still dates its own row, so the check is that moving it changes NOTHING here —
+    a regression to the old behaviour would silently reprice the public marketing site from
+    an ops console."""
+    before = rate_card_out()
+    monkeypatch.setattr(get_settings(), "self_serve_inr_per_min", Decimal("99.00"))
+    assert rate_card_out() == before
 
 
 def test_the_guards_agree_the_route_is_public_and_bounded() -> None:
