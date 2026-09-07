@@ -15,7 +15,7 @@ import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import TypedDict, Unpack
+from typing import Final, Literal, TypedDict, Unpack, cast
 
 import httpx
 import pytest
@@ -39,6 +39,7 @@ from calevate_shared.engine import (
     PostureLeg,
     ProvisionedNumber,
     RecallOutcome,
+    SpeechLeg,
     VoiceEngine,
     azure_openai_base_url,
     compose_engine_prompt,
@@ -61,7 +62,21 @@ ALLOWLISTED_SOURCE_IP = "13.203.39.153"
 UNKNOWN_SOURCE_IP = "203.0.113.9"
 
 
-def _byok_models(engine: VoiceEngine) -> ModelConfig:
+#: THE TWO VOICE TIERS THIS PRODUCT SELLS, as `(provider, model, speaker)` (D-547).
+#:
+#: **THE CARTESIA SPEAKER IS A FIXTURE STRING AND IS NOT A VOICE ID.** Nobody in this tree
+#: has read a real Cartesia voice id — the library is behind a login and
+#: `voices.CARTESIA_CATALOG_SOURCE` is empty for exactly that reason — so inventing one that
+#: LOOKED real would be the laundering hard rule 11 forbids, dressed as a test fixture. What
+#: these clauses measure is the LEG (does the provider survive the round trip, or is it
+#: refused by name), which no real id is needed for.
+_VOICE_TIERS: Final = (
+    ("sarvam", "bulbul:v3", "anushka"),
+    ("cartesia", "sonic-3.5", "conformance-placeholder-not-a-real-voice-id"),
+)
+
+
+def _byok_models(engine: VoiceEngine, *, tier: int = 0) -> ModelConfig:
     """Our canonical D-36 stack, reduced to the legs THIS engine lets us choose.
 
     A leg the engine dictates is left None deliberately, and that is not the suite
@@ -70,19 +85,23 @@ def _byok_models(engine: VoiceEngine) -> ModelConfig:
     caller will never hear), so a fixture that always sent all five fields could only
     ever build agents on a BYOK engine. Every clause below would then be untestable
     against the shape this contract most needs to survive.
+
+    `tier` indexes `_VOICE_TIERS` and defaults to Sarvam, which is what every existing
+    clause built and still builds — the second tier is exercised by the clause named for it.
     """
     caps = engine.capabilities
+    tts_provider, tts_model, tts_voice = _VOICE_TIERS[tier]
     return ModelConfig(
         stt_provider="sarvam" if caps.is_ours("stt") else None,
         stt_model="saaras:v3" if caps.is_ours("stt") else None,
         llm_model="sarvam-105b" if caps.is_ours("llm") else None,
-        tts_provider="sarvam" if caps.is_ours("tts") else None,
+        tts_provider=tts_provider if caps.is_ours("tts") else None,
         # THE MODEL AND THE SPEAKER, in the two fields the vendor reads them from (D-358).
         # `tts_voice` used to carry `bulbul:v3` — a MODEL in the speaker's field — which is
         # what let an adapter pasting one string into the vendor's `voice` key pass this
         # suite. Naming the speaker separately is what makes a dropped model detectable.
-        tts_model="bulbul:v3" if caps.is_ours("tts") else None,
-        tts_voice="anushka" if caps.is_ours("tts") else None,
+        tts_model=tts_model if caps.is_ours("tts") else None,
+        tts_voice=tts_voice if caps.is_ours("tts") else None,
     )
 
 
@@ -94,6 +113,7 @@ def _agent_config(
     system_prompt: str = "You are the receptionist for Sunrise Clinic.",
     opening_line: str = "Idi AI assistant. Ee call record avutundi.",
     handoff: HandoffSpec | None = None,
+    tier: int = 0,
 ) -> AgentConfig:
     return AgentConfig(
         tenant_id="0199a0b0-0000-7000-8000-000000000001",
@@ -103,7 +123,7 @@ def _agent_config(
         language_primary="te-IN",
         system_prompt=system_prompt,
         opening_line=opening_line,
-        models=_byok_models(engine),
+        models=_byok_models(engine, tier=tier),
         webhook_url="https://hooks.calevate.tech/v1/engine/bolna",
         handoff=handoff,
     )
@@ -1347,10 +1367,9 @@ async def test_a_byok_leg_that_can_be_read_back_holds_what_we_sent(
     for leg, sent in (
         ("stt", cfg.models.stt_model),
         ("llm", cfg.models.llm_model),
-        ("tts", cfg.models.tts_voice),
     ):
-        held = snapshot.holds_speech(leg)  # type: ignore[arg-type]
-        if not engine.capabilities.is_ours(leg):  # type: ignore[arg-type]
+        held = snapshot.holds_speech(cast(Literal["stt", "llm"], leg))
+        if not engine.capabilities.is_ours(cast(SpeechLeg, leg)):
             assert held is None, (
                 f"`{leg}` is the engine's to dictate, so there is no selection of ours "
                 "to report — reporting one would read exactly like an applied choice"
@@ -1360,6 +1379,114 @@ async def test_a_byok_leg_that_can_be_read_back_holds_what_we_sent(
             f"we configured `{leg}` as {sent!r} and the engine holds {held!r} — the "
             "write was accepted and not applied, and nothing downstream could see it"
         )
+
+    # THE TTS LEG ANSWERS WITH THE TRIPLE (D-547) — provider, model and speaker, because
+    # with two voice vendors in the catalogue the speaker no longer implies the vendor.
+    # The SPEAKER is still the required half: it is the string a caller hears, and an
+    # adapter that reported the other two and not it has not read back the choice.
+    voice = snapshot.holds_speech("tts")
+    if not engine.capabilities.is_ours("tts"):
+        assert voice is None, (
+            "`tts` is the engine's to dictate, so there is no selection of ours to "
+            "report — reporting one would read exactly like an applied choice"
+        )
+    else:
+        assert voice is not None and voice.voice == cfg.models.tts_voice, (
+            f"we configured the speaker {cfg.models.tts_voice!r} and the engine holds "
+            f"{voice!r} — the write was accepted and not applied"
+        )
+
+
+async def test_every_voice_tier_round_trips_or_is_refused_by_its_own_name(
+    engine: VoiceEngine,
+) -> None:
+    """**TWO VOICE VENDORS, ONE CATALOGUE — AND THE THIRD OUTCOME IS THE ONE THAT BITES.**
+
+    `agents/voices.py` now offers Sarvam Bulbul and Cartesia Sonic personas from one list
+    (D-547), and for each of them an adapter has exactly three honest answers:
+
+    1. **Publish it and hold it.** The provider survives the round trip and `holds_speech`
+       reports the triple that was sent.
+    2. **Refuse it by a name that says what is missing.** An adapter may legitimately be
+       unable to send a provider — the Bolna adapter refuses a Cartesia voice it has no
+       `voice_id` or `model` for (`cartesia_voice_incomplete`), which is exactly what an
+       unpopulated `voices.CARTESIA_CATALOG_SOURCE` produces. A refusal is only acceptable
+       when it NAMES what is missing: an operator reading a generic "the voice platform
+       rejected the request" cannot learn which one command fixes it.
+    3. **Accept it and hold something else.** THE ONE THIS CLAUSE EXISTS FOR, and it is
+       invisible from every surface we own: the create returns 200 because the vendor
+       ignores members it does not recognise, the synthesizer falls back to the engine's own
+       default voice, every screen names the persona the client is BILLED the Cartesia rate
+       for, and the caller hears somebody else. Nothing 500s and nothing logs.
+
+    So an adapter must do 1 or 2, and 2 must be spelled by ITS OWN CODE rather than by a
+    generic `engine_rejected` — an operator reading "the voice platform rejected the
+    request" has no way to learn that one CREATE against a live account closes it.
+
+    Engines that dictate their own speech are exempt from the whole question: there is no
+    provider of ours to send. The clause above measures that case.
+    """
+    if not engine.capabilities.hosts_agents() or not engine.capabilities.is_ours("tts"):
+        return
+
+    for tier, (provider, model, speaker) in enumerate(_VOICE_TIERS):
+        cfg = _agent_config(
+            engine,
+            name=f"Voice tier {provider}",
+            agent_id=f"0199a0b0-0000-7000-8000-0000000000e{tier}",
+            tier=tier,
+        )
+        refused: Exception | None = None
+        try:
+            ref = await engine.create_agent(cfg)
+        except Exception as raised:  # adapters raise our ProblemError; the type is theirs
+            refused = raised
+        if refused is not None:
+            code = getattr(refused, "code", None)
+            assert code == "cartesia_voice_incomplete", (
+                f"this adapter refused the `{provider}` voice tier with {code!r}. A tier it "
+                "cannot send must be refused by a code naming what is missing — the only "
+                "one this contract knows is `cartesia_voice_incomplete` (no voice id or "
+                "model for a Cartesia agent). A generic refusal here tells an operator "
+                "nothing they can act on."
+            )
+            assert provider == "cartesia", (
+                f"the `{provider}` tier was refused with the CARTESIA refusal, which names "
+                "a missing Cartesia voice id — that reason cannot be true of it"
+            )
+            assert getattr(refused, "remediation", None), (
+                "the refusal carries no remediation, so the operator who could close the "
+                "gate is not told that closing it is what unblocks the tier"
+            )
+            continue
+
+        snapshot = await engine.get_agent(ref)
+        assert snapshot.models_readable, (
+            f"this adapter published the `{provider}` tier and cannot read any of it back, "
+            "so 'is the engine speaking in the voice we sent?' is unanswerable — and an "
+            "adapter that silently dropped the provider would look exactly like this one"
+        )
+        held = snapshot.holds_speech("tts")
+        assert held is not None, (
+            f"the `{provider}` tier published and the engine reports holding no voice of "
+            "ours at all — accepted and not applied, which the caller hears and we do not"
+        )
+        assert held.voice == speaker, (
+            f"we sent the speaker {speaker!r} on the `{provider}` tier and the engine holds "
+            f"{held.voice!r}"
+        )
+        for field, sent, got in (
+            ("provider", provider, held.provider),
+            ("model", model, held.model),
+        ):
+            # ABSENT IS NOT WRONG: whether an engine echoes these two is an open vendor
+            # question (gate 3 for the Sarvam model key, gate 52 for the Cartesia block), and
+            # `agents/verification.judge` skips a field that did not come back for exactly
+            # this reason. What is never allowed is echoing a DIFFERENT one.
+            assert got is None or got == sent, (
+                f"we sent tts {field} {sent!r} and the engine holds {got!r} — an agent "
+                "running one vendor's voice while every screen names another's"
+            )
 
 
 def _endpoint_for_leg(leg: PostureLeg) -> str | None:

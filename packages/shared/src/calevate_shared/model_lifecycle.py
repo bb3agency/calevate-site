@@ -167,6 +167,13 @@ ATTESTATION_PATH: Final = Path("docs/evidence/azure-deployment-attestation.json"
 #: to the field hard rule 11 was written about.
 RetirementStance = Literal["dated", "none-announced", "unread"]
 
+#: THE TWO VOICE PROVIDERS THIS PRODUCT RUNS TTS ON — and, by D-547 §2.3 invariant 7, the
+#: two VOICE TIERS an agent can be on. Defined HERE rather than in `apps/api/agents/voices.py`
+#: because this registry must name a provider without importing the app (the direction
+#: `LlmProvider` already takes for the LLM legs); `voices.VoiceProvider` is this type, not a
+#: second spelling of it.
+TtsProvider = Literal["sarvam", "cartesia"]
+
 
 @dataclass(frozen=True, slots=True)
 class ModelLifecycle:
@@ -674,6 +681,148 @@ MODEL_LIFECYCLE: Final[dict[str, ModelLifecycle]] = {
 }
 
 
+# --- THE TTS LEG: a second table, the same doctrine ----------------------------------
+#
+# `ModelLifecycle` is LLM-shaped — its `provider` is an `LlmProvider` and half its fields are
+# Azure deployment facts — so the TTS models get their own record rather than a stretched
+# one. What they share is the part hard rule 11 was written about: `retirement_stance`, the
+# same three readings, the same refusal to let "nobody looked" wear the shape of "the vendor
+# announced nothing". `scripts/check_model_lifecycle` checks this table against
+# `apps.api.agents.voices.TtsModel` exactly as it checks `MODEL_LIFECYCLE` against
+# `LLM_MODEL_NAMES` — one script, second table (plan §4.C.6).
+
+
+@dataclass(frozen=True, slots=True)
+class TtsModelLifecycle:
+    """One TTS model's dated vendor facts. No deployment types, no region matrix: neither
+    voice vendor has an SKU, and the only availability question is whether the ENGINE
+    accepts the identifier — which is what `availability` cites."""
+
+    model: str
+    provider: TtsProvider
+    retires_on: date | None
+    retirement_stance: RetirementStance
+    replacement: str | None
+    retirement: Evidence
+    availability: Evidence
+
+    def __post_init__(self) -> None:
+        """The same two invariants `ModelLifecycle` enforces, for the same reason."""
+        if (self.retires_on is not None) != (self.retirement_stance == "dated"):
+            raise ValueError(
+                f"{self.model!r} files retirement_stance {self.retirement_stance!r} with "
+                f"retires_on={self.retires_on!r}; a stance that disagrees with its own date "
+                "is the ambiguity this field exists to end (hard rule 11)."
+            )
+        if self.retirement_stance == "none-announced" and not self.retirement.verified:
+            raise ValueError(
+                f"{self.model!r} claims the vendor announced no retirement, on evidence "
+                f"nobody verified ({self.retirement.source}); without a page somebody opened "
+                "the honest stance is 'unread'."
+            )
+
+    def days_left(self, today: date) -> int | None:
+        return None if self.retires_on is None else (self.retires_on - today).days
+
+
+#: When the pinned Bolna mirror was read for the two rows below. The mirror is hash-pinned
+#: (`bolna-findings/mirror/MANIFEST.json`), so unlike the founder-relayed rows above this
+#: reading can be re-made by anyone with the tree.
+_TTS_READ_ON: Final = date(2026, 9, 7)
+
+#: ⚠ THE TWO ROWS BELOW REST ON TWO DIFFERENT READINGS, AND THE DIFFERENCE IS THE POINT.
+#:
+#: * **`bulbul:v3` — the ENGINE's page only.** Sarvam's own docs are egress-blocked from this
+#:   container and were NOT read, so "none-announced" there means: the page this product's
+#:   engine publishes for Sarvam lists the model as current with no retirement, as of
+#:   `_TTS_READ_ON`. That is narrower than "Sarvam announced nothing anywhere", and the row
+#:   says so in its own note rather than in a comment somebody may not scroll to.
+#: * **`sonic-3.5` — the MODEL VENDOR's own page, relayed.** Cartesia's API-changes page was
+#:   read at the named URL on 7 Sep 2026 by the research run and relayed through
+#:   `docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md` ADDENDUM 1 (`docs.cartesia.ai` is
+#:   egress-blocked here, so it was not opened from this tree). It dates the models it is
+#:   retiring — `sonic-3`, `sonic-2`, `sonic-turbo` all sunset **20 Oct 2026** — and leaves
+#:   `sonic-3.5` undated. A page that announces four retirements and not this one is the
+#:   strongest "none-announced" available anywhere in this file.
+#:
+#: **`sonic-3` IS NOT A ROW HERE BECAUSE IT IS NOT IN THE CATALOGUE** (`TtsModel`), and the
+#: checker holds this table to exactly the catalogue's members. Its dated sunset is recorded
+#: in `sonic-3.5`'s note and in `apps/api/agents/voices.py`, which is where the decision not
+#: to offer it lives.
+TTS_MODEL_LIFECYCLE: Final[dict[str, TtsModelLifecycle]] = {
+    "bulbul:v3": TtsModelLifecycle(
+        model="bulbul:v3",
+        provider="sarvam",
+        retires_on=None,
+        retirement_stance="none-announced",
+        replacement=None,
+        retirement=Evidence(
+            source="bolna-findings/mirror/pages/providers/voice/sarvam.md:40-44",
+            read_on=_TTS_READ_ON,
+            verified=True,
+            note=(
+                "VERIFIED-VENDOR-DOCS, hash-checked mirror: the engine's Sarvam page lists "
+                "`bulbul:v3` (with v2 and v1) as supported, with no retirement or "
+                "deprecation note on the page. Sarvam's own docs are egress-blocked here "
+                "and unread; Sarvam's dashboard Model Catalogue listed only bulbul:v3 "
+                "(VENDOR-PUBLISHED, founder-read 27 Aug 2026 — `agents/voices.py`). "
+                "Re-read at the next rate-card review."
+            ),
+        ),
+        availability=Evidence(
+            source="bolna-findings/mirror/pages/providers/voice/sarvam.md:40-44",
+            read_on=_TTS_READ_ON,
+            verified=True,
+            note="The engine lists the identifier; whether it accepts our speakers is gate 3.",
+        ),
+    ),
+    "sonic-3.5": TtsModelLifecycle(
+        model="sonic-3.5",
+        provider="cartesia",
+        retires_on=None,
+        retirement_stance="none-announced",
+        replacement=None,
+        retirement=Evidence(
+            source="docs.cartesia.ai/build-with-cartesia/tts-models/api-changes",
+            read_on=_TTS_READ_ON,
+            verified=True,
+            note=(
+                "VENDOR-PUBLISHED (Cartesia's own API-changes page, read 7 Sep 2026 at the "
+                "URL in `source` and relayed via docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md "
+                "ADDENDUM 1; the host is egress-blocked from this container and was not "
+                "opened here). Snapshot `sonic-3.5-2026-05-04`, stable, NO announced "
+                "retirement — on a page that DOES date four others: `sonic-3` (snapshot "
+                "`sonic-3-2025-10-27`), `sonic-2` and `sonic-turbo` all sunset 20 Oct 2026, "
+                "and `sonic`/`sonic-english`/`sonic-multilingual` sunset 1 Jun 2026. "
+                "⚠ CONTRADICTION, RECORDED AND NOT RESOLVED: Cartesia calls `sonic-3.6` "
+                "stable with no retirement, while the ENGINE calls its `sonic-preview` "
+                "'Sonic 3.6 (Beta)' whose output may change and says to use `sonic-3.5` in "
+                "production (VERIFIED-VENDOR-DOCS, hash-checked mirror, "
+                "`bolna-findings/mirror/pages/providers/voice/cartesia.md:57-67`). We send "
+                "the id BOLNA parses, so the catalogue stays on `sonic-3.5`; OPERATIONS §2 "
+                "gate 52 is where this is revisited. Re-read at the next rate-card review."
+            ),
+        ),
+        availability=Evidence(
+            source="bolna-findings/mirror/pages/providers/voice/cartesia.md:57-67",
+            read_on=_TTS_READ_ON,
+            verified=True,
+            note=(
+                "The engine lists the identifier, and its OSS declares the request shape "
+                "(`CartesiaConfig`, VERIFIED-OSS `bolna-ai/bolna`@`ae03977f`), so this "
+                "model is publishable. ⚠ THE ENGINE'S OWN DEFAULT MODEL IS A SUNSET ID: "
+                '`CartesiaSynthesizer.__init__` defaults `model="sonic-english"`, which '
+                "Cartesia sunset 1 Jun 2026 (VERIFIED-OSS, `cartesia_synthesizer.py`"
+                "@`feac358e`) — so an omitted `model` key falls back to a dead model rather "
+                "than to a current one, and `engine/bolna._cartesia_synthesizer_config` "
+                "refuses rather than defaults. Whether the HOSTED platform runs that commit "
+                "is UNKNOWN: OPERATIONS §2 gate 52."
+            ),
+        ),
+    ),
+}
+
+
 @dataclass(frozen=True, slots=True)
 class Attestation:
     """What a human read in the Azure portal, parsed from `ATTESTATION_PATH`.
@@ -749,9 +898,12 @@ __all__ = [
     "DEPLOYMENT_TYPES",
     "MANDATED_DEPLOYMENT_TYPE",
     "MODEL_LIFECYCLE",
+    "TTS_MODEL_LIFECYCLE",
     "WARN_LEAD",
     "Attestation",
     "DeploymentType",
     "ModelLifecycle",
+    "TtsModelLifecycle",
+    "TtsProvider",
     "load_attestation",
 ]

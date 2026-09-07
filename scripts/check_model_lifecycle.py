@@ -44,6 +44,14 @@ and the failure it catches is silent until a call gets a 404 mid-conversation.
 with the shipped one, which is also what stops the coverage ratchet counting it as an
 uncovered branch.
 
+**THE TTS LEG IS A SECOND TABLE IN THE SAME SCRIPT (D-547, plan §4.C.6).** A voice model
+has the same clock on it as a language model — a caller on the line, a vendor's 410 — and
+the same two ways of going undated. `tts_refusals` holds `TTS_MODEL_LIFECYCLE` to
+`agents/voices.TtsModel` exactly as `refusals` holds `MODEL_LIFECYCLE` to `LLM_MODEL_NAMES`:
+every catalogue model dated-or-explicitly-unread, no orphan entry, no `none-announced` on
+unverified evidence, and — since every TTS model is selectable by construction — no `unread`
+at all. A second script would have been a second place for the doctrine to drift.
+
 Run: `uv run python -m scripts.check_model_lifecycle`   (also in `make guardrails`)
 """
 
@@ -52,7 +60,9 @@ from __future__ import annotations
 import sys
 from datetime import date
 from pathlib import Path
+from typing import get_args
 
+from apps.api.agents.voices import TtsModel
 from calevate_shared.engine import (
     AZURE_LOCATION,
     AZURE_OPENAI_DEFAULT_MODEL,
@@ -65,11 +75,17 @@ from calevate_shared.model_lifecycle import (
     ATTESTATION_PATH,
     MANDATED_DEPLOYMENT_TYPE,
     MODEL_LIFECYCLE,
+    TTS_MODEL_LIFECYCLE,
     WARN_LEAD,
     Attestation,
     ModelLifecycle,
+    TtsModelLifecycle,
     load_attestation,
 )
+
+#: THE TTS CATALOGUE, derived from the type the catalogue is written in — never retyped
+#: here, for `SPEAKERS`' reason in `agents/voices.py`.
+TTS_MODEL_NAMES: frozenset[str] = frozenset(get_args(TtsModel))
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -407,11 +423,117 @@ def warnings(
     return notes
 
 
+def tts_refusals(models: frozenset[str], table: dict[str, TtsModelLifecycle]) -> list[str]:
+    """Reasons the TTS half cannot MEASURE — exit 2, the same shape as `refusals`.
+
+    `models` is the whole `TtsModel` Literal, and every member is offerable to a client
+    (there is no `selectable` flag on a voice model: offerability is decided per voice by
+    `agents/voice_offer.py`, on grounds that have nothing to do with the model's date). So an
+    `unread` stance refuses unconditionally here — a voice model nobody has read a page for
+    is one a client can be put on today.
+    """
+    problems: list[str] = []
+    if not models:
+        problems.append("TtsModel is empty: there is no voice catalogue to score.")
+    if not table:
+        problems.append(
+            "TTS_MODEL_LIFECYCLE is empty. Every voice model this product runs would be "
+            "undated, which is the state this guard was extended to end."
+        )
+    missing = sorted(models - table.keys())
+    if missing:
+        problems.append(
+            f"{missing} are in the voice catalogue (agents/voices.TtsModel) but have no "
+            "TTS_MODEL_LIFECYCLE entry. Add one — including an UNREAD one, spelled as a real "
+            "entry naming the page nobody could open — before the model ships."
+        )
+    orphans = sorted(table.keys() - models)
+    if orphans:
+        problems.append(
+            f"{orphans} have TTS_MODEL_LIFECYCLE entries but are not in TtsModel. Either the "
+            "catalogue lost a model and the entry should go with it, or the entry is a typo "
+            "protecting nothing."
+        )
+    for name, entry in sorted(table.items()):
+        if entry.model != name:
+            problems.append(f"TTS_MODEL_LIFECYCLE[{name!r}].model is {entry.model!r}.")
+        if not entry.retirement.source or not entry.availability.source:
+            problems.append(f"{name}: an Evidence carries no source. See D-31/D-32.")
+        for label, evidence in (
+            ("retirement", entry.retirement),
+            ("availability", entry.availability),
+        ):
+            if evidence.read_on > date.today():
+                problems.append(
+                    f"{name}: {label} evidence claims to have been read on "
+                    f"{evidence.read_on.isoformat()}, which is in the future."
+                )
+        if entry.retirement_stance == "unread" and name in models:
+            problems.append(
+                f"{name} is a voice model a client can be put on and NOBODY HAS READ a "
+                f"retirement page for it ({entry.retirement.source}). Open the vendor's page "
+                "and file what it says — a date, or `none-announced` — or take the model out "
+                "of TtsModel."
+            )
+    return problems
+
+
+def tts_failures(table: dict[str, TtsModelLifecycle], today: date) -> list[str]:
+    """A dated voice model whose date has passed is a 410 on the next call. Exit 1."""
+    problems: list[str] = []
+    for name, entry in sorted(table.items()):
+        left = entry.days_left(today)
+        if left is not None and left <= 0:
+            assert entry.retires_on is not None
+            problems.append(
+                f"{name} ({entry.provider}) retired on {entry.retires_on.isoformat()} "
+                f"({-left} days ago) and is still in the voice catalogue. Vendor replacement: "
+                f"{entry.replacement or 'none published'}. Source: {entry.retirement.source}."
+            )
+    return problems
+
+
+def tts_warnings(table: dict[str, TtsModelLifecycle], today: date) -> list[str]:
+    """The perishable readings, printed on every run for `warnings`' reason."""
+    notes: list[str] = []
+    for name, entry in sorted(table.items()):
+        left = entry.days_left(today)
+        if entry.retirement_stance == "none-announced":
+            # DELIBERATELY DOES NOT SAY *WHICH KIND* OF PAGE WAS READ. The two rows rest on
+            # two different sources — the engine's hash-pinned page for `bulbul:v3`, the
+            # model vendor's own (relayed) page for `sonic-3.5` — and an earlier version of
+            # this line asserted "the engine's page ... the vendor's own is unread" for both,
+            # which was false about one of them. The source string says which; the reader
+            # inherits the citation rather than this function's assumption about it.
+            notes.append(
+                f"{name} ({entry.provider}, voice): NO SHUTDOWN IS ANNOUNCED, read "
+                f"{entry.retirement.read_on.isoformat()} at {entry.retirement.source}. That "
+                "is a reading and not a blank — but it is only true as of that date, and "
+                "both voice vendors' own hosts are egress-blocked here, so no run can "
+                "re-check it. Re-read at the next rate-card review."
+            )
+        elif left is not None and 0 < left <= WARN_LEAD.days:
+            notes.append(
+                f"{name} ({entry.provider}, voice) retires in {left} days "
+                f"({entry.retires_on.isoformat() if entry.retires_on else '?'}); vendor "
+                f"replacement: {entry.replacement or 'none published yet'}."
+            )
+        age = (today - entry.retirement.read_on).days
+        if age > STALE_AFTER_DAYS:
+            notes.append(
+                f"{name}: voice-model retirement last read {age} days ago at "
+                f"{entry.retirement.source}; re-read it."
+            )
+        if not entry.retirement.verified:
+            notes.append(f"{name}: retirement reading is [UNVERIFIED] — {entry.retirement.note}")
+    return notes
+
+
 def main(argv: list[str] | None = None) -> int:
     root = Path(argv[0]) if argv else REPO_ROOT
     today = date.today()
     table = MODEL_LIFECYCLE
-    refused = refusals(LLM_MODEL_NAMES, table)
+    refused = refusals(LLM_MODEL_NAMES, table) + tts_refusals(TTS_MODEL_NAMES, TTS_MODEL_LIFECYCLE)
     attested: Attestation | None = None
     if not refused:
         try:
@@ -426,8 +548,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  - {problem}")
         return 2
 
-    bad = failures(table, today, attested)
-    notes = warnings(table, today, attested)
+    bad = failures(table, today, attested) + tts_failures(TTS_MODEL_LIFECYCLE, today)
+    notes = warnings(table, today, attested) + tts_warnings(TTS_MODEL_LIFECYCLE, today)
     for note in notes:
         print(f"  ! {note}")
     if bad:
@@ -453,9 +575,10 @@ def main(argv: list[str] | None = None) -> int:
         else "NO selectable model carries a date"
     )
     print(
-        f"MODEL LIFECYCLE: OK ({len(table)} model(s) across "
-        f"{len({e.provider for e in table.values()})} leg(s); {headline}; "
-        f"warn lead {WARN_LEAD.days}d; {len(notes)} warning(s))"
+        f"MODEL LIFECYCLE: OK ({len(table)} LLM model(s) across "
+        f"{len({e.provider for e in table.values()})} leg(s); {len(TTS_MODEL_LIFECYCLE)} "
+        f"voice model(s) across {len({e.provider for e in TTS_MODEL_LIFECYCLE.values()})} "
+        f"provider(s); {headline}; warn lead {WARN_LEAD.days}d; {len(notes)} warning(s))"
     )
     return 0
 

@@ -39,6 +39,7 @@ from typing import Any
 
 import httpx
 import pytest
+from apps.api.agents.voices import CartesiaVoiceRecord, cartesia_catalogue
 from apps.api.core.errors import ProblemError
 from apps.api.engine import bolna as bolna_module
 from apps.api.engine.bolna import (
@@ -1327,3 +1328,198 @@ async def test_an_agent_this_tree_published_raises_no_speech_alarm(
         await engine.get_agent("a1")
 
     assert not _speech_alerts(caplog)
+
+
+# --- the VOICE credential and the Cartesia refusal (D-547) -------------------
+
+
+async def test_the_voice_credential_goes_to_the_one_entry_the_vendor_documents() -> None:
+    """**ONE ENTRY, NOT FOUR, AND THE VENDOR SAYS SO IN A TABLE.** Their credential store
+    gives Cartesia a single property — *"`CARTESIA` — Your Cartesia API key"*
+    (VERIFIED-VENDOR-DOCS, hash-checked mirror,
+    `bolna-findings/mirror/pages/providers.md:146-150`) — beside the four-row Azure OpenAI
+    block that makes `set_llm_credential` a PARTIAL install. So this one finishes the leg,
+    and the assertion that matters is that it writes exactly one entry, under that name.
+    """
+    seen: list[tuple[str, str, dict[str, str] | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content) if request.content else None
+        seen.append((request.method, request.url.path, body))
+        if request.method == "GET":
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json={"message": "successful", "status": "added"})
+
+    placement = await _engine(handler).set_tts_credential("sk_cartesia_live")
+
+    assert placement.replaced_in_place is True
+    posts = [(path, body) for method, path, body in seen if method == "POST"]
+    assert posts == [
+        ("/providers", {"provider_name": "CARTESIA", "provider_value": "sk_cartesia_live"})
+    ]
+    assert [method for method, _p, _b in seen] == ["GET", "POST", "GET"], (
+        "post-first, never delete-first, and a read-back after — the same dance the LLM "
+        "credential does, because it is the same store with the same open question"
+    )
+
+
+async def test_a_store_that_appends_the_voice_key_is_reported_rather_than_tolerated() -> None:
+    """The append case is not less dangerous on the voice leg: a superseded Cartesia key an
+    operator believes they revoked goes on authenticating our spend until it is revoked at
+    the source, and which key a call uses stops being ours to decide."""
+    stale = _provider_row("p-old", "CARTESIA")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=[stale, _provider_row("p-new", "CARTESIA")])
+        return httpx.Response(200, json={"message": "successful", "status": "added"})
+
+    with pytest.raises(ProblemError) as raised:
+        await _engine(handler).set_tts_credential("sk_cartesia_live")
+
+    assert raised.value.code == "engine_credential_not_replaced"
+    assert "Cartesia" in (raised.value.remediation or ""), (
+        "the remediation must point at the console that can actually revoke it"
+    )
+
+
+async def test_the_voice_credential_name_is_a_live_setting(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`bolna_llm_credential_name`'s exact reason (D-417): a documented entry name and a
+    live account's actual name are different claims, and the operator who finds them
+    different is looking at a silent voice leg. Read PER INSTALL — the adapter is cached
+    per process, so a constructor copy would make `applies: live` a lie."""
+    seen: list[dict[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json=[])
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json={"message": "successful", "status": "added"})
+
+    monkeypatch.setattr(
+        bolna_module,
+        "get_settings",
+        lambda: Settings(bolna_tts_credential_name="CARTESIA_API_KEY"),
+    )
+    await _engine(handler).set_tts_credential("sk_cartesia_live")
+
+    assert seen == [{"provider_name": "CARTESIA_API_KEY", "provider_value": "sk_cartesia_live"}]
+
+
+async def test_the_cartesia_synthesizer_block_is_built_from_the_config_class() -> None:
+    """**FIVE KEYS, FROM THE CLASS RATHER THAN FROM AN EXAMPLE (ADDENDUM 3 §3.1).**
+
+    `bolna/enums.py:59` gives `SynthesizerProvider.CARTESIA = "cartesia"`, `providers.py`
+    maps it to `CartesiaSynthesizer`, and `models.py` declares
+    `CartesiaConfig(StandardVoiceConfig)` = `{voice, voice_id, model, language, speed}`
+    (VERIFIED-OSS, `bolna-ai/bolna`@`ae03977fa2a9ecec3171b45c6cac6d00236b957f`).
+    `Synthesizer.provider_config` is resolved by a `model_validator` that looks the config
+    class up by the provider string, so a key we invent is a 422 at CREATE — which is why
+    this asserts the EXACT key set and not merely that the important ones are present.
+
+    ⚠ Whether `platform.bolna.ai` runs that commit is UNKNOWN; gate 52 is now "does the
+    hosted platform accept these fields", not "what are the fields".
+    """
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={"agent_id": "a-1"})
+
+    cfg = _config()
+    cartesia = cfg.model_copy(
+        update={
+            "models": ModelConfig(
+                tts_provider="cartesia", tts_model="sonic-3.5", tts_voice="voice-id-from-vendor"
+            )
+        }
+    )
+
+    await _engine(handler).create_agent(cartesia)
+
+    task = bodies[0]["agent_config"]["tasks"][0]["tools_config"]
+    assert task["synthesizer"]["provider"] == "cartesia"
+    config = task["synthesizer"]["provider_config"]
+    assert set(config) == {"voice", "voice_id", "model", "language", "speed"}
+    assert config["voice_id"] == "voice-id-from-vendor"
+    assert config["voice"] == "voice-id-from-vendor", (
+        "both fields are bare `str` with no documented semantics and no display name "
+        "reaches this layer — capitalising an opaque vendor id would corrupt it"
+    )
+    assert config["language"] == "te", "our `te-IN` maps to the vendor's two-letter code"
+    assert config["speed"] == 1.0
+    assert task["synthesizer"]["stream"] is True
+
+
+async def test_the_cartesia_model_key_is_always_sent_and_never_defaulted() -> None:
+    """**LANDMINE 1 (ADDENDUM 3 §3.2).** `CartesiaSynthesizer.__init__` defaults
+    `model="sonic-english"` (VERIFIED-OSS, `cartesia_synthesizer.py`@`feac358e`) — a model
+    **Cartesia sunset on 1 June 2026**. So an omitted `model` does not fall back to
+    something current; it falls back to a dead id, and the failure surfaces as silence on a
+    live call rather than as a 422 we would see at publish.
+
+    Asserted for every Cartesia voice the catalogue can produce — which is the whole
+    catalogue plus, today, the empty Cartesia half, so the case is driven through the
+    loader that will build those entries.
+    """
+    seen: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json={"agent_id": "a-1"})
+
+    record = CartesiaVoiceRecord(id="vendor-voice-id", name="Test Persona", languages=("te-IN",))
+    for voice in cartesia_catalogue((record,)):
+        # The pair `agents/service.in_call_speech` splits off a REGISTERED catalogue id.
+        # Taken from the entry itself here because the fixture record is deliberately not in
+        # `CARTESIA_CATALOG_SOURCE` — the point is the loader's output, not the lookup.
+        cfg = _config().model_copy(
+            update={
+                "models": ModelConfig(
+                    tts_provider=voice.provider,
+                    tts_model=voice.tts_model,
+                    tts_voice=voice.speaker,
+                )
+            }
+        )
+        await _engine(handler).create_agent(cfg)
+
+    assert seen, "the loader produced no Cartesia voice to publish"
+    for body in seen:
+        config = body["agent_config"]["tasks"][0]["tools_config"]["synthesizer"]["provider_config"]
+        assert config.get("model"), "an omitted model falls back to the sunset sonic-english"
+
+
+async def test_a_cartesia_voice_with_no_id_is_refused_by_name_rather_than_half_sent() -> None:
+    """**THE ONE REFUSAL THAT SURVIVES ADDENDUM 3**, and it is the state this phase ships
+    in: `voices.CARTESIA_CATALOG_SOURCE` is EMPTY because no Cartesia voice id in this tree
+    has been read from the vendor, so an agent can reach the adapter on the Cartesia
+    provider with nothing to put in a REQUIRED `voice_id`.
+
+    The alternative is not an omitted key. `StandardVoiceConfig.voice_id` and `.model` are
+    both required `str`, so a blank is either a vendor 422 about our own half-built request
+    or — worse — an accepted agent whose synthesizer falls back to whatever the engine
+    picks, on a client every screen says is on the Cartesia tier and every invoice bills at
+    the Cartesia rate.
+    """
+    requests: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:  # pragma: no cover - never called
+        requests.append(request.url.path)
+        return httpx.Response(200, json={"agent_id": "a-1"})
+
+    cfg = _config()
+    for models in (
+        ModelConfig(tts_provider="cartesia", tts_model="sonic-3.5", tts_voice=None),
+        ModelConfig(tts_provider="cartesia", tts_model=None, tts_voice="voice-id"),
+    ):
+        with pytest.raises(ProblemError) as raised:
+            await _engine(handler).create_agent(cfg.model_copy(update={"models": models}))
+
+        assert raised.value.code == "cartesia_voice_incomplete"
+        assert raised.value.kind == "dependency", "nothing the client typed is wrong"
+        assert "Sarvam" in (raised.value.remediation or ""), "what they can do TODAY"
+        assert "GET /voices" in (raised.value.remediation or ""), "and what closes it"
+    assert requests == [], "a half-built body must never reach the vendor, not even once"

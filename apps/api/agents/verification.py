@@ -69,6 +69,7 @@ from calevate_shared.engine import (
     AgentConfig,
     AgentSnapshot,
     EngineAgentRef,
+    HeldVoice,
     VoiceEngine,
 )
 
@@ -166,8 +167,8 @@ class PublishVerification:
         return self.state
 
 
-def _voice_expected(engine: VoiceEngine, cfg: AgentConfig) -> str | None:
-    """The voice we are entitled to read back, or None when there is nothing to check.
+def _voice_expected(engine: VoiceEngine, cfg: AgentConfig) -> HeldVoice | None:
+    """The TTS selection we are entitled to read back, or None when there is nothing to check.
 
     Two ways there is nothing to check, and they are both genuine rather than excuses:
     the agent has no voice configured, or the ENGINE dictates its own speech
@@ -176,20 +177,69 @@ def _voice_expected(engine: VoiceEngine, cfg: AgentConfig) -> str | None:
     CONTRACT. Comparing against it there would report every publish on such an engine as
     a mismatch, which is the failure mode that teaches an operator to ignore the verdict.
 
-    ⚠ **THE SPEAKER ONLY, NOT THE MODEL, AND THAT IS DELIBERATE SINCE D-358.** The TTS leg
-    now sends two strings — `provider_config.model` and `provider_config.voice`/`voice_id`
-    — and `AgentSnapshot.models.tts_model` reads the first one back. It is not compared
-    here, because whether their platform ECHOES that key is exactly what OPERATIONS §2
-    gate 3 has not answered yet: an engine that stores the model and reports it under
-    another name would make `held_model` None, and `judge` turns a None into
-    `state="unreadable"` — so every publish in the product would stop reporting as applied
-    on an unanswered vendor question. The speaker is the string an operator PICKED and the
-    one a caller HEARS, so it is the one worth refusing a publish over. When gate 3 says
-    what comes back, adding the model here is one line and a `checked` entry.
+    ⚠ **THE SPEAKER WAS THE ONLY THING COMPARED UNTIL D-547, AND THAT WAS RIGHT WHILE ONE
+    VENDOR SPOKE EVERY VOICE.** The old note here said the MODEL was deliberately excluded
+    because whether the engine echoes `provider_config.model` is what OPERATIONS §2 gate 3
+    has not answered — and a None from an unechoed field turned into `state="unreadable"`,
+    so every publish in the product would have stopped reporting as applied on an
+    unanswered vendor question. That reasoning is preserved EXACTLY, and it is why
+    `_voice_verdict` scores only the fields the engine actually returned. What changed is
+    the catalogue: with Sarvam and Cartesia both in it (`agents/voices.py`), the provider
+    is no longer implied by the speaker, and an agent configured Cartesia that the engine
+    holds as Sarvam is a caller hearing a different person on a dearer tier with every
+    check green. So the expectation is the triple, and a field the engine DID echo is
+    compared.
+
+    The anchor stays the speaker: with no `tts_voice` configured there is no claim at all,
+    whatever the provider column happens to hold.
     """
     if not engine.capabilities.is_ours("tts"):
         return None
-    return cfg.models.tts_voice or None
+    if not cfg.models.tts_voice:
+        return None
+    return HeldVoice(
+        provider=cfg.models.tts_provider,
+        model=cfg.models.tts_model,
+        voice=cfg.models.tts_voice,
+    )
+
+
+def _voice_verdict(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> bool | None:
+    """Is the engine speaking in the voice we published — provider, model AND speaker?
+
+    THREE COMPARISONS, EACH SKIPPED WHEN THE ENGINE DID NOT ECHO ITS FIELD, and that
+    asymmetry is the whole design (`_voice_expected` argues it):
+
+    * **A field we sent and the engine echoed DIFFERENTLY is a mismatch** — `False`, the
+      publish is refused. This is the case D-547 adds: `cartesia` published, `sarvam` held.
+    * **A field we sent and the engine did not echo at all is not evidence** — skipped. It
+      is an unanswered vendor question (gate 3 for the Sarvam model key, gate 52 for the
+      whole Cartesia block), and convicting on it would fail every correct publish.
+    * **A field we did not send** is nothing we can be wrong about — skipped.
+
+    `None` — "we could not tell" — is reserved for the two states that really are unreadable:
+    the snapshot reports no TTS selection of ours at all, or it reports one with no speaker
+    in it. The speaker is the string an operator PICKED and a caller HEARS; a read-back
+    without it has not measured the thing worth refusing a publish over.
+    """
+    expected = _voice_expected(engine, cfg)
+    if expected is None:
+        # Nothing was asked of this leg, so nothing about it can fail. True rather than
+        # None: None means "we could not tell", and we can tell — there was no claim.
+        return True
+    held = snapshot.holds_speech("tts")
+    if held is None or held.voice is None:
+        return None
+    for sent, got in (
+        (expected.voice, held.voice),
+        (expected.model, held.model),
+        (expected.provider, held.provider),
+    ):
+        if sent is None or got is None:
+            continue
+        if sent != got:
+            return False
+    return True
 
 
 def _greeting_verdict(cfg: AgentConfig, snapshot: AgentSnapshot) -> bool | None:
@@ -291,17 +341,7 @@ def judge(engine: VoiceEngine, cfg: AgentConfig, snapshot: AgentSnapshot) -> Pub
     # than about compliance. The FLOOR is ours and belongs in all of them.
     truthful = snapshot.every_prompt_carries(TRUTHFUL_ANSWER_MARKER)
     handoff = _handoff_verdict(engine, cfg, snapshot)
-    expected_voice = _voice_expected(engine, cfg)
-    held_voice = snapshot.holds_speech("tts")
-    voice: bool | None
-    if expected_voice is None:
-        # Nothing was asked of this leg, so nothing about it can fail. True rather than
-        # None: None means "we could not tell", and we can tell — there was no claim.
-        voice = True
-    elif held_voice is None:
-        voice = None
-    else:
-        voice = held_voice == expected_voice
+    voice = _voice_verdict(engine, cfg, snapshot)
 
     # THE PROMPT COPY IS NOT IN `checked`, and that is a decision. The greeting is the
     # utterance; the prompt copy is a second belt on the same trousers, and an engine

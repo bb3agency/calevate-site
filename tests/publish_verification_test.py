@@ -1346,3 +1346,84 @@ def test_an_unreadable_prompt_is_still_not_convicted_by_an_alternate() -> None:
     verdict = judge(FakeEngine(), cfg, blind)
     assert verdict.truthful_answer_applied is None
     assert verdict.state == "unreadable"
+
+
+# --- 8. THE READ-BACK NOW DIFFS THE WHOLE TTS LEG (D-547) --------------------
+#
+# `holds_speech("tts")` used to answer with the SPEAKER alone, on the ground that the
+# provider was implied by the model string. That held while one vendor spoke every voice.
+# With Sarvam and Cartesia in one catalogue it does not: an engine holding the right
+# speaker under the wrong provider is a caller hearing a different person, on a dearer
+# tier, with every check green.
+
+
+def _cartesia_cfg() -> AgentConfig:
+    """An agent configured on the Cartesia tier. The speaker is a fixture string — nobody
+    in this tree has read a real Cartesia voice id (`voices.CARTESIA_CATALOG_SOURCE` is
+    empty for that reason), and what these cases measure is the PROVIDER diff."""
+    cfg = _cfg()
+    return cfg.model_copy(
+        update={
+            "models": ModelConfig(
+                tts_provider="cartesia",
+                tts_model="sonic-3.5",
+                tts_voice="fixture-voice-id",
+            )
+        }
+    )
+
+
+def test_an_engine_holding_our_speaker_under_the_wrong_provider_is_a_mismatch() -> None:
+    """THE DEFECT D-547 ADDS AND THIS CLOSES. The publish succeeds, the speaker string
+    round-trips, and the synthesizer is Sarvam's — so the client is billed the Cartesia
+    rate for a Sarvam voice and no screen we own can see it."""
+    cfg = _cartesia_cfg()
+    held_as_sarvam = _snapshot(
+        cfg,
+        models=cfg.models.model_copy(update={"tts_provider": "sarvam", "tts_model": "bulbul:v3"}),
+    )
+
+    verdict = judge(FakeEngine(), cfg, held_as_sarvam)
+
+    assert verdict.voice_applied is False
+    assert verdict.state == "not_applied"
+    assert "voice" in verdict.detail
+
+
+def test_a_provider_the_engine_did_not_echo_is_absent_rather_than_wrong() -> None:
+    """AN UNANSWERED VENDOR QUESTION IS NOT A FAILED PUBLISH. Whether an engine echoes
+    `provider` or the model key is OPERATIONS §2 gate 3 / gate 52; convicting on a field
+    that did not come back would report every correct publish in the product as unapplied,
+    which is what teaches an operator to ignore the verdict."""
+    cfg = _cartesia_cfg()
+    speaker_only = _snapshot(
+        cfg, models=ModelConfig(tts_voice=cfg.models.tts_voice, tts_provider=None, tts_model=None)
+    )
+
+    verdict = judge(FakeEngine(), cfg, speaker_only)
+
+    assert verdict.voice_applied is True
+
+
+def test_a_read_back_with_no_speaker_is_unreadable_not_applied() -> None:
+    """The speaker is the string an operator PICKED and a caller HEARS. A snapshot that
+    reports the provider and not the speaker has not measured the thing worth refusing a
+    publish over, and "we could not tell" is the only honest verdict."""
+    cfg = _cartesia_cfg()
+    no_speaker = _snapshot(cfg, models=ModelConfig(tts_provider="cartesia", tts_model="sonic-3.5"))
+
+    verdict = judge(FakeEngine(), cfg, no_speaker)
+
+    assert verdict.voice_applied is None
+    assert verdict.state == "unreadable"
+
+
+def test_an_engine_that_dictates_speech_reports_no_voice_of_ours() -> None:
+    """`holds_speech('tts')` answers None for a snapshot holding nothing of ours on the
+    leg — the same answer it gave before the triple, and the reason it is None rather than
+    three Nones: a record would read exactly like an applied BYOK choice."""
+    cfg = _cfg()
+    dictated = _snapshot(cfg, models=ModelConfig())
+
+    assert dictated.holds_speech("tts") is None
+    assert dictated.holds_speech("stt") is None

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Final, Literal, Protocol, get_args, runtime_checkable
+from typing import Any, Final, Literal, Protocol, get_args, overload, runtime_checkable
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
@@ -2936,6 +2936,39 @@ def compose_engine_prompt(cfg: AgentConfig, *, caller_memory: Sequence[str] | No
     return "\n\n".join(part for part in parts if part)
 
 
+@dataclass(frozen=True, slots=True)
+class HeldVoice:
+    """WHAT THE ENGINE HOLDS ON THE TTS LEG — all three strings, as one answer (D-547).
+
+    `AgentSnapshot.holds_speech("tts")` returns this instead of the voice string alone. The
+    reason is the second voice tier: `agents/voices.py` now offers Sarvam Bulbul and Cartesia
+    Sonic personas from one catalogue, and an agent configured on one provider that the
+    engine holds on the OTHER is a real failure with no symptom — the publish succeeds, the
+    screen names a voice, and the caller hears whichever persona the engine defaulted to.
+    Comparing the speaker id alone cannot see it.
+
+    EVERY FIELD IS OPTIONAL AND THAT IS NOT LAXITY. Which of the three an engine echoes is a
+    vendor fact this product has not finished measuring (OPERATIONS §2 gate 3 for the model
+    on the Sarvam leg, gate 52 for the whole Cartesia block), so a field the engine did not
+    return is ABSENT — never a mismatch. `agents/verification.judge` scores only the fields
+    that came back, which is what keeps an unanswered vendor question from turning every
+    publish in the product into a failed read-back.
+    """
+
+    #: The vendor name the engine files this voice under (`sarvam`, `cartesia`), as echoed.
+    provider: str | None
+    #: The TTS model (`bulbul:v3`, `sonic-3.5`), as echoed.
+    model: str | None
+    #: The SPEAKER — our catalogue's `Voice.speaker`, the string a caller actually hears.
+    voice: str | None
+
+    @property
+    def holds_anything(self) -> bool:
+        """Did the engine report ANY selection of ours on this leg? See `holds_speech` for
+        why an all-None read is reported as `None` rather than as this record."""
+        return any((self.provider, self.model, self.voice))
+
+
 class AgentSnapshot(BaseModel):
     """What an agent currently IS **on the engine**, in our terms — the read half of
     `create_agent`/`update_agent`.
@@ -3147,22 +3180,52 @@ class AgentSnapshot(BaseModel):
             return None
         return kb in self.knowledge_base_refs
 
-    def holds_speech(self, leg: SpeechLeg) -> str | None:
+    @overload
+    def holds_speech(self, leg: Literal["stt", "llm"]) -> str | None:
+        """Signature only: the STT and LLM legs answer with the MODEL string. The one
+        implementation is below; nothing is deferred here."""
+
+    @overload
+    def holds_speech(self, leg: Literal["tts"]) -> HeldVoice | None:
+        """Signature only: the TTS leg answers with the (provider, model, voice) triple
+        (D-547). The one implementation is below; nothing is deferred here."""
+
+    def holds_speech(self, leg: SpeechLeg) -> str | HeldVoice | None:
         """What the engine holds for one BYOK leg, or None when it could not be read.
 
-        `stt`/`llm` answer with the MODEL, `tts` with the VOICE — those are the fields an
-        operator picks and the ones a catalogue is written in. The provider is not the
-        interesting half: it is implied by the model string in every catalogue we ship,
-        and a leg whose provider matched while its model did not is the failure this
-        accessor exists to expose.
+        `stt`/`llm` answer with the MODEL — the field an operator picks and the one their
+        catalogue is written in. **`tts` ANSWERS WITH ALL THREE (D-547), AND THAT IS THE
+        CHANGE.** It used to answer with the voice alone, on the ground that "the provider
+        is implied by the model string in every catalogue we ship". That ground held for
+        exactly as long as one vendor synthesised every voice. With Sarvam and Cartesia both
+        in `agents/voices.py`, an engine holding the RIGHT SPEAKER STRING under the WRONG
+        PROVIDER is now a reachable state — a voice id that exists on both sides, or a
+        publish whose synthesizer block did not take — and the caller hears a different
+        person than the screen names, with every check green. So the accessor reports the
+        triple and `agents/verification.judge` diffs all three.
+
+        `None` KEEPS ITS ONE MEANING: *we could not read it*. For `tts` that is the
+        unreadable snapshot, and also a snapshot that holds nothing of ours on this leg at
+        all (no provider, no model, no voice) — which is what an engine that dictates its own
+        voices reports, and what this method returned before for the same case. A triple of
+        three Nones would be a claim ("we read it, and it holds nothing"), and on a dictated
+        engine that claim would read exactly like an applied BYOK choice — the substitution
+        the whole `*_readable` doctrine exists to prevent.
+
+        Overloaded rather than returning a union to every caller: `stt`/`llm` callers keep a
+        `str | None` with no narrowing, and a `tts` caller that treats the triple like a
+        string is a type error rather than a silent comparison against `False`.
         """
         if not self.models_readable or self.models is None:
             return None
-        return {
-            "stt": self.models.stt_model,
-            "llm": self.models.llm_model,
-            "tts": self.models.tts_voice,
-        }[leg]
+        if leg == "tts":
+            held = HeldVoice(
+                provider=self.models.tts_provider,
+                model=self.models.tts_model,
+                voice=self.models.tts_voice,
+            )
+            return held if held.holds_anything else None
+        return {"stt": self.models.stt_model, "llm": self.models.llm_model}[leg]
 
 
 class CallContext(BaseModel):
@@ -4980,6 +5043,7 @@ __all__ = [
     "HandoffLeg",
     "HandoffLegOutcome",
     "HandoffSpec",
+    "HeldVoice",
     "KBSourceRef",
     "ListingIncompleteReason",
     "LlmCredentialPlacement",

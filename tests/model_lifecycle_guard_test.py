@@ -24,8 +24,10 @@ from calevate_shared.engine import Evidence
 from calevate_shared.model_lifecycle import (
     ATTESTATION_PATH,
     MODEL_LIFECYCLE,
+    TTS_MODEL_LIFECYCLE,
     WARN_LEAD,
     ModelLifecycle,
+    TtsModelLifecycle,
     load_attestation,
 )
 from scripts import check_model_lifecycle as guard
@@ -555,3 +557,109 @@ def test_an_attestation_naming_a_model_from_another_leg_is_a_build_failure() -> 
     )
     problems = guard.failures(dict(MODEL_LIFECYCLE), TODAY, attested)
     assert any("not in AZURE_OPENAI_MODELS" in p for p in problems), problems
+
+
+# ------------------------------------------------------- the VOICE leg (D-547, plan C.6)
+#
+# A voice model has the same clock on it as a language model — a caller on the line, a
+# vendor's 410 — and the same two ways of going undated, so it gets the same doctrine in a
+# second table rather than a second script. What differs is that EVERY voice model is
+# offerable by construction: there is no `selectable` flag on one, because offerability is
+# decided per VOICE by `agents/voice_offer.py` on grounds (a key, a price, a cap) that have
+# nothing to do with a model's date. So `unread` refuses unconditionally here.
+
+
+def _tts(name: str, retires_on: date | None, **kwargs: object) -> TtsModelLifecycle:
+    base: dict[str, object] = {
+        "model": name,
+        "provider": "cartesia",
+        "retires_on": retires_on,
+        "retirement_stance": "dated" if retires_on else "none-announced",
+        "replacement": None,
+        "retirement": Evidence(source="vendor/page", read_on=date(2026, 9, 1), verified=True),
+        "availability": Evidence(source="vendor/page", read_on=date(2026, 9, 1), verified=True),
+    }
+    return TtsModelLifecycle(**{**base, **kwargs})  # type: ignore[arg-type]
+
+
+def test_the_shipped_voice_table_covers_the_shipped_voice_catalogue() -> None:
+    """The equality the checker enforces: `TTS_MODEL_LIFECYCLE`'s keys are exactly the
+    members of `agents/voices.TtsModel`. A catalogue that gained a model without a dated
+    row is a client on a model nobody is watching the clock for."""
+    assert guard.tts_refusals(guard.TTS_MODEL_NAMES, dict(TTS_MODEL_LIFECYCLE)) == []
+    assert set(TTS_MODEL_LIFECYCLE) == guard.TTS_MODEL_NAMES
+
+
+def test_a_voice_model_with_no_lifecycle_row_refuses_to_score() -> None:
+    problems = guard.tts_refusals(frozenset({"bulbul:v3", "sonic-9"}), dict(TTS_MODEL_LIFECYCLE))
+
+    assert problems and "sonic-9" in problems[0]
+    assert "TtsModel" in problems[0], "the reader is told which catalogue to look in"
+
+
+def test_a_lifecycle_row_for_a_voice_model_nobody_offers_refuses() -> None:
+    """An orphan is either a catalogue that lost a model and left its row behind, or a typo
+    protecting nothing. Both are worth a refusal rather than a shrug."""
+    table = {**TTS_MODEL_LIFECYCLE, "sonic-3": _tts("sonic-3", date(2026, 10, 20))}
+
+    problems = guard.tts_refusals(guard.TTS_MODEL_NAMES, table)
+
+    assert problems and "sonic-3" in problems[0]
+
+
+def test_an_unread_voice_model_refuses_unconditionally() -> None:
+    """No `selectable` escape hatch on this leg: a voice model in `TtsModel` is one a client
+    can be put on today, so "nobody looked" is never an acceptable filed state."""
+    table = {"sonic-3.5": _tts("sonic-3.5", None, retirement_stance="unread")}
+
+    problems = guard.tts_refusals(frozenset({"sonic-3.5"}), table)
+
+    assert problems and "NOBODY HAS READ" in problems[0].upper()
+
+
+def test_a_voice_stance_that_disagrees_with_its_own_date_cannot_be_constructed() -> None:
+    """Hard rule 11's field, enforced at construction as it is on the LLM record: a row
+    claiming 'the vendor announced nothing' while carrying a date is the ambiguity the
+    stance exists to end."""
+    with pytest.raises(ValueError, match="stance that disagrees"):
+        _tts("sonic-3.5", date(2026, 10, 20), retirement_stance="none-announced")
+    with pytest.raises(ValueError, match="stance that disagrees"):
+        _tts("sonic-3.5", None, retirement_stance="dated")
+
+
+def test_none_announced_on_a_voice_model_needs_a_page_somebody_read() -> None:
+    """The trap this whole registry exists for: a retirement date that came from nowhere,
+    repeated downstream because it was in our own code. An UNVERIFIED source cannot support
+    'the vendor announced nothing' — the honest stance there is `unread`."""
+    with pytest.raises(ValueError, match="nobody verified"):
+        _tts(
+            "sonic-3.5",
+            None,
+            retirement=Evidence(source="a tracker", read_on=date(2026, 9, 1), verified=False),
+        )
+
+
+def test_a_retired_voice_model_still_in_the_catalogue_is_a_build_failure() -> None:
+    """`sonic-3`'s own fate, if it had ever been offered: a dated model past its date is a
+    410 mid-conversation, which on the voice leg is silence on a live call."""
+    table = {"sonic-3": _tts("sonic-3", date(2026, 10, 20))}
+
+    assert guard.tts_failures(table, date(2026, 10, 19)) == []
+    problems = guard.tts_failures(table, date(2026, 10, 21))
+    assert problems and "2026-10-20" in problems[0]
+
+
+def test_the_shipped_voice_rows_announce_no_retirement_and_say_where_they_read_it() -> None:
+    """Both shipped rows are `none-announced`, and each carries the source it was read
+    from — the hash-pinned engine mirror for Bulbul, Cartesia's own API-changes page
+    (relayed) for Sonic 3.5. The `sonic-3` sunset and the Sonic 3.6 disagreement are
+    recorded in the note rather than resolved."""
+    bulbul = TTS_MODEL_LIFECYCLE["bulbul:v3"]
+    sonic = TTS_MODEL_LIFECYCLE["sonic-3.5"]
+
+    assert bulbul.retires_on is None and bulbul.retirement_stance == "none-announced"
+    assert sonic.retires_on is None and sonic.retirement_stance == "none-announced"
+    assert "bolna-findings/mirror" in bulbul.retirement.source
+    assert "docs.cartesia.ai" in sonic.retirement.source
+    assert "20 Oct 2026" in sonic.retirement.note, "sonic-3's dated sunset travels with it"
+    assert "3.6" in sonic.retirement.note and "CONTRADICTION" in sonic.retirement.note

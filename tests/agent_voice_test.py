@@ -39,18 +39,23 @@ from __future__ import annotations
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import replace
 from uuid import UUID
 
+import pytest
 from apps.api.admin import service as admin_service
-from apps.api.agents import prompts, publishing
+from apps.api.agents import prompts, publishing, voice_routes
+from apps.api.agents import voices as voices_module
 from apps.api.agents.publishing_routes import router as publishing_router
 from apps.api.agents.routes import router as agents_router
 from apps.api.agents.service import publish_agent
+from apps.api.agents.voice_offer import NO_CARTESIA_CREDENTIAL_REASON
 from apps.api.agents.voice_routes import router as voice_router
 from apps.api.agents.voices import (
     CATALOG,
     DEFAULT_SPEAKER,
     DEFAULT_VOICE_ID,
+    VoiceSelectionCapability,
     default_voice,
     get_voice,
     is_supported_voice,
@@ -230,18 +235,27 @@ def test_the_catalog_is_not_empty_and_every_entry_validates() -> None:
         assert is_supported_voice(voice.id), f"{voice.id} is offered but not accepted"
         assert get_voice(voice.id) == voice
         assert voice.id in voice_ids()
-        assert voice.provider == "sarvam", "D-36 locks the Sarvam stack"
+        assert voice.provider in ("sarvam", "cartesia"), "the two tiers D-547 declares"
         assert voice.label.strip(), "a voice with no label cannot be picked by a human"
         assert "te-IN" in voice.languages, "Telugu-first: a voice without Telugu is not ours"
         assert voice.languages[0] == "te-IN", "Telugu leads the list a picker renders"
 
 
-def test_the_catalog_is_one_voice_quality_and_carries_no_tier() -> None:
-    """The single-tier voice decision (superseding D-36/D-35/D-34): one voice quality,
-    Sarvam Bulbul v3, and no `tier` field at all — the premium/value ladder is gone."""
-    assert {voice.tts_model for voice in CATALOG} == {"bulbul:v3"}, "one voice quality"
-    assert not hasattr(default_voice(), "tier"), "the tier dimension was removed"
+def test_the_catalog_carries_no_tier_field_and_no_sarvam_ladder() -> None:
+    """**"ONE VOICE QUALITY" WAS THIS TEST'S CLAIM AND D-547 RETIRED IT** — the tier
+    dimension came back as a second PROVIDER (Cartesia `sonic-3.5`), chosen per agent and
+    priced per credit lot. What did NOT come back is the old premium/value LADDER inside
+    Sarvam: Bulbul v2 stays withdrawn, and there is still no `tier` FIELD, because the tier
+    is `provider` and a second spelling is where the two would come to disagree.
+
+    The Sarvam half of the catalogue is still exactly one model. The Cartesia half is empty
+    today by design (`voices.CARTESIA_CATALOG_SOURCE` — no id here has been read from the
+    vendor), which `tests/voice_tier_test.py` is the file about.
+    """
+    assert {v.tts_model for v in CATALOG if v.provider == "sarvam"} == {"bulbul:v3"}
+    assert not hasattr(default_voice(), "tier"), "the tier dimension is never a field"
     assert default_voice().tts_model == "bulbul:v3"
+    assert default_voice().provider == "sarvam", "Cartesia is chosen, never inherited (Q9)"
     # v2 is no longer a voice we offer.
     assert get_voice("bulbul:v2:anushka") is None
     assert not is_supported_voice("bulbul:v2:anushka")
@@ -294,6 +308,57 @@ async def test_a_client_can_read_the_catalog() -> None:
     assert {entry["id"] for entry in body["voices"]} == set(voice_ids())
     assert {entry["tts_model"] for entry in body["voices"]} == {"bulbul:v3"}
     assert "tier" not in body["voices"][0], "the tier field was removed from the catalog"
+    # EVERY VOICE CARRIES ITS OWN VERDICT (D-547 §4.C.2), never a filtered list: a voice
+    # missing from the answer is indistinguishable from a tier this product does not sell,
+    # so the picker could not tell an operator which of key / price / cap is still missing.
+    assert all(entry["offerable"] is True for entry in body["voices"])
+    assert all(entry["unavailable_reason"] is None for entry in body["voices"]), (
+        "every Sarvam voice is offerable: its key is the engine account's own, its cost is "
+        "on the rate card, and the Cartesia agent cap does not apply to it"
+    )
+
+
+async def test_an_unavailable_voice_is_returned_with_its_reason_never_dropped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """**THE PICKER IS NEVER HANDED A SHORTER LIST (D-547 §4.C.2).**
+
+    A Cartesia voice missing from this response is indistinguishable from a Cartesia tier
+    this product does not sell — so the operator who pasted the key an hour ago has no way
+    to see that the PRICE is what is still missing, and the client who asks for the premium
+    voice is told nothing at all. Every voice comes back; `unavailable_reason` says why an
+    unavailable one is unavailable, in a sentence naming the ONE action that fixes it.
+
+    The catalogue's own Cartesia half is empty today (no voice id in this tree has been read
+    from the vendor), so the case is driven through the capability seam the route already
+    reads — which is also the only place a surface could have filtered.
+    """
+    _tenant_id, _agent_id, slug, token = await _tenant()
+    cartesia = voices_module._cartesia_entry(
+        voices_module.CartesiaVoiceRecord(
+            id="test-record-not-a-real-voice-id", name="Test Persona", languages=("te-IN",)
+        )
+    )
+    real = voice_routes.voice_selection_capability
+
+    def with_cartesia(engine: object | None = None) -> VoiceSelectionCapability:
+        capability = real()
+        return replace(capability, voices=(*capability.voices, cartesia))
+
+    monkeypatch.setattr(voice_routes, "voice_selection_capability", with_cartesia)
+
+    async with _client(_app()) as http:
+        response = await http.get(
+            "/v1/agents/voices",
+            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+        )
+
+    assert response.status_code == 200, response.text
+    rows = {entry["id"]: entry for entry in response.json()["voices"]}
+    assert cartesia.id in rows, "the unavailable voice was dropped instead of explained"
+    assert rows[cartesia.id]["offerable"] is False
+    assert rows[cartesia.id]["unavailable_reason"] == NO_CARTESIA_CREDENTIAL_REASON
+    assert rows[DEFAULT_VOICE_ID]["offerable"] is True
 
 
 async def test_the_catalog_is_closed_and_the_write_refused_when_the_engine_dictates_tts() -> None:

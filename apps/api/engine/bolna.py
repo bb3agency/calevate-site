@@ -107,7 +107,7 @@ from datetime import UTC, date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from time import monotonic
 from types import MappingProxyType
-from typing import Any, Final, NamedTuple
+from typing import Any, Final, Literal, NamedTuple
 from urllib.parse import urlsplit
 from uuid import UUID
 
@@ -533,8 +533,158 @@ _GPT5_TEMPERATURE: Final = 1
 _NO_REASONING: Final = "none"
 
 
-def _synthesizer_config(models: ModelConfig) -> dict[str, str]:
-    """`provider_config` for the Sarvam voice provider: the model and the speaker, in the
+#: The vendor's own name for the Cartesia voice provider, and the ONE place this adapter
+#: spells it. It is what `agents/voices.Voice.provider` writes into `agents.tts_provider` and
+#: therefore what arrives in `ModelConfig.tts_provider` for a Cartesia agent
+#: (VERIFIED-VENDOR-DOCS, hash-checked mirror,
+#: `bolna-findings/mirror/pages/providers/voice/cartesia.md:53-67` — the provider has its own
+#: page and its own model table under this name).
+_CARTESIA_PROVIDER: Final = "cartesia"
+
+
+#: `speed` ON THE CARTESIA BLOCK, SENT EXPLICITLY RATHER THAN INHERITED.
+#:
+#: `CartesiaConfig.speed` is `Optional[float] = 1.0` (VERIFIED-OSS, `bolna-ai/bolna`
+#: @`ae03977fa2a9ecec3171b45c6cac6d00236b957f`, `bolna/models.py`), so omitting it would
+#: work today. It is sent anyway for landmine 1's reason one field over: a vendor default is
+#: somebody else's release note, and this is the only prosody knob on the leg. 1.0 is normal
+#: pace — a phone call in a language most of our callers speak natively is not the place to
+#: experiment with rate.
+_CARTESIA_SPEED: Final = 1.0
+
+
+def _cartesia_language(language: str) -> str:
+    """Our `te-IN` → the vendor's `te`. ONE mapping, inside the adapter (hard rule 2).
+
+    `CartesiaConfig.language` is a bare `str` (VERIFIED-OSS, `bolna/models.py`
+    @`ae03977f`), and Cartesia's own per-snapshot language lists are two-letter codes —
+    `te` is on `sonic-3.5-2026-05-04`'s 42 (VENDOR-PUBLISHED, `docs.cartesia.ai`, read
+    7 Sep 2026, relayed in `docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md` ADDENDUM 1/3, whose
+    worked block is `"language": "te"`). `agents/voices.Language` is BCP-47
+    (`te-IN`/`hi-IN`/`en-IN`), so the region subtag is dropped here and nowhere else: a
+    second place that split this string would be a second definition of the vendor's
+    vocabulary living outside the adapter.
+    """
+    return language.split("-", 1)[0]
+
+
+def _refuse_cartesia_voice_incomplete() -> ProblemError:
+    """A CARTESIA AGENT WITH NO USABLE VOICE — the one case still refused (D-547 §4.C.3).
+
+    ADDENDUM 3 replaced this module's earlier blanket refusal with a real block: the field
+    names were the unknown, and Bolna's OSS answers them. What is STILL unknown is any
+    actual Cartesia voice id — `play.cartesia.ai/voices` needs a login and
+    `agents/voices.CARTESIA_CATALOG_SOURCE` ships EMPTY for that reason — so an agent can
+    reach here on the Cartesia provider with nothing to put in `voice_id`.
+
+    **WHY THAT IS A REFUSAL AND NOT AN OMITTED KEY.** `StandardVoiceConfig.voice_id` and
+    `.model` are both REQUIRED `str` (VERIFIED-OSS, `bolna/models.py` @`ae03977f`), so an
+    empty one is either a 422 at CREATE — a vendor error message about our own half-built
+    request — or, worse, an accepted agent whose synthesizer falls back to whatever the
+    engine picks, on a client every screen says is on the Cartesia tier and every invoice
+    bills at the Cartesia rate.
+
+    **THE MODEL IS GUARDED HERE AND NOT DEFAULTED, WHICH IS LANDMINE 1's REAL ANSWER.** This
+    adapter could carry its own `sonic-3.5` fallback, and that would be a SECOND definition
+    of which Cartesia model this product runs, living outside `agents/voices.py` where the
+    catalogue keeps it (hard rule 2). A Cartesia voice reaching the wire with no model means
+    the id was not a catalogue id at all, which is a refusal rather than a value to invent.
+
+    `kind="dependency"` because nothing the client typed is wrong: the catalogue has no
+    entries yet.
+    """
+    return ProblemError(
+        kind="dependency",
+        code="cartesia_voice_incomplete",
+        title="No Cartesia voice is available to publish",
+        detail=(
+            "This agent is set to the Cartesia voice tier, but no Cartesia voice has been "
+            "loaded into the catalogue on this platform yet, so there is nothing to tell "
+            "the voice platform to speak with."
+        ),
+        remediation=(
+            "Nothing is live from this version and the agent is unchanged. Switch the agent "
+            "to a Sarvam voice to publish today. To unblock the Cartesia tier, an operator "
+            "installs the Cartesia key and lists the account's voices "
+            "(GET /voices?language=te), then adds them to CARTESIA_CATALOG_SOURCE in "
+            "apps/api/agents/voices.py."
+        ),
+        failure_stage="CORE_LOGIC",
+    )
+
+
+def _cartesia_synthesizer_config(models: ModelConfig, language: str) -> dict[str, Any]:
+    """`provider_config` for the Cartesia voice provider — the five keys its config class
+    declares, all of them sent.
+
+    VERIFIED-OSS, `bolna-ai/bolna` @`ae03977fa2a9ecec3171b45c6cac6d00236b957f` (2026-09-05):
+    `enums.py:59` gives `SynthesizerProvider.CARTESIA = "cartesia"`, `providers.py` maps that
+    string to `CartesiaSynthesizer`, and `models.py` declares
+    `CartesiaConfig(StandardVoiceConfig)` = `{voice: str, voice_id: str, model: str,
+    language: str, speed: Optional[float] = 1.0}`. `Synthesizer.provider_config` is resolved
+    by a `model_validator` that looks the config class up by the provider string, so this is
+    built FROM THE CLASS rather than from an example — a wrong key is a 422 at CREATE.
+
+    ⚠ **THREE THINGS IN THAT REPOSITORY ARE WRONG OR STALE AND NONE OF THEM IS OURS TO FIX.**
+    They are written here rather than in the plan because this is the function whose output
+    meets them:
+
+    1. **`CartesiaSynthesizer.__init__` defaults `model="sonic-english"`** (VERIFIED-OSS,
+       `cartesia_synthesizer.py` @`feac358ee34fb1c17c48227c120e470592f9c0c6`, 2026-08-21) —
+       a model **Cartesia sunset on 1 Jun 2026**. So an omitted `model` does not fall back to
+       something current; it falls back to a dead id. This function ALWAYS sends `model`, and
+       `tests/bolna_contract_test.py` asserts the key is present and non-empty for every
+       Cartesia voice. **Never rely on that default.**
+    2. **The OSS hard-codes `cartesia_version=2024-06-10`** in its WebSocket URL
+       (`wss://{host}/tts/websocket?api_key=...&cartesia_version=2024-06-10`, same file),
+       while Cartesia's current documented version is `2026-08-14`. We are therefore served a
+       **two-year-old Cartesia API version**, which is a real risk to raise with the vendor
+       and a reason a Cartesia feature read about in current docs may simply not be
+       reachable through this engine.
+    3. **The OSS sends `"voice": {"mode": "id", "id": ...}` to Cartesia**, and Cartesia's
+       CURRENT schema has no `mode` key. Under the pinned 2024-06-10 version it was plausibly
+       correct, so it probably works — "probably" being the word OPERATIONS §2 gate 52 exists
+       to remove.
+
+    ⚠ **AND WHETHER `platform.bolna.ai` RUNS THAT COMMIT IS UNKNOWN.** The repository is
+    public; no vendor page claims the hosted platform is at parity with it. Gate 52 is
+    therefore narrowed rather than closed: it no longer asks *what are the fields*, it asks
+    *does the hosted platform accept these*.
+
+    **`voice` AND `voice_id` BOTH CARRY THE ID, and that is a decision rather than an
+    oversight.** `StandardVoiceConfig` types both as bare `str` with no validator visible, so
+    their semantics are unknown; the catalogue's DISPLAY NAME does not travel in
+    `ModelConfig` (nothing needed it before), and the id is the value that can actually
+    resolve a voice. Capitalising an opaque vendor id the way the Sarvam arm capitalises a
+    speaker name would corrupt it. If gate 52 shows the platform renders `voice` to a human,
+    the fix is one field on `ModelConfig` filled by `agents/service.in_call_speech`, not a
+    catalogue lookup from inside this adapter (hard rule 2).
+    """
+    voice_id = models.tts_voice or ""
+    model = models.tts_model or ""
+    # LANDMINE 1 IN ONE LINE: `model` is never omitted and never defaulted. An omitted key
+    # does not fall back to something current — `CartesiaSynthesizer.__init__` falls back to
+    # `sonic-english`, sunset 1 Jun 2026 — and a fallback written here would be a second
+    # definition of our own catalogue. Missing means refused.
+    if not voice_id or not model:
+        raise _refuse_cartesia_voice_incomplete()
+    return {
+        "voice": voice_id,
+        "voice_id": voice_id,
+        "model": model,
+        "language": _cartesia_language(language),
+        "speed": _CARTESIA_SPEED,
+    }
+
+
+def _synthesizer_config(models: ModelConfig, language: str) -> dict[str, Any]:
+    """`provider_config` for the voice provider — TWO ARMS, one per voice vendor (D-547).
+
+    The CARTESIA arm is `_cartesia_synthesizer_config` above; read it for the config class it
+    is built from and for the three OSS landmines it works around. Everything below describes
+    the SARVAM arm, which is unchanged.
+
+    `provider_config` for the Sarvam voice provider: the model and the speaker, in the
     three keys the vendor's own example carries.
 
     VERIFIED-VENDOR-REPO, `bolna-ai/skills@28b24aa`, `create-agent/SKILL.md`:
@@ -558,7 +708,9 @@ def _synthesizer_config(models: ModelConfig) -> dict[str, str]:
     byte what a legacy `bulbul:v3` row sent before this split, rather than a silent
     upgrade to a model slot on a value the catalogue cannot vouch for.
     """
-    config: dict[str, str] = {}
+    if models.tts_provider == _CARTESIA_PROVIDER:
+        return _cartesia_synthesizer_config(models, language)
+    config: dict[str, Any] = {}
     if models.tts_model is not None:
         config["model"] = models.tts_model
     if models.tts_voice is not None:
@@ -3627,7 +3779,9 @@ class BolnaEngine:
                             # rule 2 — the id spelling is ours, not a payload shape).
                             "synthesizer": {
                                 "provider": cfg.models.tts_provider,
-                                "provider_config": _synthesizer_config(cfg.models),
+                                "provider_config": _synthesizer_config(
+                                    cfg.models, cfg.language_primary
+                                ),
                                 "stream": True,
                             },
                             "transcriber": {
@@ -4671,6 +4825,34 @@ class BolnaEngine:
         require_capability("llm", engine=self)
         # See `_credential_entry_name` for why the Azure leg alone consults a setting.
         name = self._credential_entry_name(provider)
+        return await self._install_credential_entry(
+            name,
+            secret,
+            leg="llm",
+            what="LLM",
+            revocation=(
+                "Revoke the superseded key in the Azure portal as well — a static key the "
+                "store kept goes on working until it is revoked at the source."
+            ),
+        )
+
+    async def _install_credential_entry(
+        self, name: str, secret: str, *, leg: Literal["llm", "tts"], what: str, revocation: str
+    ) -> LlmCredentialPlacement:
+        """THE POST-THEN-COUNT DANCE, ONCE — every `POST /providers` this adapter makes.
+
+        `set_llm_credential` and `set_tts_credential` write different entries for different
+        legs and are refused by different capabilities, but the STORE is one flat
+        `{provider_name, provider_value}` map with one undocumented question hanging over it
+        (does a second write under a name REPLACE or APPEND?), so the detection is one piece
+        of code. `set_llm_credential`'s docstring is where that question and this design are
+        argued in full; nothing here is new behaviour, and the two legs differ only in the
+        strings a human reads afterwards.
+
+        `leg` names the log event so an operator greps one leg's installs; `revocation` is the
+        leg-specific second half of the remediation, because "revoke it at the source" points
+        at a different console per vendor and a generic sentence would send them nowhere.
+        """
         before = await self._llm_credential_ids(name)
         await self._request(
             "POST", "/providers", json={"provider_name": name, "provider_value": secret}
@@ -4682,7 +4864,7 @@ class BolnaEngine:
             # Replace-in-place (or a first install): the ids under our name did not
             # survive the write, so the store swapped the entry.
             log.info(
-                "engine_llm_credential_installed",
+                f"engine_{leg}_credential_installed",
                 extra={"engine": self.name, "credential": name, "held": len(after)},
             )
             return LlmCredentialPlacement(replaced_in_place=True)
@@ -4694,12 +4876,12 @@ class BolnaEngine:
         # deleting by name would take our fresh one with them.
         #
         # NOT SILENTLY TOLERATED. This is an alarm rather than a cleanup, and the reason
-        # is the docstring's second bullet: a store holding several keys under one name
-        # authenticates calls with one of them at its own discretion, so the leg's health
-        # stops being a function of anything we do. It is reported as a REFUSAL of the
-        # install, which is exactly right — the install did not achieve its purpose.
+        # is `set_llm_credential`'s second bullet: a store holding several keys under one
+        # name authenticates calls with one of them at its own discretion, so the leg's
+        # health stops being a function of anything we do. It is reported as a REFUSAL of
+        # the install, which is exactly right — the install did not achieve its purpose.
         log.warning(
-            "engine_llm_credential_appended",
+            f"engine_{leg}_credential_appended",
             extra={
                 "engine": self.name,
                 "credential": name,
@@ -4710,18 +4892,64 @@ class BolnaEngine:
         raise ProblemError(
             kind="dependency",
             code="engine_credential_not_replaced",
-            title="The voice platform kept the superseded LLM credential",
+            title=f"The voice platform kept the superseded {what} credential",
             detail=(
                 "The credential store appended the new value beside the old one instead "
                 "of replacing it, so which credential a call uses is no longer ours to "
                 "decide."
             ),
-            remediation=(
-                "Remove the stale entry in the vendor console, then install the key "
-                "again. Revoke the superseded key in the Azure portal as well — a static "
-                "key the store kept goes on working until it is revoked at the source."
-            ),
+            remediation="Remove the stale entry in the vendor console, then install the key "
+            "again. " + revocation,
             failure_stage="CORE_LOGIC",
+        )
+
+    async def set_tts_credential(self, secret: str) -> LlmCredentialPlacement:
+        """Write the Cartesia VOICE credential into Bolna's credential store (D-547 §4.C.4).
+
+        **ONE ENTRY, NOT FOUR, AND THE VENDOR SAYS SO IN A TABLE.** Their credential-store
+        page gives Cartesia a single property — *"`CARTESIA` — Your Cartesia API key"*
+        (VERIFIED-VENDOR-DOCS, hash-checked mirror,
+        `bolna-findings/mirror/pages/providers.md:146-150`) — beside the four-row Azure
+        OpenAI block that made `set_llm_credential` a partial install. So this method
+        installs the WHOLE leg: there is nothing left for a human to do in the vendor's
+        console afterwards, which is the opposite of the Azure case and is why it takes no
+        `provider` argument. One voice vendor is BYOK here; Sarvam's key is the engine
+        account's own (`SARVAM` in the same table) and is not ours to rotate.
+
+        **THE NAME IS A SETTING FOR `bolna_llm_credential_name`'S EXACT REASON.** D-417 found
+        the Azure entry name had been GUESSED and shipped wrong, and the operator who
+        discovers a live account wants a different spelling is looking at a silent voice leg
+        while they wait for a deploy. `Settings.bolna_tts_credential_name` (`applies: live`,
+        default `CARTESIA`) is read per install for the same reason `_credential_entry_name`
+        reads its twin per call: the adapter is cached per process, so a constructor copy
+        would make the `live` classification a lie.
+
+        `require_capability("tts", ...)` rather than `"llm"`: an engine that supplies its own
+        voices holds no voice credential of ours, and installing one there would report green
+        forever about somebody else's synthesizer — the same argument, one leg over.
+
+        **THIS DOES NOT MAKE A CARTESIA AGENT PUBLISHABLE.** The key is one of two things
+        gate 52 needs; the other is the `provider_config` field names, and
+        `_synthesizer_config` refuses by name until they are recorded. Installing the
+        credential first is deliberate — the gate's one CREATE cannot be run without it.
+
+        Returns `LlmCredentialPlacement` — the LLM in the name is now the odd half. The
+        record carries no LLM-specific field (a verdict and two counts about the STORE), and
+        a twin type would be a second vocabulary for one observation; renaming it is a
+        contract change for a later commit, noted rather than smuggled.
+
+        THE SECRET IS NEVER LOGGED — see `set_llm_credential`'s last paragraph.
+        """
+        require_capability("tts", engine=self)
+        return await self._install_credential_entry(
+            get_settings().bolna_tts_credential_name,
+            secret,
+            leg="tts",
+            what="voice",
+            revocation=(
+                "Revoke the superseded key in the Cartesia dashboard as well — a static key "
+                "the store kept goes on working until it is revoked at the source."
+            ),
         )
 
     # --- knowledge base ------------------------------------------------------

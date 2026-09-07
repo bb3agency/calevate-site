@@ -108,6 +108,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.voice_offer import OfferedVoice, offered_catalogue
 from apps.api.agents.voices import (
     Voice,
     VoiceSelectionCapability,
@@ -182,6 +183,45 @@ class SetVoiceOut(Strict):
     next_step: str
 
 
+class OfferedVoiceOut(Voice):
+    """A catalogue voice AND whether it may be chosen on this deployment right now (D-547).
+
+    THE CATALOGUE AND THE VERDICT ARE TWO FACTS AND THEY TRAVEL TOGETHER, for
+    `VoiceCatalogueOut`'s own reason one level up: a caller needs the rows and the verdict
+    about them, and inferring the verdict from which rows arrived is the bug. `selectable`
+    on the envelope answers "may a voice be chosen here AT ALL" (the engine's business,
+    D-93); this answers "may THIS one" (the platform's — a key, a price, a cap), and the two
+    are independent.
+
+    **A SHORTER LIST WOULD BE THE WRONG ANSWER, AND FILTERING IS EXACTLY WHAT THIS SHAPE
+    PREVENTS.** A Cartesia voice that is missing from the response is indistinguishable from
+    a Cartesia tier this product does not sell — so the operator who pasted the key an hour
+    ago has no way to see that the PRICE is what is still missing, and the client who asks
+    for the premium voice is told nothing at all. Every voice is returned; `reason` says why
+    an unavailable one is unavailable, in a sentence naming the one action that fixes it.
+
+    A SUPERSET OF `Voice` rather than an envelope around it: the picker renders the same
+    fields it always did, and the two new ones are additive on the wire.
+    """
+
+    #: `None` exactly when the voice may be chosen. Otherwise ONE operator-actionable
+    #: sentence from `agents/voice_offer.py` — the missing key, the unattested price, or the
+    #: platform-wide Cartesia cap, whichever is the first thing that has to happen.
+    unavailable_reason: str | None
+    #: Derived from `unavailable_reason`, never beside it: a screen that could read a `True`
+    #: flag next to a refusal sentence is a screen that can offer a voice the write refuses.
+    offerable: bool
+
+    @classmethod
+    def of(cls, offered: OfferedVoice) -> OfferedVoiceOut:
+        """One verdict from `voice_offer.offered_catalogue()` onto the wire."""
+        return cls(
+            **offered.voice.model_dump(),
+            unavailable_reason=offered.reason,
+            offerable=offered.offerable,
+        )
+
+
 class VoiceCatalogueOut(Strict):
     """The catalog AND whether it may be chosen from (D-93).
 
@@ -208,7 +248,9 @@ class VoiceCatalogueOut(Strict):
     #: True when a voice may be set on an agent here. When False, `voices` is empty
     #: because there is nothing to offer, NOT because the catalog failed to load.
     selectable: bool
-    voices: list[Voice]
+    #: EVERY voice in the catalogue, each with its own verdict — never a filtered list.
+    #: See `OfferedVoiceOut` for why a shorter list would be the wrong answer.
+    voices: list[OfferedVoiceOut]
     #: One sentence a UI prints verbatim. Always present, so a surface never has to
     #: compose the explanation out of the two fields above and get the tone wrong — the
     #: closed case is a product fact, not an error, and it should not read like one.
@@ -231,10 +273,11 @@ def _catalogue_note(capability: VoiceSelectionCapability) -> str:
     "/v1/agents/voices",
     response_model=VoiceCatalogueOut,
     openapi_extra=permission_meta("agents:read"),
-    summary="The voices an agent may speak in (client-readable; one Bulbul v3 quality)",
+    summary="The voices an agent may speak in, each with its availability (client-readable)",
 )
 async def list_voices(_: CatalogReader) -> VoiceCatalogueOut:
-    """Static data plus one capability read: no DB, no network, no tenant scoping.
+    """The catalogue, plus one capability read and — only when it could decide anything —
+    one platform-wide count.
 
     Client-realm readable on purpose — a client is legally the Principal Entity and
     should be able to see what their own agent sounds like, exactly as they can read
@@ -245,15 +288,24 @@ async def list_voices(_: CatalogReader) -> VoiceCatalogueOut:
     Entries carry `verified: false` until the Bolna pilot confirms each string is
     selectable (OPERATIONS §2 gate 3); render that, do not hide it.
 
+    ⚠ **"NO DB, NO NETWORK" USED TO BE THE FIRST LINE OF THIS DOCSTRING AND IS NO LONGER
+    TRUE, WHICH IS WHY IT SAYS SO.** The Cartesia agent cap (D-547 §0 Q10) is a count of
+    live Cartesia agents across every tenant, and a count is a query.
+    `voice_offer.offered_catalogue()` measures it ONLY when the two cheap grounds have
+    already passed and the catalogue actually holds a Cartesia voice — which today, with the
+    Cartesia entries empty (`voices.CARTESIA_CATALOG_SOURCE`), is never. So this endpoint is
+    still static in practice, and stops being so exactly when the cap starts mattering.
+
     The capability read is the SAME selector `set_agent_voice` uses, and that is the whole
     point: this endpoint is what the picker is built from, so if the two could disagree
     the console would offer precisely the choice the write refuses.
     """
     capability = voice_selection_capability()
+    offered = await offered_catalogue(voices=tuple(capability.voices))
     return VoiceCatalogueOut(
         control=capability.control,
         selectable=capability.available,
-        voices=list(capability.voices),
+        voices=[OfferedVoiceOut.of(row) for row in offered],
         note=_catalogue_note(capability),
     )
 

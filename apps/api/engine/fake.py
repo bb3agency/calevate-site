@@ -417,6 +417,12 @@ class FakeEngine:
         #: the engine ENDED UP with — an adapter that accepted the write and kept nothing
         #: would pass a "did it raise" test while proving nothing about the rotation.
         self._llm_credentials: dict[LlmProvider, str] = {}
+        #: The ONE voice credential this engine holds (D-547). A bare string rather than
+        #: a dict for `_llm_credentials`' mirror-image reason: the vendor's store gives
+        #: the voice leg exactly one entry, so a per-provider map here would model a
+        #: separation that does not exist and would hide the one that does — a second
+        #: install REPLACING the first, which is what the real store is asked to do.
+        self._tts_credential: str | None = None
 
     def holds_credentials(self) -> bool:
         """Always True: this adapter IS its own vendor, so there is nothing to configure.
@@ -789,6 +795,34 @@ class FakeEngine:
         self._llm_credentials[provider] = secret
         # Always replace-in-place: a dict has no append semantics to model, which is the
         # HAPPY vendor behaviour `set_llm_credential`'s three-call dance exists to detect.
+        return LlmCredentialPlacement(replaced_in_place=True)
+
+    async def set_tts_credential(self, secret: str) -> LlmCredentialPlacement:
+        """Hold the voice vendor's key, replacing whatever was there (D-547 §4.C.4).
+
+        THE SAME THREE PROPERTIES `set_llm_credential` models, one leg over, and each is
+        there because the real adapter can get it wrong:
+
+        * **Refuses on a DICTATED TTS leg.** `EXTERNAL_DEPLOYMENT_CAPABILITIES` declares a
+          shape whose speech is not ours, and an install reporting green against an engine
+          that never wanted a voice credential is silent by construction.
+        * **Refuses an EMPTY secret**, so a caller with a blank setting cannot install a
+          credential that fails at the first spoken word with a vendor 401 naming nothing
+          of ours.
+        * **NO `provider` ARGUMENT**, and that asymmetry with the LLM twin is the vendor's
+          rather than ours: their store documents ONE Cartesia entry
+          (`bolna-findings/mirror/pages/providers.md:146-150`), so there is no second voice
+          leg for an install to overwrite by accident.
+        """
+        require_capability("tts", engine=self)
+        if not secret:
+            raise ProblemError(
+                kind="validation",
+                code="engine_credential_empty",
+                title="No credential to install",
+                detail="An empty credential was offered to the voice platform.",
+            )
+        self._tts_credential = secret
         return LlmCredentialPlacement(replaced_in_place=True)
 
     async def provision_number(self, spec: NumberSpec) -> ProvisionedNumber:

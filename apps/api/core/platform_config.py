@@ -192,7 +192,9 @@ _SECRET_NAME_FRAGMENTS: tuple[str, ...] = tuple(
 #: not a shape: it is an exact field name, added one at a time by someone who has read
 #: this paragraph. `_assert_holds_no_secret` below refuses at import to let a member be
 #: anything a credential could be.
-_CREDENTIAL_REFERENCE_KEYS: frozenset[str] = frozenset({"bolna_llm_credential_name"})
+_CREDENTIAL_REFERENCE_KEYS: frozenset[str] = frozenset(
+    {"bolna_llm_credential_name", "bolna_tts_credential_name"}
+)
 
 
 def _assert_holds_no_secret(names: frozenset[str]) -> frozenset[str]:
@@ -546,6 +548,14 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # do. Whatever pushes the credential re-reads settings, so a correction takes effect
     # without a restart and without a republish.
     "bolna_llm_credential_name": AppliesRule(LIVE),
+    # Its TTS twin (D-547): the entry `engine/bolna.set_tts_credential` writes the Cartesia
+    # key under. Read per install from `get_settings()`, so a correction takes effect on
+    # the next install with no restart and no republish.
+    "bolna_tts_credential_name": AppliesRule(LIVE),
+    # The platform-wide ceiling on live Cartesia-tier agents (D-547 Q10). Read per request
+    # by `agents/voice_offer.offered_catalogue` and per write by `set_agent_voice`, so a
+    # raise is in force on the next picker load; it touches nothing already published.
+    "cartesia_agent_cap": AppliesRule(LIVE),
     # ---- CREDENTIALS. Same question, higher stakes -------------------------------
     #
     # The Secrets panel implies exactly what the config panel implies — set it and it is

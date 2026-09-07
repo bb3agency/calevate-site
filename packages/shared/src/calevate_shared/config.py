@@ -849,6 +849,28 @@ class Settings(BaseSettings):
         max_length=64,
         pattern=r"^[A-Z][A-Z0-9_]{1,63}$",
     )
+    # WHICH ENTRY IN THE ENGINE'S CREDENTIAL STORE THE CARTESIA TTS KEY IS WRITTEN TO
+    # (D-547, plan §4.C.4). The vendor documents ONE entry for Cartesia, named `CARTESIA`
+    # (VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/providers.md:146-150`), and the
+    # store is a flat `{provider_name, provider_value}` map, so `set_tts_credential` is one
+    # `POST /providers`. A setting for `bolna_llm_credential_name`'s reason: a documented
+    # name and a live account's actual name are different claims, and the operator who
+    # finds them different is looking at a silent voice leg. Same shape, same pattern, same
+    # `_CREDENTIAL_REFERENCE_KEYS` exemption — it NAMES a credential and holds none.
+    bolna_tts_credential_name: str = Field(
+        default="CARTESIA",
+        min_length=2,
+        max_length=64,
+        pattern=r"^[A-Z][A-Z0-9_]{1,63}$",
+    )
+    # HOW MANY LIVE AGENTS MAY BE ON THE CARTESIA VOICE TIER, PLATFORM-WIDE (D-547 §0 Q10).
+    # Cartesia's TTS is a monthly PLAN with a concurrency ceiling, not a per-character
+    # meter, so the third clinic on it does not cost a third more — it forces the next plan
+    # (₹26,312/month at the time of the decision) with nothing in the ledger to say so.
+    # `agents/voice_offer.py` refuses a Cartesia voice by name when the count of live
+    # Cartesia agents across every tenant has reached this; an operator raises it here, on
+    # a screen, after choosing to. Default 2, the founder's rule; 0 switches the tier off.
+    cartesia_agent_cap: int = Field(default=2, ge=0, le=10_000)
     # `COHERE_API_KEY` WAS HERE AND IS GONE, for the reason the paragraph below gives
     # about Clerk. It was declared, classified `applies: live` in `platform_config`, and
     # therefore offered to an operator on the ops console as a key they could install —
