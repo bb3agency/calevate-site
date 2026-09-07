@@ -109,7 +109,7 @@ from apps.api.billing.payments import (
     verify_checkout_signature,
     verify_signature,
 )
-from apps.api.billing.rates import MONEY_Q, PREPAID_TIERS, ROUNDING, VoiceTier
+from apps.api.billing.rates import MONEY_Q, PREPAID_TIERS, ROUNDING, VoiceTier, voice_tier_label
 from apps.api.billing.service import get_balance, plan_tier_of, to_paise
 from apps.api.billing.wallet import record_attempt, settle_attempt
 from apps.api.compliance.audit import write_audit
@@ -338,7 +338,10 @@ class CreditPacksOut(Strict):
     """The pack rate card: six packs, each with a Sarvam and a Cartesia ₹/min.
 
     The "from" figures are DERIVED MINIMA over the rows below, never typed, so the site
-    cannot lead with a rate no pack delivers — the rule that survives D-547 unchanged.
+    cannot lead with a rate no pack delivers — the rule that survives D-547 unchanged. The
+    two tier LABELS obey the same rule for a different kind of value: the name a client
+    reads for a voice crosses the wire from `rates.VOICE_TIER_LABELS`, so the marketing
+    site renders a name we chose once rather than a copy that drifts from it.
     """
 
     #: What a minute lists at: the `starter` pack's Sarvam rate, ₹5.00. ⚠ It used to be the
@@ -354,6 +357,19 @@ class CreditPacksOut(Strict):
     from_sarvam_inr_per_min: Decimal
     #: The lowest Cartesia rate any pack delivers.
     from_cartesia_inr_per_min: Decimal
+    #: What a CLIENT calls the voice the `sarvam_*` rates price — `rates.VOICE_TIER_LABELS`
+    #: ("Clear"), crossed over the wire rather than copied into the web (founder decision,
+    #: 7 Sep 2026). No client-facing surface names a vendor as a product tier: they buy a
+    #: named voice quality, and which vendor speaks it must be able to change without a
+    #: client-visible rename. The wire and the ledger keep the vendor spelling — the field
+    #: NAMES below still say `sarvam`/`cartesia`, because those mean the vendor and renaming
+    #: a vendor in a money column is how a leg becomes unauditable. This is only what a
+    #: human reads, and it travels with the rates so a page cannot print a name the API
+    #: never sent (`apps/web/tests/marketingPages.test.tsx` holds a tier NAME to the same
+    #: provenance rule it holds a ₹ figure to).
+    sarvam_tier_label: str
+    #: The same for the voice the `cartesia_*` rates price ("Studio").
+    cartesia_tier_label: str
     packs: list[CreditPackOut]
 
 
@@ -506,6 +522,13 @@ def rate_card_out() -> CreditPacksOut:
         from_inr_per_min=from_sarvam,
         from_sarvam_inr_per_min=from_sarvam,
         from_cartesia_inr_per_min=min(pack.cartesia_inr_per_min for pack in packs),
+        # From the ONE definition, never a string typed here. `rates.voice_tier_label` is
+        # where the two names live (added 7 Sep 2026 with the founder's decision); every
+        # other client-facing surface that comes to name a voice reads the same function,
+        # so a client cannot meet two names for one voice. As of this commit this route is
+        # its only caller — the wallet and the agent screens are other lanes' files.
+        sarvam_tier_label=voice_tier_label("sarvam"),
+        cartesia_tier_label=voice_tier_label("cartesia"),
         packs=packs,
     )
 
@@ -516,10 +539,10 @@ def rate_card_out() -> CreditPacksOut:
     summary="The self-serve rate card — list rate and credit packs — for the public site",
     description=(
         "Unauthenticated and identical for everyone. The list rate (the entry pack's "
-        "Sarvam rate), the lowest rate any pack delivers on each voice, and the static "
-        "pack catalogue: amount, credits, both per-minute rates and both talk times. The "
-        "same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about "
-        "the caller is read or returned."
+        "Sarvam rate), the lowest rate any pack delivers on each voice, the client-facing "
+        "name of each voice tier, and the static pack catalogue: amount, credits, both "
+        "per-minute rates and both talk times. The same builder serves the authenticated "
+        "`/v1/billing/topups/packs`. Nothing about the caller is read or returned."
     ),
 )
 async def read_public_rate_card(response: Response) -> CreditPacksOut:

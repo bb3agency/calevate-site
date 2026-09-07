@@ -1,6 +1,15 @@
 import type { Metadata } from "next";
 import { ScrollRegion } from "@/components/ui";
-import { fetchPublicRateCard, formatAmountINR, formatRateINR } from "@/lib/api/rateCard";
+import {
+  cardFromRate,
+  fetchPublicRateCard,
+  formatAmountINR,
+  formatRateINR,
+  packMinutes,
+  packRate,
+  tierLabel,
+  VOICE_TIERS,
+} from "@/lib/api/rateCard";
 import Link from "next/link";
 
 import { Check, Info, Receipt, ShieldCheck, Wallet } from "lucide-react";
@@ -17,37 +26,44 @@ import {
 } from "@/components/marketing/pageShell";
 
 /**
- * `/pricing` — the SHAPE of the bill, and deliberately not a number.
+ * `/pricing` — what a minute costs, and the one figure that is still a conversation.
  *
- * ## ⚠ WHY THERE IS NO PRICE ON THE PRICING PAGE
+ * ⚠ **THIS HEADER USED TO BE A LONG ARGUMENT FOR HAVING NO PRICE ON THE PRICING PAGE, AND
+ * IT WAS ALREADY UNTRUE WHEN THE PAGE BELOW IT STARTED PRINTING ONE (D-545).** It said the
+ * one published number lived on `/roi`; it cited `self_serve_inr_per_min` as the source of
+ * that number, which D-547 then stopped being. A stale doc comment on a money surface is
+ * not cosmetic: it is the next reader's brief, and this one would have sent them to delete
+ * a rate card as a rule violation.
  *
- * Because there is no price to publish. Commercial terms are negotiated per client (D-11),
- * and the `plans` table is per-tenant with every money column nullable: `setup_fee`,
- * `monthly_fee`, `included_min`, `overage_rate`, `overage_rate_value` and
- * `llm_model_surcharge` (`apps/api/billing/models.py:217-258`). There is no default rate
- * card in this repository, and the two columns that came closest say so in their own
- * comments — `overage_rate_value` and `llm_model_surcharge` both record that the number "is
- * a founder decision" and that no default may be invented, because TRD §10.1's cost bands
- * are explicitly unmeasured.
+ * ## The two price stories, and why only one of them has a number
  *
- * So a figure typed onto this page would be a quote nobody can honour, invented by the
- * person writing marketing copy. That is precisely the failure hard rule 11 exists for, and
- * it is worse here than anywhere else on the site because a price is the one claim a buyer
- * relies on before they have met us.
+ * - **Self-serve** is published, because it is real: a static six-rung credit-pack card
+ *   (`apps/api/billing/credit_packs.py::PACK_CATALOGUE`), whose every rate is checked in CI
+ *   against its own voice's cost floor, served at `GET /v1/public/rate-card` and fetched
+ *   here at request time. **Nothing on this page is typed** — every ₹ figure below is a
+ *   string that arrived in that response, and `apps/web/tests/marketingPages.test.tsx`
+ *   fails the build if one is not.
+ * - **Managed** plans are negotiated per client (D-11) and genuinely have no publishable
+ *   figure: every money column on `plans` is nullable with no default, and two of them
+ *   record in their own comments that the number "is a founder decision" and that no
+ *   default may be invented (`apps/api/billing/models.py:217-258`). A managed rate typed
+ *   into this copy would be a quote nobody can honour — hard rule 11's exact failure, and
+ *   worse here than anywhere, because a price is the one claim a buyer relies on before
+ *   they have met anybody. That caveat is one paragraph, below the card, where the reader
+ *   who needs it will look.
  *
- * **THE FIGURES ARE THE FOUNDER'S TO SUPPLY.** Until they are, this page publishes what it
- * genuinely knows — which is a great deal: what you are billed FOR, how a plan is shaped,
- * how prepaid credit works, what stops a bill running away, and how the invoice is
- * assembled. A buyer can tell from this page whether the commercial model suits them, which
- * is most of what a pricing page is for.
+ * ## Two voices, two rates, one per agent (D-547)
  *
- * ## The ONE published number lives on /roi, not here
+ * A pack no longer buys "minutes" at one rate. It carries a ₹/min for each of the two
+ * voices an agent can speak with, and which one prices a call is a property of the AGENT
+ * that took it — so the table has two rate columns rather than one, and the talk time in
+ * each is what the same credits buy on that voice.
  *
- * `self_serve_inr_per_min` (`packages/shared/src/calevate_shared/config.py:1284`) is a real,
- * published self-serve rate and the ROI calculator uses it as the INPUT to a comparison the
- * buyer drives. It earns its place there by being a tool rather than a tag. Repeating it
- * here as "our price" would turn it back into the thing this page refuses to be, because
- * a managed client's rate is not that number.
+ * **The columns are named by the API, not here.** No client-facing surface names a vendor
+ * as a product tier (founder, 7 Sep 2026): the names live once in
+ * `apps/api/billing/rates.py::VOICE_TIER_LABELS` and travel on the card, so a client meets
+ * one name for a voice and we can change the vendor under it without a rename. Never type
+ * a tier name into this file.
  *
  * Every claim below cites the code that makes it true, at the point of use.
  */
@@ -68,11 +84,14 @@ const METERED: readonly { title: string; body: string }[] = [
       "nothing to carry between them.",
   },
   {
-    title: "The voice you chose",
+    title: "The voice each agent uses",
     body:
-      "There are two voice tiers, and a plan can quote them at different rates. Every " +
-      "call is stamped with the one it used, so a month is priced from what happened " +
-      "rather than from what was configured at the end of it.",
+      "Each agent speaks with one of two voices, and the two are priced differently — the " +
+      "better one costs us more, so it costs you more. You choose it per agent, not for " +
+      "the whole account, so the agent that only reads back an appointment time need not " +
+      "be paid for like the one that sells. Every call is stamped with the voice it " +
+      "actually used, so a month is priced from what happened rather than from what was " +
+      "configured at the end of it.",
   },
   {
     title: "The language model you chose",
@@ -104,8 +123,8 @@ const PLAN_SHAPE: readonly { term: string; detail: string }[] = [
   {
     term: "A rate for anything past the bundle",
     detail:
-      "Per minute, applied to the minutes over the included allowance — and quoted " +
-      "separately for the cheaper voice tier if your plan offers one.",
+      "Per minute, applied to the minutes over the included allowance, and quoted for " +
+      "each voice your agents use — the same two-rate shape as the published card above.",
   },
   {
     term: "A start date the plan is priced from",
@@ -117,14 +136,13 @@ const PLAN_SHAPE: readonly { term: string; detail: string }[] = [
 ];
 
 export default async function PricingPage() {
-  // D-545. This page carries TWO price stories and they must not be confused for each
-  // other. A MANAGED plan is quoted per business and genuinely has no published number —
-  // every rate column on `plans` is nullable with no default, which is why this page has
-  // always refused to print one. The SELF-SERVE rate card is the opposite: it is a real,
-  // published price an operator can change from the console, and the pack ladder already
-  // delivers a lower effective rate than the list. Publishing it is not a softening of
-  // the no-number rule; it is the other half of the truth, and withholding it was making
-  // the page read as though we would not say what anything costs.
+  // The one request this page makes. `fetchPublicRateCard` never throws — it logs and
+  // returns null — so there is no `try` here and no figure to fall back to: a page that
+  // fell back to a typed constant would look identical to a working one while quoting a
+  // rate nobody set. ⚠ The card is STATIC since D-547 (the catalogue, not the old
+  // `self_serve_inr_per_min` console setting), so it moves on a deploy rather than on an
+  // operator's save; the minute of edge cache on the route is now a cheap cache of a
+  // constant rather than a staleness window on a live price.
   const rateCard = await fetchPublicRateCard();
   return (
     <MarketingPage>
@@ -146,7 +164,7 @@ export default async function PricingPage() {
         lede={
           rateCard === null
             ? "Not per seat, not per agent, not per number — you pay for the minutes your agents actually talk. Our live rate card could not be loaded just now, so there is no figure on this page we can stand behind; reload in a moment."
-            : `From ${formatRateINR(rateCard.from_inr_per_min)} a minute with prepaid credit. No monthly fee, no per-seat charge, no charge per agent or per number, and nothing to sign — you are billed for the minutes your agents actually talk, and credit does not expire.`
+            : `From ${formatRateINR(cardFromRate(rateCard, "sarvam"))} a minute on the ${tierLabel(rateCard, "sarvam")} voice with prepaid credit, and from ${formatRateINR(cardFromRate(rateCard, "cartesia"))} on the ${tierLabel(rateCard, "cartesia")} voice. No monthly fee, no per-seat charge, no charge per agent or per number, and nothing to sign — you are billed for the minutes your agents actually talk, and credit does not expire.`
         }
       />
 
@@ -157,7 +175,7 @@ export default async function PricingPage() {
           <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
             {rateCard === null
               ? "Our self-serve rate"
-              : `Start today from ${formatRateINR(rateCard.from_inr_per_min)} a minute`}
+              : `Start today from ${formatRateINR(cardFromRate(rateCard, "sarvam"))} a minute`}
           </h2>
           {rateCard === null ? (
             <p role="status" className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
@@ -169,25 +187,42 @@ export default async function PricingPage() {
             <>
               <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
                 Pay as you go at {formatRateINR(rateCard.list_rate_inr_per_min)} a minute of
-                talk time, with no monthly fee and nothing to sign. Buy credit in advance and
-                the rate comes down — the same minutes, priced lower per minute the more you
-                put on the account at once. Credit does not expire.
+                talk time on the {tierLabel(rateCard, "sarvam")} voice, with no monthly fee
+                and nothing to sign. Buy credit in advance and the rate comes down — the same
+                minutes, priced lower per minute the more you put on the account at once.
+                Credit does not expire, and the rates you bought at stay with that credit
+                until it is spent, whatever we publish later.
+              </p>
+              <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+                Each agent speaks with one of two voices. The {tierLabel(rateCard, "sarvam")}{" "}
+                voice is the everyday one; the {tierLabel(rateCard, "cartesia")} voice costs
+                more per minute because it costs us more, and you choose it agent by agent
+                rather than for the whole account. Both columns are below.
               </p>
               {/* `ScrollRegion`, not a bare `overflow-x-auto` div: a scroll container
                   that no keyboard can reach is unusable without a mouse, and
                   `tests/responsive.test.ts` enforces it. */}
               <ScrollRegion label="Prepaid credit packs" className="mt-10 sm:mt-12">
+                {/* TWO RATE COLUMNS, ONE PER VOICE (D-547). The "Extra credit" column is
+                    GONE rather than emptied: packs stopped granting bonus credits, the
+                    discount is the falling rate itself, and a column of em-dashes would
+                    have been a promise of something that no longer exists. The column
+                    HEADINGS are `tierLabel(...)` — a name the API sent — because no
+                    client-facing surface may name a vendor as a tier and a name typed here
+                    would be a second definition of one. */}
                 <table className="w-full min-w-[34rem] border-collapse text-left text-sm">
                   <caption className="sr-only">
-                    Prepaid credit packs, with the effective per-minute rate and talk time
-                    each one buys
+                    Prepaid credit packs: what you put on, and the per-minute rate and talk
+                    time it buys on each of the two voices
                   </caption>
                   <thead>
                     <tr className="border-b border-line text-ink-muted">
                       <th scope="col" className="py-3 pr-4 font-medium">You put on</th>
-                      <th scope="col" className="py-3 pr-4 font-medium">Extra credit</th>
-                      <th scope="col" className="py-3 pr-4 font-medium">Works out at</th>
-                      <th scope="col" className="py-3 font-medium">Talk time</th>
+                      {VOICE_TIERS.map((voice) => (
+                        <th key={voice} scope="col" className="py-3 pr-4 font-medium">
+                          {tierLabel(rateCard, voice)} voice
+                        </th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
@@ -201,28 +236,27 @@ export default async function PricingPage() {
                             </span>
                           ) : null}
                         </th>
-                        <td className="py-3 pr-4 text-ink-muted">
-                          {pack.bonus_pct === "0" || pack.bonus_pct === "0.00"
-                            ? "—"
-                            : `+${pack.bonus_pct}%`}
-                        </td>
-                        <td className="py-3 pr-4 text-ink">
-                          {formatRateINR(pack.effective_rate_inr_per_min)}/min
-                        </td>
-                        <td className="py-3 text-ink-muted">
-                          {pack.talk_time_minutes.toLocaleString("en-IN")} min
-                        </td>
+                        {VOICE_TIERS.map((voice) => (
+                          <td key={voice} className="py-3 pr-4 text-ink">
+                            {formatRateINR(packRate(pack, voice))}/min
+                            <span className="block text-ink-muted">
+                              {packMinutes(pack, voice).toLocaleString("en-IN")} min of talk
+                              time
+                            </span>
+                          </td>
+                        ))}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </ScrollRegion>
               <p className="mt-6 max-w-2xl text-sm text-pretty text-ink-muted">
-                Talk time is what these buy at the effective rate — the minutes your agents
-                actually speak for, not connected time. Everything on this page about what is
-                metered, what a plan carries and how an invoice is assembled applies to
-                self-serve too; the only difference is that this price is published and a
-                managed plan is agreed with you.
+                Talk time is what the credits buy at that pack&apos;s rate for that voice —
+                the minutes your agents actually speak for, not connected time. Credit is
+                spent oldest purchase first, at the rates that purchase was made at.
+                Everything on this page about what is metered, what a plan carries and how an
+                invoice is assembled applies to self-serve too; the only difference is that
+                this price is published and a managed plan is agreed with you.
               </p>
             </>
           )}

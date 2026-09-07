@@ -39,11 +39,13 @@ import { RoiCalculator } from "@/components/marketing/roiCalculator";
  *   `docs/POSITIONING-QUALIFICATION-LAYER.md` names each one and why it was refused).
  * - **The benchmarks are ILLUSTRATIVE and adjustable**, and are labelled so in the tool.
  *   They are relayed industry figures for the telecalling role, not measurements we took.
- * - **The one real price is ours**: `self_serve_inr_per_min`
- *   (`packages/shared/src/calevate_shared/config.py:1284`), which the calculator uses as
- *   the Calevate side of the comparison. It is published because it is real, and it is a
- *   self-serve rate rather than a quote — `/pricing` explains why the managed number is a
- *   conversation.
+ * - **The one real price is ours**, and it is now a CARD rather than a number: the
+ *   six-rung prepaid catalogue with a ₹/min for each of the two voices
+ *   (`apps/api/billing/credit_packs.py::PACK_CATALOGUE`, D-547), fetched here at request
+ *   time and used as the Calevate side of the comparison. ⚠ This bullet used to cite
+ *   `self_serve_inr_per_min` as the price; that setting no longer prices this card. It is
+ *   published because it is real, and it is a self-serve rate rather than a quote —
+ *   `/pricing` explains why the managed number is a conversation.
  */
 export const metadata: Metadata = {
   title: "ROI — Calevate",
@@ -58,10 +60,10 @@ const METHOD: readonly { term: string; detail: string }[] = [
   {
     term: "The Calevate side",
     detail:
-      "Calls a day × average call length × working days × our published self-serve rate. " +
-      "That is the whole of it: usage, at a rate you can read. It does not change when you " +
-      "widen the hours the line must be answered, because an agent costs the same at 2am " +
-      "as at 2pm.",
+      "Calls a day × average call length × working days × our published rate for the " +
+      "voice you picked, on the pack you picked. That is the whole of it: usage, at a rate " +
+      "you can read. It does not change when you widen the hours the line must be " +
+      "answered, because an agent costs the same at 2am as at 2pm.",
   },
   {
     term: "How many telecallers the same work needs",

@@ -12,6 +12,8 @@ import { LEGAL_DOCUMENTS } from "@/lib/legal";
 import { WHERE_IT_RUNS } from "@/lib/marketing/compliance";
 import { INDUSTRIES } from "@/lib/marketing/industries";
 
+import { packRate, VOICE_TIERS } from "@/lib/api/rateCard";
+
 import { RATE_CARD, RATE_CARD_ROUTES } from "./fixtures/rateCard";
 import { stubApi } from "./harness";
 
@@ -215,11 +217,18 @@ describe("the pricing page", () => {
     const { container } = render(await PricingPage());
     const text = bodyText(container);
 
+    // BOTH RATES OF EVERY PACK, and both "from" figures (D-547). The set used to hold one
+    // rate per pack, which was not a weaker rule so much as a rule about a card that no
+    // longer exists: the dearer voice's column would have been un-covered, and a hand-typed
+    // premium rate — the exact figure a buyer would be angriest about — would have sailed
+    // through. `packRate` is the page's own accessor, so the test cannot disagree with the
+    // page about which field is which voice.
     const fromCard = new Set(
       [
         RATE_CARD.list_rate_inr_per_min,
-        RATE_CARD.from_inr_per_min,
-        ...RATE_CARD.packs.map((pack) => pack.effective_rate_inr_per_min),
+        RATE_CARD.from_sarvam_inr_per_min,
+        RATE_CARD.from_cartesia_inr_per_min,
+        ...RATE_CARD.packs.flatMap((pack) => VOICE_TIERS.map((voice) => packRate(pack, voice))),
       ]
         .map((rate) => formatRateForTest(rate))
         .concat(RATE_CARD.packs.map((pack) => formatAmountForTest(pack.amount_inr))),
@@ -246,16 +255,59 @@ describe("the pricing page", () => {
     const { container } = render(await PricingPage());
     const selfServe = container.querySelector("#self-serve");
     const text = selfServe?.textContent ?? "";
-    // The headline figure is the card's own `from_inr_per_min`, rounded to the paisa by
-    // the page — 4.6296 is what the API sends and ₹4.63 is what a buyer reads.
-    expect(text).toContain("₹4.63");
-    expect(text).toContain("₹5.00");
-    // Every rung, priced. A ladder that silently rendered four of five would still pass a
-    // "contains ₹4.63" assertion, which is why this counts rows against the fixture.
+    // The two headline figures are the card's own per-voice "from" rates, rounded to the
+    // paisa by the page.
+    expect(text).toContain(formatRateForTest(RATE_CARD.from_sarvam_inr_per_min));
+    expect(text).toContain(formatRateForTest(RATE_CARD.from_cartesia_inr_per_min));
+    expect(text).toContain(formatRateForTest(RATE_CARD.list_rate_inr_per_min));
+    // Every rung, priced ON BOTH VOICES. A ladder that silently rendered five of six, or a
+    // table that dropped the dearer column, would still pass a "contains ₹4.50" assertion —
+    // which is why this counts rows against the fixture and then requires every one of the
+    // twelve rates to be on screen.
     expect(selfServe?.querySelectorAll("tbody tr")).toHaveLength(RATE_CARD.packs.length);
     for (const pack of RATE_CARD.packs) {
       expect(text).toContain(formatAmountForTest(pack.amount_inr));
+      for (const voice of VOICE_TIERS) {
+        expect(text, `${pack.pack_id} has no ${voice} rate`).toContain(
+          formatRateForTest(packRate(pack, voice)),
+        );
+      }
     }
+  });
+
+  it("names the voices the API named, and never their vendors", async () => {
+    // THE PROVENANCE RULE, APPLIED TO A NAME (founder, 7 Sep 2026). A client buys a named
+    // voice quality; which vendor speaks it is ours to change without a client-visible
+    // rename, so the two names are defined once in `billing/rates.py::VOICE_TIER_LABELS`
+    // and travel on the card. A name typed into the page would pass any assertion written
+    // against the real labels, so the card handed in here carries DIFFERENT ones: if the
+    // page prints these, it is rendering what it was sent.
+    stubApi({
+      "/v1/public/rate-card": {
+        ...RATE_CARD,
+        sarvam_tier_label: "Everyday",
+        cartesia_tier_label: "Concert",
+      },
+    });
+    const { container } = render(await PricingPage());
+    const text = bodyText(container);
+    // The COLUMN HEADINGS first, by position rather than by substring: they are the one
+    // place a name and a price sit together, and the place a hand-typed name would be
+    // hardest to notice because the rest of the page would still read correctly.
+    const headings = [...container.querySelectorAll("#self-serve thead th")].map(
+      (th) => th.textContent,
+    );
+    expect(headings).toContain("Everyday voice");
+    expect(headings).toContain("Concert voice");
+    // And in the prose, which quotes the same two names.
+    expect(text).toContain("Everyday");
+    expect(text).toContain("Concert");
+    // Nothing prints the names this deployment's API happens to send today: a page holding
+    // its own copy of them would pass every assertion above except this one.
+    expect(text).not.toMatch(/\bClear\b|\bStudio\b/);
+    // And no vendor's name anywhere on the page — the failure this rule exists for is a
+    // tier called "Sarvam" or "Cartesia" in copy somebody wrote from the field names.
+    expect(text).not.toMatch(/sarvam|cartesia|bulbul|sonic/i);
   });
 
   it("shows no price at all when the rate card cannot be loaded", async () => {
@@ -268,6 +320,22 @@ describe("the pricing page", () => {
     expect(text).toMatch(/could not be loaded/i);
     expect(text).not.toContain("₹");
     expect(selfServe?.querySelector("table")).toBeNull();
+  });
+
+  it("shows no price when the card arrives without a name for a voice", async () => {
+    // A card whose rates have no tier name is not a card this page can render honestly: it
+    // would print two rate columns headed by nothing, or — worse — headed by a name typed
+    // into the page. `isRateCard` refuses it at the seam, and the page takes the same
+    // "could not be loaded" branch it takes for an unreachable API, which is the only
+    // honest answer to "we cannot tell you what this rate is for".
+    const unnamed: Record<string, unknown> = { ...RATE_CARD };
+    delete unnamed.sarvam_tier_label;
+    delete unnamed.cartesia_tier_label;
+    stubApi({ "/v1/public/rate-card": unnamed });
+    const { container } = render(await PricingPage());
+    const text = container.querySelector("#self-serve")?.textContent ?? "";
+    expect(text).toMatch(/could not be loaded/i);
+    expect(text).not.toContain("₹");
   });
 
   it("sends the reader to the one place a real figure lives", async () => {

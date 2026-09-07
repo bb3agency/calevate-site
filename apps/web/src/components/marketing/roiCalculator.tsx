@@ -57,12 +57,27 @@
  * with each pack's effective rate. Nothing here is typed — the `500` paise that used to
  * live in `lib/roi.ts` is gone from every page (D-545).
  *
- * **It DEFAULTS to the LIST rate, not to the cheapest pack.** The ₹50,000 pack is the
+ * **It DEFAULTS to the LIST rate, not to the cheapest pack.** The deepest pack is the
  * card's "from" figure and a buyer can pick it in the assumptions — but pre-selecting it
  * would price Calevate at its best case against a telecaller at a mid benchmark, which is
  * stacking the deck, and this tool's entire credibility argument (above) is that it does
  * not. So at the default the arithmetic is exactly what it was at the typed constant, and
  * `tests/roi.test.ts`'s ₹52,000 / ₹1,16,000 / ₹12,000 pins hold untouched.
+ *
+ * ## The VOICE is now an input too (D-547), and it defaults the same way
+ *
+ * A pack carries one ₹/min per voice, and which voice an agent speaks with is chosen per
+ * agent — so "what does Calevate cost" has two answers and the tool has to ask. The picker
+ * sits above the pack picker in the assumptions (the pack rates below it are rates FOR the
+ * chosen voice), and it defaults to the CHEAPER voice, which is what a new agent gets: the
+ * dearer one is chosen, never inherited (plan Q9). Defaulting the other way would have the
+ * tool quote a price most accounts will not pay.
+ *
+ * **Neither voice is named here.** A client buys a named voice quality; which vendor speaks
+ * it is our business and must be able to change without a client-visible rename (founder,
+ * 7 Sep 2026). The names live once in `apps/api/billing/rates.py::VOICE_TIER_LABELS` and
+ * arrive on the card, so this component reads `tierLabel(card, voice)` and never a string
+ * of its own — the same provenance rule the ₹ figures obey.
  *
  * **When the card cannot be loaded the comparison does not run.** `rateCard` is `null`,
  * the section says so in words, and no figure is shown — never a stale or typed rate,
@@ -80,12 +95,18 @@ import {
 } from "lucide-react";
 
 import {
+  cardFromRate,
   cheapestPack,
   formatAmountINR,
   formatRateINR,
+  packMinutes,
+  packRate,
   ratePaisePerMin,
+  tierLabel,
+  VOICE_TIERS,
   type PublicRateCard,
   type RateCardPack,
+  type VoiceTier,
 } from "@/lib/api/rateCard";
 import {
   COVERAGE,
@@ -301,34 +322,79 @@ function hoursFromMinutes(minutes: number): number {
 const LIST_RATE = "list";
 
 /**
- * The rate in force for a choice, as the 4dp string the API sent. Total: an unknown id
- * (a pack the card no longer carries) resolves to the list rate rather than to nothing,
- * so a stale choice can never price the comparison at `NaN`.
+ * The rate in force for a voice and a pack choice, as the 4dp string the API sent. Total
+ * in both arguments: an unknown pack id (a card that no longer carries the rung a stale
+ * render selected) resolves to the list rate rather than to nothing, so a stale choice can
+ * never price the comparison at `NaN`.
+ *
+ * ⚠ **THE VOICE IS NOT OPTIONAL AND HAS NO DEFAULT HERE.** It used to read
+ * `effective_rate_inr_per_min`, a single rate per pack; since D-547 a pack has one rate per
+ * voice and the deprecated field holds the CHEAPER of the two. A voice-less reader would
+ * therefore have quoted the cheaper voice for both — an under-quote on a public page, which
+ * is the direction that gets somebody a bill they were not shown.
  */
-function rateFor(card: PublicRateCard, choice: string): {
-  rate: string;
-  pack: RateCardPack | undefined;
-} {
+function rateFor(
+  card: PublicRateCard,
+  voice: VoiceTier,
+  choice: string,
+): { rate: string; pack: RateCardPack | undefined } {
   const pack = choice === LIST_RATE ? undefined : card.packs.find((p) => p.pack_id === choice);
-  return { rate: pack ? pack.effective_rate_inr_per_min : card.list_rate_inr_per_min, pack };
+  if (pack) return { rate: packRate(pack, voice), pack };
+  // The LIST rate is the entry rung's rate. On the cheaper voice the card publishes it
+  // directly (`list_rate_inr_per_min`, which is what "list rate" has always meant); on the
+  // other voice it is the same rung's other column, read off the first pack rather than
+  // typed — the card is ascending by amount, which `tests/public_rate_card_test.py` pins.
+  const entry = card.packs[0];
+  const rate =
+    voice === "sarvam" || entry === undefined
+      ? card.list_rate_inr_per_min
+      : packRate(entry, voice);
+  return { rate, pack: undefined };
 }
 
 /**
- * The picker's options: the list rate FIRST (it is the default, and a radiogroup's first
- * option is where a keyboard user lands), then every pack with its effective rate and
- * talk time — the two numbers a buyer reasons about, both from the response.
+ * The voice picker's two options, named and priced BY THE API. The label is the card's
+ * `*_tier_label` (a client never reads a vendor's name — founder, 7 Sep 2026) and the
+ * caption carries that voice's list rate and its best pack rate, so the choice a buyer
+ * makes shows its own consequence.
  */
-function rateOptions(card: PublicRateCard): readonly { id: string; label: string; caption: string }[] {
+function voiceOptions(
+  card: PublicRateCard,
+): readonly { id: VoiceTier; label: string; caption: string }[] {
+  return VOICE_TIERS.map((voice) => ({
+    id: voice,
+    label: `${tierLabel(card, voice)} voice — ${formatRateINR(rateFor(card, voice, LIST_RATE).rate)}/min`,
+    caption:
+      voice === "sarvam"
+        ? `The everyday voice, and where every agent starts. Down to ${formatRateINR(cardFromRate(card, voice))}/min on the deepest pack.`
+        : `Costs more per minute because it costs us more; chosen agent by agent. Down to ${formatRateINR(cardFromRate(card, voice))}/min on the deepest pack.`,
+  }));
+}
+
+/**
+ * The pack picker's options: the list rate FIRST (it is the default, and a radiogroup's
+ * first option is where a keyboard user lands), then every pack with its rate and talk time
+ * ON THE CHOSEN VOICE — the two numbers a buyer reasons about, both from the response.
+ *
+ * ⚠ The caption used to end with "N% bonus credit". No pack grants one since D-547 — the
+ * discount IS the falling rate — so the sentence would have advertised a benefit that no
+ * longer exists, from a field (`bonus_pct`) that is zero on every rung and leaves the wire
+ * next release.
+ */
+function rateOptions(
+  card: PublicRateCard,
+  voice: VoiceTier,
+): readonly { id: string; label: string; caption: string }[] {
   return [
     {
       id: LIST_RATE,
-      label: `Pay as you go — ${formatRateINR(card.list_rate_inr_per_min)}/min`,
+      label: `Pay as you go — ${formatRateINR(rateFor(card, voice, LIST_RATE).rate)}/min`,
       caption: "The list rate. Top up any amount; nothing to commit to.",
     },
     ...card.packs.map((pack) => ({
       id: pack.pack_id,
-      label: `${formatAmountINR(pack.amount_inr)} pack — ${formatRateINR(pack.effective_rate_inr_per_min)}/min`,
-      caption: `${pack.talk_time_minutes.toLocaleString("en-IN")} min of talk time · ${pack.bonus_pct}% bonus credit${pack.best_value ? " · best value" : ""}`,
+      label: `${formatAmountINR(pack.amount_inr)} pack — ${formatRateINR(packRate(pack, voice))}/min`,
+      caption: `${packMinutes(pack, voice).toLocaleString("en-IN")} min of talk time${pack.best_value ? " · best value" : ""}`,
     })),
   ];
 }
@@ -364,9 +430,13 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
   // DEFAULTS TO THE LIST RATE. See the header: pre-selecting the cheapest pack would be
   // the one thing this tool promises not to do.
   const [rateChoice, setRateChoice] = useState<string>(LIST_RATE);
-  const { rate: selectedRate, pack: selectedPack } = rateFor(card, rateChoice);
+  // DEFAULTS TO THE CHEAPER VOICE, for the same reason the rate defaults to the list rung:
+  // it is what a new agent gets (plan Q9 — the dearer voice is chosen, never inherited), so
+  // it is the honest starting point rather than a flattering one.
+  const [voice, setVoice] = useState<VoiceTier>("sarvam");
+  const { rate: selectedRate, pack: selectedPack } = rateFor(card, voice, rateChoice);
   const calevatePaisePerMin = ratePaisePerMin(selectedRate);
-  const cheapest = cheapestPack(card);
+  const cheapest = cheapestPack(card, voice);
   const [callsPerDay, setCallsPerDay] = useState(USAGE.callsPerDay.default);
   const [avgMinutes, setAvgMinutes] = useState(USAGE.avgMinutes.default);
   const [workingDays, setWorkingDays] = useState(USAGE.workingDays.default);
@@ -586,13 +656,25 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 pack to become the number they remember. Every label is derived from the
                 card the page fetched; the legend carries the "from" figure the site
                 leads with, named with the pack that delivers it. */}
+            {/* WHICH VOICE — the assumption that moves the Calevate side hardest, and the
+                one this tool had no way to express before D-547. It sits above "how you
+                pay" because the pack rates underneath it are rates FOR this voice; picking
+                a pack first and a voice second would silently reprice the pack the buyer
+                had just chosen. Both labels come from the card. */}
+            <RadioCards
+              legend={`Which voice your agents use — priced from ${formatRateINR(cardFromRate(card, "sarvam"))}/min`}
+              options={voiceOptions(card)}
+              value={voice}
+              onChange={setVoice}
+              columns={2}
+            />
             <RadioCards
               legend={
                 cheapest
-                  ? `How you pay — from ${formatRateINR(card.from_inr_per_min)}/min with the ${formatAmountINR(cheapest.amount_inr)} pack`
+                  ? `How you pay — from ${formatRateINR(cardFromRate(card, voice))}/min with the ${formatAmountINR(cheapest.amount_inr)} pack`
                   : "How you pay"
               }
-              options={rateOptions(card)}
+              options={rateOptions(card, voice)}
               value={rateChoice}
               onChange={setRateChoice}
               columns={2}
@@ -804,16 +886,17 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 {formatPaiseINR(result.calevatePaise)}
               </p>
               <p className="mt-1.5 text-sm text-ink-muted">
-                Variable and pay-as-you-go at {formatRateINR(selectedRate)}/min
+                Variable and pay-as-you-go at {formatRateINR(selectedRate)}/min on the{" "}
+                {tierLabel(card, voice)} voice
                 {selectedPack
-                  ? ` on the ${formatAmountINR(selectedPack.amount_inr)} pack`
-                  : ", the list rate"}{" "}
+                  ? `, ${formatAmountINR(selectedPack.amount_inr)} pack`
+                  : ", at the list rate"}{" "}
                 — it rises with your calls and falls to zero on a quiet day. No headcount to
                 carry between the busy months.
               </p>
               {cheapest && !selectedPack && (
                 <p className="mt-2 text-xs text-ink-faint">
-                  From {formatRateINR(card.from_inr_per_min)}/min with the{" "}
+                  From {formatRateINR(cardFromRate(card, voice))}/min with the{" "}
                   {formatAmountINR(cheapest.amount_inr)} pack — pick one under “Adjust
                   assumptions”, or see the{" "}
                   <Link href="/pricing#self-serve" className="font-medium text-brand-strong underline-offset-4 hover:underline dark:text-brand-bright">
@@ -1002,10 +1085,14 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 <span className="font-medium text-ink">Calevate</span> = calls a day ×
                 average length × {formatRateINR(selectedRate)}/min × working days.{" "}
                 {formatRateINR(card.list_rate_inr_per_min)}/min is our published self-serve
-                list rate, read live from our own rate card when this page loaded; a prepaid
-                pack brings it down to{" "}
-                {cheapest ? `${formatRateINR(card.from_inr_per_min)}/min` : "less"} and the
-                comparison starts at the list rate rather than the cheapest pack on purpose.
+                list rate on the {tierLabel(card, "sarvam")} voice, read from our own rate
+                card when this page loaded; a prepaid pack brings it down to{" "}
+                {formatRateINR(cardFromRate(card, "sarvam"))}/min, and the{" "}
+                {tierLabel(card, "cartesia")} voice runs from{" "}
+                {formatRateINR(cardFromRate(card, "cartesia"))}/min to{" "}
+                {formatRateINR(rateFor(card, "cartesia", LIST_RATE).rate)}/min. The
+                comparison starts on the everyday voice at the list rate rather than at the
+                cheapest pack, on purpose.
               </li>
               <li>
                 <span className="font-medium text-ink">Telecallers needed</span> = calls a

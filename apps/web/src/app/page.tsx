@@ -67,10 +67,14 @@ import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
  *
  * - **No prices, with ONE deliberate exception.** D-11's managed pricing is negotiated
  *   per client, so no plan price appears. The exception is the ROI calculator: it shows
- *   the published self-serve rate (`self_serve_inr_per_min`, ₹5/min) as the INPUT to a
- *   comparison the buyer drives with their own numbers — a tool, not a tag.
- *   `publicLanding.test.tsx` scopes its price/percent bans off that one section and keeps
- *   them everywhere else.
+ *   the published self-serve rates as the INPUT to a comparison the buyer drives with
+ *   their own numbers — a tool, not a tag. Those rates are FETCHED, never typed: this page
+ *   awaits `GET /v1/public/rate-card` and hands the card to the component, which prices
+ *   from the pack and the voice the buyer picked and refuses to run at all if the card
+ *   cannot be loaded (D-545, reshaped by D-547 — a pack now carries one rate per voice, so
+ *   the old single `self_serve_inr_per_min` sentence that stood here named a setting that
+ *   no longer prices anything). `publicLanding.test.tsx` scopes its price/percent bans off
+ *   that one section and keeps them everywhere else.
  * - **No customer counts, logos, testimonials or case studies.** There is no client #1 in
  *   production (ROADMAP M2). The founder's decision of 5 Sep 2026 is that the proof
  *   section is OMITTED this round rather than filled with placeholders — an empty proof

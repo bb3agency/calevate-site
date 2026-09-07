@@ -187,9 +187,10 @@ export interface RoiInputs {
   shiftHours?: number;
   /**
    * Calevate price in paise/min, to a HUNDREDTH of a paisa — the API's 4dp rupee rate
-   * (`₹4.6296/min` is `462.96`; `lib/api/rateCard.ts::ratePaisePerMin` converts). A pack's
-   * effective rate is priced exactly rather than rounded to the paisa first; the line's
-   * single rounding still happens once, at the end. Defaults to
+   * (`₹4.7000/min` is `470.00`; `lib/api/rateCard.ts::ratePaisePerMin` converts). The
+   * caller supplies the rate for the PACK and the VOICE the buyer chose (a pack carries one
+   * of each since D-547); it is priced exactly rather than rounded to the paisa first, and
+   * the line's single rounding still happens once, at the end. Defaults to
    * {@link CALEVATE_PAISE_PER_MIN} for callers of the pure model; no page passes that.
    */
   calevatePaisePerMin?: number;

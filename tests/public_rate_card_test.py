@@ -16,6 +16,11 @@ Three claims, each pinned against the SOURCE rather than against a number typed 
    authenticated `/packs` read returns, because they are the same function.
 3. **The guards agree it is public.** Declared in `UNAUTHENTICATED_ROUTES`, under a
    `PUBLIC_PREFIXES` entry, on its own `public_read` rate profile, with a public cache.
+4. **The NAME a client reads for a voice crosses this wire too, and is not a vendor's.**
+   Added 7 Sep 2026 with the founder's decision that no client-facing surface names a
+   vendor as a product tier: the label comes from `rates.VOICE_TIER_LABELS`, so the site
+   renders what the API sent rather than a copy of it, and the field names beside it keep
+   the vendor spelling because that is what the ledger means by them.
 """
 
 from __future__ import annotations
@@ -31,7 +36,7 @@ from apps.api.billing.payment_routes import (
     CreditPacksOut,
     rate_card_out,
 )
-from apps.api.billing.rates import MONEY_Q, ROUNDING, VOICE_TIERS
+from apps.api.billing.rates import MONEY_Q, ROUNDING, VOICE_TIERS, voice_tier_label
 from apps.api.core.ratelimit import profile_for
 from apps.api.core.rbac import PUBLIC_PREFIXES
 from apps.api.core.settings import get_settings
@@ -128,6 +133,55 @@ async def test_the_deprecated_fields_stay_on_the_wire_holding_the_safe_value() -
         assert Decimal(row["total_credits"]) == Decimal(row["paid_credits"])
         assert Decimal(row["effective_rate_inr_per_min"]) == Decimal(row["sarvam_inr_per_min"])
         assert row["talk_time_minutes"] == row["sarvam_minutes"]
+
+
+async def test_the_card_names_each_voice_tier_without_naming_its_vendor() -> None:
+    """The founder's rule of 7 Sep 2026, pinned at the one place the name crosses the wire.
+
+    A client buys a named voice QUALITY; which vendor speaks it is ours and must be able to
+    change without a client-visible rename. So the label travels with the rate (the
+    marketing site may not hold its own copy — `apps/web/tests/marketingPages.test.tsx`
+    checks the other end), it comes from `rates.VOICE_TIER_LABELS` rather than from a
+    string typed into this module, and it may not BE the vendor's name — which is the half
+    a copy-paste would break silently, because "Sarvam" reads like a perfectly good label
+    to anybody who has not been told the rule.
+
+    The field NAMES beside it still say `sarvam`/`cartesia` on purpose: those mean the
+    vendor and are the ledger's vocabulary (plan §2.3.7), and renaming a vendor in a money
+    column is how a leg becomes unauditable.
+    """
+    async with _anonymous() as http:
+        body = (await http.get(PATH)).json()
+    for voice in VOICE_TIERS:
+        label = body[f"{voice}_tier_label"]
+        assert label == voice_tier_label(voice)
+        assert label.strip(), voice
+        for vendor in ("sarvam", "cartesia", "bulbul", "sonic"):
+            assert vendor not in label.lower(), (voice, label)
+    assert body["sarvam_tier_label"] != body["cartesia_tier_label"]
+
+
+async def test_the_packs_arrive_in_ladder_order_with_both_columns_falling() -> None:
+    """The WIRE order is load-bearing, so it is pinned here and not only in the catalogue.
+
+    `/pricing` renders the rows in the order they arrive and tells the reader, in words,
+    that putting more on at once brings the rate down. That sentence is true of the PAGE
+    only if the response is ascending by amount with neither column rising — a property of
+    this body, not of the tuple behind it, and one a `sorted()` slipped into the builder
+    would break without failing `tests/credit_packs_test.py`.
+    """
+    async with _anonymous() as http:
+        rows = (await http.get(PATH)).json()["packs"]
+    amounts = [Decimal(row["amount_inr"]) for row in rows]
+    assert amounts == sorted(amounts) and len(set(amounts)) == len(amounts)
+    for voice in VOICE_TIERS:
+        rates = [Decimal(row[f"{voice}_inr_per_min"]) for row in rows]
+        assert rates == sorted(rates, reverse=True), voice
+        # And the dearer voice is dearer on every rung, which is what lets the page put the
+        # two columns side by side without explaining an inversion.
+    for row in rows:
+        assert Decimal(row["cartesia_inr_per_min"]) >= Decimal(row["sarvam_inr_per_min"])
+        assert row["cartesia_minutes"] <= row["sarvam_minutes"]
 
 
 def test_the_from_rates_are_derived_and_below_the_list_rate() -> None:

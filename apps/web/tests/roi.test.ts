@@ -9,6 +9,17 @@ import {
   type RoiInputs,
   type TwoStageInputs,
 } from "@/lib/roi";
+import {
+  cardFromRate,
+  cheapestPack,
+  packMinutes,
+  packRate,
+  ratePaisePerMin,
+  tierLabel,
+  VOICE_TIERS,
+} from "@/lib/api/rateCard";
+
+import { RATE_CARD } from "./fixtures/rateCard";
 
 /**
  * The homepage ROI cost model. This is the honesty guarantee for the one priced surface on
@@ -403,5 +414,77 @@ describe("formatPaiseINR — Indian grouping, digit-only", () => {
 
   it("carries a leading minus for a negative delta", () => {
     expect(formatPaiseINR(-2_200_000)).toBe("-₹22,000.00");
+  });
+});
+
+/**
+ * The rate card's per-voice accessors — the seam that feeds `calevatePaisePerMin`.
+ *
+ * They live in `lib/api/rateCard.ts` and are scored here because this file is where the
+ * Calevate side of the comparison is held honest: the model above proves the arithmetic,
+ * and these prove that the number handed to it is the rate for the voice the buyer chose,
+ * on the pack they chose — never a constant, and never the other voice's column.
+ *
+ * ⚠ The regression is a REAL one, not a hypothetical. Until D-547 a pack had one rate and
+ * `cheapestPack` matched on `effective_rate_inr_per_min`; that field survives on the wire
+ * for one release holding the CHEAPER voice's figure (plan §10), so the old form would have
+ * gone on answering — with the wrong pack, silently, for the dearer voice.
+ */
+describe("the rate card's per-voice rates", () => {
+  it("reads each voice's own column, per pack", () => {
+    const plus = RATE_CARD.packs.find((pack) => pack.pack_id === "plus");
+    expect(plus).toBeDefined();
+    expect(packRate(plus!, "sarvam")).toBe(plus!.sarvam_inr_per_min);
+    expect(packRate(plus!, "cartesia")).toBe(plus!.cartesia_inr_per_min);
+    expect(packMinutes(plus!, "sarvam")).toBe(plus!.sarvam_minutes);
+    expect(packMinutes(plus!, "cartesia")).toBe(plus!.cartesia_minutes);
+    // The dearer voice is dearer on every rung, so its talk time is always the smaller.
+    for (const pack of RATE_CARD.packs) {
+      expect(packMinutes(pack, "cartesia")).toBeLessThan(packMinutes(pack, "sarvam"));
+    }
+  });
+
+  it("finds the cheapest pack SEPARATELY for each voice", () => {
+    // A card whose two columns bottom out on DIFFERENT rungs — the shape a single-rate
+    // lookup answers wrongly and cannot report. (Our published card bottoms out on the same
+    // pack for both, which is exactly why testing against it alone would prove nothing.)
+    const card = {
+      ...RATE_CARD,
+      from_sarvam_inr_per_min: "4.5000",
+      from_cartesia_inr_per_min: "6.2500",
+      packs: RATE_CARD.packs.map((pack) =>
+        pack.pack_id === "max" ? { ...pack, cartesia_inr_per_min: "6.5000" } : pack,
+      ),
+    };
+    expect(cheapestPack(card, "sarvam")?.pack_id).toBe("max");
+    expect(cheapestPack(card, "cartesia")?.pack_id).toBe("pro");
+    expect(cardFromRate(card, "sarvam")).toBe("4.5000");
+    expect(cardFromRate(card, "cartesia")).toBe("6.2500");
+  });
+
+  it("prices the comparison at the chosen voice's rate on the chosen pack", () => {
+    // 200 × 26 × 2 min = 10,400 min. On the ₹15,000 pack that is ₹4.70/min on one voice and
+    // ₹6.50 on the other — the whole reason the calculator had to start asking which.
+    const plus = RATE_CARD.packs.find((pack) => pack.pack_id === "plus")!;
+    const clear = computeRoi({
+      ...BASE,
+      calevatePaisePerMin: ratePaisePerMin(packRate(plus, "sarvam")),
+    });
+    const studio = computeRoi({
+      ...BASE,
+      calevatePaisePerMin: ratePaisePerMin(packRate(plus, "cartesia")),
+    });
+    expect(clear.calevatePaise).toBe(4_888_000);
+    expect(studio.calevatePaise).toBe(6_760_000);
+  });
+
+  it("passes the tier NAMES through from the card rather than holding any", () => {
+    // The founder's rule of 7 Sep 2026: a client buys a named voice quality and never reads
+    // a vendor's name. The names are defined once, server-side; this asserts the web only
+    // relays them, by handing it names no build of this repo would ever contain.
+    const card = { ...RATE_CARD, sarvam_tier_label: "Alpha", cartesia_tier_label: "Beta" };
+    expect(tierLabel(card, "sarvam")).toBe("Alpha");
+    expect(tierLabel(card, "cartesia")).toBe("Beta");
+    expect(VOICE_TIERS).toEqual(["sarvam", "cartesia"]);
   });
 });

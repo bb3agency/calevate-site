@@ -16,6 +16,23 @@
  * on `/pricing` and every rate in the ROI calculator is a string that arrived in this
  * response, formatted from its digits.
  *
+ * ## Two rates per pack, and the NAME of each voice, since D-547 (7 Sep 2026)
+ *
+ * A pack no longer has "an" effective rate. It has one ₹/min for each of the two voices an
+ * agent can speak with, and which one prices a call is a property of the AGENT that took
+ * it. So every reader on this site asks for a rate BY VOICE (`packRate`, `cardFromRate`),
+ * and the single-rate fields (`from_inr_per_min`, `effective_rate_inr_per_min`,
+ * `talk_time_minutes`) are deprecated on the wire for one release and read by nothing here.
+ *
+ * The card also carries what a CLIENT calls each voice, and that is the second reason this
+ * module exists in the shape it does: no client-facing surface names a vendor as a product
+ * tier (founder, 7 Sep 2026), the two names are defined once in `billing/rates.py`
+ * (`VOICE_TIER_LABELS`), and a copy of them in TypeScript would be a second definition of a
+ * name a client reads — the drift that ends with one buyer meeting both. So the label
+ * crosses the wire beside the rate and `tierLabel` passes it through untouched. The wire
+ * FIELD names still say `sarvam`/`cartesia`: those mean the vendor, they are the ledger's
+ * vocabulary, and they are not shown to anybody.
+ *
  * ## Server-side, at request time, through the generated client
  *
  * NOT `"use client"`, deliberately. The marketing tree has no `QueryClientProvider`
@@ -51,10 +68,63 @@ import type { components } from "./schema";
 
 type Schemas = components["schemas"];
 
-/** The card: the live list rate, the lowest effective rate, and every pack priced. */
-export type PublicRateCard = Schemas["CreditPacksOut"];
-/** One pack, priced at the list rate: amount, bonus, effective ₹/min, talk time. */
+/**
+ * The card: the entry rate, the lowest rate on each voice, what a client calls each voice,
+ * and every pack priced on both.
+ *
+ * ⚠ **THE INTERSECTION IS A BRIDGE AND IS MEANT TO BECOME REDUNDANT.** `sarvam_tier_label`
+ * / `cartesia_tier_label` are on `CreditPacksOut` in `apps/api/billing/payment_routes.py`
+ * as of 7 Sep 2026, but `schema.d.ts` is regenerated ONCE across the five lanes landing
+ * D-547 rather than per lane, so the generated type does not carry them yet. Writing them
+ * here keeps this module honest about the wire in the meantime WITHOUT a type assertion —
+ * `as` onto a generated wire type is the exact defect `tests/wireFixtureGuard.test.ts`
+ * exists to stop. Once the snapshot is regenerated the intersection is a no-op and should
+ * be deleted; nothing breaks either way, which is what makes it safe to leave for one
+ * regeneration and wrong to leave for two.
+ */
+export type PublicRateCard = Schemas["CreditPacksOut"] & {
+  sarvam_tier_label: string;
+  cartesia_tier_label: string;
+};
+/** One pack: amount, credits, a ₹/min and a talk time on each of the two voices. */
 export type RateCardPack = Schemas["CreditPackOut"];
+
+/**
+ * The two voices a rate can be for, spelled the way the WIRE and the ledger spell them —
+ * by vendor. A client never reads these strings: what they read is the card's
+ * `*_tier_label`, which is a name the API chose (`billing/rates.VOICE_TIER_LABELS`) and
+ * this module only ever passes through. The two vocabularies are deliberately different:
+ * a vendor may be replaced under a voice quality without renaming anything a client has
+ * seen, and a money column that said "Clear" instead of "sarvam" would stop being
+ * auditable the day the vendor behind it changed.
+ */
+export type VoiceTier = "sarvam" | "cartesia";
+
+/** Both voices, in the order the card leads with them (the cheaper first). */
+export const VOICE_TIERS: readonly VoiceTier[] = ["sarvam", "cartesia"];
+
+/** One pack's ₹/min on one voice, as the 4dp string the API sent. THE ONE DOOR. */
+export function packRate(pack: RateCardPack, voice: VoiceTier): string {
+  return voice === "sarvam" ? pack.sarvam_inr_per_min : pack.cartesia_inr_per_min;
+}
+
+/** Whole minutes one pack's credits buy on one voice, as the API floored them. */
+export function packMinutes(pack: RateCardPack, voice: VoiceTier): number {
+  return voice === "sarvam" ? pack.sarvam_minutes : pack.cartesia_minutes;
+}
+
+/** The lowest ₹/min any pack delivers on one voice — the site's "from" figure. */
+export function cardFromRate(card: PublicRateCard, voice: VoiceTier): string {
+  return voice === "sarvam" ? card.from_sarvam_inr_per_min : card.from_cartesia_inr_per_min;
+}
+
+/**
+ * What a CLIENT calls this voice. Read from the response, never held here: two copies of
+ * a name is how a client comes to meet both of them (founder, 7 Sep 2026).
+ */
+export function tierLabel(card: PublicRateCard, voice: VoiceTier): string {
+  return voice === "sarvam" ? card.sarvam_tier_label : card.cartesia_tier_label;
+}
 
 export const PUBLIC_RATE_CARD_PATH = "/v1/public/rate-card";
 
@@ -108,12 +178,19 @@ export function formatAmountINR(amount: string): string {
   return paise % 100 === 0 ? formatted.slice(0, -3) : formatted;
 }
 
-/** The pack that delivers the card's `from_inr_per_min`, or the last pack if none matches. */
-export function cheapestPack(card: PublicRateCard): RateCardPack | undefined {
-  return (
-    card.packs.find((pack) => pack.effective_rate_inr_per_min === card.from_inr_per_min) ??
-    card.packs.at(-1)
-  );
+/**
+ * The pack that delivers this voice's "from" rate, or the last pack if none matches.
+ *
+ * PER VOICE since D-547, and it has to be: the two columns fall at different speeds
+ * (Cartesia 8.00 → 6.00 against Sarvam 5.00 → 4.50), so "the cheapest pack" is a question
+ * with two answers and the old single-rate form silently answered the Sarvam one for both.
+ * It matched on `effective_rate_inr_per_min`, a field that is now deprecated and holds the
+ * Sarvam figure for unmigrated readers — which is exactly how a caller asking about the
+ * dearer voice would have been handed the cheaper voice's pack and never noticed.
+ */
+export function cheapestPack(card: PublicRateCard, voice: VoiceTier): RateCardPack | undefined {
+  const from = cardFromRate(card, voice);
+  return card.packs.find((pack) => packRate(pack, voice) === from) ?? card.packs.at(-1);
 }
 
 /**
@@ -129,20 +206,37 @@ export function isRateCard(body: unknown): body is PublicRateCard {
     return false;
   if (typeof card.from_inr_per_min !== "string" || !MONEY_STRING.test(card.from_inr_per_min))
     return false;
+  // The two "from" rates and the two tier names, which are what the pages LEAD with: a
+  // missing one is a heading with `undefined` in it, and a blank label is a voice with no
+  // name beside its price. Checked before the rows because a card that cannot introduce
+  // its columns cannot honestly print them.
+  for (const field of ["from_sarvam_inr_per_min", "from_cartesia_inr_per_min"] as const) {
+    if (typeof card[field] !== "string" || !MONEY_STRING.test(card[field] as string)) return false;
+  }
+  for (const field of ["sarvam_tier_label", "cartesia_tier_label"] as const) {
+    const label = card[field];
+    if (typeof label !== "string" || label.trim() === "") return false;
+  }
   if (!Array.isArray(card.packs) || card.packs.length === 0) return false;
   return card.packs.every((pack: unknown) => {
     if (typeof pack !== "object" || pack === null) return false;
     const row = pack as Record<string, unknown>;
+    const money = (value: unknown): boolean =>
+      typeof value === "string" && MONEY_STRING.test(value);
+    const wholeMinutes = (value: unknown): boolean =>
+      typeof value === "number" && Number.isInteger(value);
     return (
       typeof row.pack_id === "string" &&
-      typeof row.amount_inr === "string" &&
-      MONEY_STRING.test(row.amount_inr) &&
-      typeof row.bonus_pct === "string" &&
-      MONEY_STRING.test(row.bonus_pct) &&
-      typeof row.effective_rate_inr_per_min === "string" &&
-      MONEY_STRING.test(row.effective_rate_inr_per_min) &&
-      typeof row.talk_time_minutes === "number" &&
-      Number.isInteger(row.talk_time_minutes) &&
+      money(row.amount_inr) &&
+      // BOTH rates and BOTH talk times, because both are rendered. The deprecated
+      // `bonus_pct` / `effective_rate_inr_per_min` / `talk_time_minutes` are NOT checked
+      // any more: nothing on this site reads them, they leave the wire next release
+      // (plan §10), and a guard that refuses a card for a field nobody renders would take
+      // the pricing page down on the release that removes them.
+      money(row.sarvam_inr_per_min) &&
+      money(row.cartesia_inr_per_min) &&
+      wholeMinutes(row.sarvam_minutes) &&
+      wholeMinutes(row.cartesia_minutes) &&
       typeof row.best_value === "boolean"
     );
   });
