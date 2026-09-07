@@ -292,3 +292,72 @@ A (card)  ──►  B (lots + debit)  ──►  D (Cartesia metering)  ──�
 - Terms §6.1 states the lot promise and the version register carries the bump.
 - `make coverage-ratchet` green with `ledgers-and-money` at zero; every guard in §7 green; D-547 in ROADMAP; TRD/BRD/DATA-MODEL/FLOWS/OPERATIONS updated in the same commits.
 - Gates 51–53 filed in OPERATIONS §2 and NOT claimed as done.
+
+---
+
+# ADDENDUM 1 — What the Cartesia research run settled (7 Sep 2026)
+
+⚠ **THE DELIVERED REPORT IS THE PRICING/COST-REDUCTION RUN, NOT THE API DEEP-DIVE.** It is
+the same document already filed at `docs/evidence/cartesia-tts-verification-2026-09-06.md`.
+It does NOT contain the request/response schemas, the `provider_config` field names, or the
+voices-API shape. **So the two facts that block a Cartesia publish are STILL UNKNOWN**, and
+Phase C's fail-loud design (C.3) stands unchanged. What follows is only what it upgraded.
+
+## Now VERIFIED from Cartesia's own docs (was REPORTED)
+- **`sonic-3` is deprecated with sunset 20 Oct 2026**, snapshot `sonic-3-2025-10-27`;
+  `sonic-2` and `sonic-turbo` share that date; `sonic`, `sonic-english` and
+  `sonic-multilingual` were already sunset 1 Jun 2026
+  (docs.cartesia.ai/build-with-cartesia/tts-models/api-changes, read 7 Sep 2026).
+  → Phase C.1's "sonic-3 is deliberately absent" note upgrades its class from REPORTED to
+  VERIFIED, and `TTS_MODEL_LIFECYCLE` (C.6) records the date rather than an absence.
+- **`sonic-3.5` snapshot is `sonic-3.5-2026-05-04`, stable, NO announced retirement.** It
+  stays our model id.
+- **Telugu (`te`) is on the per-snapshot language list** for `sonic-3.5-2026-05-04` (42
+  languages) and `sonic-3.6-2026-08-27` (44) — not merely a homepage count.
+
+## New facts that change a design detail
+- **`sonic-3.6` is STABLE on Cartesia's side with no retirement date**, while Bolna's page
+  calls its `sonic-preview` "Sonic 3.6 (Beta)" and tells you to use `sonic-3.5` in
+  production (`bolna-findings/mirror/pages/providers/voice/cartesia.md:58-66`).
+  **CONTRADICTION, recorded not resolved.** We send the id BOLNA accepts, so the catalogue
+  stays on `sonic-3.5`; `TTS_MODEL_LIFECYCLE` carries both with the disagreement in the
+  comment. Revisit when gate 52 runs.
+- **Concurrency is counted per unique `context_id`, not per WebSocket or per utterance**,
+  and up to 10× the concurrency limit may be open as connections. Exceeding either returns
+  **429 with no queueing** — dead air on a live call. Idle WebSocket connections are closed
+  after **5 minutes**.
+  → This is the evidence behind Q10's `cartesia_agent_cap` (C.2). The cap's docstring cites
+  it, and gate 53 (load test) is what sets the number rather than the vendor's
+  "one unit ≈ four conversations" rule of thumb.
+- **Hinglish code-switching is documented; Telugu-English is NOT** ("absent from docs", not
+  "unsupported"). → The voice catalogue's Telugu entries carry that caveat, and the agent
+  screen must not promise Telugu-English mixing.
+- **Pro Voice Cloning bills 1.5 credits/character**, a 50% premium. → If a cloned voice is
+  ever offered, it is a THIRD rate on the pack, not the Cartesia rate. Out of scope here;
+  named so nobody assumes parity.
+- **Cartesia publishes a caching pattern** — pre-generate stock phrases as raw PCM, cache,
+  splice into the live stream; "cached clips skip the API, so those segments are faster and
+  free", and the clip must match the live stream's encoding and sample rate exactly
+  (docs.cartesia.ai/build-with-cartesia/capability-guides/tts-caching, 21 Jul 2026).
+  → This is OUR-side engineering and needs control of the audio stream, which under Bolna
+  we do not have. It stays what it was: the graph-agent static node (OPERATIONS gate 50) is
+  the only zero-TTS path on this engine. Recorded so the two are not confused.
+
+## Data handling — now enough to write the sub-processor entry (Phase F)
+- Privacy policy permits training on submitted content with a **prospective-only opt-out
+  form**; **Zero Data Retention is Enterprise-only**, so on our plan retention is governed
+  by the DPA rather than by ZDR; DPA is published at `cartesia.ai/legal/dpa`; SOC 2 Type II
+  / HIPAA / PCI-DSS / GDPR are asserted with the reports behind a Trust Center request.
+- ⚠ The privacy policy states the Services **"are designed for users in the United States
+  only and are not intended for users located outside the United States."** That is a real
+  clause for an Indian customer and belongs in `/legal/subprocessors` beside the Sarvam
+  entry, stated plainly rather than paraphrased.
+
+## Still UNKNOWN, and each still blocks what it blocked before
+| # | Unknown | Blocks | Closes by |
+|---|---|---|---|
+| 1 | Cartesia `provider_config` field names on Bolna's `POST /v2/agent` | any Cartesia publish (C.3 refuses by name) | OPERATIONS gate 52 — one CREATE, record the 200 or the 422 |
+| 2 | Telugu voice ids, names, genders | the catalogue's Cartesia entries (C.1 ships the loader EMPTY) | log in to `play.cartesia.ai/voices`, filter Telugu; or the voices API once its shape is known |
+| 3 | Overage rate per credit past the allotment | the margin floor's worst case (A.3 uses the plan rate; overage would be dearer) | `cartesia.ai/pricing` FAQ or support@cartesia.ai |
+| 4 | Whether a BYOK Cartesia call reports `synthesizer` cost 0 on Bolna | Phase D's `qty`/`unit_cost_paid` seam | OPERATIONS gate 51 |
+| 5 | Whether the DPA is self-serve signable on Startup | Phase F's sub-processor entry wording | `play.cartesia.ai/settings` |
