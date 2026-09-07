@@ -22,8 +22,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
+from collections.abc import Iterator
 from typing import Any
 
 import pytest
@@ -68,12 +70,42 @@ async def _tenant() -> uuid.UUID:
     return uuid.UUID(str(created["id"]))
 
 
+#: Every id this module writes into `outbox_messages`, emptied by the module teardown.
+#:
+#: `outbox_messages` is one of `shared_state_assertion_guard.GLOBALLY_ORDERED_QUEUES`, and
+#: the guard's reason is the one that matters here: `claim_outbox_batch` and
+#: `replay_dead_letters` are both oldest-first over the WHOLE table, so a row this module
+#: leaves behind — a `failed` one especially, since `prune_reliability_tables` deliberately
+#: never deletes those — sits at the head of every other suite's dispatcher queue for good.
+#: A test about erasure leaving undeleted rows would be a poor joke.
+_SEEDED_OUTBOX: list[uuid.UUID] = []
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _empty_the_queue() -> Iterator[None]:
+    """Module-scoped and in a `finally`, so a failing assertion still cleans up."""
+    yield
+    if not _SEEDED_OUTBOX:
+        return
+
+    async def _drop() -> None:
+        async with untenanted_session() as session:
+            await session.execute(
+                text("DELETE FROM outbox_messages WHERE id = ANY(:ids)"),
+                {"ids": list(_SEEDED_OUTBOX)},
+            )
+
+    asyncio.run(_drop())
+    _SEEDED_OUTBOX.clear()
+
+
 async def _outbox_row(
     *, tenant_id: uuid.UUID | None, phone: str | None, status: str = "failed"
 ) -> uuid.UUID:
     """One outbox message shaped as `integrations/service.py` writes an outbound CRM
     delivery: the lead's own fields, inline, under the tenant that owns them."""
     message_id = uuid7()
+    _SEEDED_OUTBOX.append(message_id)
     payload: dict[str, Any] = {"event": "lead.created", "data": {"name": "Padma Reddy"}}
     if tenant_id is not None:
         payload["tenant_id"] = str(tenant_id)

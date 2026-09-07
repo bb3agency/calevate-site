@@ -128,6 +128,7 @@ different — read the `note:` lines.
 | `meta_page_token_invalid` | ROUTE_HANDLER | A client's Meta page token is dead. Every lead from that source refuses until it is replaced. | Replace the token in the client's integration settings. |
 | `meta_leads_retrieval_denied` | ROUTE_HANDLER | The Meta token is alive but not permitted to retrieve leads. | The app's permissions or review status; the client must re-authorize. |
 | `meta_signature_rejected` | ROUTE_HANDLER | A Meta webhook arrived with a signature we could not verify. | If sustained, the app secret is wrong; a single one is somebody probing. |
+| `meta_batch_over_cap` | ROUTE_HANDLER | One signed Meta delivery carried more leadgen notifications than `MAX_LEADGEN_PER_DELIVERY`. The overflow was **deferred, not dropped** — the endpoint answers 503 and Meta redelivers, so nothing was acked that was not done. | Read the count in the detail. A batch a little over the cap on a busy client means the cap is sized wrong: raise `MAX_LEADGEN_PER_DELIVERY` in `apps/api/ingest/routes.py`, which is bounded by our own per-notification cost (a Graph round trip plus up to three transactions each), not by any published Meta limit. A batch far over it, or one from a quiet client, means somebody is driving work through a signed endpoint — leave the cap alone and look at the `webhook_id`. |
 
 ### The reliability path — outbox, inbox, webhooks in
 
