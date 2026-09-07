@@ -1362,6 +1362,30 @@ Plans: pay-as-you-go with **no minimum**; ₹1,000 free credits; credits never e
 universal across APIs. **Rate limits are the real constraint, not price** — 60 rpm (Starter) /
 200 rpm (Pro ₹10k) / 1,000 rpm (Business ₹50k).
 
+**Cartesia rate card — the SECOND voice tier (D-547, 7 Sep 2026).** A client's agent speaks
+with Sarvam Bulbul v3 or Cartesia Sonic 3.5; the tier is a property of the agent, and the
+credit-pack card prices a minute differently for each (§2.2 of
+`docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md`). Cartesia is **not per-character billed**: it is
+a monthly subscription with a character allotment and no pay-as-you-go option, so the ₹/chars
+row below is the plan's MARGINAL rate — the fee spread over the whole allotment — and it is
+true only when the allotment is exactly consumed.
+
+| Cartesia API | Published rate | Marginal rate |
+|---|---|---|
+| Text-to-Speech **Sonic 3.5**, Startup plan | $49 / month, 1,250,000 credits (1 credit = 1 character) | ₹34.496 / 10,000 chars |
+
+> ⚠ **EVIDENCE CLASS: REPORTED, and dearer than it looks at both ends.**
+> `docs/evidence/cartesia-tts-verification-2026-09-06.md` is a Comet research run relayed by
+> the founder; `cartesia.ai` and `docs.cartesia.ai` are egress-blocked from this container
+> (re-measured 6 Sep 2026), so nothing here was read from the vendor by this repository, and
+> the labels that file writes as VERIFIED are Comet's reading. Conversion ₹88 = US$1.00, the
+> file's own assumption. **Below the allotment the real per-character cost is higher** (the
+> fee does not shrink); **above it the overage rate is UNKNOWN** — not published on the docs
+> page, and it closes at `cartesia.ai/pricing`'s FAQ or by mailing support@cartesia.ai. The
+> constants live at `billing/rates.py::CARTESIA_TTS_INR_PER_10K_CHARS` (derived from the fee
+> and the allotment, never typed) and `scripts/check_docs_drift.py` §4b diffs this row
+> against them in both directions, as it does the Bulbul row above.
+
 > ⚠ **The single-tier voice decision (superseding D-36/D-35/D-34) WITHDREW the Bulbul v2
 > "value" rung.** There is one voice quality now — Sarvam Bulbul v3 — so there is one TTS
 > rate (₹30 / 10,000 chars) and one client price (₹5.00/min, `self_serve_inr_per_min`).
@@ -1379,6 +1403,7 @@ paragraph opening this section: the band is the fallback until the admin spend b
 |---|---|---|
 | STT — Saaras (STT+Translate) | ₹30/hr | **₹0.50** |
 | TTS — Bulbul **v3** | ₹3.00 / 1,000 chars | **₹1.08–1.62** |
+| TTS — Cartesia **Sonic 3.5** *(the second voice tier; the Startup plan's marginal rate, REPORTED — see the card above)* | ₹3.4496 / 1,000 chars | **₹1.24–1.86** |
 | LLM — `gpt-4o-mini` on Azure OpenAI `eastus2` *(D-410's default and still the **base-rate** model `billing/rates.BASE_RATE_LLM_MODEL` freezes the plan rate against — no longer the platform default; region per D-449)* | $0.15/$0.60 per 1M tok | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |
 | LLM — `gpt-4.1-mini` on Azure OpenAI `eastus2` *(the live switch, `azure_openai_model`; both allow-listed models are on the Regional-Standard matrix for this region — gate 20b reads the quota)* | $0.40/$1.60 per 1M tok | **₹0.27 (1 min) / ₹0.44 (5 min) / ₹0.65 (10 min)** |
 | LLM — **`gemini-2.5-flash-lite` on Google Gemini Developer API** *(the cheapest leg we offer, and since 4 Sep 2026 the **platform default** — `Settings.platform_llm_model`. Cheaper than the base-rate model, so it carries **no** model surcharge)* | $0.10/$0.40 per 1M tok | **₹0.07 (1 min) / ₹0.11 (5 min) / ₹0.16 (10 min)** |

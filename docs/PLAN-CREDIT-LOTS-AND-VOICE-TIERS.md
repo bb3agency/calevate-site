@@ -163,7 +163,7 @@ Files: `billing/models.py`, `billing/service.py`, `billing/lots.py` (new), `work
 7. `ai_quota.py:1189-1196` debits the same wallet in rupees, not minutes: it consumes lots FIFO at face value (₹1 = 1 credit), no rate. Documented in the lot split as `voice_tier = NULL`.
 8. Tests (each a file, per BACKEND-PATTERNS §9): FIFO order; a split across two lots priced at two rates; a debit larger than all lots (overdraft, priced at the last lot's rate); repayment then lot open on the next top-up; replay makes no second consumption; a lot's rates cannot be updated (trigger); cross-tenant zero rows; invariant 1 after a randomised sequence of top-ups and debits; the migration opens one lot per positive balance and none for a negative one.
 
-### Phase C — the Cartesia voice tier
+### Phase C — the Cartesia voice tier  ⚠ SEE ADDENDUM 3: C.3 IS NOW A BUILD, NOT A REFUSAL
 Files: `agents/voices.py`, `agents/voice_routes.py`, `agents/verification.py`, `engine/bolna.py`, `agents/llm_models.py` (pattern) → `agents/voice_offer.py` (new), `core/platform_config.py`, `packages/shared/.../engine.py`, `packages/shared/.../model_lifecycle.py` (or a TTS twin), tests + conformance.
 1. **Catalogue**: `TtsModel = Literal["bulbul:v3", "sonic-3.5"]`; `Voice.provider: Literal["sarvam","cartesia"]`; Cartesia entries from Q1 with `voice_id_for()` unchanged in shape (`"sonic-3.5:<voice_id>"`). `sonic-3` is deliberately NOT in the catalogue (Bolna: use 3.5 in production, `cartesia.md:66`; a sunset of 20 Oct 2026 for `sonic-3` is REPORTED by Comet from `docs.cartesia.ai` and is NOT on Bolna's page — recorded as REPORTED, not asserted). The `_NOTE` at `voices.py:306` stops hardcoding ₹30/10k.
 2. **Offerability**: `offerable_voices()` mirrors `offerable_models()` (`llm_models.py:452-500`): a Cartesia voice is offered only when `cartesia_api_key` is installed (`secret_probes.py:145`), a Cartesia price is attested (§3.5), AND the `cartesia_agent_cap` (Q10) is not exceeded — each refusal a named reason the picker renders. `GET /v1/agents/voices` (`voice_routes.py:230`) returns the reason per unavailable voice, never a shorter list.
@@ -423,3 +423,147 @@ directions, and the CHECK-violating case as a regression test, are Phase B tests
 - TRD §10.1's Cartesia TTS rung must land in the SAME commit as `billing/rates.py`
   (`check_docs_drift` §4b compares them); the attested figure is the Startup plan's
   **₹3.4496 / 1,000 chars**. Phase A owns both halves.
+
+---
+
+# ADDENDUM 3 — The wire-level answers (7 Sep 2026). C.3 IS NOW BUILDABLE.
+
+The API deep-dive was delivered and it answers the question that had Phase C refusing to
+publish. **`_synthesizer_config`'s Cartesia arm stops being a refusal and becomes a block**,
+built to the schema below. Three contradictions come with it and each one is a landmine that
+must be written into the code, not just noted here.
+
+EVIDENCE: Bolna OSS at commit `ae03977fa2a9ecec3171b45c6cac6d00236b957f` (`enums.py`,
+`models.py`, `providers.py`, dated 2026-09-05) and `feac358ee34fb1c17c48227c120e470592f9c0c6`
+(`cartesia_synthesizer.py`, 2026-08-21); Cartesia's AsyncAPI spec at
+`docs.cartesia.ai/api-reference/tts/websocket` and OpenAPI at `/api-reference/voices/list`.
+Class: **VERIFIED-OSS** for everything from the Bolna repo, **VERIFIED-VENDOR-DOCS** for
+Cartesia's own specs. ⚠ Whether `platform.bolna.ai` runs that OSS commit is **UNKNOWN** — the
+repo is public, no page claims hosted parity. So the block below is built from the OSS
+schema and gate 52 narrows from "what are the fields" to "does the hosted platform accept
+them".
+
+## 3.1 The Cartesia synthesizer block — build exactly this
+
+`bolna/enums.py:59` → `SynthesizerProvider.CARTESIA = "cartesia"`. `bolna/providers.py` maps
+that string to `CartesiaSynthesizer`. `bolna/models.py`:
+
+```python
+class StandardVoiceConfig(BaseModel):
+    voice: str; voice_id: str; model: str; language: str
+class CartesiaConfig(StandardVoiceConfig):
+    speed: Optional[float] = 1.0
+class Synthesizer(BaseModel):
+    provider: str
+    provider_config: Union[...] = Field(union_mode="smart")
+    stream: bool = False
+    buffer_size: Optional[int] = 40
+    audio_format: Optional[str] = "pcm"
+    caching: Optional[bool] = True
+```
+
+So `_synthesizer_config` emits, for a Cartesia voice:
+
+```json
+{"provider": "cartesia",
+ "provider_config": {"voice": "<display name>", "voice_id": "<Cartesia voice id>",
+                     "model": "sonic-3.5", "language": "te", "speed": 1.0},
+ "stream": true}
+```
+
+The Sarvam arm keeps its current shape. `provider_config` is validated by a `model_validator`
+that looks the class up by the provider string, so a wrong key is a 422 at CREATE — which is
+why the block is built from the config class rather than from an example.
+
+**`voice` vs `voice_id` is UNKNOWN in semantics** — `StandardVoiceConfig` types both as bare
+`str` with no validator visible. We send the catalogue's display name in `voice` and the
+Cartesia id in `voice_id`, mirroring what the Sarvam arm already does (`_synthesizer_config`
+sends `voice` capitalised and `voice_id` lowercased). Gate 52 records what the platform does
+with it.
+
+## 3.2 THREE LANDMINES — each becomes an assertion, not a comment
+
+1. **`CartesiaSynthesizer.__init__` defaults `model="sonic-english"`, a model Cartesia SUNSET
+   on 1 Jun 2026.** If our block ever omits `model`, the synthesizer falls back to a dead
+   model id. → `_synthesizer_config` must ALWAYS send `model`, and a test asserts the key is
+   present and non-empty for every Cartesia voice. Never rely on the default.
+2. **The OSS hard-codes `cartesia_version=2024-06-10` in the WebSocket URL**
+   (`self.ws_url = f"wss://{host}/tts/websocket?api_key={key}&cartesia_version=2024-06-10"`),
+   while Cartesia's current documented version is `2026-08-14`. This is not ours to fix — it
+   is inside Bolna — but it explains landmine 3 and it means **we are being served a
+   two-year-old Cartesia API version**. Record it; it is a real risk to raise with Bolna and
+   a reason a Cartesia feature we read about in current docs may simply not be reachable.
+3. **The OSS sends `"voice": {"mode": "id", "id": ...}`; Cartesia's CURRENT schema has no
+   `mode` key** (voice is a string id or `{"id": ...}`). Under the pinned 2024-06-10 version
+   `mode` was plausibly correct, so this probably works — but "probably" is the word gate 52
+   exists to remove. Cartesia's spec says unknown object fields "may be added in future API
+   versions", which suggests tolerance and does not promise it.
+
+**None of these three is ours to change.** All three go in the adapter's docstring with their
+`repo@commit path` citation, and gate 52's Record list gains them.
+
+## 3.3 Two knobs we now know exist and must decide about
+- `Synthesizer.caching: Optional[bool] = True` — Bolna's OWN synthesis cache, defaulted ON.
+  We have never set it. If it caches by (text, voice) it is the cheapest possible answer to
+  the fixed-greeting cost and it may already be working. **UNKNOWN what it caches or where.**
+  → New OPERATIONS gate **54**: on one call, does a repeated identical utterance appear in
+  `synthesizer_characters`/cost a second time? This is the same question as gate 49 from a
+  different direction, and it is cheaper to answer.
+- `Synthesizer.audio_format: Optional[str] = "pcm"` and `buffer_size: 40`. The Cartesia
+  synthesizer chooses `pcm_mulaw` at 8 kHz when `use_mulaw` is set, else `pcm_s16le` at its
+  `sampling_rate`. We do not set these today for Sarvam either; leave them at default and
+  record that the telephony encoding is the engine's choice, not ours.
+
+## 3.4 The voice catalogue can now be built from the API (closes plan §0 Q1's shape)
+`GET /voices` (`Cartesia-Version: 2026-08-14`) takes `language`, `gender`
+(`masculine|feminine|gender_neutral`), `limit` (1–100), `starting_after`/`ending_before`
+cursors, `is_owner`, `include_archived` (default false), `expand[]=preview_file_url`.
+Returns `{data: Voice[], has_more, next_page}`.
+
+`Voice` = `{id, name, tagline, description, gender|null, language (DEPRECATED — "prefer
+accents[].locale"), accents: [{accent, locale, is_native}], is_pro, status: active|archived,
+access: private|public, visibility, created_at, preview_file_url?}`.
+
+→ **C.1's loader takes exactly that shape**, keyed on `id`, displaying `name`, with
+`accents[].locale` (not the deprecated `language`) deciding which language a voice serves.
+`status == "archived"` voices are excluded. **Telugu's only documented accent id is
+`telangana`**; Hindi's are `bagheli` and `standard-hindi`.
+
+**Voice IDS ARE STILL UNKNOWN** — no unauthenticated list exists. Closes by calling
+`GET /voices?language=te` with our key once it is installed, which is now a one-command
+answer rather than a research question. The catalogue still ships EMPTY until then.
+⚠ Also UNKNOWN: whether a voice id is permanently stable, and whether an `archived` voice
+still resolves at generation time. Both matter because we store the id on the agent.
+
+## 3.5 Phase D's premise is CONFIRMED, and the Bolna fee is upgraded
+Bolna's own pricing page: *"When you bring your own keys (BYOK), Bolna does not charge for
+those components. You only pay your providers directly, plus Bolna's platform fee."*
+→ The synthesizer leg of a BYOK call is **₹0 from Bolna**, so §3.5's `TtsPriceAttestation`
+with a transcript-counted `qty` is REQUIRED, not optional. Gate 51's remaining half is only
+whether `synthesizer_characters` is still POPULATED when unbilled.
+
+**The platform fee is now VENDOR-PUBLISHED, not REPORTED**: Bolna's FAQ states
+**$0.02/min** for the platform fee, matching the dashboard observation the rate card was
+built on (₹1.76 at ₹88). ⚠ Their Preferred Models page states $0.06/min all-in for bundled
+models — a different line item, and no Bolna page reconciles the two. Phase A's floor
+comment cites the FAQ and records the ambiguity. **Billing granularity for the BYOK fee
+remains UNKNOWN** (the 30-second pulse is documented for the Pilot plan only).
+
+## 3.6 Telugu-English code-mixing — now answered as far as it can be
+Cartesia's multilingual guide: *"Mixing languages inside a single generation works where it's
+common, such as Hindi (Hinglish) and Tagalog (Taglish). Outside those cases the speech may
+sound accented."* Telugu-English is **not named**. So it is not "unsupported" — it is
+outside the two cases they vouch for, and by their own sentence may sound accented. → The
+Telugu voice entries carry that sentence verbatim, and no product surface promises
+Telugu-English mixing.
+
+## 3.7 What changes in the phases
+- **C.3 becomes a BUILD** (the block above) with the three landmines as assertions. The named
+  refusal survives for one case only: a Cartesia voice whose `voice_id` is empty, which is
+  what an unpopulated catalogue produces.
+- **C.1's loader** is typed to the `Voice` shape above and reads `accents[].locale`.
+- **C.6's lifecycle** gains a note that Bolna's OSS default model is a SUNSET id.
+- **D** proceeds as written; its premise is confirmed.
+- **New gate 54** (Bolna's own synthesizer cache) joins §9.
+- Plan §0 Q1 is answered as to SHAPE; the ids remain a one-command lookup after the key is
+  installed.
