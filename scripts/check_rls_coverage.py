@@ -40,6 +40,7 @@ Run: uv run python -m scripts.check_rls_coverage   (needs migrated DB; owner URL
 from __future__ import annotations
 
 import os
+import re
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -61,6 +62,18 @@ load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 # isolating anything, whatever its name says.
 TENANT_GUC = "app.tenant_id"
 POLICY_NAME = "tenant_isolation"
+#: The `<guc> IS NULL` disjunct, as Postgres stores it after normalisation — the GUC read
+#: (wrapped in whatever `NULLIF`/cast the migration spelled), then `IS NULL`, with no
+#: intervening boolean operator to prove the test is about the GUC and not about a column
+#: further along the expression. Bounded at 120 characters for the same reason.
+_GUC_IS_NULL = re.compile(
+    r"app\.tenant_id(?:(?!\bOR\b|\bAND\b).){0,120}?IS\s+NULL",
+    re.IGNORECASE | re.DOTALL,
+)
+#: The tenant COLUMN tested for NULL — `dnc_list`'s global arm, not the GUC. Distinguished
+#: from `_GUC_IS_NULL` by the absent `app.` prefix and by requiring only whitespace between
+#: the name and the test, which the GUC form (closing parens and casts) can never satisfy.
+_TENANT_COLUMN_IS_NULL = re.compile(r"(?<!\.)\btenant_id\s+IS\s+NULL", re.IGNORECASE)
 # An exemption is an argument, not a checkbox: short strings like "n/a" or "legacy"
 # are how an exemption list rots into a hiding place.
 MIN_EXEMPTION_REASON = 40
@@ -141,6 +154,44 @@ class PolicyFacts:
 
     def reads_guc(self, expression: str | None) -> bool:
         return expression is not None and TENANT_GUC in expression
+
+    def opens_when_guc_unset(self, expression: str | None) -> bool:
+        """Does this expression carry an arm that is TRUE when no tenant is set?
+
+        **THE DIFFERENCE BETWEEN MENTIONING THE GUC AND BEING KEYED ON IT, and the reason
+        this method exists rather than a tighter `reads_guc`.** `kb_uploads` shipped
+        `FOR ALL USING (tenant_id = <guc> OR <guc> IS NULL)`, called it "the repo-wide
+        shape" in its own migration, and passed every check in this file — because
+        `reads_guc` is a substring test and that expression names the GUC twice. It
+        granted an untenanted session cross-tenant UPDATE, DELETE and INSERT on a table
+        whose `original_key` becomes a presigned download with no further auth. Measured
+        on 7 Sep 2026 before the fix: rowcount 1 on another tenant's row.
+
+        The escape arm itself is not the defect — `retention_worklist` needs one, because
+        a platform sweep has no tenant to set. What makes it safe there is that it is
+        bought with a SEPARATE `FOR SELECT` policy, so the ops reader can read and cannot
+        write. `kb_uploads` bought the read and paid for the write.
+
+        THIS IS A SHAPE DETECTOR, NOT AN EVALUATOR, and it is worth saying so plainly: it
+        recognises the `<guc> IS NULL` disjunct that Postgres normalises into the stored
+        expression, not "every expression satisfiable with no GUC". A policy could still
+        be written that opens up some other way. The answer to that is the same as for
+        every guard here — it narrows the ways to be wrong by one, and the one it narrows
+        is the one this repository has actually got wrong.
+        """
+        if expression is None:
+            return False
+        if _GUC_IS_NULL.search(expression) is None:
+            return False
+        # ...UNLESS the same expression also pins the tenant COLUMN to NULL. That is
+        # `dnc_list`'s global arm — `(tenant_id IS NULL AND scope = 'global' AND <guc> IS
+        # NULL)` — and it is a different thing entirely: the row it admits belongs to NO
+        # tenant, so an untenanted session writing it has not reached across a boundary,
+        # it has written a platform row from the platform's own seat. The rule this guard
+        # enforces is "no cross-tenant write", not "no write", and refusing this shape
+        # would have made the guard's first live run a false alarm on a correct policy —
+        # which is how a guard gets exempted into decoration.
+        return _TENANT_COLUMN_IS_NULL.search(expression) is None
 
 
 @dataclass(frozen=True)
@@ -236,6 +287,28 @@ def _check_isolated(table: str, policies: list[PolicyFacts], failures: list[str]
             failures.append(
                 f"{table}: policy {candidate.name} WITH CHECK does not read {TENANT_GUC} "
                 f"— a tenant can write rows it cannot read ({candidate.with_check})"
+            )
+        # A policy that opens up when NO tenant is set is how a platform sweep reads
+        # across tenants, and it is legitimate — bought with a `FOR SELECT` policy, which
+        # is the shape `retention_worklist` and `dnc_list` use. On any other command it
+        # hands an untenanted session the write, which is what `kb_uploads` did; see
+        # `PolicyFacts.opens_when_guc_unset` for what it cost and how it passed.
+        if candidate.cmd.upper() not in ("SELECT", "R") and candidate.opens_when_guc_unset(
+            candidate.using
+        ):
+            failures.append(
+                f"{table}: policy {candidate.name} is FOR {candidate.cmd} and its USING "
+                f"expression is satisfied when {TENANT_GUC} is unset — an untenanted "
+                f"session can write across tenants. A cross-tenant READ is bought with a "
+                f"separate FOR SELECT policy ({candidate.using})"
+            )
+        # And never on the write test, whatever the command: a WITH CHECK that passes
+        # with no tenant set accepts a row naming any tenant at all.
+        if candidate.opens_when_guc_unset(candidate.with_check):
+            failures.append(
+                f"{table}: policy {candidate.name} WITH CHECK is satisfied when "
+                f"{TENANT_GUC} is unset — it accepts a row naming any tenant "
+                f"({candidate.with_check})"
             )
 
 

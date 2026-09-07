@@ -107,6 +107,78 @@ def _patched(state: SchemaState, table: str, **changes: Any) -> SchemaState:
     )
 
 
+#: The escape hatch as `kb_uploads` shipped it, and as Postgres stores it: the strict
+#: predicate OR'd with a test that the GUC is unset. Read from the migration, not invented.
+OPEN_WHEN_UNSET = (
+    f"({GUC} OR (NULLIF(current_setting('{check_rls_coverage.TENANT_GUC}', true), '') IS NULL))"
+)
+
+
+class TestAPolicyMustBeKeyedOnTheGucNotMerelyMentionIt:
+    """THE HOLE THIS GATE HAD, AND THE ONE IT LET THROUGH TO PRODUCTION SHAPE.
+
+    `reads_guc` is a substring test. `kb_uploads` shipped `FOR ALL USING (tenant_id =
+    <guc> OR <guc> IS NULL)`, which names the GUC twice, satisfied every assertion in
+    this file, and handed an untenanted session cross-tenant UPDATE, DELETE and INSERT —
+    measured at rowcount 1 on another tenant's row before migration `f2b91c47e0a3` split
+    it. The migration called that expression "the repo-wide shape"; it was not.
+
+    What makes the arm legitimate elsewhere is the COMMAND, not the expression:
+    `retention_worklist` buys its platform-wide read with a separate `FOR SELECT` policy,
+    so the ops sweep can read and cannot write. These four cases pin exactly that
+    distinction, so the next table to need a global reader is pushed toward the shape
+    that already exists rather than the one that looked like it.
+    """
+
+    def test_the_open_arm_on_a_write_command_is_refused(self) -> None:
+        state = _patched(_tenant_state(), "leads", using=OPEN_WHEN_UNSET, cmd="ALL")
+        failures = check_rls_coverage.evaluate(state)
+        assert any("unset" in f and "leads" in f for f in failures), failures
+
+    def test_the_same_arm_on_a_select_policy_is_allowed(self) -> None:
+        """The `retention_worklist` shape. If this ever fails, the gate has stopped
+        distinguishing a read from a write and the platform sweeps are about to break."""
+        state = _patched(_tenant_state(), "leads", using=OPEN_WHEN_UNSET, cmd="SELECT")
+        assert check_rls_coverage.evaluate(state) == []
+
+    def test_a_write_check_that_passes_with_no_tenant_is_refused_on_any_command(self) -> None:
+        """A `WITH CHECK` satisfied with no GUC accepts a row naming ANY tenant, so the
+        command it rides on does not redeem it."""
+        state = _patched(
+            _tenant_state(), "leads", using=GUC, with_check=OPEN_WHEN_UNSET, cmd="SELECT"
+        )
+        failures = check_rls_coverage.evaluate(state)
+        assert any("WITH CHECK" in f and "unset" in f for f in failures), failures
+
+    def test_a_platform_scoped_row_may_still_be_written_with_no_tenant_set(self) -> None:
+        """`dnc_list`'s global arm, and the case that decides whether this guard is a
+        rule or a nuisance. Its WITH CHECK admits `(tenant_id IS NULL AND scope =
+        'global' AND <guc> IS NULL)` — an untenanted session writing a row that belongs
+        to NO tenant, which is the platform writing from its own seat and not a reach
+        across a boundary. The rule here is "no cross-tenant write", not "no write", and
+        refusing this would have made the guard's first live run a false alarm on a
+        correct policy — which is how a guard gets exempted into decoration.
+
+        Verified against the live schema on 7 Sep 2026: with this carve-out the only
+        remaining failures were the two real `kb_uploads` ones, and migrating to head
+        cleared those.
+        """
+        global_arm = (
+            f"({GUC} AND scope = 'tenant') OR (tenant_id IS NULL AND scope = 'global' "
+            f"AND (NULLIF(current_setting('{check_rls_coverage.TENANT_GUC}', true), '') IS NULL))"
+        )
+        state = _patched(
+            _tenant_state(), "leads", using=global_arm, with_check=global_arm, cmd="ALL"
+        )
+        assert check_rls_coverage.evaluate(state) == []
+
+    def test_an_ordinary_is_null_on_a_column_is_not_mistaken_for_the_escape_arm(self) -> None:
+        """The detector is a shape test over stored SQL, so the false positive that would
+        make it useless is a policy that tests some OTHER column for NULL."""
+        using = f"({GUC} AND (deleted_at IS NULL))"
+        assert check_rls_coverage.evaluate(_patched(_tenant_state(), "leads", using=using)) == []
+
+
 # ============================================================================
 # check_rls_coverage — hard rule 1
 # ============================================================================
