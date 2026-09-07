@@ -1156,6 +1156,33 @@ VoiceTier = Literal["sarvam", "cartesia"]
 #: guard, the card writer and the ops preview, so a third tier is added once, here.
 VOICE_TIERS: Final[tuple[VoiceTier, ...]] = ("sarvam", "cartesia")
 
+#: WHAT A CLIENT SEES A TIER CALLED. The wire, the ledger, the lot rows and every column
+#: name keep the VENDOR spelling above, because that is what they mean and renaming a
+#: vendor in a database is how a leg becomes unauditable. This is the other half: no
+#: client-facing surface in this product names a vendor as a product tier (founder,
+#: 7 Sep 2026). A client buys "Clear" or "Studio"; which vendor speaks it is our business
+#: and can change without a client-visible rename.
+#:
+#: The names are ours and deliberately not the ones the comparable product uses -- theirs
+#: are `standard` and `premium` (TRD §10's Outpero reading, VERIFIED from their code), and
+#: a ladder that copies its rungs' names reads as a copy of the product. They also avoid
+#: ranking language for a reason that outlives the naming: "basic" would be a claim about
+#: the Sarvam voice this repo has no measurement to support, and TRD §10 already records
+#: one reader misled by exactly that inference.
+#:
+#: ONE DEFINITION, SERVED NOT DUPLICATED. Every web surface renders the label the API sent
+#: it (`tier_label`), the same discipline the marketing provenance test applies to money --
+#: a second copy in TypeScript is how the two drift and a client meets both names.
+VOICE_TIER_LABELS: Final[Mapping[VoiceTier, str]] = {
+    "sarvam": "Clear",
+    "cartesia": "Studio",
+}
+
+
+def voice_tier_label(voice: VoiceTier) -> str:
+    """The client-facing name of a voice tier. Total over the Literal."""
+    return VOICE_TIER_LABELS[voice]
+
 
 def cost_floor_inr_per_min(voice: VoiceTier) -> Decimal:
     """THE ONE DOOR to a per-minute cost floor, by the voice's name.
@@ -1584,6 +1611,7 @@ __all__ = [
     "TTS_ASSUMED_CHARS_PER_CALL_MINUTE",
     "TTS_INR_PER_10K_CHARS",
     "VOICE_TIERS",
+    "VOICE_TIER_LABELS",
     "CommittedPlanMargin",
     "LlmPriceAttestation",
     "LlmPriceAttestationReader",
@@ -1613,4 +1641,5 @@ __all__ = [
     "tts_cost_inr",
     "tts_inr_per_call_minute",
     "tts_rate_inr_per_char",
+    "voice_tier_label",
 ]
