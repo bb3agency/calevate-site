@@ -454,3 +454,133 @@ describe("the step frame", () => {
     expect(sink.steps).toEqual([]);
   });
 });
+
+describe("a frame this browser cannot parse", () => {
+  /*
+   * ONE BAD FRAME MUST NOT COST THE WHOLE ANSWER.
+   *
+   * `JSON.parse` throws a `SyntaxError`, and a `SyntaxError` is not an `ApiProblem` — so
+   * before `safeJson` a single truncated `data:` line (a proxy that flushed half a write,
+   * a vendor error interleaved into the stream) rejected `askCopilot`, and the panel threw
+   * away text that had already arrived on screen in order to render a generic failure.
+   *
+   * FAILS IF: any of the eight frame branches goes back to a bare `JSON.parse`.
+   */
+  it("SKIPS the malformed frame and keeps the text either side of it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        streamOf([
+          'event: text\ndata: {"delta":"Your busiest agent "}\n\n',
+          // Truncated mid-object, exactly as a severed proxy write arrives.
+          'event: text\ndata: {"delta":\n\n',
+          'event: text\ndata: {"delta":"is Front desk."}\n\n',
+          'event: done\ndata: {"disclosure":"Answered from your own records.","metered":true}\n\n',
+        ]),
+      ),
+    );
+    const sink = handlers();
+    await expect(askCopilot(SESSION, BODY, sink)).resolves.toBeUndefined();
+    expect(sink.text.join("")).toBe("Your busiest agent is Front desk.");
+    expect(sink.done).toEqual([
+      { disclosure: "Answered from your own records.", metered: true },
+    ]);
+  });
+
+  it("still reports a stream that ends after the bad frame, rather than looking finished", async () => {
+    // The dropped frame must not be able to LAUNDER a truncated answer into a clean one:
+    // no `done` arrived, so this is still `StreamDropped`.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        streamOf([
+          'event: text\ndata: {"delta":"Your busiest "}\n\n',
+          "event: text\ndata: not-json\n\n",
+        ]),
+      ),
+    );
+    const sink = handlers();
+    await expect(askCopilot(SESSION, BODY, sink)).rejects.toBeInstanceOf(
+      StreamDroppedProblem,
+    );
+    expect(sink.text).toEqual(["Your busiest "]);
+  });
+
+  it("ends the stream on a `done` whose body did not parse, with no disclosure claimed", async () => {
+    // The frame's ARRIVAL is the terminal fact. Its contents are a sentence and a flag,
+    // and losing them is smaller than telling somebody a finished answer was cut off.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        streamOf([
+          'event: text\ndata: {"delta":"Done."}\n\n',
+          "event: done\ndata: {oops\n\n",
+        ]),
+      ),
+    );
+    const sink = handlers();
+    await expect(askCopilot(SESSION, BODY, sink)).resolves.toBeUndefined();
+    expect(sink.done).toEqual([{ disclosure: null, metered: false }]);
+  });
+});
+
+describe("the response body, when the stream does not end cleanly", () => {
+  /** A reader that yields these chunks and records whether it was cancelled. */
+  function readerOver(chunks: string[]) {
+    const encoder = new TextEncoder();
+    let at = 0;
+    const cancel = vi.fn(async () => undefined);
+    const reader = {
+      read: async () =>
+        at < chunks.length
+          ? { done: false, value: encoder.encode(chunks[at++]) }
+          : { done: true, value: undefined },
+      cancel,
+    };
+    return {
+      cancel,
+      response: {
+        ok: true,
+        status: 200,
+        body: { getReader: () => reader },
+      } as unknown as Response,
+    };
+  }
+
+  /*
+   * A REJECTED ANSWER STILL RELEASES THE SOCKET.
+   *
+   * Throwing out of the read loop — an `error` frame, or a stream that stopped without
+   * `done` — left `response.body` locked and undrained, holding the connection and its
+   * buffered bytes until GC got round to it. Once per failed answer, on a console people
+   * leave open all day.
+   *
+   * FAILS IF: the `try`/`finally` around the read loop is removed.
+   */
+  it("cancels the reader when an error frame arrives mid-stream", async () => {
+    const { cancel, response } = readerOver([
+      'event: text\ndata: {"delta":"Looking…"}\n\n',
+      `event: error\ndata: ${JSON.stringify({
+        type: "about:blank",
+        title: "Out of AI help",
+        code: "ai_quota_exceeded",
+      })}\n\n`,
+    ]);
+    vi.stubGlobal("fetch", vi.fn(async () => response));
+    await expect(askCopilot(SESSION, BODY, handlers())).rejects.toBeInstanceOf(
+      ApiProblem,
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it("cancels the reader when the stream ends without a terminal done", async () => {
+    const { cancel, response } = readerOver([
+      'event: text\ndata: {"delta":"Half an ans"}\n\n',
+    ]);
+    vi.stubGlobal("fetch", vi.fn(async () => response));
+    await expect(askCopilot(SESSION, BODY, handlers())).rejects.toBeInstanceOf(
+      StreamDroppedProblem,
+    );
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+});

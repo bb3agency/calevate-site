@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   ArrowRight,
   CheckCircle2,
@@ -48,6 +48,7 @@ import {
   type IntakeState,
   type Weekday,
 } from "@/lib/api/intake";
+import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 import { WIZARD_LANGUAGES } from "./languages";
 
@@ -183,6 +184,22 @@ export function IntakeStep({
         ),
   );
 
+  /*
+   * WHAT WOULD BE LOST IF THIS TAB RELOADED — forty controls describing somebody's
+   * business, held only in this browser until "Save draft" or the submit.
+   *
+   * The answer is read off this form's OWN invariant rather than by diffing the draft
+   * against the server's sheet: every edit goes through `update`, and `update` already
+   * resets both mutations precisely so that a "Draft saved" notice can never stand over
+   * an edited form. So "typed, and neither write has landed since" is exactly
+   * `touched && !saveDraft.isSuccess && !record.isSuccess` — one boolean, no second
+   * comparison to drift, and it goes quiet the moment the answers are on the server.
+   *
+   * A hook, so it sits above every early return below. `lib/useUnsavedGuard.ts`.
+   */
+  const [touched, setTouched] = useState(false);
+  useUnsavedGuard(touched && !saveDraft.isSuccess && !record.isSuccess);
+
   // A refusal, FIRST — before the skeleton, because a failed read leaves `draft` null
   // forever and the loading branch below would otherwise spin on it. The form is withheld
   // rather than merely unpopulated: the submit replaces the stored sheet outright, so
@@ -248,6 +265,7 @@ export function IntakeStep({
    */
   const update = (next: IntakeDraft) => {
     onDraftChange(next);
+    setTouched(true);
     record.reset();
     // The draft save's outcome is cleared with it, and for the stronger reason: "Draft
     // saved" left standing over an edited form tells the operator their current answers

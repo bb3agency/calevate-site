@@ -9,10 +9,28 @@
 import { render, screen } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { AnswerText } from "../src/components/copilot/answerText";
 import { MAX_HISTORY, recentTurns, type CopilotTurn } from "../src/lib/copilot/useCopilotConversation";
+
+/**
+ * COUNT THE PARSES. `vi.mock` with the real implementation behind it: the assertion is
+ * about how OFTEN `blocks` runs, never about what it returns, so the rendering below is
+ * the real one and a wrong answer still fails the rest of this file.
+ */
+const parses = vi.hoisted(() => [] as string[]);
+
+vi.mock("@/lib/copilot/answerBlocks", async (importOriginal) => {
+  const real = await importOriginal<typeof import("@/lib/copilot/answerBlocks")>();
+  return {
+    ...real,
+    blocks: (answer: string) => {
+      parses.push(answer);
+      return real.blocks(answer);
+    },
+  };
+});
 
 const REPO_ROOT = join(__dirname, "..", "..", "..");
 
@@ -67,6 +85,25 @@ describe("the history the browser replays", () => {
     const declared = /^MAX_HISTORY = (\d+)$/m.exec(schemas);
     expect(declared, "MAX_HISTORY is no longer declared in copilot/schemas.py").not.toBeNull();
     expect(Number(declared?.[1])).toBe(MAX_HISTORY);
+  });
+
+  it("agrees with the PUBLISHED ceiling, which is the one the request is judged against", () => {
+    // The second half, and it is not the same assertion. `schemas.py` is what the server
+    // means; `openapi.json` is what has actually been published to this console, and the
+    // two part company whenever somebody edits the constant without regenerating. Nothing
+    // else catches that: `openapi-typescript` emits `CopilotTurn[]` because `maxItems` is
+    // a validation keyword with no TypeScript to emit, and `check_openapi_fresh` ignores
+    // `maxItems` among the keys it compares. A test is the only instrument left.
+    const openapi = JSON.parse(
+      readFileSync(join(__dirname, "..", "src/lib/api/openapi.json"), "utf8"),
+    ) as {
+      components: {
+        schemas: { CopilotAskIn: { properties: { history: { maxItems?: number } } } };
+      };
+    };
+    expect(openapi.components.schemas.CopilotAskIn.properties.history.maxItems).toBe(
+      MAX_HISTORY,
+    );
   });
 });
 
@@ -132,5 +169,59 @@ describe("the answer the model actually sends", () => {
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("a")).toBeNull();
     expect(container.textContent).toContain("onerror=");
+  });
+});
+
+/**
+ * THE COST OF A LONG ANSWER, AND WHY IT IS ASSERTED RATHER THAN ASSUMED.
+ *
+ * `blocks()` rescans the WHOLE answer every time it is called and `inline()` allocates
+ * fresh elements for every block of it. The panel re-renders on every streamed token, so
+ * without memoisation each token re-parsed every settled turn as well as the one arriving:
+ * a twenty-turn conversation paid twenty parses per token, hundreds of times per answer,
+ * on the mid-range Android CPU this console is actually used from.
+ *
+ * `React.memo` alone is not a testable claim — a memo that was silently dropped in a
+ * refactor looks exactly like one that is working. Counting the parser's calls is, which
+ * is what `lib/copilot/answerBlocks.ts` exists as a separate module for.
+ */
+describe("the cost of re-rendering a transcript", () => {
+  it("DOES NOT RE-PARSE A SETTLED ANSWER when something else on the panel changes", () => {
+    parses.length = 0;
+    const settled = ["First answer.", "Second answer.", "Third answer."];
+
+    function Transcript({ streaming }: { streaming: string }) {
+      return (
+        <div>
+          {settled.map((text) => (
+            <AnswerText key={text} text={text} />
+          ))}
+          <AnswerText text={streaming} />
+        </div>
+      );
+    }
+
+    const view = render(<Transcript streaming="" />);
+    expect(parses.filter((text) => settled.includes(text)).length).toBe(3);
+
+    // Twenty deltas of the answer currently arriving — the panel re-renders for each.
+    for (let i = 1; i <= 20; i += 1) {
+      view.rerender(<Transcript streaming={"a".repeat(i)} />);
+    }
+
+    // The three settled answers were parsed ONCE each, on mount, and never again.
+    // FAILS IF: `AnswerText` stops being memoised — this becomes 3 + 3 × 20 = 63.
+    expect(parses.filter((text) => settled.includes(text)).length).toBe(3);
+    // …while the answer that IS changing is re-parsed on every delta, as it must be.
+    expect(parses.filter((text) => /^a+$/.test(text)).length).toBe(20);
+  });
+
+  it("re-parses a settled answer when its OWN text changes", () => {
+    // The memo compares props, not identity: an answer whose text is edited (the streaming
+    // buffer becoming a settled turn is exactly this) must still re-render.
+    parses.length = 0;
+    const view = render(<AnswerText text="Half an ans" />);
+    view.rerender(<AnswerText text="Half an answer." />);
+    expect(parses).toEqual(["Half an ans", "Half an answer."]);
   });
 });

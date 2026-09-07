@@ -15,6 +15,7 @@ import {
 import {
   Card,
   EmptyState,
+  MonoValue,
   NoticeBox,
   ProblemNotice,
   RestrictionNote,
@@ -248,8 +249,13 @@ export default function LeadDetailPage({
             <span className="text-lg font-semibold text-ink">
               {lead.data.name ?? <span className="font-normal text-ink-faint">No name</span>}
             </span>
-            {/* IN FULL (D-436). Text, never an `href` — see rule 1 above. */}
-            <span className="tabular-nums text-sm text-ink-muted">{lead.data.phone_e164}</span>
+            {/* IN FULL (D-436). Text, never an `href` — see rule 1 above. `MonoValue`
+                because an E.164 number is read digit by digit, which is what that
+                component exists for (`ui.tsx:511`) and how the DNC console already
+                prints one. */}
+            <MonoValue className="tabular-nums text-sm text-ink-muted">
+              {lead.data.phone_e164}
+            </MonoValue>
             <StatusBadge value={lead.data.status} />
             {lead.data.is_repeat_caller && (
               <span className="rounded-full bg-brand-soft px-2 py-0.5 text-[10px] font-semibold text-brand-strong">

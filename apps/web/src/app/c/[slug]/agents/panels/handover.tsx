@@ -64,6 +64,7 @@ import {
   type HandoffOut,
 } from "@/lib/api/agents";
 import { useClientSession } from "@/lib/api/session";
+import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 
 /** One row of the draft. `key` is local and only ever identifies a row while editing. */
 type Draft = {
@@ -111,6 +112,10 @@ export function Handover({ agent }: { agent: Agent }) {
     setEnabled(handoff.data.enabled);
     setRows(toDraft(handoff.data.members));
   }, [handoff.data, dirty]);
+
+  // The same flag that stops a refetch overwriting the draft also says a reload would
+  // lose it. BEFORE the early returns below — it is a hook. `lib/useUnsavedGuard.ts`.
+  useUnsavedGuard(dirty);
 
   if (handoff.isLoading) return <Skeleton rows={4} />;
   if (handoff.error)

@@ -60,10 +60,21 @@ import type { CopilotProposal } from "@/lib/copilot/types";
 export function ProposalCard({
   session,
   proposal,
+  confirmable,
   onDismiss,
 }: {
   session: Session;
   proposal: CopilotProposal;
+  /**
+   * WHETHER THIS REALM HAS A CONFIRM ROUTE (D-499). False on the admin realm, where the
+   * only confirm endpoint in the console is `POST /v1/copilot/confirm` — a `copilot:use`
+   * route checked against the CLIENT realm, so an operator's click could only ever produce
+   * a refusal, on the wrong realm's endpoint.
+   *
+   * The card still renders everything a proposal HOLDS; what is withdrawn is the decision.
+   * `CopilotPanel` owns the value, and `POST /v1/admin/copilot/confirm` is what removes it.
+   */
+  confirmable: boolean;
   onDismiss: () => void;
 }) {
   const confirm = useConfirmProposal(session);
@@ -101,6 +112,35 @@ export function ProposalCard({
   }, [decided]);
 
   const consequential = lookup(CONSEQUENTIAL, proposal.tool) ?? false;
+
+  /*
+   * THE CONFIRMATION DOOR, AND WHY IT OPENS LATE.
+   *
+   * This card is inserted into a region that scrolls to follow a streaming answer, at the
+   * moment the `proposal` frame arrives — which is a moment the person did not choose and
+   * cannot predict. So a Confirm button can appear directly under a cursor that is already
+   * moving, or under a finger already on its way down, and the click that was meant for
+   * whatever was there a frame earlier lands on a change to a live campaign or the
+   * do-not-call list instead. That is the classic clickjacking-by-accident shape, and the
+   * standard answer to it is the same one browsers use for their own consequential
+   * prompts: ignore input for long enough that it has to be deliberate.
+   *
+   * ONLY THE CONSEQUENTIAL TOOLS. `lead_set_status` is an ordinary edit that Undo reaches;
+   * spending 400ms on every suggestion would be a tax on the common case for a risk it
+   * does not carry — the same reasoning `CONSEQUENTIAL` already makes about the button's
+   * colour, read from the same table so the two can never disagree.
+   *
+   * DISMISS IS NOT GATED, and deliberately: the harm here is confirming by accident, and
+   * a delay on the way OUT would leave somebody holding a card they had already decided
+   * against.
+   */
+  const [armed, setArmed] = useState(!consequential);
+  useEffect(() => {
+    if (armed) return;
+    const timer = setTimeout(() => setArmed(true), CONFIRM_ARM_MS);
+    return () => clearTimeout(timer);
+  }, [armed]);
+
   const retryable = confirm.isError && canRetry(confirm.error);
   const confirmLabel = confirm.isPending ? "Confirming…" : retryable ? "Try again" : "Confirm";
 
@@ -164,7 +204,27 @@ export function ProposalCard({
             </div>
           </dl>
 
-          {expired ? (
+          {!confirmable ? (
+            /* WHAT IT WOULD DO, AND THAT IT CANNOT BE DONE FROM HERE. Deliberately not a
+               DISABLED Confirm button: a greyed control says "you may not", which is a
+               statement about this operator's permissions, and the truth is that the route
+               does not exist for anybody in this realm yet. Dismiss stays, because clearing
+               a card off the panel is still something a person may want. */
+            <div className="mt-2 space-y-2">
+              <p className="text-xs text-ink-muted">
+                Confirming isn&apos;t available in the admin console yet, so nothing here
+                can be applied. Open the account&apos;s own console to make this change.
+              </p>
+              <button
+                type="button"
+                onClick={onDismiss}
+                aria-label={`Dismiss — ${proposal.title}`}
+                className={SECONDARY_BUTTON}
+              >
+                Dismiss
+              </button>
+            </div>
+          ) : expired ? (
             <p className="mt-2 text-xs text-ink-muted">
               This suggestion has expired. Ask the assistant again — nothing was changed.
             </p>
@@ -173,7 +233,7 @@ export function ProposalCard({
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={confirm.isPending}
+                  disabled={confirm.isPending || !armed}
                   onClick={() => confirm.mutate(proposal.token)}
                   // The accessible name is the VISIBLE WORD plus the server's own title,
                   // and it is built from the same variable rather than typed out — WCAG
@@ -268,6 +328,16 @@ const CONSEQUENTIAL: Record<string, boolean> = {
   dnc_add: true,
   campaign_pause: true,
 };
+
+/**
+ * How long a CONSEQUENTIAL Confirm stays inert after the card appears.
+ *
+ * 400ms, which is the span the interaction literature puts an unintended click inside: it
+ * is longer than the ~250ms it takes to notice something new has appeared and stop a hand
+ * already in motion, and short enough that somebody who meant to press it never waits for
+ * it — the button is live before they have finished reading the title above it.
+ */
+const CONFIRM_ARM_MS = 400;
 
 /** The longest delay `setTimeout` can hold: 2^31 − 1 ms, about 24.8 days. */
 const MAX_TIMEOUT_MS = 2_147_483_647;

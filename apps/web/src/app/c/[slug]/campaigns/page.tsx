@@ -30,6 +30,7 @@ import {
   TermGloss,
   formatCount,
   formatIST,
+  istDateStamp,
   FIELD,
   FIELD_HINT,
   FIELD_LABEL,
@@ -66,6 +67,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
+import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { canDialOut, isAssignable } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 
@@ -519,21 +521,6 @@ const CONSENT_SOURCES: { value: ConsentSource; label: string; hint: string }[] =
       hint: "Contacts supplied by a data vendor, broker or another business.",
     },
   ];
-
-/**
- * Today, in the browser's own timezone, as a `<input type="date">` value.
- *
- * `toISOString().slice(0,10)` alone is a day early for half of every IST evening. Used
- * only as the picker's `max` — a soft affordance, not validation. The server is the
- * authority on "not in the future" and its refusal renders through ProblemNotice; this
- * just stops the calendar offering next month as if it were a sensible answer.
- */
-function todayInputValue(): string {
-  const now = new Date();
-  return new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
-    .toISOString()
-    .slice(0, 10);
-}
 
 /**
  * The days of the week, in the server's own numbering (ISO: 1 = Monday).
@@ -1120,6 +1107,22 @@ export default function CampaignsPage() {
       }
     },
   });
+
+  /*
+   * WHAT WOULD BE LOST IF THIS TAB RELOADED — see `lib/useUnsavedGuard.ts`.
+   *
+   * The contact list is the answer at every stage: it lives only in this textarea until
+   * "Add contacts" succeeds, which is the one moment `csv` is cleared. Before the campaign
+   * itself exists there is more — the name, the agent and the number are typed and unsent
+   * — so both are asked. The schedule and repeat fields are deliberately NOT counted: they
+   * carry defaults nobody typed, and a form that asked on the way out of an untouched
+   * screen is the ask people learn to click through.
+   */
+  useUnsavedGuard(
+    csv.trim() !== "" ||
+      (campaignId === null &&
+        (name.trim() !== "" || agentId !== "" || numberId !== "")),
+  );
 
   const startAnother = () => {
     setCampaignId(null);
@@ -2379,7 +2382,7 @@ function ConsentProvenanceFields({
             {...validation.field("consentDate", "Choose the day they agreed.")}
             type="date"
             value={collectedAt}
-            max={todayInputValue()}
+            max={istDateStamp()}
             onChange={(e) => onCollectedAt(e.target.value)}
             className={FIELD}
           />

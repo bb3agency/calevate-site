@@ -10,7 +10,7 @@ import { MAIN_CONTENT_ID } from "@/components/ui";
 import { HOLDS_PATH } from "@/lib/api/holds";
 import { currentNavItem } from "@/lib/nav";
 
-import { renderAdminPage, stubApi, type Routes } from "./harness";
+import { browserOffline, renderAdminPage, stubApi, type Routes } from "./harness";
 
 /**
  * The two things every screen in the product inherits from its shell: a way past the
@@ -271,5 +271,69 @@ describe("currentNavItem", () => {
   it("answers undefined rather than guessing", () => {
     expect(currentNavItem(NAV, "/somewhere-else")).toBeUndefined();
     expect(currentNavItem([], "/admin")).toBeUndefined();
+  });
+});
+
+/**
+ * AN OPERATOR MUST NEVER BELIEVE THEY ARE IN A CLIENT ACCOUNT.
+ *
+ * The two shells were the same shell — same header height and surface, same nav
+ * highlight, same green — and the only thing separating them was TEXT: the words "Admin
+ * realm" in the sidebar footer and a `hidden sm:inline-block` badge in the header, one at
+ * each end of the window and one of them not rendered at all on a phone. Peripheral vision
+ * does not read words, and every action in the admin realm is cross-tenant.
+ *
+ * So the assertions below are deliberately about the difference SURVIVING the words: the
+ * markers are stripped of their text and the shells must still be told apart. A future
+ * change that swapped the colour treatment back for a label would pass a "does it say
+ * Admin" test and fail this one, which is the point.
+ */
+describe("the two consoles do not look like each other", () => {
+  it("marks the admin shell with a chrome the client shell does not have", async () => {
+    const admin = await renderAdminShell("/admin");
+    const rail = admin.querySelector("[data-admin-realm-rail]");
+    expect(rail, "the admin shell carries no realm chrome at all").toBeTruthy();
+    // Not a word: it carries no text, so it reads at a glance and in the corner of an eye.
+    expect(rail?.textContent).toBe("");
+    expect(rail?.className).toContain("bg-slate-900");
+
+    const client = await renderClientShell("/c/acme");
+    expect(client.querySelector("[data-admin-realm-rail]")).toBeNull();
+  });
+
+  it("puts the same treatment on the block that names the realm", async () => {
+    const admin = await renderAdminShell("/admin");
+    const identity = admin.querySelector(".bg-slate-900.text-white");
+    expect(identity, "the admin identity block is dressed like a client's").toBeTruthy();
+    expect(identity?.textContent).toContain("Admin realm");
+
+    const client = await renderClientShell("/c/acme");
+    expect(client.querySelector(".bg-slate-900.text-white")).toBeNull();
+  });
+});
+
+/**
+ * THE OFFLINE STRIP IS MOUNTED IN BOTH SIGNED-IN SHELLS, not only on the auth pages.
+ *
+ * `components/offline.tsx` exists because TEN screens each hand-wrote their own
+ * explanation of a paused TanStack query. The console it most needs to be in is the one a
+ * clinic uses on a patchy mobile connection all day — a panel that stalls with no banner
+ * saying why is the defect that component was written to end. `globalStates.test.tsx`
+ * proves the strip renders when the browser goes offline; nothing proved anybody had put
+ * it on screen, which is the half that can be deleted by accident.
+ */
+describe("the offline strip", () => {
+  it("is above the content in the client shell", async () => {
+    browserOffline();
+    const container = await renderClientShell("/c/acme");
+    const strip = container.querySelector('[role="status"]');
+    expect(strip?.textContent).toContain("You are offline");
+  });
+
+  it("is above the content in the admin shell", async () => {
+    browserOffline();
+    const container = await renderAdminShell("/admin");
+    const strip = container.querySelector('[role="status"]');
+    expect(strip?.textContent).toContain("You are offline");
   });
 });

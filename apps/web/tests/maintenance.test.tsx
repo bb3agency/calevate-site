@@ -1,5 +1,5 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import MaintenancePage from "@/app/admin/ops/maintenance/page";
 import { MaintenanceBanner, MaintenanceGate } from "@/components/maintenance";
@@ -174,7 +174,7 @@ describe("moving an announced window", () => {
       "/v1/ops/maintenance": { current: scheduled, history: [], notice_lead_hours: 24 },
     });
     expect(await view.findByText("Clients have already been told about this window")).toBeTruthy();
-    expect(screen.getByText("Opens at")).toBeTruthy();
+    expect(screen.getByText("Opens at (IST)")).toBeTruthy();
   });
 
   it("does not offer the start on a window that has begun", async () => {
@@ -184,8 +184,8 @@ describe("moving an announced window", () => {
       "/v1/ops/maintenance": { current: DRAINING, history: [], notice_lead_hours: 24 },
     });
     await view.findByText("Change it");
-    expect(screen.queryByText("Opens at")).toBeNull();
-    expect(screen.getByText("Ends at")).toBeTruthy();
+    expect(screen.queryByText("Opens at (IST)")).toBeNull();
+    expect(screen.getByText("Ends at (IST)")).toBeTruthy();
   });
 
   it("states the CONFIGURED notice period, not a number baked into the copy", async () => {
@@ -198,6 +198,67 @@ describe("moving an announced window", () => {
     expect(await view.findByText("Schedule it")).toBeTruthy();
     expect(view.container.textContent).toContain("Clients are emailed 6 hours ahead");
     expect(view.container.textContent).not.toContain("24 hours ahead");
+  });
+});
+
+/**
+ * THE WINDOW IS THE SAME INSTANT WHOEVER SCHEDULES IT.
+ *
+ * This screen read and wrote its `datetime-local` fields through the BROWSER's clock —
+ * two local helpers doing by hand what `ui.tsx::formatISTInput`/`istInputToInstant` were
+ * written for and document at length. Everywhere else on the console had already moved
+ * (`admin/ops`, commercial terms, `tests/istDateEdges.test.ts`); this one had not, and it
+ * is the control that SHEDS LIVE PLATFORM TRAFFIC — an operator on a laptop still set to
+ * a US zone would have read 21:30Z as "16:30" and, on saving any other field, written a
+ * window eleven hours from where they thought it was.
+ *
+ * The zone is forced rather than assumed, for the reason `istDateEdges` gives: the whole
+ * defect class is "the answer moved with the viewer", so the property has to be stated in
+ * a zone where a browser-clock round trip gives a different answer.
+ */
+describe("the window's times are IST, whoever is looking", () => {
+  const ORIGINAL_TZ = process.env.TZ;
+  afterEach(() => {
+    if (ORIGINAL_TZ === undefined) delete process.env.TZ;
+    else process.env.TZ = ORIGINAL_TZ;
+  });
+
+  const SCHEDULED = {
+    ...DRAINING,
+    state: "scheduled" as const,
+    in_flight: null,
+    drain_deadline_at: null,
+    announced: false,
+  };
+
+  it("shows the IST wall clock on an operator whose machine is not in India", async () => {
+    process.env.TZ = "America/Los_Angeles";
+    const view = renderAdminPage(<MaintenancePage />, {
+      "/v1/ops/maintenance": { current: SCHEDULED, history: [], notice_lead_hours: 24 },
+    });
+    await view.findByText("Change it");
+    // 2026-09-06T20:30Z is 07 Sep 02:00 IST; the browser's own zone would say 13:30 on
+    // the 6th, which is the same digits a different day begins with.
+    expect(screen.getByDisplayValue("2026-09-07T02:00")).toBeTruthy();
+    expect(screen.getByDisplayValue("2026-09-07T03:00")).toBeTruthy();
+  });
+
+  it("sends what the operator typed read as IST, not as their own clock", async () => {
+    process.env.TZ = "America/Los_Angeles";
+    const view = renderAdminPage(<MaintenancePage />, {
+      "/v1/ops/maintenance": { current: SCHEDULED, history: [], notice_lead_hours: 24 },
+      [`/v1/ops/maintenance/${SCHEDULED.id}`]: SCHEDULED,
+    });
+    await view.findByText("Change it");
+    fireEvent.change(screen.getByDisplayValue("2026-09-07T03:00"), {
+      target: { value: "2026-09-07T04:00" },
+    });
+    fireEvent.click(screen.getByText("Save changes"));
+    await waitFor(() => {
+      const patch = view.calls.find((call) => call.method === "PATCH");
+      expect(patch).toBeTruthy();
+      expect(JSON.parse(patch?.body ?? "{}")).toEqual({ ends_at: "2026-09-06T22:30:00.000Z" });
+    });
   });
 });
 

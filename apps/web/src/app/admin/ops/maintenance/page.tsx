@@ -19,6 +19,8 @@ import {
   Skeleton,
   StatTile,
   formatIST,
+  formatISTInput,
+  istInputToInstant,
   type NoticeTone,
 } from "@/components/ui";
 import {
@@ -153,8 +155,8 @@ function CurrentWindow({ window: current }: { window: MaintenanceWindow }) {
   const cancel = useCancelMaintenance();
   const end = useEndMaintenance();
   const [reason, setReason] = useState(current.reason);
-  const [startsAt, setStartsAt] = useState(toLocalInput(current.starts_at));
-  const [endsAt, setEndsAt] = useState(toLocalInput(current.ends_at));
+  const [startsAt, setStartsAt] = useState(formatISTInput(current.starts_at));
+  const [endsAt, setEndsAt] = useState(formatISTInput(current.ends_at));
   const [drain, setDrain] = useState(String(current.max_drain_minutes));
   // A window that has BEGUN is not rescheduled — its start is history and the API refuses
   // it by name. A `scheduled` one moves freely, announced or not: the commitment is kept
@@ -244,7 +246,7 @@ function CurrentWindow({ window: current }: { window: MaintenanceWindow }) {
           <div className="grid gap-3 sm:grid-cols-2">
             {movable && (
               <label className="block">
-                <span className={FIELD_LABEL}>Opens at</span>
+                <span className={FIELD_LABEL}>Opens at (IST)</span>
                 <input
                   type="datetime-local"
                   value={startsAt}
@@ -257,7 +259,7 @@ function CurrentWindow({ window: current }: { window: MaintenanceWindow }) {
               </label>
             )}
             <label className="block">
-              <span className={FIELD_LABEL}>Ends at</span>
+              <span className={FIELD_LABEL}>Ends at (IST)</span>
               <input
                 type="datetime-local"
                 value={endsAt}
@@ -296,9 +298,9 @@ function CurrentWindow({ window: current }: { window: MaintenanceWindow }) {
                 // moved — the API refuses a start change on a window that has begun, and a
                 // form that sent one unchanged would turn every save into that refusal.
                 startsAt:
-                  !movable || startsAt === toLocalInput(current.starts_at)
+                  !movable || startsAt === formatISTInput(current.starts_at)
                     ? undefined
-                    : (fromLocalInput(startsAt) ?? undefined),
+                    : (istInputToInstant(startsAt) ?? undefined),
                 // ONLY WHAT MOVED. Each field is compared in the representation the INPUT
                 // holds, not against the ISO string on the row: the two differ by
                 // formatting after one round trip through `datetime-local`, so comparing
@@ -308,9 +310,9 @@ function CurrentWindow({ window: current }: { window: MaintenanceWindow }) {
                 // gave the drain five more minutes.
                 reason: reason === current.reason ? undefined : reason,
                 endsAt:
-                  endsAt === toLocalInput(current.ends_at)
+                  endsAt === formatISTInput(current.ends_at)
                     ? undefined
-                    : (fromLocalInput(endsAt) ?? undefined),
+                    : (istInputToInstant(endsAt) ?? undefined),
                 maxDrainMinutes:
                   Number(drain) === current.max_drain_minutes ? undefined : Number(drain),
               })
@@ -372,8 +374,8 @@ function ScheduleForm({ leadHours }: { leadHours: number }) {
   const [endsAt, setEndsAt] = useState("");
   const [reason, setReason] = useState("");
   const [drain, setDrain] = useState("15");
-  const start = fromLocalInput(startsAt);
-  const finish = fromLocalInput(endsAt);
+  const start = istInputToInstant(startsAt);
+  const finish = istInputToInstant(endsAt);
   const ready = start !== null && finish !== null && reason.trim().length >= 10;
 
   return (
@@ -382,7 +384,7 @@ function ScheduleForm({ leadHours }: { leadHours: number }) {
         <SectionHeading icon={<CalendarClock className="h-3.5 w-3.5" />}>Schedule a window</SectionHeading>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="block">
-            <span className={FIELD_LABEL}>Opens at</span>
+            <span className={FIELD_LABEL}>Opens at (IST)</span>
             <input
               type="datetime-local"
               value={startsAt}
@@ -400,7 +402,7 @@ function ScheduleForm({ leadHours }: { leadHours: number }) {
             </span>
           </label>
           <label className="block">
-            <span className={FIELD_LABEL}>Ends at</span>
+            <span className={FIELD_LABEL}>Ends at (IST)</span>
             <input
               type="datetime-local"
               value={endsAt}
@@ -562,25 +564,3 @@ export default function MaintenancePage() {
   );
 }
 
-/**
- * An ISO instant as a `datetime-local` input value, in the VIEWER's zone.
- *
- * The input has no timezone of its own — it is wall-clock text — so a value written into
- * it is interpreted in the browser's zone when it is read back, and these two helpers are
- * the matched pair that makes the round trip lossless. They are the ONLY place in this
- * screen where a browser clock is consulted, and it is for the operator's own typing
- * rather than for any state decision (see the file header).
- */
-function toLocalInput(iso: string): string {
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return "";
-  const offset = at.getTimezoneOffset() * 60_000;
-  return new Date(at.getTime() - offset).toISOString().slice(0, 16);
-}
-
-/** The inverse: a `datetime-local` value as an ISO instant, or `null` if it is empty. */
-function fromLocalInput(value: string): string | null {
-  if (value.trim() === "") return null;
-  const at = new Date(value);
-  return Number.isNaN(at.getTime()) ? null : at.toISOString();
-}

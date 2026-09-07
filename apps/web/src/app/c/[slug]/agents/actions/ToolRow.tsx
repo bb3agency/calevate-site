@@ -11,6 +11,7 @@
 import { useState } from "react";
 import { FlaskConical, Trash2 } from "lucide-react";
 
+import { ConfirmDialog } from "@/components/confirmDialog";
 import {
   DANGER_BUTTON,
   FIELD,
@@ -45,6 +46,9 @@ export function ToolRow({
   const setEnabled = useSetActionEnabled(session, agentId);
   const remove = useDeleteAction(session, agentId);
   const [testing, setTesting] = useState(false);
+  // A boolean is enough here — the row IS the action, so there is only one thing this
+  // dialog can be about.
+  const [confirmingRemoval, setConfirmingRemoval] = useState(false);
   const kindLabel = lookup(ACTION_KIND_LABELS, tool.kind) ?? tool.kind;
   const label =
     tool.kind === "whatsapp" && tool.provider
@@ -81,9 +85,7 @@ export function ToolRow({
           <button
             type="button"
             className={DANGER_BUTTON}
-            onClick={() => {
-              if (confirm(`Remove the action “${tool.name}”?`)) remove.mutate(tool.id);
-            }}
+            onClick={() => setConfirmingRemoval(true)}
             aria-label={`Remove ${tool.name}`}
           >
             <Trash2 className="h-3.5 w-3.5" />
@@ -92,7 +94,27 @@ export function ToolRow({
       </div>
       <p className="mt-2 text-xs text-ink-muted">{tool.description}</p>
       {setEnabled.error ? <ProblemNotice error={setEnabled.error} /> : null}
-      {remove.error ? <ProblemNotice error={remove.error} /> : null}
+      {/* While the dialog is open the refusal renders inside it, so it is not printed twice. */}
+      {remove.error && !confirmingRemoval ? <ProblemNotice error={remove.error} /> : null}
+      {confirmingRemoval && (
+        <ConfirmDialog
+          title={`Remove the action “${tool.name}”?`}
+          confirmLabel="Remove it"
+          pendingLabel="Removing…"
+          pending={remove.isPending}
+          error={remove.error}
+          onCancel={() => setConfirmingRemoval(false)}
+          onConfirm={() =>
+            remove.mutate(tool.id, { onSuccess: () => setConfirmingRemoval(false) })
+          }
+        >
+          <p>
+            Your agent stops being able to do this on calls straight away. Anything it has
+            already sent stays sent.
+          </p>
+          <p>You can set it up again later, with the same credential.</p>
+        </ConfirmDialog>
+      )}
       {testing ? <TestPanel tool={tool} agentId={agentId} session={session} /> : null}
     </li>
   );

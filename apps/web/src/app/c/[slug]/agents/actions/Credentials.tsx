@@ -11,6 +11,7 @@
 import { useId, useState } from "react";
 import { KeyRound, Plus, Trash2 } from "lucide-react";
 
+import { ConfirmDialog } from "@/components/confirmDialog";
 import { FieldMessage, useFormValidation } from "@/components/formValidation";
 import { PasswordInput } from "@/components/passwordInput";
 import {
@@ -40,6 +41,9 @@ export function Credentials({ session }: { session: Session }) {
   const create = useCreateCredential(session);
   const remove = useDeleteCredential(session);
   const [open, setOpen] = useState(false);
+  // The row awaiting confirmation, held as the ROW rather than a boolean: the dialog names
+  // the credential it is about to delete, and a boolean cannot say which one.
+  const [pendingDelete, setPendingDelete] = useState<IntegrationCredential | null>(null);
   const [kind, setKind] = useState<CredKind>("aisensy");
   const [label, setLabel] = useState("");
   const [secret, setSecret] = useState("");
@@ -80,9 +84,7 @@ export function Credentials({ session }: { session: Session }) {
               <button
                 type="button"
                 className={DANGER_BUTTON}
-                onClick={() => {
-                  if (confirm(`Delete credential “${c.label}”?`)) remove.mutate(c.id);
-                }}
+                onClick={() => setPendingDelete(c)}
                 aria-label={`Delete ${c.label}`}
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -91,7 +93,28 @@ export function Credentials({ session }: { session: Session }) {
           ))}
         </ul>
       )}
-      {remove.error ? <ProblemNotice error={remove.error} /> : null}
+      {/* The refusal renders INSIDE the dialog while one is open (`ConfirmDialog` takes
+          `error`), so it is not also printed out here behind the panel. */}
+      {remove.error && pendingDelete === null ? <ProblemNotice error={remove.error} /> : null}
+      {pendingDelete && (
+        <ConfirmDialog
+          title={`Delete the credential “${pendingDelete.label}”?`}
+          confirmLabel="Delete it"
+          pendingLabel="Deleting…"
+          pending={remove.isPending}
+          error={remove.error}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() =>
+            remove.mutate(pendingDelete.id, { onSuccess: () => setPendingDelete(null) })
+          }
+        >
+          <p>
+            Every action pointed at this credential stops working straight away — a WhatsApp
+            message it sends will fail until you save a new secret and point the action at it.
+          </p>
+          <p>We cannot show you the value again, so save the new one before you delete this.</p>
+        </ConfirmDialog>
+      )}
       {open ? (
         <form
           className="space-y-2 border-t border-line pt-3"

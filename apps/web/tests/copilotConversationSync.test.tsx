@@ -343,3 +343,142 @@ describe("the refresh after an exchange", () => {
     expect(screen.getAllByText("how many leads").length).toBe(1);
   });
 });
+
+/**
+ * THE TRANSCRIPT IS KEYED BY IDENTITY, NOT BY POSITION.
+ *
+ * `turns` is `[...page, ...pending]` and the page loses turns from the FRONT: the stored
+ * conversation is bounded, so a long one is trimmed between two reads. Under `key={index}`
+ * that shift re-labels every bubble below it and React rebuilds each one — the DOM node a
+ * person is mid-selection in is replaced, and the scroller's measurements are taken against
+ * nodes that no longer exist.
+ */
+describe("the transcript's keys", () => {
+  beforeEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Two reads of a conversation whose FIRST turn is trimmed away between them. */
+  function stubTrimmedConversation() {
+    const pages = [
+      [
+        { id: "0198f000-0000-7000-8000-0000000000a1", role: "user", content: "how many leads" },
+        { id: "0198f000-0000-7000-8000-0000000000a2", role: "assistant", content: "Eleven." },
+      ],
+      [
+        { id: "0198f000-0000-7000-8000-0000000000a2", role: "assistant", content: "Eleven." },
+        { id: "0198f000-0000-7000-8000-0000000000a3", role: "user", content: "and refunds" },
+      ],
+    ];
+    let read = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input).replace(API_BASE, "");
+        if (path.startsWith("/v1/copilot/conversation") && (init?.method ?? "GET") === "GET") {
+          const turns = pages[Math.min(read, pages.length - 1)];
+          read += 1;
+          return new Response(
+            JSON.stringify({
+              turns: turns.map((turn) => ({
+                ...turn,
+                screen_route: "/c/[slug]/leads",
+                said_at: "2026-09-05T08:00:00+00:00",
+              })),
+              has_more: false,
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify({}), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+  }
+
+  it("KEEPS THE SAME DOM NODE for a turn that survived a page trim", async () => {
+    stubTrimmedConversation();
+    await act(async () => {
+      render(
+        withQuery(
+          <>
+            <Screen />
+            <PanelMount />
+          </>,
+        ),
+      );
+    });
+    await waitFor(() => expect(screen.getByText("how many leads")).toBeTruthy());
+    const before = screen.getByText("Eleven.");
+
+    await returnToTheTab();
+    await waitFor(() => expect(screen.getByText("and refunds")).toBeTruthy());
+    // The first turn is gone, so "Eleven." has moved from position 1 to position 0.
+    expect(screen.queryByText("how many leads")).toBeNull();
+
+    // FAILS IF: the map keys on `index`. Position 0 held a `<p>` (the person's turn) and
+    // now holds an answer, so React discards the node and builds a new one — this is a
+    // DIFFERENT element with the same text, and everything anchored to the old one is lost.
+    expect(screen.getByText("Eleven.")).toBe(before);
+  });
+
+  it("NEVER SENDS the client-only key, which the server has no row for", async () => {
+    // `localKey` exists to give the panel a stable React key WITHOUT inventing a
+    // server-facing `id` — the merge reconciles by counting against the server's own ids,
+    // and a key we minted appearing on the wire would be this browser asserting a row.
+    const bodies: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input).replace(API_BASE, "");
+        if (path.startsWith("/v1/copilot/ask")) {
+          bodies.push(typeof init?.body === "string" ? init.body : "");
+          const encoder = new TextEncoder();
+          return new Response(
+            new ReadableStream<Uint8Array>({
+              start(controller) {
+                controller.enqueue(encoder.encode('event: text\ndata: {"delta":"Eleven."}\n\n'));
+                controller.enqueue(encoder.encode('event: done\ndata: {"metered":true}\n\n'));
+                controller.close();
+              },
+            }),
+            { status: 200, headers: { "content-type": "text/event-stream" } },
+          );
+        }
+        return new Response(JSON.stringify({ turns: [], has_more: false }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    await act(async () => {
+      render(
+        withQuery(
+          <>
+            <Screen />
+            <PanelMount />
+          </>,
+        ),
+      );
+    });
+    const box = await screen.findByLabelText("Your question about this screen");
+    for (const question of ["how many leads", "and refunds"]) {
+      fireEvent.change(box, { target: { value: question } });
+      await act(async () => {
+        fireEvent.submit(screen.getByRole("button", { name: "Ask" }).closest("form")!);
+      });
+    }
+
+    expect(bodies.length).toBe(2);
+    // The second ask replays the first exchange as `history`, which is where a leaked
+    // key would show up.
+    expect(bodies[1]).toContain("how many leads");
+    for (const body of bodies) {
+      expect(body).not.toContain("localKey");
+      expect(body).not.toContain("local-");
+    }
+  });
+});

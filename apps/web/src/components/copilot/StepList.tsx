@@ -57,7 +57,12 @@ export function StepList({ steps }: { steps: CopilotStep[] }) {
           <div className="min-w-0 flex-1">
             <p className="flex items-baseline gap-1.5">
               <span className="font-mono text-[11px] text-ink">{step.tool}</span>
-              {step.elapsed_ms !== null && (
+              {/* `!= null` COVERS BOTH, and both happen: the field is null while the step
+                  is running and ABSENT on a frame that timed nothing (a refusal). `!==
+                  null` let `undefined` through and rendered "NaN ms" beside the tool's
+                  name — a number the person cannot act on, on the surface whose whole job
+                  is to say what the assistant is doing. */}
+              {step.elapsed_ms != null && (
                 <span className="text-ink-faint tabular-nums">{elapsed(step.elapsed_ms)}</span>
               )}
             </p>
@@ -73,7 +78,7 @@ export function StepList({ steps }: { steps: CopilotStep[] }) {
                 result with no space in it — a slug, a long id, a run of one word — has
                 nothing to wrap on, and an unbroken 200-character run pushes the row past
                 the panel's edge and takes the horizontal scrollbar with it. */}
-            {step.detail !== null && step.detail !== "" && (
+            {step.detail != null && step.detail !== "" && (
               <p className="break-words text-ink-muted">{step.detail}</p>
             )}
           </div>

@@ -321,8 +321,10 @@ export interface CopilotNavigation {
  * One tool call as it happens — the `step` SSE frame. D-500.
  *
  * TWO FRAMES PER CALL, sharing an `id`: `running` when it starts, then exactly one of
- * `done` / `refused` / `failed` carrying `elapsed_ms`. Key the row by `id` and REPLACE it,
- * rather than appending, or one lookup renders as two lines.
+ * `done` / `refused` / `failed`, which normally carries `elapsed_ms` — but not always, and
+ * the exception is the point: a `refused` step that ran nothing reports NO duration rather
+ * than "0 ms". Key the row by `id` and REPLACE it, rather than appending, or one lookup
+ * renders as two lines.
  *
  * Purely observational: dropping every one of these loses no outcome, which is what makes
  * it safe to render live. `args` and `detail` are bounded previews the server has already
@@ -334,6 +336,19 @@ export interface CopilotStep {
   tool: string;
   status: "running" | "done" | "refused" | "failed";
   args: string;
-  detail: string | null;
-  elapsed_ms: number | null;
+  /**
+   * OPTIONAL ON THE WIRE, not merely nullable — `CopilotStepEvent` declares only `id`,
+   * `tool`, `status` and `args` as required (`apps/api/copilot/stream_contract_test.py`
+   * pins that literally), so a frame may omit this key entirely.
+   */
+  detail?: string | null;
+  /**
+   * How long the call took, in milliseconds — or absent/`null`.
+   *
+   * NULL IS NOT ZERO, and this is the reason the field is read with `!= null` rather than
+   * `!== null` everywhere: it is null while the step is still running AND when nothing was
+   * timed at all, which is what a refusal that ran nothing reports. Rendering "0 ms" for
+   * that would claim a lookup happened instantly when no lookup happened.
+   */
+  elapsed_ms?: number | null;
 }

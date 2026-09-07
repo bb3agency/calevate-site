@@ -38,6 +38,7 @@ import {
   type DraftRow,
 } from "./extractionDraft";
 import { FieldEditorRow } from "./extractionRow";
+import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
 
 /**
@@ -70,6 +71,9 @@ function ExtractionEditor({ agent, leadsHref }: { agent: Agent; leadsHref: React
   const savedCanonical = useMemo(() => canonical(agent.extraction_fields), [agent.extraction_fields]);
   const wireFields = toWireFields(rows);
   const dirty = canonical(wireFields) !== savedCanonical;
+  // The same `dirty` the save button reads, told to the browser: a reload here throws away
+  // a re-designed CRM column list that nothing else holds. `lib/useUnsavedGuard.ts`.
+  useUnsavedGuard(dirty);
   const clientError = clientValidationError(rows);
   /* A nameless variable is answered AT its row (see `FieldEditorRow`); the two rules
      `clientValidationError` still holds are about the list as a whole. */

@@ -1,6 +1,6 @@
 "use client";
 
-import { ScrollRegion, formatINR, formatIST } from "@/components/ui";
+import { ScrollRegion, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
 import type { Invoice } from "@/lib/api/invoice";
 
 /**
@@ -145,7 +145,7 @@ export function InvoiceDocument({ data }: { data: Invoice }) {
                 {/* Qty and unit as the server sent them — this is the multiplication a
                     client checks by hand. */}
                 <td className="py-2 text-right tabular-nums">{item.qty}</td>
-                <td className="py-2 text-right tabular-nums">₹{item.unit_inr}</td>
+                <td className="py-2 text-right tabular-nums">{formatRupeeRate(item.unit_inr)}</td>
                 <td className="py-2 text-right tabular-nums">{formatINR(item.amount_inr)}</td>
               </tr>
             ))}

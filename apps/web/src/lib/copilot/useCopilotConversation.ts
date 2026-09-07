@@ -75,6 +75,24 @@ export type CopilotTurn = {
    * would then be matching our own guesses against its own rows.
    */
   id?: string;
+  /**
+   * A REACT KEY, and nothing else. Never sent, never compared against a server row, never
+   * used by the merge — `id` above says why inventing one of those would be wrong, and
+   * this field exists so that the panel's need for a stable key cannot be met by
+   * weakening that rule.
+   *
+   * Minted in `appendTurn` for a turn this device has said. A turn that came back from
+   * the server has a real `id` and does not need one.
+   *
+   * WHY A KEY AT ALL. The transcript is `[...page, ...pending]`, and the page can lose
+   * turns from the FRONT: the server keeps a bounded conversation, so a long one is
+   * trimmed, and the merge's `MAX_SAFE_INTEGER` arm drops every pending turn at once when
+   * the anchor is trimmed away. Under `key={index}` a list that shrinks re-labels every
+   * bubble below the change, so React unmounts and rebuilds each one — the person's text
+   * selection is dropped mid-copy, and the scroll position lands somewhere else because
+   * the nodes it was measured against no longer exist.
+   */
+  localKey?: string;
 };
 
 export interface CopilotBatch {
@@ -152,6 +170,26 @@ export interface CopilotConversation {
   /** True when the refusal on screen is the AI allowance ceiling (G-5, client realm). */
   atCeiling: boolean;
   ask: (question: string) => void;
+  /**
+   * Send the last question again, after a failure the person did not cause.
+   *
+   * A no-op before anything has been asked and after `reset`. It RE-ASKS rather than
+   * resumes — see the implementation for why resuming is not on offer — so the question
+   * appears in the transcript a second time, which is what happened.
+   */
+  retry: () => void;
+  /**
+   * INTERRUPT THE ANSWER, KEEPING WHAT HAS ALREADY ARRIVED.
+   *
+   * A person who wants to stop a long answer must be able to, and the thing they must not
+   * do is lose it. `ask` already aborts an in-flight request — a second question replaces
+   * the first — and its abort path DISCARDS the half answer on purpose, because that half
+   * is about a question nobody is waiting on any more. Stopping is the opposite case: the
+   * question is still theirs and the partial answer is the thing they were reading.
+   *
+   * No-op when nothing is in flight, so a control bound to it is never a dead button.
+   */
+  stop: () => void;
   undo: () => void;
   /**
    * Take the card off the screen. SENDS NOTHING — a proposal is a JWT the server never
@@ -204,10 +242,18 @@ export interface CopilotConversation {
 /**
  * `CopilotAskIn.history`'s ceiling, from `apps/api/copilot/schemas.py::MAX_HISTORY`.
  *
- * Retyped rather than generated because the OpenAPI schema carries `maxItems` on the
- * ARRAY and the generated client does not surface it as a value — so this is the one
- * place the number is written on this side, and `copilotHistory.test.ts` reads the
- * Python constant and fails if the two drift.
+ * Retyped rather than generated, and the reason is a limit of the generator rather than a
+ * choice: `openapi-typescript` turns `history` into `CopilotTurn[]`, because `maxItems` is
+ * a VALIDATION keyword with no TypeScript to emit — so the bound exists in
+ * `openapi.json` and in `schemas.py` and in neither generated type.
+ *
+ * `scripts/check_openapi_fresh.py` does not catch a change to it either: it compares the
+ * significant type keys and ignores `maxItems` by design. So the only thing standing
+ * between a raised server ceiling and a browser silently sending the old smaller window is
+ * a test, and it is in `tests/copilotAnswerText.test.tsx` — which reads BOTH the Python
+ * constant and the published `maxItems` and fails if either drifts from this number. (This
+ * comment used to name `copilotHistory.test.ts`, a file that has never existed in this
+ * tree; the guard was real, its name here was not.)
  */
 export const MAX_HISTORY = 10;
 
@@ -230,6 +276,17 @@ export function recentTurns(turns: readonly CopilotTurn[]): CopilotTurn[] {
 
 export const AI_CEILING_CODE = "ai_quota_exceeded";
 
+/**
+ * The next client-only React key. A counter and not `crypto.randomUUID()`: this value
+ * never leaves the module, never reaches the wire and never has to be unique against
+ * anything the server holds — it only has to be unique among the turns one open panel has
+ * appended, which a monotonic counter is and which needs no crypto global to exist.
+ *
+ * Prefixed so it can never be mistaken for a server id in a debugger.
+ */
+let localKeys = 0;
+const nextLocalKey = (): string => `local-${(localKeys += 1)}`;
+
 export function useCopilotConversation(
   session: Session,
   holder: SurfaceHolder | null,
@@ -247,6 +304,22 @@ export function useCopilotConversation(
   // The in-flight request, so a second question cancels the first rather than
   // interleaving two answers into one bubble.
   const inFlight = useRef<AbortController | null>(null);
+  /*
+   * THE ANSWER AS IT ARRIVES, WHERE `stop` CAN REACH IT.
+   *
+   * `ask` accumulates its two strings in locals, which is right — the closure lives exactly
+   * as long as the request — but an ABORT is decided from outside that closure, and the
+   * whole point of the Stop control is that interrupting keeps what has already been said.
+   * Without this ref the abort path has nothing to append and the person loses the half
+   * answer they were reading, which is the accident the control exists to prevent.
+   *
+   * A ref rather than state: it is written on every streamed delta and read only when the
+   * stream ends, so a render per token would be the cost of a value nothing renders.
+   */
+  const partial = useRef<{ answer: string; wire: string } | null>(null);
+  //: The last question sent, for `retry`. Cleared by `reset`, because a forgotten
+  //: conversation must not leave a question this panel can still re-send.
+  const lastAsked = useRef<string | null>(null);
 
   // THE REALM, read once per render from the surface. It is what chooses the endpoint
   // (`conversationPath`), and it is the same value `stream.ts` sends, so a conversation
@@ -334,7 +407,7 @@ export function useCopilotConversation(
   /** Say something on this device. It shows immediately and stays until a server page
    * accounts for it — which for most exchanges is the sync fired at the end of one. */
   const appendTurn = useCallback((turn: CopilotTurn) => {
-    setPending((previous) => [...previous, turn]);
+    setPending((previous) => [...previous, { ...turn, localKey: nextLocalKey() }]);
   }, []);
 
   /** Pull the server's copy. Fired after an exchange, which is the other half of the
@@ -370,6 +443,7 @@ export function useCopilotConversation(
       queries.setQueryData<CopilotTurn[]>(conversationKey(session.orgSlug, realm), []);
     }
     setPending([]);
+    lastAsked.current = null;
     anchor.current = { seen: false, lastId: null };
     setStreaming(null);
     setAsking(false);
@@ -382,6 +456,25 @@ export function useCopilotConversation(
     setSteps([]);
     clearFilled();
   }, [queries, realm, session]);
+
+  const stop = useCallback(() => {
+    const controller = inFlight.current;
+    if (controller === null) return;
+    inFlight.current = null;
+    controller.abort();
+    // KEPT, and appended here rather than left to the promise handlers: both of them
+    // return early on an aborted signal (see `ask`), which is what makes a REPLACED
+    // question drop its half answer. This is the one abort where that half is wanted.
+    const held = partial.current;
+    partial.current = null;
+    if (held !== null && held.answer !== "") {
+      appendTurn({ role: "assistant", content: held.answer, wire: held.wire });
+    }
+    setStreaming(null);
+    setAsking(false);
+    // NO `setError`: the person asked for this, and a refusal notice about their own
+    // click is the console blaming them for using a control it offered.
+  }, [appendTurn]);
 
   const dismissProposal = useCallback(() => setProposal(null), []);
   const clearNavigation = useCallback(() => setNavigation(null), []);
@@ -397,6 +490,9 @@ export function useCopilotConversation(
     (question: string) => {
       const asked = question.trim();
       if (asked === "" || holder === null) return;
+      // WHAT `retry` RE-SENDS. A ref rather than state: nothing renders from it, and it
+      // must be readable by a callback created in an earlier render.
+      lastAsked.current = asked;
       const surface = holder.read();
 
       inFlight.current?.abort();
@@ -462,6 +558,7 @@ export function useCopilotConversation(
       // is what may be replayed as history.
       let answer = "";
       let answerWire = "";
+      partial.current = null;
       // Priors for THIS exchange. A ref-free local: the closure lives exactly as long as
       // the request does, which is precisely the batch's lifetime.
       const priors = new Map<string, string>();
@@ -475,6 +572,7 @@ export function useCopilotConversation(
           onText: (delta) => {
             answerWire += delta;
             answer += pass.restore(delta);
+            partial.current = { answer, wire: answerWire };
             setStreaming(answer);
           },
           onFill: (items) => {
@@ -567,7 +665,15 @@ export function useCopilotConversation(
           // THE REF IS CLEARED BEFORE THE SYNC, and the order is the whole of the guard:
           // `sync` refuses to run while `inFlight` holds a controller, so firing it first
           // would make the refresh after every exchange a silent no-op.
-          if (inFlight.current === controller) inFlight.current = null;
+          // The held half answer is released under the SAME identity check, in one branch
+          // rather than two: it belongs to this request, so only the request that is still
+          // the current one may clear it. A replaced request that cleared it here would be
+          // wiping the NEW question's partial answer, and a `stop` that ran first has
+          // already taken it (and left `inFlight.current` null, so this arm is skipped).
+          if (inFlight.current === controller) {
+            inFlight.current = null;
+            partial.current = null;
+          }
           // AND THE SERVER'S COPY IS PULLED, which is the other half of the founder's sync
           // rule — "after anything sent locally". It is what makes the turns another
           // device said appear without anybody reloading; the answer that just streamed is
@@ -577,6 +683,26 @@ export function useCopilotConversation(
     },
     [appendTurn, holder, session, sync, turns],
   );
+
+  /**
+   * ASK THE LAST QUESTION AGAIN, after a failure the person did not cause.
+   *
+   * `StreamDroppedProblem` is `retryable: true` and the panel offered nothing to act on
+   * it with: a connection that died mid-answer left a red box and a person who had to
+   * retype what they had just typed. `ProblemNotice` already decides whether the button
+   * appears — it shows one only for a retryable problem, or for anything that never
+   * reached the API at all — so handing it this is the whole of the wiring.
+   *
+   * IT RE-ASKS RATHER THAN RESUMING, and the transcript shows the question a second time.
+   * That is honest and it is also the only correct option: the stream carried no offset to
+   * resume from, and the request is METERED and can FILL FIELDS (`stream.ts` argues the
+   * same point against automatic reconnection), so anything that looked like "continuing"
+   * would be a second charge dressed up as the first one.
+   */
+  const retry = useCallback(() => {
+    const question = lastAsked.current;
+    if (question !== null) ask(question);
+  }, [ask]);
 
   const atCeiling = error instanceof ApiProblem && error.code === AI_CEILING_CODE;
 
@@ -607,6 +733,8 @@ export function useCopilotConversation(
     loading: stored.isPending && stored.fetchStatus === "fetching",
     historyUnavailable,
     ask,
+    retry,
+    stop,
     undo,
     dismissProposal,
     reset,

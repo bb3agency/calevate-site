@@ -17,6 +17,7 @@ import {
   Card,
   EmptyState,
   FilterChip,
+  MonoValue,
   ProblemNotice,
   RestrictionNote,
   SECONDARY_BUTTON_SM,
@@ -636,8 +637,11 @@ export default function LeadsPage() {
           />
         );
       case "phone":
-        // IN FULL (D-436). Text, not a `tel:` href — see `renderCell` above.
-        return lead.phone_e164;
+        // IN FULL (D-436). Text, not a `tel:` href — see `renderCell` above. Mono and
+        // tabular for the same reason the detail screen and the DNC console are: a
+        // number a person compares against their own records is read character by
+        // character.
+        return <MonoValue className="tabular-nums">{lead.phone_e164}</MonoValue>;
       case "status":
         return (
           <StatusSelect

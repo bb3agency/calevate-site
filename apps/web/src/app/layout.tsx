@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 
 import "./globals.css";
@@ -65,6 +65,44 @@ const jetbrainsMono = localFont({
 export const metadata: Metadata = {
   title: "Calevate",
   description: "AI phone agents for Indian businesses",
+};
+
+/**
+ * THE MOBILE KEYBOARD MUST MOVE `position: fixed`, NOT SIT ON TOP OF IT.
+ *
+ * `width`/`initialScale` are Next's own defaults, restated because declaring this export
+ * REPLACES the default tag rather than extending it — dropping them here would ship a page
+ * with no `width=device-width` and break every responsive layout in both consoles. There is
+ * deliberately no `maximumScale` and no `userScalable: false`: pinch-zoom stays available
+ * (WCAG 2.1 SC 1.4.4), and `tests/a11y.test.tsx` already reads the absence as correct.
+ *
+ * `interactiveWidget` is the whole reason this export exists. Its default is
+ * `resizes-visual`, under which a virtual keyboard resizes only the VISUAL viewport, so
+ * "elements with `position: fixed` will remain in place and can be obscured by the
+ * keyboard". `CopilotPanel` is exactly that: a fixed card anchored to `bottom-20` whose
+ * only control is a textarea. `resizes-content` resizes the LAYOUT viewport too, so a
+ * fixed element is pushed up above the keyboard instead.
+ *
+ * It is set on the root rather than per-realm because the hazard is not the copilot's: the
+ * five modals, `ReceiptSheet` and the toast stack are all fixed and several hold inputs.
+ * A viewport key cannot be scoped to a subtree in any case — there is one meta tag.
+ *
+ * EVIDENCE. The FIELD and its three accepted values are VERIFIED from the installed
+ * framework's own types — `next/dist/lib/metadata/types/extra-types.d.ts:53` in next
+ * 15.5.21, read 7 Sep 2026. The BEHAVIOUR (which of the three is the default, and what each
+ * does to a fixed element) is MDN's description of the `interactive-widget` viewport key,
+ * relayed through a web search on 7 Sep 2026 — ⚠ EVIDENCE CLASS: VENDOR-PUBLISHED, NOT
+ * read at source: `developer.mozilla.org` is egress-blocked from this container, so nobody
+ * here has opened the page. Support is reported as Chrome 108+ / Firefox 132+ on the same
+ * footing. Nothing about the fix depends on that being exact: a browser that does not
+ * implement the key ignores it and behaves exactly as it does today, so the downside of a
+ * wrong reading is no change rather than a regression. What has NOT been verified is the
+ * effect on a real handset — nobody in this session has loaded the console on a phone.
+ */
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  interactiveWidget: "resizes-content",
 };
 
 /**

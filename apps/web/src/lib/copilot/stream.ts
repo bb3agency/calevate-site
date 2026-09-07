@@ -173,6 +173,31 @@ async function authHeaders(session: Session): Promise<Record<string, string>> {
 }
 
 /**
+ * Parse one `data:` payload, or `null` if it is not JSON we can read.
+ *
+ * A FRAME IS NOT THE ANSWER, and that is the whole reason for this function. `JSON.parse`
+ * throws a `SyntaxError`, which is not an `ApiProblem`, so ONE malformed frame — a proxy
+ * that flushed a half-written line, a vendor error interleaved mid-stream — used to reject
+ * `askCopilot` and take the entire answer down with it: the text that had already arrived,
+ * and the explanation of the fields it had already filled. Dropping the frame is strictly
+ * better, and it is the same outcome every handler below already has for a frame missing
+ * the field it needs. It cannot hide a truncated stream either: a stream that then ends
+ * without `done` still raises `StreamDroppedProblem`.
+ */
+function safeJson(data: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(data);
+    // An array or a bare scalar is valid JSON and is not a frame body. Returning it would
+    // hand every branch below an object it cannot read fields from.
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Ask, and drive the handlers until the stream ends.
  *
  * Resolves when `done` arrived. REJECTS with an `ApiProblem` for every other ending — a
@@ -228,79 +253,104 @@ export async function askCopilot(
     const parser = createSseParser();
     let finished = false;
 
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      // `stream: true` so a multi-byte character split across two chunks is held rather
-      // than decoded into a replacement character — Telugu is three bytes per glyph, so
-      // this is the ordinary case here, not an edge one.
-      for (const event of parser.push(decoder.decode(value, { stream: true }))) {
-        if (event.event === "text") {
-          const payload = JSON.parse(event.data) as { delta?: string };
-          if (typeof payload.delta === "string") handlers.onText(payload.delta);
-        } else if (event.event === "fill") {
-          const payload = JSON.parse(event.data) as { items?: CopilotFillItem[] };
-          if (Array.isArray(payload.items) && payload.items.length > 0) {
-            handlers.onFill(payload.items);
+    /*
+     * THE READER IS RELEASED ON EVERY EXIT, NOT ONLY THE HAPPY ONE.
+     *
+     * Three endings leave this loop without the reader having read to `done`: an `error`
+     * frame (which throws an `ApiProblem`), a stream that stops without a terminal `done`
+     * (`StreamDroppedProblem`), and any throw out of a handler. Each of those left
+     * `response.body` LOCKED and undrained, which holds the connection and its buffered
+     * bytes until GC gets round to it — on a console people leave open all day, once per
+     * failed answer. `cancel()` is the stream API's own way to say "I am done reading and
+     * I do not want the rest"; it is a no-op after a clean end, and its rejection is
+     * swallowed because the ending already being reported is the one that matters.
+     */
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        // `stream: true` so a multi-byte character split across two chunks is held rather
+        // than decoded into a replacement character — Telugu is three bytes per glyph, so
+        // this is the ordinary case here, not an edge one.
+        for (const event of parser.push(decoder.decode(value, { stream: true }))) {
+          if (event.event === "text") {
+            const payload = safeJson(event.data) as { delta?: string } | null;
+            if (typeof payload?.delta === "string") handlers.onText(payload.delta);
+          } else if (event.event === "fill") {
+            const payload = safeJson(event.data) as { items?: CopilotFillItem[] } | null;
+            if (Array.isArray(payload?.items) && payload.items.length > 0) {
+              handlers.onFill(payload.items);
+            }
+          } else if (event.event === "proposal") {
+            // Guarded like `fill`, and on the field that MATTERS. A frame with no usable
+            // `token` cannot be confirmed, so a card rendered from it would offer a person
+            // a button that can only ever refuse. Nothing else is checked here: the rest is
+            // the server's own prose, and the arguments a Confirm would actually run are
+            // inside the token's signature rather than in anything this browser could
+            // validate — re-deriving them would be a second, editable account of the change.
+            const payload = safeJson(event.data) as CopilotProposal | null;
+            if (typeof payload?.token === "string" && payload.token !== "") {
+              handlers.onProposal(payload);
+            }
+          } else if (event.event === "action") {
+            // Guarded on `tool`, which is what a renderer cannot do without. Nothing else is
+            // checked: every other field is the server's own prose about something it has
+            // ALREADY done, so there is no decision here for the browser to second-guess and
+            // no token to validate — unlike a proposal, this one is not an offer.
+            const payload = safeJson(event.data) as CopilotAction | null;
+            if (typeof payload?.tool === "string" && payload.tool !== "") {
+              handlers.onAction(payload);
+            }
+          } else if (event.event === "navigate") {
+            // Guarded on `route`, which is the field this frame exists to carry — a frame
+            // without one names no destination and could only ever be dropped later. Nothing
+            // else is checked HERE, and in particular the route is not validated here: it is
+            // a template, and turning it into a path this console actually has is
+            // `navigate.ts`'s job, run at the moment of the move rather than at parse time.
+            const payload = safeJson(event.data) as CopilotNavigation | null;
+            if (typeof payload?.route === "string" && payload.route !== "") {
+              handlers.onNavigate(payload);
+            }
+          } else if (event.event === "step") {
+            // Guarded on `id`, because the id is what pairs the terminal frame with its own
+            // `running` one. A frame without it could only ever append a second row for one
+            // call, which is worse than dropping it.
+            const payload = safeJson(event.data) as CopilotStep | null;
+            if (typeof payload?.id === "string" && payload.id !== "") {
+              handlers.onStep(payload);
+            }
+          } else if (event.event === "done") {
+            const payload = safeJson(event.data) as {
+              disclosure?: string | null;
+              metered?: boolean;
+            } | null;
+            // A `done` THAT DID NOT PARSE STILL ENDS THE STREAM. Its arrival is the terminal
+            // fact; its contents are a disclosure sentence and a meter flag, and losing those
+            // is a far smaller harm than telling a person that a finished answer was cut off.
+            // `disclosure` then stays null, which the panel renders as nothing rather than as
+            // a claim of its own.
+            finished = true;
+            handlers.onDone({
+              disclosure: payload?.disclosure ?? null,
+              metered: payload?.metered === true,
+            });
+          } else if (event.event === "error") {
+            // A problem+json body delivered INSIDE a 200 stream, because the status line
+            // was already sent by the time the failure happened. Same class, same
+            // rendering, same `code` — which is what lets the ceiling be recognised.
+            // An `error` frame that does not parse carries no problem document to render,
+            // so it is dropped like any other malformed frame. The stream then ends without
+            // `done` and `StreamDroppedProblem` below reports the failure anyway.
+            const problem = safeJson(event.data);
+            if (problem !== null) throw new ApiProblem(200, problem);
           }
-        } else if (event.event === "proposal") {
-          // Guarded like `fill`, and on the field that MATTERS. A frame with no usable
-          // `token` cannot be confirmed, so a card rendered from it would offer a person
-          // a button that can only ever refuse. Nothing else is checked here: the rest is
-          // the server's own prose, and the arguments a Confirm would actually run are
-          // inside the token's signature rather than in anything this browser could
-          // validate — re-deriving them would be a second, editable account of the change.
-          const payload = JSON.parse(event.data) as CopilotProposal;
-          if (typeof payload.token === "string" && payload.token !== "") {
-            handlers.onProposal(payload);
-          }
-        } else if (event.event === "action") {
-          // Guarded on `tool`, which is what a renderer cannot do without. Nothing else is
-          // checked: every other field is the server's own prose about something it has
-          // ALREADY done, so there is no decision here for the browser to second-guess and
-          // no token to validate — unlike a proposal, this one is not an offer.
-          const payload = JSON.parse(event.data) as CopilotAction;
-          if (typeof payload.tool === "string" && payload.tool !== "") {
-            handlers.onAction(payload);
-          }
-        } else if (event.event === "navigate") {
-          // Guarded on `route`, which is the field this frame exists to carry — a frame
-          // without one names no destination and could only ever be dropped later. Nothing
-          // else is checked HERE, and in particular the route is not validated here: it is
-          // a template, and turning it into a path this console actually has is
-          // `navigate.ts`'s job, run at the moment of the move rather than at parse time.
-          const payload = JSON.parse(event.data) as CopilotNavigation;
-          if (typeof payload.route === "string" && payload.route !== "") {
-            handlers.onNavigate(payload);
-          }
-        } else if (event.event === "step") {
-          // Guarded on `id`, because the id is what pairs the terminal frame with its own
-          // `running` one. A frame without it could only ever append a second row for one
-          // call, which is worse than dropping it.
-          const payload = JSON.parse(event.data) as CopilotStep;
-          if (typeof payload.id === "string" && payload.id !== "") {
-            handlers.onStep(payload);
-          }
-        } else if (event.event === "done") {
-          const payload = JSON.parse(event.data) as {
-            disclosure?: string | null;
-            metered?: boolean;
-          };
-          finished = true;
-          handlers.onDone({
-            disclosure: payload.disclosure ?? null,
-            metered: payload.metered === true,
-          });
-        } else if (event.event === "error") {
-          // A problem+json body delivered INSIDE a 200 stream, because the status line
-          // was already sent by the time the failure happened. Same class, same
-          // rendering, same `code` — which is what lets the ceiling be recognised.
-          throw new ApiProblem(200, JSON.parse(event.data) as Record<string, unknown>);
         }
       }
-    }
 
-    if (!finished) throw new StreamDroppedProblem();
+      if (!finished) throw new StreamDroppedProblem();
+    } finally {
+      void reader.cancel().catch(() => {});
+    }
   } finally {
     options.signal?.removeEventListener("abort", forwardAbort);
   }

@@ -37,6 +37,7 @@ import { noFill } from "@/lib/copilot/types";
 import { applyByPaths } from "@/lib/copilot/paths";
 import { useClientSession } from "@/lib/api/session";
 import { isDeleted } from "@/lib/agentState";
+import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { useAgent } from "@/lib/api/agents";
 import {
   EMPTY_SCRIPT,
@@ -172,6 +173,16 @@ function Editor({
   const [script, setScript] = useState<CallScript>(initial);
   const [raw, setRaw] = useState<boolean>(initial.raw_override !== null);
   const [preview, setPreview] = useState<string | null>(null);
+
+  // WHAT A RELOAD WOULD COST HERE: the whole call script, which is the longest thing a
+  // client writes in this console and is held only in `script` until Save. Compared by
+  // VALUE rather than by reference — every keystroke replaces the object, so a reference
+  // check would keep asking after an edit that was typed and undone.
+  const unsaved = useMemo(
+    () => JSON.stringify(script) !== JSON.stringify(initial),
+    [script, initial],
+  );
+  useUnsavedGuard(unsaved);
 
   const save = useSaveScript(session, agentId);
   const previewMut = usePreviewScript(session, agentId);

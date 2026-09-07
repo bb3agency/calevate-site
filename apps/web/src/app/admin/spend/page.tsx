@@ -267,7 +267,7 @@ function TtsSpeakingRateCard() {
             <span className="font-semibold text-ink">{formatCount(rate.calls)}</span> calls with a
             transcript across{" "}
             <span className="font-semibold text-ink">{formatCount(rate.clients)}</span>{" "}
-            {rate.clients === 1 ? "client" : "clients"}, priced at ₹{rate.tts_inr_per_10k_chars}{" "}
+            {rate.clients === 1 ? "client" : "clients"}, priced at {formatRupeeRate(rate.tts_inr_per_10k_chars)}{" "}
             per 10,000 characters.
           </p>
           <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-3">

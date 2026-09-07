@@ -91,3 +91,29 @@ describe("a tool call, as the person sees it", () => {
     expect(screen.getByText("leads_semantic_search")).toBeTruthy();
   });
 });
+
+/**
+ * A FRAME THAT TIMED NOTHING. `CopilotStepEvent` requires only `id`, `tool`, `status` and
+ * `args` (`apps/api/copilot/stream_contract_test.py::EXPECTED`), and a refusal that ran no
+ * tool reports NO duration rather than "0 ms" — so both `elapsed_ms` and `detail` can be
+ * absent from the frame entirely, not merely null.
+ */
+describe("a step with no duration", () => {
+  it("shows no time rather than NaN when the frame omits elapsed_ms", () => {
+    render(
+      <StepList
+        steps={[
+          {
+            id: "r1",
+            tool: "leads_search",
+            status: "refused",
+            args: '{"status":"hot"}',
+          } as CopilotStep,
+        ]}
+      />,
+    );
+    // FAILS IF: the check is `!== null` — `undefined` passes it and `elapsed()` renders
+    // "NaNms" beside the tool name.
+    expect(document.body.textContent).not.toMatch(/NaN/);
+  });
+});

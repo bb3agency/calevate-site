@@ -13,6 +13,7 @@ import { resolveDestination } from "@/lib/copilot/navigate";
 import { useCopilotSurfaceHolder, type SurfaceHolder } from "@/lib/copilot/registry";
 
 import { CopilotPanel } from "./CopilotPanel";
+import { ViewAsPanel } from "./ViewAsPanel";
 
 /**
  * The floating launcher, and the panel it anchors — mounted once per realm shell.
@@ -120,6 +121,14 @@ export function CopilotDock({
     launcher.current?.focus();
   }, [isOpen]);
 
+  /** Close, and hand the keyboard back to the launcher — the modal contract's last step.
+   *  One function because BOTH panels close the same way, and a second copy is how the
+   *  focus return comes to exist on one of them and not the other. */
+  const closePanel = useCallback(() => {
+    shouldRestoreFocus.current = true;
+    setIsOpen(false);
+  }, []);
+
   /*
    * WHAT A SCREEN CHANGE THE PERSON DID NOT CLICK FOR HAS TO SAY, AND WHERE (D-524).
    *
@@ -172,7 +181,17 @@ export function CopilotDock({
           shouldRestoreFocus.current = isOpen;
           setIsOpen((open) => !open);
         }}
-        className="fixed bottom-4 right-4 z-[70] flex h-11 w-11 items-center justify-center rounded-full border border-line bg-brand-strong text-white shadow-lg transition-colors hover:bg-brand-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2"
+        // SLATE ON THE ADMIN REALM, green on the client's. The same signal the admin
+        // shell already carries (`components/realmChrome.tsx`: the rail across the top of
+        // the window and the sidebar's identity block), reused rather than re-invented —
+        // the launcher is the one control that floats over every screen in both consoles,
+        // so it is the worst place for the two realms to look alike. The focus ring stays
+        // brand in both: it marks the keyboard, not the realm.
+        className={`fixed bottom-4 right-4 z-[70] flex h-11 w-11 items-center justify-center rounded-full border border-line text-white shadow-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand focus-visible:ring-offset-2 ${
+          realm === "admin"
+            ? "bg-slate-900 hover:bg-slate-700 dark:bg-slate-200 dark:text-slate-900 dark:hover:bg-slate-400"
+            : "bg-brand-strong hover:bg-brand-deep"
+        }`}
       >
         {/* `BotMessageSquare` — a bot inside a speech bubble.
          *
@@ -205,19 +224,29 @@ export function CopilotDock({
       <p aria-live="polite" className="sr-only">
         {announcement}
       </p>
-      {isOpen && (
-        <CopilotPanel
-          session={session}
-          holder={holder}
-          realm={realm}
-          labelledBy={titleId}
-          onNavigate={navigation === undefined ? undefined : navigateTo}
-          onClose={() => {
-            shouldRestoreFocus.current = true;
-            setIsOpen(false);
-          }}
-        />
-      )}
+      {/* IN A D-22 VIEW-AS SESSION THE CLIENT ASSISTANT CANNOT ANSWER, and the honest
+          response is to say so rather than to issue a request the server refuses.
+          `copilot:use` is a MUTATING permission (asking spends the account's allowance)
+          and is not impersonation-permitted, so all four client copilot routes answer an
+          impersonating principal with 403 — `ViewAsPanel` carries the full argument.
+
+          Read off the SESSION rather than off `viewAsRequested`, and the difference
+          matters: `session.impersonateOrg` is exactly what makes `apiRequest` send
+          `X-Impersonate-Org`, so this branch is true precisely when the request would be
+          refused, and cannot drift from it. The admin realm never sets it. */}
+      {isOpen &&
+        (session.impersonateOrg ? (
+          <ViewAsPanel labelledBy={titleId} onClose={closePanel} />
+        ) : (
+          <CopilotPanel
+            session={session}
+            holder={holder}
+            realm={realm}
+            labelledBy={titleId}
+            onNavigate={navigation === undefined ? undefined : navigateTo}
+            onClose={closePanel}
+          />
+        ))}
     </>
   );
 }
@@ -241,5 +270,13 @@ export function ClientCopilotDock() {
 /** Mounted by `app/admin/layout.tsx`. `adminSession()` takes no org — an operator's
  *  session is not scoped to one tenant, and the screens that are name it in the path. */
 export function AdminCopilotDock() {
-  return <CopilotDock session={adminSession()} realm="admin" />;
+  // HELD, because `adminSession()` BUILDS A NEW OBJECT on every call
+  // (`lib/authn/realmSessions.ts::adminRealmSession` returns an object literal). Called
+  // inline it changed identity on every render of this component, and `session` is a
+  // dependency of `ask`, `reset` and the confirm mutation inside the panel — so all three
+  // were rebuilt on every render, and anything that ever memoises on them would have been
+  // silently defeated. The credential itself is read lazily through `session.token()`, so
+  // holding the wrapper holds nothing stale.
+  const session = useMemo(() => adminSession(), []);
+  return <CopilotDock session={session} realm="admin" />;
 }

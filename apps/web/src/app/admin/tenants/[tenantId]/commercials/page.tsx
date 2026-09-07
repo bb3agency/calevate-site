@@ -19,6 +19,7 @@ import {
   Skeleton,
   formatINR,
   formatIST,
+  formatRupeeRate,
   istInputToInstant,
 } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
@@ -166,7 +167,7 @@ function money(value: string | null): string | null {
 }
 
 function rate(value: string | null): string | null {
-  return value === null ? null : `₹${value}`;
+  return value === null ? null : formatRupeeRate(value);
 }
 
 function InEffect({ row }: { row: PlanRow | null }) {
@@ -366,7 +367,8 @@ function RecordForm({
           value:
             inEffect === null
               ? "none recorded"
-              : `overage ₹${inEffect.overage_rate_inr}/min, ${inEffect.included_minutes ?? 0} minutes included`,
+              : `overage ${rate(inEffect.overage_rate_inr) ?? "none"}/min, ` +
+                `${inEffect.included_minutes ?? 0} minutes included`,
         },
       ],
     ),

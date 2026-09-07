@@ -157,10 +157,20 @@ function stubCopilot(options: {
   const bodies: string[] = [];
   const confirms: string[] = [];
   const conversations: string[] = [];
+  // WHICH ASK ENDPOINT WAS CALLED, in order. The realm chooses between two real routes
+  // (`/v1/copilot/ask` and `/v1/admin/copilot/ask`), and a stub that answered both under
+  // one counter could not tell an admin panel talking to the admin backend from one
+  // silently talking to the client's.
+  const askPaths: string[] = [];
   vi.stubGlobal(
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-      const path = String(input).replace(API_BASE, "");
+      const raw = String(input).replace(API_BASE, "");
+      // The admin realm's routes are the client ones under `/v1/admin`; the stub answers
+      // both from one place so a test only has to say which realm it mounted.
+      const path = raw.startsWith("/v1/admin/copilot/")
+        ? raw.replace("/v1/admin/copilot/", "/v1/copilot/")
+        : raw;
       if (path.startsWith("/v1/copilot/confirm")) {
         confirms.push(typeof init?.body === "string" ? init.body : "");
         if (options.confirmThrows) throw new TypeError("Failed to fetch");
@@ -174,6 +184,7 @@ function stubCopilot(options: {
         });
       }
       if (path.startsWith("/v1/copilot/ask")) {
+        askPaths.push(raw.split("?")[0]);
         bodies.push(typeof init?.body === "string" ? init.body : "");
         if (options.askStatus !== undefined) {
           return new Response(JSON.stringify(options.askBody ?? {}), {
@@ -210,7 +221,7 @@ function stubCopilot(options: {
       throw new Error(`unexpected request: ${path}`);
     }),
   );
-  return { bodies, confirms, conversations };
+  return { bodies, confirms, conversations, askPaths };
 }
 
 async function ask(question: string) {
@@ -220,6 +231,56 @@ async function ask(question: string) {
   await act(async () => {
     fireEvent.submit(screen.getByRole("button", { name: "Ask" }).closest("form")!);
   });
+}
+
+/** A stream that stays open until the test lets go of it. */
+function heldStream() {
+  let release!: () => void;
+  let push!: (chunk: string) => void;
+  const encoder = new TextEncoder();
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      push = (chunk) => controller.enqueue(encoder.encode(chunk));
+      release = () => controller.close();
+    },
+  });
+  const response = new Response(body, {
+    status: 200,
+    headers: { "content-type": "text/event-stream" },
+  });
+  return { response, release: () => release(), push: (chunk: string) => push(chunk) };
+}
+
+/** The panel, over an ask route whose stream this test drives by hand. */
+function renderHeld() {
+  const held = heldStream();
+  const asks: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input).replace(API_BASE, "");
+      if (path.startsWith("/v1/copilot/ask")) {
+        asks.push(typeof init?.body === "string" ? init.body : "");
+        return held.response;
+      }
+      if (path.startsWith("/v1/copilot/conversation")) {
+        return new Response(JSON.stringify({ turns: [], has_more: false }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`unexpected request: ${path}`);
+    }),
+  );
+  render(
+    withQuery(
+      <>
+        <DraftScreen />
+        <PanelMount />
+      </>,
+    ),
+  );
+  return { held, asks };
 }
 
 describe("the registry", () => {
@@ -536,9 +597,20 @@ function renderPanel() {
   );
 }
 
+/**
+ * Press Confirm — after waiting for the card's own arming delay.
+ *
+ * A CONSEQUENTIAL proposal's Confirm is inert for `CONFIRM_ARM_MS` after the card mounts,
+ * because the card arrives at a moment the person did not choose and can land under a
+ * cursor already moving (see `ProposalCard`). Real time rather than fake timers: this file
+ * drives real streams through a real `fetch` stub, and freezing the clock underneath that
+ * would change what it is testing everywhere else to save 400ms here.
+ */
 async function clickConfirm() {
+  const button = await screen.findByRole("button", { name: /^Confirm — / });
+  await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: /^Confirm — / }));
+    fireEvent.click(button);
   });
 }
 
@@ -993,20 +1065,66 @@ describe("the fallback surface", () => {
     expect(screen.queryAllByText(/^Filled /).length).toBe(0);
   });
 
-  it("TELLS AN OPERATOR WHY RATHER THAN SENDING A DOOMED REQUEST", async () => {
-    // The admin realm is server-refused: `/v1/copilot/ask` is client-realm, so an
-    // operator's token is checked against the client realm and 401s
-    // (`copilot/route_test.py::test_an_operator_is_refused_at_the_door_before_any_of_this_
-    // runs`). Rendered raw that is "Unauthorized · Authentication is required" — "you are
-    // signed out", told to somebody who is not — and D-501 puts this launcher on every
-    // admin screen. So the panel explains instead, and sends nothing.
+  it("ASKS THE ADMIN REALM'S OWN ROUTE — the operator's assistant is live (D-499)", async () => {
+    // It used to refuse to send anything at all, because `/v1/copilot/ask` is client-realm
+    // and an operator 401s there. `POST /v1/admin/copilot/ask` has since shipped
+    // (`apps/api/copilot/admin_routes.py:207`), metered to the platform's own ledger, and
+    // `copilotAskPath` already chose between the two — only the panel's refusal branch was
+    // left. What this pins is that the choice reaches the wire: an admin panel that
+    // silently asked the CLIENT route would spend a tenant's AI allowance on an operator.
     nav.pathname = "/admin/tenants";
-    const { bodies } = stubCopilot({ chunks: [] });
+    const { bodies, askPaths } = stubCopilot({
+      chunks: [
+        'event: text\ndata: {"delta":"Fourteen accounts are live."}\n\n',
+        'event: done\ndata: {"disclosure":null,"metered":true}\n\n',
+      ],
+    });
     render(<DockMount realm="admin" />);
     await openDock();
-    expect(screen.getByText(/isn't available in the admin console yet/)).toBeTruthy();
-    expect(screen.queryByLabelText("Your question about this screen")).toBeNull();
-    expect(bodies).toEqual([]);
+    await ask("how many accounts are live?");
+
+    expect(await screen.findByText("Fourteen accounts are live.")).toBeTruthy();
+    expect(askPaths).toEqual(["/v1/admin/copilot/ask"]);
+    const sent = JSON.parse(bodies[0]) as { screen: { realm: string } };
+    expect(sent.screen.realm).toBe("admin");
+  });
+
+  it("SHOWS A PROPOSAL BUT OFFERS NO CONFIRM, because the admin realm has no confirm route", async () => {
+    // THE TRAP THIS PINS. There is no `POST /v1/admin/copilot/confirm`; the only confirm
+    // endpoint declares `copilot:use` and is checked against the CLIENT realm. A Confirm
+    // button here would post an operator's decision to the wrong realm's endpoint, where
+    // its only possible answer is a refusal. The card is still rendered in full — a
+    // proposal is a description, not a change, and it is worth reading.
+    nav.pathname = "/admin/tenants";
+    const { confirms } = stubCopilot({ chunks: proposalChunks() });
+    render(<DockMount realm="admin" />);
+    await openDock();
+    await ask("pause the kondapur campaign");
+
+    // Everything a proposal HOLDS is on screen.
+    expect(await screen.findByText("Pause this campaign")).toBeTruthy();
+    expect(screen.getAllByText(PROPOSAL.summary).length).toBe(1);
+    expect(screen.getAllByText("paused").length).toBe(1);
+    // …and the decision is withdrawn, in words rather than as a dead control.
+    expect(screen.queryAllByRole("button", { name: /^Confirm — / }).length).toBe(0);
+    expect(screen.getAllByText(/Confirming isn't available in the admin console yet/).length).toBe(1);
+    // Dismiss survives: clearing the card is still the operator's to do.
+    expect(screen.getAllByRole("button", { name: /^Dismiss — / }).length).toBe(1);
+    expect(confirms).toEqual([]);
+  });
+
+  it("STILL OFFERS CONFIRM ON THE CLIENT REALM, so the guard above is about the realm", async () => {
+    // The other half of the equality. Without this, deleting the Confirm button outright
+    // would pass the test above.
+    nav.pathname = "/c/acme/campaigns";
+    stubCopilot({ chunks: proposalChunks() });
+    render(<DockMount realm="client" />);
+    await openDock();
+    await ask("pause the kondapur campaign");
+
+    expect(await screen.findByText("Pause this campaign")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /^Confirm — / }).length).toBe(1);
+    expect(screen.queryAllByText(/Confirming isn't available in the admin console yet/).length).toBe(0);
   });
 });
 
@@ -1082,5 +1200,527 @@ describe("live tool-execution visibility", () => {
     expect((await screen.findAllByText("campaigns_list")).length).toBe(1);
     expect(screen.getAllByText("2 campaigns.").length).toBe(1);
     expect(screen.getAllByText("84 ms").length).toBe(1);
+  });
+});
+
+/**
+ * INTERRUPTING AN ANSWER (finding #3).
+ *
+ * The panel had no way out of a long answer: the only button was disabled while `asking`,
+ * and the ask box's Enter handler was NOT — so the way people actually stopped one was to
+ * type over it, which called `ask` again, which aborts the in-flight request and DISCARDS
+ * the half answer on the way. The reply they were reading disappeared and nothing said so.
+ *
+ * The two properties below are the fix, and they are deliberately a pair: an explicit Stop
+ * that KEEPS what arrived, and an Enter that no longer throws it away by accident.
+ */
+describe("stopping an answer", () => {
+
+  it("OFFERS Stop while the answer is arriving, and KEEPS what arrived", async () => {
+    const { held } = renderHeld();
+    await ask("summarise this screen");
+    await act(async () => {
+      held.push('event: text\ndata: {"delta":"The clinic opens at "}\n\n');
+    });
+    expect(await screen.findByText(/The clinic opens at/)).toBeTruthy();
+
+    // The control is there and it is NOT disabled — the whole defect was that it was.
+    const stop = screen.getByRole("button", { name: "Stop" });
+    expect(stop.hasAttribute("disabled")).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(stop);
+    });
+
+    // THE HALF ANSWER IS STILL ON SCREEN, as a settled turn rather than a live stream.
+    expect(screen.getAllByText(/The clinic opens at/).length).toBe(1);
+    // …and the panel is askable again, with no error blamed on the person who clicked.
+    expect(screen.getByRole("button", { name: "Ask" })).toBeTruthy();
+    expect(screen.queryAllByText(/went wrong|could not/i).length).toBe(0);
+    held.release();
+  });
+
+  it("DOES NOT LOSE THE ANSWER when Enter is pressed while one is still arriving", async () => {
+    const { held, asks } = renderHeld();
+    await ask("summarise this screen");
+    await act(async () => {
+      held.push('event: text\ndata: {"delta":"Half an answer."}\n\n');
+    });
+    expect(await screen.findByText("Half an answer.")).toBeTruthy();
+
+    const box = screen.getByLabelText("Your question about this screen");
+    fireEvent.change(box, { target: { value: "and the phone number?" } });
+    await act(async () => {
+      fireEvent.keyDown(box, { key: "Enter", shiftKey: false });
+    });
+
+    // Nothing was sent — the first answer is still arriving — and nothing was destroyed.
+    expect(asks.length).toBe(1);
+    expect(screen.getAllByText("Half an answer.").length).toBe(1);
+    // What they typed is still in the box, so the question is not lost either.
+    expect((box as HTMLTextAreaElement).value).toBe("and the phone number?");
+    held.release();
+  });
+});
+
+/**
+ * The transcript scroller must not chain into the page behind it.
+ *
+ * Asserted on the CLASS rather than on behaviour, and the reason is the instrument: jsdom
+ * implements no scrolling at all — it has no layout, `scrollIntoView` is absent (this file
+ * guards against exactly that elsewhere), and `overscroll-behavior` is a compositor
+ * property no DOM API reports. So the class string is the only observable there is here,
+ * and pinning it is worth more than not testing it: the failure mode is a `className` edit
+ * that drops one token among eight while looking entirely harmless in review.
+ */
+describe("the transcript scroller", () => {
+  it("CONTAINS its overscroll, so reading to the end does not scroll the form behind", async () => {
+    stubCopilot({ chunks: [] });
+    render(
+      withQuery(
+        <>
+          <DraftScreen />
+          <PanelMount />
+        </>,
+      ),
+    );
+    const scroller = await screen.findByTestId("copilot-transcript");
+    // Both halves: a container that stopped scrolling at all would "pass" a lone
+    // `overscroll-contain` assertion while having broken the transcript.
+    expect(scroller.className).toContain("overflow-y-auto");
+    expect(scroller.className).toContain("overscroll-contain");
+  });
+});
+
+/**
+ * FOLLOWING THE ANSWER, AND STOPPING WHEN THE PERSON DOES.
+ *
+ * The panel used to call `scrollIntoView` on a sentinel at the end of the transcript, on
+ * every render caused by every token, with no condition at all. So a person who scrolled
+ * up to re-read the previous answer was dragged back to the bottom several times a second
+ * — and `scrollIntoView` scrolls every scrollable ANCESTOR, so on a phone the form behind
+ * the floating panel scrolled away with it, which is precisely what `overscroll-contain`
+ * on the same element exists to prevent.
+ *
+ * jsdom has no layout, so `scrollHeight` and `clientHeight` are declared here: what is
+ * being asserted is this component's own arithmetic and the `stick` decision it drives,
+ * not the browser's scrolling, and that arithmetic is the whole of the fix.
+ */
+describe("following a streaming answer", () => {
+  /** A scroller with a real geometry, since jsdom gives every element a zero one. */
+  function measure(el: HTMLElement, { scrollHeight = 1000, clientHeight = 300 } = {}) {
+    Object.defineProperty(el, "scrollHeight", { value: scrollHeight, configurable: true });
+    Object.defineProperty(el, "clientHeight", { value: clientHeight, configurable: true });
+  }
+
+  /** Put the scroller at `top` and tell the panel about it, as a wheel would. */
+  function scrollTo(el: HTMLElement, top: number) {
+    el.scrollTop = top;
+    fireEvent.scroll(el);
+  }
+
+  it("KEEPS THE PERSON WHERE THEY SCROLLED TO while more of the answer arrives", async () => {
+    const { held } = renderHeld();
+    const scroller = await screen.findByTestId("copilot-transcript");
+    measure(scroller);
+    // 1000 - 200 - 300 = 500px from the bottom: they have deliberately scrolled up.
+    scrollTo(scroller, 200);
+
+    await ask("summarise this screen");
+    for (const delta of ["A long ", "answer that ", "keeps arriving."]) {
+      await act(async () => {
+        held.push(`event: text\ndata: ${JSON.stringify({ delta })}\n\n`);
+      });
+      // FAILS IF: the effect scrolls unconditionally — this becomes 1000 on the first
+      // token, and the sentence they were re-reading is gone.
+      expect(scroller.scrollTop).toBe(200);
+    }
+    held.release();
+  });
+
+  it("resumes following once they scroll back to the bottom", async () => {
+    const { held } = renderHeld();
+    const scroller = await screen.findByTestId("copilot-transcript");
+    measure(scroller);
+    scrollTo(scroller, 200);
+
+    await ask("summarise this screen");
+    await act(async () => {
+      held.push('event: text\ndata: {"delta":"First part. "}\n\n');
+    });
+    expect(scroller.scrollTop).toBe(200);
+
+    // Back to the bottom (1000 - 700 - 300 = 0), which re-arms the follow.
+    scrollTo(scroller, 700);
+    await act(async () => {
+      held.push('event: text\ndata: {"delta":"Second part."}\n\n');
+    });
+    expect(scroller.scrollTop).toBe(1000);
+    held.release();
+  });
+
+  it("scrolls ITS OWN container and never an ancestor", async () => {
+    // `scrollIntoView` is the API that scrolls ancestors, and jsdom does not implement it
+    // — which is why the old code had to guard on its existence. Defining it here as a
+    // spy is the only way to state the rule: this panel must not call it at all.
+    const intoView = vi.fn();
+    const original = Object.getOwnPropertyDescriptor(
+      HTMLElement.prototype,
+      "scrollIntoView",
+    );
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      value: intoView,
+      configurable: true,
+      writable: true,
+    });
+    try {
+      const { held } = renderHeld();
+      const scroller = await screen.findByTestId("copilot-transcript");
+      measure(scroller);
+      await ask("summarise this screen");
+      await act(async () => {
+        held.push('event: text\ndata: {"delta":"Following."}\n\n');
+      });
+      expect(scroller.scrollTop).toBe(1000);
+      expect(intoView).not.toHaveBeenCalled();
+      held.release();
+    } finally {
+      if (original === undefined) {
+        delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+      } else {
+        Object.defineProperty(HTMLElement.prototype, "scrollIntoView", original);
+      }
+    }
+  });
+});
+
+/**
+ * WHAT IS ANNOUNCED, AND WHAT MUST NOT BE.
+ *
+ * The whole transcript container used to carry `aria-live="polite"`, so every change
+ * inside it was announced — including changes that are not the assistant speaking. Two
+ * of those are routine: the stored conversation (D-540) arriving on mount announced every
+ * earlier turn as if it had just been said, and each finished answer was announced a
+ * SECOND time as the hook moved it out of the streaming buffer and into the list.
+ *
+ * ⚠ WHAT THIS FILE CAN AND CANNOT PROVE. jsdom has no accessibility tree and no screen
+ * reader: it can prove which element the live region is and what is inside it, which is
+ * the structural half and the half that was wrong. It cannot prove what is spoken. The
+ * audible result is UNVERIFIED and needs a real screen reader (OPERATIONS §2).
+ */
+describe("what the assistant announces", () => {
+  it("puts the ARRIVING answer in the live region and the settled transcript OUTSIDE it", async () => {
+    const { held } = renderHeld();
+    await ask("summarise this screen");
+    await act(async () => {
+      held.push('event: text\ndata: {"delta":"The clinic opens at nine."}\n\n');
+    });
+
+    const live = document.querySelector('[aria-live="polite"][aria-atomic="false"]');
+    expect(live).not.toBeNull();
+    // The answer currently arriving IS announced.
+    expect(live!.textContent).toContain("The clinic opens at nine.");
+
+    // The person's own question is in the transcript and is NOT in any live region.
+    // FAILS IF: the live region goes back to wrapping the whole transcript container.
+    const asked = screen.getByText("summarise this screen");
+    expect(asked.closest("[aria-live]")).toBeNull();
+    held.release();
+  });
+
+  it("does not announce a finished answer a second time as it settles", async () => {
+    const { held } = renderHeld();
+    await ask("summarise this screen");
+    await act(async () => {
+      held.push('event: text\ndata: {"delta":"Nine in the morning."}\n\n');
+      held.push('event: done\ndata: {"metered":true}\n\n');
+      held.release();
+    });
+
+    const settled = await screen.findByText("Nine in the morning.");
+    // Once settled it is an ordinary transcript bubble — outside the live region, which is
+    // now empty and waiting for the next answer.
+    expect(settled.closest("[aria-live]")).toBeNull();
+    const live = document.querySelector('[aria-live="polite"][aria-atomic="false"]');
+    expect(live!.textContent).toBe("");
+  });
+
+  it("does not announce the STORED conversation, which was said before this panel opened", async () => {
+    stubCopilot({
+      conversation: {
+        turns: [
+          {
+            id: "0198f000-0000-7000-8000-0000000000b1",
+            role: "user",
+            content: "what did I ask yesterday",
+            screen_route: "/t",
+            said_at: "2026-09-05T08:00:00+00:00",
+          },
+          {
+            id: "0198f000-0000-7000-8000-0000000000b2",
+            role: "assistant",
+            content: "About the opening hours.",
+            screen_route: "/t",
+            said_at: "2026-09-05T08:00:01+00:00",
+          },
+        ],
+        has_more: false,
+      },
+    });
+    render(
+      withQuery(
+        <>
+          <DraftScreen />
+          <PanelMount />
+        </>,
+      ),
+    );
+    const restored = await screen.findByText("About the opening hours.");
+    expect(restored.closest("[aria-live]")).toBeNull();
+  });
+});
+
+/**
+ * D-22 VIEW-AS: THE ONE SESSION THE CLIENT ASSISTANT CANNOT ANSWER IN.
+ *
+ * `copilot:use` is in `core/rbac.MUTATING_PERMISSIONS` — asking spends the ACCOUNT'S AI
+ * allowance, so it moves a balance however read-only the answer looks — and it is not in
+ * `IMPERSONATION_PERMITTED_MUTATIONS`, which holds `copilot:admin` alone. So
+ * `core/auth.requires` refuses an impersonating principal with 403 before any model is
+ * called, on all four client copilot routes (`apps/api/copilot/routes.py:164,752,828,905`).
+ *
+ * The console used to render the ordinary panel anyway: an operator inside view-as saw a
+ * normal assistant, asked a question and got a generic refusal — or read the silence as
+ * the feature being broken for the CLIENT.
+ */
+describe("the assistant inside a view-as session", () => {
+  const VIEW_AS: Session = {
+    orgSlug: "acme",
+    impersonateOrg: "acme",
+    impersonationGrant: () => "grant-token",
+  };
+
+  async function openDockFor(session: Session) {
+    render(
+      withQuery(
+        <>
+          <DraftScreen />
+          <CopilotDock session={session} realm="client" />
+        </>,
+      ),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Ask about this screen" }));
+    });
+  }
+
+  it("SAYS WHY IT CANNOT ANSWER and asks the server nothing at all", async () => {
+    const calls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        calls.push(String(input).replace(API_BASE, ""));
+        throw new Error("the copilot must not be called inside a view-as session");
+      }),
+    );
+    await openDockFor(VIEW_AS);
+
+    expect(screen.getByTestId("copilot-view-as-panel")).toBeTruthy();
+    // The sentence names the money, which is the part an operator can act on.
+    expect(screen.getByText(/read-only/i)).toBeTruthy();
+    expect(screen.getByText(/AI allowance/i)).toBeTruthy();
+    // FAILS IF: the ordinary panel is rendered — it loads the stored conversation on
+    // mount, which is itself a `copilot:use` route and itself a 403.
+    expect(calls).toEqual([]);
+    // …and there is no ask box to type a question that could only be refused.
+    expect(screen.queryByLabelText("Your question about this screen")).toBeNull();
+  });
+
+  it("leaves the client's OWN session with the real assistant", async () => {
+    stubCopilot({ chunks: [] });
+    await openDockFor(SESSION);
+    expect(screen.queryByTestId("copilot-view-as-panel")).toBeNull();
+    expect(screen.getByLabelText("Your question about this screen")).toBeTruthy();
+  });
+
+  it("returns focus to the launcher when the notice is closed, like the panel does", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    await openDockFor(VIEW_AS);
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Close the assistant" }));
+    });
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Ask about this screen" }),
+    );
+  });
+});
+
+/**
+ * A DROPPED STREAM IS THE MOST RETRYABLE FAILURE THIS PANEL HAS, and it had no button.
+ *
+ * `StreamDroppedProblem` (`lib/copilot/stream.ts`) is `retryable: true` and its own
+ * remediation sentence tells the person to "Ask again if the answer looks incomplete" —
+ * with nothing on screen to ask again WITH. They had to retype the question they had just
+ * typed, next to an answer that had visibly been arriving a second earlier.
+ */
+describe("asking again after a failure", () => {
+  it("OFFERS Try again on a dropped stream, and re-sends the same question", async () => {
+    const { bodies } = stubCopilot({
+      // A 200 that ends with no terminal `done` — a severed connection, which is what
+      // `StreamDroppedProblem` exists for.
+      chunks: ['event: text\ndata: {"delta":"The clinic opens at "}\n\n'],
+    });
+    render(
+      withQuery(
+        <>
+          <DraftScreen />
+          <PanelMount />
+        </>,
+      ),
+    );
+    await ask("when does the clinic open?");
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+
+    // FAILS IF: the panel renders `ProblemNotice` with no `onRetry` — `canRetry` is then
+    // false and there is no button at all.
+    const again = screen.getByRole("button", { name: "Try again" });
+    await act(async () => {
+      fireEvent.click(again);
+    });
+
+    expect(bodies.length).toBe(2);
+    expect(JSON.parse(bodies[1]).question).toBe("when does the clinic open?");
+    // Whatever HAD arrived is still there — the retry is an addition, not a reset.
+    expect(screen.getAllByText(/The clinic opens at/).length).toBeGreaterThan(0);
+  });
+
+  it("offers nothing to retry on a refusal the person must act on themselves", async () => {
+    // A 4xx that told them what it needs is not retryable, and `ProblemNotice` is the one
+    // place that rule lives — this panel does not get its own second copy of it.
+    stubCopilot({
+      askStatus: 400,
+      askBody: {
+        type: "about:blank",
+        title: "That screen has no fields to fill.",
+        code: "copilot_no_fields",
+      },
+    });
+    render(
+      withQuery(
+        <>
+          <DraftScreen />
+          <PanelMount />
+        </>,
+      ),
+    );
+    await ask("fill this in");
+    await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+  });
+});
+
+/**
+ * THE CONFIRMATION DOOR CANNOT OPEN UNDER A MOVING CURSOR.
+ *
+ * The card is inserted at the moment the `proposal` frame arrives — a moment the person
+ * did not choose — into a region that scrolls to follow the answer. So a Confirm can
+ * appear directly beneath a cursor already travelling toward whatever was there a frame
+ * earlier, and the click lands on a change to a live campaign or the do-not-call list.
+ */
+describe("the confirmation door", () => {
+  it("REFUSES A CLICK that lands in the first moments after a consequential card appears", async () => {
+    const { confirms } = stubCopilot({ chunks: proposalChunks() });
+    renderPanel();
+    await ask("stop the kondapur campaign");
+
+    const button = await screen.findByRole("button", { name: /^Confirm — / });
+    // `campaign_pause` is CONSEQUENTIAL — it stops live dialling and removing the row
+    // afterwards does not un-make the recall.
+    expect(button.hasAttribute("disabled")).toBe(true);
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    // FAILS IF: the arming delay is removed — the campaign is paused by a click nobody
+    // aimed.
+    expect(confirms).toEqual([]);
+
+    // …and it opens on its own, quickly enough that anybody who meant it never waits.
+    await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
+    await act(async () => {
+      fireEvent.click(button);
+    });
+    expect(confirms.length).toBe(1);
+  });
+
+  it("does NOT delay Dismiss, which is the answer that undoes nothing", async () => {
+    stubCopilot({ chunks: proposalChunks() });
+    renderPanel();
+    await ask("stop the kondapur campaign");
+
+    const dismiss = await screen.findByRole("button", { name: /^Dismiss — / });
+    expect(dismiss.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("does NOT delay an ORDINARY suggestion, which Undo reaches", async () => {
+    // `lead_set_status` is an everyday edit. Spending 400ms on it would be a tax on the
+    // common case for a risk it does not carry — the same split `CONSEQUENTIAL` already
+    // makes about the button's colour, read from the same table.
+    stubCopilot({
+      chunks: proposalChunks({ ...PROPOSAL, tool: "lead_set_status" }),
+    });
+    renderPanel();
+    await ask("mark that lead as hot");
+
+    const button = await screen.findByRole("button", { name: /^Confirm — / });
+    expect(button.hasAttribute("disabled")).toBe(false);
+  });
+});
+
+/**
+ * WHICH CONSOLE'S ASSISTANT IS THIS? — answerable without reading.
+ *
+ * Both realms rendered an identical launcher and an identical panel, on the one floating
+ * surface that appears over every screen in both consoles and that can change a client's
+ * data. The marker is NOT a new treatment: it is the slate the admin shell already wears
+ * (`components/realmChrome.tsx` — the rail across the top of the window and the sidebar's
+ * identity block), so the two cannot drift into two different "admin" colours.
+ */
+describe("telling the two realms apart", () => {
+  function dock(realm: "client" | "admin") {
+    return render(
+      withQuery(
+        <>
+          <DraftScreen />
+          <CopilotDock session={SESSION} realm={realm} />
+        </>,
+      ),
+    );
+  }
+
+  it("wears the ADMIN SHELL'S OWN slate on the admin launcher, and the brand on the client's", () => {
+    stubCopilot({ chunks: [] });
+    const { unmount } = dock("admin");
+    const adminLauncher = screen.getByRole("button", { name: "Ask about this screen" });
+    expect(adminLauncher.className).toContain("bg-slate-900");
+    expect(adminLauncher.className).not.toContain("bg-brand-strong");
+    unmount();
+
+    dock("client");
+    const clientLauncher = screen.getByRole("button", { name: "Ask about this screen" });
+    expect(clientLauncher.className).toContain("bg-brand-strong");
+    expect(clientLauncher.className).not.toContain("bg-slate-900");
+  });
+
+  it("names the realm in WORDS too, for the reader who gets none of the colour", async () => {
+    stubCopilot({ chunks: [] });
+    dock("admin");
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Ask about this screen" }));
+    });
+    // FAILS IF: the panel heading is shared between the realms again — a screen-reader
+    // user then has nothing at all, because the slate is `aria-hidden` by nature.
+    expect(
+      await screen.findByRole("heading", { name: "Ask about this admin screen" }),
+    ).toBeTruthy();
   });
 });
