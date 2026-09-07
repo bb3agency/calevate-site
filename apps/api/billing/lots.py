@@ -609,6 +609,47 @@ async def adjust_lot_for_restatement(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class TierRate:
+    """What ONE voice tier costs this wallet right now, and how much is queued behind it.
+
+    The number a voice PICKER has to show: not the card's rate — the client may have
+    bought at a rate the card no longer offers — but the rate frozen on the lot the next
+    minute will actually be drawn from. `inr_per_min` is `None` when there is no open lot
+    to answer from, which is a real state (an empty or overdrawn wallet) and is why the
+    field is nullable rather than defaulted to a card figure that would be a guess about
+    what the client's next purchase will cost.
+
+    `further_open_lots` is what stops that single rate being read as the whole truth: two
+    lots behind it at other rates means the quoted minute price changes partway through
+    the wallet, and the picker says so rather than quoting one number for a queue.
+    """
+
+    provider: VoiceTier
+    inr_per_min: Decimal | None
+    further_open_lots: int
+
+
+async def voice_tier_rates(session: AsyncSession, *, tenant_id: UUID) -> list[TierRate]:
+    """Both voice tiers, each priced at the OLDEST OPEN LOT — the picker's read.
+
+    One walk of the same FIFO queue `consume` draws from and `runway` sums, so the rate a
+    client is shown before choosing a voice is the rate their next call is charged. Both
+    tiers are always returned, in catalogue order, because a picker that omitted the
+    dearer one would present a choice the client cannot see the price of.
+    """
+    lots = await read_open_lots(session, tenant_id=tenant_id)
+    behind = max(len(lots) - 1, 0)
+    return [
+        TierRate(
+            provider=tier,
+            inr_per_min=lots[0].rate_for(tier) if lots else None,
+            further_open_lots=behind,
+        )
+        for tier in ("sarvam", "cartesia")
+    ]
+
+
 async def runway(session: AsyncSession, *, tenant_id: UUID) -> dict[str, Decimal]:
     """How many minutes the wallet still holds, per voice (plan §0 Q7).
 

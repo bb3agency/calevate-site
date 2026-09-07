@@ -244,6 +244,11 @@ _APPEND_ONLY_PROBE_SET = {
     # that could fail on the constraint instead of on the trigger would report a protected
     # ledger as protected for the wrong reason (`fx_rate_observations`' own note).
     "platform_list_rates": "source_note = source_note || 'x'",
+    # D-547: not tenant-scoped either, for `platform_model_prices`' reason. `source_note`
+    # rather than `inr_per_1k_chars`, which carries `ck_platform_tts_prices_positive` — a
+    # probe that could fail on the constraint instead of on the trigger would report a
+    # protected ledger as protected for the wrong reason (`fx_rate_observations`' own note).
+    "platform_tts_prices": "source_note = source_note || 'x'",
     # D-499: platform-scoped for `platform_model_prices`' reason — the payer is Calevate,
     # so there is no tenant whose row this could be and no `tenant_id` to mutate. `ref` is
     # the safe target: `qty`/`unit_cost_paid` carry non-negative CHECKs and `ref` carries
@@ -748,6 +753,12 @@ class RestoreDrill:
             "input_usd_per_mtok, output_usd_per_mtok, attested_by, source_note) "
             f"VALUES ('gpt-4o-mini', now(), 0.1500, 0.6000, '{ADMIN_ID}', "
             "'restore-drill fixture')",
+            # D-547: one attested TTS price, for `platform_model_prices`' reason — a FOR
+            # EACH ROW trigger cannot fire on an empty table. The rate is >0 for the CHECK
+            # and is a FIXTURE, never read as a real plan rate.
+            "INSERT INTO platform_tts_prices (provider, effective_from, inr_per_1k_chars, "
+            "attested_by, source_note) VALUES ('cartesia', now(), 3.4496, "
+            f"'{ADMIN_ID}', 'restore-drill fixture')",
             # D-477: one attestation, for `platform_model_prices`' reason — a FOR EACH ROW
             # trigger cannot fire on an empty table. `attested_by` is the ADMIN_ID seeded
             # above; both text columns are non-blank for the evidence CHECK. The project

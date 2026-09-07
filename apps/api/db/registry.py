@@ -426,6 +426,24 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "a new effective-dated row, never an edit, so a re-rendered invoice resolves the "
         "price that was live in the month it is re-rendering."
     ),
+    "platform_tts_prices": (
+        "platform-scoped, admin realm only (D-547, plan §3.5). The operator-attested TTS "
+        "price per VOICE PROVIDER, effective-dated — one Cartesia account and one Sarvam "
+        "account for the whole deployment, one price per provider at an instant, so there "
+        "is no tenant whose row this could be and it carries no tenant_id. It exists "
+        "because a BYOK synthesizer leg costs nothing from the engine and is billed by the "
+        "vendor as a monthly plan, so the only figure that can reach `unit_cost_paid` is "
+        "one a human read off an invoice (hard rule 7). `ops/model_pricing.attest_tts_price` "
+        "is the only writer and it REQUIRES its caller to be step-up confirmed and to write "
+        "the audit row on the same session — the same contract `attest_price` carries. ⚠ THE "
+        "OPS ROUTE THAT CALLS IT IS NOT BUILT YET (`ops/config_routes.py` is another lane's "
+        "file, D-547 Phase D handoff), so today the only callers are tests; the row is "
+        "unreachable from any realm until that panel lands. Holds a provider name, one "
+        "NUMERIC rupees-per-1k-characters figure, an attester id and a source note — no "
+        "PII, no credential, no tenant data. Append-only (see APPEND_ONLY_TABLES): a "
+        "correction is a new effective-dated row, never an edit, so a re-rendered month "
+        "resolves the price its minutes were metered at."
+    ),
     "platform_ai_usage": (
         "platform-scoped, admin realm only (D-499). The ADMIN copilot's AI spend — an "
         "operator asking the assistant about platform state, or asking it while viewing a "
@@ -628,6 +646,10 @@ APPEND_ONLY_TABLES = [
     # answerable after the fact, and a row somebody could edit answers it with today's belief.
     "platform_dashboard_data_use",
     "platform_model_prices",
+    # The attested TTS price (D-547). Append-only for `platform_model_prices`' reason,
+    # one vendor further down the call: a figure somebody could edit would silently
+    # re-price a month whose Cartesia characters have already been metered against it.
+    "platform_tts_prices",
     # The ADMIN copilot's own AI spend (D-499). Append-only for `usage_events`' reason
     # rather than `platform_model_prices`': it is a LEDGER of money already paid to a
     # provider, and `platform_ai_spend` is the counter derived from it. A row somebody

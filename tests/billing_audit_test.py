@@ -35,6 +35,7 @@ from apps.api.billing import credit_routes
 from apps.api.billing import service as billing
 from apps.api.billing.credit_routes import router as credit_router
 from apps.api.billing.invoice import build_invoice
+from apps.api.billing.lots import CallDemand
 from apps.api.billing.routes import router as invoice_router
 from apps.api.billing.service import charge_for_call, get_balance, record_entry
 from apps.api.compliance.service import check_dispatch
@@ -260,7 +261,14 @@ async def test_two_overlapping_charges_for_one_call_charge_it_once(monkeypatch: 
             await a_inside.wait()
         async with tenant_session(tenant_id) as session:
             await charge_for_call(
-                session, tenant_id=tenant_id, call_id=call_id, amount_inr=Decimal("30")
+                session,
+                tenant_id=tenant_id,
+                call_id=call_id,
+                demand=CallDemand(
+                    minutes=Decimal("6"),
+                    voice_tier="sarvam",
+                    fallback_inr_per_min=Decimal("5.00"),
+                ),
             )
 
     await asyncio.gather(charge(False), charge(True))

@@ -37,6 +37,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.credit_lots_helpers import GROWTH, PLUS, add_lot
 from tests.two_speed_publishing_test import _live_agent_with_a_staged_draft
 
 
@@ -136,6 +137,66 @@ async def test_a_client_can_read_what_is_pending_on_their_own_agent() -> None:
     assert body["precedence_rule"].startswith("Script decides content")
     # Version numbers, never the script (hard rule 6).
     assert "body" not in body["pending"][0]
+
+
+async def test_the_pending_view_prices_each_voice_off_the_clients_own_lots() -> None:
+    """The voice picker's price column, on the read BOTH voice screens already make (D-547).
+
+    It rides `/pending` rather than a new endpoint because that is where `voice` already
+    lives — a second request and a second cache key for one screen is how the two get out
+    of step. What it publishes is the rate frozen on the client's OLDEST OPEN LOT, not the
+    card's: a client who bought a ₹15,000 pack pays ₹4.70, and a picker quoting today's
+    card would quote a price they do not pay.
+
+    Both tiers are always present and each carries its CLIENT-FACING label — no
+    client-facing surface names a vendor as a product tier (founder, 7 Sep 2026) — sent
+    from `billing/rates.voice_tier_label` rather than kept in the browser, so the two
+    cannot drift into a client meeting both names. The frontend validates the set strictly
+    and drops all of it if one row is malformed, which is why this asserts the whole shape
+    rather than one field.
+    """
+    tenant_id, agent_id, _ref, _engine = await _live_agent_with_a_staged_draft()
+    token, slug = await _member(tenant_id), await _slug(tenant_id)
+    await add_lot(tenant_id, credits_inr="3200.00", rates=PLUS, pack_id="plus")
+    await add_lot(tenant_id, credits_inr="2000.00", rates=GROWTH, pack_id="growth")
+
+    async with _client(_app()) as client:
+        response = await client.get(
+            f"/v1/agents/{agent_id}/pending",
+            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+        )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["voice_tier_rates"] == [
+        {
+            "provider": "sarvam",
+            "label": "Clear",
+            "inr_per_min": "4.7000",
+            "further_open_lots": 1,
+        },
+        {
+            "provider": "cartesia",
+            "label": "Studio",
+            "inr_per_min": "6.5000",
+            "further_open_lots": 1,
+        },
+    ]
+
+
+async def test_the_pending_view_quotes_no_rate_at_all_on_an_unfunded_wallet() -> None:
+    """`null` is the answer when there is no open lot to price a minute from. The
+    alternative — falling back to the card — quotes a rate the client has not bought."""
+    tenant_id, agent_id, _ref, _engine = await _live_agent_with_a_staged_draft()
+    token, slug = await _member(tenant_id), await _slug(tenant_id)
+
+    async with _client(_app()) as client:
+        response = await client.get(
+            f"/v1/agents/{agent_id}/pending",
+            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+        )
+
+    assert response.status_code == 200, response.text
+    assert [row["inr_per_min"] for row in response.json()["voice_tier_rates"]] == [None, None]
 
 
 async def test_the_lane_table_is_readable_and_does_not_collide_with_the_agent_route() -> None:

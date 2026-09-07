@@ -565,8 +565,30 @@ kb_retrieval_logs(id, tenant_id, call_id, query, tier ENUM[t0,t1,t2,t3,t4],
 
 ```
 usage_events(id, tenant_id, call_id NULL, unit_type ENUM[telephony_s,stt_s,tts_chars,
-  llm_tok_in,llm_tok_out,platform_min,number_rental,other], qty NUMERIC, unit_cost_paid NUMERIC,
+  tts_kchars,llm_tok_in,llm_tok_out,platform_min,number_rental,other,
+  ai_assist_ktok_in,ai_assist_ktok_out], qty NUMERIC, unit_cost_paid NUMERIC,
   occurred_at, meta JSONB)                          -- INSERT-only; no UPDATE/DELETE grants
+-- `tts_chars` vs `tts_kchars` (D-547, migration f4b90c1d7e26) — TWO synthesizer units,
+--   because there are two ways to know what synthesis cost and they are not the same
+--   measurement. `tts_chars` carries the ENGINE's own reported leg charge at `qty = 1`
+--   (the engine buys Sarvam synthesis and bills us for it, reporting no character count).
+--   `tts_kchars` carries OUR OWN count for a BYOK voice: Bolna charges nothing for a
+--   component you bring your own key for, so the cost is the operator-attested plan rate
+--   (`platform_tts_prices`) times the characters the agent spoke, counted from
+--   `transcript_turns`. `pipeline._tts_cost_row` writes one or the other, decided by the
+--   voice, never both — and writes NEITHER rather than a zero when a BYOK call has no
+--   attested price, because a fabricated ₹0 on an append-only ledger reads exactly like a
+--   working leg. The unit is a THOUSAND characters for `ai_assist_ktok_*`'s reason:
+--   `unit_cost_paid` is NUMERIC(12,4), and ₹3.4496 per 1,000 characters stores per
+--   character as 0.0034 — our own cost, 1.4% light, for ever.
+-- INDEX ux_usage_events_tenant_call_kchars UNIQUE (tenant_id, call_id, unit_type)
+--   WHERE call_id IS NOT NULL AND unit_type = 'tts_kchars' AND created_at >= cutoff
+--   (a3c62f8b4d19). The natural key for the sixth metered unit, as a SECOND partial index
+--   disjoint from `ux_usage_events_tenant_call_unit` rather than a wider version of it:
+--   widening in place means dropping the key that protects four live legs and rebuilding it
+--   CONCURRENTLY over the whole table, whose failure mode is an INVALID unique index that
+--   rejects insertions while being useless. The two predicates are disjoint, so together
+--   they ARE the wider key.
 -- INDEX ix_usage_events_call_id (call_id) WHERE call_id IS NOT NULL (c9e2a7b41d63). The
 --   post-call metering guard, `_pipeline_settled`'s EXISTS and the unmetered-calls panel all
 --   probe by call; offered only `tenant_id` each was a scan of the tenant's ENTIRE metering
@@ -587,6 +609,27 @@ usage_events(id, tenant_id, call_id NULL, unit_type ENUM[telephony_s,stt_s,tts_c
 --   also what made the month predicate indexable AT ALL: `to_char(... ) = :month` is STABLE,
 --   so it can be neither an index condition nor an index expression, and
 --   `plans.ist_month_window` now hands SQL a half-open range instead (D-209).
+platform_tts_prices(provider, effective_from, inr_per_1k_chars NUMERIC(12,6),
+  attested_by FK admin_users, attested_at, source_note)   -- INSERT-only (hard rule 4)
+-- PK (provider, effective_from) (migration e1d75c2b8a43). The operator-attested TTS price,
+--   and the TTS twin of `platform_model_prices`: hard rule 7 has no REPORTED tier, a BYOK
+--   synthesizer leg costs ₹0 from the engine, and what the vendor bills is a MONTHLY PLAN
+--   with a character allotment that no payload can report — so the only figure that may
+--   reach `unit_cost_paid` is one a human read off an invoice and typed in.
+-- RUPEES per THOUSAND CHARACTERS, not the LLM table's USD per million tokens. The figure is
+--   derived by the operator from a plan (Startup: ₹4,312 / 1.25M chars = ₹3.4496/1k), so the
+--   division and any conversion have already happened by the time it can be read; storing
+--   dollars would mean asking somebody to un-divide it. `source_note` is REQUIRED and is
+--   where the plan, its period and any fx used are recorded.
+-- ⚠ UNKNOWN, and not resolved by the table: the vendor's OVERAGE rate past the allotment
+--   (plan ADDENDUM 1, unknown #3). An attestation prices a character INSIDE the allotment; a
+--   deployment running past it pays more than this says. That is a vendor question.
+-- Platform-scoped (one vendor account for the whole deployment), so no `tenant_id` and a
+--   written reason in `db/registry.RLS_EXEMPT_TENANT_COLUMNS`. Append-only with the shared
+--   `calevate_forbid_mutation` / `calevate_forbid_truncate` triggers, both ENABLE ALWAYS: a
+--   correction is a NEW effective instant so a re-rendered month resolves the price its
+--   characters were metered at. `ops/model_pricing.tts_price_is_billable` is the ONE door
+--   that decides whether a voice tier may be offered at all.
 plans(id, tenant_id, setup_fee, monthly_fee, included_min INT, overage_rate,
   overage_rate_value NUMERIC NULL, hard_cap_min INT, hard_cap_spend NUMERIC,
   client_cap_min INT NULL, client_cap_spend NUMERIC NULL,
@@ -707,15 +750,41 @@ credit_lots(id, tenant_id, source ENUM-as-CHECK[topup,grant,bonus_legacy,migrati
 --   opened it. That is what makes the pair re-derivable: the money movement is the ledger's,
 --   the price is the lot's, and neither can exist without the other.
 -- WHAT THE LEDGER GAINED, WHICH IS NOTHING STRUCTURAL. `credit_ledger` is UNCHANGED in shape
---   and still INSERT-only. A credit-adding row carries `meta.lot_id`; a `usage` row carries
---   `meta.lots`, the splits it drew:
---     meta.lots = [{lot_id, credits, minutes, inr_per_min, voice_tier}, …]
---   one entry per lot the debit touched, in consumption order. `voice_tier` is NULL on a
---   split that priced no minutes — the dashboard-AI quota debits the same wallet in RUPEES at
---   face value, with no rate — and the overdraft part, if any, is the last entry, priced at
---   the rate of the lot that ran out. A month's statement and the margin panel are
---   re-derivable from those rows ALONE (D-492/D-458 kept): nothing recomputes a price from
---   today's card.
+--   and still INSERT-only. A `usage` row carries `meta.lots`, the splits it drew — one entry
+--   per lot the debit touched, in consumption order, EVERY ONE CARRYING A `kind`:
+--     meta.lots = [{kind: "call", lot_id, credits, minutes, inr_per_min, voice_tier}, …]
+--     meta.lots = [{kind: "ai_assist", lot_id, credits}, …]
+--   ⚠ **THIS PARAGRAPH USED TO SAY `voice_tier` IS NULL ON A SPLIT THAT PRICED NO MINUTES,
+--   AND THE BUILD DID NOT DO THAT** (plan ADDENDUM 2 §2.1). On an `ai_assist` split
+--   `minutes`, `inr_per_min` and `voice_tier` are ABSENT KEYS, not nulls: the dashboard-AI
+--   quota buys RUPEES of assistance at face value, so there is no rate and no voice, and a
+--   key whose null means "not applicable" is the tri-state defect `AgentSnapshot.*_readable`
+--   exists to avoid. `lot_id` follows the same rule — it is absent on the OVERDRAFT portion,
+--   which came from no lot at all. A reader totalling TALK MINUTES filters `kind == "call"`;
+--   one totalling MONEY sums `credits` across every split whatever its kind, and that sum IS
+--   the row's own `delta`.
+--   The D-455 language-model surcharge rides its call's OWN row as an `ai_assist` split for
+--   exactly that reason: it is rupees, and its minutes are already counted by the call splits
+--   beside it. The overdraft part, if any, is the last entry, priced at the rate of the lot
+--   that ran out. A month's statement and the margin panel are re-derivable from those rows
+--   ALONE (D-492/D-458 kept): nothing recomputes a price from today's card, and
+--   `billing/service.voice_tier_usage` is the reader that proves it — a month's minutes and
+--   charges per voice, read out of `meta.lots` and out of nothing else.
+-- WHAT A CORRECTION DOES TO A LOT, which is not one rule but two, decided by DIRECTION:
+--   * a compensating `adjustment` that takes credit AWAY restates the corrected entry's own
+--     lot downwards (plan ADDENDUM 2 §2.2): `credits_total` falls by the correction,
+--     `credits_remaining` FLOORS at zero, and whatever the lot had already spent becomes
+--     wallet overdraft, which the balance carries and the next purchase repays first. The
+--     RATES do not move — what was sold at ₹4.70 was sold at ₹4.70 even when the amount was
+--     wrong.
+--   * a purchase reversed IN FULL, or a correction of a credit row that opened no lot at all
+--     (one written before this table existed), cannot be a restatement: `credits_total > 0` is
+--     a CHECK, so a lot cannot be restated to nothing. That credit is spent off the FIFO queue
+--     at FACE VALUE instead — the rule every other debit obeys, and the only one that keeps
+--     invariant 1 true. `billing/service.remove_credit_from_lots` is the one door for both.
+--   * a `topup` RESTATEMENT (the under-credited payment repair) is the opposite direction and
+--     lands on the SAME lot: one bank transfer was sold at one card, so the difference grows
+--     that purchase's lot rather than opening a second one behind it.
 -- THE FOUR INVARIANTS THAT BIND THE PAIR (each one a test, plan §2.3.1–4):
 --   1. `SUM(credit_lots.credits_remaining) = the wallet balance` for every tenant, whenever
 --      the balance is ≥ 0. THE BALANCE IS STILL `balance_after` ON THE NEWEST LEDGER ROW —

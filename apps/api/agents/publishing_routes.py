@@ -97,11 +97,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents import publishing
 from apps.api.agents.models import CALL_CAP_DEFAULT_S, CALL_CAP_MAX_S, CALL_CAP_MIN_S
 from apps.api.agents.voices import Voice
+from apps.api.billing.lots import TierRate, voice_tier_rates
+from apps.api.billing.rates import voice_tier_label
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db
 from apps.api.core.rbac import permission_meta
+from apps.api.db.session import tenant_session
 
 # No prefix — the reads live in the client realm's `/v1/agents` space and the
 # mutations under `/v1/admin/tenants/{tenant_id}/...`, so a shared prefix could only
@@ -270,6 +273,35 @@ class EngineStateOut(Strict):
     detail: str
 
 
+class VoiceTierRateOut(Strict):
+    """What ONE voice tier costs this client's NEXT minute, for the voice picker.
+
+    **NOT THE CARD'S RATE.** A client who bought a ₹15,000 pack holds minutes at the rates
+    that pack froze, and a picker quoting today's card would quote a price they do not pay
+    (plan §2.1: a lot knows what it was SOLD at). So this is the rate on the OLDEST OPEN
+    LOT — the one the next call is actually drawn from — and `further_open_lots` says how
+    many purchases sit behind it at rates of their own, which is what stops a single
+    figure being read as the price of the whole wallet.
+
+    `inr_per_min` is null when there is no open lot to answer from (an empty or overdrawn
+    wallet). It is a real state, not a missing value, and the alternative — falling back to
+    the card — would quote a rate the client has not bought.
+
+    `label` is the CLIENT-FACING name of the tier and `provider` is the vendor. Both are
+    published because they answer different questions: no client-facing surface names a
+    vendor as a product tier (founder, 7 Sep 2026), while `provider` is what a ledger row,
+    a `meta.lots` split and a vendor invoice are all reconciled on. The label comes from
+    `billing/rates.voice_tier_label`, never a literal here and never a second copy in the
+    browser — one definition, sent down, for the reason the money figures are.
+    """
+
+    provider: str
+    label: str
+    #: NUMERIC INR per minute, as exact digits. Null when no open lot can price it.
+    inr_per_min: Decimal | None
+    further_open_lots: int
+
+
 class PendingOut(Strict):
     agent_id: UUID
     agent_status: str
@@ -288,6 +320,10 @@ class PendingOut(Strict):
     # a `prompt_versions` pointer, and neither can turn an unconfirmed publish into a
     # confirmed one. Publishing again is what does that.
     engine_verification: VerificationOut
+    #: One entry per voice tier, both always present. The voice picker's price column —
+    #: see `VoiceTierRateOut`. Read from the wallet's own lots, so it is a fact about THIS
+    #: client rather than about the catalogue.
+    voice_tier_rates: list[VoiceTierRateOut]
     precedence_rule: str
 
 
@@ -373,7 +409,13 @@ async def list_lanes(_: PublishingReader) -> LanesOut:
 async def pending(agent_id: UUID, principal: PublishingReader) -> PendingOut:
     assert principal.tenant_id is not None  # `requires()` resolves a tenant for reads
     state = await publishing.pending_state_for(tenant_id=principal.tenant_id, agent_id=agent_id)
-    return _render(state)
+    # THE PICKER'S PRICE COLUMN, read from the wallet's own lots (D-547). A separate
+    # session from `pending_state_for`'s because it answers a question about the TENANT
+    # rather than about the agent, and joining it into the publishing read would put a
+    # billing table inside the query that decides what is staged.
+    async with tenant_session(principal.tenant_id) as session:
+        tiers = await voice_tier_rates(session, tenant_id=principal.tenant_id)
+    return _render(state, tier_rates=tiers)
 
 
 def _render_voice(voice: publishing.AgentVoice | None) -> AgentVoiceOut | None:
@@ -382,7 +424,7 @@ def _render_voice(voice: publishing.AgentVoice | None) -> AgentVoiceOut | None:
     return AgentVoiceOut(voice_id=voice.voice_id, provider=voice.provider, catalog=voice.catalog)
 
 
-def _render(state: publishing.PendingState) -> PendingOut:
+def _render(state: publishing.PendingState, *, tier_rates: list[TierRate]) -> PendingOut:
     return PendingOut(
         agent_id=state.agent_id,
         agent_status=state.agent_status,
@@ -409,6 +451,15 @@ def _render(state: publishing.PendingState) -> PendingOut:
             republish_required=state.voice.republish_required,
             headline=state.voice.headline,
         ),
+        voice_tier_rates=[
+            VoiceTierRateOut(
+                provider=tier.provider,
+                label=voice_tier_label(tier.provider),
+                inr_per_min=tier.inr_per_min,
+                further_open_lots=tier.further_open_lots,
+            )
+            for tier in tier_rates
+        ],
         engine_verification=VerificationOut(
             state=state.engine_verification.state,
             verified_at=state.engine_verification.verified_at,

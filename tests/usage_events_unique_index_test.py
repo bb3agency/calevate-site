@@ -51,8 +51,16 @@ INDEX = "ux_usage_events_tenant_call_unit"
 #: one of the two things being held equal), and a revision file is not an importable API.
 COVERED_UNIT_TYPES = frozenset({"telephony_s", "platform_min", "stt_s", "tts_chars", "llm_tok_out"})
 
+#: The SECOND partial unique index (a3c62f8b4d19), covering the sixth metered unit type.
+#: A disjoint predicate rather than a wider version of the first: the two together ARE the
+#: wider key, and widening in place would have meant dropping the key that protects four
+#: live legs to rebuild it CONCURRENTLY over the whole table. `tts_chars` and `tts_kchars`
+#: are mutually exclusive per call — `pipeline._tts_cost_row` returns one row or none.
+KCHARS_INDEX = "ux_usage_events_tenant_call_kchars"
+KCHARS_UNIT_TYPES = frozenset({"tts_kchars"})
 
-async def _index_definition() -> str:
+
+async def _index_definition(name: str = INDEX) -> str:
     async with untenanted_session() as session:
         found = (
             await session.execute(
@@ -60,12 +68,13 @@ async def _index_definition() -> str:
                     "SELECT indexdef FROM pg_indexes WHERE schemaname = 'public' AND "
                     "tablename = 'usage_events' AND indexname = :name"
                 ),
-                {"name": INDEX},
+                {"name": name},
             )
         ).scalar()
     assert found is not None, (
-        f"{INDEX} is not on this database. Migration b8d3f47c2a19 creates it; if it was "
-        "dropped deliberately, this whole file is the argument against that."
+        f"{name} is not on this database. Migrations b8d3f47c2a19 and a3c62f8b4d19 create "
+        "the two of them; if one was dropped deliberately, this whole file is the argument "
+        "against that."
     )
     return str(found)
 
@@ -205,8 +214,16 @@ async def test_rows_with_no_call_do_not_collide() -> None:
 # --------------------------------------- 2. the covered set tracks the metering path
 
 
+#: The functions that actually write a `usage_events` row for a call. `_meter` builds the
+#: four fixed legs; `_tts_cost_row` decides the synthesizer one, because which of the two
+#: TTS units a call carries is a property of the VOICE it spoke in (D-547) and that
+#: decision does not belong inline in a 300-line meter. Both are scanned, or the sixth unit
+#: type would be invisible to the guard that exists to notice a sixth unit type.
+_WRITERS = frozenset({"_meter", "_tts_cost_row"})
+
+
 def _unit_types_the_metering_path_writes() -> set[str]:
-    """Every `UNIT_TYPES` member named as a literal inside `pipeline._meter`.
+    """Every `UNIT_TYPES` member named as a literal inside the metering path.
 
     READ FROM THE AST, not from a hand-kept list and not from a grep: the metering rows
     are built as a Python list of tuples plus two conditional `rows.append(...)` calls,
@@ -216,19 +233,25 @@ def _unit_types_the_metering_path_writes() -> set[str]:
     (a meta key, a tier name) is not mistaken for a unit.
     """
     tree = ast.parse((REPO_ROOT / "apps/workers/pipeline.py").read_text(encoding="utf-8"))
+    found: set[str] = set()
+    seen: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef) and node.name == "_meter":
-            return {
+        if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef) and node.name in _WRITERS:
+            seen.add(node.name)
+            found |= {
                 child.value
                 for child in ast.walk(node)
                 if isinstance(child, ast.Constant)
                 and isinstance(child.value, str)
                 and child.value in UNIT_TYPES
             }
-    raise AssertionError(
-        "`_meter` is no longer in apps/workers/pipeline.py — this test lost its "
-        "subject, and the index's covered set is now unchecked against anything"
-    )
+    missing = _WRITERS - seen
+    if missing:
+        raise AssertionError(
+            f"{sorted(missing)} no longer in apps/workers/pipeline.py — this test lost part "
+            "of its subject, and the index's covered set is now unchecked against it"
+        )
+    return found
 
 
 async def test_the_index_covers_exactly_the_unit_types_the_metering_path_writes() -> None:
@@ -249,16 +272,29 @@ async def test_the_index_covers_exactly_the_unit_types_the_metering_path_writes(
 
     definition = await _index_definition()
     in_index = {unit for unit in UNIT_TYPES if f"'{unit}'" in definition}
+    kchars_definition = await _index_definition(KCHARS_INDEX)
+    in_kchars = {unit for unit in UNIT_TYPES if f"'{unit}'" in kchars_definition}
 
     assert in_index == COVERED_UNIT_TYPES, (
         f"the live index covers {sorted(in_index)}, and this file expects "
         f"{sorted(COVERED_UNIT_TYPES)} — the database and the test disagree about the key"
     )
-    assert written == COVERED_UNIT_TYPES, (
-        f"`_meter` writes {sorted(written)} but ux_usage_events_tenant_call_unit "
-        f"covers {sorted(COVERED_UNIT_TYPES)}.\n"
-        f"  metered but unprotected: {sorted(written - COVERED_UNIT_TYPES)}\n"
-        f"  protected but unwritten: {sorted(COVERED_UNIT_TYPES - written)}\n"
+    assert in_kchars == KCHARS_UNIT_TYPES, (
+        f"{KCHARS_INDEX} covers {sorted(in_kchars)}, and this file expects "
+        f"{sorted(KCHARS_UNIT_TYPES)} — the two predicates must stay disjoint, or one leg "
+        "is covered twice and another not at all"
+    )
+    assert not (COVERED_UNIT_TYPES & KCHARS_UNIT_TYPES), (
+        "the two partial indexes overlap: a row matching both predicates is keyed twice, "
+        "which is not wrong but means one of them is no longer the key anybody reads"
+    )
+    assert written == COVERED_UNIT_TYPES | KCHARS_UNIT_TYPES, (
+        f"the metering path writes {sorted(written)} but the two partial indexes cover "
+        f"{sorted(COVERED_UNIT_TYPES | KCHARS_UNIT_TYPES)}.\n"
+        f"  metered but unprotected: "
+        f"{sorted(written - COVERED_UNIT_TYPES - KCHARS_UNIT_TYPES)}\n"
+        f"  protected but unwritten: "
+        f"{sorted((COVERED_UNIT_TYPES | KCHARS_UNIT_TYPES) - written)}\n"
         "A metered unit with no key is a leg that can be billed twice; widening the key "
         "needs a new migration, because a partial index cannot be altered in place."
     )

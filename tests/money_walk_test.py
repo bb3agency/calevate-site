@@ -47,6 +47,7 @@ from apps.api.billing.caps import apply_client_caps, lock_tenant_spend_state
 from apps.api.billing.charges import SETUP_FEE_KIND
 from apps.api.billing.gst import PlaceOfSupply, split_tax
 from apps.api.billing.invoice import build_invoice
+from apps.api.billing.lots import CallDemand
 from apps.api.billing.service import (
     allocate_paise,
     current_billing_month,
@@ -532,7 +533,14 @@ async def test_a_self_serve_wallet_is_debited_at_our_cost_not_at_the_price_we_qu
         )
         # Exactly what the pipeline does: debit the metered cost, keyed by the call.
         await billing.charge_for_call(
-            session, tenant_id=tenant_id, call_id=call_id, amount_inr=metered_cost
+            session,
+            tenant_id=tenant_id,
+            call_id=call_id,
+            demand=CallDemand(
+                minutes=Decimal("10"),
+                voice_tier="sarvam",
+                fallback_inr_per_min=metered_cost / Decimal("10"),
+            ),
         )
         summary = await usage_summary(session, tenant_id=tenant_id)
         balance = await billing.get_balance(session, tenant_id=tenant_id)

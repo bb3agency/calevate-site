@@ -268,6 +268,66 @@ class PlatformModelPrice(Base):
     source_note: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+#: RUPEES per ONE THOUSAND synthesised characters. NUMERIC(12,6), never a float (hard rule
+#: 7). Six decimals because the figure is a DIVISION an operator does by hand — a monthly
+#: plan's committed spend over the characters it buys (₹4,312 / 1.25M = ₹3.4496 per 1,000)
+#: — and a plan an order of magnitude larger divides finer still.
+INR_PER_KCHAR = Numeric(12, 6)
+
+
+class PlatformTtsPrice(Base):
+    """One OPERATOR-ATTESTED TTS price for one VOICE PROVIDER, effective-dated (D-547).
+
+    `PlatformModelPrice`'s argument, one vendor further down the call, and it arrives for a
+    sharper reason. A BYOK synthesizer leg costs **₹0 from the engine** — Bolna charges
+    nothing for a component you bring your own key for — so `CostBreakdown.tts_inr`, the
+    figure `workers/pipeline.py` meters the Sarvam leg from, has nothing to report for a
+    Cartesia call. And what Cartesia bills is a MONTHLY PLAN with a character allotment,
+    not a per-call charge, so no payload could report it either. The cost of a Cartesia
+    character is therefore a figure only a human holding the invoice can state.
+
+    RUPEES PER THOUSAND CHARACTERS, and NOT the USD its LLM sibling stores. That table
+    holds dollars because the vendor publishes dollars and the USD→INR rate moves under it
+    (D-475); this figure is already a division of a committed rupee spend by an allotment,
+    and storing dollars would mean asking an operator to un-divide it. `source_note` is
+    where the plan, its period and any fx used are recorded.
+
+    ⚠ **IT PRICES A CHARACTER INSIDE THE ALLOTMENT.** The vendor's OVERAGE rate past it is
+    **UNKNOWN** (plan ADDENDUM 1, unknown #3) — not published anywhere anyone here has
+    read — so a deployment running past its plan is paying more per character than this
+    table says. That is a vendor question, not a code one, and no number is invented for it.
+
+    Append-only, effective-dated, platform-scoped and declared here as an ORM model for
+    exactly the three reasons `PlatformModelPrice` above states at length: a correction is
+    a NEW instant so a re-rendered month resolves the price its characters were metered at;
+    there is one vendor account for the whole deployment so no `tenant_id` (registered in
+    `db/registry.RLS_EXEMPT_TENANT_COLUMNS`); and `Base.metadata` has to know about it or
+    `check_rls_coverage` has nothing to compare the live schema against.
+    """
+
+    __tablename__ = "platform_tts_prices"
+
+    #: The voice provider in OUR vocabulary — `agents/voices.VoiceProvider`, the same
+    #: Literal `billing/lots.VoiceTier` spells. Plain text and not an enum, for
+    #: `PlatformModelPrice.model`'s reason: a price read back for a historical month must
+    #: resolve even for a provider the catalogue no longer offers.
+    provider: Mapped[str] = mapped_column(Text, primary_key=True)
+    #: The instant this price becomes authoritative. Part of the PK, so a correction is a
+    #: DISTINCT instant rather than a silent second row.
+    effective_from: Mapped[datetime] = mapped_column(primary_key=True)
+    #: ₹ per 1,000 characters. See `INR_PER_KCHAR` for why the unit is a thousand.
+    inr_per_1k_chars: Mapped[Decimal] = mapped_column(INR_PER_KCHAR, nullable=False)
+    #: The operator who attested it — every price here was typed by a person, so NOT NULL.
+    attested_by: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=False
+    )
+    attested_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    #: WHERE the figure came from, in the operator's words — "Cartesia Startup plan,
+    #: invoice 2026-09, ₹4,312 / 1.25M characters". It is the evidence that makes this an
+    #: attestation rather than a guess, so NOT NULL.
+    source_note: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 #: INR per ONE US dollar, as the source publishes it. NUMERIC(12,6), never a float
 #: (hard rule 7). Six decimals because a reference rate is quoted to four (`88.4275`) and
 #: two spare digits cost nothing, while a `float` would make the stored number differ from

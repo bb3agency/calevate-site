@@ -13,6 +13,7 @@ from decimal import Decimal
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.billing.lots import CallDemand
 from apps.api.billing.service import charge_for_call, get_balance, record_entry
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.errors import ProblemError
@@ -81,7 +82,14 @@ async def test_a_completed_call_is_charged_even_into_the_negative() -> None:
     call_id = uuid.uuid4()
     async with tenant_session(tenant_id) as session:
         await charge_for_call(
-            session, tenant_id=tenant_id, call_id=call_id, amount_inr=Decimal("42.5")
+            session,
+            tenant_id=tenant_id,
+            call_id=call_id,
+            demand=CallDemand(
+                minutes=Decimal("8.5"),
+                voice_tier="sarvam",
+                fallback_inr_per_min=Decimal("5.00"),
+            ),
         )
         balance = await get_balance(session, tenant_id=tenant_id)
     assert balance.amount_inr == Decimal("-42.5000")
@@ -96,7 +104,14 @@ async def test_charging_the_same_call_twice_does_not_double_bill() -> None:
         await record_entry(session, tenant_id=tenant_id, delta=Decimal("500"), reason="topup")
         for _ in range(3):
             await charge_for_call(
-                session, tenant_id=tenant_id, call_id=call_id, amount_inr=Decimal("30")
+                session,
+                tenant_id=tenant_id,
+                call_id=call_id,
+                demand=CallDemand(
+                    minutes=Decimal("6"),
+                    voice_tier="sarvam",
+                    fallback_inr_per_min=Decimal("5.00"),
+                ),
             )
         balance = await get_balance(session, tenant_id=tenant_id)
     assert balance.amount_inr == Decimal("470.0000")
@@ -164,10 +179,24 @@ async def test_a_call_that_cost_nothing_leaves_the_wallet_alone() -> None:
     async with tenant_session(tenant_id) as session:
         await record_entry(session, tenant_id=tenant_id, delta=Decimal("100.00"), reason="topup")
         await charge_for_call(
-            session, tenant_id=tenant_id, call_id=uuid.uuid4(), amount_inr=Decimal("0")
+            session,
+            tenant_id=tenant_id,
+            call_id=uuid.uuid4(),
+            demand=CallDemand(
+                minutes=Decimal("0"),
+                voice_tier="sarvam",
+                fallback_inr_per_min=Decimal("5.00"),
+            ),
         )
         await charge_for_call(
-            session, tenant_id=tenant_id, call_id=uuid.uuid4(), amount_inr=Decimal("-5.00")
+            session,
+            tenant_id=tenant_id,
+            call_id=uuid.uuid4(),
+            demand=CallDemand(
+                minutes=Decimal("-1"),
+                voice_tier="sarvam",
+                fallback_inr_per_min=Decimal("5.00"),
+            ),
         )
         balance = await get_balance(session, tenant_id=tenant_id)
 

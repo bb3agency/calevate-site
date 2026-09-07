@@ -133,6 +133,28 @@ CLIENT_BILLED_UNIT_TYPES = (
     "telephony_s",
     "stt_s",
     "tts_chars",
+    # **THOUSANDS OF CHARACTERS, AND `kchars` RATHER THAN `chars` FOR `ktok`'s REASON
+    # (D-547).** `tts_chars` is the row the ENGINE's synthesizer figure lands on: the
+    # engine reports a leg cost with no character count, so that row carries `qty = 1` and
+    # the whole leg. A BYOK Cartesia call has no such figure — Bolna charges nothing for a
+    # component you bring your own key for (plan ADDENDUM 3 §3.5) — so its cost is the
+    # operator-attested plan rate (`ops/model_pricing.TtsPriceAttestation`) times the
+    # characters OUR transcript says the agent spoke, which is a real count and belongs in
+    # `qty`.
+    #
+    # Per THOUSAND because `unit_cost_paid` is NUMERIC(12,4) and every reader multiplies
+    # it by `qty`: the attested Startup-plan rate is ₹3.4496 per 1,000 characters, i.e.
+    # ₹0.0034496 each, which stores as 0.0034 and meters our own TTS cost **1.4% light on
+    # every Cartesia call** — the identical trap the `ai_assist_ktok_*` paragraph above
+    # was written for, at the identical column. Per thousand the same figure stores as
+    # 3.4496 exactly, with digits to spare.
+    #
+    # It is a SECOND unit type rather than a re-interpretation of `tts_chars` because the
+    # two are different measurements — a vendor's leg charge and our own character count —
+    # and a `qty` whose unit depends on which voice spoke is a column no reader can sum.
+    # Plan §3.5 said to put the count on `tts_chars`; this is that decision with the
+    # quantum arithmetic done, and the departure is recorded here rather than silently.
+    "tts_kchars",
     "llm_tok_in",
     "llm_tok_out",
     "platform_min",

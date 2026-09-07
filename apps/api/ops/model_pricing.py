@@ -38,7 +38,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
-from typing import cast, get_args
+from typing import Final, cast, get_args
 
 from calevate_shared.engine import LLM_MODELS, LlmProvider
 from sqlalchemy import text
@@ -627,14 +627,234 @@ def reference_price(model: str) -> tuple[Decimal, Decimal, bool]:
     return price.input_usd_per_mtok, price.output_usd_per_mtok, price.evidence.verified
 
 
+# --- the TTS leg: the same act, one vendor further down the call (D-547) ----------
+#
+# WHY IT LIVES HERE. A price an operator reads off their own invoice is one kind of act
+# whatever the vendor sells, and this module is where that act is performed, audited and
+# read back. The TTS attestation is the LLM attestation with two words changed — a
+# PROVIDER instead of a model, rupees per 1,000 CHARACTERS instead of dollars per million
+# TOKENS — and it gates offerability by the identical rule.
+#
+# WHY IT IS NOT IN `billing/rates.py` BESIDE `LlmPriceAttestation`: plan §3.5 put it there,
+# and it is the wrong side of the seam. `rates.py` is arithmetic over figures somebody else
+# supplies; the SUPPLYING is an ops concern, which is why the LLM twin's storage, its
+# effective-dated reader and its offerability rule are all in this file already. Splitting
+# the pair across two modules would put one attestation in each.
+
+
+#: The voice tiers that CAN carry an attested TTS price. The same vocabulary as
+#: `agents/voices.VoiceProvider` and `billing/lots.VoiceTier`, spelled here as the DB's
+#: `platform_tts_prices.provider` column values; `tests/tts_price_attestation_test.py`
+#: holds the three in step so a fourth vendor cannot be priced under a name the pipeline
+#: does not stamp.
+TTS_PROVIDERS: Final[tuple[str, ...]] = ("sarvam", "cartesia")
+
+
+@dataclass(frozen=True, slots=True)
+class TtsPriceAttestation:
+    """What an operator read off their own TTS invoice, for ONE voice provider.
+
+    **RUPEES PER 1,000 CHARACTERS, and the unit is not a detail.** A TTS vendor on a
+    monthly plan sells an ALLOTMENT, not a per-call charge: the price of a character is
+    the committed spend divided by the characters it buys, and only a human holding the
+    invoice can do that division. That is also the whole reason this record exists rather
+    than a constant — `engine.CostBreakdown.tts_inr` reports ₹0 for a BYOK leg (plan
+    ADDENDUM 3 §3.5), so without an attested figure a Cartesia minute would meter as free.
+
+    ⚠ **IT IS THE MARGINAL RATE INSIDE THE PLAN'S ALLOTMENT.** Characters past the
+    allotment cost whatever the vendor's overage rate is, and Cartesia's is **UNKNOWN**
+    (plan ADDENDUM 1, unknown #3) — not published where anyone here has read it. A
+    deployment running past its allotment is paying more per character than this says, and
+    the honest response is that `source_note` names the plan and the period so a reader
+    can tell which regime the figure belongs to. No overage number is invented.
+
+    Every field but the price is PROVENANCE, exactly as on `LlmPriceAttestation`: a figure
+    in a table is indistinguishable from one somebody guessed, and `attested_at` is what
+    makes an attestation stale rather than merely old.
+    """
+
+    provider: str
+    inr_per_1k_chars: Decimal
+    effective_from: datetime
+    attested_at: datetime
+    #: The operator, by id — never empty, because the billing seam refuses an
+    #: unattributed attestation (D-31/D-32).
+    attested_by: str
+    source_note: str
+
+    def inr_for_chars(self, characters: Decimal) -> Decimal:
+        """What `characters` cost at this rate. The ONE multiplication, so the pipeline
+        and the margin panel cannot each carry a divisor."""
+        return characters * self.inr_per_1k_chars / Decimal("1000")
+
+
+def _require_tts_provider(provider: str) -> str:
+    if provider not in TTS_PROVIDERS:
+        raise ProblemError(
+            kind="not_found",
+            code="tts_price_unknown_provider",
+            title="No such voice provider",
+            detail=f"{provider!r} isn't a voice provider Calevate synthesises with.",
+            remediation=(
+                "Prices are attested per voice provider. Adding a provider is a code "
+                "change (the voice catalogue and the engine adapter both have to know "
+                "it), not something that can be entered here as a price on its own."
+            ),
+        )
+    return provider
+
+
+async def attested_tts_prices(
+    session: AsyncSession, *, at: datetime
+) -> dict[str, TtsPriceAttestation]:
+    """Every provider's TTS price effective at instant `at`, keyed by provider.
+
+    `DISTINCT ON` with the greatest `effective_from <= at`, exactly as
+    `attested_model_prices` resolves an LLM price and for the same reason: a month
+    re-rendered next year must resolve the figure its minutes were metered at, not
+    today's. A provider with no attestation on or before `at` is ABSENT — the caller
+    decides what that means, and every caller in this tree decides the same thing
+    (`tts_price_is_billable` says it in one place).
+    """
+    if at.tzinfo is None:
+        raise ValueError("`at` must be timezone-aware — a naive instant has no month")
+    rows = (
+        await session.execute(
+            text(
+                "SELECT DISTINCT ON (provider) provider, inr_per_1k_chars, effective_from, "
+                "attested_at, attested_by, source_note FROM platform_tts_prices "
+                "WHERE effective_from <= :at ORDER BY provider, effective_from DESC"
+            ),
+            {"at": at},
+        )
+    ).all()
+    return {
+        str(row[0]): TtsPriceAttestation(
+            provider=str(row[0]),
+            # `Decimal(str(...))`, never `Decimal(...)`: the convention every NUMERIC read
+            # in this tree keeps, so the day a driver hands back a float the price does not
+            # inherit the binary error.
+            inr_per_1k_chars=Decimal(str(row[1])),
+            effective_from=row[2],
+            attested_at=row[3],
+            attested_by=str(row[4]),
+            source_note=str(row[5]),
+        )
+        for row in rows
+    }
+
+
+async def tts_price_is_billable(session: AsyncSession, *, provider: str, at: datetime) -> bool:
+    """May a call on this voice provider be METERED at a cost? THE one door.
+
+    Hard rule 7's structural form, one vendor further down than
+    `billing/rates.llm_inr_per_ktok`: a catalogue figure has NO path to `unit_cost_paid`,
+    and the only figure that does is one a human read off an invoice. `False` here is what
+    makes `agents/voice_offer.offerable_voices` refuse the tier by name rather than
+    offering a voice whose minutes would meter as free — the same rule
+    `offerable_models` applies to a language model.
+
+    Sarvam answers True without an attestation and that is not an exemption: the ENGINE
+    bills us for the Sarvam synthesizer leg and reports what it charged, so that leg has a
+    measured cost on every row (`CostBreakdown.tts_inr`) and no attestation to make. It is
+    BYOK legs — where the engine charges nothing and the vendor bills a monthly plan — that
+    have no cost at all without one. Whether the engine's own Sarvam figure is right is a
+    different question and a different gate (OPERATIONS §2 gate 7), unchanged here.
+    """
+    if _require_tts_provider(provider) == "sarvam":
+        return True
+    return provider in await attested_tts_prices(session, at=at)
+
+
+async def attest_tts_price(
+    session: AsyncSession,
+    *,
+    provider: str,
+    inr_per_1k_chars: Decimal,
+    effective_from: datetime,
+    source_note: str,
+    actor_id: object,
+) -> TtsPriceAttestation:
+    """Record one operator-attested TTS price as a NEW effective-dated row. Never an UPDATE.
+
+    `attest_price`'s contract, verbatim, because it is the same act: the caller MUST have
+    step-up confirmed and MUST write the audit row on this same session; an unknown
+    provider, a non-positive figure and a duplicate `(provider, effective_from)` are each
+    refused with a sentence an operator can act on rather than a 500 on a constraint.
+    """
+    _require_tts_provider(provider)
+    if inr_per_1k_chars <= 0:
+        raise ProblemError(
+            kind="validation",
+            code="tts_price_not_positive",
+            title="A price must be greater than zero",
+            detail="The figure is rupees per 1,000 characters and must be strictly positive.",
+            remediation=(
+                "Enter the plan's marginal rate — the committed spend divided by the "
+                "characters it buys. A zero is refused because it meters every character "
+                "on this voice at nothing while looking like a working leg."
+            ),
+        )
+    existing = (
+        await session.execute(
+            text("SELECT 1 FROM platform_tts_prices WHERE provider = :p AND effective_from = :ef"),
+            {"p": provider, "ef": effective_from},
+        )
+    ).first()
+    if existing is not None:
+        raise ProblemError(
+            kind="conflict",
+            code="tts_price_duplicate_instant",
+            title="A price already exists for this voice at this instant",
+            detail=(
+                f"{provider!r} already has an attestation effective from "
+                f"{effective_from.isoformat()}. A correction is a NEW effective instant, "
+                "never an edit of an existing one."
+            ),
+            remediation=(
+                "To change the price from here on, attest it again with a later effective "
+                "date (the default is now). The history is append-only by design."
+            ),
+        )
+    row = (
+        await session.execute(
+            text(
+                "INSERT INTO platform_tts_prices "
+                "(provider, effective_from, inr_per_1k_chars, attested_by, source_note) "
+                "VALUES (:p, :ef, :rate, :by, :note) RETURNING attested_at"
+            ),
+            {
+                "p": provider,
+                "ef": effective_from,
+                "rate": inr_per_1k_chars,
+                "by": actor_id,
+                "note": source_note,
+            },
+        )
+    ).one()
+    return TtsPriceAttestation(
+        provider=provider,
+        inr_per_1k_chars=inr_per_1k_chars,
+        effective_from=effective_from,
+        attested_at=row[0],
+        attested_by=str(actor_id),
+        source_note=source_note,
+    )
+
+
 __all__ = [
     "PROVIDER_CREDENTIAL",
+    "TTS_PROVIDERS",
     "AttestedModelPrice",
     "ModelOfferability",
+    "TtsPriceAttestation",
     "attest_price",
+    "attest_tts_price",
     "attested_model_prices",
+    "attested_tts_prices",
     "installed_llm_legs",
     "model_offerability",
     "offerable_models",
     "reference_price",
+    "tts_price_is_billable",
 ]

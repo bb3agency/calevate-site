@@ -16,10 +16,17 @@ from __future__ import annotations
 
 import random
 from decimal import Decimal
+from uuid import NAMESPACE_URL, uuid5
 
 import pytest
 from apps.api.billing import lots
-from apps.api.billing.service import get_balance, record_entry
+from apps.api.billing.service import (
+    LotRates,
+    apply_credit_to_lots,
+    charge_for_call,
+    get_balance,
+    record_entry,
+)
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from tests.credit_lots_helpers import credit_entry, make_tenant
@@ -54,22 +61,21 @@ async def test_the_lots_and_the_balance_agree_after_a_random_walk() -> None:
         if rng.random() < 0.45:
             amount = Decimal(rng.randrange(500, 5000))
             card = CARDS[rng.randrange(len(CARDS))]
-            # Plan §0 Q5, as Phase B2 will write it: a credit onto an overdrawn wallet
-            # repays the overdraft FIRST and only the remainder opens a lot. Modelled here
-            # rather than skipped, because a walk that never overdraws never exercises the
-            # half of the invariant that says a spent wallet holds no open lot.
-            overdraft = max(-(await _balance(tenant)), Decimal("0"))
+            # Plan §0 Q5, THROUGH THE REAL SEAM: a credit onto an overdrawn wallet repays
+            # the overdraft FIRST and only the remainder opens a lot. This file used to
+            # model that arithmetic itself, because Phase B1 had not written it yet; now
+            # that B2 has, the model is deleted and the walk drives
+            # `apply_credit_to_lots` — a property test against a hand-written twin proves
+            # the twin, and two ways of doing one thing is the defect this repo counts
+            # even when both are right.
             entry = await credit_entry(tenant, amount=str(amount))
-            opening = amount - min(amount, overdraft)
-            if opening <= 0:
-                continue
             async with tenant_session(tenant) as session:
-                await lots.open_lot(
+                await apply_credit_to_lots(
                     session,
                     tenant_id=tenant,
-                    credits_inr=opening,
-                    sarvam_inr_per_min=card[0],
-                    cartesia_inr_per_min=card[1],
+                    credits_inr=amount,
+                    balance_after=await _balance(tenant),
+                    rates=LotRates(sarvam_inr_per_min=card[0], cartesia_inr_per_min=card[1]),
                     source="topup",
                     pack_id="growth",
                     ledger_entry_id=entry,
@@ -79,27 +85,17 @@ async def test_the_lots_and_the_balance_agree_after_a_random_walk() -> None:
         tier: lots.VoiceTier = "cartesia" if rng.random() < 0.4 else "sarvam"
         minutes = Decimal(rng.randrange(1, 400))
         async with tenant_session(tenant) as session:
-            splits = await lots.consume(
+            # ONE ledger row whose delta is the sum of the splits, allowed to overdraw
+            # because the call has already happened — `charge_for_call` is the door the
+            # post-call pipeline uses and this walks the same one.
+            await charge_for_call(
                 session,
                 tenant_id=tenant,
+                call_id=uuid5(NAMESPACE_URL, f"walk-{tenant}-{step}"),
                 demand=lots.CallDemand(
                     minutes=minutes, voice_tier=tier, fallback_inr_per_min=Decimal("5.00")
                 ),
             )
-            charge = lots.credits_of(splits)
-            if charge > 0:
-                # What Phase B2's `record_usage_from_lots` will do: ONE ledger row whose
-                # delta is the sum of the splits, allowed to overdraw because the call has
-                # already happened.
-                await record_entry(
-                    session,
-                    tenant_id=tenant,
-                    delta=-charge,
-                    reason="usage",
-                    ref=f"call-{step}",
-                    meta={"lots": lots.split_meta(splits)},
-                    allow_negative=True,
-                )
 
         balance = await _balance(tenant)
         remaining = await _sum_of_lots(tenant)

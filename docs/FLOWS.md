@@ -614,13 +614,39 @@ cheaper minute than a ₹50,000 purchase.
    is written per call, idempotent on `(tenant_id, 'usage', call_id)` — a replayed pipeline
    finds the row and consumes nothing a second time.
 7. **The row says what it did.** `meta.lots` carries one entry per lot touched —
-   `{lot_id, credits, minutes, inr_per_min, voice_tier}` — so the statement and the margin
-   panel are re-derivable from the ledger alone, with no price recomputed from today's card.
-8. **What the client sees.** Balance in rupees, unchanged. Runway is now a PAIR — "about N
-   minutes on the Sarvam voice, M on the Cartesia voice" — because one balance divided by
+   `{kind: "call", lot_id, credits, minutes, inr_per_min, voice_tier}` — so the statement
+   and the margin panel are re-derivable from the ledger alone, with no price recomputed
+   from today's card. A split that bought RUPEES rather than minutes (the dashboard-AI
+   block; the language-model surcharge that rides a call's own row) is
+   `{kind: "ai_assist", lot_id, credits}` with the three minute-shaped keys ABSENT rather
+   than null, so a reader totalling talk time filters `kind == "call"` and cannot add
+   money to minutes (DATA-MODEL §8).
+8. **What the client sees.** Balance in rupees, unchanged. Runway is now a PAIR — *"about
+   N minutes on the Clear voice, M on the Studio voice"* — because one balance divided by
    one rate stopped being a true sentence. Below it, the open lots oldest-first with their
    two rates: *"3,200 credits at ₹4.70 / ₹6.50, then 2,000 at ₹5.00 / ₹8.00"*. A `usage`
-   entry in the transactions list expands to its splits.
+   entry in the transactions list expands to its splits, and the usage panel reports the
+   month per voice (`sarvam_minutes` / `cartesia_minutes` and their charges, read out of
+   `meta.lots`).
+
+   ⚠ **NO CLIENT-FACING SURFACE NAMES A VENDOR AS A PRODUCT TIER** (founder, 7 Sep 2026).
+   The two voice qualities are **Clear** (Sarvam) and **Studio** (Cartesia), defined once
+   in `billing/rates.VOICE_TIER_LABELS` and SENT to the browser beside every per-tier
+   figure — a second copy in TypeScript is how the two drift and a client meets both names.
+   Every wire FIELD, column, ledger value and `meta` key keeps the vendor spelling
+   (`voice_tier`, `sarvam_inr_per_min`, `sarvam_minutes`): those are what an auditor
+   reconciles against a vendor invoice, and renaming a vendor in a ledger is how a leg
+   becomes unauditable. This flow's own prose above uses the vendor names because it
+   describes the ledger; a screen does not.
+
+9. **Correcting a purchase.** An operator restating an UNDER-credited payment grows that
+   payment's own lot (one bank transfer, one card, one lot). One taking credit BACK restates
+   it downwards, flooring `credits_remaining` at zero and leaving any shortfall as overdraft
+   — except when the purchase is reversed in FULL, which no lot can express (`credits_total
+   > 0` is a CHECK), and which is spent off the FIFO queue at face value instead. A
+   compensating credit that reverses a `usage` row has no lot to restate and opens a fresh
+   one at the list rates. DATA-MODEL §8 carries the rule; `remove_credit_from_lots` is the
+   one door.
 
 ### The two branches that are easy to forget
 

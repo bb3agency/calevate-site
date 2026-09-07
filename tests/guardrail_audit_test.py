@@ -499,6 +499,12 @@ class TestRlsCoverage:
             # founder's, not a tenant's — so it carries no `tenant_id` and is
             # policied on the ops GUC rather than tenant-isolated.
             "platform_model_prices",
+            # D-547: the same act one vendor down the call — the operator-attested TTS
+            # price per VOICE PROVIDER. Platform-global for `platform_model_prices`'
+            # reason, and it exists because a BYOK synthesizer leg costs nothing from the
+            # engine and is billed by the vendor as a monthly plan, so the only figure
+            # that may reach `unit_cost_paid` is one a human read off an invoice.
+            "platform_tts_prices",
             # D-492: the self-serve list price per calling minute, effective-dated so a
             # CLOSED month renders at the rate it was struck at rather than at today's.
             # Platform-global for `platform_model_prices`' reason on the other side of the

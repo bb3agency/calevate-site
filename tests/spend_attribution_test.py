@@ -34,6 +34,7 @@ from apps.api.billing import attribution, spend_routes
 from apps.api.billing import service as billing
 from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.billing.attribution import period_attribution
+from apps.api.billing.lots import CallDemand
 from apps.api.billing.service import to_paise
 from apps.api.billing.spend_routes import (
     AgentChargeOut,
@@ -450,7 +451,14 @@ async def test_a_prepaid_call_is_charged_what_actually_left_the_wallet() -> None
         )
         # ₹6.00/min list price x 10 minutes.
         await billing.charge_for_call(
-            session, tenant_id=tenant_id, call_id=call_id, amount_inr=Decimal("60.0000")
+            session,
+            tenant_id=tenant_id,
+            call_id=call_id,
+            demand=CallDemand(
+                minutes=Decimal("12"),
+                voice_tier="sarvam",
+                fallback_inr_per_min=Decimal("5.00"),
+            ),
         )
         period = await period_attribution(session, tenant_id=tenant_id)
 
@@ -919,7 +927,14 @@ async def test_a_prepaid_month_publishes_the_gap_between_the_wallet_and_the_pane
         # so the two disagree the way the measured residual does — the assertion is about
         # the mechanism rather than about a paisa.
         await billing.charge_for_call(
-            session, tenant_id=tenant_id, call_id=call_id, amount_inr=Decimal("40.0000")
+            session,
+            tenant_id=tenant_id,
+            call_id=call_id,
+            demand=CallDemand(
+                minutes=Decimal("8"),
+                voice_tier="sarvam",
+                fallback_inr_per_min=Decimal("5.00"),
+            ),
         )
         period = await period_attribution(session, tenant_id=tenant_id)
 

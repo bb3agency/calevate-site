@@ -189,10 +189,13 @@ from apps.api.billing.credit_packs import (
 from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.billing.service import (
     Balance,
+    apply_credit_to_lots,
     find_entry_by_ref,
     find_topup,
     get_balance,
+    granted_lot_rates,
     lock_tenant_credits,
+    lot_rates_for_purchase,
     record_entry,
     to_paise,
 )
@@ -1117,6 +1120,23 @@ async def credit_captured_payment(
     written = await find_topup(session, tenant_id=payment.tenant_id, ref=payment.payment_id)
     assert written is not None, "the row was inserted in this transaction"
 
+    # THE LOT THIS PURCHASE OPENS (D-547), in the SAME transaction as the row that paid
+    # for it. The rates are the PACK's when a pack was chosen and the free-amount rule's
+    # when one was not (plan §0 Q3) — resolved once, here, because this is the only place
+    # that knows both the pack id and the rupees that actually arrived. Anything already
+    # owed is repaid before the lot opens (Q5), so a client who overdrew does not get
+    # calling time they have not paid for.
+    credited = await apply_credit_to_lots(
+        session,
+        tenant_id=payment.tenant_id,
+        credits_inr=payment.amount_inr,
+        balance_after=balance.amount_inr,
+        rates=lot_rates_for_purchase(pack_id=payment.pack_id, amount_inr=payment.amount_inr),
+        source="topup",
+        pack_id=payment.pack_id,
+        ledger_entry_id=written.entry_id,
+    )
+
     await write_audit(
         session,
         action="credit.topup",
@@ -1132,6 +1152,11 @@ async def credit_captured_payment(
             "payment_ref": payment.payment_id,
             "amount_inr": str(payment.amount_inr),
             "balance_after_inr": str(balance.amount_inr),
+            # WHICH LOT THIS PAYMENT OPENED and what it had to repay first — the two
+            # facts a later "why is my runway shorter than I paid for" question asks,
+            # and neither is derivable from the ledger row alone.
+            "lot_id": str(credited.lot_id) if credited.lot_id is not None else None,
+            "repaid_overdraft_inr": str(credited.repaid_overdraft_inr),
         },
     )
     log.info(
@@ -1216,6 +1241,22 @@ async def _grant_pack_bonus(
         session, tenant_id=payment.tenant_id, reason="bonus", ref=payment.payment_id
     )
     assert written_bonus is not None, "the bonus row was inserted in this transaction"
+
+    # A LEGACY BONUS IS CREDIT, SO IT OPENS A LOT LIKE ANY OTHER (plan §2.3 invariant 1:
+    # `SUM(credits_remaining)` equals the balance). At the LIST rates and not the pack's,
+    # for plan §0 Q4's reason — a gift is spent at the standard price — and under
+    # `source='bonus_legacy'`, which is the value that exists so this credit is
+    # recognisable for what it was after the reason itself is removed (plan §10).
+    await apply_credit_to_lots(
+        session,
+        tenant_id=payment.tenant_id,
+        credits_inr=bonus_inr,
+        balance_after=balance.amount_inr,
+        rates=granted_lot_rates(),
+        source="bonus_legacy",
+        pack_id=pack.pack_id,
+        ledger_entry_id=written_bonus.entry_id,
+    )
 
     await write_audit(
         session,

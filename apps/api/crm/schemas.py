@@ -1002,6 +1002,27 @@ class UsagePanelOut(Strict):
     # month of work reading as nothing.
     trial: UsageTrialOut
     trial_absorbed_inr: str
+    # WHAT EACH VOICE COST THIS MONTH (D-547). The minutes add to `minutes_used` and the
+    # charges are the rupees actually taken off the wallet — read from the lot splits the
+    # `usage` rows carry, so the panel and the ledger cannot disagree about a month.
+    #
+    # **THE FIELD NAMES NAME THE VENDOR AND THE `*_label` FIELDS NAME THE PRODUCT.** They
+    # answer different questions: `sarvam_charges_inr` is what an auditor reconciles
+    # against a vendor invoice, and no client-facing surface names a vendor as a tier
+    # (founder, 7 Sep 2026) — the client reads "Clear" and "Studio". The label is SENT
+    # rather than held in the browser for the reason every money figure here is: a second
+    # copy in TypeScript is how the two drift and a client meets both names.
+    #
+    # Both tiers are always present, at "0.00" where nothing was spoken, and both are
+    # "0.00" for a MANAGED client, who is invoiced against a retainer and whose calls take
+    # no wallet debit at all. That is not a gap; it is the same answer
+    # `credit_balance_inr` gives them.
+    sarvam_minutes: str
+    sarvam_charges_inr: str
+    sarvam_label: str
+    cartesia_minutes: str
+    cartesia_charges_inr: str
+    cartesia_label: str
 
 
 __all__ = [

@@ -50,6 +50,7 @@ from typing import Any
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.billing.lots import CallDemand
 from apps.api.billing.service import charge_for_call, find_topup, record_entry
 from apps.api.db.session import tenant_session
 from scripts.reconcile_credit_ledger import (
@@ -287,7 +288,14 @@ async def test_the_production_writers_cannot_mint_a_duplicate_key() -> None:
     async def charge() -> None:
         async with tenant_session(tenant_id) as session:
             await charge_for_call(
-                session, tenant_id=tenant_id, call_id=call_id, amount_inr=Decimal("30.00")
+                session,
+                tenant_id=tenant_id,
+                call_id=call_id,
+                demand=CallDemand(
+                    minutes=Decimal("6"),
+                    voice_tier="sarvam",
+                    fallback_inr_per_min=Decimal("5.00"),
+                ),
             )
 
     await asyncio.gather(top_up(), top_up())

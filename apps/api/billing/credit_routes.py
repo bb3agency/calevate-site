@@ -223,6 +223,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
+from apps.api.billing.lots import split_meta
 from apps.api.billing.service import (
     ADJUSTMENT_META_KIND,
     GRANT_META_KIND,
@@ -233,16 +234,21 @@ from apps.api.billing.service import (
     RESTATEMENT_META_KIND,
     CorrectableEntry,
     adjustment_ref,
+    apply_credit_to_lots,
     credit_totals,
     find_entry_by_ref,
     find_topup,
     get_balance,
     grant_ref,
+    granted_lot_rates,
     lock_tenant_credits,
+    lot_of_entry,
+    lot_rates_for_amount,
     read_correctable_entry,
     read_recorded_payment,
     record_entry,
     recorded_payments,
+    remove_credit_from_lots,
     restatement_ref,
     reversed_amounts,
     to_paise,
@@ -827,6 +833,22 @@ async def record_topup(
         written = await _find_topup(scoped, tenant_id=tenant_id, ref=ref)
         assert written is not None, "the row was inserted in this transaction"
 
+        # THE LOT THIS PAYMENT OPENS (D-547). A manual top-up names no pack — an operator
+        # is recording a bank transfer, not a checkout — so it takes the free-amount rule
+        # (plan §0 Q3): the rates of the largest pack the amount would have bought. That
+        # is the same answer the self-serve flow gives for the same rupees, which is the
+        # property that matters: how the money arrived must not change what it buys.
+        credited = await apply_credit_to_lots(
+            scoped,
+            tenant_id=tenant_id,
+            credits_inr=amount,
+            balance_after=balance.amount_inr,
+            rates=lot_rates_for_amount(amount),
+            source="topup",
+            pack_id=None,
+            ledger_entry_id=written.entry_id,
+        )
+
         # Same transaction as the insert: money never moves without its audit row.
         await write_audit(
             scoped,
@@ -840,6 +862,10 @@ async def record_topup(
                 "payment_ref": ref,
                 "amount_inr": str(amount),
                 "balance_after_inr": str(balance.amount_inr),
+                # The lot this opened and what it had to repay first — the two facts a
+                # later "why is the runway shorter than the payment" question asks.
+                "lot_id": str(credited.lot_id) if credited.lot_id is not None else None,
+                "repaid_overdraft_inr": str(credited.repaid_overdraft_inr),
             },
         )
 
@@ -1002,6 +1028,30 @@ async def record_adjustment(
         if principal.user_id:
             meta["recorded_by"] = str(principal.user_id)
 
+        # WHAT THIS CORRECTION DOES TO THE LOTS (D-547), decided by its DIRECTION before
+        # the ledger row is written, because the row carries the answer in `meta.lots`.
+        #
+        # * taking credit AWAY corrects an entry that ADDED it, so it restates that
+        #   entry's own lot downwards (ADDENDUM 2 §2.2) — `credits_total` falls, the
+        #   remainder floors at zero, and anything the lot had already spent becomes
+        #   wallet overdraft, which the balance below is about to record anyway. An entry
+        #   that opened no lot is spent off the queue at face value instead;
+        # * crediting BACK corrects a `usage` row, and the minutes it charged for are
+        #   gone. There is nothing to restate, so it opens a fresh lot at the LIST rates
+        #   (plan §0 Q4 — a gift is spent at the standard price). It is `source='grant'`
+        #   rather than a sixth source value: no bank moved money for it, which is
+        #   exactly what that value means, and inventing a source would need the CHECK,
+        #   the Literal in `billing/lots.py` and a migration to move together for a
+        #   distinction the `corrects_entry_id` on the row already carries.
+        if delta < 0:
+            returned = await remove_credit_from_lots(
+                scoped,
+                tenant_id=tenant_id,
+                corrected_entry_id=target.entry_id,
+                amount_inr=amount,
+            )
+            if returned:
+                meta["lots"] = split_meta(returned)
         balance = await record_entry(
             scoped,
             tenant_id=tenant_id,
@@ -1019,6 +1069,18 @@ async def record_adjustment(
             scoped, tenant_id=tenant_id, reason="adjustment", ref=ref
         )
         assert written is not None, "the row was inserted in this transaction"
+
+        if delta > 0:
+            await apply_credit_to_lots(
+                scoped,
+                tenant_id=tenant_id,
+                credits_inr=delta,
+                balance_after=balance.amount_inr,
+                rates=granted_lot_rates(),
+                source="grant",
+                pack_id=None,
+                ledger_entry_id=written.entry_id,
+            )
 
         # Same transaction as the insert: money never moves without its audit row.
         await write_audit(
@@ -1239,6 +1301,31 @@ async def record_restatement(
         )
         assert written is not None, "the row was inserted in this transaction"
 
+        # THE MONEY LANDS ON THE PURCHASE'S OWN LOT (D-547), not on a new one behind it.
+        # A restatement is the same bank transfer stated correctly, so it was sold at the
+        # rates that transfer was sold at; opening a second lot would price one payment
+        # at two cards and put the client behind their own earlier purchases in the FIFO
+        # queue for money that arrived first. `anchor` is the row this reference opened
+        # with — a payment recorded before lots existed has none, and `apply_credit_to_lots`
+        # opens one for the difference instead.
+        anchor = await _find_topup(scoped, tenant_id=tenant_id, ref=ref)
+        assert anchor is not None, "the anchor row was found before this write"
+        await apply_credit_to_lots(
+            scoped,
+            tenant_id=tenant_id,
+            credits_inr=added,
+            balance_after=balance.amount_inr,
+            rates=lot_rates_for_amount(corrected),
+            source="topup",
+            pack_id=None,
+            ledger_entry_id=written.entry_id,
+            restate_lot_id=(
+                anchor_lot.lot_id
+                if (anchor_lot := await lot_of_entry(scoped, ledger_entry_id=anchor.entry_id))
+                else None
+            ),
+        )
+
         # Same transaction as the insert: money never moves without its audit row.
         await write_audit(
             scoped,
@@ -1395,6 +1482,19 @@ async def grant_credits(
         )
         written = await _find_entry_by_ref(scoped, tenant_id=tenant_id, reason="grant", ref=ref)
         assert written is not None, "the row was inserted in this transaction"
+        # A GIFT IS SPENT AT THE STANDARD PRICE (plan §0 Q4): the list card's rates, never
+        # the deepest pack's. A ₹50,000 grant that bought a cheaper minute than a ₹50,000
+        # purchase would make the card a suggestion.
+        await apply_credit_to_lots(
+            scoped,
+            tenant_id=tenant_id,
+            credits_inr=amount,
+            balance_after=balance.amount_inr,
+            rates=granted_lot_rates(),
+            source="grant",
+            pack_id=None,
+            ledger_entry_id=written.entry_id,
+        )
         totals = await credit_totals(scoped, tenant_id=tenant_id)
 
         # THE AUDIT ROW COMMITS WITH THE MONEY. "Audited" is the founder's own word and the

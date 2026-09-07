@@ -47,6 +47,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import assignment
 from apps.api.agents.llm_models import resolve_llm_model
+from apps.api.agents.voices import voice_tier
 from apps.api.billing.caps import (
     CAPS_CTE,
     announce_cap_headroom,
@@ -55,6 +56,7 @@ from apps.api.billing.caps import (
     over_cap_sql,
 )
 from apps.api.billing.list_rates import self_serve_rate_at
+from apps.api.billing.lots import CallDemand
 from apps.api.billing.plans import ist_billing_month, month_pricing_instant, plan_in_effect_sql
 from apps.api.billing.rates import (
     MONEY_Q,
@@ -101,6 +103,7 @@ from apps.api.insights import detection as gap_detection
 from apps.api.insights import service as gap_service
 from apps.api.integrations import service as integrations
 from apps.api.integrations.service import subscribed_endpoint_sql
+from apps.api.ops.model_pricing import attested_tts_prices
 from apps.api.reliability.service import (
     enqueue_outbox_once,
     mark_inbox_failed,
@@ -2415,6 +2418,14 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # rupee against and `rates.py` says at length why inventing one would be worse than
         # the gap. This is the identifier the gap will be closed WITH, not a charge.
         llm = resolve_llm_model(agent_model=agent_model, organization_model=organization_model)
+        # WHICH VOICE TIER THIS CALL SPOKE ON (D-547). One derivation, in `agents/voices`,
+        # from the voice id the agent row carries: an agent cannot hold a Cartesia voice
+        # and a Sarvam tier because the tier is not stored anywhere to disagree. An absent
+        # agent row (the LEFT JOIN above) and an id the catalogue does not know are both
+        # `sarvam`, which is a decision and not a fallback — Cartesia is chosen, never
+        # inherited (plan §0 Q9), so the dearer tier is only ever reached by a catalogue
+        # entry that says so.
+        voice = voice_tier(voice_id if isinstance(voice_id, str) else None)
         # WHICH SURCHARGE BUCKET THIS CALL'S MINUTES LAND IN (D-455). The paragraph above
         # ends "NOT PRICED HERE, deliberately ... this is the identifier the gap will be
         # closed WITH, not a charge", and that is still true of the LEG: the engine reports
@@ -2478,11 +2489,23 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 # asked six weeks later what it assumed.
                 "currency_stated": cost.currency_stated,
                 # The overage rung, recorded per row so metering can be audited by rung.
-                # One voice quality now (the single-tier voice decision), so this is the
-                # plan's base rung on every call. `tts_voice` keeps the configured voice
-                # id for reporting; it is not a price input.
+                # **THIS IS THE PLAN'S OVERAGE-RATE SLOT AND NOT A VOICE** — `_RUNGS` in
+                # `billing/service.py` says so in as many words, and the pair it names is
+                # `plans.overage_rate` / `overage_rate_value`. D-547 gave the product a
+                # second VOICE, which is a different fact about the same call, so it is
+                # stamped on its own key below rather than re-using this one: folding the
+                # two together would re-price every historical `premium` row the day the
+                # vocabulary moved, on months that are closed.
                 "tts_tier": BASE_OVERAGE_RUNG,
                 "tts_voice": voice_id if isinstance(voice_id, str) else None,
+                # WHICH VOICE SPOKE, and therefore which of a lot's two rates paid for
+                # this call and which vendor's TTS bill it belongs to (D-547). Derived
+                # from the configured voice through `agents/voices.voice_tier` — the ONE
+                # derivation (plan §2.3 invariant 7) — and stamped here for the reason
+                # `llm_model` beside it is: the agent's voice is mutable from two screens
+                # and `usage_events` is append-only, so a fact not stamped at metering
+                # time is unrecoverable the day after.
+                "voice_tier": voice,
                 # D-454's model choice, stamped per row for the reason argued above.
                 "llm_model": llm.model,
                 "llm_model_source": llm.source,
@@ -2503,8 +2526,25 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # (TRD §5), so there is no quantity to price against. One unit priced at what
         # the leg actually cost keeps the money in the ledger; when the engine exposes
         # counts, qty becomes the count and the price divides by it like the rows above.
-        if cost.tts_inr is not None:
-            rows.append(("tts_chars", Decimal(1), cost.tts_inr))
+        #
+        # **THAT IS THE SARVAM LEG. THE CARTESIA LEG IS NOT A LEG COST AT ALL (D-547).**
+        # Bolna charges nothing for a component you bring your own key for, and their own
+        # pricing page says so (plan ADDENDUM 3 §3.5) — so on a Cartesia call the figure
+        # below is expected to be ₹0 and recording it would meter a real vendor bill as
+        # free. What Cartesia actually charges is a MONTHLY PLAN with a character
+        # allotment, which no execution payload can report, so the cost of the leg is the
+        # operator-attested plan rate times the characters OUR transcript says the agent
+        # spoke. `_tts_cost_row` decides which of the two this call is.
+        tts_row = await _tts_cost_row(
+            session,
+            tenant_id=tenant_id,
+            call_id=call_id,
+            voice=voice,
+            engine_tts_inr=cost.tts_inr,
+            at=snapshot.ended_at or datetime.now(UTC),
+        )
+        if tts_row is not None:
+            rows.append(tts_row)
         if cost.llm_inr is not None:
             rows.append(("llm_tok_out", Decimal(1), cost.llm_inr))
 
@@ -2642,26 +2682,36 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         on_us = await trial_covers(
             session, tenant_id=tenant_id, at=snapshot.ended_at or datetime.now(UTC)
         )
+        # THE UPGRADE THE CLIENT CHOSE (D-455), which is rupees and not minutes: it is a
+        # term of this tenant's plan row, not a property of the lots. A prepaid tenant
+        # normally has no plan row at all, so this is ₹0.00 and the wallet drains on the
+        # minutes alone.
+        surcharge_inr = llm_surcharge_billed_inr(
+            minutes=minutes if llm_bucket != UNSURCHARGED_MODEL else Decimal("0"),
+            surcharge=llm_surcharge,
+        )
+        # WHAT THE WALLET WAS ACTUALLY DEBITED, which under D-547 is no longer computable
+        # here: the price of a minute is a property of the LOT that pays for it, and which
+        # lots pay is decided by walking them oldest-first inside the debit. So this hands
+        # over the DEMAND — minutes, the voice that decides which of each lot's two rates
+        # applies, and the list rate as the fallback for a wallet with no lots left — and
+        # reads the price back.
+        charged_inr = Decimal("0")
         if tier in PREPAID_TIERS and not on_us:
-            await charge_for_call(
+            charged_inr = await charge_for_call(
                 session,
                 tenant_id=tenant_id,
                 call_id=call_id,
-                # THE LIST PRICE FOR THE MINUTES, PLUS THE UPGRADE THE CLIENT CHOSE
-                # (D-455). Two named terms rather than one blended rate, because they
-                # answer two questions and come from two places: the minute price is a
-                # config value the runway framing and the top-up flow also read, and the
-                # surcharge is a term of this tenant's plan row. A prepaid tenant normally
-                # has no plan row at all, so `llm_surcharge` is None and this adds ₹0.00 —
-                # the wallet drains exactly as it did before.
-                amount_inr=prepaid_billed_inr(
+                demand=CallDemand(
                     minutes=minutes,
-                    self_serve_rate=list_rate,
-                )
-                + llm_surcharge_billed_inr(
-                    minutes=minutes if llm_bucket != UNSURCHARGED_MODEL else Decimal("0"),
-                    surcharge=llm_surcharge,
+                    voice_tier=voice,
+                    # THE LIST RATE PRICES ONLY WHAT NO LOT COULD (plan §0 Q5 leaves the
+                    # overdraft at the rate of the lot that ran out; this is the case
+                    # where there was no lot at all). Resolved at the call's own month,
+                    # never at today's, for D-492's reason.
+                    fallback_inr_per_min=list_rate,
                 ),
+                extra_inr=surcharge_inr,
             )
 
         # spend_state is the pre-dispatch gate (TRD §9): caps are enforced BEFORE a
@@ -2699,7 +2749,19 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             rate=overage_rate,
             rate_value=overage_rate_value,
             llm_surcharge=llm_surcharge,
-            self_serve_rate=list_rate,
+            # WHAT THE PREPAID BRANCH ACCRUES, handed over rather than recomputed (D-547).
+            # `spend_state.billed_inr` for a prepaid tenant must equal the sum of the
+            # `usage` debits actually taken off their wallet, because the wallet IS their
+            # bill (D-39) — and since the debit is now priced by the lots it consumed, the
+            # only way to state the same number twice is to state it once. A call that was
+            # ON US consumed nothing, so what it WOULD have cost is priced at the month's
+            # list rate: that is the `trial_absorbed_inr` figure, and it is the same
+            # arithmetic `consume` would have used for a wallet holding no lots.
+            prepaid_billed=(
+                charged_inr
+                if not on_us
+                else prepaid_billed_inr(minutes=minutes, self_serve_rate=list_rate) + surcharge_inr
+            ),
         )
         billed = increment.billed_inr
         counters = (
@@ -2802,7 +2864,7 @@ async def _counter_increment(
     rate: Decimal,
     rate_value: Decimal | None,
     llm_surcharge: Decimal | None,
-    self_serve_rate: Decimal,
+    prepaid_billed: Decimal,
 ) -> _CounterIncrement:
     """This call's contribution to the two `spend_state` counters the cap is judged on.
 
@@ -2822,25 +2884,19 @@ async def _counter_increment(
     `usage_events` on the prepaid path that was not there before, under a lock this
     caller already holds.
 
-    PREPAID (`self_serve`, `trial`) RUPEES: every minute is charged with no allowance in
-    front of it, so the accrual is the same figure `charge_for_call` was just given, from
-    the same function, at the same `self_serve_rate`.
+    PREPAID (`self_serve`, `trial`) RUPEES: `prepaid_billed` verbatim, which is what the
+    wallet was actually debited.
 
-    `self_serve_rate` IS PASSED IN RATHER THAN READ FROM `Settings` HERE (D-492), and that
-    is a money fix: this branch read the LIVE setting while the `llm_surcharge` beside it in
-    the same expression had already been resolved at the month's pricing instant, so a call
-    that settled after the IST month rolled was debited at NEXT month's price. The caller
-    resolves it once from `billing/list_rates.self_serve_rate_at` at `month_pricing_instant`
-    and hands the SAME figure to `charge_for_call` and to this function — the two are still
-    computed twice on purpose (see the paragraph below), but they can no longer be computed
-    from two different rates.
-
-    Deliberately computed twice rather than threaded through as a
-    variable — the two are the same NUMBER but not the same FACT, and a future tier with
-    a wallet discount would want the debit and the accrual to diverge without either
-    quietly following the other. It is emphatically NOT the ledger's increment: a call is
-    charged for its own length, and pricing it off the month's running remainder would
-    charge two identical calls differently on a statement a client reads per entry.
+    **IT IS PASSED IN, AND UNDER D-547 IT HAS TO BE.** This branch used to recompute the
+    debit from `minutes x self_serve_rate` and the argument for doing so was that the two
+    are "the same NUMBER but not the same FACT". That argument died with the single rate:
+    a call is now priced by walking the wallet's LOTS oldest-first, each frozen at the two
+    rates its purchase was sold at, so the price is a property of state that the walk
+    itself consumed. Recomputing it here would need a second walk of lots that have
+    already moved, and the second answer would be wrong exactly when a call straddled the
+    end of a lot — which is the case the whole design exists for. `spend_state.billed_inr`
+    for a prepaid tenant must equal the sum of the `usage` debits taken off their wallet
+    (the wallet IS their bill, D-39), so it is stated once, by the debit, and carried.
 
     MANAGED RUPEES: the difference this call makes to the MONTH's overage bill, priced by
     `billing.service.priced_overage` — the same function that prices the client's panel
@@ -2875,27 +2931,11 @@ async def _counter_increment(
         llm_surcharge=llm_surcharge,
     )
     if plan_tier in PREPAID_TIERS:
-        return _CounterIncrement(
-            minutes=increment.minutes,
-            # THIS CALL'S OWN MINUTES, not the ledger's increment, and the difference is
-            # deliberate: `spend_state.billed_inr` for a prepaid tenant must equal the
-            # sum of the `usage` debits actually taken off their wallet, because the
-            # wallet IS their bill (D-39). `charge_for_call` was handed exactly this
-            # figure a few lines above, from this same function, so the counter and the
-            # ledger of record cannot drift by a paisa.
-            # The MODEL SURCHARGE is added from the same function that was just handed to
-            # `charge_for_call`, for the identical reason the minute price is: the wallet
-            # IS a prepaid client's bill, so this counter has to be the sum of the debits
-            # actually taken off it, to the paisa.
-            billed_inr=prepaid_billed_inr(
-                minutes=minutes,
-                self_serve_rate=self_serve_rate,
-            )
-            + llm_surcharge_billed_inr(
-                minutes=minutes if llm_model_bucket != UNSURCHARGED_MODEL else Decimal("0"),
-                surcharge=llm_surcharge,
-            ),
-        )
+        # THE DEBIT ITSELF, to the paisa, surcharge included — see the docstring. The
+        # minute figure beside it is still the LEDGER's increment and not this call's own
+        # quotient, which is what keeps the counter the cap is judged against equal to the
+        # "minutes used" the client is shown.
+        return _CounterIncrement(minutes=increment.minutes, billed_inr=prepaid_billed)
     # MANAGED: the overage this call added, PLUS the model surcharge it added — both
     # differences of the same month read with and without this call, so both telescope to
     # the figures `usage_summary` publishes and the invoice prints.
@@ -2903,6 +2943,89 @@ async def _counter_increment(
         minutes=increment.minutes,
         billed_inr=increment.overage_inr + increment.llm_surcharge_inr,
     )
+
+
+#: How many characters the AGENT spoke on one call, from OUR OWN transcript.
+#:
+#: The same measurement `billing/tts_speaking_rate.py` makes and deliberately the same
+#: SQL shape: `COALESCE(text_redacted, text)` reads the default-redacted column first, and
+#: the aggregate returns a LENGTH and never a character, so hard rules 5 and 6 are not
+#: engaged. It runs AFTER `_persist_transcript`, which is what puts the rows there.
+_AGENT_CHARS_ON_CALL: Final = (
+    "SELECT COALESCE(SUM(length(COALESCE(text_redacted, text))), 0) FROM transcript_turns "
+    "WHERE tenant_id = :tid AND call_id = :cid AND speaker = 'agent'"
+)
+
+#: Characters per unit of `usage_events.qty` on a `tts_kchars` row. See
+#: `billing/models.CLIENT_BILLED_UNIT_TYPES` for why the unit is a THOUSAND and not one.
+_CHARS_PER_KCHAR: Final = Decimal("1000")
+
+
+async def _tts_cost_row(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    call_id: UUID,
+    voice: str,
+    engine_tts_inr: Decimal | None,
+    at: datetime,
+) -> tuple[str, Decimal, Decimal | None] | None:
+    """The one `usage_events` row for this call's SYNTHESIZER leg, or none at all.
+
+    Two voices, two sources of truth, and which one applies is a property of the voice:
+
+    * **Sarvam** — the engine buys the synthesis and reports what it charged. That figure
+      is the cost, on a `tts_chars` row at `qty = 1`, exactly as before. (Whether the
+      engine's own figure is right is OPERATIONS §2 gate 7 and is not this seam.)
+    * **Cartesia** — BYOK, so the engine charges nothing and reports nothing worth
+      recording. The cost is the operator-attested plan rate times the characters our
+      transcript says the agent spoke, on a `tts_kchars` row whose `qty` is that count in
+      thousands.
+
+    **AND IT WRITES NO ROW AT ALL RATHER THAN A ZERO, when a Cartesia call has no attested
+    price.** A `unit_cost_paid` of ₹0 on a leg that really cost money is a FABRICATED ZERO
+    on an append-only ledger — the defect `billing/rates.py` argues at length is worse
+    than a gap, because the gap is visible and the zero is not. It is also a state that
+    should be unreachable: `agents/voice_offer.offerable_voices` refuses a Cartesia voice
+    while no price is attested, so reaching here means a price was WITHDRAWN under a live
+    agent, which is an operator error somebody has to be told about rather than a number
+    to invent. The alert is the telling.
+    """
+    if voice != "cartesia":
+        return None if engine_tts_inr is None else ("tts_chars", Decimal(1), engine_tts_inr)
+    price = (await attested_tts_prices(session, at=at)).get("cartesia")
+    if price is None:
+        alert(
+            "WORKER_TERMINAL",
+            "cartesia_call_without_attested_tts_price",
+            detail=(
+                "a call ran on the Cartesia voice while no TTS price is attested for it, "
+                "so its synthesizer cost could not be metered and NO cost row was written "
+                "for that leg. The margin on this call reads better than it is. Attest the "
+                "plan's rate in the ops model-pricing panel; the voice should not have been "
+                "offerable without one."
+            ),
+            call_id=str(call_id),
+            tenant_id=str(tenant_id),
+        )
+        return None
+    characters = Decimal(
+        str(
+            (
+                await session.execute(
+                    text(_AGENT_CHARS_ON_CALL), {"tid": tenant_id, "cid": call_id}
+                )
+            ).scalar()
+            or 0
+        )
+    )
+    # A call whose agent spoke nothing synthesised nothing. `qty = 0` with a real price is
+    # the honest row — `_ROW_COST_SQL` reads a zero-qty row as a whole-leg row (D-370), so
+    # writing NO row is what keeps it out of the cost side rather than putting the rate on
+    # it as a leg total.
+    if characters <= 0:
+        return None
+    return ("tts_kchars", characters / _CHARS_PER_KCHAR, price.inr_per_1k_chars)
 
 
 async def _maybe_notify_hot_lead(

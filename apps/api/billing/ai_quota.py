@@ -141,6 +141,7 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing.lots import AiAssistDemand
 from apps.api.billing.models import AI_ASSIST_UNIT_TYPES
 from apps.api.billing.plans import ist_month_end, parse_billing_month
 
@@ -160,7 +161,7 @@ from apps.api.billing.service import (
     find_entry_by_ref,
     lock_tenant_credits,
     plan_tier_of,
-    record_entry,
+    record_usage_from_lots,
     to_paise,
 )
 from apps.api.core.alerting import alert
@@ -1186,12 +1187,24 @@ async def purchase_ai_overage(
         code, detail, remediation = EXTRA_REFUSAL[reason]
         raise ProblemError.business_rule(code, detail, remediation=remediation)
 
-    await record_entry(
+    # THE BLOCK COMES OFF THE LOTS AT FACE VALUE (D-547, plan §4.B.7). ₹1 is one credit
+    # and this buys RUPEES of dashboard assistance, not minutes of talk time — so there is
+    # no rate to apply and no voice to apply it for, which is exactly why the demand is
+    # its own type rather than a call with two fields left empty. The splits land on the
+    # row as `kind: "ai_assist"`, carrying no `minutes` and no `inr_per_min` at all
+    # (ADDENDUM 2 §2.1: an absent key, never a null anybody has to interpret), so a reader
+    # totalling a month's talk minutes cannot accidentally add this block to them.
+    #
+    # `allow_negative=False` survives unchanged and is still the difference from
+    # `charge_for_call`: this is a PURCHASE, so an empty wallet refuses it rather than
+    # overdrawing. The lot decrements are inside this transaction with the ledger row, so
+    # the refusal rolls them back with itself.
+    await record_usage_from_lots(
         session,
         tenant_id=tenant_id,
-        delta=-AI_OVERAGE_BLOCK_INR,
-        reason="usage",
         ref=overage_ref(quota.month),
+        demand=AiAssistDemand(credits=AI_OVERAGE_BLOCK_INR),
+        allow_negative=False,
         meta={
             "kind": OVERAGE_META_KIND,
             "month": quota.month,
