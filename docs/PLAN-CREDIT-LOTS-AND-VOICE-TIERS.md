@@ -361,3 +361,65 @@ Phase C's fail-loud design (C.3) stands unchanged. What follows is only what it 
 | 3 | Overage rate per credit past the allotment | the margin floor's worst case (A.3 uses the plan rate; overage would be dearer) | `cartesia.ai/pricing` FAQ or support@cartesia.ai |
 | 4 | Whether a BYOK Cartesia call reports `synthesizer` cost 0 on Bolna | Phase D's `qty`/`unit_cost_paid` seam | OPERATIONS gate 51 |
 | 5 | Whether the DPA is self-serve signable on Startup | Phase F's sub-processor entry wording | `play.cartesia.ai/settings` |
+
+---
+
+# ADDENDUM 2 — Two holes the documentation review found in Phase B (7 Sep 2026)
+
+Writing DATA-MODEL and FLOWS against §2.3 and §3.4 exposed two places where the spec did not
+say enough to implement. Both are fixed here BEFORE Phase B starts. **These supersede the
+sentences they name.**
+
+## 2.1 A `meta.lots` split gets a `kind`, and non-call splits carry no minutes
+
+**The hole**: §2.3 invariant 5 fixes a split as `{lot_id, credits, minutes, inr_per_min,
+voice_tier}`, and §4.B.7 says the dashboard-AI quota debit records `voice_tier = NULL` —
+without saying what `minutes` and `inr_per_min` hold on such a split. Anything summing
+`minutes` across a month's splits would then be adding an unspecified value.
+
+**The fix — an explicit discriminator, not a null anybody has to interpret.** Every split
+carries `kind`:
+
+- `kind: "call"` → `{kind, lot_id, credits, minutes, inr_per_min, voice_tier}`. All six keys
+  present; `voice_tier` is `"sarvam"` or `"cartesia"`.
+- `kind: "ai_assist"` → `{kind, lot_id, credits}`. **`minutes`, `inr_per_min` and
+  `voice_tier` are ABSENT, not null.** The dashboard-AI debit buys rupees of assistance, not
+  minutes of talk time; there is no rate and no voice, and a key whose null means "not
+  applicable" is the tri-state defect `AgentSnapshot.*_readable` exists to avoid.
+
+A reader that totals talk minutes filters `kind == "call"`; one that totals money sums
+`credits` across every split regardless of kind. `SUM(credits)` over a row's splits always
+equals that row's `delta` (invariant 5 keeps that, unchanged).
+
+## 2.2 A downward restatement floors at zero and the shortfall becomes overdraft
+
+**The hole**: §3.4 says a restatement adjusts a lot's `credits_total` and `credits_remaining`
+"by the same delta". Moving both by the same delta preserves `credits_remaining <=
+credits_total` — but NOT `credits_remaining >= 0`. A lot of 5,000 with 1,000 left, restated
+down by 2,000, would need `credits_remaining = -1,000` and the CHECK would refuse the write.
+That is a real production stop, on the path an operator uses to correct a mis-recorded
+payment.
+
+**The fix**: a restatement of `-D` on a lot with `R` remaining and `T` total sets
+`credits_total = T - D` and `credits_remaining = max(R - D, 0)`, closing the lot when the
+remainder is zero. The shortfall `max(D - R, 0)` is **not** absorbed by the lot — it becomes
+wallet overdraft, which is a balance-level fact the ledger already carries and which Q5's
+rule repays from the next purchase before a new lot opens.
+
+Worked: we recorded ₹10,000, the bank shows ₹8,000, the client has already spent ₹9,000.
+`T: 10,000 → 8,000`; `R: 1,000 → 0`; lot closed; wallet balance `1,000 → -1,000`. The client
+owes ₹1,000, the next top-up clears it first, and no CHECK is violated. An upward
+restatement is the ordinary case: both rise by the delta and the lot may reopen if it had
+closed.
+
+**Invariant §2.3.1 already covers the result** ("a negative balance means every lot is at 0
+and `overdraft_inr = -balance`") — this addendum says how a restatement gets there. Both
+directions, and the CHECK-violating case as a regression test, are Phase B tests.
+
+## Also recorded from the same review
+- FLOWS' new billing section is **§11, not §9** — `runbooks/database-restore.md:327` cites
+  "FLOWS §9" for the deletion flow, and renumbering would break a runbook a human reads
+  during an incident.
+- TRD §10.1's Cartesia TTS rung must land in the SAME commit as `billing/rates.py`
+  (`check_docs_drift` §4b compares them); the attested figure is the Startup plan's
+  **₹3.4496 / 1,000 chars**. Phase A owns both halves.

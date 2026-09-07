@@ -107,6 +107,18 @@ used only for follow-up notifications); building our own STT/TTS/LLM; GPU self-h
   it either way. Consequence for us: every model they use is available to us at published
   rates, so their tiering is a packaging choice, not a moat; whether Cartesia genuinely beats
   Bulbul v3 on Telugu is an ear test we should run. The product is mature and self-serve.
+  **OUR ANSWER TO THE TIER LADDER IS NOW DECIDED AND IS A DIFFERENT SHAPE (D-547).** We
+  ship **TWO** voice tiers, not three — Sarvam Bulbul v3 and **Cartesia Sonic 3.5**, the
+  same vendor their ₹7 "exclusive native Telugu" tier uses — and the tier is chosen **per
+  agent**, not per account. The discount for buying more is NOT bonus credits and is NOT an
+  "effective" rate the buyer has to compute: it is the per-minute rate itself, falling with
+  the pack, **frozen on the credit that purchase bought** and spent oldest-purchase-first
+  (§8's card). So there is no gap between the headline and the effective number for us to be
+  caught in, which is the trick §8 already refuses to play. Whether Cartesia's Telugu beats
+  Bulbul v3 is still the ear test above; what is settled is that it costs more per minute
+  and is priced accordingly. **Its Telugu VOICE IDS are UNKNOWN** — the vendor's library is
+  behind a login (`docs/evidence/cartesia-tts-verification-2026-09-06.md` §A4) — so the
+  catalogue's Cartesia half is empty until somebody reads them.
   - **Pricing (the material change):** ₹0 setup · **₹1,899/employee/mo** (₹2,241 incl GST,
     includes ₹500 credits + a number) · talk-time **₹3/₹5/₹7 per min** by voice tier
     (value/standard/premium), 30-sec-block billing, ring/unanswered free; volume-bonus credit
@@ -182,15 +194,31 @@ the same `organizations` row distinguished by a plan/tier column — nothing for
 
 **Motion B — SELF-SERVE (new, lands M2):** no setup fee · sign-up with email/password or
 Google, or by admin invite link · **prepaid credits** (1 credit = ₹1) · per-minute talk-time
-priced by voice tier · monthly per-agent activation fee · hard spend caps. Positioned against
-Outpero's ₹1,899/mo + ₹3–7/min. **Set the tier prices only after pilot gate 12 fixes the Bolna
-BYOK fee** — our verified model cost is ₹1.04–1.31/min (Bulbul v2 + Sarvam LLM) to
+priced by **the voice tier of the AGENT that took the call, at the rate frozen on the credit
+being spent** (D-547) · monthly per-agent activation fee · hard spend caps. Positioned against
+Outpero's ₹1,899/mo + ₹3–7/min. **The tier prices are now SET and this sentence used to defer
+them to pilot gate 12** — the card is in §6's ladder below and in TRD §10.1; gate 12 still
+fixes the Bolna BYOK fee, and it is the ₹1.76 term inside the Sarvam floor, so a fee worse
+than that quote moves the floor and not the sold rates, which are frozen per purchase. Our
+verified model cost is ₹1.04–1.31/min (Bulbul v2 + Sarvam LLM) to
 ₹1.58–2.12 (v3 + Sarvam). **Those two figures are unchanged by D-410 and this sentence used
 to stop there, which made it incomplete rather than wrong**: both are Sarvam-LLM
 combinations, so their LLM leg is free and no model migration can move them — but neither
 is what we ship. **The shipped default is Bulbul v3 + `gpt-4o-mini` at ₹1.74–2.28/min**
-(five-minute call), or ₹2.02–2.56 on the `gpt-4.1-mini` switch. A ₹3/₹5/₹7-style ladder is
-reachable on any of them, but the platform fee decides the floor (TRD §10.1–10.3). **Do not publish a headline per-minute rate without the
+(five-minute call), or ₹2.02–2.56 on the `gpt-4.1-mini` switch. A tier ladder is reachable
+on any of them, but the platform fee decides the floor (TRD §10.1–10.3). **The ladder we
+took is TWO VOICES × SIX PACKS, not three voice tiers (D-547):** Sarvam ₹5.00 falling to
+₹4.50, Cartesia ₹8.00 falling to ₹6.00, across ₹2,000 / 5,000 / 10,000 / 15,000 / 25,000 /
+50,000. The Sarvam floor is the ₹4.12 worst-case minute (engine fee 1.76 + STT 0.50 + LLM
+0.24 + Bulbul v3 1.62, telephony excluded because the client pays their own carrier,
+D-474). **The Cartesia leg has no per-minute cost floor at all**, because its TTS cost is a
+MONTHLY PLAN rather than a per-character price — the plan's ₹/1,000 chars is only true when
+the whole allotment is consumed, and the overage rate past the allotment is **UNKNOWN**
+(VENDOR-PUBLISHED, relayed research over `cartesia.ai/pricing`, 7 Sep 2026;
+`docs/evidence/cartesia-tts-verification-2026-09-06.md` §A1 — the host is egress-blocked
+from this repository, so nothing here was read at source). Its floor is therefore the
+platform-wide minute count, which makes Cartesia a decision about VOLUME and not only about
+price. **Do not publish a headline per-minute rate without the
 monthly fee beside it** — that is the trick we called out in their marketing, and the
 effective-₹/min rule in TRD §10.2 applies to our own copy too.
 
@@ -203,10 +231,15 @@ effective-₹/min rule in TRD §10.2 applies to our own copy too.
 - Inbound-heavy clients priced at the favorable end (telephony cost ₹0.4–0.9/min inbound
   vs ₹0.6–1.8/min outbound); outbound-campaign-heavy clients at the upper end.
 
-Rationale (recorded): at 1–2 clients, fixed costs (~₹7–10k infra) make pure ₹5/min
-loss-making; retainer structure is profitable from client #1 and converts unknown client
-volume into included-minutes + overage (volume risk sits with the client). Do not fight
-self-serve platforms at ₹5/min; sell against the ₹18–25k/month human telecaller.
+Rationale (recorded): at 1–2 clients, fixed costs (~₹7–10k infra) make a pure per-minute
+motion loss-making at the entry rate; retainer structure is profitable from client #1 and
+converts unknown client volume into included-minutes + overage (volume risk sits with the
+client). Do not fight self-serve platforms on the headline minute; sell against the
+₹18–25k/month human telecaller. **What has changed under it is what "the entry rate" means
+(D-547): ₹5.00 is no longer THE self-serve rate, it is the SARVAM rate on the two smallest
+packs**, one cell of a six-pack, two-voice card whose rates are frozen per purchase. The
+argument is unchanged — a fixed cost base is not recovered by a per-minute price at two
+clients — and the number it is made about is now a range rather than a constant.
 
 Unit economics (blended, verified rates):
 - All-in variable cost: **₹3.0–3.6/min** launch stack (₹2/min platform fee scenario),
@@ -261,7 +294,7 @@ suite, transcription error rate on names/numbers (Telugu), escalation correctnes
 | R-07 | Cold-start sales stall | Medium | High | §7 plan; demo-first; pilot pricing; weekly pipeline review. |
 | R-08 | Two-person team overbuild (platform before client) | Medium | High | ROADMAP gate: client #1 live on a partly-manual stack before multi-tenant polish. |
 | R-09 | Runaway usage cost (client campaign misfire) | Low | Medium | Per-tenant hard caps enforced pre-dispatch; prepaid credit; alerts. |
-| R-10 | Telugu voice quality below expectation (Bulbul v3 untested by us; **v2 is live at half price — D-35 corrects the earlier "discontinued" note**) | Medium | Medium | Ear-test v3 **vs v2** in the pilot (OPERATIONS §2 gate 3 + the D-35 scorecard item); quality is a per-client config choice, and the v3/v2 gap is also our value/premium tier lever (TRD §10.3). |
+| R-10 | Telugu voice quality below expectation (Bulbul v3 untested by us; **v2 is live at half price — D-35 corrects the earlier "discontinued" note**) | Medium | Medium | Ear-test v3 **vs v2** in the pilot (OPERATIONS §2 gate 3 + the D-35 scorecard item); quality is a per-client config choice. **THE TIER LEVER IS NO LONGER THE v3/v2 GAP, AND THIS ROW USED TO SAY IT WAS (D-547).** The two tiers we sell are **Sarvam Bulbul v3** and **Cartesia Sonic 3.5**, chosen **per agent**, priced as two per-minute rates on every pack (₹5.00→4.50 and ₹8.00→6.00) and frozen on the credit each purchase buys. Bulbul v2 remains a cost choice inside the Sarvam tier (D-36), not a price tier a client picks. So the mitigation if v3's Telugu disappoints is now a SECOND VENDOR rather than a cheaper rung of the same one — with three caveats that are part of the mitigation, not footnotes to it: Cartesia's Telugu **voice ids are UNKNOWN** (library behind a login), Telugu–English code-mixing is **absent from their docs** and must not be promised (Hinglish is documented; Telugu-English is not), and no Cartesia agent can be published until the engine's `provider_config` field names are recorded (OPERATIONS §2 gate 52). All three: VENDOR-PUBLISHED, relayed research over `docs.cartesia.ai`, 7 Sep 2026, `docs/evidence/cartesia-tts-verification-2026-09-06.md` §A4 — the host is egress-blocked from this repository. |
 | R-11 | **Self-serve motion creates telecom-compliance exposure** (D-34): anyone can sign up and dial, but TRAI/DLT liability lands on us as Telemarketer. A single abusive self-serve account can trigger TSP action against our Telemarketer registration — which is one registration for the whole platform — and damage every client on it | Medium once self-serve ships | **Critical** | Non-negotiable, ships WITH the self-serve flow, not after: platform-fixed calling hours (not user-editable); DNC scrub on **every** dispatch path incl. instant (Hard Rule 5 — this is precisely where Outpero fails, teardown §9c); an AI disclosure sentence on every agent, mandatory and non-blank, whose in-call delivery the client may switch off and is audited for doing (D-163) while the truthful ANSWER when asked stays unconditional; durable versioned consent-attestation ledger; per-account concurrency + spend caps; business KYC verified before any account dials (the client's own carrier gates them the same way — we supply no numbers, Model B); AUP with enforcement teeth (throttle/suspend on abuse signals); and manual review of the first campaign for any self-serve account. |
 
 ## 10. Assumptions Log (all remaining assumptions — everything else is decided/verified)

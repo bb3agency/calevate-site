@@ -665,6 +665,72 @@ credit_ledger(id, tenant_id, delta NUMERIC,
 --   not by deleting money rows. Consequence for developers: a database carrying that
 --   residue cannot reach head — `runbooks/stale-dev-database.md`, and do not stamp past
 --   it.
+credit_lots(id, tenant_id, source ENUM-as-CHECK[topup,grant,bonus_legacy,migration,override],
+  pack_id NULL, override_of_pack_id NULL,
+  credits_total NUMERIC(12,4), credits_remaining NUMERIC(12,4),
+  sarvam_inr_per_min NUMERIC(12,4), cartesia_inr_per_min NUMERIC(12,4),
+  ledger_entry_id UNIQUE FK credit_ledger(id), opened_at, closed_at NULL,
+  created_at, updated_at)                    -- NOT append-only, and NOT in APPEND_ONLY_TABLES
+-- WHAT IT HOLDS AND WHY IT EXISTS (D-547, `docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md` §3.1).
+--   A credit is still ₹1 and still never expires. What a bigger pack buys is no longer BONUS
+--   CREDITS on the balance — it is a CHEAPER MINUTE, and a minute has two prices because the
+--   voice tier is chosen per agent (`sarvam` | `cartesia`). A price that varies by purchase
+--   cannot live on the tenant and cannot live on the ledger row that spends it: it belongs to
+--   the credits themselves. A lot IS that grouping — the credits one purchase (or grant, or
+--   the migration, or an operator override) created, carrying the two per-minute rates FROZEN
+--   at the moment it was opened.
+-- CHECKS: `source IN ('topup','grant','bonus_legacy','migration','override')`;
+--   `credits_total > 0`; `credits_remaining >= 0 AND credits_remaining <= credits_total`;
+--   `sarvam_inr_per_min > 0`; `cartesia_inr_per_min >= sarvam_inr_per_min`. The last one is
+--   the card's own shape made structural: the Cartesia voice is never the cheaper of the two
+--   on any pack, so a row that says it is is a data defect, not a promotion.
+-- RLS: ENABLE + FORCE with the strict `tenant_isolation` policy for EVERY verb — the
+--   repo-wide shape, NOT the `OR <guc> IS NULL` form `f2b91c47e0a3` had to correct on
+--   `kb_uploads`. Registered in `db/registry.TENANT_TABLES`, so `check_rls_coverage` refuses
+--   it if the registration is forgotten, and the migration ships its cross-tenant zero-rows
+--   test.
+-- WHY IT IS NOT APPEND-ONLY, AND WHAT REPLACES THE TRIGGER THAT WOULD HAVE SAID SO. Two
+--   columns must mutate — `credits_remaining` falls as calls are billed, `closed_at` is
+--   stamped when it reaches zero — so the table cannot be in `APPEND_ONLY_TABLES` and hard
+--   rule 4's immutability trigger is not what guards it. The guarantee that actually matters
+--   here is NARROWER and is enforced in its own right: trigger `credit_lots_terms_frozen`
+--   REFUSES any UPDATE that changes a column other than `credits_remaining`, `closed_at` and
+--   `updated_at`. So the two rates, the source, the pack and the opening ledger row are
+--   immutable by the database, and a later rate-card change cannot reach credit already sold.
+--   `check_ledger_immutability` is NOT the checker for this (it reads the append-only set);
+--   `tests/credit_lots_terms_frozen_test.py` is.
+-- INDEX ix_credit_lots_fifo (tenant_id, opened_at, id) WHERE closed_at IS NULL — the FIFO
+--   scan, and the only access path the debit has. `id` is the tail for the same reason
+--   `credit_ledger`'s recency index carries one: two lots opened in the same instant must
+--   still have a TOTAL order, or two readers disagree about which one is next.
+-- `ledger_entry_id` is UNIQUE, so a lot is one-to-one with the credit-adding ledger row that
+--   opened it. That is what makes the pair re-derivable: the money movement is the ledger's,
+--   the price is the lot's, and neither can exist without the other.
+-- WHAT THE LEDGER GAINED, WHICH IS NOTHING STRUCTURAL. `credit_ledger` is UNCHANGED in shape
+--   and still INSERT-only. A credit-adding row carries `meta.lot_id`; a `usage` row carries
+--   `meta.lots`, the splits it drew:
+--     meta.lots = [{lot_id, credits, minutes, inr_per_min, voice_tier}, …]
+--   one entry per lot the debit touched, in consumption order. `voice_tier` is NULL on a
+--   split that priced no minutes — the dashboard-AI quota debits the same wallet in RUPEES at
+--   face value, with no rate — and the overdraft part, if any, is the last entry, priced at
+--   the rate of the lot that ran out. A month's statement and the margin panel are
+--   re-derivable from those rows ALONE (D-492/D-458 kept): nothing recomputes a price from
+--   today's card.
+-- THE FOUR INVARIANTS THAT BIND THE PAIR (each one a test, plan §2.3.1–4):
+--   1. `SUM(credit_lots.credits_remaining) = the wallet balance` for every tenant, whenever
+--      the balance is ≥ 0. THE BALANCE IS STILL `balance_after` ON THE NEWEST LEDGER ROW —
+--      that is unchanged, it is still denormalised, and it is still what every reader reads.
+--      The lots do not become a second source of truth for the balance; they are its
+--      partition by price, and this invariant is what says so. A NEGATIVE balance means every
+--      lot is at zero and the overdraft is `-balance`.
+--   2. A debit consumes the lot with the smallest `opened_at` that still has
+--      `credits_remaining > 0`, and SPLITS across lots when one runs out; each part is priced
+--      at ITS lot's rate for the call's voice tier. So one call can be billed at two
+--      different per-minute prices, and the ledger row says which.
+--   3. A lot's two rates NEVER change after creation — the trigger above, not a convention.
+--   4. Overdraft minutes are priced at the rate of the last lot consumed, and the NEXT
+--      credit-adding entry repays the overdraft FIRST and opens its lot with the remainder.
+--      A lot is therefore never opened while the wallet is negative.
 tenant_trials(id, tenant_id, days, started_at, ends_at,
   status ENUM[active,converted,expired,stopped], ended_at NULL, ended_reason NULL,
   erase_after NULL, erasure_filed_at NULL, started_by NULL)   -- NOT append-only (D-536)

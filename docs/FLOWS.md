@@ -456,6 +456,9 @@ overage + one-time lines) → GST → send (manual v1, Razorpay link) → paid/o
 overdue ⇒ dunning emails; 15 days ⇒ soft-suspend outbound (inbound stays up); caps always
 independent of billing status.
 
+This is the MANAGED motion. Prepaid credit — packs, lots, per-lot rates and the FIFO debit
+— is §11, and no account is on both.
+
 ## 9. Offboarding / Deletion
 
 Client churns: export bundle (leads CSV, transcripts redacted, recordings zip via
@@ -549,3 +552,116 @@ later, weeks-long option — never inside onboarding.
 
 Failure route: every DID configured on the client's carrier account with a fallback
 destination (client's own phone) for engine outage (see OPERATIONS runbooks).
+
+## 11. Buying Credit and Paying for a Call (prepaid wallet, per-lot rates)
+
+Trigger: a self-serve client's wallet is low, or is empty at signup. This is the flow
+§8's monthly cycle does NOT cover — §8 is the managed motion's retainer, overage and
+invoice; this is prepaid credit, and the two never meet on one account.
+
+**The one sentence to hold on to: a credit is ₹1 and never expires, but a MINUTE has a
+price, and that price belongs to the PURCHASE rather than to the account.** A bigger pack
+buys a cheaper minute — as a falling rate, not as bonus credits — and it is two rates,
+because the voice tier is chosen per agent (D-547,
+`docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md`). What carries the pair is the **lot** each
+purchase opens (DATA-MODEL §8 `credit_lots`).
+
+### The card
+
+| Pack | Amount | Sarvam ₹/min | Cartesia ₹/min |
+|---|---|---|---|
+| `starter` | ₹2,000 | 5.00 | 8.00 |
+| `growth` | ₹5,000 | 5.00 | 7.00 |
+| `scale` | ₹10,000 | 4.85 | 6.75 |
+| `plus` | ₹15,000 | 4.70 | 6.50 |
+| `pro` | ₹25,000 | 4.60 | 6.25 |
+| `max` | ₹50,000 | 4.50 | 6.00 |
+
+A **free amount** (any top-up ≥ `MIN_TOPUP_INR`) takes the rates of the largest pack whose
+price is ≤ the amount, so ₹3,400 is priced at the ₹2,000 pack's rates and ₹4,999 is not
+punished for being ₹1 short. Operator grants, trial credit and any legacy bonus row take
+the `starter` rates — a gift is spent at the standard price, or a ₹50,000 grant would be a
+cheaper minute than a ₹50,000 purchase.
+
+### Buying
+
+1. **Pick.** `GET /v1/billing/topups/packs` (and the unauthenticated `GET
+   /v1/public/rate-card`) serve the card above; the top-up screen shows **both** rates and
+   both talk-time figures per pack. There is no "extra credit" column any more, because
+   there is no extra credit.
+2. **Pay.** Razorpay order → checkout → capture webhook. Unchanged, and the reason it is
+   unchanged matters: the payment leg is verified by signature and settled once, and the
+   pricing change adds nothing to it. Gate 44 (OPERATIONS §2) is still the first REAL
+   payment, and it is money rather than a test.
+3. **Credit, then the lot, in ONE transaction.** The capture writes the `topup` ledger row
+   through `record_entry` under the tenant's advisory lock, and the lot is opened in the
+   same transaction, keyed to that row (`credit_lots.ledger_entry_id` UNIQUE). A ledger row
+   with no lot, or a lot with no ledger row, is not a state this system can reach — which
+   is what makes the balance and the sum of remaining credits provable against each other.
+4. **What the lot freezes.** `sarvam_inr_per_min` and `cartesia_inr_per_min`, stamped from
+   the card in force at that instant and immutable afterwards by trigger. Raising the card
+   later records a NEW card; nothing already sold moves. That is the promise Terms §6.1
+   carries, and it is the reason the flow is written this way rather than as a rate on the
+   organisation.
+
+### Paying for a call
+
+5. **The call ends** and the post-call pipeline runs (§6). It already knows the billable
+   minutes and the agent's voice — the tier is a pure function of the chosen voice's
+   provider, so an agent cannot hold a Cartesia voice and a Sarvam price.
+6. **FIFO across lots.** The debit takes the OLDEST open lot first, decrementing under the
+   same per-tenant lock the ledger takes, and closes a lot at zero. One `usage` ledger row
+   is written per call, idempotent on `(tenant_id, 'usage', call_id)` — a replayed pipeline
+   finds the row and consumes nothing a second time.
+7. **The row says what it did.** `meta.lots` carries one entry per lot touched —
+   `{lot_id, credits, minutes, inr_per_min, voice_tier}` — so the statement and the margin
+   panel are re-derivable from the ledger alone, with no price recomputed from today's card.
+8. **What the client sees.** Balance in rupees, unchanged. Runway is now a PAIR — "about N
+   minutes on the Sarvam voice, M on the Cartesia voice" — because one balance divided by
+   one rate stopped being a true sentence. Below it, the open lots oldest-first with their
+   two rates: *"3,200 credits at ₹4.70 / ₹6.50, then 2,000 at ₹5.00 / ₹8.00"*. A `usage`
+   entry in the transactions list expands to its splits.
+
+### The two branches that are easy to forget
+
+**A debit that SPLITS across two lots, at two different rates.** A client with 40 credits
+left on a `plus` lot (₹4.70 Sarvam) and 5,000 on a newer `starter` lot (₹5.00) takes a
+12-minute Sarvam call. The oldest lot pays for 8.51 minutes and empties; the remaining 3.49
+minutes are priced at ₹5.00 off the newer lot. One call, one `usage` row, TWO entries in
+`meta.lots`, and the totals in the panel are the sum of the splits — never minutes × one
+rate. This is the ordinary case at every pack boundary, not an edge case, and it is the
+reason no surface may reconstruct a charge by multiplying.
+
+**A wallet driven NEGATIVE, and how it is repaid.** The dial gate refuses at a balance ≤ 0,
+but a call already in progress can outrun the balance, and the wallet is allowed to go
+negative rather than cut a live caller off mid-sentence. Those overdraft minutes are priced
+at **the rate of the lot that ran out** — the last split's rate, recorded as the last entry
+in `meta.lots` — because that is the price the client was last actually buying at, and it
+is the reading prepaid telecom already uses. No lot is open while the balance is negative,
+and none is opened by the repayment: the next credit-adding entry books
+`min(credits, overdraft)` against the debt FIRST, and only the remainder opens a lot at the
+new purchase's rates. So a ₹2,000 top-up onto a −₹300 wallet opens a ₹1,700 lot, and the
+client is never quietly given ₹2,000 of cheap minutes to pay off a ₹300 hole.
+
+### Failure handling
+
+- Payment captured, lot not opened: cannot happen — one transaction. A capture that fails
+  after the ledger write rolls back both, and Razorpay's retry re-drives it against the
+  same idempotency key.
+- Pipeline retried: the `usage` uniqueness makes the second attempt a no-op. Consumption is
+  never idempotent by itself; the ledger row is what makes it so.
+- Rate card changed mid-month: closed months and open lots are both untouched by
+  construction (D-492). Nothing re-prices.
+- **A Cartesia agent cannot be published today, deliberately and loudly.** The Cartesia
+  `provider_config` field names on the engine's `POST /v2/agent` are **UNKNOWN** — absent
+  from the pinned vendor mirror — so a Cartesia publish fails with `engine_rejected` rather
+  than sending a guess (OPERATIONS §2 gate 52). The **Telugu voice ids are also UNKNOWN**
+  (the vendor's library is behind a login), so the Cartesia half of the voice catalogue
+  ships empty until they are read. Until the key is installed and a Cartesia price is
+  attested, the picker marks every Cartesia voice unavailable with its named reason —
+  the rule `offerable_models()` already applies to an LLM.
+
+Owner surfaces: client — `/c/<slug>/billing` (top-up, wallet, lots, transactions);
+admin — `/admin/tenants/<id>/credits` (grants, restatements, the audited "sell this lot at
+pack X's rates" override) and `/admin/spend` (Sarvam vs Cartesia minutes, revenue from the
+splits, attributed TTS cost beside the plan fee).

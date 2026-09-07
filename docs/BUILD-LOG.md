@@ -3967,6 +3967,55 @@ reason shorter than a sentence fails — which caught one of the six entries whi
 being written. Its detection was proven in five directions before it was trusted, including
 that it does not fire on its own prose, which it did on the first run.
 
+## §76 — credit lots, per-lot rates and a second voice tier: the documents, ahead of the code
+
+**What this section records is DOCUMENTATION, not a shipped feature**, and it says so at the
+top because this file's job is to say what exists. The change is specified in
+`docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md` (7 Sep 2026, the guide, kept current per phase)
+and decided in **D-547**; the code lands in parallel lanes. Nothing below asserts a table
+that exists yet.
+
+**The change, in one paragraph.** Credits stay ₹1 = 1 and still never expire. What a bigger
+pack buys stops being BONUS CREDITS and becomes **two per-minute rates carried by the LOT
+each purchase opens** — one for the Sarvam voice, one for Cartesia — because the voice tier
+is now chosen **per agent**. Minutes are spent **oldest-lot-first** at that lot's rate for
+the agent's tier; a lot's rates are **frozen when it is bought**, so a later rate-card change
+cannot re-price credit already sold. The ladder becomes ₹2,000 / 5,000 / 10,000 / 15,000 /
+25,000 / 50,000 with Sarvam 5.00 → 4.50 and Cartesia 8.00 → 6.00. A wallet driven negative is
+repaid by the next purchase **before** a new lot opens.
+
+**Documents updated this session** (the two rows this lane did not own are named below):
+
+| Document | What it now says |
+|---|---|
+| `docs/DATA-MODEL.md` §8 | `credit_lots` in full beside `credit_ledger`: columns, the five CHECKs (including `cartesia_inr_per_min >= sarvam_inr_per_min`), strict FORCEd RLS with the repo-wide `tenant_isolation` shape, why it is deliberately NOT in `APPEND_ONLY_TABLES` and what the `credit_lots_terms_frozen` trigger guards instead, the FIFO partial index, the `meta.lots` split shape on a `usage` row, and the four invariants that bind the pair. The balance is STILL `balance_after` on the newest ledger row — the lots are its partition by price, not a second source of truth — and `SUM(credits_remaining)` equals it whenever it is ≥ 0. |
+| `docs/FLOWS.md` §11 | A flow that did not exist: "Buying Credit and Paying for a Call". Pick a pack → Razorpay → the ledger row and the lot it opens in ONE transaction → a call ends → minutes and the agent's tier → FIFO consumption → the `usage` row with its splits → the wallet's balance, its per-voice runway pair and its lots list. Both easy-to-forget branches are written out: a debit that SPLITS across two lots at two rates, and a wallet that goes NEGATIVE (priced at the rate of the lot that ran out, repaid before the next lot opens). §8 gained one line saying it is the MANAGED motion and this is the prepaid one. |
+| `docs/BRD.md` | §4's Outpero row keeps every competitor figure and its evidence class untouched, and gains what OUR answer to their ₹3/₹5/₹7 ladder actually is: two voices, per agent, six packs, no "effective" rate to compute. §6's self-serve paragraph stops deferring the tier prices to gate 12 (they are set; gate 12's fee is the ₹1.76 term inside the Sarvam floor), and the ₹5/min rationale is rewritten as one cell of a card rather than THE rate. **R-10 no longer calls the v3/v2 gap our tier lever** — that lever does not exist in that form; the mitigation if Bulbul v3's Telugu disappoints is a second VENDOR, carrying its three caveats. |
+| `docs/OPERATIONS.md` §2 | Gate 12(h) gains its second consumer: the measured TTS speaking rate is no longer only a margin input, it is the billed `qty` on every Cartesia `tts_chars` row, because there is no vendor character count to bill from. **Three new gates — 51** (does a BYOK Cartesia call report `synthesizer` 0, and is `synthesizer_characters` populated), **52** (the Cartesia `provider_config` field names on `POST /v2/agent`, absent from the pinned mirror, which is why every Cartesia publish fails loud until it is answered), **53** (Cartesia concurrency under load: 10 agents against the Startup plan's 5 contexts, count the 429s — concurrency is per `context_id` with no queueing, so a 429 on a live call is dead air). |
+| `docs/BUILD-LOG.md` | This section. |
+
+**Handed to the parallel lanes, not done here.** `docs/TRD.md` §10.1's rate table is owned by
+the lane that edits `billing/rates.py`, because `check_docs_drift` §4b compares the two and
+they must move in one commit. `docs/ROADMAP.md` D-547 was already written. The published
+Terms (`apps/web/src/lib/legal/terms.ts` §6.1) are a code edit.
+
+**Every Cartesia claim in these edits carries its class, and two facts are UNKNOWN in that
+word wherever they are relevant** — the `provider_config` field names on the engine's create
+endpoint (gate 52) and the Telugu voice ids (the vendor's library is behind a login). Neither
+is written around. The Cartesia pricing, concurrency, language and data-handling facts are
+VENDOR-PUBLISHED, relayed from a research run over the vendor's own pages on 6–7 Sep 2026 and
+recorded in `docs/evidence/cartesia-tts-verification-2026-09-06.md`; `cartesia.ai` and
+`docs.cartesia.ai` are egress-blocked from this container, so none of it was read here, and
+hard rule 7 keeps the catalogue price out of `unit_cost_paid` regardless — the Cartesia TTS
+cost reaches money only as an operator attestation.
+
+**One thing the plan leaves underspecified, recorded rather than guessed.** §2.3 invariant 5
+gives the `meta.lots` entry as `{lot_id, credits, minutes, inr_per_min, voice_tier}`, and
+§4.B.7 says the dashboard-AI quota debit is "documented in the lot split as
+`voice_tier = NULL`" — which implies `minutes` and `inr_per_min` are also absent or zero on
+such a split, and the plan does not say which. DATA-MODEL states what the plan states and no
+more.
+
 ## State of the system — what a future session inherits
 
 Written after the sweep above and deliberately separated into four states, because "built"
