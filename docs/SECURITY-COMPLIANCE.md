@@ -253,6 +253,22 @@ already gone to the client's own endpoint. The client is the Fiduciary who recei
 instruction and already holds the person's record, so that is their copy returning to
 them, and the erasure deletes OUR stored body of it.
 
+**An erasure finds records BY THE NUMBER, and the certificate now says so.** The predicates
+`execute_deletion_request` walks — the copilot turns, the outbox payloads, the knowledge
+chunks — all key on the DIGITS the request carries, because that is the one handle the
+schema guarantees (`open_request_names_its_subject` requires `phone_e164`). A record that
+holds a person's NAME and no number of theirs is therefore unreachable, and this is now
+disclosed to the requester rather than left as a comment in the worker: `ERASURE_LIMITATIONS`
+carries the `by name` entry, and the outcome it registers is deliberately distinct from the
+assistant's narrower one so the proof's per-outcome counts cannot mis-attach. **The reason
+it is a limitation rather than a bug is worth stating, because it is the argument against
+"just search for the name too": a name is not unique.** Matching one would delete the
+records of every other person who shares it, which is a worse DPDP outcome than an honest
+gap. Closing it needs a verification standard and an accepted false-positive rate — a
+founder-and-counsel decision, not an engineering one — and until then
+`tests/dpdp_known_gaps_test.py` holds the gap with a probe that turns CI red the day either
+half of it is closed and the entry is not deleted.
+
 **Tenant-level erasure — a different data subject, and a different DPDP relationship
 (D-122).** The `deletion_requests` row above is ONE data principal exercising §12 against
 a client's caller records: the client is the Fiduciary, we are the Processor, and the
