@@ -82,6 +82,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from calevate_shared.engine import AZURE_OPENAI_DEFAULT_MODEL, AZURE_OPENAI_MODELS
+from fastapi import Request
 from pydantic import ValidationError
 from sqlalchemy import text
 
@@ -751,6 +752,23 @@ async def test_the_bought_block_raises_the_allowance_and_then_the_month_is_finis
     assert raised.value.code == "ai_quota_exhausted"
 
 
+#: A real `Request`, because the handler now records WHERE the person was when they
+#: agreed to the charge (SEC-COMP §5's fourth field). A stub with a `.client` attribute
+#: would stop matching the day `client_request_ip` reads another part of the request, so
+#: this is the shape `platform_config_routes_test._request` uses for the same reason.
+def _request(peer: str = "203.0.113.7") -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/v1/billing/ai-quota/extra",
+            "headers": [],
+            "query_string": b"",
+            "client": (peer, 1234),
+        }
+    )
+
+
 async def test_the_acceptance_lands_an_audit_row_in_the_same_transaction() -> None:
     """It is a person agreeing to spend money, so the record of WHO is not optional —
     and it commits with the debit, so a debit with no acceptance record is unreachable."""
@@ -760,21 +778,24 @@ async def test_the_acceptance_lands_an_audit_row_in_the_same_transaction() -> No
 
     async with tenant_session(tenant_id) as session:
         await buy_ai_extra(
-            AiExtraIn(accept_amount_inr=AI_OVERAGE_BLOCK_INR), session, _principal(tenant_id)
+            AiExtraIn(accept_amount_inr=AI_OVERAGE_BLOCK_INR),
+            session,
+            _request(),
+            _principal(tenant_id),
         )
 
     async with untenanted_session() as session:
         rows = (
             await session.execute(
                 text(
-                    "SELECT actor_type, object_type, object_id, entry_hash FROM audit_log "
+                    "SELECT actor_type, object_type, object_id, entry_hash, ip FROM audit_log "
                     "WHERE tenant_id = :t AND action = 'billing.ai_quota.extra_accepted'"
                 ),
                 {"t": tenant_id},
             )
         ).all()
     assert len(rows) == 1, f"expected one acceptance audit row, got {len(rows)}"
-    actor_type, object_type, object_id, entry_hash = rows[0]
+    actor_type, object_type, object_id, entry_hash, ip = rows[0]
     # A PERSON accepted, not the system: an acceptance attributed to `system` would be
     # exactly the claim G-5 exists to make impossible.
     assert actor_type == "user"
@@ -783,6 +804,11 @@ async def test_the_acceptance_lands_an_audit_row_in_the_same_transaction() -> No
     # operator reading this entry can find the debit without opening the ledger.
     assert object_id == current_billing_month()
     assert entry_hash, "the entry did not join the hash chain"
+    # AND WHERE THEY WERE. SEC-COMP §5 asks every audit row for "actor, tenant, at, ip",
+    # and this row carried the first three and a null address until the audit of 7 Sep
+    # 2026 — so the only debit a CLIENT can raise against their own wallet was the one
+    # act on this ledger the trail could not place. `str()` because the column is `inet`.
+    assert str(ip) == "203.0.113.7", f"the acceptance did not record where it came from: {ip!r}"
 
 
 async def test_a_replayed_acceptance_writes_no_second_audit_row() -> None:
@@ -795,7 +821,10 @@ async def test_a_replayed_acceptance_writes_no_second_audit_row() -> None:
     for _ in range(2):
         async with tenant_session(tenant_id) as session:
             await buy_ai_extra(
-                AiExtraIn(accept_amount_inr=AI_OVERAGE_BLOCK_INR), session, _principal(tenant_id)
+                AiExtraIn(accept_amount_inr=AI_OVERAGE_BLOCK_INR),
+                session,
+                _request(),
+                _principal(tenant_id),
             )
 
     async with untenanted_session() as session:

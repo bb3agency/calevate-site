@@ -43,6 +43,7 @@ from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
+from fastapi import Request
 from pydantic import ValidationError
 from sqlalchemy import text
 from tests.spend_caps_test import THIS_MONTH, _bill, _gate, _tenant
@@ -97,6 +98,21 @@ async def _admin_plan(
         )
 
 
+#: A real `Request`: `set_caps` now records the address the limit was moved from, which
+#: is the one field SEC-COMP §5 asks for that this route used to leave null.
+def _request(peer: str = "203.0.113.7") -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "PUT",
+            "path": "/v1/billing/caps",
+            "headers": [],
+            "query_string": b"",
+            "client": (peer, 1234),
+        }
+    )
+
+
 async def _put(tenant_id: UUID, *, minutes: int | None, spend: str | None):  # type: ignore[no-untyped-def]
     async with tenant_session(tenant_id) as session:
         return await set_caps(
@@ -105,6 +121,7 @@ async def _put(tenant_id: UUID, *, minutes: int | None, spend: str | None):  # t
                 cap_spend_inr=Decimal(spend) if spend is not None else None,
             ),
             session,
+            _request(),
             _principal(tenant_id),
         )
 

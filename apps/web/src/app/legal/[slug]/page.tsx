@@ -10,9 +10,18 @@ import { LegalDocumentPage } from "@/lib/legal/document";
  *
  * A page file per document was the alternative and buys nothing: every one of them would
  * be the same three lines, and the eight-way duplication would be eight chances for one
- * page to drift out of the shared shell. `generateStaticParams` prerenders every slug, so
- * these are static HTML at build time despite the dynamic segment — which matters, because
- * a legal page that depends on a running API is a legal page that 500s during an incident.
+ * page to drift out of the shared shell. `generateStaticParams` enumerates every slug, and
+ * the content comes from a module rather than the API — which is the property that matters,
+ * because a legal page that depends on a running API is a legal page that 500s during an
+ * incident.
+ *
+ * ⚠ THESE ARE NOT PRERENDERED, AND THIS COMMENT SAID THEY WERE (corrected 7 Sep 2026). The
+ * root layout is `force-dynamic` because a CSP nonce suppresses `'self'` for inline scripts
+ * and a prerendered route ships its RSC payload tags bare — which was a total white screen
+ * in production once. `force-dynamic` at the root overrides this segment, so
+ * `generateStaticParams` is inert here and kept only for the slug enumeration it gives the
+ * router. Do NOT "restore" prerendering by adding `revalidate` or `dynamic` to this file:
+ * `routeModuleExports.test.ts` refuses it, and the reason is that outage.
  *
  * An unknown slug is a 404 rather than a redirect: `/legal/gdpr` should tell the reader
  * there is no such document, not silently hand them a different one.
