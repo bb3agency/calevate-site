@@ -72,6 +72,12 @@ pytestmark = [pytest.mark.rls]
 #: hole, while a *different* failure (a missing grant, a FK, a syntax error) still does.
 RAISE_EXCEPTION = "P0001"
 
+#: PostgreSQL's `feature_not_supported`, which is what a plain TRUNCATE of a table some
+#: OTHER table's foreign key points at raises -- "cannot truncate a table referenced in a
+#: foreign key constraint". It arrives BEFORE any trigger fires, so it hides the refusal
+#: this file is about rather than being it.
+FK_DEPENDENT = "0A000"
+
 #: A ledger whose parent can be TRUNCATEd, and that parent. `TRUNCATE calls CASCADE`
 #: reaches `usage_events` and `consent_ledger` sideways through their foreign keys, and
 #: a cascade fires the CHILD's truncate trigger — so the sideways route has to be proven
@@ -113,9 +119,21 @@ async def _attack(conn: AsyncConnection, statements: list[str]) -> str | None:
 async def test_truncate_is_refused_on_every_append_only_ledger(
     owner: AsyncEngine, table: str
 ) -> None:
-    """The verb that empties a ledger fastest, and the one no row trigger can see."""
+    """The verb that empties a ledger fastest, and the one no row trigger can see.
+
+    A LEDGER THAT SOMETHING ELSE REFERENCES IS REFUSED TWICE, AND THE SECOND REFUSAL IS
+    THE ONE UNDER TEST. `credit_ledger` gained a dependent when `credit_lots` arrived
+    (D-547: a lot names the ledger entry that opened it), and Postgres refuses a plain
+    TRUNCATE of a table an unlisted FK points at with `0A000` -- before any trigger runs.
+    That is a real refusal, but it is the FK's and not ours: it would evaporate the day
+    the last dependent is dropped, so passing on it would be passing for the wrong
+    reason. So a `0A000` is not the verdict, it is a re-aim: mount the form that DOES
+    reach the trigger and require the trigger to refuse that.
+    """
     async with owner.connect() as conn:
         state = await _attack(conn, [f'TRUNCATE "{table}"'])
+        if state == FK_DEPENDENT:
+            state = await _attack(conn, [f'TRUNCATE "{table}" CASCADE'])
     assert state == RAISE_EXCEPTION, (
         f"TRUNCATE {table} was not refused by a raising trigger (sqlstate={state!r}). "
         f"{table} is in APPEND_ONLY_TABLES: hard rule 4 says its rows are evidence, and "

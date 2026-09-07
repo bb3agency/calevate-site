@@ -397,6 +397,12 @@ async def test_a_cursor_from_another_person_is_not_a_read_of_their_page() -> Non
             {"id": uuid.uuid4(), "tid": tenant_id, "uid": other_id},
         )
     run = datetime.now(UTC)
+    # NAMED, not stamped with the uuid. The turn body goes through the redaction hook on
+    # the way in, and a uuid4 carries a run of digits and hyphens often enough to match
+    # the phone pattern -- `5e709309-4500-...` came back as `5e[phone ••00]-4500...` and
+    # failed a run that had nothing wrong with it. The identity under test is the OWNER
+    # COLUMN, which these labels do not touch.
+    whose = {user_id: "mine", other_id: "theirs"}
     async with tenant_session(tenant_id) as session:
         for owner in (user_id, other_id):
             await transcript.append_exchange(
@@ -406,8 +412,8 @@ async def test_a_cursor_from_another_person_is_not_a_read_of_their_page() -> Non
                 tenant_id=tenant_id,
                 run_started_at=run,
                 screen_route="/leads",
-                question=f"question from {owner}",
-                answer=f"answer for {owner}",
+                question=f"question from {whose[owner]}",
+                answer=f"answer for {whose[owner]}",
             )
         theirs = await transcript.load(
             session, realm=transcript.CLIENT, owner_id=other_id, run_started_at=run
@@ -420,8 +426,8 @@ async def test_a_cursor_from_another_person_is_not_a_read_of_their_page() -> Non
             before=theirs.turns[0].id,
         )
     assert [turn.content for turn in mine.turns] == [
-        f"question from {user_id}",
-        f"answer for {user_id}",
+        "question from mine",
+        "answer for mine",
     ]
 
 
