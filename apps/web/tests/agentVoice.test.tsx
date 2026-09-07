@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
 import type { AgentVoiceState } from "@/lib/api/publishing";
-import { VOICES_PATH, type Voice, type VoiceCatalogue } from "@/lib/api/voices";
+import { VOICES_PATH, type OfferedVoice, type VoiceCatalogue } from "@/lib/api/voices";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, type Routes } from "./harness";
@@ -52,7 +52,7 @@ const LANES_PATH = "/v1/agents/lanes";
 const EXPERIMENT_PATH = `/v1/agents/${AGENT}/experiment`;
 const SET_VOICE_PATH = `/v1/admin/tenants/${TENANT}/agents/${AGENT}/voice`;
 
-function voice(over: Partial<Voice> = {}): Voice {
+function voice(over: Partial<OfferedVoice> = {}): OfferedVoice {
   return {
     id: "bulbul:v3:anushka",
     label: "Anushka",
@@ -66,13 +66,19 @@ function voice(over: Partial<Voice> = {}): Voice {
     note: "Warm, unhurried; the default for Telugu receptionists.",
     is_default: true,
     verified: false,
+    // D-547 made the catalogue two-tier, so a row now carries its own verdict: whether a
+    // client may pick it, and — when they may not — the sentence saying why. A Sarvam row
+    // is always offerable; the Cartesia rows are the ones that can arrive refused.
+    offerable: true,
+    unavailable_reason: null,
     ...over,
   };
 }
 
-// Two PERSONAS on the one voice quality (the single-tier voice decision): same Bulbul v3
-// model, different speakers. There is no price tier to choose any more — only who speaks.
-const VOICES: Voice[] = [
+// Two PERSONAS on the one Sarvam voice quality: same Bulbul v3 model, different speakers.
+// The Cartesia tier is a SECOND quality alongside these (D-547) and this fixture does not
+// carry one — the picker's two-tier behaviour is covered where the picker is built.
+const VOICES: OfferedVoice[] = [
   voice(),
   voice({
     id: "bulbul:v3:vidya",

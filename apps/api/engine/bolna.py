@@ -4864,8 +4864,13 @@ class BolnaEngine:
             # Replace-in-place (or a first install): the ids under our name did not
             # survive the write, so the store swapped the entry.
             log.info(
-                f"engine_{leg}_credential_installed",
-                extra={"engine": self.name, "credential": name, "held": len(after)},
+                "engine_credential_installed",
+                extra={
+                    "engine": self.name,
+                    "leg": leg,
+                    "credential": name,
+                    "held": len(after),
+                },
             )
             return LlmCredentialPlacement(replaced_in_place=True)
 
@@ -4881,9 +4886,10 @@ class BolnaEngine:
         # health stops being a function of anything we do. It is reported as a REFUSAL of
         # the install, which is exactly right — the install did not achieve its purpose.
         log.warning(
-            f"engine_{leg}_credential_appended",
+            "engine_credential_appended",
             extra={
                 "engine": self.name,
+                "leg": leg,
                 "credential": name,
                 "superseded": len(superseded),
                 "held": len(after),

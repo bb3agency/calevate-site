@@ -454,9 +454,16 @@ that string to `CartesiaSynthesizer`. `bolna/models.py`:
 
 ```python
 class StandardVoiceConfig(BaseModel):
-    voice: str; voice_id: str; model: str; language: str
+    voice: str
+    voice_id: str
+    model: str
+    language: str
+
+
 class CartesiaConfig(StandardVoiceConfig):
     speed: Optional[float] = 1.0
+
+
 class Synthesizer(BaseModel):
     provider: str
     provider_config: Union[...] = Field(union_mode="smart")

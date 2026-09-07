@@ -68,6 +68,18 @@ type Schemas = components["schemas"];
 export type Voice = Schemas["Voice"];
 
 /**
+ * A catalogue row AS THE LISTING ANSWERS IT — `Voice` plus this deployment's verdict on it.
+ *
+ * It is a SUPERSET of `Voice` on the wire, not an envelope, so anything that renders a
+ * `Voice` renders one of these unchanged. The two are kept apart because they answer
+ * different questions: `Voice` is the voice an agent IS configured with (`AgentVoiceOut`,
+ * `SetVoiceOut`), where offerability is meaningless — a stored voice is already chosen —
+ * and this is a voice a client MAY choose, which on the Cartesia tier depends on a key and
+ * an attested price that can both be missing (D-547).
+ */
+export type OfferedVoice = Schemas["OfferedVoiceOut"];
+
+/**
  * The catalogue AND whether it may be chosen from (D-93).
  *
  * Every field is REQUIRED on the wire — none carries a Pydantic default — and that is
