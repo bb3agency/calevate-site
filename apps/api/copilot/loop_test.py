@@ -564,10 +564,15 @@ async def test_the_gemini_leg_fills_a_field_non_streamed_on_the_accounts_own_mod
     assert leg.url == f"{google_openai_compat_base_url()}/chat/completions"
     # Tools were sent (field-filling works), and no `stream` — this is `chat.complete`.
     assert "tools" in calls[0]["kwargs"]
-    # NO `max_tokens` on this leg, deliberately: whether Gemini's OpenAI-compat surface
-    # accepts the key is UNVERIFIED from this container (`service.MAX_ANSWER_TOKENS`'s
-    # note), and an unsupported key is a 400 that kills a working leg.
-    assert "max_tokens" not in calls[0]["kwargs"]
+    # THE SPEND VALVE TRAVELS ON THIS LEG TOO, and this assertion used to say the opposite
+    # ("no `max_tokens` on this leg, deliberately"). It was written on the premise that a
+    # keyless probe cannot tell an accepted key from a rejected one, which is FALSE: Google's
+    # compat surface validates the body BEFORE the credential, so an unknown key comes back
+    # as `Unknown name "...": Cannot find field` and `max_tokens` comes back as `Please pass
+    # a valid API key`. See `service.MAX_ANSWER_TOKENS` for both requests. Until this landed
+    # the Gemini turn was the one leg with NO output ceiling at all, `MAX_TURNS` times a
+    # question, on a tenant's own metered model.
+    assert calls[0]["kwargs"]["max_tokens"] == service.MAX_ANSWER_TOKENS
     assert [e.fill for e in events if e.fill] == [
         (CopilotFillItem(field_id="open", value="09:00"),)
     ]
@@ -599,6 +604,166 @@ async def test_the_gemini_leg_answers_in_prose_when_the_model_calls_no_tool(
     assert spend.capability.provider == extraction_module.GOOGLE_PROVIDER
     # No usage block: unknown cost, never zero — `meter_assist` records it unmetered, loudly.
     assert spend.usage is None
+
+
+async def test_every_gemini_turn_carries_the_output_ceiling(
+    google_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """EVERY turn, not just the first: the ceiling is per REQUEST, and a loop that dropped it
+    after turn one would leave `MAX_TURNS - 1` unbounded completions behind."""
+    calls = _scripted_complete(
+        monkeypatch,
+        [
+            chat.ChatOutcome(
+                content="",
+                tool_calls=(
+                    chat.ToolCall(
+                        id="c1",
+                        name="set_fields",
+                        # `status` is not writable, so the loop refuses it and goes round.
+                        arguments=json.dumps({"items": [{"field_id": "status", "value": "x"}]}),
+                    ),
+                ),
+                finish_reason="tool_calls",
+            ),
+            chat.ChatOutcome(content="Nine in the morning.", finish_reason="stop"),
+        ],
+    )
+    await _drain_google()
+    assert len(calls) == 2
+    assert [call["kwargs"]["max_tokens"] for call in calls] == [service.MAX_ANSWER_TOKENS] * 2
+
+
+# --- the budget is a TOTAL ---------------------------------------------------------------
+
+
+async def test_the_total_budget_does_not_buy_a_second_leg_after_it_is_spent(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**`TOTAL_BUDGET_S` IS THE WHOLE QUESTION'S WALL CLOCK, NOT THE FIRST LEG'S.**
+
+    `asyncio.timeout` raises `TimeoutError`, the fallback arm catches it, and with nothing
+    streamed yet it used to fall through and start a WHOLE SECOND model call — so a run that
+    had already burned all 90 seconds bought another `STREAM_IDLE_S` of Sarvam on top. ~105s
+    in total, past the `proxy_read_timeout` `copilot/deadline_test.py` exists to keep this
+    response inside, with both legs paid for and the person looking at a dead socket.
+
+    FAILS IF: the budget is re-entered per leg. The fallback here is fully working and fully
+    credentialed — the ONLY reason it must not run is that there is no time left for it.
+    """
+    monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
+    monkeypatch.setattr(service, "TOTAL_BUDGET_S", 0.25)
+    fallback_called = False
+
+    def _hanging_stream(*args: Any, **kwargs: Any) -> AsyncIterator[chat.StreamEvent]:
+        async def _iterate() -> AsyncIterator[chat.StreamEvent]:
+            await asyncio.sleep(30)
+            yield chat.StreamEvent(text="never")
+
+        return _iterate()
+
+    async def _complete(*args: Any, **kwargs: Any) -> chat.ChatOutcome:
+        nonlocal fallback_called
+        fallback_called = True
+        return chat.ChatOutcome(content="a second paid answer nobody can receive")
+
+    monkeypatch.setattr(chat, "stream", _hanging_stream)
+    monkeypatch.setattr(chat, "complete", _complete)
+
+    started = asyncio.get_running_loop().time()
+    with pytest.raises(TimeoutError):
+        await _drain()
+    elapsed = asyncio.get_running_loop().time() - started
+
+    assert fallback_called is False
+    # THE NUMBER, not just the absence of the call: the budget has to be the bound on the
+    # whole generator, so a run that ends AFTER it is the same defect wearing a different
+    # exception.
+    assert elapsed < service.TOTAL_BUDGET_S + 1.0
+
+
+async def test_the_fallback_still_runs_when_the_budget_has_room_for_it(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """D-127 G-7 IS NOT WEAKENED BY THE BUDGET FIX. The reserve refuses a fallback that
+    cannot FIT, and an ordinary provider failure fails in milliseconds — so the disclosed
+    leg is available exactly when it was before. The pair with the test above is the point:
+    same failure, same credentials, different amount of budget left."""
+    monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
+    monkeypatch.setattr(chat, "stream", _failing_stream(httpx.ConnectError("azure is down")))
+
+    async def _complete(*args: Any, **kwargs: Any) -> chat.ChatOutcome:
+        return chat.ChatOutcome(content="Nine in the morning.", finish_reason="stop")
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    events = await _drain()
+    assert [e.text for e in events if e.text] == ["Nine in the morning."]
+    assert events[-1].spend is not None
+    assert events[-1].spend.capability.provider == extraction_module.SARVAM_PROVIDER
+
+
+async def test_a_leg_that_dies_after_a_paid_turn_is_still_metered(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**MONEY PAID TO A PROVIDER OWES A `usage_event` WHATEVER HAPPENED NEXT (hard rule 7).**
+
+    `_run_tool_loop` only emits its spend at a `return`, so a leg that RAISED after N paid
+    turns emitted none — and the route metered the Sarvam fallback alone, while `routes._record`
+    documented that both legs are recorded. The tokens of the failed leg were invisible to the
+    account's ceiling and to the platform brake.
+
+    FAILS IF: the failed leg's turns stop reaching the caller. Two spends must arrive, in
+    order, the first naming the leg that died and what it had already cost.
+    """
+    monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
+    paid = chat.TokenUsage(prompt_tokens=800, output_tokens=40)
+    first_turn = _turn(
+        # A refused fill, so the loop legitimately goes round to a second turn.
+        arguments=json.dumps({"items": [{"field_id": "status", "value": "live"}]}),
+        usage=paid,
+    )
+    turns_served = 0
+
+    def _stream(*args: Any, **kwargs: Any) -> AsyncIterator[chat.StreamEvent]:
+        async def _iterate() -> AsyncIterator[chat.StreamEvent]:
+            nonlocal turns_served
+            turns_served += 1
+            if turns_served > 1:
+                raise httpx.ReadError("azure went away mid-run")
+            for event in first_turn:
+                yield event
+
+        return _iterate()
+
+    async def _complete(*args: Any, **kwargs: Any) -> chat.ChatOutcome:
+        return chat.ChatOutcome(content="Nine in the morning.", finish_reason="stop")
+
+    monkeypatch.setattr(chat, "stream", _stream)
+    monkeypatch.setattr(chat, "complete", _complete)
+
+    spends = [e.spend for e in await _drain() if e.spend is not None]
+    assert len(spends) == 2
+    assert spends[0].capability.provider == extraction_module.AZURE_PROVIDER
+    assert spends[0].usage == paid
+    assert spends[1].capability.provider == extraction_module.SARVAM_PROVIDER
+
+
+async def test_a_leg_that_dies_before_completing_a_turn_invents_no_spend(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half of the rule above. A first request that never landed was never paid
+    for, and a `CopilotSpend(usage=None)` for it would fire `ai_assist_unmeterable` — an
+    operator sent to look at a metering outage that is really a provider outage."""
+    monkeypatch.setattr(get_settings(), "sarvam_api_key", "sk-test", raising=False)
+    monkeypatch.setattr(chat, "stream", _failing_stream(httpx.ConnectError("azure is down")))
+
+    async def _complete(*args: Any, **kwargs: Any) -> chat.ChatOutcome:
+        return chat.ChatOutcome(content="Nine in the morning.", finish_reason="stop")
+
+    monkeypatch.setattr(chat, "complete", _complete)
+    spends = [e.spend for e in await _drain() if e.spend is not None]
+    assert len(spends) == 1
+    assert spends[0].capability.provider == extraction_module.SARVAM_PROVIDER
 
 
 # --- the read tools: results feed back, and the loop CONTINUES (phase 1) -----------------
@@ -996,7 +1161,13 @@ async def test_an_identical_repeated_lookup_is_refused_rather_than_run_again(
     assert [message["tool_call_id"] for message in tool_messages] == ["call-0", "call-0"]
     assert [e.text for e in events if e.text] == ["You had no calls last week."]
     # And the person sees it as a step, refused rather than silently missing.
-    assert [step.status for step in (e.step for e in events if e.step)][-1] == "refused"
+    refused = [e.step for e in events if e.step][-1]
+    assert refused.status == "refused"
+    # WITH NO TIME ON IT. Nothing ran, so there is nothing to time — this used to pass
+    # `time.monotonic()` at the moment the frame was BUILT and report "0 ms" beside steps
+    # that really took 240, which is a fabricated measurement in the one column a person
+    # reads to tell a slow answer from a stuck one.
+    assert refused.elapsed_ms is None
 
 
 async def test_a_lookup_that_hangs_is_stopped_and_answered_with_a_sentence(

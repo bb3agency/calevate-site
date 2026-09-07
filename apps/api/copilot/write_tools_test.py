@@ -425,6 +425,55 @@ async def test_confirm_executes_exactly_once_and_the_replay_is_refused() -> None
     assert [row[0] for row in await _audit(tenant_id)] == ["lead.status_set"]
 
 
+async def test_a_failed_execution_gives_the_token_back_instead_of_lying_about_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """**THE RETRY MUST NOT BE TOLD A CHANGE HAPPENED THAT DID NOT.**
+
+    The burn is deliberately BEFORE the execution, so a crash cannot let one decision run
+    twice. What that used to cost was paid by the person: when the execution or its audit
+    row RAISED, the route's transaction rolled back — nothing happened — and the honest
+    retry got `copilot_proposal_already_used`, whose sentence is *"the change was made the
+    first time."* False, and it is the one they act on.
+
+    Driven through `write_audit`, which is inside the same transaction as the change and is
+    the last thing that can fail; the lead below proves the rollback, and the SECOND confirm
+    with the SAME token proves the id came back. At-most-once is untouched: the second run
+    is the first execution that ever committed.
+    """
+    tenant_id, _slug, token = await _make_tenant()
+    user_id = _user_of(token)
+    lead_id = await _lead_of(tenant_id)
+    proposal = await write_tools.plan_write(
+        "lead_set_status",
+        json.dumps({"lead_id": str(lead_id), "status": "hot"}),
+        actor=_actor(tenant_id, user_id),
+    )
+    before = await _lead_status(tenant_id, lead_id)
+    assert before != "hot"
+
+    async def _explode(*args: Any, **kwargs: Any) -> None:
+        raise RuntimeError("the chain lock went away")
+
+    monkeypatch.setattr(write_tools, "write_audit", _explode)
+    with pytest.raises(RuntimeError):
+        await _confirm(tenant_id, user_id, proposal.token)
+    # NOTHING HAPPENED, on either side of the transaction.
+    assert await _lead_status(tenant_id, lead_id) == before
+    assert await _audit(tenant_id) == []
+
+    monkeypatch.undo()
+    # THE SAME TOKEN, and it reaches the executor rather than the replay refusal.
+    retried = await _confirm(tenant_id, user_id, proposal.token)
+    assert retried.applied is True
+    assert await _lead_status(tenant_id, lead_id) == "hot"
+    assert [row[0] for row in await _audit(tenant_id)] == ["lead.status_set"]
+    # AND THE ID IS SPENT NOW: the un-burn is a retry, not a licence.
+    with pytest.raises(ProblemError) as replay:
+        await _confirm(tenant_id, user_id, proposal.token)
+    assert replay.value.code == "copilot_proposal_already_used"
+
+
 async def test_a_second_proposal_for_an_unchanged_lead_reports_that_it_changed_nothing() -> None:
     """`applied: false` on a 200 is a real answer (D-65). A path that reported success for
     a no-op would put a second act in an append-only ledger claiming a change that did not

@@ -23,10 +23,11 @@ times it has been run is not measuring the code.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, MutableMapping
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -42,7 +43,7 @@ from apps.api.billing import ai_quota, rates
 from apps.api.copilot import service
 from apps.api.copilot.sanitize import has_invisible
 from apps.api.core.settings import get_settings
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import credential_session, tenant_session, untenanted_session
 from apps.api.db.transition import _identifier
 from apps.api.main import app
 from apps.workers import chat
@@ -898,3 +899,166 @@ async def test_two_legs_in_one_run_are_two_ledger_entries_and_not_one(
     # TWO REFS: two legs, two records, one question.
     assert refs == 2
     assert len(await _audit(tenant_id)) == 1
+
+
+async def _ask_then_disconnect(token: str, slug: str) -> list[MutableMapping[str, Any]]:
+    """Drive the ASGI app by hand and hang up after the first body chunk.
+
+    NOT `httpx.ASGITransport`: leaving its `stream()` context closes the CLIENT side and
+    never sends `http.disconnect`, so the app runs happily to completion and a test written
+    over it proves nothing about an abandoned answer. `fastapi.sse` watches `receive` for
+    that message and cancels the streaming task on it, which is the real event — a browser
+    that navigated away — and the only way to reach the route's `finally`.
+    """
+    body = json.dumps(BODY).encode()
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0", "spec_version": "2.3"},
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": ASK,
+        "raw_path": ASK.encode(),
+        "root_path": "",
+        "query_string": b"",
+        "client": ("203.0.113.7", 51234),
+        "server": ("api", 80),
+        "headers": [
+            (key.lower().encode(), value.encode())
+            for key, value in {**_headers(token, slug), "content-type": "application/json"}.items()
+        ]
+        + [(b"content-length", str(len(body)).encode())],
+    }
+    sent: list[MutableMapping[str, Any]] = []
+    first_chunk = asyncio.Event()
+    delivered = False
+
+    async def receive() -> dict[str, Any]:
+        nonlocal delivered
+        if not delivered:
+            delivered = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        # THE HANG-UP, as late as it can be: one frame has reached the browser and the
+        # generator is suspended at its `yield` when this arrives.
+        await first_chunk.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message: MutableMapping[str, Any]) -> None:
+        sent.append(message)
+        if message["type"] == "http.response.body" and message.get("body"):
+            first_chunk.set()
+
+    await app(scope, receive, send)
+    return sent
+
+
+async def test_an_abandoned_stream_meters_what_it_spent_and_raises_nothing(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """**THE TAB CLOSED MID-ANSWER.** `route_test` had no disconnect case at all, which is
+    how the whole abandoned-turn path — the `finally` that shields `_record` — came to be
+    argued in a comment and asserted nowhere.
+
+    Two properties, and the second is the one an audit claimed was broken:
+
+    1. A run whose spend event arrived before the disconnect IS metered. The ledger owes a
+       row for tokens a provider was paid for whether or not anybody read the answer, and
+       the audit row records that the person never saw it (`completed: false`).
+    2. Nothing is raised by the close. Awaiting inside an async generator's `finally` while
+       it is being closed is LEGAL — `RuntimeError: async generator ignored GeneratorExit`
+       is raised by YIELDING after `GeneratorExit`, never by awaiting, and this `finally`
+       yields nothing. Asserted rather than reasoned about, because the claim that every
+       abandoned tab logs one was plausible enough to act on.
+    """
+    tenant_id, slug, token = await _make_tenant()
+
+    def _slow_stream(leg: chat.ChatLeg, messages: Any, **kwargs: Any) -> Any:
+        async def _iterate() -> AsyncIterator[chat.StreamEvent]:
+            yield chat.StreamEvent(text="Nine in the ")
+            yield chat.StreamEvent(
+                outcome=chat.ChatOutcome(
+                    content="Nine in the ",
+                    finish_reason="stop",
+                    usage=chat.TokenUsage(prompt_tokens=1_000, output_tokens=100),
+                )
+            )
+
+        return _iterate()
+
+    monkeypatch.setattr(chat, "stream", _slow_stream)
+
+    with caplog.at_level(logging.ERROR):
+        sent = await _ask_then_disconnect(token, slug)
+
+    assert sent[0]["type"] == "http.response.start" and sent[0]["status"] == 200
+    # POLLED, AND THE POLL IS PART OF THE PROPERTY. `asyncio.shield` hands `_record` to a
+    # task of its own and the disconnect unwinds this request without waiting for it, which
+    # is the whole point — the ledger write must survive the caller, not delay it. So the
+    # row lands just after the response is gone, and a test that read once immediately
+    # would be asserting on a race rather than on the write.
+    rows: list[Any] = []
+    for _ in range(40):
+        rows = await _usage_rows(tenant_id)
+        if rows:
+            break
+        await asyncio.sleep(0.05)
+    assert rows, "an abandoned answer was still paid for"
+    assert len(await _audit(tenant_id)) == 1
+    assert "GeneratorExit" not in caplog.text
+    assert [record.message for record in caplog.records if record.levelno >= logging.ERROR] == []
+
+
+async def test_an_answer_that_cost_nothing_is_still_in_the_conversation(
+    azure_only: None, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """**THE LEDGER GUARD WAS ALSO SKIPPING THE PERSON'S OWN CONVERSATION.**
+
+    `_record` returned early on `if not spends`, which is right for the METER and the AUDIT
+    (a `copilot.ask` row with no act behind it records nothing) and wrong for the
+    TRANSCRIPT: an identity question is answered from a constant by
+    `service.run_copilot`'s control 1 — no provider, no tokens, deliberately — so the person
+    watched the assistant answer and then found the exchange gone on the next load, against
+    what `GET /v1/copilot/conversation` promises them.
+
+    FAILS IF: the transcript is re-coupled to the spend. The provider below is never
+    reached, which is the other half of the same property.
+    """
+    tenant_id, slug, token = await _make_tenant()
+    # A LIVE SIGN-IN RUN, because a transcript turn is stamped with one (D-540) and a dev
+    # token carries no `auth_sessions` row. Written directly for `copilot_transcript_test`'s
+    # reason: the columns are what `session_run` reads, and issuing a real session would
+    # bring a second subject in.
+    user_id = UUID(token.rsplit(":", 1)[1])
+    async with credential_session() as credentials:
+        await credentials.execute(
+            text(
+                "INSERT INTO auth_sessions (id, family_id, realm, subject_id, token_hash, "
+                "last_seen_at, idle_expires_at, absolute_expires_at, created_at, updated_at) "
+                "VALUES (:id, :fid, 'client', :sid, :hash, now(), now() + interval '1 hour', "
+                "now() + interval '1 hour', now() - interval '1 minute', now())"
+            ),
+            {
+                "id": (session_id := uuid.uuid4()),
+                "fid": uuid.uuid4(),
+                "sid": user_id,
+                "hash": session_id.bytes,
+            },
+        )
+    reached = _fake_provider(monkeypatch, content="never asked")
+
+    async with _client() as http:
+        events = await _events(http, token, slug, {**BODY, "question": "what model are you?"})
+        loaded = await http.get("/v1/copilot/conversation", headers=_headers(token, slug))
+
+    assert reached == [], "an identity question must not reach a provider"
+    assert [name for name, _ in events] == ["text", "done"]
+    assert events[-1][1] == {"disclosure": None, "metered": False}
+    # Nothing was paid for and nothing is on the ledger or the chain — unchanged.
+    assert await _usage_rows(tenant_id) == []
+    assert await _audit(tenant_id) == []
+    # But the exchange is there to scroll back to.
+    assert loaded.status_code == 200, loaded.text
+    turns = loaded.json()["turns"]
+    assert [turn["role"] for turn in turns] == ["user", "assistant"]
+    assert turns[0]["content"] == "what model are you?"
+    assert "Calevate assistant" in turns[1]["content"]

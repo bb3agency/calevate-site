@@ -417,94 +417,104 @@ async def ask_copilot(
         if recorded:
             return
         recorded = True
-        if not spends:
-            # NOTHING WAS PAID FOR. A selector refusal raises before the first request, and
-            # a disconnect during the first token has produced no usage figure to record.
-            # Writing an audit row for a question nobody was charged for and nobody
-            # answered would put a `copilot.ask` entry on the chain with no act behind it.
+        answered = "".join(answer_parts)
+        if not spends and not answered:
+            # NOTHING WAS PAID FOR AND NOTHING WAS SAID. A selector refusal raises before
+            # the first request, and a disconnect during the first token has produced
+            # neither a usage figure nor a sentence. There is no act to record.
             return
+        # ⚠ **`if not spends: return` USED TO GUARD ALL OF THIS, AND IT TOOK THE TRANSCRIPT
+        # WITH IT.** An answer with no SPEND is a real and ordinary outcome — the
+        # `identity_answer` short-circuit (`service.run_copilot`'s control 1) answers "what
+        # model are you" from a constant, deliberately without reaching a provider — and the
+        # person then watched the assistant reply and found the exchange GONE on the next
+        # load, because the ledger guard also skipped the turn row. `_CONVERSATION_DESCRIPTION`
+        # promises the opposite. So the two are separated below: the METER and the AUDIT
+        # still require a spend (a `copilot.ask` row with no act behind it is what that
+        # guard was protecting), and the TRANSCRIPT requires only that words reached them.
         async with tenant_session(tenant_id) as record_session:
-            # ONE `meter_assist` PER SPEND, EACH UNDER ITS OWN `ref`. The first keeps the
-            # ref minted before the run so an operator correlating a log line to a ledger
-            # row still finds it; a second leg gets a fresh one, because the idempotency of
-            # `record_ai_assist_usage` is keyed on the ref and reusing it would discard the
-            # second spend in the name of not double-charging the first.
-            refs = [ref if index == 0 else new_assist_ref() for index in range(len(spends))]
-            for spent, spend_ref in zip(spends, refs, strict=True):
-                metering = await meter_assist(
+            if spends:
+                # ONE `meter_assist` PER SPEND, EACH UNDER ITS OWN `ref`. The first keeps the
+                # ref minted before the run so an operator correlating a log line to a ledger
+                # row still finds it; a second leg gets a fresh one, because the idempotency of
+                # `record_ai_assist_usage` is keyed on the ref and reusing it would discard the
+                # second spend in the name of not double-charging the first.
+                refs = [ref if index == 0 else new_assist_ref() for index in range(len(spends))]
+                for spent, spend_ref in zip(spends, refs, strict=True):
+                    metering = await meter_assist(
+                        record_session,
+                        tenant_id=tenant_id,
+                        ref=spend_ref,
+                        result=spent,
+                        feature=ASSIST_FEATURE_COPILOT,
+                        # The model the answer ran on, when the run knows it (D-478: the
+                        # account's own Gemini id). `None` on the Azure leg, where
+                        # `meter_assist` reads the live `azure_openai_model` setting — the model
+                        # behind Azure's deployment is an operator switch, not a per-run fact.
+                        model=spent.model,
+                    )
+                    # TRUE IF ANY LEG WAS METERED. The flag reaches the browser as "this
+                    # question was charged for", and a run whose Azure leg was metered and whose
+                    # Sarvam fallback was not (D-36 prices that leg at zero) WAS charged for.
+                    metered = metered or metering.metered
+                last = spends[-1]
+                await write_audit(
                     record_session,
+                    action="copilot.ask",
+                    actor=principal,
                     tenant_id=tenant_id,
-                    ref=spend_ref,
-                    result=spent,
-                    feature=ASSIST_FEATURE_COPILOT,
-                    # The model the answer ran on, when the run knows it (D-478: the
-                    # account's own Gemini id). `None` on the Azure leg, where
-                    # `meter_assist` reads the live `azure_openai_model` setting — the model
-                    # behind Azure's deployment is an operator switch, not a per-run fact.
-                    model=spent.model,
+                    object_type="screen",
+                    # The ROUTE TEMPLATE the browser reported, which is a screen name and
+                    # not a record — the object here is "a screen", and there is no row to
+                    # point at.
+                    object_id=payload.screen.route,
+                    ip=client_request_ip(request),
+                    # Ids, names and COUNTS. No question, no answer, no field value — a
+                    # value is the one thing on this path `sanitize` exists to keep out of a
+                    # durable record (hard rule 6).
+                    #
+                    # A COUNT AND NOT A LIST OF FIELD IDS, and the reason is mechanical
+                    # rather than a judgement call: `write_audit`'s summary never reaches a
+                    # column at all (`audit_log` has none) — it goes to the log stream
+                    # through `core/logging.redact_mapping`, which collapses ANY sequence to
+                    # `"[N items]"`. A `filled_field_ids` key would therefore be a field name
+                    # promising something the record cannot hold, which is worse than not
+                    # recording it. What survives is what is asserted on.
+                    summary={
+                        "realm": payload.screen.realm,
+                        # THE LEG THAT ANSWERED, and the COUNT of legs this run paid. One row
+                        # per question is what an auditor reads, so a run that failed over says
+                        # so with a number rather than by being two rows.
+                        "provider": last.capability.provider,
+                        "fallback_reason": last.capability.fallback_reason,
+                        "spend_count": len(spends),
+                        "metered": metered,
+                        "ref": ref,
+                        # WHETHER THE PERSON GOT THE WHOLE ANSWER. A run recorded from the
+                        # `finally` was abandoned or interrupted, and an auditor reading a
+                        # charge for an answer nobody saw needs to be able to tell.
+                        "completed": completed,
+                        "filled_field_count": len(filled),
+                        # A COUNT AND THE NAMES of the TIER 1 actions this answer performed
+                        # (D-500). Each already wrote its own `audit_log` row naming the person
+                        # and the object it touched, inside `run_immediate`'s transaction; this
+                        # is what the `copilot.ask` row says about the ANSWER, so a reader of
+                        # one row can tell that a question changed something. Names only — the
+                        # ids are in the rows the actions wrote. `redact_mapping` collapses any
+                        # sequence to "[N items]" on the way to the log stream, which is why
+                        # the count is stated separately rather than left to be derived from a
+                        # field that will not be there.
+                        "action_count": len(acted),
+                        "actions": sorted(set(acted)),
+                        # WHICH TOOL WAS PROPOSED, or None. A NAME and not the arguments: this
+                        # row records that the assistant offered a change, and the row that
+                        # records the change itself is written by `POST /v1/copilot/confirm`
+                        # if — and only if — a person agreed to it.
+                        "proposed_tool": proposed,
+                        # WHICH SCREEN THIS ANSWER OPENED, or None. A name, never a route.
+                        "navigated_to": navigated,
+                    },
                 )
-                # TRUE IF ANY LEG WAS METERED. The flag reaches the browser as "this
-                # question was charged for", and a run whose Azure leg was metered and whose
-                # Sarvam fallback was not (D-36 prices that leg at zero) WAS charged for.
-                metered = metered or metering.metered
-            last = spends[-1]
-            await write_audit(
-                record_session,
-                action="copilot.ask",
-                actor=principal,
-                tenant_id=tenant_id,
-                object_type="screen",
-                # The ROUTE TEMPLATE the browser reported, which is a screen name and
-                # not a record — the object here is "a screen", and there is no row to
-                # point at.
-                object_id=payload.screen.route,
-                ip=client_request_ip(request),
-                # Ids, names and COUNTS. No question, no answer, no field value — a
-                # value is the one thing on this path `sanitize` exists to keep out of a
-                # durable record (hard rule 6).
-                #
-                # A COUNT AND NOT A LIST OF FIELD IDS, and the reason is mechanical
-                # rather than a judgement call: `write_audit`'s summary never reaches a
-                # column at all (`audit_log` has none) — it goes to the log stream
-                # through `core/logging.redact_mapping`, which collapses ANY sequence to
-                # `"[N items]"`. A `filled_field_ids` key would therefore be a field name
-                # promising something the record cannot hold, which is worse than not
-                # recording it. What survives is what is asserted on.
-                summary={
-                    "realm": payload.screen.realm,
-                    # THE LEG THAT ANSWERED, and the COUNT of legs this run paid. One row
-                    # per question is what an auditor reads, so a run that failed over says
-                    # so with a number rather than by being two rows.
-                    "provider": last.capability.provider,
-                    "fallback_reason": last.capability.fallback_reason,
-                    "spend_count": len(spends),
-                    "metered": metered,
-                    "ref": ref,
-                    # WHETHER THE PERSON GOT THE WHOLE ANSWER. A run recorded from the
-                    # `finally` was abandoned or interrupted, and an auditor reading a
-                    # charge for an answer nobody saw needs to be able to tell.
-                    "completed": completed,
-                    "filled_field_count": len(filled),
-                    # A COUNT AND THE NAMES of the TIER 1 actions this answer performed
-                    # (D-500). Each already wrote its own `audit_log` row naming the person
-                    # and the object it touched, inside `run_immediate`'s transaction; this
-                    # is what the `copilot.ask` row says about the ANSWER, so a reader of
-                    # one row can tell that a question changed something. Names only — the
-                    # ids are in the rows the actions wrote. `redact_mapping` collapses any
-                    # sequence to "[N items]" on the way to the log stream, which is why
-                    # the count is stated separately rather than left to be derived from a
-                    # field that will not be there.
-                    "action_count": len(acted),
-                    "actions": sorted(set(acted)),
-                    # WHICH TOOL WAS PROPOSED, or None. A NAME and not the arguments: this
-                    # row records that the assistant offered a change, and the row that
-                    # records the change itself is written by `POST /v1/copilot/confirm`
-                    # if — and only if — a person agreed to it.
-                    "proposed_tool": proposed,
-                    # WHICH SCREEN THIS ANSWER OPENED, or None. A name, never a route.
-                    "navigated_to": navigated,
-                },
-            )
             # 5. THE MEMORY, in the SAME transaction as the meter and the audit, and that
             #    is the whole reason it is here rather than in a session of its own: a
             #    memory of an answer whose `usage_events` row rolled back is a memory of
@@ -531,6 +541,9 @@ async def ask_copilot(
                 #     "do not store" rather than asserted away, because the alternative is
                 #     writing a turn stamped with a run that does not exist and can
                 #     therefore never be cleared.
+                # NO `spends` CONDITION ON THIS ONE — see the note above the session. A
+                # turn the person can scroll back to is owed for any answer they were shown,
+                # and the spend-free ones (the identity short-circuit) are answers.
                 if run_started_at is not None:
                     await transcript.append_exchange(
                         record_session,
@@ -540,23 +553,29 @@ async def ask_copilot(
                         run_started_at=run_started_at,
                         screen_route=payload.screen.route,
                         question=payload.question,
-                        answer="".join(answer_parts),
+                        answer=answered,
                     )
-                await memory.remember_exchange(
-                    record_session,
-                    tenant_id=tenant_id,
-                    user_id=principal.user_id,
-                    screen_route=payload.screen.route,
-                    question=payload.question,
-                    answer="".join(answer_parts),
-                    # Counts and names, exactly as the audit summary above — never a field
-                    # value, never the model's prose beyond `content` itself.
-                    meta={
-                        "realm": payload.screen.realm,
-                        "provider": last.capability.provider,
-                        "filled_field_count": len(filled),
-                    },
-                )
+                # THE MEMORY DOES KEEP THE SPEND CONDITION, and the asymmetry is deliberate:
+                # its `meta` names the leg that answered, which only a spend knows, and the
+                # one spend-free answer this route can produce is a constant sentence about
+                # this assistant's own identity — nothing a future turn is better for
+                # recalling.
+                if spends:
+                    await memory.remember_exchange(
+                        record_session,
+                        tenant_id=tenant_id,
+                        user_id=principal.user_id,
+                        screen_route=payload.screen.route,
+                        question=payload.question,
+                        answer=answered,
+                        # Counts and names, exactly as the audit summary above — never a
+                        # field value, never the model's prose beyond `content` itself.
+                        meta={
+                            "realm": payload.screen.realm,
+                            "provider": spends[-1].capability.provider,
+                            "filled_field_count": len(filled),
+                        },
+                    )
 
     try:
         async for event in service.run_copilot(
@@ -898,7 +917,14 @@ async def clear_copilot_conversation(
     person. A second device discovers it on its next load, which is the same contract as
     every other turn.
     """
-    if principal.user_id is None:
+    # THE SAME GUARD AS `load_copilot_conversation`, INCLUDING `tenant_id`, and the point is
+    # that it is the same one. This handler checked `user_id` alone, which meant the two
+    # adjacent doors to one person's conversation refused different callers with different
+    # sentences — one way per problem, broken between neighbours. Neither branch is
+    # reachable through `requires("copilot:use")` on the client realm (it resolves both, and
+    # `Depends(db)` needs the tenant to open a session at all); what matters is that the
+    # answer does not depend on which of the two a caller knocked at.
+    if principal.tenant_id is None or principal.user_id is None:
         raise ProblemError(
             kind="permission",
             code="copilot_conversation_not_yours",

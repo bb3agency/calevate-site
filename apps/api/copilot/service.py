@@ -122,13 +122,42 @@ STREAM_IDLE_S: Final = 15.0
 #: ends, and a truncated tool call fails `validate_fill`'s JSON parse and re-enters the
 #: loop as an ordinary refusal — both visible, neither silent.
 #:
-#: ⚠ NOT SENT ON THE GEMINI TURN. Whether Google's OpenAI-compat surface accepts
-#: `max_tokens` is UNVERIFIED here — `ai.google.dev` and `developers.googleblog.com` are
-#: egress-blocked from this container (403 on CONNECT, re-measured 31 Aug 2026), and a
-#: live probe cannot settle it without a key (the endpoint answers an invalid key with
-#: 400 `INVALID_ARGUMENT` before validating the body — probed 31 Aug 2026). Sending an
-#: unsupported key risks a 400 that turns a working leg into a refusal, the exact trade
-#: `_answer_via_sarvam` declines for `tools`. A credentialed probe closes it.
+#: ⚠ **IT IS NOW SENT ON THE GEMINI TURN TOO, AND THIS NOTE USED TO SAY IT COULD NOT BE.**
+#: The old reading was that a keyless probe cannot settle whether Google's OpenAI-compat
+#: surface accepts `max_tokens`, because "the endpoint answers an invalid key with 400
+#: `INVALID_ARGUMENT` before validating the body". THAT PREMISE IS WRONG and the probe that
+#: shows it is two requests, not one — the body is validated FIRST:
+#:
+#:   POST https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
+#:   Authorization: Bearer INVALID_KEY_PROBE          (both requests)
+#:   {... "zzz_not_a_param": 16}  -> 400 `Invalid JSON payload received. Unknown name
+#:                                   "zzz_not_a_param": Cannot find field.`
+#:   {... "max_tokens": 16}       -> 400 `Please pass a valid API key`
+#:
+#: An unknown key is named and refused; `max_tokens` gets past the body parser and fails
+#: only on the credential, which is exactly the discrimination the earlier session believed
+#: it could not get. `max_completion_tokens` passes the same way. VERIFIED-VENDOR-ENDPOINT,
+#: run against Google's own host from this container on 7 Sep 2026 (`ai.google.dev` itself
+#: is still egress-blocked here — re-measured the same day — so the endpoint is the primary
+#: source that could actually be read).
+#:
+#: WHAT IT WAS COSTING: the Gemini turn was the ONE leg with no output ceiling at all, up to
+#: `MAX_TURNS` times per question, on a tenant's own metered model.
+#:
+#: ⚠ **THE GEMINI TRAP IS THE REASON THE NUMBER MATTERS MORE ON THAT LEG, AND IT IS WHY THIS
+#: CEILING IS NOT LOWERED.** `engine.THINKING_TOKENS_SHARE_THE_REPLY_BUDGET` (VERIFIED, four
+#: sources, `calevate_shared/engine.py`) records that a 2.5 flash / flash-lite model's
+#: THINKING tokens draw on the same output budget, so a ceiling small enough to be spent on
+#: thinking returns a candidate with NO content. 4,096 is sized to the largest legitimate
+#: ANSWER and is many times the prompt's "a couple of sentences", and the state is not silent
+#: if it ever happens anyway: the loop already answers an empty candidate with
+#: `NO_ANSWER_MESSAGE` and logs the vendor's `finish_reason`, which is the discrimination an
+#: operator needs. The other two traps this repository knows (`temperature-must-be-one`,
+#: `max-tokens-becomes-max-completion-tokens`) belong to GPT-5-class models, which
+#: `Settings.azure_openai_model` is typed `AzureOpenAIModel` — `gpt-4o-mini` |
+#: `gpt-4.1-mini` — precisely so it cannot hold; a trap reader on this surface would be
+#: mitigating a state the type forbids, and the change that widens that Literal is where it
+#: belongs.
 MAX_ANSWER_TOKENS: Final = 4096
 
 #: The wall clock for the WHOLE loop, enforced with `asyncio.timeout` around it.
@@ -157,6 +186,20 @@ MAX_ANSWER_TOKENS: Final = 4096
 #: `proxy_ignore_headers`, which is the one directive that would switch that off — checked
 #: by grep, not assumed. So `infra/` is untouched by this feature.
 TOTAL_BUDGET_S: Final = 90.0
+
+#: How much of `TOTAL_BUDGET_S` must be LEFT for the disclosed fallback to be worth starting.
+#:
+#: `STREAM_IDLE_S`, because that is the fallback's own whole-request timeout
+#: (`_answer_via_sarvam` calls `chat.complete`, where `timeout_s` bounds the request rather
+#: than the gap between frames). So this is not a guess at a margin: it is the most the
+#: second leg can take, and a fallback that cannot fit it would be a paid round trip whose
+#: answer arrives after the edge has already given up on the socket.
+#:
+#: THE DISCLOSED FALLBACK IS NOT WEAKENED BY THIS (D-127 G-7). It is available on every
+#: failure that leaves room for it, which is every ordinary provider failure — an outage
+#: answers in milliseconds. What it can no longer do is start after the budget is already
+#: gone, which is the one case where it could not have finished anyway.
+FALLBACK_RESERVE_S: Final = STREAM_IDLE_S
 
 #: Said to the person when the loop runs out of turns. An authored sentence with an action
 #: in it, never a spinner that stops.
@@ -874,7 +917,11 @@ async def _run_read_tools(
     for index in repeats:
         contents[index] = _REPEAT_RESULT
         frames[index] = _step_end(
-            calls[index], status="refused", detail=_REPEAT_RESULT, started_at=time.monotonic()
+            # NOTHING RAN, SO NOTHING IS TIMED — see `_step_end`.
+            calls[index],
+            status="refused",
+            detail=_REPEAT_RESULT,
+            started_at=None,
         )
     for index, _ in over_cap:
         contents[index] = (
@@ -950,12 +997,20 @@ async def _google_turn(
     streamed, D-478), emitted as one text event and then the terminal outcome. `timeout_s` is
     a WHOLE-request timeout here, which is correct for a blocking call.
 
-    NO `max_tokens` on this leg — see `MAX_ANSWER_TOKENS`: whether Gemini's OpenAI-compat
-    surface accepts the key is unverified from this container, and an unsupported key is a
-    400 that kills a working leg. The blocking `timeout_s` bounds this turn's wall clock
-    (a whole-request bound the streamed turn does not have), so the exposure is smaller."""
+    `max_tokens` IS SENT HERE, and this docstring used to say it could not be. See
+    `MAX_ANSWER_TOKENS` for the two-request probe that settled it against Google's own
+    endpoint: the compat surface validates the BODY before the credential, so an unknown key
+    comes back named ("Cannot find field") and `max_tokens` comes back as an auth failure —
+    it is a real field. Without it this was the only leg whose output was bounded by nothing
+    but `timeout_s`, which bounds a wall clock and not a token count."""
     outcome = await chat.complete(
-        leg, messages, timeout_s=STREAM_IDLE_S, temperature=0.2, tools=tools, tool_choice="auto"
+        leg,
+        messages,
+        timeout_s=STREAM_IDLE_S,
+        temperature=0.2,
+        tools=tools,
+        tool_choice="auto",
+        max_tokens=MAX_ANSWER_TOKENS,
     )
     if outcome.content:
         yield chat.StreamEvent(text=outcome.content)
@@ -1025,12 +1080,20 @@ def _step_end(
     *,
     status: Literal["done", "refused", "failed"],
     detail: str,
-    started_at: float,
+    started_at: float | None,
 ) -> CopilotStepEvent:
     """The terminal frame for one call, carrying what came back and how long it took.
 
     `time.monotonic` rather than the wall clock: this is a DURATION, and a wall clock can
     step backwards under NTP and report a negative one.
+
+    **`started_at=None` MEANS NOTHING WAS TIMED, AND THE FRAME THEN CARRIES NO TIME.** The
+    two refusals below — a repeated lookup and a call past `MAX_ACTIONS_PER_RUN` — never
+    run anything: they were passing `time.monotonic()` AT THE MOMENT THE FRAME WAS BUILT,
+    which is not a measurement of anything and reported "0 ms" in the panel beside steps
+    that really did take 240. A person reading these rows is trying to tell a slow answer
+    from a stuck one, so a fabricated zero is worse than a blank — `elapsed_ms` is already
+    `None` while a step is RUNNING, and the browser already renders that.
     """
     return CopilotStepEvent(
         id=call.id,
@@ -1038,7 +1101,7 @@ def _step_end(
         status=status,
         args=_preview(call.arguments or ""),
         detail=_preview(detail),
-        elapsed_ms=int((time.monotonic() - started_at) * 1000),
+        elapsed_ms=None if started_at is None else int((time.monotonic() - started_at) * 1000),
     )
 
 
@@ -1080,9 +1143,21 @@ async def _run_tool_loop(
     principal: Principal | None = None,
     seed: str = "",
     ip: str | None = None,
+    turns: list[chat.ChatOutcome],
 ) -> AsyncIterator[CopilotEvent]:
     """Up to `MAX_TURNS` turns on the answering leg. Raises `httpx.HTTPError` if the FIRST
     turn never produced anything, so the caller can still fall back.
+
+    **`turns` IS AN OUT-PARAMETER AND THAT IS WHAT MAKES A FAILED LEG METERABLE.** It was a
+    local, and a local is lost when this generator RAISES — which is exactly the moment
+    money has been spent and nobody has been charged: a provider that dies on turn four has
+    been paid for three completed turns, and the spend event that would have carried them is
+    only emitted at the `return` points below. `_answer_stream` owns the list, so on a
+    failure it still holds every `ChatOutcome` this leg completed and emits the spend for
+    them before falling back (hard rule 7 — a provider payment with no `usage_event` behind
+    it is invisible to the account ceiling and to the platform brake). Passing it in rather
+    than yielding it from an `except` arm keeps the ownership in the layer that decides
+    about LEGS, and leaves this function's own control flow untouched.
 
     ONE LOOP FOR BOTH LEGS (D-478). `turn` is the only thing that differs — Azure's streamed
     turn or Gemini's non-streamed one — so the tool-calling, re-validation, refusal-feedback
@@ -1138,7 +1213,6 @@ async def _run_tool_loop(
     # only composer, and which argues why a realm is a partition caching survives and a
     # screen or a role is not.
     tools = tool_array(realm)
-    turns: list[chat.ChatOutcome] = []
     # THE NARROWING HAPPENS ONCE, HERE. `actor_for` is the only place a `Principal` becomes
     # a `ToolActor`, and it refuses rather than defaults, so a principal with no tenant
     # cannot reach a tool as a `None` id.
@@ -1438,7 +1512,8 @@ async def _run_tool_loop(
                         call,
                         status="refused",
                         detail=refusal_reasons[0],
-                        started_at=time.monotonic(),
+                        # The cap refused before the action ran: nothing was timed.
+                        started_at=None,
                     )
                 )
                 messages = _with_tool_result(
@@ -1703,6 +1778,12 @@ async def _answer_stream(
     (SEC-COMP §5). Both are composed by the ROUTE, which is the only layer that has a
     request.
     """
+    # THE WALL CLOCK FOR THE WHOLE QUESTION, FIXED HERE AND NEVER RESTARTED. An absolute
+    # instant rather than a duration per leg: `TOTAL_BUDGET_S` is the number
+    # `copilot/deadline_test.py` checks against nginx's `proxy_read_timeout`, and a budget
+    # that each leg re-entered from zero was not that number (see the fallback arm below).
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + TOTAL_BUDGET_S
     capability = assist_capability(tenant_leg=tenant_leg, quota_exhausted=quota_exhausted)
     if not capability.available:
         raise assist_unavailable(capability)
@@ -1724,8 +1805,11 @@ async def _answer_stream(
         if leg is None:  # pragma: no cover - unreachable via the selector
             raise assist_unavailable(capability)
         streamed_anything = False
+        # THE TURNS THIS LEG COMPLETED, HELD OUT HERE SO A FAILURE STILL HAS THEM. See
+        # `_run_tool_loop`: the list is the caller's precisely because the failure path is.
+        turns: list[chat.ChatOutcome] = []
         try:
-            async with asyncio.timeout(TOTAL_BUDGET_S):
+            async with asyncio.timeout_at(deadline):
                 async for event in _run_tool_loop(
                     payload,
                     capability,
@@ -1738,6 +1822,7 @@ async def _answer_stream(
                     principal=principal,
                     seed=seed,
                     ip=ip,
+                    turns=turns,
                 ):
                     streamed_anything = streamed_anything or event.text is not None
                     yield event
@@ -1749,14 +1834,41 @@ async def _answer_stream(
             )
             if streamed_anything:
                 raise
+            # WHAT THE DEAD LEG ALREADY COST (hard rule 7). Emitted only when a turn
+            # COMPLETED: `_sum_usage` of an empty list is `None`, which reaches
+            # `meter_assist` as "we do not know what this cost" and fires
+            # `ai_assist_unmeterable` — the right signal for a leg that was paid and cannot
+            # be counted, and a false alarm for a leg whose very first request never landed.
+            # The route appends this to `spends` and meters it under its own `ref`, so the
+            # fallback's spend below is a SECOND row rather than a replacement.
+            if turns:
+                yield CopilotEvent(
+                    spend=CopilotSpend(usage=_sum_usage(turns), capability=capability, model=model)
+                )
+            # **THE BUDGET IS A TOTAL, AND STARTING THE FALLBACK IS WHAT USED TO BREAK
+            # THAT.** `asyncio.timeout_at` raises `TimeoutError`, this arm caught it, and
+            # with nothing streamed yet the run went on to a whole second model call — so a
+            # question that had already burned all 90 seconds bought another
+            # `STREAM_IDLE_S` of Sarvam on top, ~105s in total, past the `proxy_read_timeout`
+            # `copilot/deadline_test.py` exists to keep this response inside, and both legs
+            # were paid for. A fallback that cannot FIT in what is left must not start: the
+            # person gets the interrupted-answer problem body (`routes.py`) instead of a
+            # dead socket, at the deadline they were promised.
+            if loop.time() + FALLBACK_RESERVE_S >= deadline:
+                log.warning("copilot_budget_spent", extra={"realm": realm})
+                raise
         capability = assist_capability(
             tenant_leg=tenant_leg, quota_exhausted=quota_exhausted, provider_unavailable=True
         )
         if not capability.available:
             raise assist_unavailable(capability)
 
-    async for event in _answer_via_sarvam(payload, capability, live=live, realm=realm):
-        yield event
+    # THE FALLBACK RUNS UNDER THE SAME DEADLINE, not a fresh one — the second half of
+    # making the budget total. A leg that starts with room for it still may not run past
+    # the wall clock the whole question was promised.
+    async with asyncio.timeout_at(deadline):
+        async for event in _answer_via_sarvam(payload, capability, live=live, realm=realm):
+            yield event
 
 
 async def run_copilot(
@@ -1886,6 +1998,7 @@ def disclosure_for(capability: AssistCapability) -> str | None:
 __all__ = [
     "EXHAUSTED_MESSAGE",
     "FALLBACK_NO_TOOLS_NOTE",
+    "FALLBACK_RESERVE_S",
     "FILTERED_MESSAGE",
     "MAX_ANSWER_TOKENS",
     "MAX_TURNS",

@@ -26,8 +26,9 @@ each one is stated where a reader can see it.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Final, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -529,11 +530,41 @@ class CopilotConversationClearedOut(BaseModel):
     cleared: int
 
 
+#: THE SSE FRAMES OF `POST /v1/copilot/ask`, BY EVENT NAME — the one declaration of a
+#: contract that is otherwise written down twice.
+#:
+#: **WHY THIS CONSTANT EXISTS.** `EventSourceResponse` publishes no response schema, so
+#: none of these models reaches `openapi.json` and none reaches the generated TypeScript:
+#: the browser hand-writes all seven shapes and nothing in CI compares them to these
+#: classes. A renamed field is then a runtime `undefined` in somebody's panel, which is the
+#: exact failure `scripts/check_openapi_fresh.py` prevents for every OTHER route.
+#: `copilot/stream_contract_test.py` is what pins them instead, and it is the file a change
+#: to any frame below must also change.
+#:
+#: NOT A UNION TYPE AND NOT A WRAPPER MODEL, because the wire is neither: the discriminator
+#: is the SSE `event:` line, which lives beside the JSON rather than inside it. A wrapper
+#: object with seven optional members would publish a shape nothing ever sends.
+#:
+#: `event: error` IS DELIBERATELY ABSENT. Its payload is the platform's RFC-9457
+#: `problem+json` body (`core/errors.ProblemError.as_problem`), which is not this module's
+#: to declare and is already the shape of every non-streamed refusal in this API.
+STREAM_FRAMES: Final[Mapping[str, type[BaseModel]]] = {
+    "text": CopilotTextEvent,
+    "fill": CopilotFillEvent,
+    "proposal": CopilotProposalEvent,
+    "action": CopilotActionEvent,
+    "navigate": CopilotNavigateEvent,
+    "step": CopilotStepEvent,
+    "done": CopilotDoneEvent,
+}
+
+
 __all__ = [
     "MAX_FACTS",
     "MAX_FIELDS",
     "MAX_HISTORY",
     "MAX_OPTIONS",
+    "STREAM_FRAMES",
     "CopilotActionEvent",
     "CopilotAskIn",
     "CopilotConfirmIn",

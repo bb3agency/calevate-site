@@ -1133,6 +1133,16 @@ def _action_key(seed: str, tool: WriteTool, args: Mapping[str, Any]) -> str:
     duplicate check catches it and tells the model. Two mechanisms, each covering what the
     other cannot — the mechanical duplicate and the human one.
 
+    **THE WINDOW IS `reliability.IDEMPOTENCY_TTL` — 24 HOURS — AND IT IS WHAT MAKES A
+    DELIBERATE REPEAT INDISTINGUISHABLE FROM A RETRY.** `seed` is
+    `conversation_seed(question, history)`, so asking the identical thing again with the
+    identical history inside that window is the same key, and the person gets the `replay`
+    receipt (`applied: false`, "that was already done") rather than a second act. That is the
+    SAFE direction and it is chosen: the alternative — a fresh key per attempt — would let a
+    double-submitted question run a Tier 1 change twice. What bounds the cost is the seed
+    itself: any further turn of the conversation changes the history and therefore the key,
+    so the collapse only reaches a repeat asked as the very first thing, twice.
+
     `sort_keys` because dict order is not part of the intent.
     """
     digest = hashlib.sha256()
@@ -1461,6 +1471,37 @@ async def _burn(jti: str) -> None:
         )
 
 
+async def _unburn(jti: str) -> None:
+    """Give the proposal's id back, after an execution that DEFINITELY did not happen.
+
+    **THE BURN IS AT-MOST-ONCE AND THIS DOES NOT WEAKEN IT.** It is called on exactly one
+    condition: `tool.execute` or `write_audit` RAISED, which unwinds `confirm`'s caller —
+    the route's `Depends(db)` session, whose context manager "commits on clean exit, rolls
+    back on any exception" (`core/deps.db`). So the change and its audit row are both gone,
+    the world is in the state it was in before the token was spent, and the id may be spent
+    again because it has not been spent yet. A CRASH between the burn and the execution
+    still leaves the key set, which is the direction `confirm` argues for and is untouched:
+    this arm only runs when we OBSERVED the failure and can therefore prove the rollback.
+
+    WHY IT IS WORTH THE CODE: without it the person's honest retry is answered with
+    "This suggestion has already been confirmed. Check the record — the change was made the
+    first time." That sentence is FALSE after a failed execute — a lead deleted inside the
+    five-minute window, a serialization failure, a dead connection — and it is the one they
+    act on, so the copilot tells somebody a change landed when nothing did.
+
+    BEST EFFORT, AND A FAILURE HERE IS NOT THE CALLER'S PROBLEM. The Redis outage that would
+    make this fail already fails `_burn` closed, and the worst case of a lost DELETE is the
+    old behaviour — a spent token — rather than a double execution. So it swallows and logs,
+    and the original exception is what reaches the person.
+    """
+    try:
+        await get_redis().delete(_JTI_KEY.format(jti=jti))
+    except Exception:
+        # Ids and shapes (hard rule 6). The jti is a random token id, not a value, but it
+        # is also not something a log reader needs — the count is what says this happened.
+        log.warning("copilot_proposal_unburn_failed")
+
+
 async def confirm(
     session: AsyncSession,
     token: str,
@@ -1473,10 +1514,18 @@ async def confirm(
     **THE ORDER IS THE DESIGN.** The burn comes BEFORE the execution, so a crash between
     the two loses the change rather than allowing it to happen twice; a person can ask
     again, and "it did not happen" is recoverable in a way "it happened twice" is not on
-    an append-only ledger and a live dial queue. The cost of that direction is real and is
-    accepted: a service function that REFUSES after the burn (a campaign that stopped
-    running while the person read the dialog) has spent the token, and the answer is to
-    ask again — which is the same answer the CAS gives the button.
+    an append-only ledger and a live dial queue.
+
+    ⚠ **THE COST OF THAT DIRECTION USED TO BE PAID BY THE PERSON AND IS NOW PAID BY REDIS.**
+    This paragraph used to end "a service function that REFUSES after the burn has spent the
+    token, and the answer is to ask again" — but "ask again" is not what the retry SAYS. A
+    spent token answers `copilot_proposal_already_used`: *"This suggestion has already been
+    confirmed. Check the record — the change was made the first time."* After a failed
+    execute that sentence is a lie about the database, on the one screen a person believes,
+    and they act on it. So an OBSERVED failure now un-burns the id (`_unburn`), which is
+    sound precisely because the failure rolled the transaction back — see there. An
+    unobserved failure (the process dies) still leaves the token spent, which is the
+    at-most-once direction this paragraph is about and is unchanged.
 
     **THE PERMISSION IS CHECKED AGAIN HERE AND THIS IS THE CHECK THAT COUNTS.** The
     propose-time one ran against the role the person held while the model was talking;
@@ -1522,21 +1571,32 @@ async def confirm(
     # got to make.
     await _burn(proposal.jti)
 
-    executed = await proposal.tool.execute(session, actor, proposal.args)
-    await write_audit(
-        session,
-        action=proposal.tool.audit_action,
-        actor=principal,
-        tenant_id=actor.tenant_id,
-        object_type=proposal.tool.object_type,
-        object_id=proposal.object_id or None,
-        ip=ip,
-        # Ids, names and counts (hard rule 6). `via` is what separates this row from the
-        # identical act performed by a click — the ledger reads the same for both, and
-        # answers "did a person or the assistant suggest this" without a second action
-        # name to keep in step.
-        summary={"via": "copilot", "tool": proposal.tool.name, **executed.audit_summary},
-    )
+    try:
+        executed = await proposal.tool.execute(session, actor, proposal.args)
+        await write_audit(
+            session,
+            action=proposal.tool.audit_action,
+            actor=principal,
+            tenant_id=actor.tenant_id,
+            object_type=proposal.tool.object_type,
+            object_id=proposal.object_id or None,
+            ip=ip,
+            # Ids, names and counts (hard rule 6). `via` is what separates this row from
+            # the identical act performed by a click — the ledger reads the same for both,
+            # and answers "did a person or the assistant suggest this" without a second
+            # action name to keep in step.
+            summary={"via": "copilot", "tool": proposal.tool.name, **executed.audit_summary},
+        )
+    except BaseException:
+        # THE ID GOES BACK, BECAUSE THE CHANGE IS GOING BACK. `BaseException` and not
+        # `Exception`: a cancelled request (the browser gave up on the dialog) rolls the
+        # transaction back exactly as an error does, and leaving a token burnt for a change
+        # nobody made is the defect either way. Nothing is swallowed — `_unburn` never
+        # raises and the original exception is re-raised untouched, so the person still gets
+        # the executor's own refusal (`409` on a campaign that stopped running, `404` on a
+        # lead that was deleted) and can act on the SAME token.
+        await _unburn(proposal.jti)
+        raise
     return CopilotConfirmOut(
         tool=proposal.tool.name,
         object_type=proposal.tool.object_type,
