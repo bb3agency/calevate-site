@@ -89,6 +89,12 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       { revision: "3", material: true },
       { revision: "4", material: false },
       { revision: "5", material: false },
+      // D-547. Clause 6.1 gains the credit-lot promise: each purchase of credit is
+      // priced at the rates shown when it was made, one per voice, those rates hold
+      // until that purchase is spent, credit does not expire, and credit is spent
+      // oldest purchase first. A new operative fee term — what somebody agreed to
+      // about what they pay changes — so material.
+      { revision: "6", material: true },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -120,6 +126,12 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       { revision: "1", material: true },
       { revision: "2", material: true },
       { revision: "3", material: true },
+      // D-547. Cartesia joins the register as the voice-synthesis vendor for the second
+      // voice quality, in its own row beside the contingency row it already had, with
+      // section 3.6 for what its published documents permit and what we have not
+      // established. A NEW SUB-PROCESSOR is the event clause 5 of the Data Processing
+      // Addendum notifies against and a client may object to, so material.
+      { revision: "4", material: true },
     ],
     effectiveDate: "2026-09-02",
   },
@@ -130,6 +142,12 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
       { revision: "1", material: true },
       { revision: "2", material: false },
       { revision: "3", material: false },
+      // D-547. Section 1's description of a self-serve account gains the same promise
+      // clause 6.1 of the Terms now makes: each top-up carries its own per-minute
+      // rates, one per voice quality, fixed at purchase; credit does not expire and is
+      // spent oldest purchase first. It changes what an unused balance MEANS in a
+      // policy about money, so it is material rather than a correction.
+      { revision: "4", material: true },
     ],
     effectiveDate: "2026-09-02",
   },

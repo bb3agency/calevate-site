@@ -245,6 +245,18 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "identification is narrower, and nothing anybody agreed to changed "
                 "meaning.",
             ),
+            Revision(
+                "6",
+                True,
+                "Clause 6.1 gained the credit-lot promise: each purchase of credit is "
+                "priced at the per-minute rates shown for that purchase when it was "
+                "made, one rate for each voice quality an agent can speak in, and those "
+                "rates hold for that purchase's credit until it is spent, whatever the "
+                "rate card does afterwards; credit does not expire and is spent oldest "
+                "purchase first. The clause's rate language went plural, because there "
+                "are now two. MATERIAL — a new operative fee term changes what somebody "
+                "agreed to about what they pay.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -333,6 +345,18 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "purpose and a widened description of what the dashboard language leg "
                 "receives; the owner's switch for staff knowledge curation stated too.",
             ),
+            Revision(
+                "4",
+                True,
+                "Cartesia was added as the voice-synthesis sub-processor for the second "
+                "voice quality, in its own row beside its existing contingency one, with "
+                "a section recording what its published terms allow and the three things "
+                "about it nobody has established — where it processes, its retention on "
+                "a non-enterprise plan, and whether its data-processing agreement can be "
+                "signed without an enterprise contract. MATERIAL — a new sub-processor "
+                "is the event the DPA's notification clause exists for, and a client may "
+                "object to it.",
+            ),
         ),
         effective_date="2026-09-02",
     ),
@@ -359,6 +383,14 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "and no identification duty asks for them. Non-material — the "
                 "identification is narrower, and nothing anybody agreed to changed "
                 "meaning.",
+            ),
+            Revision(
+                "4",
+                True,
+                "Section 1 gained the same credit-lot promise the Terms now carry, which "
+                "is what makes an unused balance in this policy a determinate amount: a "
+                "top-up is spent at the rates it was bought at. MATERIAL — it changes "
+                "what the refundable balance in a policy about money means.",
             ),
         ),
         effective_date="2026-09-02",

@@ -776,6 +776,99 @@ describe("what each document must contain", () => {
   });
 
   /**
+   * THE CREDIT-LOT PROMISE, PINNED VERBATIM (D-547).
+   *
+   * The wording of the first paragraph below is the founder's, approved on 7 September
+   * 2026, and it is a promise the database now keeps: each purchase freezes its own two
+   * per-minute rates, credit never expires, and the oldest purchase is spent first. It is
+   * asserted here as an EXACT string because nothing else in this repository can. The
+   * version mirror and `apps/api/legal/catalogue.py` compare IDENTITY, not text — the
+   * drift check says so in terms — so a later edit that softened "does not change them"
+   * into "will not normally change" would move an operative fee term under a version
+   * nobody bumped, and no gate in the tree would notice. This is that gate.
+   */
+  it("states the credit-lot promise in the Terms, verbatim, and echoes it in the refunds policy", () => {
+    const promise =
+      "Each purchase of credit is priced at the per-minute rates shown for that purchase " +
+      "when you made it, for the voice each agent uses. Those rates apply to that " +
+      "purchase's credit until it is spent, and a later change to our rate card does not " +
+      "change them. Credit does not expire. Credit is spent oldest purchase first.";
+    const terms = textOf(bySlug("terms")).replace(/\s+/g, " ");
+    expect(terms, "clause 6.1 no longer carries the approved credit-lot wording").toContain(
+      promise,
+    );
+
+    // Two rates, one per voice — the singular reading is the defect this replaced, and it
+    // would read as a promise that a Studio minute costs a Clear minute's rate.
+    expect(terms).toMatch(/not the rates\s+your credit balance is drawn down at/);
+    expect(terms, "the singular rate must not come back").not.toMatch(
+      /not the rate your credit balance is drawn down at/,
+    );
+
+    // The refunds policy describes the same money and must not describe it differently:
+    // an unused balance there means credit bought at fixed rates, spent oldest first.
+    const refunds = textOf(bySlug("refunds")).replace(/\s+/g, " ");
+    expect(refunds).toMatch(/own per-minute rates/);
+    expect(refunds).toMatch(/spent oldest purchase first/);
+    expect(refunds).toMatch(/does not expire/);
+
+    // NO VENDOR IS NAMED AS A PRODUCT CHOICE (founder, 7 September 2026). A client picks a
+    // voice QUALITY; the companies behind them are a disclosure and belong on the
+    // sub-processor register alone.
+    for (const slug of ["terms", "refunds"]) {
+      for (const vendor of ["Cartesia", "Sarvam"]) {
+        expect(
+          textOf(bySlug(slug)).includes(vendor),
+          `/legal/${slug} names ${vendor} as part of what a client chooses`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  /**
+   * THE SECOND VOICE VENDOR IS DISCLOSED, AND ONLY WHAT WAS EVIDENCED IS SAID (D-547).
+   *
+   * The register is the one page where naming the company is REQUIRED rather than
+   * forbidden. What it may say about that company is bounded by
+   * `docs/evidence/cartesia-tts-verification-2026-09-06.md` §A5, which marks the vendor's
+   * processing location, its non-enterprise retention periods and the signability of its
+   * data-processing agreement UNKNOWN. So this pins both halves: the disclosure is there,
+   * and the unknowns have not quietly become a country.
+   */
+  it("discloses the voice-synthesis vendor without inventing what is unknown about it", () => {
+    const register = bySlug("subprocessors");
+    expect(SUBPROCESSOR_NAMES, "the voice-synthesis vendor must be on the register").toContain(
+      "Cartesia",
+    );
+
+    const rows = blocksOf(register).flatMap((block) =>
+      block.kind === "table" ? block.rows.filter((row) => (row[0] ?? "").startsWith("Cartesia")) : [],
+    );
+    expect(rows.length, "the vendor's two roles are two rows").toBe(2);
+
+    const synthesis = rows.find((row) => (row[0] ?? "").includes("voice synthesis"));
+    expect(synthesis, "no row names the vendor's voice-synthesis role").toBeDefined();
+    // What it receives is the agent's words. The three things it must never be said to
+    // receive are the three a reader would otherwise assume from "voice".
+    expect(synthesis?.[2] ?? "").toMatch(/Not the caller's own audio/);
+    // Location: unknown, and it may not resolve to a country. §A5 records no residency
+    // commitment at all, and a plausible one on this page is the expensive kind of wrong.
+    expect(synthesis?.[3] ?? "").toMatch(/NOT VERIFIED/);
+
+    // The vendor's own published training and retention position, which is the reason the
+    // section exists — stated as the vendor's, never as our finding.
+    const prose = textOf(register).replace(/\s+/g, " ");
+    expect(prose).toMatch(/train and enhance the models behind its services/);
+    expect(prose).toMatch(/opt-out form whose effect is forward-only/);
+    expect(prose).toMatch(/available only on its enterprise plan/);
+    expect(prose).toMatch(
+      /designed for users in the United States only and are not intended for users located outside the United States/,
+    );
+    // The three gaps stay gaps.
+    expect(prose).toMatch(/We have not established where this vendor processes/);
+  });
+
+  /**
    * CLAUSE NUMBERS ARE CROSS-REFERENCES AND NOTHING TYPE-CHECKS ONE.
    *
    * Found by this audit: sub-processors are DPA clause 5, and the DPA twice plus the

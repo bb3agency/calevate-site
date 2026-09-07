@@ -68,6 +68,45 @@ interface RegisterRow {
  * country in the cell a buyer's counsel reads is the most expensive place in this tree to
  * be imprecise.
  *
+ * ## The voice-synthesis vendor was added on 7 September 2026, and its evidence class
+ *
+ * D-547 gives the product a SECOND voice quality, spoken by Cartesia, chosen per agent
+ * and priced per credit lot. That makes Cartesia a sub-processor in a role it did not
+ * have: it already appeared here as a CONTINGENCY alternative voice platform (the
+ * `engine/cartesia.py` adapter, never adopted), and one row could not carry two standings
+ * without one of them reading as the other. So it now has two rows, the way Google has
+ * three — same identity in `names`, different product, different status — and the
+ * contingency row keeps its own words.
+ *
+ * ⚠ EVIDENCE CLASS, and it is weaker than the speech vendor's: VENDOR-PUBLISHED, RELAYED.
+ * Every data-handling fact in the row and in section 3.6 comes from
+ * `docs/evidence/cartesia-tts-verification-2026-09-06.md` §A5, which is a research run
+ * over the vendor's own pages delivered on 6-7 September 2026. `cartesia.ai` and
+ * `docs.cartesia.ai` are egress-blocked from this container (re-measured 6 Sep 2026), so
+ * NOBODY HERE HAS OPENED THOSE PAGES, and that evidence file's own header says its
+ * internal VERIFIED labels are the research run's reading and not ours. Hard rule 11 is
+ * why the client-facing wording is framed throughout as what the vendor's published
+ * documents SAY, never as our finding about the world: the two claims that are ours
+ * ("nothing has been sent to it", "it receives only the words the agent speaks") are read
+ * off this tree's own code, and everything else is attributed.
+ *
+ * WHAT §A5 CARRIES THAT IS DELIBERATELY NOT ON THE PAGE, each because the evidence file
+ * marks it UNKNOWN and an unknown may not be dressed as a fact on the one page whose job
+ * is disclosure: where the vendor processes (no region, no residency commitment in any
+ * document read); the retention periods that apply on a non-enterprise plan; whether the
+ * vendor's data-processing agreement is self-serve signable; what rights it takes over a
+ * cloned voice. The first three are stated AS gaps in section 3.6 rather than omitted
+ * silently. The fourth is out of scope here: no cloned voice is offered.
+ *
+ * ITS CERTIFICATION CLAIMS ARE ALSO OFF THE PAGE, for two reasons that agree. §A5 records
+ * the vendor asserting GDPR / SOC 2 Type II / PCI-DSS / HIPAA compliance and records the
+ * REPORT ITSELF as UNKNOWN — behind an access request to its trust centre that nobody has
+ * made — so what we hold is a marketing line, not a certificate. And `legal.test.tsx`
+ * ("claims no security certification anywhere") bans that vocabulary from these documents
+ * outright; paraphrasing around the regex to get a vendor's unseen certificate onto a
+ * legal page would satisfy the guard's words and defeat its purpose. A client who needs
+ * one asks, and somebody makes the access request.
+ *
  * ## Re-audited against the CODE on 26 August 2026, and three vendors were missing
  *
  * F-11 in `docs/LEGAL-SURFACE.md` closed the copy that named vendors we do not use, and
@@ -426,16 +465,50 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
   },
   {
     names: ["Cartesia"],
-    vendor: "Cartesia",
+    vendor: "Cartesia — voice synthesis",
     does:
-      "An alternative voice platform, built so that switching engines is a " +
-      "configuration change rather than a rewrite.",
+      "Turns what an agent says into speech during the call, for agents set to the " +
+      "second of the two voice qualities the product offers. Agents on the other " +
+      "quality are spoken by the speech vendor named earlier in this table, and this " +
+      "vendor hears nothing of their calls.",
+    receives:
+      "The words the agent is about to speak, sent as text a turn at a time — which " +
+      "can include a detail the caller has just given, where the agent repeats it back " +
+      "to confirm it. Not the caller's own audio, not the transcript of what the " +
+      "caller said, not the recording, and nothing from your dashboard.",
+    location:
+      "NOT VERIFIED, and — as with the messaging providers elsewhere in this table — " +
+      "we would rather say so than name a country. This vendor's own pages cannot be " +
+      "read from our build environment; " +
+      "what we hold is a reading of them relayed to us, and it records no " +
+      "data-residency commitment and no region we could ask for. It does record that " +
+      "the vendor's published privacy policy says its services \u201care designed for " +
+      "users in the United States only and are not intended for users located outside " +
+      "the United States\u201d — a statement about who the service is for rather than " +
+      "about where data is processed, and section 3.6 sets out why we are telling you " +
+      "it anyway. Assume processing outside India; do not read a country into that " +
+      "until this cell names one.",
+    status:
+      "Configured, not enabled. No credential for this vendor is installed on this " +
+      "deployment, no voice in this quality is offered for selection yet, and no " +
+      "request has ever been made to it from this system. Section 3.6 is what a " +
+      "client should read before this row becomes live for them.",
+  },
+  {
+    names: ["Cartesia"],
+    vendor: "Cartesia — alternative voice platform",
+    does:
+      "A second role for the same company, kept separate because it is a different " +
+      "product and a different standing: a whole alternative voice platform, built so " +
+      "that switching platforms is a configuration change rather than a rewrite.",
     receives:
       "The same categories as the primary voice platform, if it were ever selected.",
-    location: "United States.",
+    location:
+      "Not verified in this role either, for the reason the other row for this " +
+      "vendor gives.",
     status:
-      "Contingency. No account exists and no request has ever been made to it from " +
-      "this system.",
+      "Contingency. Nothing has been sent to it in this role and no decision to adopt " +
+      "it has been taken.",
   },
   {
     names: ["Cohere"],
@@ -535,17 +608,19 @@ export const SUBPROCESSORS: LegalDocument = {
         {
           kind: "callout",
           tone: "note",
-          title: "One Location cell says NOT VERIFIED, and that is the honest answer",
+          title: "Some Location cells say NOT VERIFIED, and that is the honest answer",
           text:
             "The Location column says where a vendor processes the data it receives. " +
             "Where we have read the vendor's own published position, it says so; where a " +
             "person confirms it by hand against a console rather than a build check, the " +
-            "row says that too, and section 3.2 explains which. One row says NOT " +
-            "VERIFIED. That is not an oversight we forgot to fill in: it is a row nobody " +
-            "here has been able to confirm, on a page whose only job is telling you where " +
-            "data goes, and inventing a plausible country for it would be worse than the " +
-            "gap. It is an integration you would have to switch on yourself, so nothing " +
-            "reaches it unless you decide it does.",
+            "row says that too, and section 3.2 explains which. Some rows say NOT " +
+            "VERIFIED. That is not an oversight we forgot to fill in: those are rows " +
+            "nobody here has been able to confirm, on a page whose only job is telling " +
+            "you where data goes, and inventing a plausible country for one would be " +
+            "worse than the gap. Every one of them is an integration that is switched " +
+            "off or that you would have to switch on yourself, so nothing reaches it " +
+            "unless somebody decides it does — and for the voice-synthesis vendor, " +
+            "section 3.6 says what we do know about it and what we still do not.",
         },
       ],
     },
@@ -569,7 +644,7 @@ export const SUBPROCESSORS: LegalDocument = {
     },
     {
       id: "cautions",
-      heading: "3. Five things a careful reader should know",
+      heading: "3. Six things a careful reader should know",
       subsections: [
         {
           id: "bolna-residency",
@@ -883,6 +958,68 @@ export const SUBPROCESSORS: LegalDocument = {
                 "account closes. Section 3.2 of the Privacy Policy describes them, " +
                 "section 9 carries the period, and section 12.4 states the one thing an " +
                 "erasure request does not do with them.",
+            },
+          ],
+        },
+        {
+          id: "voice-vendor-terms",
+          heading: "3.6 What the voice-synthesis vendor's own terms allow, and what we have not established",
+          blocks: [
+            {
+              kind: "callout",
+              tone: "warning",
+              title: "Its published policy permits training on what it receives, and its no-retention option is not one we can buy",
+              text:
+                "Section 3 was headed \u201cfive things\u201d until 7 September 2026, and " +
+                "this is the sixth: the product gained a second voice quality, spoken by " +
+                "a second vendor, and a client choosing it should read what that " +
+                "vendor's own published documents say before they do. Three things, all " +
+                "quoted from those documents rather than inferred from them. Its privacy " +
+                "policy says it may use information it receives to generate output and " +
+                "to train and enhance the models behind its services, and offers an " +
+                "opt-out form whose effect is forward-only — it stops future use for " +
+                "training and does not reach anything used before the day it is " +
+                "submitted. Its zero-retention option, under which submitted text and " +
+                "generated audio are not kept at all, is available only on its " +
+                "enterprise plan; on the plans we could buy, what it keeps is governed " +
+                "by its published data-processing agreement instead, and that agreement " +
+                "is where the question is answered rather than by the zero-retention " +
+                "option. And its privacy policy states that its services \u201care " +
+                "designed for users in the United States only and are not intended for " +
+                "users located outside the United States\u201d — which we quote in " +
+                "full because it is an unusual thing for an Indian business's supplier " +
+                "to say, and paraphrasing it would soften it.",
+            },
+            {
+              kind: "para",
+              text:
+                "What we have NOT established, listed rather than left for you to " +
+                "assume. We have not established where this vendor processes the text " +
+                "we would send it: its published documents, as read to us, name no " +
+                "region and make no residency commitment, so the register's Location " +
+                "cell says so instead of naming a country. We have not established the " +
+                "retention periods that apply on a plan we could actually buy — only " +
+                "that they come from the data-processing agreement and not from the " +
+                "zero-retention option. We have not established whether that agreement " +
+                "can be entered on a self-serve plan without a sales conversation, so we " +
+                "do not tell you that one is in place. Each of those is a question with " +
+                "an answer somebody can get, and none of them is a gap we would fill " +
+                "with a plausible sentence.",
+            },
+            {
+              kind: "para",
+              text:
+                "Two limits on all of the above, both of which cut in your favour. " +
+                "First, nothing has been sent to this vendor from this system: no " +
+                "credential is installed, no voice in its quality can be selected yet, " +
+                "and the product refuses rather than silently working. Second, when it " +
+                "does become selectable it receives only the words your agent speaks " +
+                "— never the caller's audio, the transcript, the recording, or " +
+                "anything from your dashboard — so the material above bears on what " +
+                "your agent says, which can include a detail it repeats back to a " +
+                "caller, and not on the call as a whole. A client who would rather it " +
+                "did not apply to them at all can keep every agent on the other voice " +
+                "quality, and this vendor then receives nothing of theirs.",
             },
           ],
         },

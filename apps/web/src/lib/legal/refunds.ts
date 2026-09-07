@@ -56,7 +56,12 @@ export const REFUND_POLICY: LegalDocument = {
               term: "Self-serve accounts",
               detail:
                 "You top up a credit balance in advance, and calls draw it down as they " +
-                "are metered.",
+                "are metered. Each top-up carries its own per-minute rates — one for " +
+                "each voice quality an agent can speak in — fixed at the moment you buy " +
+                "it and unchanged by any later change to our rate card; your credit does " +
+                "not expire, and it is spent oldest purchase first. Clause 6.1 of the " +
+                "Terms of Service states this, and it is what an unused balance in this " +
+                "policy means.",
             },
           ],
         },

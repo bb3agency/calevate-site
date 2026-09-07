@@ -305,6 +305,21 @@ export const TERMS_OF_SERVICE: LegalDocument = {
                 "are in Indian Rupees.",
             },
             {
+              // The lot promise, in the founder's own approved words (7 September 2026) and
+              // not a paraphrase of them: the database freezes two per-minute rates on each
+              // purchase and spends purchases oldest first, so the sentence a client is
+              // asked to agree to has to say exactly that and nothing wider. It names no
+              // vendor — the voices are a product choice, and a vendor name is disclosure,
+              // which belongs on the sub-processor page and only there.
+              kind: "para",
+              text:
+                "Each purchase of credit is priced at the per-minute rates shown for that " +
+                "purchase when you made it, for the voice each agent uses. Those rates " +
+                "apply to that purchase's credit until it is spent, and a later change to " +
+                "our rate card does not change them. Credit does not expire. Credit is " +
+                "spent oldest purchase first.",
+            },
+            {
               kind: "para",
               text:
                 "A change to your commercial terms takes effect from the date agreed and " +
@@ -322,10 +337,13 @@ export const TERMS_OF_SERVICE: LegalDocument = {
                 "commercial term agreed with you under the paragraph above, and no model " +
                 "list, setting or screen can introduce or raise it on its own. **If your " +
                 "plan quotes no surcharge, switching models changes nothing you are " +
-                "charged**: not your monthly fee, not your per-minute rate, not the rate " +
-                "your credit balance is drawn down at. Where a surcharge does apply it " +
-                "applies to every metered minute an agent runs on that model, it is " +
-                "shown against the model before you choose it, it appears as its own " +
+                "charged**: not your monthly fee, not your per-minute rate, not the rates " +
+                "your credit balance is drawn down at. Those rates are per voice and per " +
+                "purchase, as this clause says above, and a model is not a voice: " +
+                "changing which model an agent uses moves neither of them. Where a " +
+                "surcharge does apply it applies to every metered minute an agent runs " +
+                "on that model, it is shown against the model before you choose it, it " +
+                "appears as its own " +
                 "line on your invoice so you can see what caused a larger number, and it " +
                 "is calculated from the model each call actually ran — so changing model " +
                 "mid-month re-prices nothing already spoken. A model we choose for you " +
