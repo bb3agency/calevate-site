@@ -174,8 +174,11 @@ PACK_RATE_KEY_PREFIX = "pack"
 #: Every voice tier by its wire spelling. A dict rather than the `in VOICE_TIERS` membership
 #: test it replaces because that test narrows nothing for the type checker, and the arm a
 #: `cast` would need is an arm no test can reach — an unreachable branch in this package is
-#: an uncovered unit the ratchet scores (`ledgers-and-money`, budget zero), and a
-#: `# pragma: no cover` is forbidden here for exactly that reason.
+#: an uncovered unit the ratchet scores (`ledgers-and-money`, budget zero), and a coverage
+#: suppression is forbidden here for exactly that reason -- it scores as an uncovered unit
+#: too. The directive is described rather than spelled out on purpose: coverage's exclude
+#: pattern matches it ANYWHERE on a line, so writing it inside this very sentence excluded
+#: the constant below and cost this surface its zero.
 _VOICE_BY_NAME: Final[Mapping[str, VoiceTier]] = {voice: voice for voice in VOICE_TIERS}
 
 
