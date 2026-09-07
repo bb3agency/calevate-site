@@ -344,11 +344,85 @@ describe("which script callers are actually hearing", () => {
 describe("which voice callers are actually hearing", () => {
   /**
    * A voice is TWO facts once it can be changed without being published, and this screen is
-   * where a client finds out which one their callers get. They are entitled to it even
-   * though there is one voice quality now (the single-tier voice decision): which persona
-   * their agent speaks in is theirs to know. Changing it stays ours (D-21), so there is no
-   * control here.
+   * where a client finds out which one their callers get — and, since D-547 gave the
+   * catalogue two qualities at two per-minute rates, what that voice costs them. Which
+   * persona their agent speaks in is theirs to know; changing it stays ours (D-21), so
+   * there is no control here.
    */
+  it("names the QUALITY and what a minute of it costs this account", async () => {
+    // D-547 gave the catalogue two qualities at two rates, so the voice is a price fact
+    // again and an owner is entitled to both halves. Two rules are pinned here:
+    //
+    //  - the QUALITY is named, the VENDOR never is (founder, 7 Sep 2026). "Clear" is the
+    //    API's word (`billing/rates.py::VOICE_TIER_LABELS`); which company synthesises it
+    //    must be able to change without a client-visible rename.
+    //  - the rate belongs to a CREDIT LOT, not to the product: it is the figure frozen on
+    //    this account's oldest unspent purchase, and the hint says there is credit behind
+    //    it at other rates rather than implying the price is permanent.
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1/pending": {
+          ...settled(),
+          // ⚠ NOT ON THE WIRE YET — the exact shape reported as the handoff, validated at
+          // the seam by `lib/api/voices.readVoiceTierRates`.
+          voice_tier_rates: [
+            { provider: "sarvam", label: "Clear", inr_per_min: "5.0000", further_open_lots: 1 },
+          ],
+        },
+      }),
+    );
+
+    await screen.findByText("Voice quality and rate");
+    // The server's own digits, prefixed and never parsed (hard rule 7).
+    expect(factValue("Voice quality and rate")).toBe("Clear — ₹5.0000 / min");
+    expect(container.textContent).toContain(
+      "You have 1 later purchase behind it, each at the rates it was bought at.",
+    );
+    expect(container.textContent).not.toMatch(/sarvam|cartesia/i);
+  });
+
+  it("shows no rate at all when the API carries none", async () => {
+    // The state this build is in until the lots API ships the field, and the state of an
+    // account with no open credit. A screen that filled the gap from the public rate card
+    // would be quoting a price this client is not on; the whole Fact is absent instead.
+    const { container } = await renderClientPage(page, routes());
+
+    await screen.findByText("Voice callers hear");
+    expect(container.textContent).not.toContain("Voice quality");
+    expect(container.textContent).not.toContain("/ min");
+  });
+
+  it("prices the voice CALLERS HEAR, not the one waiting to go live", async () => {
+    // The same inversion the two Facts above exist to prevent, applied to money: an agent
+    // with a chosen-but-unpublished Studio voice is still charged at the rate of the voice
+    // the calling system is actually speaking in. Pricing the configured one would quote a
+    // rate no call on this agent is billed at.
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1/pending": {
+          ...settled({
+            voice: {
+              configured: { voice_id: "sonic-3.5:ananya", provider: "cartesia", catalog: null },
+              live: storedVoice("bulbul:v3", "Bulbul v3"),
+              republish_required: true,
+              headline: "Callers still hear Bulbul v3.",
+            },
+          }),
+          voice_tier_rates: [
+            { provider: "sarvam", label: "Clear", inr_per_min: "5.0000", further_open_lots: 0 },
+            { provider: "cartesia", label: "Studio", inr_per_min: "8.0000", further_open_lots: 0 },
+          ],
+        },
+      }),
+    );
+
+    await screen.findByText("Voice quality and rate");
+    expect(factValue("Voice quality and rate")).toBe("Clear — ₹5.0000 / min");
+    expect(container.textContent).not.toContain("8.0000");
+  });
+
   it("shows one voice when the calling system is holding the configured one", async () => {
     const { container } = await renderClientPage(page, routes());
 

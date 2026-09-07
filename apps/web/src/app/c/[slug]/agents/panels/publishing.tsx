@@ -24,6 +24,7 @@ import {
   formatCallCap,
   formatINR,
   formatIST,
+  formatRupeeRate,
 } from "@/components/ui";
 import type { Agent } from "@/lib/api/agents";
 import {
@@ -32,6 +33,7 @@ import {
   type PendingState,
 } from "@/lib/api/publishing";
 import { useClientSession } from "@/lib/api/session";
+import { readVoiceTierRates, voiceTierRate, type VoiceTierRates } from "@/lib/api/voices";
 
 /**
  * The unsaved-changes banner (§2b) and the cost-runaway guard, from the client's side of
@@ -97,7 +99,11 @@ export function PublishingPanel({ agent }: { agent: Agent }) {
       {/* The cost-runaway guard, as the question it actually answers: what is the worst one
           call can do to my bill — plus the voice, which is a cost question too. */}
       <dl className="grid gap-5 rounded-card border border-line bg-app p-4 sm:grid-cols-2">
-        <VoiceFacts state={state.voice} published={agent.published} />
+        <VoiceFacts
+          state={state.voice}
+          published={agent.published}
+          rates={readVoiceTierRates(state)}
+        />
         <Fact
           label="Longest one call may run"
           icon={<Timer className="h-3.5 w-3.5" />}
@@ -135,11 +141,22 @@ export function PublishingPanel({ agent }: { agent: Agent }) {
 /**
  * The voice the caller hears — and, only when they differ, the one waiting for us.
  *
- * **Why a client sees this at all.** There is one voice quality now (the single-tier voice
- * decision) at one per-minute rate, so the voice is no longer a price lever — but a client
- * is still entitled to know which persona their agent speaks in, exactly as they read its
- * disclosure line. Changing it is still ours (D-21), which is why there is no control here,
- * only a fact and who moves it.
+ * **Why a client sees this at all.** There are TWO voice qualities now (D-547) at two
+ * different per-minute rates, so the voice IS a price lever again — and an owner is
+ * entitled to know both which persona their agent speaks in and what a minute of it costs
+ * them. Changing it is still ours (D-21), which is why there is no control here, only the
+ * facts and who moves them.
+ *
+ * **The quality is named, the vendor never is.** "Clear" and "Studio" are the API's words
+ * (`billing/rates.py::VOICE_TIER_LABELS`); which company synthesises each is our business
+ * and must be able to change without a client-visible rename. So this component prints the
+ * label the server sent and prints NOTHING when it sent none — it has no table of its own.
+ *
+ * **The rate is this account's, not the product's, and it can move.** Under D-547 a minute
+ * costs the rate frozen on the credit lot it draws from, oldest lot first, so what is shown
+ * is the price of the NEXT minute. Absent (an API build that does not send it, an account
+ * with no open credit), the price line is simply not rendered: quoting a rate a client is
+ * not on is the money defect hard rule 7 exists for, and a blank is honest.
  *
  * **One box when there is one answer, two when there are two.** A configured voice the
  * calling system is already holding is a single fact. A voice chosen and not yet published
@@ -151,9 +168,11 @@ export function PublishingPanel({ agent }: { agent: Agent }) {
 function VoiceFacts({
   state,
   published,
+  rates,
 }: {
   state: PendingState["voice"] | undefined;
   published: boolean;
+  rates?: VoiceTierRates;
 }) {
   // The field is absent on an older API build; a missing fact is honest, an invented one
   // is not. Nothing else on this card depends on it.
@@ -163,6 +182,11 @@ function VoiceFacts({
     : published
       ? "We cannot say from here"
       : "Nothing yet";
+  // The tier of the voice CALLERS HEAR — the one they are being billed for. Not the
+  // configured one: an agent with a chosen-but-unpublished voice is still charged at the
+  // rate of the voice on the calling system, and pricing the wrong one is the same
+  // inversion the two Facts below exist to prevent.
+  const tier = voiceTierRate(rates, state.live?.catalog?.provider ?? state.live?.provider);
   return (
     <>
       <Fact
@@ -178,6 +202,28 @@ function VoiceFacts({
       >
         {heard}
       </Fact>
+      {tier && (
+        <Fact
+          label={tier.inr_per_min === null ? "Voice quality" : "Voice quality and rate"}
+          icon={<IndianRupee className="h-3.5 w-3.5" />}
+          hint={
+            /* Three different sentences for three different states, because they are three
+               different facts to an owner deciding whether to top up. A rate with nothing
+               behind it is simply their rate; a rate with later purchases behind it is the
+               price of the NEXT minute and will change; no rate at all is not a cheap
+               minute and must not read like one. */
+            tier.inr_per_min === null
+              ? "We cannot put a per-minute price on this voice for your account right now. Your account manager can."
+              : tier.further_open_lots === 0
+                ? "What a minute on this voice costs against your current credit."
+                : `What a minute on this voice costs against your oldest unspent credit. You have ${tier.further_open_lots} later purchase${tier.further_open_lots === 1 ? "" : "s"} behind it, each at the rates it was bought at.`
+          }
+        >
+          {/* The server's digits, prefixed — never parsed (hard rule 7). */}
+          {tier.label}
+          {tier.inr_per_min === null ? "" : ` — ${formatRupeeRate(tier.inr_per_min)} / min`}
+        </Fact>
+      )}
       {state.republish_required && state.configured && (
         <Fact
           label="New voice waiting"

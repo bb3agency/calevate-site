@@ -21,6 +21,7 @@ import {
 import { FieldMessage, useFormValidation } from "@/components/formValidation";
 import { ActionButton } from "@/components/actionButton";
 import { SuccessRipple } from "@/components/successRipple";
+import { VoicePicker } from "@/components/voicePicker";
 import { useTenant, useTenantAgents } from "@/lib/api/admin";
 import {
   usePromptHistory,
@@ -50,7 +51,14 @@ import type {
   AgentVoiceState,
   EngineVerification,
 } from "@/lib/api/publishing";
-import { useSetAgentVoice, useTenantVoiceCatalogue, type Voice } from "@/lib/api/voices";
+import {
+  readVoiceTierRates,
+  useSetAgentVoice,
+  useTenantVoiceCatalogue,
+  voiceTierRate,
+  type OfferedVoice,
+  type VoiceTierRates,
+} from "@/lib/api/voices";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
@@ -1083,8 +1091,8 @@ function CallCapPanel({
 }
 
 /**
- * Which voice this agent speaks in — D-36's premium/value ladder, selectable and, now,
- * READABLE.
+ * Which voice this agent speaks in — TWO QUALITIES at two per-minute rates (D-547),
+ * selectable, priced, and READABLE.
  *
  * **Why this screen.** Voice is agent CONFIGURATION and the write is admin-realm
  * `agents:write` (`agents/voice_routes.py`, D-21: which voice speaks Telugu well is an ear
@@ -1103,7 +1111,7 @@ function CallCapPanel({
  * now" and "Configured" cannot. The panel used to say it could not report the voice in
  * force at all; the fix was not to start guessing but to make the server answer.
  *
- * **The select pre-selects `voice.configured`** and nothing else. Not `voice.live` (the
+ * **The picker pre-selects `voice.configured`** and nothing else. Not `voice.live` (the
  * operator edits the configuration, not the past), not the catalogue's `is_default` (that
  * is D-36's written default, not this agent's state), and not a blank when the server
  * answered — a picker that reopens on "choose a voice" over a configured agent invites
@@ -1112,6 +1120,12 @@ function CallCapPanel({
  * `verified: false` is rendered, not hidden: the catalogue entries carry it until the
  * Bolna pilot confirms each string is selectable on the engine (OPERATIONS §2 gate 3), and
  * an operator picking an unverified voice should know that is what they are doing.
+ *
+ * **EVERY catalogue voice is rendered, including the ones this deployment cannot offer**
+ * (`agents/voice_offer.py::offerable_voices`) — disabled, with the server's own reason. The
+ * refusal here is an OPERATOR's sentence naming a key, a price or a cap, which is exactly
+ * who is reading this screen; the tier NAME beside it is the client's word for the quality
+ * ("Clear", "Studio") because a vendor is never a product tier a human reads.
  */
 function VoicePanel({
   tenantId,
@@ -1136,15 +1150,22 @@ function VoicePanel({
   const [choice, setChoice] = useState<string | null>(null);
   const state = pending?.voice;
   const selected = choice ?? state?.configured?.voice_id ?? "";
+  // THE RATE IS THIS CLIENT'S, PER TIER, AND IT IS NOT ON THE WIRE YET. `readVoiceTierRates`
+  // takes the pending body it already has and answers `undefined` until the lots API ships
+  // the field (see `lib/api/voices.ts`), at which point this panel prices itself with no
+  // further edit. Never a constant and never the rate card: under D-547 the price of the
+  // next minute is the one frozen on this account's oldest open credit lot.
+  const rates = readVoiceTierRates(pending);
 
   return (
     <Card title="Voice">
       <p className="-mt-2 text-xs text-ink-muted">
-        One voice quality (Sarvam Bulbul v3) — the choice here is the persona, not a price
-        tier, so it does not change the client&apos;s per-minute rate. Setting a voice writes
-        it to the agent and stops there: a live agent keeps speaking in its old voice until
-        the next publish, which is deliberate — re-voicing a running client&apos;s phone line
-        is not something to do silently.
+        Two voice qualities, at two different per-minute rates (D-547) — so this choice is a
+        price decision as well as a persona one, and the rate shown against each quality is
+        the one frozen on this client&apos;s oldest unspent credit. Setting a voice writes it
+        to the agent and stops there: a live agent keeps speaking in its old voice until the
+        next publish, which is deliberate — re-voicing a running client&apos;s phone line is
+        not something to do silently.
       </p>
       <div className="mt-3 space-y-3">
         <RestrictionNote reason={write.reason} />
@@ -1173,8 +1194,10 @@ function VoicePanel({
              a deployment that is working exactly as intended.
 
              The picker is not rendered at all rather than rendered-and-disabled: a
-             disabled dropdown full of Bulbul entries still tells the reader those are the
-             voices this agent might speak, and they are not. `voices` is empty from the
+             disabled list of our own personas still tells the reader those are the
+             voices this agent might speak, and they are not. That is a DIFFERENT case
+             from a voice this platform cannot offer, which IS rendered and disabled with
+             its reason — there the row is real and one action away. `voices` is empty from the
              server for the same reason. What IS still shown is `VoiceInForce`, because
              "what do callers hear right now" remains a fair question — the answer is just
              not ours to change here. */
@@ -1187,31 +1210,25 @@ function VoicePanel({
             <VoiceInForce state={state} published={pending?.published} />
 
             <form
-              className="flex flex-wrap items-end gap-3"
-              // A select with a value always chosen — no rule to word. `noValidate` so a
-              // rule added later cannot be answered by the browser in its own language.
+              className="space-y-3"
+              // A radio group with a value always chosen — no rule to word. `noValidate` so
+              // a rule added later cannot be answered by the browser in its own language.
               noValidate
               onSubmit={(event) => {
                 event.preventDefault();
                 save.mutate(selected);
               }}
             >
-              <label className="flex flex-col gap-1">
-                <span className="text-xs text-ink-muted">Voice</span>
-                <select
-                  value={selected}
-                  disabled={!write.allowed}
-                  onChange={(event) => setChoice(event.target.value)}
-                  className={FIELD}
-                >
-                  <option value="">Choose a voice</option>
-                  {catalogue.data.voices.map((voice) => (
-                    <option key={voice.id} value={voice.id}>
-                      {voiceReading(voice)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+              <VoicePicker
+                name="agent-voice"
+                legend="Voice"
+                hint="Every voice this deployment knows about. One that cannot be chosen says why, in the words of whoever can fix it."
+                voices={catalogue.data.voices}
+                value={selected}
+                rates={rates}
+                disabled={!write.allowed}
+                onChange={setChoice}
+              />
               <button
                 type="submit"
                 disabled={save.isPending || selected === "" || !write.allowed}
@@ -1221,7 +1238,10 @@ function VoicePanel({
               </button>
             </form>
 
-            <VoiceDetail voice={catalogue.data.voices.find((entry) => entry.id === selected)} />
+            <VoiceDetail
+              voice={catalogue.data.voices.find((entry) => entry.id === selected)}
+              rates={rates}
+            />
           </>
         )}
 
@@ -1312,20 +1332,31 @@ function voiceName(voice: AgentVoice): string {
 /**
  * What the operator is about to choose, before they choose it.
  *
- * The `<option>` text carries the persona and the model because that is what an operator
- * compares on; the rest — languages, gender, the catalogue's own note, and whether the
- * string has been confirmed on the engine — needs more room than an option can hold.
- * Nothing is rendered when the select sits on "choose a voice", which now only happens on
+ * The picker row carries the persona, its languages and the note; this block is what the
+ * operator is about to COMMIT — the one voice, its quality and its model, gathered under the
+ * button that saves it. Nothing is rendered when nothing is selected, which now only happens on
  * an agent with no voice configured: the block above has already said so, and repeating it
  * here would be two answers to one question.
  */
-function VoiceDetail({ voice }: { voice: Voice | undefined }) {
+function VoiceDetail({
+  voice,
+  rates,
+}: {
+  voice: OfferedVoice | undefined;
+  rates: VoiceTierRates | undefined;
+}) {
   if (!voice) return null;
+  // The TIER's name, never the vendor's (founder, 7 Sep 2026): `provider` is what the wire
+  // and the ledger call it, and this line used to print it at a person. The label is the
+  // server's (`billing/rates.py::VOICE_TIER_LABELS`) and is simply omitted when this build's
+  // API does not send it — a quality named by nobody is better than one named by us twice.
+  const tier = voiceTierRate(rates, voice.provider);
+  const quality = voice.tier_label ?? tier?.label ?? null;
   return (
     <div className="rounded-card border border-line p-3 text-xs text-ink-muted">
       <p>
-        <span className="font-semibold text-ink">{voice.label}</span> · {voice.provider}{" "}
-        {voice.tts_model}
+        <span className="font-semibold text-ink">{voice.label}</span>
+        {quality ? ` · ${quality} voice` : ""} · {voice.tts_model}
         {voice.gender ? ` · ${voice.gender}` : ""} · {voice.languages.join(", ")}
       </p>
       <p className="mt-1">{voice.note}</p>
@@ -1340,14 +1371,6 @@ function VoiceDetail({ voice }: { voice: Voice | undefined }) {
       )}
     </div>
   );
-}
-
-/** One catalogue entry, in the words an operator picks on. A persona (label, and gender
- *  once the pilot enumerates speakers), never a price tier — there is one voice quality. */
-function voiceReading(voice: Voice): string {
-  const persona = voice.gender ? `${voice.label} — ${voice.gender}` : voice.label;
-  const badge = voice.verified ? "" : " · unverified";
-  return `${persona} (${voice.tts_model})${badge}`;
 }
 
 /**

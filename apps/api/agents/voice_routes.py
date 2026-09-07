@@ -116,6 +116,7 @@ from apps.api.agents.voices import (
     voice_ids,
     voice_selection_capability,
 )
+from apps.api.billing.rates import voice_tier_label
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -211,6 +212,14 @@ class OfferedVoiceOut(Voice):
     #: Derived from `unavailable_reason`, never beside it: a screen that could read a `True`
     #: flag next to a refusal sentence is a screen that can offer a voice the write refuses.
     offerable: bool
+    #: WHAT A CLIENT IS TOLD THIS VOICE'S QUALITY IS CALLED — "Clear", "Studio" — from
+    #: `billing/rates.voice_tier_label`. It crosses the wire beside `provider` rather than
+    #: being looked up in the browser for the reason the marketing provenance rule exists:
+    #: a second copy of the name in TypeScript is how the two drift until one client meets
+    #: both. `provider` stays on the wire because that is what the ledger, the lot rows and
+    #: a vendor invoice are reconciled against; it is simply not what a human is shown
+    #: (founder, 7 Sep 2026).
+    tier_label: str
 
     @classmethod
     def of(cls, offered: OfferedVoice) -> OfferedVoiceOut:
@@ -219,6 +228,7 @@ class OfferedVoiceOut(Voice):
             **offered.voice.model_dump(),
             unavailable_reason=offered.reason,
             offerable=offered.offerable,
+            tier_label=voice_tier_label(offered.voice.provider),
         )
 
 

@@ -27,6 +27,7 @@ from apps.api.agents import voice_offer
 from apps.api.agents.voice_offer import (
     NO_ATTESTED_TTS_PRICE_REASON,
     NO_CARTESIA_CREDENTIAL_REASON,
+    OfferedVoice,
     cartesia_cap_reached_reason,
     install_tts_price_reader,
     offerable_voices,
@@ -284,3 +285,26 @@ def test_every_shipped_voice_model_has_a_lifecycle_row() -> None:
     catalogue edit fails in the unit suite rather than only in `make guardrails`."""
     assert set(TTS_MODEL_LIFECYCLE) == set(get_args(TtsModel))
     assert {row.provider for row in TTS_MODEL_LIFECYCLE.values()} == {"sarvam", "cartesia"}
+
+
+# --- what a client is told the tier is CALLED ---------------------------------
+
+
+def test_the_wire_carries_the_tier_name_so_the_browser_never_holds_a_copy() -> None:
+    """The founder's 7 Sep 2026 decision, at the one place it can be enforced.
+
+    `provider` stays on the wire — the ledger, the lot rows and a vendor invoice are all
+    reconciled against it. `tier_label` is what a human is shown, and it is SERVED rather
+    than looked up in TypeScript for the reason the marketing provenance rule exists: a
+    second copy of the name in the browser is how the two drift until one client meets
+    both. A picker that had to map `provider` to a name itself would be that second copy.
+    """
+    from apps.api.agents.voice_routes import OfferedVoiceOut
+    from apps.api.billing.rates import voice_tier_label
+
+    for voice in CATALOG:
+        row = OfferedVoiceOut.of(OfferedVoice(voice=voice, reason=None))
+        assert row.tier_label == voice_tier_label(voice.provider)
+        assert row.provider not in row.tier_label.lower(), (
+            "the label a client reads must not be the vendor's name"
+        )

@@ -77,7 +77,21 @@ export type Voice = Schemas["Voice"];
  * and this is a voice a client MAY choose, which on the Cartesia tier depends on a key and
  * an attested price that can both be missing (D-547).
  */
-export type OfferedVoice = Schemas["OfferedVoiceOut"];
+export type OfferedVoice = Schemas["OfferedVoiceOut"] & {
+  /**
+   * THE TIER'S CLIENT-FACING NAME — "Clear", "Studio" — and the only name of a voice
+   * quality a human may read (founder, 7 Sep 2026; see the tier section at the foot of
+   * this module). It is `apps/api/billing/rates.py::voice_tier_label(provider)`, sent per
+   * row so this side never keeps a second copy of a client-visible name.
+   *
+   * ⚠ **OPTIONAL BECAUSE IT IS NOT ON THE WIRE YET**: `OfferedVoiceOut` does not carry it
+   * in this build's schema, and adding it is a handoff (`agents/voice_offer.py` and the
+   * response model belong to another lane). Optional is the honest type for a field an
+   * older API build does not send, and the picker groups by whatever it is given — never
+   * by `provider`, which names the vendor.
+   */
+  tier_label?: string | null;
+};
 
 /**
  * The catalogue AND whether it may be chosen from (D-93).
@@ -159,4 +173,114 @@ export function useSetAgentVoice(target: { tenantId: string; agentId: string; sl
       ),
     onSuccess: refresh,
   });
+}
+
+/* ---------------------------------------------------------------------------------------
+ * THE TWO VOICE TIERS: what a human is allowed to read, and what a minute of one costs.
+ *
+ * D-547 gave the catalogue a second tier. Two rules govern everything below, and both are
+ * about not inventing a fact the server has not sent.
+ *
+ * 1. **NO CLIENT-FACING SURFACE NAMES A VENDOR AS A TIER** (founder, 7 Sep 2026). `sarvam`
+ *    and `cartesia` are the WIRE's vocabulary — they name the vendor, they key the lot
+ *    columns and the metering, and they must keep doing so. The name a human reads is the
+ *    tier LABEL ("Clear", "Studio"), defined once in Python
+ *    (`apps/api/billing/rates.py::VOICE_TIER_LABELS`, read 7 Sep 2026) and carried to the
+ *    browser BY THE API. A lookup table on this side would be a second definition of a
+ *    client-visible name, and the day one of them changes a client meets both. So a screen
+ *    that has no label renders NO tier name at all rather than falling back to the vendor.
+ *
+ * 2. **A RATE BELONGS TO A CREDIT LOT, NOT TO THE PRODUCT.** Under D-547 a minute is priced
+ *    at the rate frozen on the purchase it draws from, and an account can hold several open
+ *    lots at several rates, spent oldest-first. So there is no constant to import and no
+ *    figure to derive: the rate is the OLDEST OPEN lot's rate for that tier, it is a fact
+ *    about ONE account at ONE moment, and it can only arrive from the API. Absent, a screen
+ *    prints nothing — a stale or invented per-minute price is the money defect hard rule 7
+ *    exists for.
+ * ------------------------------------------------------------------------------------- */
+
+/** The wire's name for a voice tier: the VENDOR. Keys money and metering; never rendered. */
+export type VoiceProvider = Voice["provider"];
+
+/**
+ * One voice tier as THIS account currently gets it.
+ *
+ * `label` is the only string here a human may see. `inr_per_min` is the rate frozen on the
+ * account's oldest OPEN credit lot — the next minute's price — as the server's exact
+ * decimal digits, never a number (hard rule 7); `null` is "we cannot say", which is a
+ * different claim from any figure and renders as nothing at all. `further_open_lots` is how
+ * many lots sit BEHIND that one, each at its own rates, so a screen can say the price
+ * changes later without pretending to know when.
+ */
+export type VoiceTierRate = {
+  provider: VoiceProvider;
+  label: string;
+  inr_per_min: string | null;
+  further_open_lots: number;
+};
+
+export type VoiceTierRates = readonly VoiceTierRate[];
+
+/** The tier row for a voice's provider, or `undefined` — the one join between the two. */
+export function voiceTierRate(
+  rates: VoiceTierRates | undefined,
+  provider: VoiceProvider | string | null | undefined,
+): VoiceTierRate | undefined {
+  if (!rates || !provider) return undefined;
+  return rates.find((rate) => rate.provider === provider);
+}
+
+/**
+ * The field this seam reads out of `GET /v1/agents/{agent_id}/pending`.
+ *
+ * ⚠ **NOT ON THE WIRE YET** — the lots API is another lane's, in flight as this is written,
+ * and the field is reported as a handoff rather than guessed at. Read positionally and
+ * VALIDATED rather than declared on `PendingState`, so that (a) this build compiles and
+ * renders correctly against an API that does not send it, and (b) the moment the server
+ * starts sending it every screen below lights up with no second edit — the alternative was
+ * a prop nobody passes, which is the half-wired defect the quality bar names.
+ */
+export const VOICE_TIER_RATES_FIELD = "voice_tier_rates";
+
+/** An exact decimal, unsigned, at most four places — `NUMERIC(12,4)` as JSON sends it.
+ *  A second spelling of `rateCard.ts`'s private `MONEY_STRING`; hoisting the two into one
+ *  money module is a handoff, because that file belongs to another lane this session. */
+const MONEY_STRING = /^\d+(\.\d{1,4})?$/;
+
+const PROVIDERS: readonly string[] = ["sarvam", "cartesia"];
+
+/**
+ * The tier rates carried by a pending payload, or `undefined` if it carries none we trust.
+ *
+ * Validated at the seam for `isRateCard`'s reason, and the stakes here are the same: every
+ * value below reaches a client's screen as a PRICE. A row missing a label, or carrying a
+ * rate that is not an exact decimal string, is treated exactly like an API that said
+ * nothing — the whole set is dropped rather than half-rendered, because a picker showing a
+ * price on one tier and a blank on the other reads as "that one is free".
+ *
+ * `unknown` in, not `PendingState`: the caller hands over the response body it already has
+ * and this decides whether the field is there and sound, so no screen writes a cast.
+ */
+export function readVoiceTierRates(payload: unknown): VoiceTierRates | undefined {
+  if (typeof payload !== "object" || payload === null) return undefined;
+  const raw = (payload as Record<string, unknown>)[VOICE_TIER_RATES_FIELD];
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const rates: VoiceTierRate[] = [];
+  for (const entry of raw) {
+    if (typeof entry !== "object" || entry === null) return undefined;
+    const row = entry as Record<string, unknown>;
+    if (typeof row.provider !== "string" || !PROVIDERS.includes(row.provider)) return undefined;
+    if (typeof row.label !== "string" || row.label === "") return undefined;
+    const rate = row.inr_per_min;
+    if (rate !== null && (typeof rate !== "string" || !MONEY_STRING.test(rate))) return undefined;
+    const behind = row.further_open_lots;
+    if (typeof behind !== "number" || !Number.isInteger(behind) || behind < 0) return undefined;
+    rates.push({
+      provider: row.provider as VoiceProvider,
+      label: row.label,
+      inr_per_min: rate,
+      further_open_lots: behind,
+    });
+  }
+  return rates;
 }
