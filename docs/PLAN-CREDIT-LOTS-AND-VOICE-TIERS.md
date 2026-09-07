@@ -1,6 +1,6 @@
 # PLAN — Credit lots with per-lot rates, and a second voice tier (Cartesia)
 
-**Status: PLAN, not yet started.** This document is the guide for the implementation and is
+**Status: IN PROGRESS — Phase A and Phase C (partial) started 7 Sep 2026; decisions §0 all taken.** This document is the guide for the implementation and is
 kept current as each phase lands (a phase is marked DONE here with the commit that landed
 it). It was written on 7 Sep 2026 from three read-only maps of the tree, each claim below
 cites the file and line it was read from, and anything not verified is marked UNKNOWN.
@@ -14,9 +14,16 @@ purchase** and spent **oldest-first**; a **₹2,000 pack** exists with Cartesia 
 
 ---
 
-## 0. Decisions still needed from the founder — answer these before Phase B starts
+## 0. Decisions — TAKEN (founder, 7 Sep 2026): every recommendation below is adopted
 
-Each carries a recommendation. Where the recommendation is taken, no reply is needed.
+The founder took every recommendation in this table on 7 Sep 2026 ("you choose all the
+recommended and best things for these and continue"). The table is kept so the reasoning
+travels with the decision. Q1 is resolved by construction rather than by a list: the Cartesia
+catalogue is BUILT FROM CARTESIA'S OWN VOICES API (`GET /voices`, the endpoint our ops probe
+already hits — `ops/secret_probes.py:145-157`), filtered to Telugu / Hindi / Indian English,
+and the exact field names come from the Cartesia research report commissioned the same day;
+until that report lands, Phase C ships the catalogue SHAPE and refuses a Cartesia publish
+with a named reason (§4.C.3).
 
 | # | Question | Recommendation | Why it matters |
 |---|---|---|---|
