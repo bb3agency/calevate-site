@@ -250,6 +250,15 @@ DERIVED_COPIES: Mapping[str, tuple[str, ...]] = {
         # projects would make "transcripts are kept for N days" true of a table and false of
         # a person — the sentence this whole mapping exists to keep true.
         "caller_chunks.tsv+embedding (transcript scopes)",
+        # THE HANDOVER BRIEF, which is the same class of thing one entry up and was in no
+        # clock at all. `workers/handoff.py::_record` writes a model-written `reason` (why
+        # the caller asked for a person) and `summary` (what had been said so far) against
+        # the call they were spoken on. Redacted on write — and redacted is not erased,
+        # exactly as the gap quotes above had to learn: redaction removes identifiers from
+        # a sentence and leaves the sentence, which is the caller's own account of their
+        # problem. A table no category names never expires, so before this these two
+        # columns outlived the transcript they paraphrase.
+        "handoff_attempts.reason+summary",
     ),
     # D-507. `caller_memories.fact` AND the caller-memory chunks used to sit in the
     # `transcript` tuple above, on the argument that a memory is distilled from what the
@@ -359,6 +368,10 @@ _EMPTY_TOTALS: Mapping[str, int] = {
     # different questions on a certificate: one is "you were taken off a list somebody
     # uploaded", the other is "the call we promised you will not happen".
     "scheduled_callbacks": 0,
+    # Handover briefs cleared on the TRANSCRIPT clock (`DERIVED_COPIES`). Counted in ROWS
+    # rather than in columns, unlike `knowledge_gap_quotes`: both columns of one attempt
+    # are one model's account of one conversation, and clearing them is one act.
+    "handoff_briefs": 0,
     "deferred": 0,
 }
 
@@ -598,6 +611,16 @@ SELECT r.data_category, r.ttl_days, r.action,
       OR EXISTS (
       SELECT 1 FROM copilot_conversation_turns ct
       WHERE ct.created_at < now() - make_interval(days => r.ttl_days))
+      -- THE HANDOVER BRIEF on the same clock (`DERIVED_COPIES`), asked here for the two
+      -- reasons above: a category the probe reports as having no work is a category whose
+      -- arms never run. LEFT JOIN and `COALESCE(..., h.started_at)` because
+      -- `source_call_id` is nullable — the row is written while the call is still in
+      -- progress and only `settle_handoff` back-fills it — and a brief whose call row
+      -- never arrived is exactly the one that must not be the row that never expires.
+      OR EXISTS (
+      SELECT 1 FROM handoff_attempts h LEFT JOIN calls c ON c.id = h.source_call_id
+      WHERE (h.reason IS NOT NULL OR h.summary IS NOT NULL)
+        AND COALESCE({_CLOCK}, h.started_at) < now() - make_interval(days => r.ttl_days))
     WHEN 'lead' THEN EXISTS (
       SELECT 1 FROM leads l
       WHERE l.updated_at < now() - make_interval(days => r.ttl_days)
@@ -938,6 +961,31 @@ WHERE id IN (
   WHERE g.last_seen_at < :cutoff
     AND (g.example_question_redacted <> :mark OR g.example_answer_redacted <> :mark)
   ORDER BY g.last_seen_at LIMIT :batch)
+"""
+
+# THE HANDOVER BRIEF, on the transcript's clock (`DERIVED_COPIES`). `workers/handoff.py`
+# writes the model's own `reason` and `summary` about a live conversation; they are
+# redacted on write and redaction is not erasure — the sentence survives it, and the
+# sentence is the caller's account of what they wanted.
+#
+# CLEARED, NOT MARKED, unlike the gap quotes above and for `_SUMMARY_SQL`'s reason: both
+# columns are NULLABLE free prose with no shape worth keeping, so there is nothing for a
+# marker to hold open. The ROW stays either way — it is the client's record that a
+# handover happened, who took it and how it ended, which is not the caller's data.
+#
+# THE CLOCK IS `COALESCE(call, started_at)`. `source_call_id` is nullable: the row is
+# written while the call is still ringing and only `settle_handoff` back-fills it, so a
+# handover whose pipeline never ran has no call to date it from. Dating those from
+# `started_at` — our own clock, NOT NULL — is the same fix `_call_clock` made for a
+# vendor-supplied `ended_at`: a missing foreign field must not switch a retention
+# obligation off.
+_HANDOFF_BRIEF_SQL = f"""
+UPDATE handoff_attempts SET reason = NULL, summary = NULL, updated_at = now()
+WHERE id IN (
+  SELECT h.id FROM handoff_attempts h LEFT JOIN calls c ON c.id = h.source_call_id
+  WHERE COALESCE({_CLOCK}, h.started_at) < :cutoff
+    AND (h.reason IS NOT NULL OR h.summary IS NOT NULL)
+  ORDER BY COALESCE({_CLOCK}, h.started_at) LIMIT :batch)
 """
 
 # Never a DELETE: leads carry FKs from lead_events and are referenced by calls.
@@ -1347,6 +1395,15 @@ async def _apply_one(
         # every transcript we hold, including the one their staff typed.
         counts["copilot_turns"], deferred = await _sweep_in_batches(
             session, _COPILOT_TURN_SQL, {"cutoff": cutoff}
+        )
+        counts["deferred"] += int(deferred)
+        # THE HANDOVER BRIEF (`DERIVED_COPIES`). ALWAYS cleared and never deleted,
+        # whatever the category's action is, for the gap tables' reason: the row is the
+        # client's record that a handover happened and how it ended, and destroying it
+        # would silently move their own operational history when a retention period
+        # elapsed. The words go either way.
+        counts["handoff_briefs"], deferred = await _sweep_in_batches(
+            session, _HANDOFF_BRIEF_SQL, {"cutoff": cutoff}
         )
         counts["deferred"] += int(deferred)
         return counts
@@ -1893,6 +1950,137 @@ async def _erase_copilot_turns(session: AsyncSession, *, phone: str) -> int:
     return int(rowcount_of(erased) or 0)
 
 
+# THE HANDOVER BRIEF, REACHED BY THE CALL (D-533).
+#
+# THE HOLE THIS CLOSES is `scrub_quotes_for_calls`' hole, one table along, and the same
+# sentence answers the same objection. A DPDP erasure does not DELETE a call — it empties
+# one — so the `ON DELETE SET NULL` on `handoff_attempts.source_call_id` never fires, and
+# nothing else named this table: not `execute_deletion_request`, not `deletion_proof`, not
+# the tenant-erasure register, and not one `retention_policies` category, so the row
+# survived BOTH clocks. What it holds is a language model's prose about a live
+# conversation — why this caller asked for a person, and what had been said so far —
+# filed against `source_call_id` beside the number that rang.
+#
+# "IT IS REDACTED ON WRITE" IS NOT A DEFENCE, and `handoff.py::_bounded` really does
+# redact. `knowledge_gap_occurrences.question_redacted` is redacted on write too and is
+# scrubbed by this erasure for the reason `scrub_quotes_for_calls` spells out: redaction
+# removes IDENTIFIERS from a sentence and leaves the SENTENCE. "She wants a refund for the
+# scan her husband had last month" survives it intact.
+#
+# CLEARED, NOT DELETED, exactly as the gap quotes are scrubbed rather than deleted: the
+# row is the client's record that a handover happened, which of their staff took it, how
+# long the leg ran and how it ended. None of that is the caller's data and all of it is
+# the client's. The two prose columns are.
+#
+# MATCHED ON THE EXECUTION AS WELL AS ON THE CALL ID, which is a belt in
+# `_erase_delivery_bodies`' shape and closes a real gap rather than decorating one:
+# `source_call_id` is nullable and is back-filled only by `settle_handoff`, so a handover
+# on a call this request DID find can still be joined to it by nothing but the execution
+# id the two rows share (`handoff.py::_record` selects the call by the same
+# `engine_call_id`). Missing that row would leave the brief as the last surviving account
+# of the conversation, which is the defect this arm exists for.
+_HANDOFF_BRIEF_ERASE_SQL = """
+UPDATE handoff_attempts SET reason = NULL, summary = NULL, updated_at = now()
+WHERE (
+    source_call_id = ANY(:ids)
+    OR source_execution_id IN (
+      SELECT engine_call_id FROM calls WHERE id = ANY(:ids) AND engine_call_id IS NOT NULL)
+  )
+  AND (reason IS NOT NULL OR summary IS NOT NULL)
+"""
+
+
+async def _erase_handoff_briefs(session: AsyncSession, *, call_ids: Sequence[UUID]) -> int:
+    """Clear the model's account of what these calls were about. Returns the row count.
+
+    IDEMPOTENT by predicate — `reason IS NOT NULL OR summary IS NOT NULL` — for
+    `scrub_quotes_for_calls`' reason: arq re-runs this job on any storage failure, and a
+    re-run must not report a second, larger count for work the first one already did.
+
+    RLS scopes it to the tenant (hard rule 1). Only the count leaves: it travels into a
+    proof that is filed and forwarded, and hard rule 6 does not stop being true inside a
+    compliance artefact.
+
+    ⚠ WHAT IT CANNOT REACH is `destination_e164`, and that is deliberate rather than
+    missed. That column is a member of the CLIENT'S OWN STAFF on their own mobile — a
+    different data principal, on a different lawful basis, whose number this request was
+    not made by and cannot speak for. Clearing it would delete the client's record of
+    which of their people took the call while removing nothing of the caller's, and the
+    same number is on `agent_handoff_members` anyway, so it would not even be a deletion.
+    Staff numbers end with the ENGAGEMENT, not with one caller's §12 request.
+    """
+    if not call_ids:
+        return 0
+    result = await session.execute(text(_HANDOFF_BRIEF_ERASE_SQL), {"ids": list(call_ids)})
+    return int(rowcount_of(result) or 0)
+
+
+# THE QUEUED JOB THAT STILL HOLDS THE BODY (P6.7's compliance half, finally reached).
+#
+# `outbox_messages.payload` is the CRM delivery body itself — a lead's name, number and
+# every extracted field (`integrations/service.py`, and `db/registry.py` says so at
+# length) — and the table has no `tenant_id`, so every tenant-scoped arm of both erasures
+# was structurally blind to it. `prune_reliability_tables` only ever deletes `published`
+# rows, so a DEAD LETTER holding one person's lead sits here for ever, outside every
+# retention policy a tenant can set AND outside the erasure path, waiting for an operator
+# replay that would deliver an erased person's data to a CRM.
+#
+# DELETED, not emptied: a payload is the whole of what a message IS. A row whose payload
+# had been blanked would still be replayable, would still be counted in the DLQ depth an
+# operator triages, and would publish a job with no arguments.
+#
+# EVERY STATUS, not just `failed`. A `pending` row is the one that would deliver this
+# person's record AFTER the certificate was issued — `_erase_scheduled_callbacks`' exact
+# argument — and a `published` one still holds the body until the 90-day reliability
+# prune, which is 90 days of a copy we have certified as erased.
+#
+# SCOPED BY `payload->>'tenant_id'` AND NOT BY RLS, because there is no policy on this
+# table to scope it (registry: the dispatcher must scan across tenants to order the queue
+# by age). A payload with no `tenant_id` key is therefore never matched, which is correct
+# in both directions: it cannot be attributed to this tenant, and the producers that omit
+# it (`authn/service.py::_enqueue_auth_email`) carry a STAFF address rather than a
+# caller's data.
+#
+# The digits matcher is `_KB_SUBJECT_MATCH_SQL`'s, verbatim, so `+91 98765 43210` and
+# `9876543210` are one number — and it over-matches rather than under-matches by design:
+# a false positive costs one queued message that named this person by coincidence, a
+# false negative costs them their erasure.
+_OUTBOX_SUBJECT_SQL = """
+DELETE FROM outbox_messages
+WHERE payload->>'tenant_id' = :tid
+  AND strpos(regexp_replace(payload::text, '[^0-9]', '', 'g'), :digits) > 0
+"""
+
+# The same table on the tenant path, where the subject is "all of them" and there is
+# nothing to match on — `copilot_memories`' reasoning exactly. Every queued or
+# dead-lettered job for an account being wound down is a copy of that account's callers'
+# data with no purpose left, and any of it still pending would fire against an
+# organisation whose certificate says it holds nothing.
+_OUTBOX_TENANT_SQL = """
+DELETE FROM outbox_messages WHERE payload->>'tenant_id' = :tid
+"""
+
+
+async def _erase_outbox_messages(
+    session: AsyncSession, *, tenant_id: UUID, phone: str | None = None
+) -> int:
+    """Delete queued/dead-lettered job payloads holding this subject. Returns the count.
+
+    `phone=None` is the tenant path: every message belonging to the account. Counts only
+    leave — never a job name, never a payload (hard rule 6).
+    """
+    if phone is None:
+        result = await session.execute(text(_OUTBOX_TENANT_SQL), {"tid": str(tenant_id)})
+        return int(rowcount_of(result) or 0)
+    digits = "".join(character for character in phone if character.isdigit())[-10:]
+    if not digits:
+        return 0
+    result = await session.execute(
+        text(_OUTBOX_SUBJECT_SQL), {"tid": str(tenant_id), "digits": digits}
+    )
+    return int(rowcount_of(result) or 0)
+
+
 async def _search_knowledge_base(session: AsyncSession, *, phone: str) -> int:
     """How many knowledge documents mention this number. Reads; never writes.
 
@@ -1998,6 +2186,7 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         turns_erased = 0
         extractions_erased = 0
         gap_quotes_erased = 0
+        handoff_briefs_erased = 0
         recordings_in_floor = 0
         recordings_destroyed = 0
         payloads_erased = 0
@@ -2066,6 +2255,11 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
             gap_quotes_erased = await scrub_quotes_for_calls(
                 session, call_ids=list(calls), mark=REDACTED_MARK
             )
+            # AND THE THIRD DERIVED COPY OF WHAT THIS CALLER SAID, which had no path to
+            # the erasure at all and no retention category either — see
+            # `_erase_handoff_briefs` for why "it is redacted on write" is not a defence
+            # and why `destination_e164` is deliberately not touched.
+            handoff_briefs_erased = await _erase_handoff_briefs(session, call_ids=list(calls))
         if leads:
             await session.execute(
                 text(
@@ -2116,6 +2310,12 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         # redacted on the way in, and it exists for the residue that is exactly the case a
         # §12 request must still reach.
         copilot_turns_erased = await _erase_copilot_turns(session, phone=phone)
+
+        # THE QUEUED AND DEAD-LETTERED JOBS (P6.7). Keyed on the number and NOT on the
+        # calls above, for `_erase_campaign_contacts`' reason: a delivery that never
+        # succeeded is filed under no call of ours, and a dead letter can outlive every
+        # tenant-scoped row this request touched. See `_OUTBOX_SUBJECT_SQL`.
+        outbox_erased = await _erase_outbox_messages(session, tenant_id=tenant_id, phone=phone)
 
         # LOOKED AT, never changed — see `_search_knowledge_base` for why the erasure
         # stops at a count. Run last, so a store this request could not reach has already
@@ -2202,8 +2402,32 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
                     "behind those records are kept, because the count is not this "
                     "person's data and the sentence is"
                 ),
+                # THE HANDOVER BRIEF (D-533). Counted in the sentence rather than in
+                # `scope` for the reason the line above and the three below are: `scope`
+                # is a whitelist both `deletion_proof.certificate` and
+                # `deletion_routes.ErasureScopeOut` enumerate field by field, so a key
+                # added there is a wire-shape change, while `actions` passes through
+                # verbatim. Reported at all because "redacted is not erased": these two
+                # sentences survived redaction whole, and they are a model's account of
+                # what this caller wanted.
+                "handoff_attempts": (
+                    f"{handoff_briefs_erased} handover brief(s): the reason the caller "
+                    "was put through to a person and the summary of what had been said "
+                    "were cleared. The record that the handover happened, who took it "
+                    "and how it ended is kept — that is the client's own, not this "
+                    "person's, and the number that rang is a member of the client's "
+                    "staff rather than the person who asked to be erased"
+                ),
                 "call_extractions": "extracted field payload cleared",
                 "leads": "phone anonymized, name and extracted fields cleared",
+                # THE QUEUED JOB THAT STILL HELD THE BODY (P6.7). Same placement and the
+                # same reason as its neighbours; see `_OUTBOX_SUBJECT_SQL` for why the
+                # row is deleted rather than emptied and why every status is in scope.
+                "outbox_messages": (
+                    f"{outbox_erased} queued or undelivered background job(s) carrying "
+                    "this person's details deleted, so nothing still waiting to be sent "
+                    "can deliver them after this certificate was issued"
+                ),
                 # Counted in the sentence rather than in `scope`, because the
                 # certificate renderer builds `scope` from a fixed field list
                 # (`compliance/deletion_proof.certificate`) and `actions` is the part
@@ -2346,6 +2570,7 @@ async def execute_deletion_request(ctx: dict[str, Any], payload: dict[str, Any])
         f"bodies={bodies_erased} payloads={payloads_erased} "
         f"recordings={recordings_destroyed} floor_recordings={recordings_in_floor} "
         f"campaign_contacts={contacts_erased} callbacks={callbacks_erased} "
+        f"handoff_briefs={handoff_briefs_erased} outbox={outbox_erased} "
         f"kb_matches={kb_matches} "
         f"caller_vectors={caller_vectors.vectors} caller_memories={caller_vectors.memories}"
     )
@@ -2467,6 +2692,11 @@ async def _erase_tenant_calls(
         "calls_erased": 0,
         "transcript_turns_erased": 0,
         "knowledge_gap_quotes_erased": 0,
+        # The handover briefs on this tenant's calls (D-533). Recorded in the proof and
+        # reported in `actions`, and deliberately NOT in `tenant_erasure._SCOPE_COUNTS`,
+        # for `engine_payloads_erased`' reason one entry down: that tuple is the API's
+        # whitelist and widening it is a wire-shape change.
+        "handoff_briefs_erased": 0,
         "call_extractions_erased": 0,
         "recordings_destroyed": 0,
         "recordings_within_trai_floor": 0,
@@ -2550,6 +2780,11 @@ async def _erase_tenant_calls(
         counts["knowledge_gap_quotes_erased"] += await scrub_quotes_for_calls(
             session, call_ids=call_ids, mark=REDACTED_MARK
         )
+
+        # The handover briefs, for the same reason one statement up: a tenant erasure
+        # that left them would keep a model's account of every caller who asked for a
+        # person, for a client that no longer exists.
+        counts["handoff_briefs_erased"] += await _erase_handoff_briefs(session, call_ids=call_ids)
 
         counts["webhook_bodies_erased"] += await _erase_delivery_bodies(
             session,
@@ -2657,6 +2892,16 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         counts["campaign_contacts_erased"] = await _erase_campaign_contacts(session)
         # Its twin, one table along (D-514). Unpaged for the same reason as the line above.
         counts["scheduled_callbacks"] = await _erase_scheduled_callbacks(session)
+        # THE QUEUED AND DEAD-LETTERED JOBS (P6.7), which no arm above can see: the table
+        # has no `tenant_id` and no RLS policy, so it is reached by the tenant id inside
+        # the payload. Unconditional over this account for `copilot_memories`' reason —
+        # when the subject is "all of them" there is nothing to match on — and it is the
+        # one arm that also stops a wound-down account still DOING something: a pending
+        # delivery would otherwise fire against an organisation whose certificate says it
+        # holds nothing.
+        counts["outbox_messages_erased"] = await _erase_outbox_messages(
+            session, tenant_id=tenant_id
+        )
         # WHAT THE COPILOT REMEMBERED (migration d4a9c17e6b02). UNPAGED and UNCONDITIONAL,
         # and both halves are the decision.
         #
@@ -2748,8 +2993,19 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                     "and the agent's replies to them removed from the knowledge-gap "
                     "records; the counts behind those records are kept"
                 ),
+                "handoff_attempts": (
+                    f"{counts['handoff_briefs_erased']} handover brief(s): the reason "
+                    "each caller was put through to a person and the summary of what had "
+                    "been said were cleared; the record that the handover happened and "
+                    "how it ended is kept"
+                ),
                 "call_extractions": "extracted field payload cleared",
                 "leads": "phone anonymized, name and extracted fields cleared",
+                "outbox_messages": (
+                    f"{counts['outbox_messages_erased']} queued or undelivered background "
+                    "job(s) belonging to this account deleted, including any dead letter "
+                    "still holding a lead's details"
+                ),
                 "campaign_contacts": (
                     f"{counts['campaign_contacts_erased']} uploaded campaign contact "
                     "row(s): phone anonymized, name, pasted columns and dedupe hash "
@@ -2904,6 +3160,8 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         f"floor_recordings={counts['recordings_within_trai_floor']} "
         f"campaign_contacts={counts['campaign_contacts_erased']} "
         f"callbacks={counts['scheduled_callbacks']} "
+        f"handoff_briefs={counts['handoff_briefs_erased']} "
+        f"outbox={counts['outbox_messages_erased']} "
         f"caller_vectors={counts['caller_vectors_erased']} "
         f"caller_memories={counts['caller_memories_erased']}"
     )
@@ -2922,8 +3180,17 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
 # else addresses is that `outbox_messages.payload` carries a lead's name, phone number
 # and call summary — `reliability/service.py` says so where it explains why the DLQ
 # endpoint publishes counts only — so an unbounded outbox is an unbounded copy of tenant
-# personal data sitting OUTSIDE every retention policy a tenant can set, and outside the
-# DPDP erasure path, which walks tenant-scoped tables.
+# personal data sitting OUTSIDE every retention policy a tenant can set.
+#
+# ⚠ **THE ERASURE HALF OF THAT SENTENCE IS NO LONGER TRUE AND USED TO READ "and outside
+# the DPDP erasure path, which walks tenant-scoped tables".** Both erasures now reach this
+# table by the tenant id INSIDE the payload — `_erase_outbox_messages` — so a §12 request
+# deletes the messages naming that person and an offboarding empties the account's queue.
+# What is still true is the RETENTION half, and it is the residue this comment now names:
+# the prune below only ever removes `published` rows, so a DEAD LETTER holding a lead is
+# forgotten by no clock at all. That is a deliberate operator contract (a `failed` row is
+# what a replay comes from) rather than an oversight, and it is why the erasure arm had to
+# exist: without a clock, the erasure is the only thing that can reach those rows.
 #
 # WHAT IS NEVER PRUNED, and both exclusions matter more than the floor:
 #

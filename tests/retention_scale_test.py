@@ -441,6 +441,12 @@ async def test_every_derived_copy_is_governed_by_a_category_a_tenant_actually_ha
         # PURPOSE of a memory is to outlive the call, so the call's clock was the wrong one
         # rather than a convenient one. They are asserted under `caller_memory` below.
         "caller_chunks.tsv+embedding (transcript scopes)",
+        # THE HANDOVER BRIEF (D-533), which was in no category either and is the same
+        # class of thing as the gap quotes above: `workers/handoff.py` writes a model's
+        # `reason` and `summary` about a live conversation, redacted on write — and
+        # redaction removes identifiers from a sentence, not the sentence. Filed under
+        # `transcript` because it paraphrases the turns, for this test's own reason.
+        "handoff_attempts.reason+summary",
     )
     assert retention.DERIVED_COPIES["caller_memory"] == (
         "caller_chunks.tsv+embedding (caller memory scope)",

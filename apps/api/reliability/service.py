@@ -35,7 +35,7 @@ from apps.api.core.alerting import (
     record_outbox_lag,
 )
 from apps.api.core.errors import ProblemError
-from apps.api.core.logging import get_logger
+from apps.api.core.logging import get_logger, redact_exception, redact_text
 from apps.api.core.settings import get_settings, resolve_hmac_key
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
@@ -634,6 +634,48 @@ _BACKOFF_PARAMS = {
 }
 
 
+#: The most an error string may occupy in a `last_error` column. Unchanged; what changed
+#: is what reaches it — see `_stored_error`.
+_MAX_STORED_ERROR = 500
+
+
+def _stored_error(error: str) -> str:
+    """What may be written into a `last_error` column, from what a caller handed us.
+
+    **THE COLUMN IS NOT A LOG, WHICH IS EXACTLY WHY IT WAS UNPROTECTED.** Every string
+    that reaches a log line in this repo goes through `JsonFormatter`, and a traceback
+    goes through `core.logging.redact_exception`, whose verdict is that an exception
+    MESSAGE can never be shown to be safe: `pydantic.ValidationError` renders
+    `input_value=…` — the extraction payload — into `str(exc)` by design, a driver
+    raising on a lead INSERT quotes its bound parameters, and our own
+    `raise ValueError(f"… {turn}")` would too. `last_error` bypassed all of it: three
+    call sites wrote `error[:500]` straight into `outbox_messages.last_error` and
+    `webhook_inbox_events.last_error`, where it is durable, unswept while the row is not
+    `published`/`processed`, and readable by anyone with the ops console. A length cap is
+    not a control — whether a message fits in 500 characters depends on how deep the
+    stack happened to be — and hard rule 6 has no length exemption.
+
+    **REDACTED AT THE SINK AND NOT AT THE CALLERS**, so no future producer can opt out of
+    it by forgetting: `workers/dispatcher.py` passes `f"{type(exc).__name__}: {exc}"` and
+    the two other producers pass authored codes. The sink is the one place all three meet.
+
+    Two shapes in, and the split is `redact_exception`'s own, reused rather than
+    re-argued:
+
+    * **An exception rendering** (`SomeError: anything at all`) keeps the TYPE and drops
+      the message — `SomeError: [message withheld]`. The type is what an operator triages
+      on, and the source line that produced it is in the log the full traceback went to.
+    * **An authored code** (`agent ref not mapped`, `signature_invalid`) is not an
+      exception rendering, so `redact_exception` drops it entirely — it reads that shape
+      as a message continuation line. Those strings are ours, they name a refusal a client
+      is shown, and losing them would cost the ops console its only account of why a row
+      failed. They fall back to `redact_text`, which masks phone- and email-shaped runs
+      and is the same pass every other free string we did not author gets.
+    """
+    withheld = redact_exception(error)
+    return (withheld or redact_text(error))[:_MAX_STORED_ERROR]
+
+
 async def mark_outbox_failed(
     session: AsyncSession, *, message_id: UUID, error: str, attempt_count: int
 ) -> None:
@@ -684,7 +726,7 @@ async def mark_outbox_failed(
             "id": message_id,
             "status": "failed" if terminal else "pending",
             "terminal": terminal,
-            "error": error[:500],
+            "error": _stored_error(error),
             **_BACKOFF_PARAMS,
         },
     )
@@ -692,7 +734,10 @@ async def mark_outbox_failed(
         alert(
             "OUTBOX_DISPATCH",
             "outbox_dead_letter",
-            detail=error[:200],
+            # THE SAME STRING, THROUGH THE SAME DOOR. An alert body is delivered to a
+            # channel and rendered in the ops console, so an exception message is no
+            # safer here than in the column two statements up.
+            detail=_stored_error(error)[:200],
             message_id=str(message_id),
         )
 
@@ -731,7 +776,7 @@ async def defer_outbox_claim(session: AsyncSession, *, message_ids: list[UUID], 
             "last_error = :error, updated_at = now() "
             "WHERE id = ANY(:ids) AND status = 'pending'"
         ),
-        {"ids": message_ids, "error": error[:500], **_BACKOFF_PARAMS},
+        {"ids": message_ids, "error": _stored_error(error), **_BACKOFF_PARAMS},
     )
     return int(rowcount_of(result) or 0)
 
@@ -1122,7 +1167,7 @@ async def mark_inbox_failed(session: AsyncSession, *, row_id: UUID, error: str) 
             "UPDATE webhook_inbox_events SET status = 'failed', last_error = :error, "
             f"updated_at = now() WHERE id = :id AND status IN {_INBOX_OPEN}"
         ),
-        {"id": row_id, "error": error[:500]},
+        {"id": row_id, "error": _stored_error(error)},
     )
     if rowcount_of(result) == 0:
         _late_report("inbox_late_failure", row_id)

@@ -545,6 +545,12 @@ def test_the_derived_copy_map_still_names_a_category_the_schema_allows() -> None
             # deterministic function of it and is substantially invertible, and `tsv` is
             # literally the caller's words as lexemes.
             "caller_chunks.tsv+embedding (transcript scopes)",
+            # THE HANDOVER BRIEF (D-533), which was in no category either and is the same
+            # class of thing as the gap quotes above: `workers/handoff.py` writes a model's
+            # `reason` and `summary` about a live conversation, redacted on write — and
+            # redaction removes identifiers from a sentence, not the sentence. Filed under
+            # `transcript` because it paraphrases the turns, for this test's own reason.
+            "handoff_attempts.reason+summary",
         ),
         # `caller_memories.fact` AND the caller-memory scope's chunks USED TO SIT IN THE
         # TUPLE ABOVE, on the argument that a memory is distilled from what the caller said
