@@ -207,6 +207,13 @@ jobs:
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_rls_coverage
 
+      - name: "Guardrail: DPDP erasure coverage (hard rule 5, SEC-COMP §4)"
+        if: ${{ !cancelled() }}
+        # Every live table carrying a subject-linked column is named by an erasure arm or
+        # registered with a written reason. Reads pg_catalog beside `check_rls_coverage`,
+        # for the same reason: the migration that CLAIMS to erase is not the erasure.
+        run: uv run python -m scripts.check_erasure_coverage
+
       - name: "Guardrail: ledger immutability (hard rule 4)"
         if: ${{ !cancelled() }}
         run: uv run python -m scripts.check_ledger_immutability

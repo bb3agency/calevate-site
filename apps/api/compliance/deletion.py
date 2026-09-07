@@ -395,6 +395,17 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "The billing records for these calls are retained. They are an append-only ledger "
     "of minutes and money carrying no personal data, and deleting them would silently "
     "rewrite a closed billing period.",
+    "This erasure finds records BY THE NUMBER you gave. Where a record names the person "
+    "only by NAME — a first name typed into a note, a question asked about them without "
+    "their number in it — there is no number in it for this request to match, so it is "
+    "not reached. What that covers is narrow: the places where free text is stored have "
+    "identifiers stripped out of them before they are saved, so what could remain is a "
+    "sentence with a name in it and no phone number, email address or ID beside it. Those "
+    "records are not used to contact anyone and they are not kept indefinitely — they "
+    "expire on their own retention clock, and every one of them is destroyed if this "
+    "business closes its account. We do not search free text for a person's name because "
+    "a name is not unique: matching one would delete other people's records belonging to "
+    "everybody who shares it.",
     "Anything a person at the client TYPED into Calevate's assistant about this caller "
     "is erased where it names their number, but not where it names them by NAME. The "
     "assistant stores what was typed with phone numbers already replaced by placeholders, "
@@ -517,6 +528,38 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
         authority=(
             "Calevate's billing ledger is append-only by design and money is never "
             "restated in place: a correction is a new entry, never a deletion."
+        ),
+    ),
+    ErasureLimitation(
+        what="Records that name this person only by name, never by number.",
+        keyword="by name",
+        # A DISTINCT outcome from the assistant entry's `not_reachable_by_number` below,
+        # although the two describe the same limit at different scopes.
+        # `deletion_proof._register` attaches counts and sentences to entries BY OUTCOME
+        # precisely so reordering cannot mis-attach one, and two entries sharing a value
+        # would hand the same count to both the day either acquires one.
+        outcome="not_reachable_without_the_number",
+        why=(
+            "This erasure is keyed on the number: it is how the request identifies the "
+            "person, and every place it searches free text matches the digits of that "
+            "number. A sentence that named them by name instead has no number in it to "
+            "match, so it is not reached. The exposure is narrow by construction — "
+            "identifiers are stripped from free text before it is stored, so what can "
+            "remain is a name in a sentence with no number, email or ID beside it — and "
+            "it is bounded in time: those records expire on their own retention clock and "
+            "are all destroyed if this business closes its account."
+        ),
+        # `tests/dpdp_known_gaps_test.py` holds the OPEN gap and the probe that turns CI
+        # red the day the keying stops being digits; the entry below (keyword `assistant`)
+        # is the same limit told for the one surface a client asks about by name. Both stay:
+        # this one states the RULE, that one answers "what about the assistant?".
+        authority=(
+            "Calevate's erasure identifies a data principal by the telephone number the "
+            "request is made for. Searching free text for a name instead would be less "
+            "protective, not more: a name is not unique, so a match would destroy the "
+            "records of everyone who shares it. Widening this needs a way to establish "
+            "that a named record really is this person's, which is a decision taken with "
+            "our clients and our counsel rather than a setting."
         ),
     ),
     ErasureLimitation(

@@ -201,6 +201,17 @@ SWEEP_BATCH_ROWS = 1_000
 # oldest rows again because every batch is ordered oldest-first.
 TENANT_ROW_BUDGET = 20_000
 
+# Rows ONE erasure statement may remove. Same order of magnitude as `TENANT_ERASURE_BATCH`
+# and for the same reason — keep each statement's row count bounded — but note what is
+# deliberately NOT here: there is no row BUDGET beside it. See `_delete_in_batches`.
+SUBJECT_ERASURE_BATCH = 500
+# The loop's stop, and it RAISES rather than returning what it has. At 500 rows a batch
+# this is five million rows on one predicate, which is not a tenant this product has; a
+# run that reaches it is a predicate that is not making progress, and the honest answer
+# to that is a rolled-back transaction and no certificate. Silently returning a partial
+# count would put "we erased everything" on a document that is false.
+_MAX_ERASURE_BATCHES = 10_000
+
 # WHICH DERIVED COPY BELONGS TO WHICH CATEGORY — the policy, expressed in the same
 # vocabulary the DPA uses (`data_category` + a `retention_policies` row), never as a
 # hardcoded "and also delete X" bolted onto a sweep.
@@ -1898,6 +1909,53 @@ WHERE strpos(regexp_replace(content, '[^0-9]', '', 'g'), :digits) > 0
 """
 
 
+# HOW AN ERASURE ARM WITH NO INDEX BEHIND IT IS RUN, AND WHY IT IS NOT ONE STATEMENT.
+#
+# Two of the subject arms below cannot use an index and never will: they compare the last
+# ten DIGITS of a number against `regexp_replace(<column>, '[^0-9]', '', 'g')`, which is a
+# per-row function call over a whole table. That is the right predicate — see
+# `_KB_SUBJECT_MATCH_SQL` for why the match is on digits rather than on the E.164 string —
+# but as a SINGLE statement it is a sequential scan with no LIMIT, so one erasure request
+# on a large tenant is a multi-minute statement holding locks the whole time.
+#
+# THE FIX IS NOT A LONGER TIMEOUT, and the distinction matters because a `statement_timeout`
+# is arriving on this deployment. A timeout CANCELS the statement: the erasure raises, the
+# transaction rolls back, and a §12 request that must complete instead fails on a tenant
+# for being large. An override exempting the erasure job from the timeout would keep it
+# working and would also keep the lock, which is the actual defect — the timeout is a
+# symptom detector, not the disease.
+#
+# So each arm becomes a series of BOUNDED statements. Every one is small enough to finish
+# far inside any timeout worth setting, and none of them holds a lock for longer than it
+# takes to delete 500 rows. The loop terminates without a cursor for `_TENANT_LEAD_PAGE_SQL`'s
+# reason: these are DELETEs, so the rows the statement removed cannot match the next one.
+#
+# AND THERE IS NO ROW BUDGET, unlike the retention sweep's `TENANT_ROW_BUDGET`. The sweep
+# may legitimately defer work to the next tick — a TTL that slides by an hour is nothing.
+# An erasure may not: what it does not reach, the certificate says it did. So this loop
+# runs until the predicate is empty, and the bound it respects is the STATEMENT's, not the
+# request's.
+async def _delete_in_batches(session: AsyncSession, sql: str, params: dict[str, Any]) -> int:
+    """Run one erasure DELETE as a series of bounded statements. Returns the total.
+
+    `sql` must carry a `:batch` limit and must be a DELETE whose own effect makes its rows
+    stop matching, which is what makes the loop terminate and what makes it safe to run
+    with no cursor.
+    """
+    erased = 0
+    for _ in range(_MAX_ERASURE_BATCHES):
+        result = await session.execute(text(sql), {**params, "batch": SUBJECT_ERASURE_BATCH})
+        removed = int(rowcount_of(result) or 0)
+        erased += removed
+        if removed < SUBJECT_ERASURE_BATCH:
+            return erased
+    raise RuntimeError(
+        f"erasure batch loop did not converge after {_MAX_ERASURE_BATCHES} statements "
+        f"({erased} rows removed); the predicate is not making progress and no "
+        "certificate may be written from a partial erasure"
+    )
+
+
 # THE COPILOT CONVERSATION, REACHED BY THE NUMBER (D-540).
 #
 # ⚠ **THIS ARM USUALLY MATCHES NOTHING, AND THAT IS THE DESIGN RATHER THAN A DEFECT.**
@@ -1924,15 +1982,23 @@ WHERE strpos(regexp_replace(content, '[^0-9]', '', 'g'), :digits) > 0
 # here. Three things do reach it — the conversation ending with its owner's last session,
 # the `transcript` retention clock, and tenant offboarding, which deletes every row.
 #
-# ⚠ **AND THE CERTIFICATE DOES NOT SAY SO YET.** `compliance/deletion.ERASURE_LIMITATIONS`
-# is where a data principal is told what an erasure could not reach, and it carries no
-# entry for this class at all — not for these turns and not for `copilot_memories`, which
-# has had the identical limit since D-484. One entry covering both belongs there; it is
-# left out of THIS change rather than half-written, because the register is index-aligned
-# with `ERASURE_EXCEPTIONS` and a limitation is a published document, not a code comment.
+# ⚠ **THE CERTIFICATE NOW SAYS SO, IN TWO ENTRIES, AND THIS COMMENT USED TO SAY IT DID
+# NOT.** `compliance/deletion.ERASURE_LIMITATIONS` carries the assistant-specific entry
+# (keyword `assistant`, covering these turns and `copilot_memories`, which has had the
+# identical limit since D-484) and, beside it, the GENERAL one this arm is an instance of:
+# the erasure is keyed on a number, so no predicate it has can reach a record that named
+# the person by NAME. The general entry exists because the limit is not the assistant's —
+# it is every digit-keyed arm's, this one and `_OUTBOX_SUBJECT_SQL` and
+# `_KB_SUBJECT_MATCH_SQL` alike — and `tests/dpdp_known_gaps_test.py` holds the OPEN defect
+# with a probe that turns red the day the keying stops being digits.
+#
+# BATCHED (`_delete_in_batches`), because this predicate can use no index: read that
+# function for why the answer is a series of bounded statements and not a longer timeout.
 _COPILOT_TURN_SUBJECT_SQL = """
-DELETE FROM copilot_conversation_turns
-WHERE strpos(regexp_replace(content, '[^0-9]', '', 'g'), :digits) > 0
+DELETE FROM copilot_conversation_turns WHERE id IN (
+  SELECT id FROM copilot_conversation_turns
+  WHERE strpos(regexp_replace(content, '[^0-9]', '', 'g'), :digits) > 0
+  LIMIT :batch)
 """
 
 
@@ -1946,8 +2012,7 @@ async def _erase_copilot_turns(session: AsyncSession, *, phone: str) -> int:
     digits = "".join(character for character in phone if character.isdigit())[-10:]
     if not digits:
         return 0
-    erased = await session.execute(text(_COPILOT_TURN_SUBJECT_SQL), {"digits": digits})
-    return int(rowcount_of(erased) or 0)
+    return await _delete_in_batches(session, _COPILOT_TURN_SUBJECT_SQL, {"digits": digits})
 
 
 # THE HANDOVER BRIEF, REACHED BY THE CALL (D-533).
@@ -2045,10 +2110,17 @@ async def _erase_handoff_briefs(session: AsyncSession, *, call_ids: Sequence[UUI
 # `9876543210` are one number — and it over-matches rather than under-matches by design:
 # a false positive costs one queued message that named this person by coincidence, a
 # false negative costs them their erasure.
+#
+# BATCHED (`_delete_in_batches`) for the reason that function gives: `payload::text` put
+# through `regexp_replace` per row is unindexable by construction, and the outbox is the
+# one table on this path whose row count is set by every tenant's traffic rather than by
+# this tenant's.
 _OUTBOX_SUBJECT_SQL = """
-DELETE FROM outbox_messages
-WHERE payload->>'tenant_id' = :tid
-  AND strpos(regexp_replace(payload::text, '[^0-9]', '', 'g'), :digits) > 0
+DELETE FROM outbox_messages WHERE id IN (
+  SELECT id FROM outbox_messages
+  WHERE payload->>'tenant_id' = :tid
+    AND strpos(regexp_replace(payload::text, '[^0-9]', '', 'g'), :digits) > 0
+  LIMIT :batch)
 """
 
 # The same table on the tenant path, where the subject is "all of them" and there is
@@ -2056,8 +2128,12 @@ WHERE payload->>'tenant_id' = :tid
 # dead-lettered job for an account being wound down is a copy of that account's callers'
 # data with no purpose left, and any of it still pending would fire against an
 # organisation whose certificate says it holds nothing.
+# Batched on the same argument. There is no regexp here, but `payload->>'tenant_id'` is
+# still an expression over every row of a cross-tenant queue, and a wound-down account with
+# a large dead-letter backlog is exactly the shape that makes it long.
 _OUTBOX_TENANT_SQL = """
-DELETE FROM outbox_messages WHERE payload->>'tenant_id' = :tid
+DELETE FROM outbox_messages WHERE id IN (
+  SELECT id FROM outbox_messages WHERE payload->>'tenant_id' = :tid LIMIT :batch)
 """
 
 
@@ -2070,15 +2146,13 @@ async def _erase_outbox_messages(
     leave — never a job name, never a payload (hard rule 6).
     """
     if phone is None:
-        result = await session.execute(text(_OUTBOX_TENANT_SQL), {"tid": str(tenant_id)})
-        return int(rowcount_of(result) or 0)
+        return await _delete_in_batches(session, _OUTBOX_TENANT_SQL, {"tid": str(tenant_id)})
     digits = "".join(character for character in phone if character.isdigit())[-10:]
     if not digits:
         return 0
-    result = await session.execute(
-        text(_OUTBOX_SUBJECT_SQL), {"tid": str(tenant_id), "digits": digits}
+    return await _delete_in_batches(
+        session, _OUTBOX_SUBJECT_SQL, {"tid": str(tenant_id), "digits": digits}
     )
-    return int(rowcount_of(result) or 0)
 
 
 async def _search_knowledge_base(session: AsyncSession, *, phone: str) -> int:

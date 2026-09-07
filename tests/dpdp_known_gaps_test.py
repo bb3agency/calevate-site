@@ -53,6 +53,39 @@ KNOWN_OPEN_DPDP_GAPS: dict[str, str] = {
         "SECURITY-COMPLIANCE §1 is outside its writable set, and the floor is a term in "
         "the client DPA rather than an implementation detail."
     ),
+    "subject_erasure_is_keyed_on_digits_and_cannot_reach_a_name": (
+        "The \u00a712 erasure finds a data principal BY THEIR NUMBER and by nothing else. "
+        "`deletion_requests` cannot even be filed without one (CHECK "
+        "`open_request_names_its_subject`), and every free-text arm matches the last ten "
+        "DIGITS of it \u2014 `_KB_SUBJECT_MATCH_SQL`, `_COPILOT_TURN_SUBJECT_SQL` and "
+        "`_OUTBOX_SUBJECT_SQL` all strip both sides to digits with the same "
+        "`regexp_replace(..., '[^0-9]', '', 'g')`.\n"
+        "So a record that named the person by NAME is unreachable by any predicate the "
+        "erasure has. `copilot/transcript.py` and `copilot/memory.py` state the same limit "
+        "from the other end: `redact()` recognises IDENTIFIERS (phone, email, Aadhaar, "
+        "PAN, card, OTP, UPI) and not PROPER NOUNS, so a staff member who types "
+        "\u201cwhat did Lakshmi\u2019s enquiry say\u201d leaves a first name in a row this "
+        "erasure walks straight past. It is not the assistant's limit: it is a property of "
+        "the KEY, so it holds for the knowledge-base search and the outbox arm too.\n"
+        "It is bounded rather than open-ended, which is why it is a disclosed limitation "
+        "and not an incident. Three things reach such a row without matching a name \u2014 "
+        "the copilot's own session-run clearing, the `transcript` retention clock, and "
+        "tenant offboarding, which DELETEs every row unconditionally \u2014 and the columns "
+        "in question are redacted on write, so what survives is a sentence with a name in "
+        "it and no identifier beside it. It IS disclosed to the data principal: "
+        "`deletion.ERASURE_LIMITATIONS` carries the general entry (keyword 'by name') "
+        "beside the assistant-specific one (keyword 'assistant'), so the certificate says "
+        "it out loud rather than leaving a reader to infer it.\n"
+        "CLOSED BY: a decision that is not ours to take. Erasing by NAME means matching a "
+        "proper noun against free text, which produces false positives that destroy OTHER "
+        "people's records \u2014 a caller called Lakshmi asking to be erased would take "
+        "every other Lakshmi's conversation with her \u2014 so it needs a verification "
+        "standard for what counts as this person's record and an accepted false-positive "
+        "rate. Both are the founder's, with counsel, and both are DPA terms rather than "
+        "engineering defaults. Once given, the mechanism is cheap: one more identifier "
+        "column on `deletion_requests`, one predicate per free-text arm, and a narrowed "
+        "sentence in the two registers this entry names."
+    ),
     "uploaded_campaign_contacts_have_no_retention_clock": (
         "The ERASURE half of P3.1 is closed in code: `_erase_campaign_contacts` reaches "
         "`campaign_contacts` from both the per-subject and the tenant-wide path, "
@@ -109,9 +142,49 @@ async def _no_retention_category_reaches_campaign_contacts() -> bool:
     return definition is None or "campaign_contact" not in str(definition)
 
 
+async def _subject_erasure_is_keyed_on_digits() -> bool:
+    """The erasure still finds a person by their number and by nothing else.
+
+    TWO HALVES, because closing this gap could start at either end and an entry watching
+    only one of them would outlive its defect at the other. The SCHEMA half asks whether an
+    open request can still name nothing but a phone number; the PREDICATE half asks whether
+    the free-text arms are still digit matchers. The predicates are read off the IMPORTED
+    MODULE rather than off the file's text, so reformatting, a moved comment or a rewritten
+    docstring cannot flip this probe \u2014 only the SQL can.
+    """
+    from apps.api.db.session import untenanted_session
+    from apps.workers import retention
+    from sqlalchemy import text as sql
+
+    predicates = (
+        retention._KB_SUBJECT_MATCH_SQL,
+        retention._COPILOT_TURN_SUBJECT_SQL,
+        retention._OUTBOX_SUBJECT_SQL,
+    )
+    if not all("regexp_replace" in one and "[^0-9]" in one for one in predicates):
+        return False
+
+    async with untenanted_session() as session:
+        definition = (
+            await session.execute(
+                sql(
+                    "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = "
+                    "'ck_deletion_requests_open_request_names_its_subject'"
+                )
+            )
+        ).scalar()
+    # A dropped constraint reads as STILL OPEN rather than as closed, for the campaign
+    # probe's reason one function up: removing it is a bigger change than this file should
+    # quietly pass, and whoever removed it has to come here and say what replaced it.
+    return definition is None or "phone_e164" in str(definition)
+
+
 #: key → the probe that answers "is this gap still real?". Every probe is async so the
 #: assertion below reads as one loop rather than as two kinds of entry.
 PROBES: dict[str, Callable[[], Awaitable[bool]]] = {
+    "subject_erasure_is_keyed_on_digits_and_cannot_reach_a_name": (
+        _subject_erasure_is_keyed_on_digits
+    ),
     "recording_floor_cites_an_authority_that_may_not_impose_it": _floor_is_attributed_to_trai,
     "uploaded_campaign_contacts_have_no_retention_clock": (
         _no_retention_category_reaches_campaign_contacts
