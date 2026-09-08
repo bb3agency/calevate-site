@@ -518,6 +518,12 @@ class TestRlsCoverage:
             # margin — one published price for the whole self-serve motion at an instant,
             # and a managed client's price is their `plans` row.
             "platform_list_rates",
+            # D-550: which card an operator WITHDREW before it took effect. Platform-global
+            # for the line above's reason — a card prices the whole self-serve motion, so
+            # there is no tenant whose row this could be — and append-only, because a
+            # withdrawal that could itself be un-recorded would spring the cancelled card
+            # back into force on every reader at once.
+            "platform_list_rate_cancellations",
             "platform_dashboard_data_use",
             "platform_state",
             "platform_ai_spend",

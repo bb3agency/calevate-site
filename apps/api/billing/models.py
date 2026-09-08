@@ -839,6 +839,56 @@ class PlatformListRate(Base):
     source_note: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+class PlatformListRateCancellation(Base):
+    """A rate card WITHDRAWN before it took effect, recorded rather than deleted (D-550).
+
+    A card is twelve `platform_list_rates` rows sharing one `effective_from`, so that
+    instant names it exactly — which is why it is this table's whole primary key: a
+    repeated Cancel is a no-op rather than a second row, and two operators withdrawing the
+    same card collide instead of both succeeding.
+
+    **WHY A COMPENSATING ROW AND NOT A RE-RECORD OF THE OLD CARD.** The obvious withdrawal
+    is "put the previous card back", and it cannot be done safely: `platform_list_rates`'
+    PK forbids two rows sharing an instant, so the restoring card must land at least one
+    microsecond after the withdrawn one — and for that microsecond `card_at` answers a card
+    NOBODY APPROVED. A purchase landing inside it freezes those rates onto its lot for the
+    life of that credit. The window is too small to hit on purpose and too real to write
+    down as safe on a money path, so the withdrawal is its own fact and `card_at` skips a
+    cancelled instant instead.
+
+    **APPEND-ONLY (hard rule 4), and here that is not bookkeeping.** A withdrawal that
+    could itself be un-recorded would spring the cancelled card back into force on every
+    reader at once, with no DDL and no diff to show for it. Blanket
+    `calevate_forbid_mutation` plus `calevate_forbid_truncate`, both `ENABLE ALWAYS` so
+    `session_replication_role = replica` cannot switch immutability off.
+
+    **HOLDS NO DATA PRINCIPAL'S DATA.** Three columns and an operator: which card, when it
+    was withdrawn, by which `admin_users` row, and the operator's stated reason. A client
+    is not identified here even indirectly — a card is platform-wide — so it is registered
+    in `ERASURE_EXEMPT` on that ground rather than erased. NOT tenant-scoped and never will
+    be, which is also why it appears in `db/registry.RLS_EXEMPT_TENANT_COLUMNS`.
+
+    Declared as an ORM model for `PlatformListRate`'s reason and for one more: the restore
+    drill seeds and probes every table in `APPEND_ONLY_TABLES` through `Base.metadata`, so
+    a ledger with no model here is a ledger whose immutability the drill silently never
+    tests. `billing/list_rates.py` is the reader and the writer, in SQL text like every
+    other money reader in this package.
+    """
+
+    __tablename__ = "platform_list_rate_cancellations"
+
+    #: WHICH card was withdrawn: the `effective_from` its twelve `platform_list_rates` rows
+    #: share. The whole PK, deliberately — see the class docstring.
+    effective_from: Mapped[datetime] = mapped_column(primary_key=True)
+    cancelled_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    #: The operator who withdrew it. NOT NULL against `admin_users`, as every row in this
+    #: family is: a pricing act is always somebody's.
+    cancelled_by: Mapped[UUID] = mapped_column(ForeignKey("admin_users.id"), nullable=False)
+    #: WHY, in the operator's words — `platform_list_rates.source_note`'s reason: a pricing
+    #: act with no stated ground cannot be audited afterwards.
+    reason: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 class RefundIntent(PKMixin, Base):
     """A refund this platform has COMMITTED TO ASKING THE PROVIDER FOR, written before
     the ask (D-511).

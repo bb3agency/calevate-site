@@ -406,7 +406,22 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # confirmation carries the LOT id, not the pack's: the lot is the whole content of the
     # decision, and a header captured while looking at a ₹2,000 lot must not be replayable
     # against the ₹50,000 one beside it (`lot_reprice_confirmation`).
-    assert sites == 34, f"found {sites} step-up call sites, expected 34; the census went stale"
+    #
+    # THE THIRTY-SECOND AND THIRTY-THIRD ARE THE RATE CARD (`ops/config_routes.py`, D-550):
+    # recording a new twelve-cell card, and WITHDRAWING one that is scheduled. Recording is
+    # the obvious half — it sets what every future purchase will freeze onto its lot, for
+    # every prepaid client at once, and it emails all of them. The WITHDRAWAL is on this
+    # list for the less obvious reason: a stolen console session that cannot raise prices
+    # can still cancel the cut a client was told about, and the notice already went out, so
+    # the damage is a promise broken rather than a number changed.
+    #
+    # Both confirmations carry the card's `effective_from`, which is what identifies a card
+    # — twelve rows share it, and it is half the primary key — so a header captured while
+    # looking at the card scheduled for October cannot be replayed against the one
+    # scheduled for November. They are DIFFERENT strings (`record_rate_card:` /
+    # `cancel_rate_card:`) for `close_and_schedule_erasure`'s reason one entry up: a
+    # confirmation captured to schedule a change must not be replayable to withdraw one.
+    assert sites == 36, f"found {sites} step-up call sites, expected 36; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

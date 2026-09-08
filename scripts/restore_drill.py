@@ -244,6 +244,11 @@ _APPEND_ONLY_PROBE_SET = {
     # that could fail on the constraint instead of on the trigger would report a protected
     # ledger as protected for the wrong reason (`fx_rate_observations`' own note).
     "platform_list_rates": "source_note = source_note || 'x'",
+    # D-550: not tenant-scoped either, for `platform_model_prices`' reason. `reason`
+    # rather than `effective_from`, which is the whole primary key — a probe that could
+    # fail on the PK instead of on the trigger would report a protected ledger as
+    # protected for the wrong reason (`fx_rate_observations`' own note).
+    "platform_list_rate_cancellations": "reason = reason || 'x'",
     # D-547: not tenant-scoped either, for `platform_model_prices`' reason. `source_note`
     # rather than `inr_per_1k_chars`, which carries `ck_platform_tts_prices_positive` — a
     # probe that could fail on the constraint instead of on the trigger would report a
@@ -790,6 +795,14 @@ class RestoreDrill:
             # mistaken for a real published price.
             "INSERT INTO platform_list_rates (rate_key, effective_from, inr_amount, "
             "recorded_by, source_note) VALUES ('self_serve_inr_per_min', now(), 6.0000, "
+            f"'{ADMIN_ID}', 'restore-drill fixture')",
+            # D-550: one withdrawn card, for the same reason. The instant is a FUTURE one
+            # rather than `now()`, because a cancellation names the card it withdraws and a
+            # card is only withdrawable while its date is still ahead — a fixture that could
+            # not have been written by the route it stands in for is a fixture that stops
+            # resembling the thing under test.
+            "INSERT INTO platform_list_rate_cancellations (effective_from, cancelled_by, "
+            "reason) VALUES (now() + interval '60 days', "
             f"'{ADMIN_ID}', 'restore-drill fixture')",
             # D-499: one metered unit of ADMIN copilot spend, for the same reason —
             # `append_only_enforced` needs a row for its FOR EACH ROW trigger to fire

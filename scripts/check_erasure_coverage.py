@@ -288,6 +288,14 @@ ERASURE_EXEMPT: dict[str, str] = {
         "Platform configuration, one row for the whole deployment. Its `note` is an "
         "operator's note about a setting; no tenant's data and no caller's."
     ),
+    "platform_list_rate_cancellations": (
+        "Platform pricing state: which rate card was withdrawn before it took effect, "
+        "which operator withdrew it and their stated `reason`. A card is deployment-wide "
+        "and prices no one client, so no data principal is named here even indirectly — "
+        "and it is append-only (hard rule 4) because a withdrawal that could itself be "
+        "un-recorded would spring the cancelled card back into force on every reader at "
+        "once. RLS-exempt on the same ground."
+    ),
     "platform_maintenance_windows": (
         "Platform state: a window and the operator's `reason` for it. Deployment-wide, "
         "never about a person, and RLS-exempt for the same reason."
