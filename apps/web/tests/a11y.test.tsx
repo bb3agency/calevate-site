@@ -449,6 +449,21 @@ const TTS_SPEAKING_RATE = {
 };
 
 const FLEET_SPEND = {
+  // The POPULATED vendor card, because this file exists to sweep the state that renders the
+  // most markup: a plan fee, an attribution against it and the allotment nobody used. The
+  // empty-list branch is a paragraph and has nothing for axe to find.
+  tts_plan: [
+    {
+      provider: "cartesia",
+      tier_label: "Studio",
+      month: IST_MONTH,
+      plan_inr: "4312.00",
+      attributed_inr: "1180.50",
+      unused_inr: "3131.50",
+      chars: "342180",
+      inr_per_1k_chars: "3.4496",
+    },
+  ],
   month: IST_MONTH,
   clients: 2,
   revenue_inr: "6249.00",

@@ -408,8 +408,11 @@ function FleetRow({ tenant }: { tenant: FleetTenant }) {
 function TtsPlanCard({ board }: { board: FleetSpend | undefined }) {
   if (board === undefined) return null;
   // An empty list and a missing month are ONE absence: the API omits a vendor's row rather
-  // than sending a zero fee, so there is nothing here to tell apart.
-  const rows = board.tts_plan.length > 0 ? board.tts_plan : null;
+  // than sending a zero fee, so there is nothing here to tell apart. The optional read is
+  // deliberate over a REQUIRED field — an API older than Phase D.3 sends no `tts_plan` at
+  // all, and the whole money board dying on a card about one vendor's invoice is a worse
+  // answer than the card saying it has nothing to show.
+  const rows = board.tts_plan?.length ? board.tts_plan : null;
 
   return (
     <Card title="Voice vendors — plan spend against attributed">
