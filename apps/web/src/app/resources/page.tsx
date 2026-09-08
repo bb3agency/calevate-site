@@ -82,9 +82,16 @@ const READING: readonly { href: string; title: string; body: string }[] = [
   {
     href: "/pricing",
     title: "How the bill is put together",
+    // ⚠ THIS SAID "why no figure is printed on that page", WHICH STOPPED BEING TRUE (D-545,
+    // D-547). `/pricing` publishes the prepaid card — a per-minute rate on each of the two
+    // voices, on every rung — and sending a reader there to be told nothing is printed is
+    // the site contradicting itself one click apart. No figure appears HERE: this page is
+    // handed no rate card, and a rate typed into a link description is the drift
+    // `lib/api/rateCard.ts` exists to prevent.
     body:
-      "What is metered, how a plan is shaped, prepaid credit, the two spending ceilings, " +
-      "and why no figure is printed on that page.",
+      "What is metered, how a plan is shaped, the two spending ceilings, and the published " +
+      "prepaid card — a per-minute rate on each of the two voices, coming down the more " +
+      "credit you buy at once.",
   },
   {
     href: "/security",
@@ -179,17 +186,58 @@ const GLOSSARY: readonly { term: string; detail: string }[] = [
   {
     term: "Publishing",
     detail:
-      "The moment a change you made — a new answer, a different voice, an edited " +
+      "The moment a change you made — a new answer, a different opening line, an edited " +
       "question list — reaches live calls. Nothing you type is answering a caller until " +
       "you publish it, and the honest answers about being an AI and about recording are " +
       "attached above your script every time it happens.",
   },
   {
+    /*
+     * ⚠ THIS ENTRY USED TO BE ONE SENTENCE ABOUT A BALANCE RUNNING OUT, and three things
+     * it did not say are the ones a buyer is most likely to be surprised by (D-547):
+     * credit is bought in PACKS and each purchase freezes the two rates it was sold at for
+     * the life of that credit (`apps/api/billing/lots.py`, rates with no UPDATE path),
+     * spent oldest purchase first; it never expires (`credit_ledger` has no expiry column
+     * and nothing sweeps it); and a call already running can take the balance slightly
+     * below zero, which the next top-up clears before it opens new credit
+     * (`billing/lots.py:526-531`). Terms 6.1 states the same promise in the founder's
+     * approved words, so this is the plain-language twin of a term rather than a new claim.
+     *
+     * NO FIGURE AND NO QUALITY NAME: this page is handed no rate card, and both the rates
+     * and the two voices' names come from the API (`billing/rates.py::VOICE_TIER_LABELS`).
+     */
     term: "Wallet and credits",
     detail:
       "Prepaid balance, if your account runs that way, with the ledger it came out of. " +
-      "When it is exhausted, outbound calling stops rather than running on into a bill " +
-      "you did not agree to.",
+      "You buy it in packs, and the pack you buy fixes what a minute costs on each of the " +
+      "two voices for the life of that credit — a later change to our price list cannot " +
+      "reprice credit you already own. It is spent oldest purchase first and it never " +
+      "expires. When it runs out, outbound calling stops; people ringing you are never " +
+      "blocked by a balance. A call already in progress can take it a little below zero, " +
+      "and the next top-up settles that before it opens new credit.",
+  },
+  {
+    /*
+     * THE VOCABULARY D-547 ADDED, and the one word on this page a buyer will meet on their
+     * first invoice without meeting it anywhere else. Two things have to be said together
+     * or the entry misleads: neither voice is a degraded tier (`billing/rates.py` — the
+     * old premium/value ladder was withdrawn; these are two vendors at two prices), and
+     * the choice is NOT the client's (D-21: which voice reads Telugu well is an ear test,
+     * so the picker is mounted in the admin realm only and the agent panel says so
+     * outright). The register is the console's own — "your account manager moves it".
+     *
+     * THE TWO NAMES ARE NOT WRITTEN HERE. They are the API's words, carried on the rate
+     * card (`VOICE_TIER_LABELS`), and this page fetches nothing — so it points at the page
+     * that does rather than holding a second copy that could go stale silently.
+     */
+    term: "Voice quality",
+    detail:
+      "Which of two voices an agent speaks with. Neither is a cut-down version of the " +
+      "other — what you hear in a demo is what a customer hears at three in the morning — " +
+      "but one costs more a minute than the other, so it shows on your bill. It is set " +
+      "per agent rather than for the whole account, and we set it: tell your account " +
+      "manager which one an agent should use. Both are named, with their rates, on the " +
+      "price list.",
   },
   {
     term: "Spend cap",

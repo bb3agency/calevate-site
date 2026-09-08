@@ -527,6 +527,74 @@ describe("the industries page", () => {
 });
 
 /**
+ * THE RESOURCES PAGE IS THE SITE'S OWN DICTIONARY, so a word that stopped being true there
+ * is wrong in the place a buyer goes to look a word up.
+ *
+ * Three claims on it went stale under D-545/D-547 and each is pinned by the SHAPE of the
+ * mistake rather than by the sentence that replaced it — copy will be rewritten, and a test
+ * quoting a paragraph is a test somebody deletes rather than a rule somebody keeps:
+ *
+ *  1. it sent a reader to `/pricing` to be told nothing was printed there, while that page
+ *     publishes a six-rung card with a rate on each of the two voices;
+ *  2. its "Publishing" entry listed a change of VOICE among the things a client makes and
+ *     publishes, and D-21 says the voice is ours (the console's own agent panel: "Changing
+ *     it is still ours … which is why there is no control here");
+ *  3. its wallet entry was one sentence about a balance running out, and said none of the
+ *     three promises the credit actually carries.
+ *
+ * No figure is asserted, because none may appear: this page fetches no rate card, so every
+ * rupee on it would be a number typed into the bundle.
+ */
+describe("the resources page", () => {
+  /** The glossary as `{ term: detail }` — the shape the page renders it in. */
+  function glossary(container: HTMLElement): Map<string, string> {
+    const entries = new Map<string, string>();
+    for (const item of container.querySelectorAll("#glossary dt")) {
+      entries.set(item.textContent ?? "", item.nextElementSibling?.textContent ?? "");
+    }
+    return entries;
+  }
+
+  it("does not send a reader to a price list to be told there is no price", () => {
+    stubApi({});
+    const { container } = render(<ResourcesPage />);
+    const text = bodyText(container);
+    expect(text).not.toMatch(/no (figure|price|rate) is (printed|published|shown)/i);
+    expect(text).not.toMatch(/why there is no price/i);
+    // And it still describes the page it links to, rather than dropping the sentence.
+    expect(text).toMatch(/two voices/i);
+  });
+
+  it("offers no voice control, and says who moves it", () => {
+    stubApi({});
+    const { container } = render(<ResourcesPage />);
+    const entries = glossary(container);
+    const publishing = entries.get("Publishing");
+    expect(publishing, "the Publishing entry is gone").toBeDefined();
+    // The list of things a client changes and publishes may not contain a voice.
+    expect(publishing).not.toMatch(/voice/i);
+    const voice = entries.get("Voice quality");
+    expect(voice, "the glossary defines no voice quality").toBeDefined();
+    expect(voice).toMatch(/account manager/i);
+    expect(voice).not.toMatch(/you (choose|pick|select)/i);
+  });
+
+  it("states the three promises the credit carries", () => {
+    stubApi({});
+    const { container } = render(<ResourcesPage />);
+    const wallet = glossary(container).get("Wallet and credits") ?? "";
+    // Rates frozen on the purchase, oldest purchase first, and no expiry — the same three
+    // the terms state (`lib/legal/terms.ts`, clause 6.1) and the console's own panel does.
+    expect(wallet).toMatch(/never expires|does not expire/i);
+    expect(wallet).toMatch(/oldest purchase first/i);
+    expect(wallet).toMatch(/fixes what a minute costs|frozen|cannot reprice/i);
+    // The one thing it may not say: that a bigger pack buys more credit. It buys a cheaper
+    // minute (D-547), and no pack has granted a bonus since.
+    expect(wallet).not.toMatch(/bonus|extra credit|free credit/i);
+  });
+});
+
+/**
  * ONE CALCULATOR, NOT TWO. `/roi` imports the same component the homepage renders rather
  * than forking it — two implementations of an arithmetic argument would agree on the day
  * they were written and disagree about money by the time anybody noticed.

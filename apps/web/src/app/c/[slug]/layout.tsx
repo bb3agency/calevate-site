@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { use, useState } from "react";
-import { Bell, Menu } from "lucide-react";
+import { Bell, Menu, UserRound } from "lucide-react";
 
 import { Providers } from "@/app/providers";
 import { ToastProvider } from "@/components/interior/toaster";
@@ -26,7 +26,7 @@ import { ClientCopilotDock } from "@/components/copilot/CopilotDock";
 import { MaintenanceBanner, MaintenanceGate } from "@/components/maintenance";
 import { OfflineBanner } from "@/components/offline";
 import { Avatar, MAIN_CONTENT_ID, ProblemNotice, Skeleton, SkipLink } from "@/components/ui";
-import { clientAuthn, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
+import { clientAuthn, CLIENT_ACCOUNT_PATH, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { ADMIN_CONSOLE_PATH } from "@/lib/authn/adminAuthn";
 import { adminConsoleUrl } from "@/lib/consoleOrigin";
 import { useAgreementsReadiness } from "@/lib/api/agreements";
@@ -210,6 +210,29 @@ function Sidebar({
             )}
           </SidebarLabel>
         </div>
+        {/* THE WAY TO YOUR OWN LOGIN, and it had no door from in here at all.
+            `/auth/account` is where a signed-in person verifies their address, changes
+            their password and ends every other session — and until this link existed the
+            only route to it was the marketing header, which nobody sees once they are
+            working in the console. A shipped control nobody can reach is the half-wired
+            defect in its quietest form: everything works, and no client ever finds it.
+
+            NOT in `clientNavigation()`, deliberately: every entry there is a `/c/<slug>`
+            route (`lib/copilot/navigate.ts` relies on exactly that to decide what the
+            assistant may open), and this one belongs to neither slug nor console. It sits
+            with the sign-out because that is the other thing on this shell that is about
+            the PERSON rather than about the business, and it is styled as its twin so the
+            collapsed rail keeps one column of glyphs. */}
+        <Link
+          href={CLIENT_ACCOUNT_PATH}
+          title={isCollapsed ? "Your account" : undefined}
+          className="flex w-full items-center gap-3 overflow-hidden rounded-lg px-4 py-2 text-sm font-medium text-ink-muted transition-colors hover:bg-black/5 hover:text-ink dark:hover:bg-white/5"
+        >
+          <UserRound aria-hidden className="h-4 w-4 shrink-0" />
+          {/* Mounted and faded rather than unmounted, for `SidebarSignOut`'s reason: the
+              accessible name survives the collapsed rail. */}
+          <SidebarLabel isCollapsed={isCollapsed}>Your account</SidebarLabel>
+        </Link>
         {/* One control for BOTH client roles. The owner and the staff member see the same
             shell with different nav groups, so a role-specific sign-out would be two
             spellings of one thing — and the one person who must always be able to leave

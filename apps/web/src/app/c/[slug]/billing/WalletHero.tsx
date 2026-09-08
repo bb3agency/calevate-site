@@ -82,9 +82,13 @@ export function WalletHero({
         >
           <p className="flex items-start gap-2 font-semibold">
             <PhoneIncoming className="mt-0.5 h-4 w-4 shrink-0" aria-hidden />
+            {/* NOT "answering is free": a low balance never BLOCKS an incoming call (the
+                dispatch gate is outbound-only), but an inbound minute is metered and
+                debited like any other — `charge_for_call` takes no direction. The two are
+                different facts and this line used to merge them. */}
             {dayOne
-              ? "People calling you already get through — answering calls never uses your credit."
-              : "People calling you still get through — answering calls never uses your credit."}
+              ? "People calling you already get through — a low balance never blocks an incoming call, though answering one uses credit like any other."
+              : "People calling you still get through — a low balance never blocks an incoming call, though answering one uses credit like any other."}
           </p>
           {dayOne ? (
             <p className="mt-2">

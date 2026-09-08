@@ -305,11 +305,14 @@ export interface CopilotAction {
  */
 export interface CopilotNavigation {
   tool: string;
-  /** The destination's name as the sidebar spells it — "Calling credit". */
+  /* The destination's name as the sidebar spells it — "Credits & billing". The example
+     used to be "Calling credit", which was one of the FOUR money entries D-525 collapsed
+     into that one hub; a doc comment quoting a sidebar label that no longer exists is how
+     the next reader learns the wrong vocabulary from us. */
   screen: string;
   /** The route TEMPLATE, `{slug}` unsubstituted. Acted on, never rendered. */
   route: string;
-  /** "Calling credit, under Settings & account in the left sidebar". */
+  /** "Credits & billing, under Settings & account in the left sidebar". */
   where: string;
   /** "Opening …" — never "Opened", because this browser decides when. */
   detail: string;

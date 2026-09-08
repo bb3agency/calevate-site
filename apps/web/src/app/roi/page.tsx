@@ -60,8 +60,12 @@ const METHOD: readonly { term: string; detail: string }[] = [
   {
     term: "The Calevate side",
     detail:
-      "Calls a day × average call length × working days × our published rate for the " +
-      "voice you picked, on the pack you picked. That is the whole of it: usage, at a rate " +
+      // "the voice you picked, on the pack you picked" READ AS A PRODUCT CONTROL. Both are
+      // inputs to the CALCULATOR; which voice an agent actually speaks with is ours to set
+      // (D-21), which is the register `/pricing` and the console both use now. Naming the
+      // tool is one word and removes the reading.
+      "Calls a day × average call length × working days × our published rate for the voice " +
+      "and pack you chose in the calculator. That is the whole of it: usage, at a rate " +
       "you can read. It does not change when you widen the hours the line must be " +
       "answered, because an agent costs the same at 2am as at 2pm.",
   },

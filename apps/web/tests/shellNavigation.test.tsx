@@ -8,6 +8,7 @@ import ClientRealmLayout from "@/app/c/[slug]/layout";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import { MAIN_CONTENT_ID } from "@/components/ui";
 import { HOLDS_PATH } from "@/lib/api/holds";
+import { CLIENT_ACCOUNT_PATH } from "@/lib/authn/clientAuthn";
 import { currentNavItem } from "@/lib/nav";
 
 import { browserOffline, renderAdminPage, stubApi, type Routes } from "./harness";
@@ -271,6 +272,31 @@ describe("currentNavItem", () => {
   it("answers undefined rather than guessing", () => {
     expect(currentNavItem(NAV, "/somewhere-else")).toBeUndefined();
     expect(currentNavItem([], "/admin")).toBeUndefined();
+  });
+});
+
+/**
+ * THE ONE CONTROL ON THIS SHELL THAT IS ABOUT THE PERSON, NOT THE BUSINESS.
+ *
+ * `POST /password/change` shipped with a form on `/auth/account` and no door to it from
+ * inside the console: the only link in the product was in the marketing header, which
+ * nobody sees once they are working. A feature reachable only by typing a URL is the
+ * half-wired defect at its quietest — every test green, and no client ever finds it.
+ *
+ * Asserted as REACHABILITY (an anchor to that path, with a name a person can act on)
+ * rather than as a position or a label, because where it sits is a design decision and
+ * whether it exists is not.
+ */
+describe("your own account", () => {
+  it("is reachable from the client console", async () => {
+    const container = await renderClientShell("/c/acme");
+    const account = [...container.querySelectorAll("a[href]")].filter(
+      (a) => a.getAttribute("href") === CLIENT_ACCOUNT_PATH,
+    );
+    expect(account, "no link from the console to /auth/account").toHaveLength(1);
+    // The accessible name survives the collapsed rail, so it is asserted on the element
+    // rather than on the expanded label alone.
+    expect(account[0].textContent).toMatch(/account/i);
   });
 });
 

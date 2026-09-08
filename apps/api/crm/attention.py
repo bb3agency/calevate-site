@@ -59,14 +59,22 @@ BLOCK_REMEDIES: dict[str, str] = {
     # D-521 made prepaid the default, so this is now the message nearly every client
     # eventually sees, and the obvious reading of "your calling credit ran out" is "my
     # phone line is dead" — which for a clinic is a reason to leave, over a lapsed
-    # top-up. Answering an inbound call never touches the wallet (`check_dispatch`
-    # refuses an inbound agent before it reads money), so the reassurance goes FIRST.
+    # top-up. A low balance never BLOCKS an incoming call (`check_dispatch` is
+    # outbound-only), so the reassurance goes FIRST.
+    #
+    # ⚠ IT DOES NOT SAY ANSWERING IS FREE, AND IT USED TO. The old sentence read
+    # "answering calls never uses your credit", which conflated not-gated with
+    # not-charged: `charge_for_call` takes minutes and a voice tier and NO direction,
+    # and `workers/pipeline.py` says so in its own words — "the gate is outbound-only,
+    # so inbound still meters". An inbound minute is debited like any other. Telling a
+    # client otherwise is a false statement about money on the one screen they check
+    # when they are worried about money.
     # The client console carries the same two facts in the same order; a client must not
     # get two accounts of one event on two screens.
     "no_credits": (
-        "People calling you still get through — answering calls never uses your credit. "
-        "Your credit ran out, so we have stopped making outgoing calls. Top up to "
-        "start them again."
+        "People calling you still get through — a low balance never blocks an incoming "
+        "call, though answering one does use credit like any other. Your credit ran out, "
+        "so we have stopped making outgoing calls. Top up to start them again."
     ),
     "no_form_consent": "The form did not confirm permission to call. Add the consent "
     "checkbox to your form, or call them yourself.",

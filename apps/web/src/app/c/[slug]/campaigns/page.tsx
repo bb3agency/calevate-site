@@ -269,8 +269,9 @@ const BLOCKER_COPY: Record<string, BlockerNote> = {
   no_credits: {
     text:
       "Your calling credit has run out, so outgoing calls have stopped. People ringing " +
-      "you still get through — answering calls never uses credit. Add credit and this " +
-      "campaign can go straight out.",
+      "you still get through — a low balance never blocks an incoming call, though " +
+      "answering one uses credit like any other. Add credit and this campaign can go " +
+      "straight out.",
     owner: "client",
   },
   spend_cap: {

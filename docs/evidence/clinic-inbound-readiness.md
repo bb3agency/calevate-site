@@ -178,10 +178,23 @@ an operator creates the org through the intake wizard. Default tier `prepaid`
 **Inbound is genuinely unaffected by a zero balance, enforced by ORDER not by comment:**
 `check_dispatch` refuses `agent_inbound_only` (`apps/api/compliance/service.py:546-551`)
 *before* it reads KYC or money, and the inbound path never calls `check_dispatch` at all.
-Client copy says it first: *"People calling you still get through — answering calls never
-uses your credit"* (`apps/api/crm/attention.py:66-70`). **A clinic at ₹0 answers its phone.**
-Residual: an inbound call still debits the wallet (`apps/workers/pipeline.py:2540-2559`) and
-nothing bounds a negative balance on inbound.
+Client copy says it first: *"People calling you still get through — a low balance never
+blocks an incoming call, though answering one does use credit like any other"*
+(`apps/api/crm/attention.py`). **A clinic at ₹0 answers its phone.**
+
+⚠ **THAT SENTENCE USED TO END "answering calls never uses your credit", AND IT WAS FALSE.**
+The residual below was recorded here from the start and the copy contradicted it on three
+screens: `charge_for_call` takes minutes and a voice tier and NO direction, and
+`workers/pipeline.py` says so itself — *"the gate is outbound-only, so inbound still
+meters"*. Not GATED and not CHARGED are two facts and the copy merged them, which is the
+easiest false statement about money to make and the hardest for a client to catch. Corrected
+8 Sep 2026 on all three surfaces (`crm/attention.py`, the wallet hero, the campaigns page).
+
+Residual, unchanged and now consistent with the copy: an inbound call still debits the
+wallet (`apps/workers/pipeline.py`) and nothing bounds a negative balance on inbound — a
+clinic answering at ₹0 accrues overdraft, which the next top-up settles before it opens new
+credit. Whether inbound SHOULD be free is a product decision nobody has taken; until it is,
+the screens say what the ledger does.
 
 ### Agreements / KYC / verification — PASS
 `apps/api/legal/readiness.py:246-305` builds one exhaustive blocker list from the same
