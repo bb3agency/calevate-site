@@ -40,7 +40,7 @@ from apps.api.crm import attention
 from apps.api.db.base import uuid7
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
-from apps.api.engine.fake import FakeEngine
+from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES, FakeEngine
 from apps.workers import pipeline
 from apps.workers.inbound_cutover import apply_inbound_credit_state
 from calevate_shared.engine import TRUTHFUL_ANSWER_DIRECTIVE
@@ -492,3 +492,229 @@ def test_the_two_client_surfaces_agree(rule: str) -> None:
     """A client must not get two accounts of one event on two screens."""
     assert "Top up" in attention.BLOCK_REMEDIES[rule]
     assert "Top up" in attention.INBOUND_STOPPED_DETAIL
+
+
+# ============================================================================
+# 6. The arms nobody reaches on a good day
+# ============================================================================
+#
+# An engine that CANNOT swap a script, and a vendor that WILL NOT. Both are tested
+# because the failure is the silent kind — a phone that goes on taking bookings for
+# an account with no credit looks exactly like a phone that is working, and no screen
+# in the product would say otherwise. `dial-path` is a zero-tolerance ratchet surface
+# for this reason: an untested arm here is an arm nobody finds out is broken.
+
+
+def _cutover_alerts(caplog: pytest.LogCaptureFixture) -> list[str]:
+    """The alert CODES this surface raised. Codes, not messages: the message is prose
+    an operator edits and the code is the contract (`ai_quota_test._alerts`' reason)."""
+    return [
+        str(record.__dict__.get("code"))
+        for record in caplog.records
+        if record.message == "alert" and record.__dict__.get("failure_stage") == "CORE_LOGIC"
+    ]
+
+
+#: The default fake with ONE capability taken away. Built by copy rather than by reaching
+#: for `EXTERNAL_DEPLOYMENT_CAPABILITIES`, which also lacks `agent_hosting` — an engine that
+#: cannot host our agent refuses at `create_agent` one step earlier, so a test using it
+#: would never reach the arm it claims to cover and would pass for the wrong reason. This
+#: isolates exactly the property under test.
+_NO_SCRIPT_OVERRIDE = DEFAULT_FAKE_CAPABILITIES.model_copy(update={"script_override": False})
+
+
+class _RefusingEngine(FakeEngine):
+    """A fake whose script override always raises.
+
+    A SUBCLASS rather than a monkeypatch of one bound method: the override is reached
+    from two different call sites through the Protocol, and patching an instance would
+    leave the other site running the real one — which is how a test proves an arm it
+    never entered.
+    """
+
+    async def override_call_script(self, ref: str, **kwargs: object) -> None:
+        raise RuntimeError("the vendor refused this write")
+
+
+async def test_an_engine_that_cannot_swap_a_script_says_so_instead_of_reporting_success() -> None:
+    """`unsupported=True`, not a quiet zero — and NOT a fallback to unbinding the number.
+
+    Unbinding would take the number off the agent, and a caller would then hear whatever
+    the carrier does for an unrouted number: no message at all. That is the exact shape
+    D-544's own correction refused, so an engine that cannot deliver the founder's
+    decision reports that it cannot, and the caller alerts on the count.
+    """
+    tenant_id, agent_id = await _tenant()
+    await _publish(tenant_id, agent_id)
+    await _spend(tenant_id, "-50.00")
+
+    async with tenant_session(tenant_id) as session:
+        verdict = await agents_service.reconcile_inbound_answering(
+            session,
+            FakeEngine(capabilities=_NO_SCRIPT_OVERRIDE),
+            tenant_id=tenant_id,
+            exhausted=True,
+        )
+
+    assert verdict.unsupported is True
+    assert (verdict.silenced, verdict.restored, verdict.failed) == (0, 0, 0)
+    assert await _silenced_at(tenant_id, agent_id) is None, (
+        "the column claims the engine is holding a message it was never asked to hold, so "
+        "the next pass would count this agent as already silenced and never retry it"
+    )
+
+
+async def test_a_vendor_refusal_is_counted_alarmed_and_left_for_the_next_pass(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The stamp is what makes the retry possible, so it must NOT be written on failure.
+
+    `inbound_silenced_at` records what the engine was last observed to hold. Writing it
+    after a refused write would make every later pass read "already silenced" and skip the
+    agent — the phone stays open for ever, on a client with no credit, with the platform
+    believing it closed it.
+    """
+    tenant_id, agent_id = await _tenant()
+    await _publish(tenant_id, agent_id)
+    await _spend(tenant_id, "-50.00")
+
+    with caplog.at_level("ERROR"):
+        async with tenant_session(tenant_id) as session:
+            verdict = await agents_service.reconcile_inbound_answering(
+                session, _RefusingEngine(), tenant_id=tenant_id, exhausted=True
+            )
+
+    assert (verdict.failed, verdict.silenced) == (1, 0)
+    assert verdict.unsupported is False
+    assert "inbound_credit_cutover_failed" in _cutover_alerts(caplog)
+    assert await _silenced_at(tenant_id, agent_id) is None
+
+
+class _UnpublishableEngine(FakeEngine):
+    """A fake that cannot be published to.
+
+    The RESTORE deliberately does not use `override_call_script` — it goes back through
+    `publish_agent`, so the agent's own words come from our row through the one path that
+    reads them back and verifies (D-64). So the engine that breaks a restore is one whose
+    UPDATE fails, and a fake refusing only the override would have left this test green
+    having exercised nothing. That mistake is why this class exists rather than a second
+    use of `_RefusingEngine`.
+    """
+
+    async def update_agent(self, ref: object, cfg: object) -> None:
+        raise RuntimeError("the vendor refused this publish")
+
+
+async def test_a_refused_restore_alerts_in_the_other_direction(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The worse half of the pair, and the one with a paying client behind it.
+
+    A refused SILENCE leaves a phone answering that should not. A refused RESTORE leaves a
+    client who has PAID with their callers still being turned away, and every screen
+    reporting the top-up as landed. The detail says which of the two happened, because the
+    operator's next action differs.
+    """
+    tenant_id, agent_id = await _tenant()
+    await _publish(tenant_id, agent_id)
+    await _spend(tenant_id, "-50.00")
+    async with tenant_session(tenant_id) as session:
+        await agents_service.reconcile_inbound_answering(
+            session, get_engine(), tenant_id=tenant_id, exhausted=True
+        )
+    assert await _silenced_at(tenant_id, agent_id) is not None
+
+    await _topup(tenant_id, "500.00")
+
+    # THE ENGINE HAS TO GO IN THE CACHE, not merely into the argument, and finding that out
+    # is why this test earned its keep: `reconcile_inbound_answering` takes an `engine` and
+    # uses it for the OVERRIDE, but the restore goes through `publish_agent`, which resolves
+    # its own engine with `get_engine()`. A refusing engine handed only to the reconciler is
+    # therefore never asked to do the thing the test is about, and the assertion below
+    # passed for the wrong reason until this was fixed.
+    import apps.api.engine as engine_module
+
+    previous = dict(engine_module._instances)
+    engine_module._instances["fake"] = _UnpublishableEngine()
+    try:
+        with caplog.at_level("ERROR"):
+            async with tenant_session(tenant_id) as session:
+                verdict = await agents_service.reconcile_inbound_answering(
+                    session, get_engine(), tenant_id=tenant_id, exhausted=False
+                )
+    finally:
+        engine_module._instances.clear()
+        engine_module._instances.update(previous)
+
+    assert (verdict.failed, verdict.restored) == (1, 0)
+    assert "inbound_credit_cutover_failed" in _cutover_alerts(caplog)
+    assert await _silenced_at(tenant_id, agent_id) is not None, (
+        "the stamp was cleared on a restore that did not happen, so the platform now "
+        "believes this paid-up client's phone is answering while its callers are still "
+        "hearing the apology"
+    )
+
+
+async def test_a_publish_on_an_engine_that_cannot_swap_a_script_does_not_pretend() -> None:
+    """`_settle_inbound_credit_state`'s own capability arm.
+
+    It returns without alerting, unlike the vendor-refusal arm below it: an engine that
+    never had the capability is a deployment fact an operator already knows from the
+    reconciler's `unsupported` count, and alarming on every publish would page them for it
+    once per console action.
+    """
+    tenant_id, agent_id = await _tenant()
+    await _publish(tenant_id, agent_id)
+    await _spend(tenant_id, "-50.00")
+    async with tenant_session(tenant_id) as session:
+        await agents_service.reconcile_inbound_answering(
+            session, get_engine(), tenant_id=tenant_id, exhausted=True
+        )
+    assert await _silenced_at(tenant_id, agent_id) is not None
+
+    import apps.api.engine as engine_module
+
+    previous = dict(engine_module._instances)
+    engine_module._instances["fake"] = FakeEngine(capabilities=_NO_SCRIPT_OVERRIDE)
+    try:
+        await _publish(tenant_id, agent_id)
+    finally:
+        engine_module._instances.clear()
+        engine_module._instances.update(previous)
+
+    assert await _silenced_at(tenant_id, agent_id) is not None, (
+        "the stamp was cleared by a publish that could not put the message back, so the "
+        "agent is recorded as answering normally on an account with no credit"
+    )
+
+
+async def test_a_publish_whose_override_the_vendor_refuses_alerts_and_leaves_the_stamp(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The publish path's re-application failing is the one that undoes a cutover silently.
+
+    Eleven call sites republish an agent, and each writes its REAL script to the engine.
+    If the re-application then fails, the agent is back to doing business for a client with
+    no credit — so the stamp stays, the alert fires, and the next reconciliation retries.
+    """
+    tenant_id, agent_id = await _tenant()
+    await _publish(tenant_id, agent_id)
+    await _spend(tenant_id, "-50.00")
+    async with tenant_session(tenant_id) as session:
+        await agents_service.reconcile_inbound_answering(
+            session, get_engine(), tenant_id=tenant_id, exhausted=True
+        )
+
+    import apps.api.engine as engine_module
+
+    previous = dict(engine_module._instances)
+    engine_module._instances["fake"] = _RefusingEngine()
+    try:
+        with caplog.at_level("ERROR"):
+            await _publish(tenant_id, agent_id)
+    finally:
+        engine_module._instances.clear()
+        engine_module._instances.update(previous)
+
+    assert "inbound_credit_cutover_failed" in _cutover_alerts(caplog)
+    assert await _silenced_at(tenant_id, agent_id) is not None

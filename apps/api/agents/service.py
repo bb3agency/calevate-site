@@ -1380,6 +1380,12 @@ _ANSWERING_AGENTS_SQL = (
     "ORDER BY id"
 )
 
+#: The same nine columns for ONE agent, so `_posture_of_row` and the stamp read can be
+#: served by a single row at both call sites. Derived from the sweep's own text rather than
+#: retyped: two hand-written SELECTs whose column ORDER must agree is how a positional
+#: constructor silently starts reading the wrong field.
+_ONE_ANSWERING_AGENT_SQL = _ANSWERING_AGENTS_SQL.split(" WHERE ")[0] + " WHERE id = :aid"
+
 
 @dataclass(frozen=True, slots=True)
 class InboundCutover:
@@ -1591,12 +1597,16 @@ async def _settle_inbound_credit_state(
         # column never claims something about an agent nobody can ring.
         await _stamp_inbound_silence(session, agent_id=agent_id, silenced=False)
         return
-    was_silenced = (
-        await session.execute(
-            text("SELECT inbound_silenced_at IS NOT NULL FROM agents WHERE id = :aid"),
-            {"aid": agent_id},
-        )
-    ).scalar()
+    # ONE READ, IN `_ANSWERING_AGENTS_SQL`'s OWN SHAPE. It used to be two — this scalar for
+    # the stamp, and `_disclosure_posture_of` fetching the same row again further down —
+    # which cost a round trip on every publish and, worse, carried a `row is None` arm that
+    # the caller (holding the agent it has just published) can never reach. An unreachable
+    # defensive branch on a zero-tolerance ratchet surface is a suppression waiting to
+    # happen, and the honest fix is to stop fetching twice rather than to excuse the arm.
+    # `.one()` because the row is guaranteed: absence here is a bug in the caller, not a
+    # case to handle, and SQLAlchemy says so more clearly than a raise of ours would.
+    row = (await session.execute(text(_ONE_ANSWERING_AGENT_SQL), {"aid": agent_id})).one()
+    was_silenced = row[8] is not None
     if not await credits_exhausted(session, tenant_id=tenant_id):
         # THE RESTORE, and it lands here rather than in the reconciler because THIS is the
         # publish that put the agent's own words back. Unconditional: clearing a stamp that
@@ -1609,10 +1619,9 @@ async def _settle_inbound_credit_state(
     if not engine.capabilities.has("script_override"):
         return
     try:
-        posture = await _disclosure_posture_of(session, agent_id=agent_id)
         await engine.override_call_script(
             ref,
-            opening_line=credit_stop_greeting(posture),
+            opening_line=credit_stop_greeting(_posture_of_row(row)),
             system_prompt=credit_stop_prompt(),
         )
     except Exception as exc:
@@ -1630,27 +1639,6 @@ async def _settle_inbound_credit_state(
         )
         return
     await _stamp_inbound_silence(session, agent_id=agent_id, silenced=True)
-
-
-async def _disclosure_posture_of(session: AsyncSession, *, agent_id: UUID) -> DisclosurePosture:
-    """The three sentences and their switches, for one agent. Read back rather than carried
-    down from `publish_agent`'s config, because what the caller must still hear is what the
-    ROW says (D-163's toggles), and the config object models the same fact one composition
-    step later."""
-    row = (
-        await session.execute(
-            text(
-                "SELECT id, engine_agent_ref, ai_disclosure_line, ai_disclosure_enabled, "
-                "recording_notice_line, recording_notice_enabled, "
-                "caller_memory_notice_line, caller_memory_enabled FROM agents "
-                "WHERE id = :aid"
-            ),
-            {"aid": agent_id},
-        )
-    ).first()
-    if row is None:  # pragma: no cover - the caller holds the row lock on it
-        raise ProblemError.not_found("Agent")
-    return _posture_of_row(row)
 
 
 async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> str:
