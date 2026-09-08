@@ -1371,20 +1371,27 @@ def credit_stop_prompt() -> str:
 #: engine to say. Outbound-only agents are excluded: nobody ever rings them, so overriding
 #: their script would change nothing a caller can hear and would spend a vendor round trip
 #: saying so. The shape is `workers/maintenance._ANSWERING_AGENTS_SQL`'s, one column wider.
-_ANSWERING_AGENTS_SQL = (
+#: The nine columns `_posture_of_row` reads positionally, plus the stamp. Named because
+#: TWO queries need them in the SAME ORDER — the sweep below and the single-agent read —
+#: and two hand-written SELECTs that must agree is how a positional constructor silently
+#: starts reading the wrong field. Written as a literal and concatenated: `check_raw_sql`
+#: vouches for a `+` of literals but cannot trace a `.split()` of one, and deriving the
+#: second query that way is exactly the shortcut it caught.
+_ANSWERING_AGENT_COLUMNS = (
     "SELECT id, engine_agent_ref, ai_disclosure_line, ai_disclosure_enabled, "
     "recording_notice_line, recording_notice_enabled, caller_memory_notice_line, "
-    "caller_memory_enabled, inbound_silenced_at FROM agents "
-    "WHERE status = 'live' AND engine_agent_ref IS NOT NULL "
-    "AND direction IN ('inbound', 'both') AND deleted_at IS NULL AND archived_at IS NULL "
-    "ORDER BY id"
+    "caller_memory_enabled, inbound_silenced_at FROM agents"
 )
 
-#: The same nine columns for ONE agent, so `_posture_of_row` and the stamp read can be
-#: served by a single row at both call sites. Derived from the sweep's own text rather than
-#: retyped: two hand-written SELECTs whose column ORDER must agree is how a positional
-#: constructor silently starts reading the wrong field.
-_ONE_ANSWERING_AGENT_SQL = _ANSWERING_AGENTS_SQL.split(" WHERE ")[0] + " WHERE id = :aid"
+_ANSWERING_AGENTS_SQL = (
+    _ANSWERING_AGENT_COLUMNS + " WHERE status = 'live' AND engine_agent_ref IS NOT NULL"
+    " AND direction IN ('inbound', 'both') AND deleted_at IS NULL AND archived_at IS NULL"
+    " ORDER BY id"
+)
+
+#: The same columns for ONE agent, so the stamp read and `_posture_of_row` are served by a
+#: single row rather than by two fetches of the same row.
+_ONE_ANSWERING_AGENT_SQL = _ANSWERING_AGENT_COLUMNS + " WHERE id = :aid"
 
 
 @dataclass(frozen=True, slots=True)
