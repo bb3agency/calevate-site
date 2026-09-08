@@ -50,6 +50,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from apps.api.db.migration_offline import probe_skipped_offline
 
 revision: str = "d7b1c48a2e93"
 down_revision: str | None = "c5a9e34b71d0"
@@ -83,6 +84,29 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    _refuse_stranded_engines()
+    op.drop_constraint(op.f(CONSTRAINT), "agents", type_="check")
+    op.create_check_constraint(op.f(CONSTRAINT), "agents", ORIGINAL)
+
+
+def _refuse_stranded_engines() -> None:
+    """Count first, so a refused downgrade leaves the constraint intact.
+
+    OFFLINE (`--sql`): skipped, not refused. The count decides nothing about WHICH SQL is
+    emitted — it exists to fail with a sentence instead of a constraint violation. The
+    emitted script still cannot strand anything: it runs inside one transaction (`env.py`
+    emits BEGIN/COMMIT), the narrower CHECK re-validates every row on the way in, and a
+    stranded engine aborts the script with the table exactly as it was.
+    """
+    if probe_skipped_offline(
+        "offline `--sql`: the pre-flight that refuses to narrow ck_agents_engine_enum while\n"
+        "agents carry a widened engine was NOT run — there is no connection to count them.\n"
+        "The ADD CONSTRAINT below re-validates the rows, so the transaction aborts rather\n"
+        "than leaving the table unconstrained; the error will name the constraint, not the\n"
+        "agents. Count them first with: SELECT count(*) FROM agents WHERE engine NOT IN\n"
+        "('fake', 'bolna');"
+    ):
+        return
     stranded = (
         op.get_bind()
         .execute(sa.text("SELECT count(*) FROM agents WHERE engine NOT IN ('fake', 'bolna')"))
@@ -97,5 +121,3 @@ def downgrade() -> None:
             "Downgrading would either reject or require deleting client agents. Repoint "
             "those agents at a permitted engine first, then re-run this downgrade."
         )
-    op.drop_constraint(op.f(CONSTRAINT), "agents", type_="check")
-    op.create_check_constraint(op.f(CONSTRAINT), "agents", ORIGINAL)

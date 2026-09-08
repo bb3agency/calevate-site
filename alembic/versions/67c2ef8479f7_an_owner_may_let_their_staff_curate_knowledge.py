@@ -55,6 +55,7 @@ started from, which is a working account rather than a broken one.
 
 import sqlalchemy as sa
 from alembic import op
+from apps.api.db.migration_offline import probe_skipped_offline
 
 revision = "67c2ef8479f7"
 down_revision = "d4a9c17e6b02"
@@ -77,6 +78,18 @@ def upgrade() -> None:
 
 def _assert_rls_still_forced() -> None:
     """Hard rule 1, re-read from the catalog instead of asserted in the docstring."""
+    # OFFLINE (`--sql`): skipped, not refused. This assertion reads the catalog to prove a
+    # property the DDL above does not touch; it decides nothing about what is emitted, so
+    # the rendered script is complete without it and the note says which check the reviewer
+    # is not getting. See `apps.api.db.migration_offline`.
+    if probe_skipped_offline(
+        "offline `--sql`: the post-DDL re-read of pg_class that proves `organizations` is\n"
+        "still FORCE ROW LEVEL SECURITY was NOT run — there is no connection to read a\n"
+        "catalog from while rendering. The column above is emitted unchanged; run\n"
+        "`uv run python -m scripts.check_rls_coverage` against the database this script\n"
+        "is applied to."
+    ):
+        return
     row = (
         op.get_bind()
         .execute(

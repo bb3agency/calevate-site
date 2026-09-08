@@ -190,16 +190,22 @@ async def test_a_prepaid_account_is_not_held_by_the_stranger_gates() -> None:
         assert await first_campaign_hold_blocker(session, tenant_id=tenant_id) is None
 
 
-async def test_an_inbound_only_agent_still_answers_at_a_zero_balance() -> None:
-    """DECIDED EARLIER IN THIS SESSION AND NOT REVISITED: at zero, outbound campaigns
-    stop and inbound calls are still answered. A clinic whose phone stops being answered
-    because a top-up lapsed is a clinic that leaves.
+async def test_the_dial_gate_refuses_an_inbound_agent_for_its_direction_not_its_wallet() -> None:
+    """⚠ **THIS USED TO BE NAMED "an inbound-only agent still answers at a zero balance",
+    AND D-551 (8 Sep 2026) WITHDREW THAT CLAIM.** It is not the claim this test ever
+    proved, which is why the rename is the whole correction: the assertion below is about
+    the ORDER of `check_dispatch`, and that order is unchanged.
 
-    The proof is the ORDER of the gate, not a separate code path: `check_dispatch` refuses
-    an inbound-only agent with `agent_inbound_only` BEFORE it reads any money, and no
-    inbound path calls it at all. So the assertion is that a wallet-empty prepaid tenant
-    with an inbound agent is refused for the direction and never for the balance — which
-    is what would break the day somebody moved the credit check up the ladder.
+    What the gate says, still: an inbound-only agent is refused with `agent_inbound_only`
+    BEFORE any money is read, and no inbound path calls the gate at all. So a wallet-empty
+    prepaid tenant is refused for the DIRECTION and never for the balance — which is what
+    would break the day somebody moved the credit check up the ladder.
+
+    What that no longer implies: that the phone is answered. Since D-551 the enforcement
+    of an empty wallet on the inbound leg is not this gate at all — it is durable state at
+    the engine, applied on the ledger's crossing of zero
+    (`agents.service.reconcile_inbound_answering`, `tests/inbound_credit_cutover_test.py`),
+    so a clinic at ₹0 is refused here for its direction AND is not answering its phone.
     """
     tenant_id = await _tenant()
     async with tenant_session(tenant_id) as session:

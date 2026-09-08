@@ -175,26 +175,30 @@ it decides whether item 2 is zero work or a week.
 Self-serve signup is off by default (`packages/shared/src/calevate_shared/config.py:1333`);
 an operator creates the org through the intake wizard. Default tier `prepaid`
 (`apps/api/admin/service.py:194,274`).
-**Inbound is genuinely unaffected by a zero balance, enforced by ORDER not by comment:**
-`check_dispatch` refuses `agent_inbound_only` (`apps/api/compliance/service.py:546-551`)
-*before* it reads KYC or money, and the inbound path never calls `check_dispatch` at all.
-Client copy says it first: *"People calling you still get through — a low balance never
-blocks an incoming call, though answering one does use credit like any other"*
-(`apps/api/crm/attention.py`). **A clinic at ₹0 answers its phone.**
+⚠ **"A CLINIC AT ₹0 ANSWERS ITS PHONE" IS WITHDRAWN — D-551, 8 Sep 2026.** This section
+read *"Inbound is genuinely unaffected by a zero balance, enforced by ORDER not by comment"*
+and quoted the client copy that said so. The ORDER fact is still true and still checkable —
+`check_dispatch` refuses `agent_inbound_only` (`apps/api/compliance/service.py`) before it
+reads KYC or money, and no inbound path calls `check_dispatch` at all — but it stopped being
+the whole answer the moment the enforcement moved OFF the dial gate: at a balance of zero or
+below, `agents/service.py::reconcile_inbound_answering` silences every live answering agent
+through the engine, so **a clinic at ₹0 does NOT answer its phone**; the caller hears
+`agents.service.CREDIT_STOP_MESSAGE` and the clinic is told on every screen it reads
+(`crm/attention.BLOCK_REMEDIES["no_credits"]`, and the copy sites listed under D-551).
 
-⚠ **THAT SENTENCE USED TO END "answering calls never uses your credit", AND IT WAS FALSE.**
-The residual below was recorded here from the start and the copy contradicted it on three
-screens: `charge_for_call` takes minutes and a voice tier and NO direction, and
-`workers/pipeline.py` says so itself — *"the gate is outbound-only, so inbound still
-meters"*. Not GATED and not CHARGED are two facts and the copy merged them, which is the
-easiest false statement about money to make and the hardest for a client to catch. Corrected
-8 Sep 2026 on all three surfaces (`crm/attention.py`, the wallet hero, the campaigns page).
+The reason the old reading was an argument for a state nobody could pay for is the residual
+that was recorded here from the start: an inbound call ALWAYS debited the wallet
+(`charge_for_call` takes minutes and a voice tier and NO direction), so "not gated" never
+meant "free", and a clinic answering at ₹0 accrued an overdraft with nothing bounding it.
+D-551 bounds it at both ends — the agent stops doing business, and `_meter` takes no wallet
+debit for an inbound call on an exhausted wallet while still writing `usage_events` with the
+real `unit_cost_paid` (hard rule 7 — we paid the vendor either way).
 
-Residual, unchanged and now consistent with the copy: an inbound call still debits the
-wallet (`apps/workers/pipeline.py`) and nothing bounds a negative balance on inbound — a
-clinic answering at ₹0 accrues overdraft, which the next top-up settles before it opens new
-credit. Whether inbound SHOULD be free is a product decision nobody has taken; until it is,
-the screens say what the ledger does.
+Residual now: the deployment must be on an engine that can override a published agent's
+script. `bolna` declares `script_override`; an engine that does not leaves inbound answering
+normally, unbilled, and alarms `inbound_cutover_unsupported` rather than failing silently.
+And OPERATIONS §2 gate 48 is open — the `PATCH /v2/agent/{id}` this rests on is documented
+(VERIFIED-VENDOR-DOCS) but has never been made against a live account.
 
 ### Agreements / KYC / verification — PASS
 `apps/api/legal/readiness.py:246-305` builds one exhaustive blocker list from the same

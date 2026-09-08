@@ -355,7 +355,7 @@ describe("the hero: how much, and how long it lasts", () => {
 });
 
 describe("an empty wallet: what stopped, and what emphatically did not", () => {
-  it("leads with 'people calling you still get through' before naming what stopped", async () => {
+  it("says the agents have stopped answering, what the caller hears, and that a top-up undoes both", async () => {
     const { container } = await renderBillingHub(
       routes({
         [WALLET]: wallet({
@@ -379,13 +379,19 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
 
     const alert = await screen.findByRole("alert");
     const text = alert.textContent ?? "";
-    // THE ORDER IS THE MITIGATION. A clinic owner reading "your credit has run out" on a
-    // phone at 8pm concludes their phone has stopped being answered — the single most
-    // expensive wrong belief this product can create — so the reassurance comes first.
-    expect(text).toContain("still get through");
-    expect(text.indexOf("still get through")).toBeLessThan(text.indexOf("Outgoing calls have stopped"));
-    // And the state is not carried by colour alone (WCAG 1.4.1): there is a sentence.
-    expect(text).toContain("Outgoing calls have stopped");
+    // ⚠ THIS USED TO ASSERT THE REASSURANCE CAME FIRST ("people calling you still get
+    // through", before "Outgoing calls have stopped"). D-551 made that sentence false: at
+    // zero the agents are silenced at the engine, so an owner reading it would do nothing
+    // and their callers would be turned away all night. The banner now leads with the
+    // whole of what stopped.
+    expect(text).not.toContain("still get through");
+    expect(text).toContain("outgoing calls have stopped and your agents are no longer answering incoming ones");
+    // The reputational half — a caller must not be able to work out why (D-551).
+    expect(text).toContain("gives no reason and says nothing about your account");
+    // And the one action that undoes BOTH, with no support ticket in it.
+    expect(text).toContain("start again straight away");
+    // The state is not carried by colour alone (WCAG 1.4.1): there is a sentence.
+    expect(text).toContain("Your calling credit has run out");
     await expectNoA11yViolations(container, "c/[slug]/credits — empty wallet");
   });
 
@@ -424,10 +430,14 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
       }),
     );
 
-    const notice = (await screen.findByText(/cannot make outgoing calls until there is credit/))
+    const notice = (await screen.findByText(/Until there is credit on the account/))
       .closest("[role=status]");
-    // The reassurance still leads, because it is the sentence that stops the panic.
-    expect(notice?.textContent).toContain("already get through");
+    // ⚠ THIS USED TO ASSERT "already get through" led the sentence. D-551 withdrew that
+    // reassurance on day one too: an account with no credit has no answering agents
+    // either, so the day-one variant differs from the run-out one only in TENSE — it says
+    // what will not happen rather than what has stopped.
+    expect(notice?.textContent).toContain("will not answer incoming ones");
+    expect(notice?.textContent).not.toContain("get through");
     // And the thing that did not happen is not reported as though it had: nothing "ran
     // out" on an account that has never had anything on it.
     await waitFor(() => expect(screen.queryByText(/has run out/)).toBeNull());
@@ -633,7 +643,7 @@ describe("the credit itself: what is left, and at which rates", () => {
       }),
     );
 
-    await screen.findByText(/cannot make outgoing calls until there is credit/);
+    await screen.findByText(/Until there is credit on the account/);
     expect(container.textContent).not.toContain("minutes on Clear");
     expect(container.textContent).not.toContain("0 minutes");
   });

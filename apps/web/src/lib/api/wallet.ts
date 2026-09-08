@@ -224,6 +224,13 @@ export function walletReasonLabel(reason: string): string {
  * `outbound_stopped` — the dial gate's own verdict — never a balance comparison made
  * here, because that comparison is tier-blind and would stop an invoiced client over a
  * wallet they never bought.
+ *
+ * ⚠ **`stopped` NOW MEANS BOTH DIRECTIONS (D-551, 8 Sep 2026), THOUGH THE WIRE FIELD KEEPS
+ * ITS NAME.** The same verdict that refuses a dial also silences the agents' ANSWERING
+ * (`agents/service.py::reconcile_inbound_answering`), so copy rendered under this state
+ * must not tell a client that people ringing them still get through — it is the one thing
+ * they will be asked within the hour, and `tests/credit_stop_copy_test.py` fails if any
+ * surface says it again.
  */
 export type WalletState = "stopped" | "low" | "healthy" | "not-prepaid";
 

@@ -470,7 +470,7 @@ describe("the credits screen", () => {
     await fillCorrection(ENTRY, "2500.00");
     fireEvent.click(correctButton());
     await screen.findByText(
-      "Sri Traders cannot place outbound calls until this wallet is topped up",
+      "Sri Traders cannot place or answer calls until this wallet is topped up",
     );
     // …and the restatement panel's, which has a chosen-payment notice and an outcome of
     // its own. Three forms, three sets of markup that first paint never sees.
@@ -598,12 +598,14 @@ describe("correcting a wrong entry", () => {
     fireEvent.click(correctButton());
 
     await screen.findByText(
-      "Sri Traders cannot place outbound calls until this wallet is topped up",
+      "Sri Traders cannot place or answer calls until this wallet is topped up",
     );
-    // The gate's effect, and the half that is NOT affected — an operator who reads
-    // only this needs to know inbound still answers.
+    // ⚠ THIS USED TO ASSERT "Inbound calls are unaffected". D-551 made that false: at or
+    // below zero the agents are silenced at the engine too, and an operator who believes
+    // the old sentence declines to chase a payment that is holding a phone line down.
     expect(container.textContent).toContain("refuses every outbound call");
-    expect(container.textContent).toContain("Inbound calls are unaffected");
+    expect(container.textContent).toContain("answering incoming ones");
+    expect(container.textContent).not.toContain("Inbound calls are unaffected");
   });
 
   it("keeps the button dead until the entry, both amounts and the reason are in", async () => {

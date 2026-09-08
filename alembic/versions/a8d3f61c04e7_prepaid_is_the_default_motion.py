@@ -81,6 +81,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from apps.api.db.migration_offline import emit_note, execute_data_statement, is_offline
 
 revision: str = "a8d3f61c04e7"
 down_revision: str | None = "f1c9e0a73b46"
@@ -148,8 +149,24 @@ def upgrade() -> None:
     op.execute("ALTER TABLE organizations NO FORCE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE credit_ledger NO FORCE ROW LEVEL SECURITY")
     try:
-        moved = op.get_bind().execute(sa.text(_FLIP)).rowcount
-        stopped = op.get_bind().execute(sa.text(_STOPPED_COUNT)).scalar_one()
+        # THE FLIP IS EMITTED OFFLINE and the count is not, which is the whole distinction:
+        # the UPDATE is fixed text and leaving it out of a reviewed `--sql` script would
+        # ship a migration whose data half silently did not run, while `moved` has one
+        # consumer — the operator sentence at the end of this function.
+        moved = execute_data_statement(
+            sa.text(_FLIP),
+            note=(
+                "offline `--sql`: the plan-tier flip below is the data half of this "
+                "revision\nand is emitted in full. Its row count cannot be taken while "
+                "rendering."
+            ),
+        )
+        # OFFLINE: skipped. This counts accounts the emitted script has not yet moved, so
+        # there is nothing to count and no decision resting on it — see the note emitted
+        # in place of the sentence below.
+        stopped = (
+            None if is_offline() else op.get_bind().execute(sa.text(_STOPPED_COUNT)).scalar_one()
+        )
     finally:
         # RESTORED IN A `finally` for `b7e35c2f81da`'s reason: DDL is transactional here, so
         # a failure would roll the bracket back anyway — but a bracket that leans on the
@@ -159,17 +176,33 @@ def upgrade() -> None:
         op.execute("ALTER TABLE credit_ledger FORCE ROW LEVEL SECURITY")
         op.execute("ALTER TABLE organizations FORCE ROW LEVEL SECURITY")
 
-    # `print`, AND THE TWO OBVIOUS ALTERNATIVES WERE BOTH MEASURED AND REJECTED. This is
-    # the sentence the person running the deploy has to read — the second number is a count
+    # THE SENTENCE THE PERSON RUNNING THE DEPLOY HAS TO READ — the second number is a count
     # of businesses whose outbound calling has just stopped — so it must actually appear.
-    #   * `op.get_context().impl.static_output(...)` asserts an output buffer that exists
-    #     only in offline (`--sql`) mode: it would raise on every real deploy.
-    #   * a `logging` call reaches nothing. `alembic/env.py` never calls `fileConfig`, so
-    #     `alembic.ini`'s `[loggers]` section is inert and the root logger is unconfigured
-    #     — verified here by running `alembic upgrade head` and getting ZERO output, not
-    #     even alembic's own "Running upgrade" line.
+    # ONE ALTERNATIVE WAS MEASURED AND REJECTED: a `logging` call reaches nothing.
+    # `alembic/env.py` never calls `fileConfig`, so `alembic.ini`'s `[loggers]` section is
+    # inert and the root logger is unconfigured — verified here by running `alembic upgrade
+    # head` and getting ZERO output, not even alembic's own "Running upgrade" line.
     # stdout is what `scripts/vps-deploy.sh::run_migrations` captures (`compose --profile
     # migrate run --rm migrate`), so stdout is where this goes.
+    #
+    # OFFLINE IT MAY NOT GO TO STDOUT AT ALL: `--sql` renders the script to stdout, so a
+    # `print` here would drop English prose into the middle of a file somebody pipes into
+    # `psql`. `emit_note` puts the same sentence in the script as a SQL comment, without
+    # the two numbers, which is why `static_output` — an output buffer alembic establishes
+    # ONLY in offline mode, so it would raise on every real deploy — is reached through a
+    # helper that checks the mode rather than called here.
+    if is_offline():
+        emit_note(
+            f"D-521: this script moves every organisation on '{OLD_DEFAULT}' to "
+            f"'{NEW_DEFAULT}'.\nHow many moved, and how many prepaid accounts are thereby "
+            "left holding no calling\ncredit, cannot be counted while rendering. AFTER "
+            "APPLYING, run this to get the\nsecond number — it is a count of businesses "
+            "whose OUTBOUND calling has stopped\n(inbound is unaffected), and each is "
+            "refused 'no_credits' until topped up:"
+            f"\n{_STOPPED_COUNT.strip()};\nSet a genuinely invoiced client back with "
+            "POST /v1/admin/tenants/{id}/plan-tier."
+        )
+        return
     print(  # noqa: T201 - the deploy log is this statement's only reader
         f"D-521: moved {moved} organisation(s) from '{OLD_DEFAULT}' to '{NEW_DEFAULT}'. "
         f"{stopped} prepaid account(s) now hold no calling credit and will be refused "

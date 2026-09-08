@@ -510,9 +510,12 @@ this section was created to fix, one commit later.
 
 ### 12.2 Still open in this repository
 
-⚠ **FIVE OF THE SIX ITEMS THIS TABLE CARRIED WERE CLOSED ON 8 SEP 2026.** They are moved
-into 12.1 rather than deleted, because "was open, closed by" is the only form of this
-section that a later reader can check.
+⚠ **ALL SIX ITEMS THIS TABLE CARRIED WERE CLOSED ON 8 SEP 2026, AND THIS SECTION IS NOW
+EMPTY.** They are moved into the table below rather than deleted, because "was open,
+closed by" is the only form of this section that a later reader can check. **Nothing in
+this repository is known to be open against this plan.** That is a statement about this
+plan only — §12.3's four operations gates and two UNKNOWNs are unchanged and are not
+ours to close.
 
 | Was open | Closed by | Verified |
 |---|---|---|
@@ -521,10 +524,7 @@ section that a later reader can check.
 | **Inbound calls debit the wallet and nothing bounds a negative balance on inbound** — recorded here as a product decision nobody had taken. | D-551 | The founder took it on 8 Sep 2026: the business is warned first, and at zero the agent stops answering and a caller hears a short apology that gives no reason and says nothing about the account. Enforced as durable engine state (`agents/service.reconcile_inbound_answering`, mirrored in `agents.inbound_silenced_at`) because an inbound call reaches nothing of ours before it is answered — there is no pre-answer hook, so hard rule 3 is untouched rather than satisfied. Recovery has three independent paths, since the failure is silent: both crossings of zero publish the job in the ledger row's own transaction, every republish re-decides, and `_meter` enqueues one reconciliation per call for a tenant it finds exhausted. |
 | **`install_pricing_readers()` is not called at worker startup** | `6344c22` | `apps/workers/settings.py::startup` calls `start_pricing_refresher`, which installs the readers and starts the poll together. `stop_pricing_refresher` landed with it — it was the one refresher in the fleet with a start and no stop — and the symmetry is now pinned for the whole fleet rather than for this module. |
 | **`kb_retrieval_logs`' erasure tripwire matches the TABLE STRING only** | `6344c22` | The tripwire matches the ORM class name too, so a producer written as `session.add(KbRetrievalLog(...))` trips it. |
-
-| # | What is still missing | Why it is not merely unfinished |
-|---|---|---|
-| 1 | **`alembic upgrade head --sql` has never completed**, and it is wider than one revision: twelve migrations call `op.get_bind()` and none guards the call with `context.is_offline_mode()` (counted in the tree on 8 Sep 2026, unchanged by D-550's and D-551's own migrations). | Blocks only the documented emit-SQL-for-a-human path; every online upgrade is unaffected. The fix is per-migration and mechanical, and it is the last item on this list. |
+| **`alembic upgrade head --sql` had never completed** — twelve migrations called `op.get_bind()` and none guarded it with `context.is_offline_mode()`, so the render died at `f4a1d0b6e29c` and every revision after it was unreachable offline. | 8 Sep 2026 (this change; no commit yet) | `uv run alembic upgrade head --sql` exits 0 and renders 5000 lines, and that script APPLIES: `psql -v ON_ERROR_STOP=1 -f` against an empty database leaves `alembic_version = e4a17c93d5b2` and the same 96 public tables the online chain builds. `apps/api/db/migration_offline` holds the one idiom — a PROBE is skipped and its absence recorded in the script as a SQL comment; a DATA STATEMENT is emitted in full and only its `.rowcount` is lost; `print()` is replaced by `static_output` offline, because stdout IS the script there. `c9f3a71e58d2`'s two INSERTs (the first credit lot for every funded wallet) are emitted byte-for-byte. `tests/migration_offline_guard_test.py` fails on the next unguarded read. |
 
 ### 12.3 Blocked outside this repository (unchanged)
 

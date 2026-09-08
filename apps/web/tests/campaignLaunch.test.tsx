@@ -237,7 +237,7 @@ describe("the launch panel with blockers outstanding", () => {
     expect(launchButtonDisabled()).toBe(true);
   });
 
-  it("tells a client whose credit ran out that people ringing them still get through", async () => {
+  it("tells a client whose credit ran out that their agents have stopped answering too", async () => {
     /*
      * THE BLOCKER EVERY PREPAID ACCOUNT CAN MEET, and since prepaid is what an account
      * gets unless an operator deliberately says otherwise, the one most clients will meet
@@ -251,10 +251,13 @@ describe("the launch panel with blockers outstanding", () => {
 
     const text = container.textContent ?? "";
     expect(text).toContain("Your calling credit has run out");
-    // THE ORDER IS THE MITIGATION, the same way it is on the wallet's own screen: an
-    // owner who reads that outgoing calls stopped concludes the phone has stopped being
-    // answered, and that belief costs a day of missed business.
-    expect(text).toContain("People ringing you still get through");
+    // ⚠ THIS USED TO ASSERT "People ringing you still get through", which D-551 withdrew:
+    // an empty wallet now silences answering as well as dialling, so the campaign panel
+    // says both halves and says a top-up undoes both. The `spend_cap` test below still
+    // asserts the reassurance, because for a CAP it is still true.
+    expect(text).not.toContain("still get through");
+    expect(text).toContain("no longer answering incoming ones");
+    expect(text).toContain("start again straight away");
     // Not a queue to wait in — a two-minute fix, with the screen that does it attached.
     expect(text).toContain("You can fix this");
     expect(text).not.toContain("We handle this");

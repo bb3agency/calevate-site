@@ -443,11 +443,19 @@ export default async function PricingPage() {
               <p className="mt-2 text-sm text-pretty text-ink-muted">
                 {/* apps/api/billing/wallet.py — the client-side read of the prepaid wallet;
                     apps/api/billing/credit_packs.py; compliance.service.credits_exhausted
-                    is the ONE gate that stops outbound. */}
+                    is the ONE predicate, and since D-551 it decides both directions: the
+                    dial gate refuses outbound, and `agents/service.py::
+                    reconcile_inbound_answering` silences answering at the engine. A
+                    pricing page that promised only the outbound half would sell a phone
+                    line the product does not keep answering. The warning email on the
+                    way down is `apps/workers/wallet_alerts.py`, published on the ledger
+                    entry that crosses `low_balance_threshold_inr`. */}
                 An account can run on credit you top up in advance. You can see the balance,
                 the ledger it came out of, and the payment that failed last night — and when
-                the credit is exhausted, outbound calling stops rather than continuing on to
-                a bill you did not agree to.
+                the credit is exhausted, calling stops rather than continuing on to a bill
+                you did not agree to: nothing goes out, and your agents stop answering
+                incoming calls until you top up. We email the account owner before it
+                happens.
               </p>
             </section>
             <section className={CARD}>

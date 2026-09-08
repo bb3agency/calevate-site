@@ -77,6 +77,7 @@ first. `b3d9f6a2c815`'s docstring makes the same argument about its NOT NULLs.
 from collections.abc import Sequence
 
 from alembic import op
+from apps.api.db.migration_offline import probe_skipped_offline
 
 revision: str = "c7a1e93d40b8"
 # RE-PARENTED onto `c4d1f7b83e26` rather than the `b3d9f6a2c815` this was authored
@@ -109,6 +110,22 @@ def _refuse_colliding_addresses() -> None:
     Ids and a count, never an address: this runs with database credentials and its output
     lands in a deploy log (hard rule 6). An operator with the ids can find the rows.
     """
+    # OFFLINE (`--sql`): skipped, not refused. This is a pre-flight that turns a raw
+    # unique-violation into a message naming the colliding row ids — it does not decide
+    # WHICH SQL is emitted, and the `CREATE UNIQUE INDEX` below enforces the same
+    # invariant on the database the script is applied to. Refusing to render here would
+    # cost the whole `upgrade head --sql` path for a diagnostic. The note tells the
+    # reviewer to run the query themselves, since offline they will meet the bare
+    # constraint error instead.
+    if probe_skipped_offline(
+        "offline `--sql`: the pre-flight that refuses duplicate live email addresses was\n"
+        "NOT run — there is no connection to read `users` from while rendering. The\n"
+        f"`CREATE UNIQUE INDEX {_USERS_EMAIL_INDEX}` below still enforces it, but it will\n"
+        "report a bare unique violation rather than the colliding row ids. Before applying\n"
+        "this script, run: SELECT lower(email), count(*) FROM users WHERE deactivated_at\n"
+        "IS NULL AND email IS NOT NULL GROUP BY 1 HAVING count(*) > 1;"
+    ):
+        return
     rows = (
         op.get_bind()
         .exec_driver_sql(

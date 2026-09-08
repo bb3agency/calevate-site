@@ -407,9 +407,9 @@ describe("the D-21 dispatch verdict, per lead", () => {
 
   it("sends a lead refused for credit to the screen that fixes it", async () => {
     // The money gate a prepaid account meets, on the screen where a receptionist works
-    // the queue one lead at a time. The server's sentence says the credit ran out; what
-    // it cannot say from here is that the phone is still being answered, or where the
-    // top-up is.
+    // the queue one lead at a time. The server's sentence says the credit ran out and
+    // (since D-551) that the agents have stopped answering; what it cannot say from here
+    // is where the top-up is, or that one payment undoes both.
     const { container } = await renderClientPage(
       <LeadsPage />,
       routes({
@@ -426,8 +426,10 @@ describe("the D-21 dispatch verdict, per lead", () => {
     fireEvent.click(await screen.findByRole("button", { name: /Call with AI/ }));
 
     await screen.findByText(/no calling credit left/);
-    expect(container.textContent).toContain("People ringing you still get through");
-    expect(container.textContent).toContain("Add credit on the Credits & billing screen");
+    expect(container.textContent).not.toContain("still get through");
+    expect(container.textContent).toContain(
+      "Add credit on the Credits & billing screen and both start again straight away",
+    );
     // The gate's own name is not what the person who was refused reads.
     expect(container.textContent).not.toContain("no_credits");
   });

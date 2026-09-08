@@ -1351,12 +1351,15 @@ function blockedRemedy(rule: string | null | undefined): ReactNode {
   // named here on purpose — a client who lands on the screen sees the balance and the
   // limit without being told which tab to press, and a tab name is one more thing that
   // goes stale on a screen this sentence cannot see.
+  // ⚠ THIS USED TO OPEN "People ringing you still get through", which D-551 made false:
+  // an empty wallet now silences answering as well as dialling. The server's own sentence
+  // (`compliance.service.NO_CREDITS_REASON`) already says both halves stopped, so this
+  // adds only what it cannot know — where the button is, and that one payment undoes both.
   if (rule === "no_credits") {
     return (
       <>
         {" "}
-        People ringing you still get through. Add credit on the Credits &amp; billing
-        screen and outgoing calls start again.
+        Add credit on the Credits &amp; billing screen and both start again straight away.
       </>
     );
   }

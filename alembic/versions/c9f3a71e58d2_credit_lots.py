@@ -87,6 +87,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from apps.api.db.migration_offline import emit_note, execute_data_statement, is_offline
 
 revision: str = "c9f3a71e58d2"
 down_revision: str | None = "f2b91c47e0a3"
@@ -272,8 +273,29 @@ def upgrade() -> None:
     op.execute("ALTER TABLE organizations NO FORCE ROW LEVEL SECURITY")
     op.execute("ALTER TABLE credit_ledger NO FORCE ROW LEVEL SECURITY")
     try:
-        markers = op.get_bind().execute(sa.text(_INSERT_MARKERS)).rowcount
-        lots = op.get_bind().execute(sa.text(_INSERT_LOTS)).rowcount
+        # BOTH STATEMENTS ARE EMITTED OFFLINE, AND THIS IS A MONEY MIGRATION, so the choice
+        # is stated rather than assumed: `--sql` renders a script a human reviews and
+        # applies, and a script that created `credit_lots` while silently omitting the two
+        # INSERTs would leave every funded wallet with a balance and NO OPEN LOT — the
+        # exact state `billing/service` reads as "nothing to consume from". Both statements
+        # are fixed text with no bound values, so what is emitted is byte-for-byte what the
+        # online run executes, in the same order, inside the same RLS bracket. Only the two
+        # row counts are impossible, and neither decides anything: they are the numbers in
+        # the operator sentence below.
+        markers = execute_data_statement(
+            sa.text(_INSERT_MARKERS),
+            note=(
+                "offline `--sql`: the zero-delta marker entries are emitted in full "
+                "below.\nTheir row count cannot be taken while rendering."
+            ),
+        )
+        lots = execute_data_statement(
+            sa.text(_INSERT_LOTS),
+            note=(
+                "offline `--sql`: the opening lot per marker is emitted in full "
+                "below.\nIts row count cannot be taken while rendering."
+            ),
+        )
     finally:
         # Restored in a `finally` for `b7e35c2f81da`'s reason: DDL is transactional, so a
         # failure would roll the bracket back anyway — but a bracket that leans on the
@@ -292,8 +314,20 @@ def upgrade() -> None:
     )
 
     # stdout, for `a8d3f61c04e7`'s reason: this is the sentence the person running the
-    # deploy reads, `logging` reaches nothing here and `static_output` raises outside
-    # `--sql` mode.
+    # deploy reads and `logging` reaches nothing here. OFFLINE stdout IS THE SCRIPT, so the
+    # same sentence goes into it as a SQL comment instead — without the two counts, and
+    # with the query that recovers them after the script is applied.
+    if is_offline():
+        emit_note(
+            "D-547: this script opens one migration lot per wallet holding a positive "
+            f"balance,\nat ₹{_MIGRATION_SARVAM_INR_PER_MIN} Sarvam / "
+            f"₹{_MIGRATION_CARTESIA_INR_PER_MIN} Cartesia per minute. Wallets with a zero "
+            "or negative\nbalance open none. NO BALANCE MOVES: every marker entry carries "
+            "a zero delta. How\nmany lots were opened cannot be counted while rendering; "
+            "after applying, run:\nSELECT count(*) FROM credit_lots WHERE source = "
+            "'migration';"
+        )
+        return
     print(  # noqa: T201 - the deploy log is this statement's only reader
         f"D-547: opened {lots} migration lot(s) from {markers} marker entry(ies) at "
         f"₹{_MIGRATION_SARVAM_INR_PER_MIN} Sarvam / ₹{_MIGRATION_CARTESIA_INR_PER_MIN} "
@@ -318,7 +352,18 @@ def downgrade() -> None:
     op.execute("ALTER TABLE credit_ledger DISABLE TRIGGER credit_ledger_append_only")
     op.execute("ALTER TABLE credit_ledger NO FORCE ROW LEVEL SECURITY")
     try:
-        op.get_bind().execute(sa.text(_DELETE_MARKERS))
+        # EMITTED OFFLINE for the upgrade's reason inverted: the marker rows are what the
+        # upgrade wrote, and a downgrade script that dropped `credit_lots` without removing
+        # them would leave orphan zero-delta entries in an append-only ledger that nothing
+        # afterwards knows how to explain. Fixed text, no count read.
+        execute_data_statement(
+            sa.text(_DELETE_MARKERS),
+            note=(
+                "offline `--sql`: the marker rows this revision wrote are deleted below — "
+                "the\ndeliberate suspension of hard rule 4 described in this migration's "
+                "docstring,\nemitted with the trigger disable/enable bracket around it."
+            ),
+        )
     finally:
         op.execute("ALTER TABLE credit_ledger FORCE ROW LEVEL SECURITY")
         op.execute("ALTER TABLE credit_ledger ENABLE ALWAYS TRIGGER credit_ledger_append_only")

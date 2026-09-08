@@ -1153,14 +1153,21 @@ function CorrectionOutcome({
         <NoticeBox
           tone="stop"
           icon={<CircleAlert aria-hidden className="h-5 w-5" />}
-          title={`${clientName} cannot place outbound calls until this wallet is topped up`}
+          title={`${clientName} cannot place or answer calls until this wallet is topped up`}
         >
+          {/* ⚠ THIS USED TO SAY "Inbound calls are unaffected — their receptionist keeps
+              answering", which D-551 made false: at or below zero every answering agent is
+              silenced at the engine and callers hear a short apology
+              (`agents/service.py::reconcile_inbound_answering`). An operator reading the
+              old sentence would decline to chase a payment that is holding a client's
+              phone line down. */}
           <p className="mt-1 text-xs">
-            The balance is at or below zero and this is a self-serve or trial account, so
-            the compliance gate refuses every outbound call. Inbound calls are unaffected —
-            their receptionist keeps answering. If the credit was genuinely theirs, record
-            the payment above; if it was not, this is the correct state and they need to pay
-            before they dial.
+            The balance is at or below zero and this account pays from a wallet, so the
+            compliance gate refuses every outbound call and their agents have stopped
+            answering incoming ones — callers hear a short apology that gives no reason and
+            says nothing about the account. If the credit was genuinely theirs, record the
+            payment above and both start again straight away; if it was not, this is the
+            correct state and they need to pay.
           </p>
         </NoticeBox>
       )}

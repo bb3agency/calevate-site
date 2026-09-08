@@ -54,13 +54,14 @@ def run_migrations_offline() -> None:
     # emitted file is one psql session under the single `BEGIN` this branch produces, and
     # a `SET LOCAL` would expire at the first `COMMIT` while the DDL kept coming.
     #
-    # ⚠ A FULL `alembic upgrade head --sql` DOES NOT COMPLETE IN THIS REPO, and that is
-    # older than these two lines: `versions/f4a1d0b6e29c_two_notices_two_toggles.py`
-    # queries the database inside `upgrade()`, which offline mode has no connection for,
-    # so the render dies there (reproduced 8 Sep 2026). The header this function emits is
-    # therefore verified — `tests/statement_timeout_test.py` asserts it against a real
-    # render — while everything past that revision is unreachable offline until that
-    # migration stops reading.
+    # A FULL `alembic upgrade head --sql` COMPLETES, and did not until 8 Sep 2026: twelve
+    # migrations called `op.get_bind()` inside `upgrade()`/`downgrade()`, which returns
+    # `None` here, so the render died at the first one (`f4a1d0b6e29c`) and every revision
+    # after it was unreachable. `apps/api/db/migration_offline` is the answer and its
+    # docstring carries the reasoning — a probe may be skipped and recorded as a note in
+    # the script, a data statement may NOT and is emitted with only its row count lost.
+    # `tests/migration_offline_guard_test.py` keeps new migrations from reopening it, and
+    # `tests/statement_timeout_test.py` asserts the header below against a real render.
     context.configure(
         url=_database_url(),
         target_metadata=target_metadata,

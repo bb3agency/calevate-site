@@ -127,6 +127,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from apps.api.db.migration_offline import probe_skipped_offline
 
 revision: str = "e1a7c93d5b02"
 down_revision: str | None = "d4b8e1c73f05"
@@ -217,6 +218,37 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    _refuse_stranded_ai_rows()
+    # UNCONDITIONAL and IF EXISTS, so this also cleans up an INVALID index left behind by
+    # a CONCURRENTLY build that failed on a database whose alembic_version never advanced
+    # — which is the documented recovery for exactly that state.
+    op.execute(DROP_INDEX)
+    op.execute("SET LOCAL lock_timeout = '3s'")
+    op.drop_table(SPEND_TABLE)
+    op.drop_constraint(op.f(CONSTRAINT), "usage_events", type_="check")
+    op.create_check_constraint(op.f(CONSTRAINT), "usage_events", ORIGINAL_CHECK)
+    op.drop_column("usage_events", "ref")
+
+
+def _refuse_stranded_ai_rows() -> None:
+    """Refuse before anything is dropped, so a refused downgrade changes nothing.
+
+    OFFLINE (`--sql`): skipped, not refused. The count decides nothing about WHICH SQL is
+    emitted. Both losses it names are still prevented on the target database: the narrowed
+    CHECK re-validates every `usage_events` row on the way in and aborts the one
+    transaction `env.py` emits — and the `ref` column is dropped AFTER that constraint, so
+    a script that meets a dashboard-AI row never reaches the DROP COLUMN at all.
+    """
+    if probe_skipped_offline(
+        "offline `--sql`: the pre-flight that refuses to downgrade past e1a7c93d5b02 while\n"
+        "`usage_events` carries dashboard-AI rows or idempotency refs was NOT run — there\n"
+        "is no connection to count them. The narrowed CHECK below re-validates the table\n"
+        "and aborts the transaction before DROP COLUMN ref is reached, so no idempotency\n"
+        "key can be lost; the error will name the constraint, not the rows. Count them\n"
+        "first with: SELECT count(*) FILTER (WHERE unit_type IN (...)), count(*) FILTER\n"
+        "(WHERE ref IS NOT NULL) FROM usage_events;"
+    ):
+        return
     bind = op.get_bind()
     # COUNTED BEFORE ANYTHING IS DROPPED, so a refused downgrade leaves the schema
     # exactly as it found it rather than half-narrowed. Both halves are real losses: a
@@ -240,13 +272,3 @@ def downgrade() -> None:
             "Export or compensate for those rows first (hard rule 4 forbids deleting "
             "them), then re-run this downgrade."
         )
-
-    # UNCONDITIONAL and IF EXISTS, so this also cleans up an INVALID index left behind by
-    # a CONCURRENTLY build that failed on a database whose alembic_version never advanced
-    # — which is the documented recovery for exactly that state.
-    op.execute(DROP_INDEX)
-    op.execute("SET LOCAL lock_timeout = '3s'")
-    op.drop_table(SPEND_TABLE)
-    op.drop_constraint(op.f(CONSTRAINT), "usage_events", type_="check")
-    op.create_check_constraint(op.f(CONSTRAINT), "usage_events", ORIGINAL_CHECK)
-    op.drop_column("usage_events", "ref")

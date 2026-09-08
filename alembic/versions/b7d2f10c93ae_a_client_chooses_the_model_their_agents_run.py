@@ -60,6 +60,7 @@ so a rollback leaves a working agent rather than one with no model at all.
 
 import sqlalchemy as sa
 from alembic import op
+from apps.api.db.migration_offline import probe_skipped_offline
 
 revision = "b7d2f10c93ae"
 down_revision = "c9f4a2e17b83"
@@ -103,6 +104,18 @@ def _assert_rls_still_forced() -> None:
     it HERE is what stops a release shipping a client's model choice onto a table whose
     protection somebody turned off in a neighbouring revision.
     """
+    # OFFLINE (`--sql`): skipped, not refused. This assertion reads the catalog to prove a
+    # property the DDL above does not touch; it decides nothing about what is emitted, so
+    # the rendered script is complete without it and the note says which check the reviewer
+    # is not getting. See `apps.api.db.migration_offline`.
+    if probe_skipped_offline(
+        "offline `--sql`: the post-DDL re-read of pg_class that proves `organizations` and\n"
+        "`agents` are still FORCE ROW LEVEL SECURITY was NOT run — there is no connection\n"
+        "to read a catalog from while rendering. The DDL above is unaffected; run\n"
+        "`uv run python -m scripts.check_rls_coverage` against the database this script is\n"
+        "applied to."
+    ):
+        return
     for table in ("organizations", "agents"):
         row = (
             op.get_bind()

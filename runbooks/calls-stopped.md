@@ -57,7 +57,7 @@ is not, it is the only one.
 | 4 | Admin spend cap | `plans.hard_cap_min` / `hard_cap_spend` | ops only (SQL on the audited path, then the recompute in step 2) |
 | 5 | The client's OWN spend cap | `plans.client_cap_min` / `client_cap_spend` | **client, immediately** |
 | 6 | The cap flag itself | `spend_state.capped` | ops (client screen → "Spend cap") or the client — see step 2 |
-| 7 | Prepaid wallet empty | `credit_ledger` balance, self-serve/trial only | client (top-up) or ops |
+| 7 | Prepaid wallet empty — **the only cause here that also stops INBOUND answering (D-551)** | `credit_ledger` balance, every prepaid tier | client (top-up) or ops |
 | 8 | The client's PE registration / TM link | `dlt_registrations` | ops record it; the registrar decides it |
 | 9 | Subscriber KYC not verified | `kyc_records.status`, self-serve/trial only | ops record it (`POST /v1/admin/tenants/{id}/kyc`); the client cannot self-verify |
 | 10 | Consent provenance, template, number, DNC | `campaigns.consent_source`, `dlt_templates`, `phone_numbers`, `dnc_list` | mixed — see step 5 |
@@ -251,10 +251,18 @@ the meter and the gate start disagreeing.
 
 ## 3. Cause 7 — the prepaid wallet
 
-Only bites `self_serve` and `trial` tenants (`organizations.plan_tier`). A managed
-client is invoiced against a retainer and is never blocked on credit — that is
-`credits_exhausted()` returning False before it looks at any balance
-(`apps/api/compliance/service.py`).
+⚠ **THIS IS THE ONE CAUSE IN THIS RUNBOOK THAT STOPS INBOUND ANSWERING TOO, AS OF D-551
+(8 Sep 2026).** At a balance of zero or below, `agents/service.py::
+reconcile_inbound_answering` silences every live answering agent through the engine and a
+caller hears *"Sorry, we cannot take your call right now. Please try again later."* — no
+reason, nothing about the account. So a client on this cause is not describing a campaign
+that will not start; their phone is not being answered, and that is what they are ringing
+about. The top-up restores both directions with no human in the loop.
+
+Bites every PREPAID tier — `prepaid`, `self_serve` and `trial` (`billing/rates
+.PREPAID_TIERS`), which since D-521 is nearly every account. A managed client is invoiced
+against a retainer and is never blocked on credit — that is `credits_exhausted()` returning
+False before it looks at any balance (`apps/api/compliance/service.py`).
 
 The client sees it on their usage panel: `GET /v1/usage` (`billing:read`,
 `apps/api/crm/routes.py`) → `credit_balance_inr`
@@ -485,8 +493,14 @@ answer is a timeline, not a removal.
 ## 8. Answering the client
 
 State it in this order: whether the block is ours or theirs, which named rule is in
-force, whether it affects inbound (almost never — the gate is outbound-only), and
-whether they can clear it themselves.
+force, whether it affects inbound, and whether they can clear it themselves.
+
+**On inbound, there is exactly one exception and it used to be none.** Ten of the eleven
+causes are the dial gate, which is outbound-only, so their receptionist is untouched — say
+that first, because a client who has not been told assumes it is down. Cause 7 is the
+exception since D-551: an empty wallet also stops the agents ANSWERING, and telling that
+client "inbound is fine" is the one wrong answer on this page that they will discover from
+their own customers.
 
 The four they can clear without us: their own spend cap (`PUT /v1/billing/caps`), a
 prepaid top-up, consent provenance on the campaign, and publishing the agent. Everything

@@ -569,10 +569,10 @@ describe("the calling credit tile", () => {
 
     const tile = (await screen.findByText("Calling credit left")).parentElement;
     // NEVER THE FIGURE ALONE. "₹0.00" on a dashboard is a number a skimming owner reads
-    // past; "outgoing calls have stopped" is not — and the reassurance travels with it,
-    // because a client who thinks their phone has stopped being answered loses a day.
-    expect(tile?.textContent).toContain("Outgoing calls have stopped");
-    expect(tile?.textContent).toContain("people ringing you still get through");
+    // past; "calls have stopped" is not — and since D-551 the INCOMING half travels with
+    // it, because a client who does not know their phone has gone quiet loses a day.
+    expect(tile?.textContent).toContain("Calls have stopped, outgoing and incoming");
+    expect(tile?.textContent).not.toContain("still get through");
   });
 
   it("shows an invoiced account no balance at all", async () => {

@@ -285,9 +285,13 @@ export default function BillingPage({ params }: { params: Promise<{ slug: string
             },
             {
               key: "outbound_stopped",
-              label: "Are outgoing calls stopped for lack of credit?",
+              label: "Are calls stopped for lack of credit?",
+              /* THE LABEL SAYS "calls", NOT "outgoing calls", AND THE FIELD KEEPS ITS
+                 WIRE NAME. An empty wallet now stops both directions (D-551), so an
+                 assistant told only about outgoing would answer "your phone is still
+                 being answered" to the one client for whom that is false. */
               value: wallet.data.outbound_stopped
-                ? "yes — incoming calls are still answered"
+                ? "yes — outgoing calls have stopped and the agents are no longer answering incoming ones; adding credit starts both again straight away"
                 : "no",
             },
             {

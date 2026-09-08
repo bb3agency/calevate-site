@@ -79,6 +79,7 @@ That is the whole reason the legacy column is kept rather than migrated.
 
 import sqlalchemy as sa
 from alembic import op
+from apps.api.db.migration_offline import probe_skipped_offline
 
 revision = "f4a1d0b6e29c"
 # LINEARISED ONTO `e83b5d1a4c07` rather than onto `c4f18a6b90e2`, which is what this
@@ -239,6 +240,18 @@ def _assert_rls_still_forced() -> None:
     this of the whole schema on every `make guardrails`; asking it HERE is what stops a
     release shipping the four columns onto an unprotected table in the first place.
     """
+    # OFFLINE (`--sql`): skipped, not refused. This assertion reads the catalog to prove a
+    # property the DDL above does not touch; it decides nothing about what is emitted, so
+    # the rendered script is complete without it and the note says which check the reviewer
+    # is not getting. See `apps.api.db.migration_offline`.
+    if probe_skipped_offline(
+        "offline `--sql`: the post-DDL re-read of pg_class that proves `agents` is still\n"
+        "FORCE ROW LEVEL SECURITY was NOT run — there is no connection to read a catalog\n"
+        "from while rendering. The four disclosure columns above are emitted unchanged;\n"
+        "run `uv run python -m scripts.check_rls_coverage` against the database this\n"
+        "script is applied to."
+    ):
+        return
     row = (
         op.get_bind()
         .execute(

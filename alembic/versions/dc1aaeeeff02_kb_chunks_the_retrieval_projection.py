@@ -120,6 +120,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
+from apps.api.db.migration_offline import probe_skipped_offline
 from pgvector.sqlalchemy import Vector
 
 from apps.api.retrieval.embedding import EMBEDDING_DIMS
@@ -307,6 +308,22 @@ def _require_vector_extension() -> None:
     `InsufficientPrivilege` escape would report a permissions error on a `CREATE EXTENSION`
     the reader did not write; this reports the one action that fixes it.
     """
+    # OFFLINE (`--sql`): there is nothing to probe, so the honest emit is the statement the
+    # probe would have chosen in the worst case. `CREATE EXTENSION IF NOT EXISTS` is
+    # idempotent, so emitting it unconditionally is correct on a database that already has
+    # `vector` and is the only thing that makes the script work on one that does not. What
+    # cannot be emitted is the diagnosis — whether the server has the package at all, and
+    # whether this role may install it — so the note carries it instead.
+    if probe_skipped_offline(
+        "offline `--sql`: the probe for the `vector` extension was NOT run — there is no\n"
+        "connection to read pg_extension from. The CREATE EXTENSION below is emitted\n"
+        "unconditionally and is a no-op where it is already installed. It needs a\n"
+        "SUPERUSER: `vector` is not marked trusted. If the server does not have the\n"
+        "package (Debian/Ubuntu: postgresql-16-pgvector; the pgvector/pgvector:pg16 image\n"
+        "ships it) this statement fails and nothing after it can be applied."
+    ):
+        op.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector"))
+        return
     bind = op.get_bind()
     installed = bind.execute(
         sa.text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")

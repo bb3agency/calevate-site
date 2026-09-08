@@ -236,6 +236,7 @@ from __future__ import annotations
 
 import sqlalchemy as sa
 from alembic import op
+from apps.api.db.migration_offline import probe_skipped_offline
 from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects import postgresql
 
@@ -643,6 +644,22 @@ def _require_vector_extension() -> None:
     database restored from a dump taken before `dc1aaeeeff02` is a real state and
     `InsufficientPrivilege` out of context is not an error a reader can act on.
     """
+    # OFFLINE (`--sql`): there is nothing to probe, so the honest emit is the statement the
+    # probe would have chosen in the worst case. `CREATE EXTENSION IF NOT EXISTS` is
+    # idempotent, so emitting it unconditionally is correct on a database that already has
+    # `vector` and is the only thing that makes the script work on one that does not. What
+    # cannot be emitted is the diagnosis — whether the server has the package at all, and
+    # whether this role may install it — so the note carries it instead.
+    if probe_skipped_offline(
+        "offline `--sql`: the probe for the `vector` extension was NOT run — there is no\n"
+        "connection to read pg_extension from. The CREATE EXTENSION below is emitted\n"
+        "unconditionally and is a no-op where it is already installed. It needs a\n"
+        "SUPERUSER: `vector` is not marked trusted. If the server does not have the\n"
+        "package (Debian/Ubuntu: postgresql-16-pgvector; the pgvector/pgvector:pg16 image\n"
+        "ships it) this statement fails and nothing after it can be applied."
+    ):
+        op.execute(sa.text("CREATE EXTENSION IF NOT EXISTS vector"))
+        return
     bind = op.get_bind()
     installed = bind.execute(
         sa.text("SELECT 1 FROM pg_extension WHERE extname = 'vector'")
@@ -676,9 +693,34 @@ def downgrade() -> None:
     op.drop_table("caller_memories")
     op.drop_column("agents", "caller_memory_enabled")
 
-    # THE LEDGER IS APPEND-ONLY, so this cannot delete the rows that would violate the
-    # restored NOT NULL. It refuses instead, with the count, rather than raising a
-    # NotNullViolation the reader would have to diagnose (errors are part of the interface).
+    _refuse_system_paid_ai_rows()
+    op.execute(
+        "ALTER TABLE platform_ai_usage DROP CONSTRAINT IF EXISTS ck_platform_ai_usage_one_actor"
+    )
+    op.alter_column("platform_ai_usage", "admin_user_id", nullable=False)
+    op.drop_column("platform_ai_usage", "system_actor")
+
+
+def _refuse_system_paid_ai_rows() -> None:
+    """Refuse with the count rather than raising a NotNullViolation the reader must diagnose.
+
+    THE LEDGER IS APPEND-ONLY, so this cannot delete the rows that would violate the
+    restored NOT NULL — errors are part of the interface, so it names them instead.
+
+    OFFLINE (`--sql`): skipped, not refused. The count decides nothing about WHICH SQL is
+    emitted, and the row it protects cannot be lost by the emitted script: restoring
+    `admin_user_id NOT NULL` re-validates the table and aborts the one transaction
+    `env.py` emits, before the DROP COLUMN that would discard `system_actor`.
+    """
+    if probe_skipped_offline(
+        "offline `--sql`: the pre-flight that refuses to restore platform_ai_usage.\n"
+        "admin_user_id NOT NULL while system-paid rows exist was NOT run — there is no\n"
+        "connection to count them. The SET NOT NULL below re-validates the table and\n"
+        "aborts the transaction before DROP COLUMN system_actor, so no append-only row is\n"
+        "altered; the error will name the column, not the rows. Count them first with:\n"
+        "SELECT count(*) FROM platform_ai_usage WHERE system_actor IS NOT NULL;"
+    ):
+        return
     system_rows = (
         op.get_bind()
         .execute(sa.text("SELECT count(*) FROM platform_ai_usage WHERE system_actor IS NOT NULL"))
@@ -692,8 +734,3 @@ def downgrade() -> None:
             "c6b1f0d47e83 is only possible on a database where no background job has "
             "metered AI spend."
         )
-    op.execute(
-        "ALTER TABLE platform_ai_usage DROP CONSTRAINT IF EXISTS ck_platform_ai_usage_one_actor"
-    )
-    op.alter_column("platform_ai_usage", "admin_user_id", nullable=False)
-    op.drop_column("platform_ai_usage", "system_actor")

@@ -1204,9 +1204,16 @@ credit balance; **caps enforced pre-dispatch in the compliance gate**
 (`apps/api/compliance/service.py::check_dispatch` — the one function every outbound path
 calls: campaign dispatch, "call this lead", instant lead callback). A capped tenant's
 outbound is refused (`spend_state.capped`); a self-serve/trial tenant with an empty
-wallet is refused too (D-34 credits). **Inbound is unaffected and never reaches this
-gate** — the caller initiated it, which is D-38's consent-clean property — so there is no
-inbound fallback line, and voice-runtime carries no cap logic (hard rule 3 keeps it thin).
+wallet is refused too (D-34 credits). **Inbound never reaches this gate** — the caller
+initiated it, which is D-38's consent-clean property — so there is no inbound fallback
+line, and voice-runtime carries no cap logic (hard rule 3 keeps it thin). ⚠ **THIS
+SENTENCE READ "Inbound is unaffected and never reaches this gate" UNTIL D-551 (8 Sep
+2026), AND THE FIRST HALF IS WITHDRAWN.** Not reaching the gate is not the same as being
+unaffected: an EMPTY WALLET (never a spend cap, a suspension or the halt, which are all
+still outbound-only) now stops answering as well, enforced as durable state AT THE ENGINE
+rather than at any gate of ours — `agents/service.py::reconcile_inbound_answering` writes
+the neutral message on the ledger's crossing of zero and `publish_agent` re-decides it,
+because nothing of ours runs before the vendor answers an incoming call.
 Razorpay for collection (phase 1 can invoice manually; ledger from day 1 is non-negotiable).
 
 ## 10. Cost Model (verified July 2026; re-verify quarterly)

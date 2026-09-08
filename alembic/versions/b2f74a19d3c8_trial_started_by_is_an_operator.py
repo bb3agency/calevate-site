@@ -46,6 +46,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from apps.api.db.migration_offline import probe_skipped_offline
 
 revision: str = "b2f74a19d3c8"
 down_revision: str | None = "c7e0b2a94f13"
@@ -69,7 +70,26 @@ def upgrade() -> None:
     )
 
 
-def downgrade() -> None:
+def _refuse_operator_started_trials() -> None:
+    """Count first, so a refused downgrade leaves the column with exactly one constraint.
+
+    OFFLINE (`--sql`): skipped, not refused. The count decides nothing about WHICH SQL is
+    emitted; it exists so the operator reads a sentence about trial records instead of a
+    foreign-key violation. The emitted script is still safe: `create_foreign_key` below
+    validates every existing row, and inside the one transaction `env.py` emits the whole
+    script aborts with the FK it started with.
+    """
+    if probe_skipped_offline(
+        "offline `--sql`: the pre-flight that refuses to re-point "
+        "fk_tenant_trials_started_by\n"
+        "at `users` while operator ids sit in `tenant_trials.started_by` was NOT run —\n"
+        "there is no connection to count them. The ADD CONSTRAINT below validates the\n"
+        "rows, so the transaction aborts rather than dropping the working FK; the error\n"
+        "will name the constraint, not the trials. Count them first with: SELECT count(*)\n"
+        "FROM tenant_trials t WHERE t.started_by IS NOT NULL AND NOT EXISTS (SELECT 1 FROM\n"
+        "users u WHERE u.id = t.started_by);"
+    ):
+        return
     stranded = (
         op.get_bind()
         .execute(
@@ -90,6 +110,10 @@ def downgrade() -> None:
             "those columns deliberately first — the `audit_log` rows survive — then "
             "re-run this downgrade."
         )
+
+
+def downgrade() -> None:
+    _refuse_operator_started_trials()
     op.execute("SET LOCAL lock_timeout = '3s'")
     op.drop_constraint(NEW, "tenant_trials", type_="foreignkey")
     op.create_foreign_key(

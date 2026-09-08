@@ -249,17 +249,22 @@ const BLOCKER_COPY: Record<string, BlockerNote> = {
    *
    * Both had no entry here at all, so both rendered the server's own sentence — "This
    * account has no calling credit left." — which is true, terse, and missing the two
-   * things that decide what the reader does next: that people ringing them still get
-   * through, and where the fix is. That was survivable while almost every account was
+   * things that decide what the reader does next: what their own callers now hear, and
+   * where the fix is. That was survivable while almost every account was
    * invoiced against a retainer and neither gate could fire; prepaid is now what an
    * account gets unless an operator deliberately says otherwise, so `no_credits` goes
    * from a rule most clients could never meet to the single most likely reason a
    * campaign of theirs will not start.
    *
-   * INBOUND FIRST, in both. A business owner who reads "outgoing calls have stopped"
-   * about their phone system concludes the phone has stopped — the most expensive wrong
-   * belief this product can create, and the same reason `WalletHero` orders its two
-   * sentences that way.
+   * ⚠ **`no_credits` USED TO PUT INBOUND FIRST AS A REASSURANCE — "people ringing you
+   * still get through" — AND D-551 WITHDREW IT (8 Sep 2026).** An empty wallet now
+   * silences answering as well as dialling
+   * (`agents/service.py::reconcile_inbound_answering`), so the reassurance would be the
+   * most expensive false sentence in the product: the owner reads it, does nothing, and
+   * their callers are turned away. It says both halves now, and that one payment undoes
+   * both, matching `crm/attention.BLOCK_REMEDIES["no_credits"]` and `WalletHero` fact for
+   * fact. `spend_cap` is UNCHANGED and still says it, because a cap stops outgoing calls
+   * only — different condition, different truth.
    *
    * Both are `client`, and both are now the same screen: the balance is topped up and the
    * monthly limit is set on `/c/{slug}/billing`, on its Credits and Usage tabs (D-34 R-11,
@@ -268,10 +273,10 @@ const BLOCKER_COPY: Record<string, BlockerNote> = {
    */
   no_credits: {
     text:
-      "Your calling credit has run out, so outgoing calls have stopped. People ringing " +
-      "you still get through — a low balance never blocks an incoming call, though " +
-      "answering one uses credit like any other. Add credit and this campaign can go " +
-      "straight out.",
+      "Your calling credit has run out, so outgoing calls have stopped and your agents " +
+      "are no longer answering incoming ones — callers hear a short apology that gives " +
+      "no reason and says nothing about your account. Add credit and both start again " +
+      "straight away, this campaign included.",
     owner: "client",
   },
   spend_cap: {
@@ -1950,10 +1955,10 @@ export default function CampaignsPage() {
                       view-as marker like every other in-realm link, so an operator
                       following it from a "view as client" session does not drop back
                       to a client token two pages in (lib/api/session.tsx). */}
-                  {/* THE WALLET, one click away. The bullet above says what stopped and
-                      that people ringing them still get through; this is the two-minute
-                      fix, and without it a client whose campaigns have stopped is left
-                      hunting for "Calling credit" at the bottom of a settings menu. */}
+                  {/* THE WALLET, one click away. The bullet above says what stopped —
+                      since D-551 that is the dialling AND the answering; this is the
+                      two-minute fix, and without it a client whose phone has gone quiet is
+                      left hunting for "Calling credit" at the bottom of a settings menu. */}
                   {blockedOnCredits && (
                     <p className="text-sm">
                       <Link
@@ -1963,8 +1968,8 @@ export default function CampaignsPage() {
                         Add calling credit
                       </Link>{" "}
                       <span className="text-ink-muted">
-                        — it takes a minute, and your campaigns start again as soon as it
-                        lands.
+                        — it takes a minute, and your campaigns and your agents&apos;
+                        answering both start again as soon as it lands.
                       </span>
                     </p>
                   )}
