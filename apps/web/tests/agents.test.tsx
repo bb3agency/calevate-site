@@ -173,6 +173,55 @@ function section(title: string): HTMLElement {
   return card as HTMLElement;
 }
 
+describe("which of my agents is on the dearer voice", () => {
+  /*
+   * A TIER IS A PRICE (D-547: two voice qualities at two per-minute rates on every credit
+   * lot), and until this badge the roster carried no voice at all — an owner could only
+   * answer "which of my agents is on Studio?" by opening every agent in turn.
+   *
+   * The name is the SERVER's or there is none. Mapping `provider` to "Studio" in the
+   * browser would be the second copy of `billing/rates.VOICE_TIER_LABELS` the marketing
+   * provenance rule exists to prevent, and the only fallback such a copy has is the
+   * VENDOR's name — the one name a client-facing surface may not print (founder, 7 Sep
+   * 2026). So an API build that does not send the field renders no badge at all.
+   *
+   * The rows carrying the field are plain literals handed to the route map, which takes
+   * `unknown`: `AgentOut` does not declare `voice_tier_label` on this build, and a cast
+   * onto the wire type is what `tests/wireFixtureGuard.test.ts` forbids.
+   */
+  it("badges each row with the voice quality the API named", async () => {
+    await renderClientPage(
+      page,
+      routes({
+        "/v1/agents": [
+          { ...agent({ id: "a-studio", name: "Front desk" }), voice_tier_label: "Studio" },
+          { ...agent({ id: "a-clear", name: "Weekend line" }), voice_tier_label: "Clear" },
+        ],
+        "/v1/agents/stats": [],
+      }),
+    );
+
+    await screen.findByText("Front desk");
+    const working = section("Working right now");
+    expect(within(working).getByLabelText("Studio voice")).toBeTruthy();
+    expect(within(working).getByLabelText("Clear voice")).toBeTruthy();
+    // The QUALITY, never the vendor that synthesises it.
+    expect(working.textContent).not.toMatch(/sarvam|cartesia/i);
+  });
+
+  it("prints no badge at all when the API does not carry the name", async () => {
+    // Absent renders absent. A row that fell back to "Clear" would tell an owner their
+    // agent is on the cheaper voice on the strength of nothing.
+    await renderClientPage(page, routes({ "/v1/agents/stats": [] }));
+
+    await screen.findByText("Reception");
+    const working = section("Working right now");
+    expect(within(working).queryByLabelText(/voice$/)).toBeNull();
+    expect(working.textContent).not.toContain("Studio");
+    expect(working.textContent).not.toContain("Clear");
+  });
+});
+
 describe("which agents are working right now", () => {
   it("puts a live, published agent under 'Working right now' and nothing else there", async () => {
     await renderClientPage(

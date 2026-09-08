@@ -49,7 +49,10 @@ from apps.api.agents import voices as voices_module
 from apps.api.agents.publishing_routes import router as publishing_router
 from apps.api.agents.routes import router as agents_router
 from apps.api.agents.service import publish_agent
-from apps.api.agents.voice_offer import NO_CARTESIA_CREDENTIAL_REASON
+from apps.api.agents.voice_offer import (
+    NO_CARTESIA_CREDENTIAL_REASON,
+    client_unofferable_reason,
+)
 from apps.api.agents.voice_routes import router as voice_router
 from apps.api.agents.voices import (
     CATALOG,
@@ -61,6 +64,8 @@ from apps.api.agents.voices import (
     is_supported_voice,
     voice_ids,
 )
+from apps.api.billing.rates import voice_tier_label
+from apps.api.core.context import Principal
 from apps.api.core.errors import install_error_handlers
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.db.session import tenant_session, untenanted_session
@@ -357,8 +362,82 @@ async def test_an_unavailable_voice_is_returned_with_its_reason_never_dropped(
     rows = {entry["id"]: entry for entry in response.json()["voices"]}
     assert cartesia.id in rows, "the unavailable voice was dropped instead of explained"
     assert rows[cartesia.id]["offerable"] is False
-    assert rows[cartesia.id]["unavailable_reason"] == NO_CARTESIA_CREDENTIAL_REASON
     assert rows[DEFAULT_VOICE_ID]["offerable"] is True
+    # THE SENTENCE IS THE CLIENT'S, because the caller is one — the operator ground names
+    # the vendor and the setting that fixes it, and this route is readable in both realms.
+    # `test_the_refusal_a_client_reads_names_neither_the_vendor_nor_our_settings` below is
+    # the case about that; here it is enough that the operator ground did not travel.
+    assert rows[cartesia.id]["unavailable_reason"] == client_unofferable_reason(cartesia)
+    assert rows[cartesia.id]["unavailable_reason"] != NO_CARTESIA_CREDENTIAL_REASON
+
+
+async def test_the_refusal_a_client_reads_names_neither_the_vendor_nor_our_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """**THE LEAK, ON THE WIRE.** Every one of `voice_offer`'s three grounds names Cartesia
+    and two name a field only we can edit (`cartesia_api_key`, `cartesia_agent_cap`) — and
+    this endpoint is `agents:read`, which a CLIENT holds. So the sentence forks by realm
+    (`voice_routes._reason_audience`), the way `agents/llm_routes.py` already forks a
+    blocked model's reason: the operator keeps the ground they can fix, the client is told
+    the one action they have, in the tier's own client-facing name.
+
+    The CLIENT half is asserted over HTTP because that is where the leak would happen; the
+    operator half is `test_the_reason_audience_is_the_realm` below, which drives the fork
+    directly — an admin principal reaches this path only by impersonation
+    (`core/auth.current_any`), and minting a view-as grant here would test the grant flow
+    rather than the fork.
+    """
+    _tenant_id, _agent_id, slug, token = await _tenant()
+    cartesia = voices_module._cartesia_entry(
+        voices_module.CartesiaVoiceRecord(
+            id="test-record-not-a-real-voice-id", name="Test Persona", languages=("te-IN",)
+        )
+    )
+    real = voice_routes.voice_selection_capability
+
+    def with_cartesia(engine: object | None = None) -> VoiceSelectionCapability:
+        capability = real()
+        return replace(capability, voices=(*capability.voices, cartesia))
+
+    monkeypatch.setattr(voice_routes, "voice_selection_capability", with_cartesia)
+
+    async with _client(_app()) as http:
+        response = await http.get(
+            "/v1/agents/voices",
+            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+        )
+
+    assert response.status_code == 200, response.text
+    row = {entry["id"]: entry for entry in response.json()["voices"]}[cartesia.id]
+    reason = row["unavailable_reason"]
+
+    assert reason == client_unofferable_reason(cartesia)
+    assert voice_tier_label(cartesia.provider) in reason
+    for ours in ("cartesia", "sarvam", "cartesia_api_key", "cartesia_agent_cap", "ops console"):
+        assert ours not in reason.lower(), f"{ours!r} crossed the wire to a client"
+    # OFFERABILITY ITSELF DID NOT FORK — only the sentence did. A client sees the same row,
+    # refused, with the same tier name; what changed is whose language the refusal is in.
+    assert row["offerable"] is False
+    assert row["tier_label"] == voice_tier_label(cartesia.provider)
+
+
+def test_the_reason_audience_is_the_realm_and_impersonation_does_not_change_it() -> None:
+    """WHO gets the operator ground, decided from the realm and nothing else.
+
+    An impersonating admin (D-22, read-only) is an OPERATOR here, which is the opposite of
+    the call `llm_routes` makes — and deliberately: that endpoint has one route per realm,
+    while this one is shared, and `current_any` lets an admin principal through only WITH
+    the impersonation header. So the admin console's own voice picker arrives impersonating,
+    and reading that as a client would delete the actionable ground from the only screen an
+    operator installs a Cartesia key from.
+    """
+    admin = Principal(realm="admin", user_id=uuid.uuid4(), tenant_id=None, role="superadmin")
+    viewing = replace(admin, tenant_id=uuid.uuid4(), impersonating=True)
+    client = Principal(realm="client", user_id=uuid.uuid4(), tenant_id=uuid.uuid4(), role="owner")
+
+    assert voice_routes._reason_audience(admin) == "operator"
+    assert voice_routes._reason_audience(viewing) == "operator"
+    assert voice_routes._reason_audience(client) == "client"
 
 
 async def test_the_catalog_is_closed_and_the_write_refused_when_the_engine_dictates_tts() -> None:

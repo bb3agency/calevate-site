@@ -553,25 +553,52 @@ describe("the voice panel", () => {
     expect(container.textContent!.replace(NO_PRICE_REASON, "")).not.toMatch(/sarvam|cartesia/i);
   });
 
-  it("shows a refused voice disabled with the server's reason, and never a shorter list", async () => {
+  it("shows a refused voice refused with the server's reason, and never a shorter list", async () => {
     // The whole point of `offerable_voices()` returning EVERY voice. A missing Studio row
     // is indistinguishable from a product that does not sell a Studio voice, so the
     // operator who pasted the key an hour ago cannot see that the PRICE is what is still
-    // missing. The row is shown, dead, with the one sentence naming the one fix.
+    // missing. The row is shown, refused, with the one sentence naming the one fix.
     const { container } = await render({ [VOICES_PATH]: TWO_TIER_CATALOGUE });
 
     await screen.findByRole("radio", { name: /Ananya/ });
     expect(screen.getAllByRole("radio")).toHaveLength(3);
-    expect(voiceRow(/Ananya/).disabled).toBe(true);
-    expect(voiceRow(/Anushka/).disabled).toBe(false);
+    expect(voiceRow(/Ananya/).getAttribute("aria-disabled")).toBe("true");
+    expect(voiceRow(/Anushka/).getAttribute("aria-disabled")).toBeNull();
     // VERBATIM. The panel does not compose its own sentence from the flags and get the
     // audience or the remedy wrong.
     expect(container.textContent).toContain(NO_PRICE_REASON);
 
-    // And it cannot be chosen by clicking it either — a disabled radio that still moved
-    // the selection would offer a save the server is bound to refuse.
+    // And it cannot be chosen by clicking it either — a row that still moved the selection
+    // would offer a save the server is bound to refuse.
     fireEvent.click(voiceRow(/Ananya/));
     expect(voiceRow(/Ananya/).checked).toBe(false);
+  });
+
+  it("leaves a refused voice REACHABLE, so its reason is announced rather than skipped", async () => {
+    // THE REFUSAL IS THE WHOLE REASON THE ROW IS RENDERED rather than filtered out — and a
+    // natively `disabled` input is removed from the tab order and skipped by a screen
+    // reader's arrow keys, so the one reader who cannot see the amber sentence beside it
+    // was the one reader who could never reach it. `aria-disabled` + the `onChange` guard
+    // keeps the row reachable and announced while still unselectable.
+    await render({ [VOICES_PATH]: TWO_TIER_CATALOGUE });
+
+    const refused = await screen.findByRole("radio", { name: /Ananya/ });
+    expect((refused as HTMLInputElement).disabled).toBe(false);
+    expect(refused.getAttribute("aria-disabled")).toBe("true");
+
+    // The sentence is not merely NEAR the control, it is attached to it: without this the
+    // row announces as "unavailable" and gives no reason at all.
+    const describedBy = refused.getAttribute("aria-describedby");
+    expect(describedBy).toBeTruthy();
+    expect(document.getElementById(describedBy!)?.textContent).toContain(NO_PRICE_REASON);
+
+    // Reachable is not selectable. Arrowing onto a radio in a group dispatches the same
+    // click a mouse does, so this is the keyboard path as well as the pointer one — and
+    // React restores the whole group from props when the guard reports nothing upward, so
+    // the selection that was there stays there.
+    fireEvent.click(refused);
+    expect((refused as HTMLInputElement).checked).toBe(false);
+    expect(voiceRow(/Anushka/).checked).toBe(true);
   });
 
   it("prices each quality from the account's oldest open credit lot", async () => {

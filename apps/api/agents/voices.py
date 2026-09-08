@@ -175,6 +175,8 @@ from calevate_shared.engine import SpeechControl, VoiceEngine
 from calevate_shared.model_lifecycle import TtsProvider
 from pydantic import BaseModel, ConfigDict
 
+from apps.api.billing.rates import voice_tier_label
+
 # The languages the PRODUCT sells today (`CreateOrgIn.language`), Telugu first — we are
 # Telugu-first (BRD §1), so the ordering here is the ordering a picker should render.
 # A subset of the vendor's own 11-code TTS enum (VERIFIED-VENDOR-SDK: sarvamai==0.1.31
@@ -196,9 +198,16 @@ TtsModel = Literal["bulbul:v3", "sonic-3.5"]
 #: differently. `voice_tier()` returns it; nothing stores it beside the voice.
 VoiceProvider = TtsProvider
 
-#: The tier vocabulary a consumer (the pipeline's `meta.tts_tier`, the lot debit, the
+#: The tier vocabulary a consumer (the pipeline's `meta.voice_tier`, the lot debit, the
 #: runway) reads. The SAME type as the provider on purpose: the tier IS the provider, and a
 #: second Literal would be the place the two could be made to disagree.
+#:
+#: **IT IS `meta.voice_tier` AND NOT `meta.tts_tier`, AND THIS COMMENT NAMED THE WRONG KEY.**
+#: `usage_events.meta.tts_tier` is the PLAN'S OVERAGE RUNG (`BASE_OVERAGE_RUNG`, the
+#: `plans.overage_rate` / `overage_rate_value` pair), which is a different fact about the
+#: same call; the money lane stamps the two separately and says why in as many words
+#: (`apps/workers/pipeline.py`, beside `"tts_tier"`). No code here read it wrongly — the
+#: comment was the only thing that would have misled the next reader into folding them.
 VoiceTier = VoiceProvider
 
 Gender = Literal["female", "male", "neutral"]
@@ -392,23 +401,37 @@ class Voice(BaseModel):
 #: hand-written notes would be 44 chances to drift. It carries NO price — it used to say
 #: "₹30 per 10k characters", which was a rate card in a dropdown string (see the module
 #: docstring); the tier is the cost fact, and it is the `provider` field.
+#:
+#: **THE TIER IS NAMED BY `billing/rates.voice_tier_label`, NOT SPELLED HERE.** This string
+#: reaches a CLIENT — it rides `OfferedVoiceOut.note` on `GET /v1/agents/voices`, which is
+#: `agents:read` in either realm — and it used to read "the Sarvam voice tier", which names
+#: the vendor as the product tier the founder's 7 Sep 2026 decision says a client never
+#: reads. Composed from the one definition rather than corrected in place, because a typed
+#: name here would be the second copy that drifts the day the labels change.
 _NOTE: Final = (
-    "Sarvam Bulbul v3 — the Sarvam voice tier. Which speaker suits Telugu best is an ear "
-    "test nobody has run yet (pilot gate 3), and the speaker list is Sarvam's own; Bolna's "
-    "acceptance of it is confirmed by GET /me/voices."
+    f"Sarvam Bulbul v3 — the {voice_tier_label('sarvam')} voice tier. Which speaker suits "
+    "Telugu best is an ear test nobody has run yet (pilot gate 3), and the speaker list is "
+    "Sarvam's own; Bolna's acceptance of it is confirmed by GET /me/voices."
 )
 
-#: The shared half of every Cartesia entry's `note`, for the same reason. The Telugu
-#: sentence is not decoration: Cartesia documents Hinglish code-switching and says NOTHING
-#: about Telugu-English, so a screen that let a client infer it from "Telugu is supported"
-#: would be promising something no page states (module docstring, hard rule 11).
+#: The shared half of every Cartesia entry's `note`, for the same reason and through the
+#: same label. The Telugu sentence is not decoration: Cartesia documents Hinglish
+#: code-switching and says NOTHING about Telugu-English, so a screen that let a client infer
+#: it from "Telugu is supported" would be promising something no page states (module
+#: docstring, hard rule 11).
+#:
+#: IT NO LONGER RESTATES THE THREE OFFERABILITY GROUNDS ("offered only once the Cartesia key
+#: is installed, its price attested and the cap not reached"). That sentence named two of our
+#: own settings to a client, and it was a SECOND, un-forked copy of an answer
+#: `agents/voice_offer.unofferable_reason` already gives per voice, per audience and per
+#: deployment — a catalogue note cannot know whether the key is installed, so its version was
+#: also the one that could be wrong.
 _CARTESIA_NOTE: Final = (
-    "Cartesia Sonic 3.5 — the Cartesia voice tier, billed at the higher per-minute rate on "
-    "every credit lot. Telugu is on Cartesia's language list for this model. Mixing Telugu "
-    "and English inside one sentence is NOT one of the cases Cartesia vouches for (they "
-    'name Hinglish and Taglish, and say speech outside those "may sound accented"), so '
-    "do not promise it. Offered only once the Cartesia key is installed, its price attested "
-    "and the platform-wide Cartesia agent cap not reached."
+    f"Cartesia Sonic 3.5 — the {voice_tier_label('cartesia')} voice tier, billed at the "
+    "higher per-minute rate on every credit lot. Telugu is on Cartesia's language list for "
+    "this model. Mixing Telugu and English inside one sentence is NOT one of the cases "
+    'Cartesia vouches for (they name Hinglish and Taglish, and say speech outside those "may '
+    'sound accented"), so do not promise it.'
 )
 
 
@@ -581,7 +604,9 @@ def voice_tier(tts_voice: str | None) -> VoiceTier:
 
     Plan §2.3 invariant 7 and §3.3: the tier is DERIVED, never stored, so an agent cannot
     hold a Cartesia voice and a Sarvam tier. This is the one function that derives it —
-    the pipeline's `meta.tts_tier`, the credit-lot debit and the runway all ask here.
+    the pipeline's `meta.voice_tier`, the credit-lot debit and the runway all ask here.
+    NOT `meta.tts_tier`, which this line used to name: that key carries the plan's OVERAGE
+    RUNG and is stamped separately on purpose (see `VoiceTier` above).
 
     `sarvam` for an empty or unrecognised id, and that is a decision rather than a
     fallback: an agent with no voice speaks the engine's default Sarvam persona, and a

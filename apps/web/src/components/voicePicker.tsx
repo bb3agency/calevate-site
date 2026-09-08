@@ -18,8 +18,11 @@
  *
  * ## Never a shorter list — the whole reason `offerable_voices()` has the shape it has
  *
- * A voice that cannot be offered here is rendered SHOWN AND DISABLED with the server's own
- * sentence beside it (`apps/api/agents/voice_offer.py`: three grounds, three sentences,
+ * A voice that cannot be offered here is rendered SHOWN, REACHABLE AND UNSELECTABLE
+ * (`aria-disabled` plus the `onChange` guard, never a native `disabled` — a disabled input
+ * is skipped by the keyboard and by a screen reader, which would hide the refusal from
+ * exactly the readers who cannot see it beside the row) with the server's own sentence
+ * beside it (`apps/api/agents/voice_offer.py`: three grounds, three sentences,
  * each naming the one action that fixes it). Filtering the row out instead is the defect
  * that module was built to prevent: an absent Studio row is indistinguishable from a
  * product that does not sell a Studio voice, so the operator who pasted the key an hour ago
@@ -115,6 +118,10 @@ export function VoicePicker({
     // `!= null` covers a null and an absent property and nothing else: an empty string
     // would be a sentence the server sent, and swallowing it would hide a refusal.
     const blocked = voice.unavailable_reason != null || !voice.offerable;
+    // The refusal's own id, so the input can point at it — see `aria-describedby` below.
+    // Built from `name` as well as the voice id, because two pickers on one screen would
+    // otherwise mint the same id twice and both inputs would describe the first one.
+    const reasonId = `${name}-${voice.id}-reason`;
     return (
       <label
         key={voice.id}
@@ -136,11 +143,28 @@ export function VoicePicker({
           value={voice.id}
           className="sr-only"
           checked={checked}
-          disabled={disabled || blocked}
-          /* `disabled` is the control; this guard is the invariant. A refused row must not
-             become the selection by ANY route — React binds a radio's `onChange` to the
-             click event, and a programmatic click still reaches it. Saving a voice the
-             server is bound to refuse is the failure, so the picker will not report one. */
+          /* THE WHOLE PICKER'S `disabled` IS A REAL `disabled`; A BLOCKED ROW'S IS NOT, and
+             the difference is the point. A `disabled` input is removed from the tab order
+             and skipped by a screen reader's arrow keys, so a keyboard or screen-reader user
+             could never land on a refused voice — and the refusal sentence beside it is the
+             ENTIRE reason that row is rendered rather than filtered out (see the module
+             docstring). `aria-disabled` keeps the row reachable and announces it as
+             unavailable; the `onChange` guard below is what actually keeps it unselectable,
+             which is why this is a swap of the mechanism and not a relaxation of the rule.
+             A picker disabled as a whole is a different case — there is nothing to read on
+             any row — so it stays natively disabled. */
+          disabled={disabled}
+          aria-disabled={blocked || undefined}
+          /* WHY it is refused, spoken. The sentence is rendered below for a sighted reader;
+             without this it is orphaned from the control for everyone else, who would hear
+             "unavailable" and no reason. */
+          aria-describedby={blocked ? reasonId : undefined}
+          /* `disabled` used to be the control and this guard the invariant; now it IS the
+             control, and it was already written to be one. A refused row must not become the
+             selection by ANY route — arrowing onto it in the radio group, a click, or a
+             programmatic one — and React's controlled `checked` re-renders the input back
+             from any of them because this never reports the change upward. Saving a voice
+             the server is bound to refuse is the failure. */
           onChange={() => {
             if (!blocked) onChange(voice.id);
           }}
@@ -174,7 +198,10 @@ export function VoicePicker({
           {blocked && (
             /* The server's own words, whole. Amber rather than muted because the reader
                skimming this list must not have to work out which rows are real. */
-            <span className="mt-0.5 block pl-6 text-xs font-medium text-amber-700 dark:text-amber-400">
+            <span
+              id={reasonId}
+              className="mt-0.5 block pl-6 text-xs font-medium text-amber-700 dark:text-amber-400"
+            >
               Cannot be chosen — {voice.unavailable_reason ?? "this voice is not available here."}
             </span>
           )}

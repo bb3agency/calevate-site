@@ -119,9 +119,17 @@ export function PublishingPanel({ agent }: { agent: Agent }) {
           label="Most one call can cost you"
           icon={<IndianRupee className="h-3.5 w-3.5" />}
           hint={
+            /* NEITHER SENTENCE NAMES "YOUR PLAN" ANY MORE, and that is a correction rather
+               than a rewording. The server strikes this figure from the dearest minute the
+               account can be charged — the plan's overage rate for a bundled account, the
+               rate on its own credit for a prepaid one, which has no plan row at all
+               (`agents/publishing.py::worst_case_rate`). A prepaid owner was being told
+               their plan quotes nothing one cell away from the rate this same response
+               already carried; and naming the plan on the figure we CAN give would be the
+               same mistake in the other direction. */
             state.worst_case_call_cost_inr === null
-              ? "Your plan does not quote a per-minute rate, so we cannot put a number on it. Your account manager can."
-              : "A call that runs the full limit, at your plan's per-minute rate. Almost every call ends long before this."
+              ? "Nothing on your account prices a minute yet, so we cannot put a number on it. The credit pack you buy sets that rate."
+              : "A call that runs the full limit, at the dearest per-minute rate your account can be charged. Almost every call ends long before this."
           }
         >
           {/* Null is "we cannot say", NOT zero — quoting ₹0.00 for a ten-minute call is the
@@ -212,8 +220,14 @@ function VoiceFacts({
                behind it is simply their rate; a rate with later purchases behind it is the
                price of the NEXT minute and will change; no rate at all is not a cheap
                minute and must not read like one. */
+            /* THE NULL ARM SENDS THE OWNER TO THEMSELVES, NOT TO US, and it used to send
+               them to their account manager — who cannot fix it. `inr_per_min` is null for
+               exactly one reason: no open credit lot (`billing/lots.py::TierRate`), i.e. an
+               empty or overdrawn wallet. There is no rate because there is no credit, and
+               the rate is the one frozen on the pack they buy — so the action is theirs and
+               naming anyone else's is a support ticket nobody can close. */
             tier.inr_per_min === null
-              ? "We cannot put a per-minute price on this voice for your account right now. Your account manager can."
+              ? "You have no credit left, so nothing sets a per-minute price for this voice yet. The credit pack you buy fixes the rate you pay on it."
               : tier.further_open_lots === 0
                 ? "What a minute on this voice costs against your current credit."
                 : `What a minute on this voice costs against your oldest unspent credit. You have ${tier.further_open_lots} later purchase${tier.further_open_lots === 1 ? "" : "s"} behind it, each at the rates it was bought at.`

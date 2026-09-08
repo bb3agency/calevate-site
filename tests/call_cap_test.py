@@ -51,6 +51,7 @@ from apps.api.engine.fake import FakeEngine
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from tests.conftest import accept_agreements
+from tests.credit_lots_helpers import GROWTH, add_lot
 
 SCRIPT = "The receptionist script this clinic approved before anyone touched the cap."
 
@@ -359,3 +360,102 @@ async def test_a_plan_quoting_only_one_rate_still_answers() -> None:
     state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
 
     assert state.worst_case_call_cost_inr == Decimal("13.00")
+
+
+# --- the account that has no plan at all ---------------------------------------------
+#
+# A PREPAID TENANT HAS NO `plans` ROW (`apps/workers/pipeline.py` says so where it decides
+# which accounts meter against a plan), so `_overage_rate` answered None for every one of
+# them and the screen said "we cannot put a number on it" one cell away from the rate the
+# same response was already rendering. Under D-547 what a prepaid minute costs IS a fact
+# about this account: the rate frozen on the credit lot the next call draws from. These
+# cases are `publishing.worst_case_rate` asking each tier its own question in turn.
+
+
+async def test_a_prepaid_tenant_is_quoted_from_its_own_credit_rather_than_told_nothing() -> None:
+    """No plan row, one funded lot — the state most accounts on this product are in."""
+    tenant_id, agent_id = await _tenant()
+    await add_lot(tenant_id, credits_inr="5000.00", rates=GROWTH)
+
+    await publishing.set_call_cap(tenant_id=tenant_id, agent_id=agent_id, max_call_duration_s=600)
+    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+
+    # Ten whole minutes at the DEARER of the lot's two rates (GROWTH = 5.00 / 7.00).
+    assert state.worst_case_call_cost_inr == Decimal("70.00")
+    assert not isinstance(state.worst_case_call_cost_inr, float)
+
+
+async def test_the_credit_quote_takes_the_dearer_of_the_wallet_s_two_rates() -> None:
+    """`_overage_rate`'s GREATEST reasoning, on the wallet's rung pair rather than the
+    plan's: a ceiling struck from the cheaper of the two promises a number the very next
+    call can exceed, and which voice runs a given call is not knowable in advance.
+
+    IT IS TAKEN BY PRICE, AND THE TEST THAT TRIED TO PROVE THAT WAS IMPOSSIBLE. An earlier
+    version of this case opened a lot with the rates inverted — Studio cheaper than Clear —
+    to show the code does not simply trust the tier's name. `open_lot` REFUSES that lot
+    (`billing/lots.py`: "a lot's Cartesia rate may not be below its Sarvam rate"), so the
+    state it was written to distinguish cannot be reached, and a test asserting a verdict
+    about an impossible lot proves nothing. The invariant is what makes by-price and
+    by-name agree; the case below pins the invariant instead, which is the real guarantee.
+
+    The reading by price stays in `worst_case_rate` because it costs nothing and does not
+    depend on that invariant holding forever — if a third tier ever arrives, or the
+    ordering rule is relaxed, the ceiling is still the dearest thing the account can be
+    charged.
+    """
+    tenant_id, agent_id = await _tenant()
+    await add_lot(tenant_id, credits_inr="5000.00", rates=(Decimal("4.00"), Decimal("9.00")))
+
+    await publishing.set_call_cap(tenant_id=tenant_id, agent_id=agent_id, max_call_duration_s=60)
+    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+
+    assert state.worst_case_call_cost_inr == Decimal("9.00")
+
+
+async def test_a_lot_cannot_be_opened_with_the_premium_voice_cheaper() -> None:
+    """WHY the ceiling's by-price reading and a by-name one cannot disagree today.
+
+    This is the invariant the case above leans on, asserted here rather than assumed, so
+    that relaxing it turns this file red at the same time as it makes the ceiling's
+    reasoning load-bearing."""
+    tenant_id, _ = await _tenant()
+    with pytest.raises(ValueError, match="may not be below its Sarvam rate"):
+        await add_lot(tenant_id, credits_inr="5000.00", rates=(Decimal("9.00"), Decimal("4.00")))
+
+
+async def test_a_plan_rate_is_preferred_to_the_wallet_when_the_plan_quotes_one() -> None:
+    """Not a search for any number: each tier is asked its own question, in the order the
+    money resolves in. A bundled account is billed at its overage rate, so that is the rate
+    its ceiling is struck at even when the wallet also holds credit."""
+    tenant_id, agent_id = await _tenant()
+    await _plan(tenant_id, Decimal("8.00"))
+    await add_lot(tenant_id, credits_inr="5000.00", rates=(Decimal("20.00"), Decimal("20.00")))
+
+    await publishing.set_call_cap(tenant_id=tenant_id, agent_id=agent_id, max_call_duration_s=60)
+    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+
+    assert state.worst_case_call_cost_inr == Decimal("8.00")
+
+
+async def test_an_empty_wallet_with_no_plan_is_still_quoted_nothing_rather_than_zero() -> None:
+    """The one state that genuinely cannot be priced: no plan rate and no open lot, which
+    is an empty or overdrawn wallet (`billing/lots.TierRate`). "We cannot say" survives —
+    what changed is that it is now said only when it is true."""
+    tenant_id, agent_id = await _tenant()
+    state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+    assert state.worst_case_call_cost_inr is None
+
+
+async def test_the_cap_write_and_the_cap_screen_quote_the_same_ceiling() -> None:
+    """Both callers go through `worst_case_rate`, so a prepaid account cannot be told one
+    number by the setter and another by the read a second later."""
+    tenant_id, agent_id = await _tenant()
+    await add_lot(tenant_id, credits_inr="5000.00", rates=GROWTH)
+
+    written = await publishing.set_call_cap(
+        tenant_id=tenant_id, agent_id=agent_id, max_call_duration_s=300
+    )
+    read = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
+
+    assert written.worst_case_call_cost_inr == Decimal("35.00")
+    assert read.worst_case_call_cost_inr == written.worst_case_call_cost_inr

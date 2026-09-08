@@ -108,7 +108,11 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.agents.voice_offer import OfferedVoice, offered_catalogue
+from apps.api.agents.voice_offer import (
+    OfferedVoice,
+    VoiceReasonAudience,
+    offered_catalogue,
+)
 from apps.api.agents.voices import (
     Voice,
     VoiceSelectionCapability,
@@ -205,9 +209,12 @@ class OfferedVoiceOut(Voice):
     fields it always did, and the two new ones are additive on the wire.
     """
 
-    #: `None` exactly when the voice may be chosen. Otherwise ONE operator-actionable
-    #: sentence from `agents/voice_offer.py` — the missing key, the unattested price, or the
-    #: platform-wide Cartesia cap, whichever is the first thing that has to happen.
+    #: `None` exactly when the voice may be chosen. Otherwise ONE sentence from
+    #: `agents/voice_offer.py`, IN THE READER'S OWN LANGUAGE (`VoiceReasonAudience`): an
+    #: operator reads the ground that has to be fixed first — the missing key, the
+    #: unattested price, the platform-wide Cartesia cap — and a client reads the one action
+    #: they have. This route is readable in BOTH realms, so which sentence it is comes from
+    #: the caller's realm and never from the row.
     unavailable_reason: str | None
     #: Derived from `unavailable_reason`, never beside it: a screen that could read a `True`
     #: flag next to a refusal sentence is a screen that can offer a voice the write refuses.
@@ -279,13 +286,34 @@ def _catalogue_note(capability: VoiceSelectionCapability) -> str:
     )
 
 
+def _reason_audience(principal: Principal) -> VoiceReasonAudience:
+    """WHOSE LANGUAGE THIS RESPONSE'S REFUSALS ARE IN, from the realm and nothing else.
+
+    The three operator grounds name a vendor and two of them name one of our settings
+    (`cartesia_api_key`, `cartesia_agent_cap`), and this route is `agents:read` in either
+    realm — so a client realm principal must never receive them. It is read off the REALM
+    rather than off a role for `llm_models.LlmReasonAudience`'s reason: a role is a
+    permission, not an audience.
+
+    **AN IMPERSONATING ADMIN IS AN OPERATOR HERE, AND THAT IS NOT THE ANSWER
+    `llm_routes` GIVES.** There the two realms have two routes, so an operator opening the
+    CLIENT's route deliberately reads the client's sentence. This endpoint is one route for
+    both consoles, and `current_any` admits an admin principal ONLY when the impersonation
+    header is present (`core/auth.py`) — so the admin console's voice picker reaches it as
+    an impersonating admin, and treating that as a client would delete the operator ground
+    from the only screen an operator installs a Cartesia key from. Realm decides, and
+    impersonation does not change a realm.
+    """
+    return "operator" if principal.is_admin else "client"
+
+
 @router.get(
     "/v1/agents/voices",
     response_model=VoiceCatalogueOut,
     openapi_extra=permission_meta("agents:read"),
     summary="The voices an agent may speak in, each with its availability (client-readable)",
 )
-async def list_voices(_: CatalogReader) -> VoiceCatalogueOut:
+async def list_voices(principal: CatalogReader) -> VoiceCatalogueOut:
     """The catalogue, plus one capability read and — only when it could decide anything —
     one platform-wide count.
 
@@ -311,7 +339,9 @@ async def list_voices(_: CatalogReader) -> VoiceCatalogueOut:
     the console would offer precisely the choice the write refuses.
     """
     capability = voice_selection_capability()
-    offered = await offered_catalogue(voices=tuple(capability.voices))
+    offered = await offered_catalogue(
+        voices=tuple(capability.voices), audience=_reason_audience(principal)
+    )
     return VoiceCatalogueOut(
         control=capability.control,
         selectable=capability.available,

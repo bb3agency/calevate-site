@@ -541,6 +541,55 @@ describe("the numbers come from the server", () => {
     expect(container.textContent).not.toContain("₹0");
   });
 
+  it("never tells a prepaid client the figure is their PLAN's rate", async () => {
+    // A PREPAID ACCOUNT HAS NO PLAN ROW AT ALL (`apps/workers/pipeline.py`), and the server
+    // now strikes this ceiling from whichever rate can actually price a minute — the plan's
+    // overage rate, or the account's own credit (`agents/publishing.py::worst_case_rate`).
+    // So the sentence beside the figure may not name a plan: it would be false for exactly
+    // the accounts the fallback exists for, and this screen has no way to tell which kind
+    // of account it is looking at.
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1/pending": settled({ worst_case_call_cost_inr: "70.00" }),
+      }),
+    );
+
+    await screen.findByText("Most one call can cost you");
+    expect(container.textContent).toContain("₹70.00");
+    expect(container.textContent).toContain(
+      "at the dearest per-minute rate your account can be charged",
+    );
+    expect(container.textContent).not.toContain("your plan's per-minute rate");
+    expect(container.textContent).not.toContain("Your plan does not quote");
+  });
+
+  it("sends the owner of an empty wallet to the thing that FIXES it, not to us", async () => {
+    // `inr_per_min` is null for exactly one reason (`billing/lots.py::TierRate`): no open
+    // lot, i.e. an empty or overdrawn wallet. There is no rate because there is no credit,
+    // and the rate is the one frozen on the pack they buy — so "your account manager can"
+    // sent an owner to someone who cannot do anything about it.
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1/pending": settled({
+          voice_tier_rates: [
+            { provider: "sarvam", label: "Clear", inr_per_min: null, further_open_lots: 0 },
+            { provider: "cartesia", label: "Studio", inr_per_min: null, further_open_lots: 0 },
+          ],
+        }),
+      }),
+    );
+
+    await screen.findByText("Voice quality");
+    expect(container.textContent).toContain("The credit pack you buy fixes the rate you pay");
+    expect(container.textContent).not.toContain(
+      "We cannot put a per-minute price on this voice for your account right now.",
+    );
+    // And no invented figure beside it: absent renders absent (hard rule 7).
+    expect(container.textContent).not.toContain("/ min");
+  });
+
   it("reads the call cap off the API instead of hardcoding ten minutes", async () => {
     await renderClientPage(
       page,

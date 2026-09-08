@@ -31,6 +31,17 @@ A Sarvam voice fails none of these: the key is the engine's own leg today, the p
 the card, and there is no cap. So `offerable_voices()` with zero Cartesia entries — the state
 this ships in — returns the whole catalogue offerable, which is what it returned before.
 
+THE THREE SENTENCES ARE FOR AN OPERATOR, AND THE ROUTE IS CLIENT-READABLE
+-------------------------------------------------------------------------
+All three name a vendor and two name one of our own settings, and `GET /v1/agents/voices`
+is `agents:read` in EITHER realm — a client is the Principal Entity and may read what their
+agent sounds like. So the sentences fork by AUDIENCE, exactly as
+`llm_models.unofferable_reason` already forks for a model: the operator keeps the ground
+they can fix, and a client is told the one thing they can act on, in the tier's own
+client-facing name ("Studio") rather than the vendor's. `None`-ness does not fork —
+offerability is one fact — which is what lets `OfferedVoice.offerable` stay derived from
+`reason` for both audiences.
+
 WHY THE COUNT IS A PARAMETER AND THE CATALOGUE READ IS ASYNC
 ------------------------------------------------------------
 `offerable_models()` is sync because all three of its facts sit in in-process snapshots.
@@ -61,9 +72,17 @@ from uuid import UUID
 
 from sqlalchemy import text
 
+from apps.api.agents.llm_models import LlmReasonAudience
 from apps.api.agents.voices import CATALOG, Voice, VoiceProvider
+from apps.api.billing.rates import voice_tier_label
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, tenant_session
+
+#: WHO a refusal sentence is written for. IMPORTED, never re-declared: "operator or client"
+#: is one vocabulary and a second `Literal` beside it is where the two would come to spell
+#: an audience differently (D-104). `llm_models.LlmReasonAudience` carries the argument for
+#: the split; this module applies it to a voice.
+VoiceReasonAudience = LlmReasonAudience
 
 # --- ground 2: the price seam Phase D wires --------------------------------------
 
@@ -146,6 +165,29 @@ NO_ATTESTED_TTS_PRICE_REASON: Final = (
 )
 
 
+def client_unofferable_reason(voice: Voice) -> str:
+    """THE ONE SENTENCE A CLIENT SEES for any unofferable voice, whichever ground failed.
+
+    The three grounds are collapsed for `llm_models.CLIENT_UNAVAILABLE_REASON`'s reason: a
+    client has no ops console, no vendor account and no key, so which of the three is
+    missing is not a distinction they can act on — and printing it would tell them to do
+    something impossible while naming a vendor and one of our settings on a route their
+    realm can read.
+
+    It names the TIER, by the name a client is told the tier is called
+    (`billing/rates.voice_tier_label` — "Clear", "Studio"), never the vendor: which company
+    synthesises a tier is our business and must be able to change without a client-visible
+    rename (founder, 7 Sep 2026).
+
+    Lower-case and with no leading dash for the three operator grounds' reason: the picker
+    completes "Cannot be chosen — {…}" with it.
+    """
+    return (
+        f"the {voice_tier_label(voice.provider)} voice is not available on your account "
+        "yet — ask your account manager"
+    )
+
+
 def cartesia_cap_reached_reason(*, cap: int, live: int) -> str:
     """Ground 3's sentence carries both numbers: an operator deciding whether to raise the
     cap needs to know how far past it the next agent would be."""
@@ -172,13 +214,14 @@ class OfferedVoice:
         return self.reason is None
 
 
-def unofferable_reason(voice: Voice, *, cartesia_live_agents: int) -> str | None:
-    """Why `voice` cannot be offered here, or `None` when it can.
+def _operator_unofferable_reason(voice: Voice, *, cartesia_live_agents: int) -> str | None:
+    """The OPERATOR ground — which of the three conditions failed, named so an operator can
+    act on it. `unofferable_reason` is the audience-aware wrapper; this is its truth.
 
     **THE ONE PLACE THE THREE GROUNDS ARE ORDERED**, by whose problem it is, exactly as
-    `_operator_unofferable_reason` orders its three: a tier with no key cannot be fixed by
-    attesting a price, so the key is reported first and the reader is sent to one action at
-    a time. A voice failing two grounds gets the earlier sentence.
+    `llm_models._operator_unofferable_reason` orders its three: a tier with no key cannot
+    be fixed by attesting a price, so the key is reported first and the reader is sent to
+    one action at a time. A voice failing two grounds gets the earlier sentence.
 
     `cartesia_live_agents` is the platform-wide count of LIVE agents on the Cartesia tier,
     measured by `count_live_cartesia_agents` — passed in rather than read here so this
@@ -196,8 +239,32 @@ def unofferable_reason(voice: Voice, *, cartesia_live_agents: int) -> str | None
     return None
 
 
+def unofferable_reason(
+    voice: Voice, *, cartesia_live_agents: int, audience: VoiceReasonAudience = "operator"
+) -> str | None:
+    """Why `voice` cannot be offered here, or `None` when it can — in the AUDIENCE's language.
+
+    `None` MEANS THE SAME THING FOR BOTH AUDIENCES: offerability is one fact, so this returns
+    `None` for exactly the offerable voices whichever audience asks. Only the SENTENCE for an
+    unofferable one differs — the operator gets the ground they can fix, the client gets the
+    one action they have (`client_unofferable_reason`). Keeping the None-ness
+    audience-independent is what lets `OfferedVoice.offerable` be derived from the reason
+    without the flag and the sentence ever disagreeing.
+
+    Default `"operator"` so every existing caller — the write backstop, the tests — keeps its
+    behaviour unchanged; the client realm opts in, at the route, by realm.
+    """
+    reason = _operator_unofferable_reason(voice, cartesia_live_agents=cartesia_live_agents)
+    if reason is None or audience == "operator":
+        return reason
+    return client_unofferable_reason(voice)
+
+
 def offerable_voices(
-    *, cartesia_live_agents: int, voices: tuple[Voice, ...] = CATALOG
+    *,
+    cartesia_live_agents: int,
+    voices: tuple[Voice, ...] = CATALOG,
+    audience: VoiceReasonAudience = "operator",
 ) -> tuple[OfferedVoice, ...]:
     """EVERY catalogue voice with its verdict — never a shorter list.
 
@@ -209,7 +276,9 @@ def offerable_voices(
     return tuple(
         OfferedVoice(
             voice=voice,
-            reason=unofferable_reason(voice, cartesia_live_agents=cartesia_live_agents),
+            reason=unofferable_reason(
+                voice, cartesia_live_agents=cartesia_live_agents, audience=audience
+            ),
         )
         for voice in voices
     )
@@ -281,7 +350,10 @@ async def count_live_cartesia_agents(*, exclude_agent_id: UUID | None = None) ->
 
 
 async def offered_catalogue(
-    *, exclude_agent_id: UUID | None = None, voices: tuple[Voice, ...] = CATALOG
+    *,
+    exclude_agent_id: UUID | None = None,
+    voices: tuple[Voice, ...] = CATALOG,
+    audience: VoiceReasonAudience = "operator",
 ) -> tuple[OfferedVoice, ...]:
     """The catalogue with its live verdicts — what `GET /v1/agents/voices` and the voice
     write both read, so the picker and the backstop cannot disagree.
@@ -289,12 +361,16 @@ async def offered_catalogue(
     The count is measured only when it could decide anything: with no Cartesia key or no
     attested price the verdict is already known, and a deployment with no Cartesia voices
     in its catalogue opens no session at all.
+
+    `audience` decides ONLY the wording of a refusal (see `unofferable_reason`), so the two
+    realms read the same catalogue, get the same verdicts, and differ in exactly one
+    sentence — the route picks it from the caller's realm.
     """
     needs_count = cartesia_tier_could_be_offered() and any(
         voice.provider == "cartesia" for voice in voices
     )
     live = await count_live_cartesia_agents(exclude_agent_id=exclude_agent_id) if needs_count else 0
-    return offerable_voices(cartesia_live_agents=live, voices=voices)
+    return offerable_voices(cartesia_live_agents=live, voices=voices, audience=audience)
 
 
 __all__ = [
@@ -302,9 +378,11 @@ __all__ = [
     "NO_CARTESIA_CREDENTIAL_REASON",
     "OfferedVoice",
     "TtsPriceReader",
+    "VoiceReasonAudience",
     "cartesia_cap_reached_reason",
     "cartesia_credential_installed",
     "cartesia_tier_could_be_offered",
+    "client_unofferable_reason",
     "count_live_cartesia_agents",
     "default_tts_price_is_billable",
     "install_tts_price_reader",

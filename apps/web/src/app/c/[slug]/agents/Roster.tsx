@@ -54,7 +54,7 @@ import { agentOwnModel } from "@/lib/api/llmModels";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { lookup } from "@/lib/lookup";
 
-import { LiveBadge } from "./AgentBadge";
+import { LiveBadge, VoiceTierBadge } from "./AgentBadge";
 import { MOVE_COPY } from "./AgentLifecycle";
 import {
   DIRECTION_COPY,
@@ -368,7 +368,14 @@ function AgentRow({
               </span>
             )}
           </span>
-          <LiveBadge agent={agent} />
+          {/* The voice quality, where an owner scans — it is a per-minute PRICE (D-547),
+              and until now nothing on this console answered "which of my agents is on the
+              dearer voice?". Absent when the API does not carry the name; never guessed
+              from the vendor field. */}
+          <span className="flex shrink-0 items-center gap-2">
+            <VoiceTierBadge agent={agent} />
+            <LiveBadge agent={agent} />
+          </span>
         </Link>
         {/* THE FOUNDER'S RULE IS THAT THIS IS ON EVERY AGENT (D-527), whether it is working
             or not — so it is not conditioned on the agent's state, only on the row being a

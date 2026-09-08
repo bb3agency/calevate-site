@@ -29,6 +29,7 @@ from apps.api.agents.voice_offer import (
     NO_CARTESIA_CREDENTIAL_REASON,
     OfferedVoice,
     cartesia_cap_reached_reason,
+    client_unofferable_reason,
     install_tts_price_reader,
     offerable_voices,
     unofferable_reason,
@@ -47,6 +48,7 @@ from apps.api.agents.voices import (
     voice_id_for,
     voice_tier,
 )
+from apps.api.billing.rates import voice_tier_label
 from apps.api.core.settings import get_settings
 from calevate_shared.model_lifecycle import TTS_MODEL_LIFECYCLE
 
@@ -308,3 +310,85 @@ def test_the_wire_carries_the_tier_name_so_the_browser_never_holds_a_copy() -> N
         assert row.provider not in row.tier_label.lower(), (
             "the label a client reads must not be the vendor's name"
         )
+
+
+# --- C.2b: whose language a refusal is in --------------------------------------
+#
+# `GET /v1/agents/voices` is `agents:read` in EITHER realm, and all three grounds above name
+# a vendor while two of them name one of our own settings. So the sentence forks by audience
+# the way `llm_models.unofferable_reason` already forks for a model — the operator keeps the
+# ground they can fix, a client is told the one action they have. `tests/agent_voice_test.py`
+# is where the ROUTE is proved to pick the right one from the realm; these are the predicate.
+
+
+def _a_refusing_deployment(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No key and no attested price: a deployment on which every Cartesia voice refuses."""
+    monkeypatch.setattr(voice_offer, "cartesia_credential_installed", lambda: False)
+    install_tts_price_reader(lambda _provider: False)
+
+
+def test_a_client_reads_one_sentence_that_names_no_vendor_and_no_setting_of_ours(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE LEAK THIS FORK EXISTS TO CLOSE. Every operator ground names Cartesia, and two of
+    them name a field only we can edit — on a route a tenant may read. A client gets the
+    tier's client-facing name and the one action they have."""
+    voice = _cartesia_entry(_record())
+    cap = get_settings().cartesia_agent_cap
+    states = (
+        # (key installed, price billable, live agents) — one per ground, in the module's order.
+        (False, True, 0),
+        (True, False, 0),
+        (True, True, cap),
+    )
+    for installed, priced, live in states:
+        monkeypatch.setattr(voice_offer, "cartesia_credential_installed", lambda i=installed: i)
+        install_tts_price_reader(lambda _provider, p=priced: p)
+
+        operator = unofferable_reason(voice, cartesia_live_agents=live, audience="operator")
+        client = unofferable_reason(voice, cartesia_live_agents=live, audience="client")
+
+        assert operator is not None, "this state must refuse, or the case proves nothing"
+        assert client == client_unofferable_reason(voice)
+        assert "cartesia" not in client.lower(), "the vendor's name reached a client"
+        assert "sarvam" not in client.lower()
+        for setting in ("cartesia_api_key", "cartesia_agent_cap", "ops console", "attest"):
+            assert setting not in client.lower(), f"{setting!r} is ours, not a client's"
+        assert voice_tier_label(voice.provider) in client, (
+            "a client is told WHICH voice quality is unavailable, by the name they know it by"
+        )
+        assert str(cap) not in client, "the platform-wide cap is not a client's business"
+
+
+def test_offerability_itself_does_not_fork_by_audience(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`None`-ness is one fact for both readers — which is what lets `OfferedVoice.offerable`
+    stay derived from the reason instead of computed a second way per audience."""
+    _a_refusing_deployment(monkeypatch)
+    catalogue = (*CATALOG, _cartesia_entry(_record()))
+    for audience in ("operator", "client"):
+        rows = offerable_voices(cartesia_live_agents=0, voices=catalogue, audience=audience)
+        assert [row.offerable for row in rows] == [
+            row.offerable for row in offerable_voices(cartesia_live_agents=0, voices=catalogue)
+        ]
+        assert all(row.offerable is (row.reason is None) for row in rows)
+
+
+def test_the_default_audience_is_the_operator(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every existing caller — the write backstop, the ops console, these tests — asked
+    without an audience and must keep getting the actionable ground. The client realm opts
+    in, at the route."""
+    monkeypatch.setattr(voice_offer, "cartesia_credential_installed", lambda: False)
+    voice = _cartesia_entry(_record())
+    assert unofferable_reason(voice, cartesia_live_agents=0) == NO_CARTESIA_CREDENTIAL_REASON
+    assert (
+        unofferable_reason(voice, cartesia_live_agents=0, audience="operator")
+        == NO_CARTESIA_CREDENTIAL_REASON
+    )
+
+
+def test_an_offerable_voice_carries_no_sentence_for_either_reader() -> None:
+    """A refusal a client cannot act on is bad; a refusal on a voice they CAN choose would
+    be worse. Sarvam fails no ground, so both audiences get `None`."""
+    for voice in CATALOG:
+        for audience in ("operator", "client"):
+            assert unofferable_reason(voice, cartesia_live_agents=0, audience=audience) is None

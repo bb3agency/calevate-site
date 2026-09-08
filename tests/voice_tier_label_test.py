@@ -57,3 +57,52 @@ def test_the_label_is_reached_by_a_function_so_there_is_one_definition() -> None
         assert voice_tier_label(tier) == VOICE_TIER_LABELS[tier]
         assert voice_tier_label(tier).strip() == voice_tier_label(tier)
         assert voice_tier_label(tier), "a blank label renders as a nameless tier"
+
+
+def test_no_catalogue_note_names_a_vendor_as_the_tier() -> None:
+    """THE GUARD THIS FILE WAS MISSING, and the string it would have caught.
+
+    `Voice.note` is written for an operator's dropdown and reaches a CLIENT — it rides
+    `OfferedVoiceOut.note` on `GET /v1/agents/voices`, which any realm may read
+    (`tests/agent_voice_test.py` proves the client read). Both shared notes said "the
+    <vendor> voice tier" in as many words, which is exactly the sentence
+    `test_no_label_names_a_vendor` forbids one level up: the labels were clean and the
+    prose beside them was not. So the rule is asserted over the prose too, and a Cartesia
+    entry is BUILT rather than taken from `CATALOG` because that half ships empty.
+    """
+    from apps.api.agents.voices import CATALOG, CartesiaVoiceRecord, _cartesia_entry
+
+    built = _cartesia_entry(
+        CartesiaVoiceRecord(id="test-record-not-a-real-voice-id", name="Test", languages=("te-IN",))
+    )
+    for voice in (*CATALOG, built):
+        lowered = voice.note.lower()
+        for vendor in VOICE_TIERS:
+            assert f"{vendor} voice tier" not in lowered, (
+                f"{voice.id}'s note calls the tier {vendor!r}. A client reads this string; "
+                f"the tier is called {voice_tier_label(voice.provider)!r} to them."
+            )
+        assert voice_tier_label(voice.provider) in voice.note, (
+            "the note names the tier, and it must name it the way the client is told it — "
+            "composed from `voice_tier_label`, never typed in a second time"
+        )
+
+
+def test_no_catalogue_note_tells_a_client_to_fix_our_configuration() -> None:
+    """The other half of the same leak. The Cartesia note used to end "offered only once the
+    Cartesia key is installed, its price attested and the platform-wide Cartesia agent cap
+    not reached" — two of our own settings, in a client-readable string, and a second
+    un-forked copy of an answer `agents/voice_offer.unofferable_reason` gives per audience
+    and per deployment."""
+    from apps.api.agents.voices import CATALOG, CartesiaVoiceRecord, _cartesia_entry
+
+    built = _cartesia_entry(
+        CartesiaVoiceRecord(id="test-record-not-a-real-voice-id", name="Test", languages=("te-IN",))
+    )
+    for voice in (*CATALOG, built):
+        lowered = voice.note.lower()
+        for ours in ("cartesia_api_key", "cartesia_agent_cap", "ops console", "attest"):
+            assert ours not in lowered, (
+                f"{voice.id}'s note names {ours!r} — a client cannot act on it, and the "
+                "refusal that can is served per voice by `voice_offer.unofferable_reason`"
+            )

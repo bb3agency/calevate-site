@@ -86,6 +86,47 @@ export function liveState(agent: Agent): LiveState {
   };
 }
 
+/**
+ * WHICH VOICE QUALITY THIS AGENT SPEAKS IN — "Clear", "Studio" — or null.
+ *
+ * "Which of my agents is on Studio?" was unanswerable from this console: the roster row
+ * carried no voice at all, and the only surface that names a tier is the detail screen, one
+ * agent at a time. A tier is a PRICE (D-547: two tiers, two per-minute rates on every credit
+ * lot), so it belongs where an owner scans.
+ *
+ * **THE NAME IS THE SERVER'S OR THERE IS NO BADGE.** It is read from the agent row and never
+ * derived here — mapping a `provider` to "Studio" in TypeScript would be the second copy of
+ * `billing/rates.VOICE_TIER_LABELS` that the marketing-provenance rule exists to prevent, and
+ * the fallback available to such a copy is the vendor's own name, which is the one name a
+ * client-facing surface may not print (founder, 7 Sep 2026).
+ *
+ * It is read DEFENSIVELY because `AgentOut` does not carry the field on every build: an API
+ * that does not send it renders no badge, which is the honest answer, rather than a guess.
+ * The same shape `AgentStats` is handled with two files over — a fact this screen does not
+ * have is a fact it does not state.
+ */
+export function voiceTierLabel(agent: Agent): string | null {
+  const label = (agent as { voice_tier_label?: unknown }).voice_tier_label;
+  return typeof label === "string" && label.trim() !== "" ? label : null;
+}
+
+/** The voice-quality badge, beside the live one. Renders nothing when the API sent none. */
+export function VoiceTierBadge({ agent }: { agent: Agent }) {
+  const label = voiceTierLabel(agent);
+  if (label === null) return null;
+  return (
+    <span
+      className="inline-flex shrink-0 items-center rounded-full border border-line bg-app px-3 py-1 text-xs font-semibold text-ink-muted"
+      /* The visible word is a quality name on its own ("Studio"), which reads as a state
+         next to "Live" unless it says what it is a name FOR. The accessible name carries
+         the noun; the badge stays short enough to scan. */
+      aria-label={`${label} voice`}
+    >
+      {label}
+    </span>
+  );
+}
+
 /** The badge, wherever an agent is named. */
 export function LiveBadge({ agent }: { agent: Agent }) {
   const live = liveState(agent);

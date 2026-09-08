@@ -113,6 +113,7 @@ from apps.api.agents.models import CALL_CAP_DEFAULT_S, CALL_CAP_MAX_S, CALL_CAP_
 from apps.api.agents.service import effective_call_cap, publish_agent
 from apps.api.agents.verification import EngineDrift, verify_publish
 from apps.api.agents.voices import Voice, get_voice
+from apps.api.billing.lots import voice_tier_rates
 from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
 from apps.api.billing.service import to_paise
 from apps.api.compliance.caller_memory import spdi_refuses_memory
@@ -333,7 +334,10 @@ class PendingState:
     """What the unsaved-changes banner needs, in one read.
 
     `worst_case_call_cost_inr` is the answer to the question a cap is really asking —
-    what does one runaway call cost me — computed from the tenant's own plan rate.
+    what does one runaway call cost me — computed from the dearest minute this account can
+    actually be charged (`worst_case_rate`: the plan's overage rate, or, for a prepaid
+    account that has no plan row at all, its own credit lots' rate). `None` still means "we
+    cannot say", and now means it only when nothing on the account can price a minute.
     """
 
     agent_id: UUID
@@ -565,6 +569,55 @@ async def _overage_rate(session: AsyncSession, tenant_id: UUID) -> Decimal | Non
     return Decimal(str(row[0]))
 
 
+async def _credit_lot_rate(session: AsyncSession, tenant_id: UUID) -> Decimal | None:
+    """The DEAREST per-minute rate this WALLET can charge, or None when nothing can price a
+    minute — the prepaid answer to the question `_overage_rate` answers for a plan.
+
+    **A PREPAID ACCOUNT HAS NO PLAN ROW**, which is not a defect and is said outright by the
+    metering path (`workers/pipeline.py`: the prepaid tiers are the ones with no plan to
+    read). So `_overage_rate` answered None for every one of them and the screen said "we
+    cannot put a number on it" one cell away from the very rate it was already rendering —
+    the lot rate, on the same response. Under D-547 that lot rate is the real price of a
+    minute for these accounts: what a call costs is the rate frozen on the credit lot it
+    draws from (`billing/lots.voice_tier_rates`, oldest lot first), so it is the figure a
+    worst case must be struck from.
+
+    DEAREST BY PRICE, NEVER BY TIER NAME, for `_overage_rate`'s reason exactly: a ceiling
+    computed from the cheaper of the two rates promises a number the very next call can
+    exceed, and which tier runs a given call is not knowable in advance. Taking the maximum
+    of the rates themselves — rather than "the Cartesia one" — also survives a wallet whose
+    two lots were sold at rates the other way round.
+
+    None when NO tier can be priced, which is the empty or overdrawn wallet: there is no
+    open lot, so there is no rate, and a card figure would be a guess about a purchase
+    nobody has made (`billing/lots.TierRate`).
+    """
+    quoted = [
+        tier.inr_per_min
+        for tier in await voice_tier_rates(session, tenant_id=tenant_id)
+        if tier.inr_per_min is not None
+    ]
+    return max(quoted) if quoted else None
+
+
+async def worst_case_rate(session: AsyncSession, tenant_id: UUID) -> Decimal | None:
+    """THE ONE DOOR to "what is the dearest minute this account can be charged": the plan's
+    rate when it quotes one, else the wallet's.
+
+    The order is the order the money itself resolves in — a committed plan's overage rate is
+    what a bundled account is billed at, and a prepaid account is billed off its lots — so
+    this is not a fallback chain looking for any number, it is each tier's own answer asked
+    in turn. Both callers of a worst case go through it, so the cap screen and the cap WRITE
+    cannot quote different ceilings for one account.
+    """
+    # `is not None`, never `or`: a plan that genuinely quotes ₹0 a minute is a real answer
+    # and `Decimal("0")` is falsy, so `or` would silently price that account off its lots.
+    plan_rate = await _overage_rate(session, tenant_id)
+    if plan_rate is not None:
+        return plan_rate
+    return await _credit_lot_rate(session, tenant_id)
+
+
 def worst_case_cost(cap_s: int, rate_inr: Decimal | None) -> Decimal | None:
     """What one call that runs the whole cap costs, in NUMERIC INR (hard rule 7).
 
@@ -736,7 +789,7 @@ async def _state(session: AsyncSession, tenant_id: UUID, agent_id: UUID) -> Pend
         pending=_pending_changes(row),
         effective_call_cap_s=cap,
         call_cap_is_platform_default=row.max_call_duration_s is None,
-        worst_case_call_cost_inr=worst_case_cost(cap, await _overage_rate(session, tenant_id)),
+        worst_case_call_cost_inr=worst_case_cost(cap, await worst_case_rate(session, tenant_id)),
         voice=_voice_state(row),
         engine_verification=_verification_state(row),
     )
@@ -1424,7 +1477,7 @@ async def set_call_cap(
         is_live = str(agent[0]) == "live" and bool(agent[1])
         if is_live:
             await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
-        rate = await _overage_rate(session, tenant_id)
+        rate = await worst_case_rate(session, tenant_id)
 
     cap = effective_call_cap(max_call_duration_s)
     # Seconds and a boolean; nothing here identifies a caller (hard rule 6).
@@ -1467,4 +1520,5 @@ __all__ = [
     "set_disclosure_posture",
     "undo_staged",
     "worst_case_cost",
+    "worst_case_rate",
 ]
