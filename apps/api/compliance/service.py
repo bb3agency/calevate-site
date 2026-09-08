@@ -105,8 +105,13 @@ SPEND_CAP_REASON = "This account has reached its spending cap for the month."
 # ⚠ THE SECOND SENTENCE IS NOT PADDING (D-521). Prepaid is the default motion now, so
 # this is the refusal most clients will eventually read — on a blocked lead, on the
 # launch gate and on the readiness screen — and "no calling credit left" invites the
-# reading "our phone line is dead". It is not: answering an inbound call never touches
-# the wallet, and `check_dispatch` refuses an inbound agent before it reads money at all.
+# reading "our phone line is dead". It is not: a low balance never BLOCKS an incoming
+# call, because `check_dispatch` refuses an inbound agent before it reads money at all.
+# ⚠ THAT IS NOT THE SAME AS FREE, AND THIS COMMENT USED TO SAY IT WAS ("answering an
+# inbound call never touches the wallet"). `charge_for_call` takes no direction and
+# `workers/pipeline.py` says so itself — the gate is outbound-only, so inbound still
+# meters. Not gated and not charged are two facts; merging them put a false statement
+# about money on three client screens until 8 Sep 2026.
 # Saying which half stopped is the difference between a client topping up and a client
 # ringing to ask whether their business is off the air.
 NO_CREDITS_REASON = (

@@ -84,6 +84,7 @@ from apps.api.core.settings import (
     validate_bootstrap_env,
 )
 from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
+from apps.api.ops.pricing_snapshot import start_pricing_refresher
 from apps.workers.account_closure import notify_account_closed, sweep_due_erasures
 from apps.workers.action_audit import record_action_invocation
 from apps.workers.auth_email import deliver_auth_email
@@ -909,6 +910,18 @@ async def startup(ctx: dict[str, Any]) -> None:
     # it converts at the configured `usd_inr_rate` exactly as it did before this feature
     # existed: `start_config_refresher`'s adoption contract, applied to the FX store.
     start_fx_refresher()
+    # THE SAME ADOPTION, FOR THE ATTESTED-PRICE SEAM. `ops/pricing_snapshot` installs the
+    # four SYNC readers (`billing/rates.attested_llm_prices`, the LLM credential reader, the
+    # dashboard data-use reader and `agents/voice_offer`'s TTS price predicate) over an
+    # in-process snapshot and polls it off the job path. The worker is a real consumer of
+    # them — `kb_embeddings` gates a batch on `rates.llm_price_is_billable`, `document_ocr`
+    # and the distillers price a leg with `rates.llm_inr_per_ktok` — and every one of those
+    # readers has a SAFE-LOOKING default when nothing is installed: the operator-attested
+    # figure is simply invisible, so a model an operator has attested reads as unpriced and
+    # a Cartesia tier reads as not-billable, with nothing raised and nothing logged. A wrong
+    # answer arrived at quietly is the failure mode this line closes; `main.py::_startup`
+    # already anticipated it ("the worker process ... should call it too").
+    start_pricing_refresher()
     missing = runtime_config_missing_keys()
     if missing:
         # Log, do not die. `/healthz/ready` is the go-live gate.

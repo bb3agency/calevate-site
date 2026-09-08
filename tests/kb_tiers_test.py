@@ -33,6 +33,7 @@ the marker instead of leaving a comment that outlives the thing it describes.
 
 from __future__ import annotations
 
+import ast
 import io
 import tokenize
 import uuid
@@ -264,19 +265,72 @@ def _without_comments(source: str) -> str:
     return "\n".join(out)
 
 
-def _app_sources_naming(table: str) -> list[str]:
-    """Files under apps/ that name a table, excluding the two places every table is
-    named for structural reasons: its ORM model and the model registry."""
+def _code_only(source: str) -> str:
+    """`source` with comments AND docstrings removed — the text that can actually RUN.
+
+    The idiom is `scripts/check_erasure_coverage.py::_executable_nodes`, for the reason
+    that file argues at length: prose names things, and a scan that reads prose reports a
+    fact the code does not have. Here it points the other way — a scan that reads prose
+    reports a PRODUCER that does not exist — but it is the same exclusion for the same
+    reason, so it is spelled the same way rather than a third time.
+
+    Used only for the ORM-CLASS half of the guard below. The TABLE half deliberately keeps
+    reading docstrings (`_without_comments`), because a table name is a string a raw query
+    would carry and the class name is not.
+    """
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return source  # unparseable: fall back to the blunt match rather than pass blindly
+    for node in ast.walk(tree):
+        body = getattr(node, "body", None)
+        if not isinstance(node, ast.Module | ast.ClassDef | ast.FunctionDef | ast.AsyncFunctionDef):
+            continue
+        if (
+            body
+            and isinstance(body[0], ast.Expr)
+            and isinstance(body[0].value, ast.Constant)
+            and isinstance(body[0].value.value, str)
+        ):
+            del body[0]
+            if not body and not isinstance(node, ast.Module):
+                # A docstring-only def/class leaves an empty body, which `unparse` refuses.
+                body.append(ast.Pass())
+    return ast.unparse(tree)
+
+
+def _app_sources_naming(table: str, model_class: str, root: Path | None = None) -> list[str]:
+    """Files under `root` (apps/ by default) that could PRODUCE rows in `table`.
+
+    Two spellings, because a producer has two ways to be written and the guard used to see
+    only one. `session.execute(text("INSERT INTO kb_retrieval_logs ..."))` names the table;
+    `session.add(KbRetrievalLog(...))` names the ORM CLASS and no import graph or table
+    grep would show it — and `apps/api/retrieval/service.py` names the class rather than
+    the table ON PURPOSE, precisely so its "we do not write this" docstring would not trip
+    the table match. That is the right thing for it to do and the wrong thing for this
+    guard to depend on: the same avoidance is available to a real producer, which is what
+    this second needle closes.
+
+    Comments are dropped for both; DOCSTRINGS are dropped for the class needle only. The
+    class name is a live cross-reference in this tree's prose (`retrieval/service.py`'s
+    module docstring is the worked example) and a docstring cannot call a constructor, so
+    reading it would report a producer that is not there. A table name inside a docstring
+    is a different bet — it is one edit away from being a string a query carries — so that
+    half is left as strict as it was.
+
+    The two structural namers of every table are excluded: its ORM model and the registry.
+    """
     excluded = {
         REPO_ROOT / "apps" / "api" / "kb" / "models.py",
         REPO_ROOT / "apps" / "api" / "db" / "registry.py",
     }
     hits = []
-    for path in (REPO_ROOT / "apps").rglob("*.py"):
+    for path in (root or REPO_ROOT / "apps").rglob("*.py"):
         if "__pycache__" in path.parts or path in excluded:
             continue
-        if table in _without_comments(path.read_text(encoding="utf-8")):
-            hits.append(str(path.relative_to(REPO_ROOT)))
+        source = path.read_text(encoding="utf-8")
+        if table in _without_comments(source) or model_class in _code_only(source):
+            hits.append(str(path.relative_to(root or REPO_ROOT)))
     return hits
 
 
@@ -315,13 +369,62 @@ def test_the_knowledge_gap_report_has_no_producer_and_cannot_yet() -> None:
     behaviour instead — and also the day the dated note vanishes from the model, which
     is what stops an inert table from losing its explanation.
     """
-    assert _app_sources_naming("kb_retrieval_logs") == [], (
-        "something now names kb_retrieval_logs: if it is a real producer of retrieval "
-        "outcomes, delete this test and pin the producer; if it is a transcript-derived "
-        "guess, see argument (2) above"
+    assert _app_sources_naming("kb_retrieval_logs", "KbRetrievalLog") == [], (
+        "something now names kb_retrieval_logs (or its ORM class): if it is a real "
+        "producer of retrieval outcomes, delete this test and pin the producer; if it is "
+        "a transcript-derived guess, see argument (2) above"
     )
     model_source = (REPO_ROOT / "apps" / "api" / "kb" / "models.py").read_text(encoding="utf-8")
     assert "GAP (2026-08-11)" in model_source, (
         "the dated gap note on KbRetrievalLog is the only place the table explains why "
         "it is empty; a table with no rows and no explanation gets filled by guesswork"
     )
+
+
+def test_an_orm_producer_would_trip_the_guard(tmp_path: Path) -> None:
+    """The negative control. A guard nobody has watched FAIL is a guard nobody knows works.
+
+    The hole this closes was real: the scan matched the table STRING only, and
+    `apps/api/retrieval/service.py` names the ORM class rather than the table on purpose —
+    so `session.add(KbRetrievalLog(...))`, the way SQLAlchemy 2.0 code in this repo
+    actually writes a row, was invisible. `scripts/check_erasure_coverage.py` EXEMPTS
+    `kb_retrieval_logs` from DPDP erasure coverage on the ground that no producer exists,
+    so a silent producer would have left that exemption standing over a `NOT NULL` text
+    column the model itself says would hold raw caller utterances.
+
+    The probe is written to a tmp root rather than into `apps/` because a stray module
+    under `apps/`, even for the length of one test, is a real source file to every other
+    repo-wide source guard and import check running beside this one. The root is a
+    parameter for exactly this reason; the property proven is the scan's, and the previous
+    assertion is what runs it against the real tree.
+    """
+    (tmp_path / "producer.py").write_text(
+        "from apps.api.kb.models import KbRetrievalLog\n"
+        "\n"
+        "def log_it(session, **fields):\n"
+        "    session.add(KbRetrievalLog(**fields))\n",
+        encoding="utf-8",
+    )
+    assert _app_sources_naming("kb_retrieval_logs", "KbRetrievalLog", root=tmp_path) == [
+        "producer.py"
+    ], "an ORM-class producer does not trip the guard — the table-string match is a hole"
+
+
+def test_prose_about_the_gap_is_not_read_as_a_producer(tmp_path: Path) -> None:
+    """The other half of the control: the guard must stay usable by the files that EXPLAIN
+    the gap. `retrieval/service.py`'s module docstring names `KbRetrievalLog` to say it
+    does not write it, and a guard that fired on that would be turned off within a week.
+
+    Note what is NOT claimed: the TABLE needle still reads docstrings, so prose naming
+    `kb_retrieval_logs` itself is still a hit. That asymmetry is the one in
+    `_app_sources_naming`'s docstring and it is deliberate — a table name in prose is one
+    edit from being a string a raw query carries."""
+    (tmp_path / "explainer.py").write_text(
+        '"""We deliberately do not write KbRetrievalLog rows."""\n'
+        "\n"
+        "def look_up() -> None:\n"
+        '    """No KbRetrievalLog row is written here."""\n'
+        "    return None  # not even kb_retrieval_logs by its table name\n",
+        encoding="utf-8",
+    )
+    assert _app_sources_naming("kb_retrieval_logs", "KbRetrievalLog", root=tmp_path) == []
