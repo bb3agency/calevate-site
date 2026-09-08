@@ -126,6 +126,9 @@ const TENANT_SPEND: TenantSpend = {
 };
 
 const FLEET: FleetSpend = {
+  // No vendor row: the API omits a month nobody has attested rather than sending a zero
+  // fee, and the board renders that absence in words (D-547 Phase D.3).
+  tts_plan: [],
   month: IST_MONTH,
   clients: 2,
   revenue_inr: LAKHS,

@@ -26,66 +26,21 @@
  * see how many characters it was struck from.
  */
 
-import { isSignedMoneyString } from "@/lib/money";
 import type { components } from "@/lib/api/schema";
 
 /**
  * One voice vendor's month: what the plan cost, what the calls attributed, and the price
- * those calls were struck at.
+ * those calls were struck at — `TtsPlanSpendOut`, generated.
+ *
+ * **THE LOCAL INTERFACE AND `asTtsPlanSpend`/`ttsPlanSpendOf` ARE GONE.** They were written
+ * while `tts_plan` was not on the wire, and the comment here said so; the field shipped with
+ * D-547's Phase D.3 and the hand validator then re-checked what the compiler proves. What it
+ * could NOT prove is unchanged and still matters: `plan_inr` is absent, never ₹0, when
+ * nobody has attested the month's invoice — a fee defaulted to zero would show a fleet
+ * margin that does not exist. The API expresses that by omitting the ROW, so an empty list
+ * and a missing field are the same absence, and the card below renders it as one.
  */
-export interface TtsPlanSpend {
-  provider: string;
-  tier_label: string;
-  month: string;
-  /** What the vendor billed for the month — the operator-attested plan fee. */
-  plan_inr: string;
-  /** What this month's calls attributed to that vendor's leg. */
-  attributed_inr: string;
-  /** The plan's unspoken allotment, as the SERVER computed it. Null when it cannot. */
-  unused_inr: string | null;
-  /** Characters the fleet's agents spoke on this vendor this month. */
-  chars: string;
-  /** The attested rate those characters were priced at. Null when nothing is attested. */
-  inr_per_1k_chars: string | null;
-}
-
-export function asTtsPlanSpend(raw: unknown): TtsPlanSpend | null {
-  if (typeof raw !== "object" || raw === null) return null;
-  const row = raw as Record<string, unknown>;
-  const text = (value: unknown): value is string => typeof value === "string" && value !== "";
-  if (!text(row.provider) || !text(row.tier_label) || !text(row.month)) return null;
-  if (!isSignedMoneyString(row.plan_inr) || !isSignedMoneyString(row.attributed_inr)) return null;
-  if (!isSignedMoneyString(row.chars)) return null;
-  return {
-    provider: row.provider,
-    tier_label: row.tier_label,
-    month: row.month,
-    plan_inr: row.plan_inr,
-    attributed_inr: row.attributed_inr,
-    unused_inr: isSignedMoneyString(row.unused_inr) ? row.unused_inr : null,
-    chars: row.chars,
-    inr_per_1k_chars: isSignedMoneyString(row.inr_per_1k_chars) ? row.inr_per_1k_chars : null,
-  };
-}
-
-/**
- * THE SEAM, AND IT IS STILL A SEAM. ⚠ **`tts_plan` IS NOT ON `FleetSpendOut`** — checked
- * against `lib/api/openapi.json` after the D-547 regeneration (8 Sep 2026): the fleet board
- * publishes `clients`, `cost_inr`, `margin_inr`, `margin_pct`, `month`, `revenue_inr` and
- * `tenants`, and nothing about what the voice vendors billed. So this reader is NOT a
- * placeholder to collapse onto a generated type: there is no generated type to collapse
- * onto, and the card renders its stated absence on every load until the API publishes the
- * field. Reported as a backend finding rather than papered over — a plan fee defaulted to
- * ₹0 would show a fleet margin that does not exist, which is the exact error the two
- * figures above are separated to prevent.
- */
-export function ttsPlanSpendOf(board: unknown): TtsPlanSpend[] | null {
-  if (typeof board !== "object" || board === null) return null;
-  const list = (board as Record<string, unknown>).tts_plan;
-  if (!Array.isArray(list) || list.length === 0) return null;
-  const rows = list.map(asTtsPlanSpend);
-  return rows.some((row) => row === null) ? null : (rows as TtsPlanSpend[]);
-}
+export type TtsPlanSpend = components["schemas"]["TtsPlanSpendOut"];
 
 /**
  * What the measured speaking rate means for ONE voice vendor — `SpeakingRateByProviderOut`,

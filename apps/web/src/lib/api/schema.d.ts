@@ -1171,6 +1171,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/credit-lots/{lot_id}/override": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-price ONE lot at another pack's rates (close and replace)
+         * @description Sell credit a client ALREADY HOLDS at another pack's per-minute rates — the promotion nobody applied at the till, the deal negotiated after the money landed. It is NOT an edit: a lot's terms are frozen for the life of its credit (`credit_lots_terms_frozen`), so the original lot is CLOSED at its own rates and a replacement opens carrying the same credit at the new ones, inheriting the original's place in the spend queue. No money moves in either direction; the ledger records a zero-delta `adjustment` marker so the new lot has an entry to name. Requires `X-Confirm-Action: override_lot_rates:<lot_id>`. Re-posting the same lot and pack returns the existing result and re-prices nothing. To price credit as it ARRIVES, use `rates_of_pack_id` on the top-up instead.
+         */
+        post: operations["reprice_credit_lot_v1_admin_tenants__tenant_id__credit_lots__lot_id__override_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/credits": {
         parameters: {
             query?: never;
@@ -6112,6 +6132,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/tts-prices/{provider}/plan-fee": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attest what a voice vendor billed for one month (step-up confirmed, audited)
+         * @description Records the MONTHLY PLAN FEE a voice vendor invoiced this account, read off that invoice, as a NEW dated row for one IST billing month — a correction is a later attestation for the same month, never an edit, so the record of what we believed we were billed survives the correction that superseded it. Requires `X-Confirm-Action: attest_tts_plan_fee:<provider>:<month>`, bound to both so a header captured for one month cannot restate another. The figure is rupees for the whole month as a decimal string, quoted to the paisa. It is NOT the per-character price beside it and is never an input to what a call is metered at: it is published on the spend board against what our own meter attributed, and their difference is the allotment nobody spoke into. Only vendors billed as a monthly plan can be attested — a vendor whose synthesizer leg the engine buys and reports on every call has no invoice of ours to divide.
+         */
+        post: operations["attest_voice_plan_fee_v1_ops_tts_prices__provider__plan_fee_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/organization/llm-defaults": {
         parameters: {
             query?: never;
@@ -6365,6 +6405,8 @@ export interface components {
             /** Is Low */
             is_low: boolean;
             lot: components["schemas"]["CreditLotOut"] | null;
+            /** Lot Shortfall Inr */
+            lot_shortfall_inr: string;
             /** Recorded */
             recorded: boolean;
             /** Ref */
@@ -9810,6 +9852,8 @@ export interface components {
             revenue_inr: string;
             /** Tenants */
             tenants: components["schemas"]["FleetTenantOut"][];
+            /** Tts Plan */
+            tts_plan: components["schemas"]["TtsPlanSpendOut"][];
         };
         /**
          * FleetTenantOut
@@ -11760,6 +11804,55 @@ export interface components {
         LookupConsentIn: {
             /** Phone */
             phone: string;
+        };
+        /**
+         * LotRepriceIn
+         * @description Sell credit a client ALREADY HOLDS at another pack's rates (plan §0 Q6).
+         *
+         *     **IT IS NOT `TopUpIn.rates_of_pack_id`, AND THE TWO ARE NOT ONE CAPABILITY.** That
+         *     field prices credit AS IT ARRIVES: an operator recording a bank transfer says "open
+         *     this at the ₹25,000 pack's rates", and the decision is made once, at the instant the
+         *     money is booked — which is also the only instant it CAN be made there, because a lot's
+         *     rates are frozen the moment it exists. This one CORRECTS a decision already made, on
+         *     credit the client is holding: the promotion nobody applied at the till, the rate
+         *     negotiated after the transfer landed, the founding-client deal agreed in week three.
+         *     Two acts, two audiences, two audit actions, two step-up strings; neither is reachable
+         *     from the other's surface and collapsing them would mean either re-opening a settled
+         *     purchase or refusing to honour a promise already made.
+         */
+        LotRepriceIn: {
+            /** Pack Id */
+            pack_id: string;
+            /** Reason */
+            reason: string;
+        };
+        /**
+         * LotRepriceOut
+         * @description What a re-price did. TWO lots, because it is a close-and-replace and not an edit.
+         */
+        LotRepriceOut: {
+            /**
+             * Closed Lot Id
+             * Format: uuid
+             */
+            closed_lot_id: string;
+            /** Credits Inr */
+            credits_inr: string;
+            /**
+             * Entry Id
+             * Format: uuid
+             */
+            entry_id: string;
+            lot: components["schemas"]["CreditLotOut"];
+            /** Recorded */
+            recorded: boolean;
+            /** Ref */
+            ref: string;
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
         };
         /**
          * MaintenanceAmendIn
@@ -15402,6 +15495,108 @@ export interface components {
             trial_id: string;
         };
         /**
+         * TtsPlanFeeAttestIn
+         * @description What a voice vendor BILLED US for one month, as an operator types it off the invoice.
+         *
+         *     `TtsPriceAttestIn`'s three rules — money as a decimal string, `effective_from` optional
+         *     but timezone-aware when given, evidence required — with the subject changed. THE FIGURE
+         *     IS THE WHOLE MONTH, not a rate: the division by the allotment is the OTHER
+         *     attestation's, and asking for it twice is how the two come to disagree.
+         */
+        TtsPlanFeeAttestIn: {
+            /** Effective From */
+            effective_from?: string | null;
+            /** Month */
+            month: string;
+            /** Plan Inr */
+            plan_inr: string;
+            /** Source Note */
+            source_note: string;
+        };
+        /**
+         * TtsPlanFeeOut
+         * @description One attested monthly plan fee, as the panel renders it back.
+         *
+         *     MONEY IS A STRING END TO END and NO FIELD CARRIES A DEFAULT — `ModelPriceOut`'s two
+         *     rules for its two reasons. What this row does NOT carry is what the month ATTRIBUTED:
+         *     that is a cross-tenant sum of `usage_events` and it belongs to the spend board
+         *     (`GET /v1/admin/spend`'s `tts_plan`), which reads every client's rows inside that
+         *     client's own RLS scope. Publishing it from here would mean a second computation of one
+         *     figure, and the two would come to disagree about a month.
+         */
+        TtsPlanFeeOut: {
+            /** Attested At */
+            attested_at: string;
+            /** Attested By */
+            attested_by: string;
+            /** Effective From */
+            effective_from: string;
+            /** Month */
+            month: string;
+            /** Plan Inr */
+            plan_inr: string;
+            /** Provider */
+            provider: string;
+            /** Reference Plan Inr */
+            reference_plan_inr: string;
+            /** Source Note */
+            source_note: string;
+            /** Tier Label */
+            tier_label: string;
+        };
+        /**
+         * TtsPlanFeeWriteOut
+         * @description The fee as it now stands, plus the instant the write was made at.
+         */
+        TtsPlanFeeWriteOut: {
+            /** As Of */
+            as_of: string;
+            plan_fee: components["schemas"]["TtsPlanFeeOut"];
+        };
+        /**
+         * TtsPlanSpendOut
+         * @description ONE voice vendor's month: what the plan cost us, against what our meter attributed.
+         *
+         *     THE TWO FIGURES ARE INDEPENDENT MEASUREMENTS AND THE CARD EXISTS TO KEEP THEM APART.
+         *     `plan_inr` is what the VENDOR billed — a committed monthly spend for a character
+         *     allotment, paid whether or not the allotment is spoken, read off the invoice by an
+         *     operator (`ops/model_pricing.TtsPlanFeeAttestation`). `attributed_inr` is what OUR
+         *     meter charged to calls: the attested per-character rate times the characters our own
+         *     transcripts say the agents spoke. A board showing only the first could not say which
+         *     client caused it; one showing only the second under-states what we pay.
+         *
+         *     ⚠ **UNKNOWN: whether the vendor's own character count agrees with ours** (OPERATIONS §2
+         *     gate 51). `chars` is counted from our transcripts and from nothing the vendor says.
+         *     This card publishes both sides and reconciles neither.
+         *
+         *     ⚠ **UNKNOWN: the vendor's OVERAGE rate past the allotment** (plan ADDENDUM 1, unknown
+         *     #3). `inr_per_1k_chars` prices characters INSIDE the allotment, so a month that ran
+         *     past it cost more per character than that figure says. `plan_inr` is unaffected — it is
+         *     what the invoice states, overage included.
+         *
+         *     A MONTH NOBODY HAS ATTESTED HAS NO ROW HERE AT ALL. `plan_inr` is required precisely so
+         *     that absence cannot be spelled as ₹0, which would read as "the vendor billed us
+         *     nothing" — the one misreading of a missing invoice that flatters us.
+         */
+        TtsPlanSpendOut: {
+            /** Attributed Inr */
+            attributed_inr: string;
+            /** Chars */
+            chars: string;
+            /** Inr Per 1K Chars */
+            inr_per_1k_chars: string | null;
+            /** Month */
+            month: string;
+            /** Plan Inr */
+            plan_inr: string;
+            /** Provider */
+            provider: string;
+            /** Tier Label */
+            tier_label: string;
+            /** Unused Inr */
+            unused_inr: string | null;
+        };
+        /**
          * TtsPriceAttestIn
          * @description One voice provider's price, as an operator types it off an invoice.
          *
@@ -18159,6 +18354,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RecordTermsOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    reprice_credit_lot_v1_admin_tenants__tenant_id__credit_lots__lot_id__override_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+                lot_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LotRepriceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LotRepriceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -26306,6 +26539,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TtsPriceWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    attest_voice_plan_fee_v1_ops_tts_prices__provider__plan_fee_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TtsPlanFeeAttestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TtsPlanFeeWriteOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

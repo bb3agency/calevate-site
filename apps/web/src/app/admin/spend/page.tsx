@@ -19,13 +19,13 @@ import {
 import { currentISTMonth } from "@/lib/api/invoice";
 import {
   useFleetSpend,
+  type FleetSpend,
   useTtsSpeakingRate,
   type FleetTenant,
   type SpeakingRatePoint,
   type TtsSpeakingRate,
 } from "@/lib/api/spend";
 import {
-  ttsPlanSpendOf,
   vendorName,
   type SpeakingRateByProvider,
   type TtsPlanSpend,
@@ -405,9 +405,11 @@ function FleetRow({ tenant }: { tenant: FleetTenant }) {
  * this card renders `unused_inr` and never computes it, because a difference worked out in
  * a browser is float arithmetic on money and would be a second answer to what we paid.
  */
-function TtsPlanCard({ board }: { board: unknown }) {
-  const rows = ttsPlanSpendOf(board);
+function TtsPlanCard({ board }: { board: FleetSpend | undefined }) {
   if (board === undefined) return null;
+  // An empty list and a missing month are ONE absence: the API omits a vendor's row rather
+  // than sending a zero fee, so there is nothing here to tell apart.
+  const rows = board.tts_plan.length > 0 ? board.tts_plan : null;
 
   return (
     <Card title="Voice vendors — plan spend against attributed">

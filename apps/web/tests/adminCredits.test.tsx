@@ -111,6 +111,12 @@ function correction(over: Partial<AdjustmentResult> = {}): AdjustmentResult {
     // A correction that takes credit AWAY restates the corrected entry's own lot and opens
     // none, so `AdjustmentOut.lot` is null — required on the wire, and null is the answer.
     lot: null,
+    // The portion of a downward correction that reached no lot and became overdraft. It is
+    // a required FIGURE on this route rather than a nullable one, so "nothing overdrawn" is
+    // "0.00" — the operator always sees how far past their credit the client was pushed,
+    // and never has to tell an absent answer from a zero one. (`RestatementOut` carries the
+    // same field as null, correctly: that route only ever restates upward.)
+    lot_shortfall_inr: "0.00",
     ...over,
   };
 }
