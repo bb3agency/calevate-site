@@ -15,7 +15,9 @@
  * browser half mirrors that by having no client-realm spelling of it either.
  */
 
+import { needsReauthentication } from "./problems";
 import { createRealmAuthn, type AuthnSession } from "./realm";
+import { requireStepUp } from "./stepUpPrompt";
 
 /** The admin realm's session. One instance, module-scoped, never re-created. */
 export const adminAuthn = createRealmAuthn("admin");
@@ -60,10 +62,13 @@ export async function confirmAdminBootstrap(input: {
  * it). The browser half mirrors that structurally by living here and having no
  * client-realm spelling — the same choice `confirmAdminBootstrap` above makes.
  *
- * Both go through `adminAuthn.request`, so both wait on the rotation barrier, and that is
- * not a detail: answering a step-up code ROTATES the session server-side
- * (`service.complete_step_up`), and a concurrent request still carrying the retired token
- * is read as replay and revokes the whole family (RFC 9700 §4.14.2 — `realm.ts`).
+ * `requestAdminStepUp` mints nothing and goes through `adminAuthn.request`, so it WAITS on
+ * the rotation barrier. `confirmAdminStepUp` goes through `rotatingRequest` and HOLDS it,
+ * and the difference is not a detail: answering a step-up code ROTATES the session
+ * server-side (`service.complete_step_up`: "Rotates the session"), and a concurrent request
+ * still carrying the retired token is read as replay and revokes the whole family
+ * (RFC 9700 §4.14.2 — `realm.ts`). Waiting protects this call from somebody else's
+ * rotation; only holding protects everybody else from this one.
  */
 
 /** Email this operator a `step_up`-purpose code. Issuing one retires the previous. */
@@ -80,8 +85,41 @@ export async function requestAdminStepUp(): Promise<void> {
  */
 export async function confirmAdminStepUp(code: string): Promise<AuthnSession> {
   adminAuthn.reset();
-  return await adminAuthn.request<AuthnSession>("/step-up/verify", {
+  return await adminAuthn.rotatingRequest<AuthnSession>("/step-up/verify", {
     method: "POST",
     body: { code },
   });
+}
+
+/**
+ * Change this operator's own password, answering the step-up challenge if one is due.
+ *
+ * `POST /v1/auth/admin/password/change` is held to BOTH proofs on this realm: the current
+ * password (which the form takes) and a second factor proved in the last
+ * `stepup.REAUTH_MAX_AGE` (which the operator may well not have). The route checks the
+ * freshness ITSELF, before it calls `service.change_password`, so a `403
+ * reauthentication_required` means nothing was written — which is what makes retrying
+ * after the prompt safe, and is the same proof `lib/api/admin.ts::mint` retries on. A
+ * caller without that property must not have a retry imposed on it
+ * (`components/authn/stepUpPrompt.tsx`).
+ *
+ * Dismissing the prompt rethrows the SERVER's refusal rather than inventing a second one:
+ * it already carries the sentence `problems.ts` renders for `reauthentication_required`.
+ *
+ * It lives on the admin module for the reason `requestAdminStepUp` does — the step-up
+ * routes are declared on the admin router only, so there is no client-realm spelling of
+ * this wrapper to write. The client realm calls `clientAuthn.changePassword` directly.
+ */
+export async function changeAdminPassword(input: {
+  currentPassword: string;
+  newPassword: string;
+}): Promise<number> {
+  try {
+    return await adminAuthn.changePassword(input);
+  } catch (error) {
+    if (!needsReauthentication(error)) throw error;
+    const proved = await requireStepUp("Changing your operator password.");
+    if (!proved) throw error;
+    return await adminAuthn.changePassword(input);
+  }
 }

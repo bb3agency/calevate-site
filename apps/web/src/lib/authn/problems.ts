@@ -41,12 +41,24 @@ export const AUTHN_CODES = {
   invalidBootstrapToken: "invalid_bootstrap_token",
   invalidCode: "invalid_code",
   invalidCredentials: "invalid_credentials",
+  /**
+   * The signed-in password change whose CURRENT password did not verify (401).
+   *
+   * NAMED rather than folded into `invalidCredentials`, because the API names it —
+   * `service._wrong_current_password` argues that a caller who already holds a live
+   * session for the account they are changing has no existence fact left to leak, only a
+   * field to fix. The equalisation rule at the top of this file is about the ANONYMOUS
+   * sign-in path and does not reach here.
+   */
+  invalidCurrentPassword: "invalid_current_password",
   invalidResetToken: "invalid_reset_token",
   invalidSecondFactor: "invalid_second_factor",
   invitationAccountUnverified: "invitation_account_unverified",
   invitationInvalid: "invitation_invalid",
   passwordLength: "password_length",
   passwordUnacceptable: "password_unacceptable",
+  /** A change that changes nothing — the new password equals the current one (422). */
+  passwordUnchanged: "password_unchanged",
   rateLimited: "rate_limited",
   reauthenticationRequired: "reauthentication_required",
   secondFactorRequired: "second_factor_required",
@@ -155,6 +167,16 @@ const SIGN_IN_COPY: Record<string, string> = {
   // "that one is too weak" on its own is the advice that produces `Password1!`.
   [AUTHN_CODES.passwordUnacceptable]:
     "That password is too easy to guess. Three or four unrelated words is the easiest way to a strong one.",
+  // The two refusals of the signed-in change (`POST /password/change`). Both are shown AT
+  // THE FIELD they are about by `ChangePasswordForm` — the current-password input and the
+  // new-password input respectively — rather than only in the notice, so a screen-reader
+  // user hears which of the two boxes to go back to. The copy lives here, with every
+  // other authentication sentence, so the form does not become a second place that
+  // decides what a code means.
+  [AUTHN_CODES.invalidCurrentPassword]:
+    "That is not the current password on this account. Check it and try again — nothing has been changed.",
+  [AUTHN_CODES.passwordUnchanged]:
+    "That is the password you already have. Choose a different one — three or four unrelated words is the easiest way there.",
   [AUTHN_CODES.invalidResetToken]:
     "This reset link cannot be used. Reset links work once and expire an hour after they are sent — request a new one.",
   [AUTHN_CODES.invalidBootstrapToken]:

@@ -49,6 +49,23 @@
  *     this realm waits for it before dispatching, so no request can be carrying the old
  *     cookie at the moment the new one is minted. Without it the hazard is not a failed
  *     request; it is the victim's entire session family revoked as a replay.
+ *
+ * FOUR routes rotate this realm's cookie, not one, and every one of them has to HOLD the
+ * barrier rather than merely wait on it. Read off the service (7 Sep 2026):
+ *
+ *   * `POST /session/refresh` — `sessions.rotate_session` (§5.2's own case).
+ *   * `POST /login/otp` — `service.complete_second_factor`: "Rotates the session on
+ *     success", because completing a second factor is a privilege change and OWASP's
+ *     session-fixation defence asks for a new identifier at that moment.
+ *   * `POST /step-up/verify` — `service.complete_step_up`, rotating for the same reason.
+ *   * `POST /password/change` — `service.change_password` rotates the caller's session and
+ *     then revokes every other one, the superseded row INCLUDED.
+ *
+ * All four go out through `underRotation` (the last two via `rotatingRequest`, which is
+ * how the two realm modules reach it for their own routes). `rotationInFlight` is the one
+ * flag the barrier reads: a route that kept its own would be a second barrier, i.e. none,
+ * and a route that only WAITS on the barrier is protected FROM a rotation without
+ * protecting anything from its own — which is the half-measure this paragraph replaced.
  */
 
 import { authnRequest, type AuthnRequestOptions } from "./transport";
@@ -63,6 +80,19 @@ export interface AuthnSession {
   subject_id: string;
   mfa_complete: boolean;
   email_verified: boolean;
+}
+
+/**
+ * `PasswordChangeOut` — how many OTHER sessions the change ended.
+ *
+ * ⚠ A LOCAL SPELLING, TO BE DELETED. `pnpm gen:api` has not been run since
+ * `POST /v1/auth/{realm}/password/change` shipped (commit `9881af1`), so
+ * `lib/api/schema.d.ts` has no entry for the route and there is no generated type to
+ * import. Written against `apps/api/authn/routes.py::PasswordChangeOut` — one integer,
+ * `extra="forbid"` — and it goes when the snapshot is regenerated.
+ */
+interface PasswordChangeOut {
+  revoked: number;
 }
 
 /** `LoginOut`. There is no third value: the second factor is the emailed code (D-170). */
@@ -183,8 +213,29 @@ export interface RealmAuthn {
    * abandon it; see `runRestoreWithDeadline`.
    */
   readSession(signal?: AbortSignal): Promise<AuthnSession>;
-  /** `POST /session/refresh`, single-flighted and cached. The ONLY rotation caller. */
+  /** `POST /session/refresh`, single-flighted and cached. The ONLY refresh caller. */
   rotateSession(): Promise<AuthnSession>;
+
+  /**
+   * `POST /password/change` — the signed-in change. Answers how many OTHER sessions died.
+   *
+   * IT ROTATES, so it goes out UNDER THE ROTATION BARRIER exactly as `session/refresh`
+   * does, and that is not a nicety. `service.change_password` rotates the caller's own
+   * session and then revokes every other one INCLUDING the superseded row, so the moment
+   * the response lands the cookie every other in-flight request is carrying is retired —
+   * and `verify_session` reads a retired token as replay and revokes the whole family
+   * (RFC 9700 §4.14.2). The failure that produces is the worst kind to debug: the person
+   * who just changed their password is signed out, sometimes, depending on whether a
+   * background query happened to be in the air.
+   *
+   * There is no result cache for it, unlike `rotateSession`: a second change is a second
+   * deliberate act by a person, never a remount, and answering it from a cache would
+   * report a revocation count that did not happen.
+   */
+  changePassword(input: {
+    currentPassword: string;
+    newPassword: string;
+  }): Promise<number>;
 
   signOut(): Promise<number>;
   signOutEverywhere(): Promise<number>;
@@ -217,12 +268,38 @@ export interface RealmAuthn {
 
   /** Escape hatch for the two realm modules' realm-specific routes. Not for screens. */
   request<T>(path: string, options?: AuthnRequestOptions): Promise<T>;
+
+  /**
+   * `request`, for a realm-specific route that ROTATES this realm's cookie.
+   *
+   * The difference is which side of the barrier the call is on: `request` WAITS for a
+   * rotation to finish, this one HOLDS the barrier closed while it runs. A rotating route
+   * that used `request` would be protected from everybody else and would protect nobody
+   * from itself — the concurrent reader still carrying the retired cookie is read as
+   * replay and the whole family is revoked (RFC 9700 §4.14.2).
+   *
+   * Exists because two of the four rotating routes are declared on the admin router only
+   * (`/step-up/verify`) or are already spelled here (`/login/otp`), and neither may reach
+   * `underRotation` any other way without each inventing its own flag.
+   */
+  rotatingRequest<T>(path: string, options?: AuthnRequestOptions): Promise<T>;
 }
 
 export function createRealmAuthn(realm: AuthnRealm): RealmAuthn {
   const base = `/v1/auth/${realm}`;
 
-  let rotationInFlight: Promise<AuthnSession> | null = null;
+  /**
+   * ANY rotating call in flight — the barrier's subject, not just the refresh.
+   *
+   * `Promise<unknown>` because two different routes rotate this realm's cookie and they
+   * answer different bodies (`session/refresh` a session, `password/change` a count).
+   * The barrier only ever awaits it for ORDERING and swallows its outcome, so the value
+   * type is genuinely irrelevant here — and giving the two rotations two variables would
+   * be two barriers, i.e. no barrier.
+   */
+  let rotationInFlight: Promise<unknown> | null = null;
+  /** The refresh's own single-flight. See `rotateSession`. */
+  let refreshInFlight: Promise<AuthnSession> | null = null;
   let recentRotation: { session: AuthnSession; expiresAt: number } | null = null;
   let generation = 0;
 
@@ -253,19 +330,47 @@ export function createRealmAuthn(realm: AuthnRealm): RealmAuthn {
     return authnRequest<T>(`${base}${path}`, options);
   }
 
+  function rotatingRequest<T>(path: string, options: AuthnRequestOptions = {}): Promise<T> {
+    // NOT `request` — see the interface. `request` would put this call on the WAITING side
+    // of the barrier it is itself supposed to be holding.
+    return underRotation(() => authnRequest<T>(`${base}${path}`, options));
+  }
+
   const post = <T>(path: string, body?: unknown, idempotencyKey?: string): Promise<T> =>
     request<T>(path, { method: "POST", body, idempotencyKey });
 
   function reset(): void {
     generation += 1;
     rotationInFlight = null;
+    refreshInFlight = null;
     recentRotation = null;
     runtimes.session = { blocked: false, inFlight: null };
     runtimes.guest = { blocked: false, inFlight: null };
   }
 
   /**
-   * The single-flight (§5.2). Every rotation in this app goes through here.
+   * Run a call that ROTATES this realm's cookie, with the barrier closed around it.
+   *
+   * One helper rather than each rotating route arranging its own, because "the barrier"
+   * has to mean one thing: a second route that set its own flag would be a second
+   * mechanism, and the request waiting on the first would sail past the second. The
+   * cleanup is guarded by identity so a `reset()` (or a later rotation) that replaced the
+   * flag while this one was in flight is not undone by this one finishing.
+   */
+  function underRotation<T>(run: () => Promise<T>): Promise<T> {
+    // `const` with a self-reference inside its own callback: the callback cannot run
+    // before the assignment completes (the promise it is attached to settles later), and
+    // a `let` here is what `prefer-const` refuses.
+    const held: Promise<T> = run().finally(() => {
+      if (rotationInFlight === held) rotationInFlight = null;
+    });
+    rotationInFlight = held;
+    return held;
+  }
+
+  /**
+   * The refresh's single-flight (§5.2). Every `session/refresh` goes through here, and
+   * `underRotation` above is what makes it — and the password change — hold the barrier.
    *
    * Note what is NOT here: no timer touches `rotationInFlight` or `recentRotation`. §5.7
    * defect 1 is a restore deadline whose uncleared `setTimeout` fires later and resets
@@ -281,17 +386,19 @@ export function createRealmAuthn(realm: AuthnRealm): RealmAuthn {
     if (recentRotation && recentRotation.expiresAt > now) {
       return Promise.resolve(recentRotation.session);
     }
-    if (!rotationInFlight) {
-      rotationInFlight = authnRequest<AuthnSession>(`${base}/session/refresh`, { method: "POST" })
-        .then((session) => {
-          recentRotation = { session, expiresAt: Date.now() + ROTATION_RESULT_CACHE_MS };
-          return session;
-        })
-        .finally(() => {
-          rotationInFlight = null;
-        });
+    if (!refreshInFlight) {
+      refreshInFlight = underRotation(() =>
+        authnRequest<AuthnSession>(`${base}/session/refresh`, { method: "POST" }).then(
+          (session) => {
+            recentRotation = { session, expiresAt: Date.now() + ROTATION_RESULT_CACHE_MS };
+            return session;
+          },
+        ),
+      ).finally(() => {
+        refreshInFlight = null;
+      });
     }
-    return rotationInFlight;
+    return refreshInFlight;
   }
 
   /**
@@ -382,7 +489,13 @@ export function createRealmAuthn(realm: AuthnRealm): RealmAuthn {
       // Rotates. `reset()` FIRST so no stale rotation cache can answer for the new
       // session, and so a restore that is already in flight cannot resolve into it.
       reset();
-      return await post<AuthnSession>("/login/otp", { code });
+      // `rotatingRequest`, not `post`: this is one of the four routes that mints a new
+      // cookie, so it HOLDS the barrier. It used to only wait on one, which — after the
+      // `reset()` directly above cleared the flag — was a wait on nothing.
+      return await rotatingRequest<AuthnSession>("/login/otp", {
+        method: "POST",
+        body: { code },
+      });
     },
 
     async resendSecondFactor() {
@@ -420,6 +533,21 @@ export function createRealmAuthn(realm: AuthnRealm): RealmAuthn {
       await post<void>("/password/reset/request", { email }, idempotencyKey);
     },
 
+    async changePassword({ currentPassword, newPassword }) {
+      // `rotatingRequest`, not `post`: this route rotates, so it HOLDS the barrier rather
+      // than waiting on it — see the interface for why the two sides are not the same.
+      const out = await rotatingRequest<PasswordChangeOut>("/password/change", {
+        method: "POST",
+        // The API's own field names. Nothing between here and the wire renames them.
+        body: { current_password: currentPassword, new_password: newPassword },
+      });
+      // A NEW cookie is on this response and every other session in this realm is dead, so
+      // the cached rotation result — which describes the token that was just superseded —
+      // is a lie. Same reason `confirmPasswordReset` resets.
+      reset();
+      return out.revoked;
+    },
+
     async confirmPasswordReset({ token, password }, idempotencyKey) {
       await post<void>("/password/reset/confirm", { token, password }, idempotencyKey);
       // Confirming revokes every session server-side, so anything cached here is a lie.
@@ -439,5 +567,6 @@ export function createRealmAuthn(realm: AuthnRealm): RealmAuthn {
     reset,
     generation: () => generation,
     request,
+    rotatingRequest,
   };
 }

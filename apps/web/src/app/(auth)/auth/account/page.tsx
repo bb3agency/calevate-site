@@ -24,6 +24,7 @@ import { LogOut, ShieldCheck, Smartphone } from "lucide-react";
 
 import { Providers } from "@/app/providers";
 import { AuthPageFrame } from "@/components/authPage";
+import { ChangePasswordForm } from "@/components/authn/changePasswordForm";
 import { EmailVerificationPanel } from "@/components/authn/emailVerificationPanel";
 import { AuthProblemNotice } from "@/components/authn/fields";
 import { Card, DANGER_BUTTON, NoticeBox, SECONDARY_BUTTON } from "@/components/ui";
@@ -88,6 +89,20 @@ function ClientAccountBody() {
             authn={clientAuthn}
             verified={session?.email_verified ?? false}
             onVerified={retry}
+          />
+        </div>
+      </Card>
+
+      <Card>
+        <div className="space-y-3">
+          <h2 className="text-base font-semibold text-ink">Change password</h2>
+          {/* The CLIENT realm's own call, unwrapped: there is no step-up on this realm to
+              answer — `service.MFA_REQUIRED_REALMS` is `{"admin"}`, so nothing here ever
+              stamps the `mfa_verified_at` a freshness check would read. What proves it is
+              them is the current password, which the API demands on both realms. */}
+          <ChangePasswordForm
+            realm="client"
+            changePassword={(input) => clientAuthn.changePassword(input)}
           />
         </div>
       </Card>

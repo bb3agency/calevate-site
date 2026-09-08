@@ -181,6 +181,58 @@ describe("the rotation barrier — ours has no server-side grace window", () => 
     pending[1].resolve(SESSION);
     await expect(read).resolves.toEqual(SESSION);
   });
+
+  /**
+   * EVERY rotating route holds the barrier, not just `session/refresh`.
+   *
+   * Four routes mint a new cookie for a session that already exists — `session/refresh`,
+   * `login/otp` (`service.complete_second_factor`, "Rotates the session on success"),
+   * `step-up/verify` (`service.complete_step_up`) and `password/change`
+   * (`service.change_password`). Each is the §5.2 hazard on its own: a concurrent request
+   * still carrying the retired token is `reuse_detected` and the whole family goes
+   * (RFC 9700 §4.14.2).
+   *
+   * Three of them used to go out through `request`, which puts a call on the WAITING side
+   * of the barrier. Waiting protects the rotation from everybody else; only HOLDING
+   * protects everybody else from the rotation — and after the `reset()` each of them does
+   * first, the wait was on a flag that had just been cleared, so it was a wait on nothing.
+   * `password/change` has its own case in `changePassword.test.tsx`.
+   */
+  const ROTATING: ReadonlyArray<
+    readonly [name: string, path: string, run: (a: ReturnType<typeof createRealmAuthn>) => Promise<unknown>]
+  > = [
+    ["login/otp", "/v1/auth/admin/login/otp", (a) => a.submitSecondFactor("123456")],
+    [
+      "step-up/verify",
+      "/v1/auth/admin/step-up/verify",
+      // The call `adminAuthn.ts::confirmAdminStepUp` makes, on an isolated instance —
+      // the module-scoped realm is shared across the whole test process.
+      (a) => a.rotatingRequest("/step-up/verify", { method: "POST", body: { code: "123456" } }),
+    ],
+  ];
+
+  it.each(ROTATING)("holds other calls while %s is rotating", async (_name, path, run) => {
+    const pending = deferredFetch();
+    const authn = createRealmAuthn("admin");
+
+    const rotating = run(authn);
+    expect(pending).toHaveLength(1);
+    expect(pending[0].path).toBe(path);
+
+    const read = authn.readSession();
+    await Promise.resolve();
+    expect(
+      pending,
+      `a request must not go out while ${path} is rotating the cookie`,
+    ).toHaveLength(1);
+
+    pending[0].resolve(SESSION);
+    await rotating;
+    await vi.waitFor(() => expect(pending).toHaveLength(2));
+    expect(pending[1].path).toBe("/v1/auth/admin/session");
+    pending[1].resolve(SESSION);
+    await expect(read).resolves.toEqual(SESSION);
+  });
 });
 
 describe("§5.7 defect 1 — the restore deadline leaves no timer behind", () => {

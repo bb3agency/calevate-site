@@ -34,10 +34,16 @@ import { LogOut, ShieldCheck, Smartphone } from "lucide-react";
 import { Providers } from "@/app/providers";
 import { AuthPageFrame } from "@/components/authPage";
 import { AdminIdleTimeoutModal } from "@/components/authn/adminIdleTimeoutModal";
+import { ChangePasswordForm } from "@/components/authn/changePasswordForm";
 import { EmailVerificationPanel } from "@/components/authn/emailVerificationPanel";
+import { StepUpPrompt } from "@/components/authn/stepUpPrompt";
 import { AuthProblemNotice } from "@/components/authn/fields";
 import { Card, DANGER_BUTTON, NoticeBox, SECONDARY_BUTTON } from "@/components/ui";
-import { ADMIN_SIGN_IN_PATH, adminAuthn } from "@/lib/authn/adminAuthn";
+import {
+  ADMIN_SIGN_IN_PATH,
+  adminAuthn,
+  changeAdminPassword,
+} from "@/lib/authn/adminAuthn";
 import { ADMIN_CONSOLE_PATH } from "@/lib/authn/adminAuthn";
 import { adminConsoleUrl } from "@/lib/consoleOrigin";
 import {
@@ -83,6 +89,12 @@ function AdminSessionBody() {
       {/* Enabled only while there is a session to protect — no listeners and no timers on
           a signed-out page. */}
       <AdminIdleTimeoutModal enabled={session !== null} />
+      {/* THE PROMPT HAS TO BE MOUNTED SOMEWHERE ON THIS PAGE, and this page is outside
+          `app/admin/layout.tsx` (the shell that mounts it for the console). Without it
+          `requireStepUp` would return a promise nobody can ever settle: the password
+          change would hang on a stale second factor with no way to prove one — the same
+          deadlock `lib/api/session.tsx` records for the client shell. */}
+      <StepUpPrompt />
 
       <Card>
         <div className="space-y-3 text-sm text-ink-muted">
@@ -111,6 +123,16 @@ function AdminSessionBody() {
             verified={session?.email_verified ?? false}
             onVerified={retry}
           />
+        </div>
+      </Card>
+
+      <Card>
+        <div className="space-y-3">
+          <h2 className="text-base font-semibold text-ink">Change password</h2>
+          {/* `changeAdminPassword`, not `adminAuthn.changePassword`: this realm's route
+              also requires a second factor proved in the last 30 minutes, and the wrapper
+              is what turns that refusal into the prompt below instead of a dead end. */}
+          <ChangePasswordForm realm="admin" changePassword={changeAdminPassword} />
         </div>
       </Card>
 
