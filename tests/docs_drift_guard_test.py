@@ -836,3 +836,111 @@ def test_a_priority_letter_nobody_declared_is_reported_rather_than_skipped() -> 
         scratch.unlink(missing_ok=True)
     assert guard.unknown_gate_priorities() == []
     assert "unknown_gate_priorities" in inspect.getsource(guard.blind_spots)
+
+
+# ============================================================================
+# the legal mirror carries a content hash for the revision clients accept today
+# ============================================================================
+
+
+class TestLegalContentHash:
+    """§4d's newest question, and the one it is careful NOT to ask.
+
+    The words of a legal document are guarded by `apps/web/tests/legalContentHash.test.ts`
+    — sha256 of the operative text, recorded beside the revision that published it —
+    because the prose is TypeScript and only TypeScript can walk it. What Python can say
+    is that the hash IS THERE on the revision a client is accepting today, and that is
+    worth saying: without it, deleting the field from `versions.ts` would leave the vitest
+    guard with nothing to compare and this side unable to notice.
+
+    The mutations below are the real `versions.ts` with one field removed.
+    """
+
+    def _bundle(self, tmp_path: Path, monkeypatch: MonkeyPatch, versions: str) -> None:
+        """The real legal bundle in a tmp tree, with `versions.ts` replaced."""
+        bundle = tmp_path / "apps" / "web" / "src" / "lib" / "legal"
+        bundle.mkdir(parents=True)
+        for source in (REPO_ROOT / "apps" / "web" / "src" / "lib" / "legal").glob("*.ts"):
+            shutil.copy(source, bundle / source.name)
+        (bundle / "versions.ts").write_text(versions, encoding="utf-8")
+        monkeypatch.setattr(guard, "LEGAL_BUNDLE", bundle)
+
+    def _real_versions(self) -> str:
+        path = REPO_ROOT / "apps" / "web" / "src" / "lib" / "legal" / "versions.ts"
+        return path.read_text(encoding="utf-8")
+
+    def test_the_real_mirror_records_a_hash_for_every_current_revision(self) -> None:
+        """WIRING. Reads the real file: a parse that stopped seeing `contentHash` — which
+        is exactly what happened to the revision regex when the field was added — would
+        report every document as missing one, and a parse that saw nothing at all would
+        report nothing. Both are pinned here."""
+        mirror = guard.web_legal_versions()
+        assert len(mirror) == 8
+        for slug, entry in mirror.items():
+            hashes = entry["content_hashes"]
+            assert isinstance(hashes, list) and hashes, slug
+            assert guard._CONTENT_HASH.match(str(hashes[-1])), (
+                f"{slug}: the current revision carries no usable contentHash"
+            )
+        assert guard.legal_catalogue_drift() == []
+
+    def test_a_revision_authored_before_the_guard_may_carry_no_hash(self) -> None:
+        """CALIBRATION, and it is the reason this check is about the LAST revision only.
+
+        The text of revision 1 is not in the tree and cannot be recovered from it, so
+        there is no honest value to write there (hard rule 11). A check that demanded one
+        everywhere would be asking somebody to invent eight of them.
+        """
+        assert guard.legal_catalogue_drift() == []
+        mirror = guard.web_legal_versions()
+        older = [
+            hash_
+            for entry in mirror.values()
+            for hash_ in list(entry["content_hashes"])[:-1]  # type: ignore[call-overload]
+        ]
+        assert older, "the mirror has no historical revisions to be lenient about"
+        assert any(hash_ is None for hash_ in older), (
+            "every historical revision now carries a hash, so this calibration is testing "
+            "nothing — delete it and say so in the commit"
+        )
+
+    def test_catches_a_current_revision_whose_hash_was_deleted(
+        self, tmp_path: Path, monkeypatch: MonkeyPatch
+    ) -> None:
+        """DETECTION. One field removed from the real file, which is what "make CI green
+        by deleting the guard's input" looks like in a diff."""
+        versions = self._real_versions()
+        target = 'contentHash: "sha256:'
+        assert versions.count(target) == 8
+        start = versions.index(target)
+        end = versions.index("\n", start)
+        mutated = versions[:start] + versions[end + 1 :]
+        self._bundle(tmp_path, monkeypatch, mutated)
+
+        failures = guard.legal_catalogue_drift()
+        assert len(failures) == 1, failures
+        assert "carries no `contentHash`" in failures[0]
+        assert "pnpm -C apps/web legal:hashes" in failures[0]
+
+    def test_still_compares_the_revision_list_now_that_entries_carry_a_hash(
+        self, tmp_path: Path, monkeypatch: MonkeyPatch
+    ) -> None:
+        """The regression the new field could have caused, asserted rather than assumed.
+
+        Adding `contentHash` to a revision entry broke the pattern that reads the revision
+        list, and a pattern that stops matching an entry reports the mirror as SHORT — a
+        loud failure that was easy to see. The dangerous version is the opposite: a
+        widened pattern that matches so loosely it can no longer tell two revision lists
+        apart. So the identity comparison is re-proven over the hashed entries.
+        """
+        versions = self._real_versions()
+        mutated = versions.replace(
+            'revision: "6",\n        material: true,',
+            'revision: "7",\n        material: true,',
+            1,
+        )
+        assert mutated != versions
+        self._bundle(tmp_path, monkeypatch, mutated)
+
+        failures = guard.legal_catalogue_drift()
+        assert any("versions.ts has revisions" in failure for failure in failures), failures

@@ -5,7 +5,7 @@
 # the CI gate reporting success without running a single check.
 .PHONY: help dev dev-otp up down check lint lint-check types test db-reset redis-reset seed-dev eval eval-ci \
         qa-report qa-report-publish \
-        gen-api conformance smoke guardrails web-check coverage-ratchet \
+        gen-api conformance smoke guardrails web-check legal-hashes coverage-ratchet \
         coverage-ratchet-accept
 
 # `check` fans out to prerequisites that share one database and one working tree.
@@ -23,6 +23,7 @@ help:  ## List targets
 	@echo '  make lint        - ruff check --fix + format; rewrites files'
 	@echo '  make check       - lint-check, mypy, pytest+ratchet, guardrails, eval, web [CI gate]'
 	@echo '  make web-check   - frontend typecheck + vitest suite'
+	@echo '  make legal-hashes - print each legal document'"'"'s operative-text hash (paste into versions.ts)'
 	@echo '  make db-reset    - drop, migrate, seed'
 	@echo '  make redis-reset - flush the suite'"'"'s Redis db AND its snapshot'
 	@echo '  make seed-dev    - LOCAL ONLY: demo tenant + login credentials for both panels'
@@ -151,6 +152,24 @@ web-check:  ## Frontend gate: typecheck, lint, vitest (CI adds `next build` on t
 	pnpm -C apps/web typecheck
 	pnpm -C apps/web lint
 	pnpm -C apps/web test
+
+## THE HASH A NEW LEGAL REVISION HAS TO CARRY, printed for a person to paste.
+##
+## `apps/web/src/lib/legal/versions.ts` records, beside every revision, a hash of the
+## document's operative text as at that revision — the half `scripts/check_docs_drift.py`
+## admits it cannot check, because an acceptance row naming "Terms revision 6" is worth
+## what it says only while revision 6 still says what it said. The guard is
+## `apps/web/tests/legalContentHash.test.ts` (it runs in `make web-check` and in CI with
+## the rest of the suite) and it fails BOTH ways: words that moved with no new revision,
+## and a new revision whose words did not move.
+##
+## THIS TARGET WRITES NOTHING, deliberately. It prints slug, revision and hash; the value
+## is typed into `versions.ts` by the person appending the revision, in the same edit that
+## appends it there and in `apps/api/legal/catalogue.py`, with `material` decided. A gate
+## that could refresh its own evidence would be green by construction — the property
+## `scripts/check_drill_freshness.py` is built around and the reason this is a printer.
+legal-hashes:  ## Print the operative-text hash of each legal document (paste, never patch)
+	pnpm -C apps/web legal:hashes
 
 db-reset:
 	# DROP SCHEMA, not `alembic downgrade base` (D-207, scripts/db_reset.py). A downgrade

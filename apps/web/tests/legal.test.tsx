@@ -780,12 +780,19 @@ describe("what each document must contain", () => {
    *
    * The wording of the first paragraph below is the founder's, approved on 7 September
    * 2026, and it is a promise the database now keeps: each purchase freezes its own two
-   * per-minute rates, credit never expires, and the oldest purchase is spent first. It is
-   * asserted here as an EXACT string because nothing else in this repository can. The
-   * version mirror and `apps/api/legal/catalogue.py` compare IDENTITY, not text — the
-   * drift check says so in terms — so a later edit that softened "does not change them"
-   * into "will not normally change" would move an operative fee term under a version
-   * nobody bumped, and no gate in the tree would notice. This is that gate.
+   * per-minute rates, credit never expires, and the oldest purchase is spent first. A
+   * later edit that softened "does not change them" into "will not normally change" would
+   * change an operative fee term, and this asserts the exact words that may not move.
+   *
+   * ⚠ THIS USED TO SAY "because nothing else in this repository can", AND THAT IS NO
+   * LONGER TRUE. `tests/legalContentHash.test.ts` (7 September 2026) hashes every
+   * document's operative text against the revision that published it, so the softening
+   * above now fails a gate whether or not anybody thought to pin the sentence. The two do
+   * different jobs and both are worth having: the hash says THE WORDS MOVED AND THE
+   * REVISION DID NOT, and it is satisfied by bumping the revision — which is the right
+   * answer for most edits. This one says WHICH WORDS, and it is not satisfied by a bump at
+   * all: the promise stays or somebody argues with this test. Keep it for the clauses
+   * where a bump is not an acceptable outcome.
    */
   it("states the credit-lot promise in the Terms, verbatim, and echoes it in the refunds policy", () => {
     const promise =

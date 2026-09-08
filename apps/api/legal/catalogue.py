@@ -11,13 +11,31 @@ screens need. `scripts/check_docs_drift.legal_catalogue_drift()` fails CI when t
 disagree — the mechanism §4b already uses for the TTS rate card, for the same reason: a
 mirror nothing checks is a mirror that is wrong the first time one side moves.
 
-WHAT THAT GUARD DOES NOT PROVE, SAID PLAINLY. It compares IDENTITY, not TEXT. Nothing in
-this tree can read the prose of a TypeScript module from Python without a TS parser, so a
-lawyer editing a clause in `terms.ts` without bumping `revision` here produces an
-acceptance row naming a version whose words have changed, and no check sees it. The
-discipline that closes it is human and is written at the top of `REVISIONS`: an edit to a
-document's operative text is a new revision. `PENDING_LEGAL_REVIEW` is the half that IS
-mechanical, and it is the half that matters most today.
+WHAT THAT GUARD DOES NOT PROVE, AND WHAT NOW DOES. It compares IDENTITY, not TEXT: nothing
+in this tree can read the prose of a TypeScript module from Python without a TS parser. So
+until 7 September 2026 a lawyer editing a clause in `terms.ts` without bumping `revision`
+here produced an acceptance row naming a version whose words had changed, and no check saw
+it — the discipline that closed it was human, and this paragraph used to end there.
+
+It is now mechanical, ONE DIRECTORY OVER RATHER THAN HERE. Every revision in
+`apps/web/src/lib/legal/versions.ts` carries a `contentHash` — sha256 of that document's
+OPERATIVE TEXT, meaning every string a reader of `/legal/<slug>` is shown with the
+`{{PLACEHOLDER}}` tokens resolved, and not the module's imports, comments or formatting —
+and `apps/web/tests/legalContentHash.test.ts` fails in both directions: words that moved
+under an unbumped revision, and a bump whose words are identical to the revision before it
+(a different mistake, and the one that teaches clients to click through an acceptance).
+`pnpm -C apps/web legal:hashes` prints the value; nothing writes it.
+
+NO HASH IS MIRRORED HERE, DELIBERATELY. The prose exists only in TypeScript, so this side
+could never recompute one — a hash copied into this file would be a number that looks
+authoritative and that nothing on this side can check or contradict, which is exactly the
+laundering hard rule 11 forbids. This module stays authoritative for a document's
+IDENTITY, which is what an acceptance row is compared against; the bundle is authoritative
+for its WORDS, which is where they live. `check_docs_drift` asserts the one thing Python
+can honestly assert — that the current revision of every document HAS a hash.
+
+`PENDING_LEGAL_REVIEW` is the other mechanical half, and it is the one that matters most
+today.
 
 --------------------------------------------------------------------------------
 THE VERSION CARRIES THE REVIEW STATE, WHICH IS WHY THE FLIP NEEDS NO SPECIAL CASE
@@ -159,6 +177,11 @@ def is_provisional(version: str) -> bool:
 # A non-material revision still shows the client a banner and still records an
 # acknowledgement row when they dismiss it (see `service.record_acceptance`); it just
 # never stops them operating.
+#
+# THE MIRROR'S ENTRY CARRIES ONE MORE FIELD THAN THIS ONE: a `contentHash` of the words
+# that revision publishes (see the header). Append the revision in both files, and print
+# the hash for the new entry with `pnpm -C apps/web legal:hashes` — the frontend suite
+# fails until it is there, and fails if a revision was added whose words did not move.
 DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
     LegalDocumentSpec(
         slug="privacy",

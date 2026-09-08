@@ -1050,16 +1050,29 @@ def rate_zone_drift(root: Path | None = None, text: str | None = None) -> list[s
 #      otherwise be published, linked and unacceptable.
 #   3. Per document: `title` (which is the bundle's `shortTitle`), `blocking`, the
 #      revision list with each revision's `material` flag, and `effectiveDate`.
-#   4. Nothing else, because nothing else is decidable from here.
+#   4. That the CURRENT revision of every document carries a `contentHash` — see below.
+#   5. Nothing else, because nothing else is decidable from here.
 #
-# ⚠ IT COMPARES IDENTITY, NOT TEXT, AND THE GAP IS REAL. Nothing in this tree can read
-# the PROSE of a TypeScript module from Python without a TS parser, so a lawyer editing a
-# clause in `terms.ts` without appending a revision produces an acceptance row naming a
-# version whose words have changed, and no check here sees it. Said plainly rather than
-# implied by omission: the discipline that closes it is written at the top of both
-# `REVISIONS` blocks and is human. Approximating it — hashing the file, say — would fire
-# on a comment change and be switched off within a week, which is the failure mode this
-# whole module is written to avoid (see "WHAT THIS DELIBERATELY DOES NOT DO").
+# ⚠ IT STILL COMPARES IDENTITY, NOT TEXT — AND THE TEXT IS NOW GUARDED ELSEWHERE. This
+# paragraph used to end by saying the gap was open and the discipline that closed it was
+# human: a lawyer editing a clause in `terms.ts` without appending a revision produced an
+# acceptance row naming a version whose words had changed, and no check saw it. It is
+# closed as of 7 September 2026 by `apps/web/tests/legalContentHash.test.ts`, which records
+# a `contentHash` beside every revision in `versions.ts` — sha256 of the document's
+# OPERATIVE TEXT, meaning every string a reader is shown with the `{{PLACEHOLDER}}` tokens
+# resolved, and NOT the module's imports, comments or formatting. Hashing the FILE is what
+# this comment rejected, and it was right to: it would fire on a docstring edit and be
+# switched off within a week.
+#
+# WHY THAT GUARD IS IN TYPESCRIPT AND NOT HERE. The prose exists only as typed TypeScript
+# modules, so the hash can only be computed where the prose is — the bundle's own `textOf`
+# walk already reaches every block kind, and the compiler fails the build if a new kind is
+# added without extending it. A Python re-implementation would be a SECOND definition of
+# "the words of this document" and would drift from the first; a hash COPIED into
+# `catalogue.py` would be a number this side could never recompute or contradict, which is
+# hard rule 11's laundering inside the file that exists to stop drift. So this check
+# asserts only what Python can honestly assert: that the hash IS THERE on the revision a
+# client is accepting today. What it SAYS is checked one directory over.
 
 LEGAL_BUNDLE = REPO_ROOT / "apps" / "web" / "src" / "lib" / "legal"
 
@@ -1069,6 +1082,22 @@ _TS_PENDING_REVIEW = re.compile(r"export\s+const\s+PENDING_LEGAL_REVIEW\s*=\s*(t
 _TS_SLUG = re.compile(r'^\s*slug:\s*"([^"]+)"', re.MULTILINE)
 #: `shortTitle: "Acceptable Use",`
 _TS_SHORT_TITLE = re.compile(r'^\s*shortTitle:\s*"([^"]+)"', re.MULTILINE)
+#: One `{ revision, material }` entry, plus the `contentHash` a revision authored since
+#: 7 September 2026 also carries. Optional in the PATTERN because a revision authored
+#: before the guard existed has no recoverable text and so no honest hash; WHICH revisions
+#: must carry one is a rule (`legal_catalogue_drift`), not a shape a regex can state.
+_TS_REVISION = re.compile(
+    r'\{\s*revision:\s*"([^"]+)",\s*material:\s*(true|false),?'
+    r'(?:\s*contentHash:\s*"([^"]*)",?)?\s*\}'
+)
+#: The spelling a `contentHash` is stored in. The algorithm is part of the value so that
+#: changing it is a visible edit rather than a silent one.
+_CONTENT_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+def _revisions(fields: str) -> list[re.Match[str]]:
+    """Every revision entry in one document's block of `versions.ts`, in authored order."""
+    return list(_TS_REVISION.finditer(fields))
 
 
 def web_pending_legal_review() -> bool | None:
@@ -1121,12 +1150,11 @@ def web_legal_versions() -> dict[str, dict[str, object]]:
         entries[slug] = {
             "title": title.group(1) if title else None,
             "blocking": blocking.group(1) == "true" if blocking else None,
-            "revisions": [
-                (rev.group(1), rev.group(2) == "true")
-                for rev in re.finditer(
-                    r'\{\s*revision:\s*"([^"]+)",\s*material:\s*(true|false)\s*\}', fields
-                )
-            ],
+            "revisions": [(rev.group(1), rev.group(2) == "true") for rev in _revisions(fields)],
+            # Parsed, and compared against nothing on this side: no `Revision` in
+            # `catalogue.py` carries one, deliberately (4d's header says why). What it
+            # feeds is the presence check in `legal_catalogue_drift`.
+            "content_hashes": [rev.group(3) for rev in _revisions(fields)],
             "effective_date": effective.group(1) if effective and effective.group(1) else None,
         }
     return entries
@@ -1200,6 +1228,16 @@ def legal_catalogue_drift() -> list[str]:
             failures.append(
                 f"`{slug}`: versions.ts dates it {copy['effective_date']!r}, the catalogue "
                 f"{spec.effective_date!r}"
+            )
+        hashes = copy["content_hashes"]
+        current_hash = hashes[-1] if isinstance(hashes, list) and hashes else None
+        if not isinstance(current_hash, str) or not _CONTENT_HASH.match(current_hash):
+            failures.append(
+                f"`{slug}`: the current revision in apps/web/src/lib/legal/versions.ts "
+                "carries no `contentHash`, so nothing can say whether the words a client "
+                "accepts today are the words that revision published. Print it with "
+                "`pnpm -C apps/web legal:hashes` and put it on that revision "
+                "(apps/web/tests/legalContentHash.test.ts checks the value)"
             )
         expected = [(rev.revision, rev.material) for rev in spec.revisions]
         if copy["revisions"] != expected:
@@ -2510,7 +2548,8 @@ def main() -> int:
         f"{len(capability_constants())} capability constants correctly, "
         f"{len(DEFERRED_MIRRORS)} deferred mirror, "
         f"{len(web_legal_versions())} legal documents versioned identically by "
-        f"the API catalogue and the web bundle, "
+        f"the API catalogue and the web bundle, each recording a hash of the words its "
+        f"current revision publishes, "
         f"{len(gate_roster())} pilot gates with no assumption outliving its answer)"
     )
     return 0
