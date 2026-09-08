@@ -40,6 +40,7 @@ from apps.api.billing.rates import MONEY_Q, ROUNDING, VOICE_TIERS, voice_tier_la
 from apps.api.core.ratelimit import profile_for
 from apps.api.core.rbac import PUBLIC_PREFIXES
 from apps.api.core.settings import get_settings
+from apps.api.db.session import untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from scripts.check_public_routes import UNAUTHENTICATED_ROUTES
@@ -184,18 +185,22 @@ async def test_the_packs_arrive_in_ladder_order_with_both_columns_falling() -> N
         assert row["cartesia_minutes"] <= row["sarvam_minutes"]
 
 
-def test_the_from_rates_are_derived_and_below_the_list_rate() -> None:
+async def test_the_from_rates_are_derived_and_below_the_list_rate() -> None:
     """The founder's rule survives D-547: the site leads with a rate a pack actually
     delivers, never a typed figure. Both columns fall across the ladder, so both "from"
-    figures come from the deepest pack and the Sarvam one is under the list rate."""
-    card = rate_card_out()
+    figures come from the deepest pack and the Sarvam one is under the list rate.
+
+    Async since D-550: the ladder is resolved from the dated card rather than read off the
+    constant, and with no card recorded that resolves to the catalogue per cell."""
+    async with untenanted_session() as session:
+        card = await rate_card_out(session)
     assert card.from_sarvam_inr_per_min in {p.sarvam_inr_per_min for p in card.packs}
     assert card.from_cartesia_inr_per_min in {p.cartesia_inr_per_min for p in card.packs}
     assert card.from_sarvam_inr_per_min < card.list_rate_inr_per_min
     assert card.from_cartesia_inr_per_min > card.from_sarvam_inr_per_min
 
 
-def test_the_card_no_longer_moves_with_the_self_serve_setting(
+async def test_the_card_no_longer_moves_with_the_self_serve_setting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """⚠ THE BEHAVIOUR CHANGE, PINNED. This body used to be derived from the live
@@ -204,9 +209,10 @@ def test_the_card_no_longer_moves_with_the_self_serve_setting(
     §10) and still dates its own row, so the check is that moving it changes NOTHING here —
     a regression to the old behaviour would silently reprice the public marketing site from
     an ops console."""
-    before = rate_card_out()
-    monkeypatch.setattr(get_settings(), "self_serve_inr_per_min", Decimal("99.00"))
-    assert rate_card_out() == before
+    async with untenanted_session() as session:
+        before = await rate_card_out(session)
+        monkeypatch.setattr(get_settings(), "self_serve_inr_per_min", Decimal("99.00"))
+        assert await rate_card_out(session) == before
 
 
 def test_the_guards_agree_the_route_is_public_and_bounded() -> None:

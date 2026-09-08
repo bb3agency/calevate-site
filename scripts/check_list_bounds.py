@@ -298,13 +298,24 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="one row per model in `calevate_shared.engine.LLM_MODELS`, a closed catalogue "
         "whose size is a decision-log entry — never a caller's row count."
     ),
+    "POST /v1/ops/rate-card": BoundedByConstruction(
+        by="the card the operator just recorded, echoed back — one cell per credit pack in "
+        "`billing/credit_packs.PACK_CATALOGUE` times one per voice tier in "
+        "`billing/rates.VOICE_TIERS`, both committed constants a reviewed commit changes. "
+        "The REQUEST is bounded too (`RateCardIn.cells` has a `max_length`), and a body "
+        "carrying anything but exactly those twelve cells is refused by name before "
+        "anything is written."
+    ),
     "GET /v1/ops/rate-card": BoundedByConstruction(
         by="`cells` is the CARD — one cell per credit pack in `billing/credit_packs"
         ".PACK_CATALOGUE` times one per voice tier in `billing/rates.VOICE_TIERS`, both "
         "committed constants a reviewed commit changes. Twelve rows today. There is no "
         "page size DELIBERATELY: an operator commits a price against the whole ladder, "
         "and a card read back one page at a time is the one thing they must not be able "
-        "to do."
+        "to do. `pending` is bounded separately by `list_rates.PENDING_CARD_LIMIT`, in the "
+        "SQL rather than in Python: a scheduled card can only be minted by a step-up "
+        "confirmed operator write, so it is a sanity ceiling on our own writes and not a "
+        "page size on somebody's rows."
     ),
     "GET /v1/ops/dashboard-data-use": BoundedByConstruction(
         by="one row per DECLARED LLM leg — `get_args(calevate_shared.engine.LlmProvider)`, "

@@ -42,9 +42,12 @@ async def _startup() -> AsyncIterator[None]:
     the two sync readers billing/ and the picker consume (`ops/pricing_snapshot.py`) and
     begins polling `platform_model_prices`. Started HERE and not in `create_app` for the
     identical reason — it is a background poll, and voice-runtime must not inherit one. The
-    worker process (`apps/workers/settings.py::startup`) prices the dashboard assist and
-    should call it too once an OpenAI/Google model is selectable; until then only Azure is
-    offerable and it bills off its verified catalogue reading with no reader installed.
+    WORKER PROCESS CALLS IT TOO (`apps/workers/settings.py::startup`), and this paragraph
+    used to say it only "should ... once an OpenAI/Google model is selectable, until then
+    only Azure is offerable". Both halves are dead: all three provider legs are on offer
+    (`agents/llm_models.offerable_models`), and the worker is where the dashboard assist is
+    actually billed — running it with no reader installed priced every non-Azure assist off
+    a catalogue figure that hard rule 7 forbids reaching `unit_cost_paid`.
 
     `start_fx_refresher` is the third, and it puts the PUBLISHED USD→INR rate into this
     process's memory so `engine/bolna.py::_cost` can convert a vendor's dollars at it

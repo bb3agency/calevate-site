@@ -101,11 +101,48 @@ LOW_BALANCE_INR = Decimal("200.00")
 #: the registration agree.
 LOW_BALANCE_JOB = "notify_low_balance"
 
+#: The job the ledger publishes when a movement takes a wallet across ZERO, in EITHER
+#: direction (`apps/workers/inbound_cutover.py`). Down, it is what stops a client's agents
+#: answering calls they have no credit to pay for; up, it is the ONLY thing that brings
+#: them back — a client who tops up at 9pm must not find their phone still dead in the
+#: morning, and there is no cron sweeping for them.
+#:
+#: THE NAME LIVES HERE, BESIDE `LOW_BALANCE_JOB`, for that constant's reason: the publisher
+#: owns the name so every enqueue site and the registration in `apps/workers/settings
+#: .FUNCTIONS` resolve to ONE string, which is what `scripts/check_job_wiring.py` checks.
+#: `apps/api` must not import `apps/workers` (the dependency runs the other way), so the
+#: worker module and `workers/pipeline.py`'s backstop both import it from here.
+INBOUND_CUTOVER_JOB = "apply_inbound_credit_state"
+
 #: The two lines a falling balance can cross, most severe first. `empty` is the one the
 #: dial gate acts on (`compliance.service.credits_exhausted` — `balance <= 0`); `low` is
 #: the warning band above it, which enforces nothing.
 WALLET_LEVEL_EMPTY = "empty"
 WALLET_LEVEL_LOW = "low"
+
+
+def crossed_zero(before: Decimal, after: Decimal) -> str | None:
+    """`"empty"`, `"funded"`, or None: which way this movement took the wallet across ZERO.
+
+    THE SYMMETRIC HALF OF `crossed_downwards`, and it is a separate function rather than a
+    third return value of that one because the two answer different questions and only one
+    of them is a warning: `crossed_downwards` decides what to TELL a client (it has a `low`
+    band above zero that enforces nothing), and this decides what to DO to their phone.
+
+    A CROSSING AND NOT A STATE, for `crossed_downwards`' reason and with the same payoff:
+    the entry that takes a wallet from +10 to -2 is the only entry that will ever report
+    `empty` for that episode and the top-up is the only one that will ever report `funded`,
+    so "act once per episode" needs no stored flag, no cron sweep and no clock.
+
+    `> 0 >=` and `<= 0 <` are the same boundary read from the two sides, and the boundary is
+    `Balance.is_exhausted` — `balance <= 0`, the dial gate's own condition. A wallet sitting
+    at exactly zero is EXHAUSTED, so a movement that leaves it there is not a recovery.
+    """
+    if before > 0 >= after:
+        return WALLET_LEVEL_EMPTY
+    if before <= 0 < after:
+        return "funded"
+    return None
 
 
 def crossed_downwards(before: Decimal, after: Decimal) -> str | None:
@@ -371,6 +408,21 @@ async def record_entry(
     # worth warning about, and whether anyone has agreed to be emailed, is the worker's
     # question — deciding it here would put a tier read on the hottest money write in the
     # product to answer a question that is still true a minute later.
+    # THE PHONE, ON THE SAME TERMS AS THE WARNING ABOVE AND FOR A STRONGER REASON.
+    # Crossing zero going DOWN is what stops this client's agents answering calls they
+    # cannot pay for (8 Sep 2026); crossing it going UP is the ONLY automatic path back,
+    # so the two are published by the one writer that sees both. Through the OUTBOX, in
+    # this transaction, because a promise to bring a phone line back must not be able to
+    # outlive a rolled-back top-up — nor, more to the point, be lost by one that committed.
+    #
+    # The payload carries the tenant and nothing else: the job RE-READS `credits_exhausted`
+    # rather than trusting a verdict that was true when it was queued (see the job).
+    if crossed_zero(current, new_balance) is not None:
+        await enqueue_outbox(
+            session,
+            job=INBOUND_CUTOVER_JOB,
+            payload={"tenant_id": str(tenant_id)},
+        )
     level = crossed_downwards(current, new_balance)
     if level is not None:
         await enqueue_outbox(
@@ -3303,6 +3355,7 @@ __all__ = [
     "BASE_OVERAGE_RUNG",
     "GRANT_META_KIND",
     "GRANT_REF_PREFIX",
+    "INBOUND_CUTOVER_JOB",
     "LOT_REPRICE_META_KIND",
     "LOT_REPRICE_REF_PREFIX",
     "LOW_BALANCE_INR",
@@ -3344,6 +3397,7 @@ __all__ = [
     "charge_for_call",
     "credit_totals",
     "crossed_downwards",
+    "crossed_zero",
     "current_billing_month",
     "find_entry_by_ref",
     "find_topup",

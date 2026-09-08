@@ -511,6 +511,20 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "row, never an edit, so a closed month's statement resolves the rate it was struck "
         "at instead of being re-priced by every later rate move."
     ),
+    "platform_list_rate_cancellations": (
+        "platform-scoped, admin realm only (D-550). ONE row per credit-pack card an "
+        "operator scheduled and then withdrew before it took effect — the instant that was "
+        "withdrawn, who withdrew it and why. It is the compensating entry hard rule 4 "
+        "requires: `platform_list_rates` is append-only and cannot be edited, so a card is "
+        "un-scheduled by recording that it was, never by deleting the rates. A card is one "
+        "published price for the whole self-serve motion at an instant (a MANAGED client's "
+        "price is their `plans` row), so there is no tenant whose row this could be and it "
+        "carries no tenant_id. Written only from the ops rate-card route, step-up "
+        "confirmed, with an audit_log row in the same transaction. No PII, no credential, "
+        "no tenant data. Append-only itself (see APPEND_ONLY_TABLES): a withdrawal that "
+        "could be un-recorded would spring the cancelled card back into force on every "
+        "reader at once."
+    ),
     "platform_ai_spend": (
         "platform-scoped, admin realm only. The dashboard AI's monthly spend against the "
         "platform ceiling (D-127) — OUR bill to Google, not a client's, so there is no "
@@ -695,5 +709,10 @@ APPEND_ONLY_TABLES = [
     # month the client already paid for out of their wallet. A correction is a new row at a
     # later instant, and the blanket `calevate_forbid_mutation` applies with no carve-out.
     "platform_list_rates",
+    # Withdrawing a scheduled card (D-550). Append-only for `platform_list_rates`' reason,
+    # inverted: the rate rows cannot be deleted, so this row is the only thing standing
+    # between a cancelled card and every reader resolving it. An UPDATE or DELETE here
+    # un-withdraws a price change nobody approved, retroactively and silently.
+    "platform_list_rate_cancellations",
     "legal_acceptances",
 ]

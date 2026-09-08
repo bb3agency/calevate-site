@@ -191,21 +191,26 @@ async def purge_platform_list_rates() -> None:
     engine = create_async_engine(owner_url)
     try:
         async with engine.begin() as conn:
-            modes = (
-                await conn.execute(
-                    text(
-                        "SELECT tgname, tgenabled FROM pg_trigger "
-                        "WHERE tgrelid = 'platform_list_rates'::regclass AND NOT tgisinternal"
+            # BOTH tables, cancellations FIRST (D-550). A withdrawal row left behind keeps
+            # suppressing a card instant a later suite happens to reuse, which reads as
+            # "the resolution rule is broken" rather than as contamination.
+            for table in ("platform_list_rate_cancellations", "platform_list_rates"):
+                modes = (
+                    await conn.execute(
+                        text(
+                            "SELECT tgname, tgenabled FROM pg_trigger "
+                            "WHERE tgrelid = CAST(:table AS regclass) AND NOT tgisinternal"
+                        ),
+                        {"table": table},
                     )
-                )
-            ).all()
-            await conn.execute(text("ALTER TABLE platform_list_rates DISABLE TRIGGER USER"))
-            await conn.execute(text("DELETE FROM platform_list_rates"))
-            for name, mode in modes:
-                verb = {"A": "ENABLE ALWAYS", "R": "ENABLE REPLICA", "D": "DISABLE"}.get(
-                    str(mode), "ENABLE"
-                )
-                await conn.execute(text(f'ALTER TABLE platform_list_rates {verb} TRIGGER "{name}"'))
+                ).all()
+                await conn.execute(text(f"ALTER TABLE {table} DISABLE TRIGGER USER"))
+                await conn.execute(text(f"DELETE FROM {table}"))
+                for name, mode in modes:
+                    verb = {"A": "ENABLE ALWAYS", "R": "ENABLE REPLICA", "D": "DISABLE"}.get(
+                        str(mode), "ENABLE"
+                    )
+                    await conn.execute(text(f'ALTER TABLE {table} {verb} TRIGGER "{name}"'))
     finally:
         await engine.dispose()
 

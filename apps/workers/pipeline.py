@@ -69,6 +69,7 @@ from apps.api.billing.service import (
     BASE_OVERAGE_RUNG,
     UNSURCHARGED_MODEL,
     charge_for_call,
+    lock_tenant_credits,
     month_increment,
     plan_tier_of,
     rate_card_at,
@@ -84,6 +85,7 @@ from apps.api.compliance.optout import (
     normalize_utterance,
     record_call_optout,
 )
+from apps.api.compliance.service import credits_exhausted
 from apps.api.core.alerting import (
     alert,
     record_pipeline_lag,
@@ -122,6 +124,17 @@ from apps.workers.storage import (
 )
 
 log = get_logger(__name__)
+
+#: `billing.service.INBOUND_CUTOVER_JOB`, RESTATED AS A LITERAL RATHER THAN IMPORTED, and
+#: the duplication is deliberate and tested rather than accidental.
+#: `scripts/check_job_wiring.py` resolves a job name only as a literal or a module-level
+#: constant IN THE FILE THAT ENQUEUES IT — deliberately shallow, because "a deeper
+#: resolver would be a small interpreter with its own bugs" — and an unresolvable name is
+#: precisely the hole its shape 3 hides in. The choice was between a second spelling with
+#: a test holding it in step, and an exemption in `DYNAMIC_ENQUEUE_SITES` claiming this
+#: name cannot be read when it plainly can. `CreditReason` beside `CREDIT_REASONS` is the
+#: precedent for the first; `tests/inbound_credit_cutover_test.py` is the test.
+INBOUND_CUTOVER_JOB = "apply_inbound_credit_state"
 
 
 def _party_e164(raw: str | None) -> str | None:
@@ -2162,8 +2175,11 @@ def _billable_seconds(snapshot: ExecutionSnapshot, *, tenant_id: UUID, call_id: 
 # KNOWN RESIDUAL, and it is not fixable from here: this statement moves the flag only
 # when a call is METERED. A tenant whose traffic is entirely outbound is capped in July,
 # refused every dial in August, meters nothing, and therefore never rolls over — the
-# rollover below only fires if some call completes. Inbound saves most tenants (the gate
-# is outbound-only, so inbound still meters), but a campaign-only client would be stuck.
+# rollover below only fires if some call completes. Inbound used to save most tenants
+# — the gate was outbound-only, so inbound still metered — and since 8 Sep 2026 it does
+# not: an inbound call on an exhausted prepaid wallet still writes `usage_events` and
+# still moves these counters, but a client whose agents have gone silent is not receiving
+# many of those either. A campaign-only client was always stuck.
 # The durable fix is a month-aware READ in `compliance.spend_capped` — `capped AND
 # month = billing.current_billing_month()` — so a stale month stops being a cap on its
 # own; that read exists.
@@ -2369,7 +2385,8 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 # them apart would let an operator's edit land between them and stamp a
                 # row whose two halves describe different configurations.
                 text(
-                    "SELECT a.tts_voice, a.llm_model, o.default_llm_model FROM calls c "
+                    "SELECT a.tts_voice, a.llm_model, o.default_llm_model, c.direction "
+                    "FROM calls c "
                     "LEFT JOIN agents a ON a.id = c.agent_id AND a.tenant_id = c.tenant_id "
                     "LEFT JOIN organizations o ON o.id = c.tenant_id "
                     "WHERE c.id = :cid AND c.tenant_id = :tid"
@@ -2382,8 +2399,8 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # produce, so it is spelled as one absent triple rather than as a `None` guard
         # repeated at each use — three guards is three chances for one of them to answer
         # differently about the same row.
-        voice_id, agent_model, organization_model = (
-            config_row if config_row is not None else (None, None, None)
+        voice_id, agent_model, organization_model, call_direction = (
+            config_row if config_row is not None else (None, None, None, None)
         )
         # THE RUNG A CALL IS METERED ON. There is one voice quality now (the single-tier
         # voice decision), so every call bills at the plan's BASE overage rate — a single
@@ -2694,6 +2711,67 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         on_us = await trial_covers(
             session, tenant_id=tenant_id, at=snapshot.ended_at or datetime.now(UTC)
         )
+        # AND NOTHING FOR AN INBOUND CALL ON A WALLET THAT IS ALREADY EMPTY (8 Sep 2026).
+        #
+        # THE DEFECT THIS CLOSES, in this file's own former words: "the gate is
+        # outbound-only, so inbound still meters". `compliance.check_dispatch` refuses an
+        # outbound dial at a balance of zero or below and an inbound call passes through
+        # none of it, so a clinic answering at Rs.0 went on being debited every answered
+        # minute against a wallet that could only get more negative. NOTHING bounded it —
+        # `record_entry` is called with `allow_negative=True` here, correctly, because the
+        # call already happened and refusing to record a real cost would hide it. The bound
+        # has to be a decision not to CHARGE, and this is it.
+        #
+        # THE RULE IS EXACT AND IT IS THE FOUNDER'S: at a balance of zero or below, inbound
+        # accrues NO FURTHER DEBT. So the wallet can still be taken negative — once — by an
+        # inbound call that was answered while there was credit to answer it, and can never
+        # be taken further negative by the next one. That single call's worth of overdraft
+        # is unavoidable and is the same one an outbound call leaves; what is gone is the
+        # unbounded accrual behind it.
+        #
+        # ⚠ **`usage_events` IS UNTOUCHED, AND THAT IS THE POINT** (hard rule 7). Every
+        # minute and its real `unit_cost_paid` is still metered, because we still PAID the
+        # vendor for this call and a cost nobody recorded is a cost nobody can see. What
+        # does not happen is the wallet debit — the same division `on_us` above makes, for
+        # a different reason, and the reason the two are separate booleans rather than one:
+        # a trial call is ABSORBED and priced into `spend_state.billed_inr` as what it
+        # would have cost, while this one is not billed to anybody and accrues nothing.
+        #
+        # THE PREDICATE IS `credits_exhausted`, ASKED AND NEVER RE-DERIVED — the same one
+        # the dial gate, the campaign launch gate and the client's own credits screen ask,
+        # so there is one definition of "this account has run out" and a change to it moves
+        # every surface at once. Read UNDER THE CREDIT LOCK, taken here rather than left to
+        # `charge_for_call`: a balance read outside it is a check-then-write, and two
+        # inbound calls settling at once would both see credit and both charge. The lock is
+        # re-entrant within the transaction, so `charge_for_call` re-taking it costs
+        # nothing, and the order (call lock, then credit, then `spend_state`) is unchanged.
+        # ASKED ONLY OF A WALLET MOTION. `credits_exhausted` answers False for a managed
+        # tenant anyway (they are invoiced against a retainer), so the tier test buys no
+        # correctness — it buys the LOCK: a managed client's calls have no credit write to
+        # serialize, and taking a per-tenant advisory lock on every one of them would
+        # serialize their whole metering behind a question whose answer is fixed.
+        exhausted = False
+        if tier in PREPAID_TIERS:
+            await lock_tenant_credits(session, tenant_id)
+            exhausted = await credits_exhausted(session, tenant_id=tenant_id)
+        inbound_at_zero = exhausted and str(call_direction) == "inbound"
+        if exhausted:
+            # THE BACKSTOP FOR THE ONE EDGE THE LEDGER CANNOT SEE. The cutover is normally
+            # driven by `record_entry`'s crossing of zero, which covers every movement of
+            # money. It does not cover an account that becomes exhausted without one — a
+            # trial ending over a wallet that was always empty, or a plan tier moving onto
+            # the prepaid motion — because `credits_exhausted` reads three facts and only
+            # the balance is a ledger entry. This is a call that has just been answered by
+            # an agent that should have been silent, so it is also the exact moment we can
+            # prove the state is wrong; one enqueue AT MOST ONCE PER CALL (the dedupe key),
+            # so a client sitting at zero enqueues one job per inbound call and not one per
+            # pipeline retry.
+            await enqueue_outbox_once(
+                session,
+                job=INBOUND_CUTOVER_JOB,
+                payload={"tenant_id": str(tenant_id)},
+                dedupe_key=f"inbound-cutover:{call_id}",
+            )
         # THE UPGRADE THE CLIENT CHOSE (D-455), which is rupees and not minutes: it is a
         # term of this tenant's plan row, not a property of the lots. A prepaid tenant
         # normally has no plan row at all, so this is ₹0.00 and the wallet drains on the
@@ -2709,7 +2787,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # applies, and the list rate as the fallback for a wallet with no lots left — and
         # reads the price back.
         charged_inr = Decimal("0")
-        if tier in PREPAID_TIERS and not on_us:
+        if tier in PREPAID_TIERS and not on_us and not inbound_at_zero:
             charged_inr = await charge_for_call(
                 session,
                 tenant_id=tenant_id,

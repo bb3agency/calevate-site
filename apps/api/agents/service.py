@@ -77,7 +77,7 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Any, NotRequired, TypedDict, TypeGuard, cast
+from typing import Any, Final, NotRequired, TypedDict, TypeGuard, cast
 from uuid import UUID
 
 from calevate_shared.call_script import substitute_variables
@@ -86,6 +86,7 @@ from calevate_shared.engine import (
     LLM_MODELS,
     SARVAM_DEFAULT_STT,
     SARVAM_STT_PROVIDER,
+    TRUTHFUL_ANSWER_DIRECTIVE,
     AgentConfig,
     CallContext,
     DisclosurePosture,
@@ -1238,6 +1239,395 @@ async def route_inbound_numbers(
     return InboundRouting(bound=bound, released=released, failed=failed, unsupported=0)
 
 
+# --- the credit cutover: what a caller hears when the wallet is empty (8 Sep 2026) ------
+#
+# THE PROBLEM THIS CLOSES. `compliance.check_dispatch` refuses OUTBOUND at a balance of
+# zero or below and inbound passes through none of it, so a client whose top-up lapsed
+# went on having their phone answered — and `workers/pipeline.py` went on debiting every
+# answered minute against a wallet that could only get more negative. Nothing bounded it.
+#
+# THE FOUNDER'S DECISION, taken 8 Sep 2026 and implemented here rather than re-opened:
+# at a balance of ZERO OR BELOW the agent stops doing business and the caller hears one
+# short neutral line instead. No grace overdraft and no grace period — the warning already
+# fired at Rs.250 and again at Rs.150 (`workers/wallet_alerts.py`), so the client was told
+# twice before anything changed.
+#
+# WHY IT IS AN ENGINE-SIDE SCRIPT OVERRIDE AND NOT A GATE OF OURS. An inbound call reaches
+# nothing of ours before it is answered: the vendor's orchestrator picks up on the number
+# bound by `POST /inbound/setup`, and the only thing we hear about it is a webhook AFTER
+# the fact (`apps/voice-runtime/webhook_routes.py` — a hint, and the fetch is the truth).
+# There is no pre-answer hook to refuse from, so the enforcement has to be durable state
+# AT the engine, applied on the edge. Two instruments exist and only one of them can speak:
+#
+#   * `unbind_inbound_number` (`POST /inbound/unlink`) stops the number answering at all.
+#     The caller then hears whatever the carrier does with an unanswered number — nothing
+#     we compose, nothing we can promise, and the founder's own correction on the
+#     maintenance window ("play a message instead of the call not connecting") already
+#     refused that shape once.
+#   * `override_call_script` (`PATCH /v2/agent/{id}`) replaces what the agent SAYS and
+#     nothing else — the closed attribute list is the guarantee that its number, voice,
+#     knowledge base, model and webhook cannot move
+#     (`bolna-findings/mirror/pages/api-reference/agent/v2/patch_update.md:9,19-31`).
+#
+# So the call is ANSWERED and the message is spoken. That is not a softening of "stops
+# answering": there is no mechanism anywhere in the vendor's API that plays audio to a
+# caller without answering, and a message nobody hears is not the decision that was taken.
+# It costs one short vendor-billed call per attempt instead of an unbounded overdraft —
+# and `workers/pipeline.py` no longer debits the client for it either.
+#
+# ⚠ MARKED ASSUMPTION, INHERITED NOT INTRODUCED: `override_call_script` is documented and
+# has never been exercised against a live Bolna account (OPERATIONS §2 gate 48). If the
+# PATCH turns out to be a no-op, `EngineCapabilities.script_override` goes False, this
+# reconciler reports `unsupported`, and the product says so — it does not fail silently on
+# a live call. The alternative fallback, unbinding the number, is deliberately NOT wired
+# behind that flag: it would silently trade the founder's message for a dead line.
+
+#: What a caller hears when the client's calling credit has run out.
+#:
+#: **IT GIVES NO REASON, AND EVERY WORD OF THAT IS DELIBERATE.** The caller is our client's
+#: customer, and they must not be able to work out from this call that the business has not
+#: paid a bill — that is a reputational harm WE would be inflicting on the client, on their
+#: own customer, at the moment they are least able to answer for it. So:
+#:
+#: * NOT "we are closed" / "outside business hours". The clinic may well be open and full
+#:   of people; that is a false statement about our client, made in their own voice.
+#: * NOT "there is a technical problem" / "the line is busy". Also untrue, and an
+#:   invitation to keep redialling.
+#: * NOT one syllable about the account, the balance, a payment, a subscription or a
+#:   service — the caller has no business knowing any of it and the client did not consent
+#:   to us telling them.
+#:
+#: What is left is the true, reasonless sentence the founder asked for: we cannot take the
+#: call, try again later. "Later" is the only promise in it and it is one we keep — the
+#: moment a top-up lands the agent answers properly again, with no human in the loop.
+CREDIT_STOP_MESSAGE: Final = "Sorry, we cannot take your call right now. Please try again later."
+
+
+def credit_stop_greeting(posture: DisclosurePosture) -> str:
+    """The agent's own opening line, then the neutral message.
+
+    PREPENDED, NOT REPLACED — `workers/maintenance._maintenance_greeting` argues this and
+    the argument is the same one, so it is followed rather than re-decided. `opening_line`
+    is what the agent VOLUNTEERS: the AI disclosure and the recording notice, each on its
+    own client-set switch (D-163). Replacing it would switch both off, silently, for every
+    client whose credit ran out.
+
+    **AND HERE IT IS LOAD-BEARING RATHER THAN MERELY TIDY, BECAUSE THE CALL IS STILL
+    RECORDED.** `override_call_script` writes exactly two attributes — the welcome message
+    and the task prompt (`patch_update.md:19-31`) — and recording is neither of them, so a
+    silenced agent records this call exactly as it records any other and the post-call
+    pipeline still runs over it. A DPDP notice-and-consent obligation attaches to a
+    recording that is actually made; dropping the notice because "there is no real
+    conversation" would be reasoning our way out of an obligation we are still incurring.
+    """
+    opening = compose_opening_line(posture).strip()
+    return f"{opening} {CREDIT_STOP_MESSAGE}".strip()
+
+
+def credit_stop_prompt() -> str:
+    """What the agent is told to do while its client's wallet is empty: say the line, say
+    nothing else, end the call.
+
+    ═══ HARD RULE 5 IS UNTOUCHED, IN BOTH ITS HALVES ═══
+
+    `TRUTHFUL_ANSWER_DIRECTIVE` is appended verbatim, so a caller who asks whether they are
+    talking to an AI, or whether the call is recorded, gets the truth here exactly as they
+    do on an ordinary call. It would have been easy to argue the floor away — "no
+    conversation happens, so nothing attaches" — and it would have been wrong twice over:
+    the call IS answered, and it IS recorded (see `credit_stop_greeting`), so both
+    obligations have a real event to attach to. The floor is preserved rather than
+    reasoned around, and `scripts/check_compliance_invariants.py` reads the composer.
+
+    ═══ WHAT IS FORBIDDEN, AND WHY IT IS SPELLED OUT TO THE MODEL ═══
+
+    A language model handed "you cannot take this call" and an insistent caller will
+    improvise a reason, and every reason available to it is one we must not give: that the
+    business is closed (false, and about our client), that there is a fault (false), or —
+    worst — the true one. The prompt therefore forbids each by name rather than trusting
+    the model to be incurious, and forbids taking a message: nothing behind this call is
+    going to act on one, and a promise the platform cannot keep is what the founder's
+    maintenance correction already refused once.
+    """
+    return "\n\n".join(
+        (
+            "You are answering a call that this business cannot take right now. Saying the "
+            "sentence below is the ONLY thing you do on this call.",
+            f'Say this, in the caller\'s own language: "{CREDIT_STOP_MESSAGE}"',
+            "Give NO reason, and invent none if you are pressed. Do NOT say the business "
+            "is closed, is busy, is having a technical problem, or anything at all about "
+            "its account, its billing or its subscription. If the caller asks why, say "
+            "only that you are not able to say, and ask them to try again later.",
+            "Do NOT take a booking, a message, an order, a complaint, a call-back request "
+            "or any of the caller's details, and do NOT promise that anyone will ring "
+            "them back.",
+            "Then end the call politely. Keep the whole call under twenty seconds.",
+            TRUTHFUL_ANSWER_DIRECTIVE,
+        )
+    )
+
+
+#: Live agents of ONE tenant that can answer a call, with the handle the engine knows them
+#: by, the six disclosure columns `compose_opening_line` needs, and what we last told the
+#: engine to say. Outbound-only agents are excluded: nobody ever rings them, so overriding
+#: their script would change nothing a caller can hear and would spend a vendor round trip
+#: saying so. The shape is `workers/maintenance._ANSWERING_AGENTS_SQL`'s, one column wider.
+_ANSWERING_AGENTS_SQL = (
+    "SELECT id, engine_agent_ref, ai_disclosure_line, ai_disclosure_enabled, "
+    "recording_notice_line, recording_notice_enabled, caller_memory_notice_line, "
+    "caller_memory_enabled, inbound_silenced_at FROM agents "
+    "WHERE status = 'live' AND engine_agent_ref IS NOT NULL "
+    "AND direction IN ('inbound', 'both') AND deleted_at IS NULL AND archived_at IS NULL "
+    "ORDER BY id"
+)
+
+
+@dataclass(frozen=True, slots=True)
+class InboundCutover:
+    """What one reconciliation pass actually achieved, per tenant.
+
+    Counts rather than a bool for `InboundRouting`'s reason: a caller that wants to tell an
+    operator what happened needs numbers, and a test that wants to prove a phone went quiet
+    (or came back) needs something to assert.
+    """
+
+    #: Agents newly switched to the neutral message.
+    silenced: int
+    #: Agents put back to saying their own words.
+    restored: int
+    #: Agents already in the state they should be in. No vendor call was made for these.
+    unchanged: int
+    #: Agents the engine could not be reached about. Each one has raised an alarm.
+    failed: int
+    #: True when this engine cannot override a script at all, so nothing was attempted.
+    unsupported: bool = False
+
+
+def _posture_of_row(row: Any) -> DisclosurePosture:
+    """`_ANSWERING_AGENTS_SQL`'s six disclosure columns as the composer's one value.
+
+    Positional rather than by name because the query is a dozen lines above it; the SELECT
+    and this constructor are read together or not at all.
+    """
+    return DisclosurePosture(
+        ai_disclosure_line=str(row[2]),
+        ai_disclosure_enabled=bool(row[3]),
+        recording_notice_line=str(row[4]),
+        recording_notice_enabled=bool(row[5]),
+        caller_memory_notice_line=str(row[6]),
+        caller_memory_enabled=bool(row[7]),
+    )
+
+
+async def _stamp_inbound_silence(session: AsyncSession, *, agent_id: UUID, silenced: bool) -> None:
+    """Record what the ENGINE now holds for this agent, not what we wish it held.
+
+    Written only AFTER the vendor call returned, for the reason `live_tts_voice` is: a
+    column that claims a script the engine was never observed to take is worse than no
+    column, because the reconciler reads it to decide whether to act and would then decide
+    to do nothing for ever.
+    """
+    await session.execute(
+        text(
+            "UPDATE agents SET inbound_silenced_at = "
+            "CASE WHEN :on THEN now() ELSE NULL END, updated_at = now() "
+            "WHERE id = :aid AND deleted_at IS NULL"
+        ),
+        {"aid": agent_id, "on": silenced},
+    )
+
+
+async def reconcile_inbound_answering(
+    session: AsyncSession, engine: VoiceEngine, *, tenant_id: UUID, exhausted: bool
+) -> InboundCutover:
+    """Make what this tenant's answering agents SAY agree with whether they have credit.
+
+    THE ONE PLACE THE CUTOVER AND THE RECOVERY ARE DECIDED, and they are one function on
+    purpose: "apply" and "undo" written apart is how a platform ends up able to silence a
+    phone and unable to bring it back. Both edges are the same read of the same predicate
+    (`compliance.service.credits_exhausted`, asked by the caller and passed in so this
+    function cannot ask a different question than the caller acted on), and the only
+    difference is which way the comparison went.
+
+    IDEMPOTENT, and cheap when there is nothing to do. `agents.inbound_silenced_at` records
+    what the engine was last observed to hold, so an agent already in the right state costs
+    zero vendor round trips — which is what lets this be called on every edge and from every
+    publish without turning a fleet into a rate-limit incident.
+
+    THE RESTORE GOES THROUGH `publish_agent`, NOT THROUGH THE OVERRIDE, and the asymmetry
+    is `workers/maintenance._restore_scripts`' — followed rather than re-argued. The
+    override is a partial write from strings this module composed and is deliberately not
+    read back; coming out of it, an agent still apologising to its client's customers after
+    the client has paid is the failure nobody would notice for days, so the restore comes
+    from our own row through the one path that verifies (D-64).
+
+    PER-AGENT ISOLATION. One agent's vendor failure must not cost the others theirs: it is
+    counted, alarmed, its column left saying what the engine is still believed to hold, and
+    the walk continues. The next pass retries it.
+
+    ═══ AND WHAT HAPPENS INSIDE A MAINTENANCE WINDOW, WHICH OVERRIDES THE SAME TWO FIELDS ═══
+
+    Nothing here special-cases one, and the ordering already resolves it in the right
+    direction both ways. A wallet that empties DURING a window replaces the maintenance
+    message with this one — both say "we cannot take your call", and the credit one is the
+    one that will still be true when the window closes. A top-up during a window cannot
+    restore: `publish_agent` refuses while a window is draining or active (D-544), so the
+    restore is counted as a failure, alarmed and retried — and the window's own
+    `_restore_scripts` republishes every live answering agent at the end, which runs
+    `_settle_inbound_credit_state` and lands the agent on whichever script its wallet now
+    earns. The client's phone therefore comes back when the platform does, and not before,
+    which is the same promise every other client gets.
+    """
+    if not engine.capabilities.has("script_override"):
+        # NOT a silent no-op and not a fallback to unbinding the number. An engine that
+        # cannot change what an agent says cannot deliver the founder's decision at all,
+        # and the honest report of that is a count the caller alerts on.
+        return InboundCutover(silenced=0, restored=0, unchanged=0, failed=0, unsupported=True)
+
+    rows = (await session.execute(text(_ANSWERING_AGENTS_SQL))).all()
+    silenced = restored = unchanged = failed = 0
+    for row in rows:
+        agent_id, ref, already = row[0], str(row[1]), row[8] is not None
+        if already == exhausted:
+            unchanged += 1
+            continue
+        try:
+            if exhausted:
+                await engine.override_call_script(
+                    ref,
+                    opening_line=credit_stop_greeting(_posture_of_row(row)),
+                    system_prompt=credit_stop_prompt(),
+                )
+                await _stamp_inbound_silence(session, agent_id=agent_id, silenced=True)
+                silenced += 1
+            else:
+                # `publish_agent` clears the stamp itself through `_settle_inbound_credit_
+                # state` below, so there is no second writer of the column here.
+                await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
+                restored += 1
+        except Exception as exc:
+            failed += 1
+            alert(
+                "CORE_LOGIC",
+                "inbound_credit_cutover_failed",
+                detail=(
+                    "the voice platform was not told what this agent should say, so an "
+                    "incoming call on its number reaches "
+                    + (
+                        "an ordinary agent this client has no credit to pay for"
+                        if exhausted
+                        else "a message telling the caller we cannot take their call, "
+                        "even though the client has topped up"
+                    )
+                    + f". Refusal: {exc.__class__.__name__}."
+                ),
+                tenant_id=str(tenant_id),
+                agent_id=str(agent_id),
+            )
+    log.info(
+        "inbound_credit_cutover",
+        extra={
+            "tenant_id": str(tenant_id),
+            "exhausted": exhausted,
+            "silenced": silenced,
+            "restored": restored,
+            "unchanged": unchanged,
+            "failed": failed,
+        },
+    )
+    return InboundCutover(silenced=silenced, restored=restored, unchanged=unchanged, failed=failed)
+
+
+async def _settle_inbound_credit_state(
+    session: AsyncSession,
+    engine: VoiceEngine,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    ref: str,
+    answers: bool,
+) -> None:
+    """The last act of every publish: leave this agent saying the right thing for the
+    account it belongs to.
+
+    ═══ WHY IT IS HERE, IN `publish_agent`, AND NOT ONLY IN THE RECONCILER ═══
+
+    Eleven call sites republish an agent — a voice change, a cap change, a prompt rollback,
+    a script apply, the maintenance window's own restore — and every one of them writes the
+    agent's REAL script to the engine. Each is therefore an undo of the cutover, performed
+    by an author who could not see it: a client with no credit whose agent is republished
+    for any reason at all would quietly go back to taking bookings we are not being paid
+    for, and nothing would look wrong on any screen. Putting the re-application at the one
+    statement that ends a publish makes "an agent without credit does not do business" a
+    property of publishing rather than a rule eleven callers have to remember. It is
+    exactly the argument `publish_agent`'s maintenance guard makes one page up, and this is
+    the same class of defect on the way out.
+
+    A VENDOR FAILURE HERE DOES NOT FAIL THE PUBLISH, for `route_inbound_numbers`' reason:
+    the agent itself is already published and verified, this is a separate engine fact, and
+    raising would make an unrelated console action fail on an account that has merely run
+    out of money. The stamp is not written, so the next reconciliation pass retries it.
+    """
+    # Imported at call time: `compliance.service` imports THIS module at import time, so a
+    # module-level import here is a cycle. `workers/maintenance._restore_scripts` takes the
+    # same escape for the same reason.
+    from apps.api.compliance.service import credits_exhausted
+
+    if not answers:
+        # An outbound-only agent has no caller to hear anything. Clear any stamp it is
+        # carrying — it answered inbound when it was silenced and does not now — so the
+        # column never claims something about an agent nobody can ring.
+        await _stamp_inbound_silence(session, agent_id=agent_id, silenced=False)
+        return
+    if not await credits_exhausted(session, tenant_id=tenant_id):
+        await _stamp_inbound_silence(session, agent_id=agent_id, silenced=False)
+        return
+    if not engine.capabilities.has("script_override"):
+        return
+    try:
+        posture = await _disclosure_posture_of(session, agent_id=agent_id)
+        await engine.override_call_script(
+            ref,
+            opening_line=credit_stop_greeting(posture),
+            system_prompt=credit_stop_prompt(),
+        )
+    except Exception as exc:
+        alert(
+            "CORE_LOGIC",
+            "inbound_credit_cutover_failed",
+            detail=(
+                "an agent was republished for a client with no calling credit and the "
+                "voice platform did not take the message that should replace its script, "
+                "so it is back to taking calls this client cannot pay for. Refusal: "
+                f"{exc.__class__.__name__}."
+            ),
+            tenant_id=str(tenant_id),
+            agent_id=str(agent_id),
+        )
+        return
+    await _stamp_inbound_silence(session, agent_id=agent_id, silenced=True)
+
+
+async def _disclosure_posture_of(session: AsyncSession, *, agent_id: UUID) -> DisclosurePosture:
+    """The three sentences and their switches, for one agent. Read back rather than carried
+    down from `publish_agent`'s config, because what the caller must still hear is what the
+    ROW says (D-163's toggles), and the config object models the same fact one composition
+    step later."""
+    row = (
+        await session.execute(
+            text(
+                "SELECT id, engine_agent_ref, ai_disclosure_line, ai_disclosure_enabled, "
+                "recording_notice_line, recording_notice_enabled, "
+                "caller_memory_notice_line, caller_memory_enabled FROM agents "
+                "WHERE id = :aid"
+            ),
+            {"aid": agent_id},
+        )
+    ).first()
+    if row is None:  # pragma: no cover - the caller holds the row lock on it
+        raise ProblemError.not_found("Agent")
+    return _posture_of_row(row)
+
+
 async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> str:
     """Create or update the agent on the engine, VERIFY it, then record the mapping.
 
@@ -1551,12 +1941,23 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     # routing row so the two engine-side facts about this agent — who it is, and which
     # numbers it answers — are written in one transaction's worth of intent; it cannot fail
     # the publish (see the function) because the agent itself is already verified live.
+    answers_inbound = agent_answers_inbound(agent["direction"])
     await route_inbound_numbers(
+        session, engine, agent_id=agent_id, ref=ref, answers=answers_inbound
+    )
+    # AND THE LAST WORD ON WHAT IT SAYS (8 Sep 2026). A publish writes the agent's REAL
+    # script, which for a client whose calling credit has run out is an undo of the
+    # cutover performed by whichever of this function's eleven callers happened to run.
+    # See `_settle_inbound_credit_state` for why the re-application belongs here and not
+    # in the reconciler alone. AFTER `route_inbound_numbers`, because an agent that is not
+    # bound to a number has nothing to be silent on.
+    await _settle_inbound_credit_state(
         session,
         engine,
+        tenant_id=tenant_id,
         agent_id=agent_id,
         ref=ref,
-        answers=agent_answers_inbound(agent["direction"]),
+        answers=answers_inbound,
     )
     await republish_running_variants(session, tenant_id=tenant_id, agent_id=agent_id)
     log.info(
@@ -2510,12 +2911,16 @@ async def set_number_engine_ref(
 
 
 __all__ = [
+    "CREDIT_STOP_MESSAGE",
     "DIAL_NOT_PLACED_CODES",
     "UNCONFIRMED_ENGINE_CALL_PREFIX",
     "ArmToPublish",
     "DialUnconfirmedError",
+    "InboundCutover",
     "InboundRouting",
     "agent_outbound_number_blocker",
+    "credit_stop_greeting",
+    "credit_stop_prompt",
     "dial_was_not_placed",
     "dispatch_call",
     "effective_call_cap",
@@ -2523,6 +2928,7 @@ __all__ = [
     "publish_agent",
     "publish_variant",
     "publish_variants",
+    "reconcile_inbound_answering",
     "republish_running_variants",
     "resolve_caller_id",
     "route_inbound_numbers",

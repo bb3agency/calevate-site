@@ -40,10 +40,9 @@ from apps.api.billing.list_rates import (
     self_serve_rate_at,
 )
 from apps.api.billing.rates import VOICE_TIERS
-from apps.api.core.settings import Settings
 from apps.api.db.session import untenanted_session
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import create_async_engine
+from tests.conftest import purge_platform_list_rates
 
 LEGACY_RATE = Decimal("5.0000")
 
@@ -62,38 +61,15 @@ async def _admin() -> UUID:
 
 
 async def _purge() -> None:
-    """Remove every row this suite wrote, as the OWNER — the only role that can, because
-    the table is append-only ON PURPOSE (hard rule 4).
+    """The owner-role purge, from `tests/conftest.purge_platform_list_rates`.
 
-    `platform_list_rates` is GLOBAL, not tenant-scoped, so a row left behind changes what
-    every other suite's `self_serve_rate_at` and `card_at` resolve — the contamination
-    `tests/self_serve_list_rate_test.py` documents at length. `ENABLE TRIGGER` is not the
-    inverse of `DISABLE` (plain ENABLE demotes an `ENABLE ALWAYS` trigger to ORIGIN), so
-    each trigger's mode is read first and put back verbatim: the trap
-    `platform_secrets_test` documents and two other suites already reuse.
+    ⚠ **THIS USED TO BE A SECOND COPY OF IT AND IS NOW AN ALIAS.** The two had already
+    drifted apart once in a way that mattered — only one of them knew about
+    `platform_list_rate_cancellations` — and two answers to "leave this shared table as you
+    found it" is exactly the defect class CLAUDE.md names (one way per problem). The name
+    survives because three suites import it.
     """
-    owner_url = Settings().alembic_database_url
-    assert owner_url, "ALEMBIC_DATABASE_URL required: platform_list_rates is append-only"
-    engine = create_async_engine(owner_url)
-    try:
-        async with engine.begin() as conn:
-            modes = (
-                await conn.execute(
-                    text(
-                        "SELECT tgname, tgenabled FROM pg_trigger "
-                        "WHERE tgrelid = 'platform_list_rates'::regclass AND NOT tgisinternal"
-                    )
-                )
-            ).all()
-            await conn.execute(text("ALTER TABLE platform_list_rates DISABLE TRIGGER USER"))
-            await conn.execute(text("DELETE FROM platform_list_rates"))
-            for name, mode in modes:
-                verb = {"A": "ENABLE ALWAYS", "R": "ENABLE REPLICA", "D": "DISABLE"}.get(
-                    str(mode), "ENABLE"
-                )
-                await conn.execute(text(f'ALTER TABLE platform_list_rates {verb} TRIGGER "{name}"'))
-    finally:
-        await engine.dispose()
+    await purge_platform_list_rates()
 
 
 @pytest.fixture(autouse=True)

@@ -1287,7 +1287,8 @@
               "lead_blocked",
               "delivery_failed",
               "campaign_stalled",
-              "kb_rejected"
+              "kb_rejected",
+              "inbound_stopped"
             ],
             "title": "Kind",
             "type": "string"
@@ -5299,6 +5300,16 @@
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "List Rate Inr Per Min",
             "type": "string"
+          },
+          "next_change": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RateCardChangeOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "packs": {
             "items": {
@@ -14287,6 +14298,29 @@
         "title": "PeRegistrationOut",
         "type": "object"
       },
+      "PendingCardOut": {
+        "additionalProperties": false,
+        "description": "A card that has been recorded and has NOT taken effect yet.\n\n`cells` is what will be in force on the day rather than the rows this card happens to\ncarry \u2014 `list_rates.PendingCard` resolves it AT that instant, so carry-forward and the\nper-cell catalogue fallback are already applied and the operator reads the card the\nplatform will actually price with.",
+        "properties": {
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/RateCardCellOut"
+            },
+            "title": "Cells",
+            "type": "array"
+          },
+          "effective_from": {
+            "title": "Effective From",
+            "type": "string"
+          }
+        },
+        "required": [
+          "effective_from",
+          "cells"
+        ],
+        "title": "PendingCardOut",
+        "type": "object"
+      },
       "PendingChangeOut": {
         "additionalProperties": false,
         "properties": {
@@ -15684,6 +15718,84 @@
         "title": "QaSampleOut",
         "type": "object"
       },
+      "RateCardCancelIn": {
+        "additionalProperties": false,
+        "properties": {
+          "effective_from": {
+            "format": "date-time",
+            "title": "Effective From",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "effective_from",
+          "reason"
+        ],
+        "title": "RateCardCancelIn",
+        "type": "object"
+      },
+      "RateCardCancelOut": {
+        "additionalProperties": false,
+        "properties": {
+          "cancelled": {
+            "title": "Cancelled",
+            "type": "boolean"
+          },
+          "effective_from": {
+            "title": "Effective From",
+            "type": "string"
+          }
+        },
+        "required": [
+          "effective_from",
+          "cancelled"
+        ],
+        "title": "RateCardCancelOut",
+        "type": "object"
+      },
+      "RateCardCellIn": {
+        "additionalProperties": false,
+        "description": "One posted cell: a pack rung, a voice, and the \u20b9/min to sell that minute at.\n\n**MONEY ARRIVES AS AN EXACT DECIMAL STRING** (hard rule 7, which does not stop at the\ndatabase). A JSON number is an IEEE double before Pydantic ever sees it, so `4.85`\nreaches the process as 4.8499999999999996447 and a rate card would be published from a\nvalue nobody typed. `mode=\"before\"` is what makes that refusable \u2014 by the time the\nfield is coerced the damage is done and both spellings look identical.",
+        "properties": {
+          "inr_per_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              }
+            ],
+            "title": "Inr Per Min"
+          },
+          "pack_id": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Pack Id",
+            "type": "string"
+          },
+          "voice_tier": {
+            "maxLength": 32,
+            "minLength": 1,
+            "title": "Voice Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pack_id",
+          "voice_tier",
+          "inr_per_min"
+        ],
+        "title": "RateCardCellIn",
+        "type": "object"
+      },
       "RateCardCellOut": {
         "additionalProperties": false,
         "description": "One rung on one voice: what we sell it at, what it costs us, and the verdict.\n\nEVERY FIGURE IS A DECIMAL STRING (hard rule 7) and every verdict is the SERVER's. The\nconsole derives no arithmetic \u2014 `gross_margin_pct` is computed here from\n`rates.gross_margin_ratio`, the one definition of the word, so the panel, the write-path\npreview and CI's own pack guard cannot report three margins for one cell.",
@@ -15746,6 +15858,62 @@
         "title": "RateCardCellOut",
         "type": "object"
       },
+      "RateCardChangeOut": {
+        "additionalProperties": false,
+        "description": "A card that has been recorded and starts on a date that has not arrived.\n\n**IT DOES NOT REPRICE ANYTHING TODAY**, and the field it hangs off says so: `packs` is\nwhat a top-up made ON OR AFTER `effective_from` will freeze onto its lot, and credit\nbought before then keeps the rates it was bought at for as long as it lasts (Terms \u00a76.1;\n`credit_lots` is what makes that structural rather than a policy).",
+        "properties": {
+          "effective_from": {
+            "title": "Effective From",
+            "type": "string"
+          },
+          "packs": {
+            "items": {
+              "$ref": "#/components/schemas/CreditPackOut"
+            },
+            "title": "Packs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "effective_from",
+          "packs"
+        ],
+        "title": "RateCardChangeOut",
+        "type": "object"
+      },
+      "RateCardIn": {
+        "additionalProperties": false,
+        "description": "A whole card and the date it starts. Twelve cells, exactly \u2014 no partial edits.\n\n**THE CARD IS POSTED WHOLE BECAUSE IT IS JUDGED WHOLE.** `credit_packs.card_refusals`\nscores a rate against its voice's cost floor AND against the rung either side of it\n(invariant 6: a bigger pack never buys a dearer minute), so a one-cell PATCH could only\never be validated against eleven cells read back from somewhere else \u2014 which is a\nread-then-write on money, and the shape BACKEND-PATTERNS \u00a74 refuses. The console sends\nwhat it is showing.",
+        "properties": {
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/RateCardCellIn"
+            },
+            "maxItems": 64,
+            "minItems": 1,
+            "title": "Cells",
+            "type": "array"
+          },
+          "effective_from": {
+            "format": "date-time",
+            "title": "Effective From",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "effective_from",
+          "reason",
+          "cells"
+        ],
+        "title": "RateCardIn",
+        "type": "object"
+      },
       "RateCardOut": {
         "additionalProperties": false,
         "properties": {
@@ -15755,6 +15923,10 @@
             },
             "title": "Cells",
             "type": "array"
+          },
+          "earliest_effective_from": {
+            "title": "Earliest Effective From",
+            "type": "string"
           },
           "effective_from": {
             "anyOf": [
@@ -15767,6 +15939,21 @@
             ],
             "title": "Effective From"
           },
+          "notice_days": {
+            "title": "Notice Days",
+            "type": "integer"
+          },
+          "notice_recipients": {
+            "title": "Notice Recipients",
+            "type": "integer"
+          },
+          "pending": {
+            "items": {
+              "$ref": "#/components/schemas/PendingCardOut"
+            },
+            "title": "Pending",
+            "type": "array"
+          },
           "target_gross_margin_pct": {
             "title": "Target Gross Margin Pct",
             "type": "string"
@@ -15775,9 +15962,40 @@
         "required": [
           "effective_from",
           "target_gross_margin_pct",
-          "cells"
+          "cells",
+          "pending",
+          "notice_days",
+          "earliest_effective_from",
+          "notice_recipients"
         ],
         "title": "RateCardOut",
+        "type": "object"
+      },
+      "RateCardWriteOut": {
+        "additionalProperties": false,
+        "properties": {
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/RateCardCellOut"
+            },
+            "title": "Cells",
+            "type": "array"
+          },
+          "clients_notified": {
+            "title": "Clients Notified",
+            "type": "boolean"
+          },
+          "effective_from": {
+            "title": "Effective From",
+            "type": "string"
+          }
+        },
+        "required": [
+          "effective_from",
+          "cells",
+          "clients_notified"
+        ],
+        "title": "RateCardWriteOut",
         "type": "object"
       },
       "ReadinessRowOut": {
@@ -37384,7 +37602,7 @@
     },
     "/v1/ops/rate-card": {
       "get": {
-        "description": "Twelve cells \u2014 six pack rungs on each of the two voice qualities \u2014 each with the rate a client is sold, the per-minute cost that rate carries, the gross margin the server strikes between them, and two verdicts: below the margin TARGET (a warning; the approved card is deliberately thin on the cheaper voice) and below COST (a refusal; the card cannot be recorded at all). It is a READ. The card is a committed constant in this build, so there is no cell to write here \u2014 changing a rate is a code change that CI scores with these same functions.",
+        "description": "Twelve cells \u2014 six pack rungs on each of the two voice qualities \u2014 each with the rate a client is sold, the per-minute cost that rate carries, the gross margin the server strikes between them, and two verdicts: below the margin TARGET (a warning; the approved card is deliberately thin on the cheaper voice) and below COST (a refusal; the card cannot be recorded at all). It also carries every card already recorded whose date has not arrived (`pending`), the notice period in days, the soonest date this deployment would accept right now, and how many clients a new card would be announced to. Writing one is `POST` on this same path; a card is written whole and takes effect on its own date.",
         "operationId": "read_rate_card_v1_ops_rate_card_get",
         "responses": {
           "200": {
@@ -37405,6 +37623,118 @@
           }
         },
         "summary": "The credit-pack card in force: every rung, both voices, with the server's margin",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      },
+      "post": {
+        "description": "Publishes a whole twelve-cell card \u2014 six pack rungs on each of the two voice qualities \u2014 to take effect on a date at least 30 days out. Requires `X-Confirm-Action: record_rate_card:<effective_from>`. Rates are exact decimal strings, never JSON numbers. The write is refused if the date is sooner than the notice period (a price CUT included), if any cell is below its voice's per-minute cost floor, if a bigger pack would buy a dearer minute, if a cell is missing or sent twice, or if a card is already scheduled at that instant. Nothing changes until the date: credit already bought keeps the rates it was bought at, because every purchase freezes its rates onto its own lot.",
+        "operationId": "record_rate_card_v1_ops_rate_card_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RateCardIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardWriteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record a future rate card (step-up confirmed, audited, clients notified)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/rate-card/cancellations": {
+      "post": {
+        "description": "Records that a card recorded earlier will never take effect. Requires `X-Confirm-Action: cancel_rate_card:<effective_from>`. It is a POST and not a DELETE because nothing is deleted: rate history is append-only, so the withdrawal is its own row and both facts \u2014 what was scheduled, and that it was withdrawn \u2014 stay readable. Only a card whose date is still in the future may be withdrawn; one already in force has priced purchases, and unwinding it would restate lots that are already frozen.",
+        "operationId": "cancel_rate_card_v1_ops_rate_card_cancellations_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RateCardCancelIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardCancelOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Withdraw a scheduled rate card before it takes effect (step-up confirmed)",
         "tags": [
           "ops"
         ],

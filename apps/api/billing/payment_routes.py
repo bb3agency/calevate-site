@@ -70,14 +70,15 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
 from apps.api.billing.credit_packs import (
-    PACK_CATALOGUE,
     CreditPack,
     pack_by_id,
     pack_talk_time_minutes,
 )
+from apps.api.billing.list_rates import card_at, card_with_rates, pending_cards
 from apps.api.billing.payments import (
     CREDIT_EVENTS,
     NOTES_PACK_KEY,
@@ -116,6 +117,7 @@ from apps.api.compliance.audit import write_audit
 from apps.api.core.alerting import alert
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
+from apps.api.core.deps import global_db
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
@@ -157,6 +159,10 @@ refund_router = APIRouter(prefix="/v1/admin/tenants/{tenant_id}/refunds", tags=[
 
 # Annotated dependency rather than `Depends()` in a default: this file is not
 # `routes.py`, so it is not covered by the B008 per-file ignore.
+#: The session the rate card is read on. `global_db` and not a tenant session, because
+#: `platform_list_rates` carries no `tenant_id` (it is one published price for the whole
+#: self-serve motion) and the PUBLIC route has no tenant to scope to in the first place.
+RateCardSession = Annotated[AsyncSession, Depends(global_db)]
 TopUpWrite = Annotated[Principal, Depends(requires("org:manage", realm="client"))]
 # The READ is a genuinely different permission, never the write's reused: D-22 forbids a
 # GET requiring `org:manage`, and `billing:read` is what the surrounding usage screen
@@ -334,6 +340,23 @@ class CreditPackOut(Strict):
     best_value: bool
 
 
+class RateCardChangeOut(Strict):
+    """A card that has been recorded and starts on a date that has not arrived.
+
+    **IT DOES NOT REPRICE ANYTHING TODAY**, and the field it hangs off says so: `packs` is
+    what a top-up made ON OR AFTER `effective_from` will freeze onto its lot, and credit
+    bought before then keeps the rates it was bought at for as long as it lasts (Terms §6.1;
+    `credit_lots` is what makes that structural rather than a policy).
+    """
+
+    #: The instant the new rates start, ISO-8601 with an offset. The console renders it in
+    #: IST like every other instant it shows.
+    effective_from: str
+    #: The whole ladder as it will stand — the same rows as `packs`, priced from the
+    #: scheduled card, so a console can diff the two without arithmetic of its own.
+    packs: list[CreditPackOut]
+
+
 class CreditPacksOut(Strict):
     """The pack rate card: six packs, each with a Sarvam and a Cartesia ₹/min.
 
@@ -371,6 +394,13 @@ class CreditPacksOut(Strict):
     #: The same for the voice the `cartesia_*` rates price ("Studio").
     cartesia_tier_label: str
     packs: list[CreditPackOut]
+    #: The next SCHEDULED change to these rates, or `null` when none is (the ordinary
+    #: state). A client whose next top-up will cost more can see it here before the day
+    #: arrives — which is the whole point of the thirty-day notice period the ops console
+    #: enforces (`billing/list_rates.CARD_NOTICE_DAYS`). Only the SOONEST is published: a
+    #: client planning a top-up needs to know what changes next, and a ladder of future
+    #: cards is an operator's view, not theirs.
+    next_change: RateCardChangeOut | None = None
 
 
 class WebhookAck(Strict):
@@ -493,15 +523,24 @@ def _pack_out(pack: CreditPack) -> CreditPackOut:
         "`talk_time_minutes` are DEPRECATED (D-547) and go next release."
     ),
 )
-async def read_credit_packs(_principal: TopUpRead) -> CreditPacksOut:
-    """The rate card, straight off the static catalogue — the same rates a purchase will
-    freeze on its lot, so what a client is shown is what they get. No tenant state is read;
-    the catalogue is the same for everyone — which is why the public route below answers
-    with the identical body."""
-    return rate_card_out()
+async def read_credit_packs(session: RateCardSession, _principal: TopUpRead) -> CreditPacksOut:
+    """The rate card IN FORCE, and the next change to it if one is scheduled.
+
+    ⚠ **THIS USED TO READ THE STATIC CATALOGUE, AND READING IT WOULD NOW BE A LIE (D-550).**
+    The card became operator-editable and effective-dated: `billing/service.rate_card_at` is
+    what a purchase freezes onto its lot, and it resolves the DATED card. A screen rendered
+    from the constant would quote a rate the very next top-up does not charge — the exact
+    "what a client is shown is what they get" promise this docstring was making. The
+    catalogue survives as the per-cell fallback inside `card_at`, which is why a deployment
+    that has never recorded a card sees no change at all.
+
+    No tenant state is read: the card is the same for everyone, which is why the public
+    route below still answers with the identical body from the same builder.
+    """
+    return await rate_card_out(session)
 
 
-def rate_card_out() -> CreditPacksOut:
+async def rate_card_out(session: AsyncSession) -> CreditPacksOut:
     """THE ONE PLACE THE RATE CARD IS PRICED FOR A READER. Both the authenticated `/packs`
     read and the public `/v1/public/rate-card` read call this, so the two surfaces cannot
     disagree about a rate, and `tests/public_rate_card_test.py` pins every row against
@@ -514,8 +553,18 @@ def rate_card_out() -> CreditPacksOut:
 
     The two "from" figures are minima over the priced rows rather than over the catalogue,
     so a rate that quantization moved is the rate the site leads with.
+
+    **ASYNC AND SESSION-TAKING SINCE D-550**, because the rates are no longer a constant:
+    the card in force is resolved from `platform_list_rates` at this instant, and the
+    SOONEST scheduled card — if there is one — is published beside it so a client can see a
+    rise before the day it lands. Both come from one function each
+    (`list_rates.card_at`, `list_rates.pending_cards`), which is what stops this route and
+    the ops console being two opinions about what a minute will cost.
     """
-    packs = [_pack_out(pack) for pack in PACK_CATALOGUE]
+    now = datetime.now(UTC)
+    in_force = card_with_rates(await card_at(session, at=now))
+    scheduled = await pending_cards(session, at=now)
+    packs = [_pack_out(pack) for pack in in_force]
     from_sarvam = min(pack.sarvam_inr_per_min for pack in packs)
     return CreditPacksOut(
         list_rate_inr_per_min=packs[0].sarvam_inr_per_min,
@@ -530,6 +579,17 @@ def rate_card_out() -> CreditPacksOut:
         sarvam_tier_label=voice_tier_label("sarvam"),
         cartesia_tier_label=voice_tier_label("cartesia"),
         packs=packs,
+        # ONLY THE SOONEST. An operator may have several cards on the books; a client
+        # planning a top-up needs to know what changes NEXT, and a ladder of future prices
+        # on a buy screen is an operator's view rather than theirs.
+        next_change=(
+            None
+            if not scheduled
+            else RateCardChangeOut(
+                effective_from=scheduled[0].effective_from.isoformat(),
+                packs=[_pack_out(pack) for pack in card_with_rates(scheduled[0].cells)],
+            )
+        ),
     )
 
 
@@ -545,13 +605,18 @@ def rate_card_out() -> CreditPacksOut:
         "`/v1/billing/topups/packs`. Nothing about the caller is read or returned."
     ),
 )
-async def read_public_rate_card(response: Response) -> CreditPacksOut:
+async def read_public_rate_card(response: Response, session: RateCardSession) -> CreditPacksOut:
     """No principal, no tenant, no permission — deliberately, and declared as such in
-    `check_public_routes.UNAUTHENTICATED_ROUTES`. Reads one code constant (it used to read
-    a live setting too, until D-547 made the whole card static); writes nothing; logs
-    nothing (there is nothing about the caller to log)."""
+    `check_public_routes.UNAUTHENTICATED_ROUTES`. Reads the published card and the next
+    scheduled change (two indexed reads of a platform table with no `tenant_id`); writes
+    nothing; logs nothing (there is nothing about the caller to log).
+
+    ⚠ **IT READS THE DATABASE AGAIN SINCE D-550**, which the 60-second cache window was
+    re-argued for above. The alternative — leaving the world's copy of the ladder on the
+    static catalogue while the console can move it — is a marketing page quoting a price the
+    product will not sell at, which is the one thing a public rate card must never do."""
     response.headers["Cache-Control"] = RATE_CARD_CACHE_CONTROL
-    return rate_card_out()
+    return await rate_card_out(session)
 
 
 @router.post(

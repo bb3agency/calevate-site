@@ -62,7 +62,8 @@ Money is NUMERIC INR throughout (hard rule 7): every value in and out of here is
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from dataclasses import dataclass, replace
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Final
 from uuid import UUID
@@ -78,9 +79,32 @@ from apps.api.core.settings import get_settings
 #: two are related by a constant rather than by a matching pair of string literals.
 SELF_SERVE_PER_MIN = "self_serve_inr_per_min"
 
+#: THE ONE CLAUSE THAT MAKES A CANCELLATION REAL, spliced into every resolution query in
+#: this module (and into the ops console's "when was the card in force dated" read).
+#:
+#: An operator who schedules a card and then thinks better of it cannot UPDATE or DELETE the
+#: rows: `platform_list_rates` carries `calevate_forbid_mutation` and hard rule 4 has no
+#: exception for a change of mind. The compensating entry is a row in
+#: `platform_list_rate_cancellations` naming the INSTANT that is withdrawn, and this clause
+#: is what makes every reader honour it.
+#:
+#: **WHY A SECOND TABLE AND NOT "RE-RECORD THE OLD CARD JUST AFTER THE NEW ONE".** That is
+#: the shape a pure append-only store suggests, and it leaves a hole: the primary key is
+#: `(rate_key, effective_from)`, so the restoring card cannot share the withdrawn card's
+#: instant and has to land at least one microsecond after it. For that microsecond
+#: `card_at` answers the card that was supposed to never take effect, and a purchase landing
+#: inside it freezes rates nobody approved — a window too small to hit on purpose and too
+#: real to write down as safe. A cancellation is therefore recorded as its own fact, which
+#: also keeps the rate history intact: what was scheduled, and that it was withdrawn, both
+#: stay readable.
+_NOT_CANCELLED = (
+    " AND NOT EXISTS (SELECT 1 FROM platform_list_rate_cancellations c "
+    "WHERE c.effective_from = platform_list_rates.effective_from)"
+)
+
 _RATE_AT = (
     "SELECT inr_amount FROM platform_list_rates "
-    "WHERE rate_key = :key AND effective_from <= :at "
+    "WHERE rate_key = :key AND effective_from <= :at" + _NOT_CANCELLED + " "
     "ORDER BY effective_from DESC LIMIT 1"
 )
 
@@ -210,23 +234,71 @@ def _parse_pack_rate_key(rate_key: str) -> tuple[str, VoiceTier] | None:
 
 _CARD_AT = (
     "SELECT DISTINCT ON (rate_key) rate_key, inr_amount FROM platform_list_rates "
-    "WHERE rate_key LIKE :prefix AND effective_from <= :at "
+    "WHERE rate_key LIKE :prefix AND effective_from <= :at" + _NOT_CANCELLED + " "
     "ORDER BY rate_key, effective_from DESC"
 )
 
 _NOW = "SELECT clock_timestamp()"
+
+#: Every card instant still ahead of `:at` that nobody has withdrawn, soonest first.
+#: `DISTINCT` because a card is twelve rows sharing one instant and what is being listed is
+#: the CARD. Bounded by `PENDING_CARD_LIMIT` at the query rather than in Python: a scheduled
+#: card is minted only by a step-up-confirmed operator write, so the list is short by
+#: construction, and a ceiling in the statement is the one that cannot be forgotten.
+_PENDING_CARDS = (
+    "SELECT DISTINCT effective_from FROM platform_list_rates "
+    "WHERE rate_key LIKE :prefix AND effective_from > :at" + _NOT_CANCELLED + " "
+    "ORDER BY effective_from LIMIT :limit"
+)
+
+#: Does this instant name a card at all? Asked before a cancellation is written, so that
+#: withdrawing something nobody scheduled is a sentence rather than a silent success.
+_CARD_EXISTS = (
+    "SELECT 1 FROM platform_list_rates WHERE rate_key LIKE :prefix AND effective_from = :at LIMIT 1"
+)
+
+#: `INSERT ... SELECT ... WHERE` rather than `VALUES`, so the "still in the future" half of
+#: the rule is decided by the DATABASE's clock inside the same statement. The caller checks
+#: it too and with a better sentence; this is the copy no second writer can route around,
+#: and it costs nothing.
+_CANCEL = (
+    "INSERT INTO platform_list_rate_cancellations (effective_from, cancelled_by, reason) "
+    "SELECT :at, :by, :reason WHERE CAST(:at AS timestamptz) > now() "
+    "ON CONFLICT (effective_from) DO NOTHING RETURNING effective_from"
+)
 
 
 async def record_card(
     session: AsyncSession,
     *,
     card: Sequence[CreditPack] = PACK_CATALOGUE,
+    effective_from: datetime | None = None,
     self_serve_inr_per_min: Decimal,
     recorded_by: UUID,
     note: str,
 ) -> datetime:
     """Append a whole card — every (pack, voice) rate plus `SELF_SERVE_PER_MIN` — at ONE
     instant, on the caller's transaction. Returns the `effective_from` it stamped.
+
+    **`effective_from` MAY BE IN THE FUTURE, AND THAT IS WHAT MAKES A PRICE CHANGE A
+    NOTICE RATHER THAN AN AMBUSH.** It used to be `clock_timestamp()` and nothing else, so
+    every card came into force the instant Save was pressed. A dated card changes NOTHING
+    until its date: `card_at` resolves the greatest `effective_from` at or before the
+    instant asked about, so a card dated a month out is invisible to every reader —
+    including `service.rate_card_at`, the one door a lot opener uses — until that month has
+    passed. Omitted, the statement clock is read once and bound to every row, which is the
+    behaviour every existing caller keeps.
+
+    The instant must be timezone-aware for `card_at`'s reason: it lands in a `timestamptz`
+    and is compared against one, and a naive value would be read in the process's local
+    timezone — a UTC container would schedule a change an IST laptop dates differently.
+
+    **THE NOTICE PERIOD IS NOT ENFORCED HERE** (`notice_refusal` is where it lives, and the
+    ops route is what runs it). This function is also what re-dates the card ALREADY in
+    force when an unrelated platform setting moves (`ops/config_routes._record_card`), and
+    that write is not a price change to give notice of — a floor inside the writer would
+    refuse it, or would have to learn to tell the two apart, which is a policy question the
+    writer has no way to answer.
 
     **ONE INSTANT FOR THE WHOLE CARD, AND THAT IS THE REASON THIS IS NOT TWELVE CALLS TO
     `record_list_rate`.** That function stamps `clock_timestamp()` per statement, which is
@@ -248,7 +320,13 @@ async def record_card(
     # `scalar_one()` is typed `Any` by SQLAlchemy, so the instant is bound to a declared
     # `datetime` here rather than returned straight through — mypy is strict and a
     # timestamp that reached a caller as `Any` is a timestamp nothing checks.
-    at: datetime = (await session.execute(text(_NOW))).scalar_one()
+    if effective_from is not None and effective_from.tzinfo is None:
+        raise ValueError("a card is dated at an aware instant (timestamptz or UTC-aware)")
+    at: datetime = (
+        effective_from
+        if effective_from is not None
+        else (await session.execute(text(_NOW))).scalar_one()
+    )
     rows = [
         {
             "key": pack_rate_key(pack.pack_id, voice),
@@ -316,11 +394,217 @@ async def card_at(
     }
 
 
+# --- scheduling a card: the notice period, and withdrawing one -----------------------
+#
+# WHY THE CARD MAY BE EDITED AT ALL, AND WHY THAT IS SAFE. Terms §6.1 promises that a later
+# card change does not reprice credit a client already holds, and `credit_lots` makes that
+# true BY CONSTRUCTION rather than by anybody remembering it: a purchase freezes its two
+# ₹/min figures onto the lot it opens (`service.rate_card_at` reads the card in force at the
+# instant the money arrives, once), and every minute is then debited against the lot it is
+# spent from. So a card recorded today can only ever price a purchase made after it takes
+# effect. That property is what makes an editable card defensible at all — without it an
+# operator's Save would silently restate the value of credit somebody had already paid for.
+
+#: How far ahead of the write a new card must be dated. THIRTY DAYS, ALWAYS, INCLUDING A
+#: PRICE CUT (founder's decision, 8 Sep 2026 — D-550).
+#:
+#: The reasoning is predictability rather than fairness. A client planning a campaign budget
+#: needs to know that the rate they were quoted this morning is the rate they can still buy
+#: at for a month; a rule with an exception for cuts is a rule an operator has to reason
+#: about under time pressure, and "is this really a cut for every client on every pack and
+#: every voice?" is exactly the question a twelve-cell card makes hard to answer correctly.
+#: One number, no exceptions, no judgement call at the console.
+#:
+#: THIRTY DAYS is the common notice norm for SaaS list-price changes — long enough that a
+#: client sees a change land in a monthly planning cycle before it prices anything, short
+#: enough that we are not quoting a rate we no longer want to sell for a quarter. Deliberately
+#: NOT cited to a particular vendor's policy: what is defensible is that notice periods in
+#: this class cluster at 30 days for monthly-cycle products and stretch further for annual
+#: commitments, and our cycle is a prepaid top-up a client makes when they choose to. No
+#: vendor page was read for this figure (hard rule 11), and none is cited as if it had been.
+CARD_NOTICE_DAYS: Final = 30
+
+#: How many scheduled cards one console read will list. A pending card can only be minted by
+#: a step-up-confirmed operator write, so this is a sanity ceiling and not a page size —
+#: there is no cursor, because a card ladder read one page at a time is the thing an operator
+#: must not be able to do (`check_list_bounds`' entry for the read says the same).
+PENDING_CARD_LIMIT: Final = 24
+
+
+def notice_refusal(effective_from: datetime, *, now: datetime) -> str | None:
+    """Why this date may not be used, or None when it may. The 30-day floor, in one place.
+
+    A FUNCTION RATHER THAN AN `if` IN THE ROUTE because it is the rule a test reverts to see
+    go red, and because `card_refusals` set the shape: a refusal is a SENTENCE an operator
+    can act on, containing the date they asked for and the earliest one they may have.
+
+    Both instants must be aware (`card_at`'s reason). The comparison is a strict `<`: a card
+    dated exactly thirty days out is accepted, because a floor nobody can land on exactly is
+    a floor that reads as thirty-one days to everyone who tries.
+    """
+    if effective_from.tzinfo is None or now.tzinfo is None:
+        raise ValueError("a card is dated at an aware instant (timestamptz or UTC-aware)")
+    earliest = now + timedelta(days=CARD_NOTICE_DAYS)
+    if effective_from < earliest:
+        return (
+            f"a new rate card takes effect no sooner than {CARD_NOTICE_DAYS} days after it "
+            f"is recorded, so the earliest date this card can start is "
+            f"{earliest.isoformat()} — you asked for {effective_from.isoformat()}. This "
+            "holds for a price CUT too: clients are told what a minute will cost them a "
+            "month before it changes, in either direction."
+        )
+    return None
+
+
+def card_with_rates(cells: Mapping[str, Mapping[VoiceTier, Decimal]]) -> tuple[CreditPack, ...]:
+    """The pack ladder priced at `cells` — the catalogue's rungs, somebody else's rates.
+
+    THE BRIDGE BETWEEN A CARD AS RATES AND A CARD AS PACKS. `card_at` answers rates, and
+    every guard that judges a card (`credit_packs.card_refusals`, `card_margins`) takes
+    `CreditPack`s, because what makes a rate refusable is its relation to the pack's
+    `amount_inr` — which is NOT in `platform_list_rates` and never will be: this table dates
+    ₹/min cells, and what a pack COSTS is the catalogue's own fact (`service.RateCard` takes
+    the same reading, and only the two together make the per-cell fallback mean anything).
+
+    A pack the mapping does not price keeps its catalogue rate, for `card_at`'s reason: the
+    only other reading silently drops a rung, and a dropped rung is a purchase nobody can
+    price. `dataclasses.replace` rather than a constructor call so a field added to
+    `CreditPack` — `best_value` was added after this ladder was first written — travels
+    without this function learning about it.
+    """
+    return tuple(
+        replace(
+            pack,
+            sarvam_inr_per_min=cells.get(pack.pack_id, {}).get("sarvam", pack.sarvam_inr_per_min),
+            cartesia_inr_per_min=cells.get(pack.pack_id, {}).get(
+                "cartesia", pack.cartesia_inr_per_min
+            ),
+        )
+        for pack in PACK_CATALOGUE
+    )
+
+
+def card_list_rate(card: Sequence[CreditPack]) -> Decimal:
+    """What `SELF_SERVE_PER_MIN` holds for this card: the entry rung's Sarvam rate.
+
+    "The list rate" has meant the cheapest pack's cheaper voice since D-547 — it is what
+    `payment_routes.CreditPacksOut.list_rate_inr_per_min` publishes and what the marketing
+    site leads with — so a card that moves that cell moves the list rate with it. Derived
+    from the card rather than taken as a second argument, because the two coming apart is
+    how `self_serve_rate_at` would answer a rate the card never sold.
+    """
+    return min(card, key=lambda pack: pack.amount_inr).sarvam_inr_per_min
+
+
+@dataclass(frozen=True, slots=True)
+class PendingCard:
+    """A card that has been recorded and has not taken effect yet.
+
+    `cells` is what will be IN FORCE on the day — `card_at` resolved AT that instant, not
+    the twelve rows this card happens to carry. The difference matters for a card recorded
+    by an older build, or one that omits a rung: what an operator needs to see is the card
+    the platform will actually price with, carry-forward and catalogue fallback included.
+    """
+
+    effective_from: datetime
+    cells: Mapping[str, Mapping[VoiceTier, Decimal]]
+
+
+async def pending_cards(session: AsyncSession, *, at: datetime) -> tuple[PendingCard, ...]:
+    """Every card dated after `at` that nobody has withdrawn, soonest first.
+
+    What an ops console lists so a card can be cancelled, and what a client console reads to
+    say "your rates change on the 12th" before the day arrives. Withdrawn cards are absent
+    rather than flagged: a cancelled card prices nothing, ever, so listing it as a change
+    that is coming would be false.
+    """
+    if at.tzinfo is None:
+        raise ValueError("a card is resolved at an aware instant (timestamptz or UTC-aware)")
+    rows = await session.execute(
+        text(_PENDING_CARDS),
+        {"prefix": f"{PACK_RATE_KEY_PREFIX}:%", "at": at, "limit": PENDING_CARD_LIMIT},
+    )
+    instants = [row[0] for row in rows]
+    # A list built in a loop rather than a generator: `card_at` is awaited per instant and
+    # an async comprehension is not a `tuple()` argument.
+    scheduled = []
+    for instant in instants:
+        scheduled.append(
+            PendingCard(effective_from=instant, cells=await card_at(session, at=instant))
+        )
+    return tuple(scheduled)
+
+
+async def cancel_card(
+    session: AsyncSession, *, effective_from: datetime, cancelled_by: UUID, reason: str
+) -> bool:
+    """Withdraw a card that has not taken effect. True if this call withdrew it.
+
+    **THIS IS A COMPENSATING ENTRY, NOT AN EDIT** (hard rule 4). Nothing is updated and
+    nothing is deleted: `platform_list_rates` keeps every row it was given, and a row in
+    `platform_list_rate_cancellations` records that the instant they share was withdrawn,
+    by whom and why. The rate history therefore still answers "what was scheduled, and did
+    it happen" — which a DELETE would erase and which is the question an operator asks after
+    a pricing mistake.
+
+    **ONLY WHILE IT IS STILL IN THE FUTURE, and the caller enforces that** — the route
+    refuses a past instant with a sentence, because cancelling a card already in force would
+    retroactively reprice every lot opened since it started, which is the one thing this
+    whole module exists to prevent. Verified here as well, cheaply, so no second writer can
+    reach past it: a `effective_from <= now()` cancellation is refused by the database's own
+    clock rather than by the caller's.
+
+    Idempotent (`ON CONFLICT DO NOTHING`): a double-clicked Cancel withdraws one card once
+    and reports the second press as the no-op it was, exactly as `_record_card` treats a
+    double-clicked Save. So False means "this call wrote nothing" — the card was already
+    withdrawn, or its instant has passed since the caller looked — never "no such card",
+    which `card_is_scheduled` is the question for.
+    """
+    if effective_from.tzinfo is None:
+        raise ValueError("a card is dated at an aware instant (timestamptz or UTC-aware)")
+    # `RETURNING` rather than `rowcount`: SQLAlchemy types the latter loosely enough that
+    # a bool derived from it reaches mypy as `Any`, and "did this write happen" is exactly
+    # the answer that must not be untyped.
+    written = (
+        await session.execute(
+            text(_CANCEL), {"at": effective_from, "by": cancelled_by, "reason": reason}
+        )
+    ).first()
+    return written is not None
+
+
+async def card_is_scheduled(session: AsyncSession, *, effective_from: datetime) -> bool:
+    """Is there a card at this exact instant? Asked before withdrawing one.
+
+    An instant that names no card is an operator typing a date by hand, or a console holding
+    a stale list — and answering "cancelled" to it would be a cheerful lie about a card that
+    never existed (`revert_config` makes the same refusal for the same reason).
+    """
+    if effective_from.tzinfo is None:
+        raise ValueError("a card is dated at an aware instant (timestamptz or UTC-aware)")
+    row = (
+        await session.execute(
+            text(_CARD_EXISTS),
+            {"prefix": f"{PACK_RATE_KEY_PREFIX}:%", "at": effective_from},
+        )
+    ).first()
+    return row is not None
+
+
 __all__ = [
+    "CARD_NOTICE_DAYS",
     "PACK_RATE_KEY_PREFIX",
+    "PENDING_CARD_LIMIT",
     "SELF_SERVE_PER_MIN",
+    "PendingCard",
+    "cancel_card",
     "card_at",
+    "card_is_scheduled",
+    "card_list_rate",
+    "card_with_rates",
+    "notice_refusal",
     "pack_rate_key",
+    "pending_cards",
     "record_card",
     "record_list_rate",
     "self_serve_rate_at",

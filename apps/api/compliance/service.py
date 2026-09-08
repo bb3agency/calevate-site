@@ -406,11 +406,26 @@ async def credits_exhausted(session: AsyncSession, *, tenant_id: UUID) -> bool:
     compliance alias here would have left every `prepaid` tenant — i.e. nearly all of
     them — dialling on an empty wallet, which is the defect D-521 was raised to fix.
 
-    **INBOUND SURVIVES A ZERO BALANCE AND MUST GO ON DOING SO.** This predicate is
-    reached only from `check_dispatch` — which refuses an inbound-only agent with
-    `agent_inbound_only` before it asks any money question — and from the campaign launch
-    and dispatch gates, which are outbound by construction. A clinic whose phone stops
-    being answered because a top-up lapsed is a clinic that leaves.
+    ⚠ **"INBOUND SURVIVES A ZERO BALANCE AND MUST GO ON DOING SO" IS WITHDRAWN, AND THIS
+    DOCSTRING USED TO SAY IT.** The founder reversed it on 8 Sep 2026, and the sentence it
+    rested on — "a clinic whose phone stops being answered because a top-up lapsed is a
+    clinic that leaves" — turned out to be an argument for a state nobody could pay for:
+    inbound passed through no gate AND `workers/pipeline.py` debited every answered minute
+    anyway, so the wallet went unboundedly negative and we absorbed it. Answering for free
+    was never the alternative on offer.
+
+    **WHAT THIS PREDICATE NOW DECIDES, AND WHAT IT STILL DOES NOT.** It is still reached
+    from `check_dispatch` (which refuses an inbound-only agent with `agent_inbound_only`
+    before it asks any money question) and from the campaign launch and dispatch gates. It
+    is ALSO now the question `agents.service.reconcile_inbound_answering` asks before it
+    tells the engine what an answering agent should say, and the question
+    `workers/pipeline.py` asks before it debits an inbound call. It does not gate an
+    inbound call itself, because nothing of ours is reached before the vendor answers one:
+    the enforcement is durable state at the engine, applied on the edge.
+
+    ONE DEFINITION, ASKED BY EVERY SURFACE. That is what makes the phone, the wallet, the
+    dial gate, the admin health board and the client's own credits screen incapable of
+    disagreeing about whether this account has run out.
     """
     tier = await plan_tier_of(session, tenant_id)
     if tier not in PREPAID_TIERS:

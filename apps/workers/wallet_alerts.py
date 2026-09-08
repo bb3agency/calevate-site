@@ -1,10 +1,20 @@
 """Telling an owner their calling credit is running out — BEFORE the calls stop.
 
-The founder's decision of 2 Sep 2026, in one sentence: warn early in the dashboard AND by
-email, stop OUTBOUND dialling at zero, and keep ANSWERING the phone whatever the balance
-is. This module is the email half. The dashboard half is `billing/wallet_routes.py`, and
-the stopping is `compliance.service.credits_exhausted` — which this job does not call,
-does not re-derive and cannot influence. Nothing here gates a call.
+⚠ **THE DECISION THIS MODULE WAS BUILT ON WAS REVERSED ON 8 SEP 2026, AND THIS LINE USED
+TO STATE THE OLD ONE** — "warn early in the dashboard AND by email, stop OUTBOUND dialling
+at zero, and keep ANSWERING the phone whatever the balance is" (2 Sep 2026). Answering was
+never free: inbound passed through no gate AND `workers/pipeline.py` debited every answered
+minute, so the wallet went unboundedly negative and we absorbed it. At zero or below the
+agents now stop doing business and the caller hears one short neutral line instead
+(`agents.service.CREDIT_STOP_MESSAGE`, `workers/inbound_cutover.py`).
+
+**WHAT THAT MAKES THIS MODULE.** It is no longer a courtesy: it is the NOTICE the founder's
+decision rests on — "the client has been told before anything changes", at ₹250 and again
+at ₹150 — so a warning that misdescribes what is about to happen defeats the decision
+rather than merely reading oddly. This module is the email half. The dashboard half is
+`billing/wallet_routes.py`, and the stopping is `compliance.service.credits_exhausted` —
+which this job does not call, does not re-derive and cannot influence. Nothing here gates
+a call.
 
 **WHY THERE IS NO CRON AND NO "ALREADY WARNED" TABLE.**
 
@@ -77,14 +87,14 @@ SUBJECT = {
 }
 
 HEADING = {
-    WALLET_LEVEL_EMPTY: "Outgoing calls have stopped",
+    WALLET_LEVEL_EMPTY: "Your calls have stopped",
     WALLET_LEVEL_LOW: "Your calling credit is running low",
 }
 
 PREHEADER = {
-    WALLET_LEVEL_EMPTY: "People calling you still get through. Add credit to start "
-    "making calls again.",
-    WALLET_LEVEL_LOW: "Add credit before your outgoing calls stop.",
+    WALLET_LEVEL_EMPTY: "Your agents have stopped answering. Add credit to start taking "
+    "calls again.",
+    WALLET_LEVEL_LOW: "Add credit before your calls stop.",
 }
 
 
@@ -123,12 +133,19 @@ def compose(
 ) -> str:
     """The email body, in a business owner's words.
 
-    **THE FIRST SENTENCE OF THE EMPTY-WALLET MAIL IS THE ONE THAT MATTERS**, and it is the
-    reassurance rather than the warning: a clinic owner who reads "your credit has run out"
-    on a phone at 8pm concludes their phone has stopped being answered, and that is the
-    single most expensive wrong belief this product can create. It has not — the founder's
-    decision is that inbound is never stopped by a wallet — so the mail says so before it
-    says anything else.
+    ⚠ **THE FIRST SENTENCE OF THE EMPTY-WALLET MAIL IS STILL THE ONE THAT MATTERS, AND IT
+    IS NOW THE OPPOSITE SENTENCE.** It used to be a reassurance — "people who call your
+    business still get through" — on the reasoning that a clinic owner reading "your credit
+    has run out" at 8pm would wrongly conclude their phone had stopped being answered. Since
+    8 Sep 2026 that conclusion is CORRECT, and a reassurance would be the most expensive
+    false statement this product can make: the owner would read it, do nothing, and their
+    callers would go on being turned away all night.
+
+    So the mail leads with what has actually happened, and then with the two things the
+    owner will be asked about within the hour — what their own customers hear (a short
+    apology that gives no reason and says nothing about their account, because a caller who
+    works out that the business has not paid is a harm we inflicted on our client) and that
+    topping up is the whole fix, with no support ticket and no waiting.
 
     Nothing here is a code, an identifier, or our vocabulary: no "tier", no "ledger", no
     "self_serve", no reason string, and no VENDOR name — a client reads "Clear" and
@@ -138,19 +155,22 @@ def compose(
     lines: list[str] = []
     if level == WALLET_LEVEL_EMPTY:
         lines += [
-            "People who call your business still get through — answering calls does not "
-            "use your credit, and it never stops.",
+            f"Your calling credit is now {money}, so your calls have stopped — both the "
+            "outgoing ones and the incoming ones your agents were answering.",
             "",
-            "What has stopped is your outgoing calls: your calling credit is now "
-            f"{money}, so campaigns and call-backs are paused until you add more.",
+            "People ringing you now hear a short apology asking them to try again later. "
+            "It gives no reason and says nothing about your account.",
+            "",
+            "Add credit and both start again straight away — there is nothing else to do "
+            "and nobody to call.",
         ]
     else:
         runway = _runway_sentence(minutes_left or ())
         lines += [
             f"Your calling credit is down to {money}.{runway}",
             "",
-            "When it reaches zero your outgoing calls stop. People calling you still get "
-            "through — answering calls does not use your credit.",
+            "When it reaches zero your calls stop — outgoing ones, and the incoming ones "
+            "your agents answer. Adding credit before then keeps the phone answered.",
         ]
     lines += [
         "",

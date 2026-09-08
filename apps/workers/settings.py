@@ -84,7 +84,7 @@ from apps.api.core.settings import (
     validate_bootstrap_env,
 )
 from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
-from apps.api.ops.pricing_snapshot import start_pricing_refresher
+from apps.api.ops.pricing_snapshot import start_pricing_refresher, stop_pricing_refresher
 from apps.workers.account_closure import notify_account_closed, sweep_due_erasures
 from apps.workers.action_audit import record_action_invocation
 from apps.workers.auth_email import deliver_auth_email
@@ -146,6 +146,10 @@ from apps.workers.pipeline import (
     run_post_call_pipeline,
 )
 from apps.workers.qa_sampling import draw_qa_samples
+from apps.workers.rate_card_notice import (
+    fan_out_rate_card_notice,
+    notify_rate_card_change,
+)
 from apps.workers.retention import (
     apply_retention,
     execute_deletion_request,
@@ -247,6 +251,14 @@ FUNCTIONS: list[Any] = [
         # stated failure ("a client whose phone stops being answered because a top-up
         # lapsed is a client who leaves"). `check_job_wiring` shape 3.
         notify_low_balance,
+        # D-547 EDITABLE RATE CARD. Enqueued through the OUTBOX in the same transaction as
+        # the `platform_list_rates` card it announces, so an unregistered name here is the
+        # `check_job_wiring` shape 3 failure with a PRICE behind it: the outbox marks the
+        # row published, arq drops the job, and every prepaid client silently learns their
+        # new per-minute rate from their first invoice under it. The fan-out reads the
+        # client list; the child sends one notice.
+        fan_out_rate_card_notice,
+        notify_rate_card_change,
         # D-534. The upload lane's one job: read a client's document into text, approve it
         # if its submitter could, and publish it to the voice platform. Enqueued through
         # the OUTBOX in the same transaction as the `kb_uploads` row, so an unregistered
@@ -1013,6 +1025,12 @@ async def shutdown(ctx: dict[str, Any]) -> None:
     # reads like a real one.
     with suppress(Exception):
         await stop_fx_refresher()
+    # And the pricing poll, for the same reason and in the same breath: it holds a session
+    # too (`refresh_pricing_snapshot` reads `platform_model_prices`), and it was the one
+    # refresher in this fleet with no stop at all — so a worker shutting down cancelled two
+    # of its three background polls and left the third reading from a pool going away.
+    with suppress(Exception):
+        await stop_pricing_refresher()
     with suppress(Exception):
         await close_redis()
     with suppress(Exception):

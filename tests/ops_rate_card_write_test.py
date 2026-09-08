@@ -28,8 +28,8 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack
-from apps.api.billing.list_rates import SELF_SERVE_PER_MIN
+from apps.api.billing.credit_packs import PACK_CATALOGUE
+from apps.api.billing.list_rates import SELF_SERVE_PER_MIN, pack_rate_key
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import untenanted_session
 from apps.api.ops import config_routes
@@ -79,27 +79,39 @@ async def _card_rows() -> int:
         )
 
 
+async def _store_rate(admin: UUID, *, pack_id: str, voice: str, rate: str) -> None:
+    """Put ONE cell into the published history, at the beginning of time.
+
+    ⚠ **THIS REPLACED A `monkeypatch` OF `config_routes.PACK_CATALOGUE`, AND HAD TO (D-550).**
+    `_record_card` used to re-stamp the code constant, so patching it was the only way to
+    hand it a bad card. It now re-dates the card IN FORCE — resolved from this table — which
+    is the whole fix: an unrelated setting change can no longer silently revert an
+    operator's published rates. The consequence for this suite is that a bad card has to be
+    a bad card in the STORE, which is also the only way one can really exist: the write
+    route refuses one, so the row could only come from a direct write or an older build,
+    which is precisely the case a second gate at the write path exists for.
+    """
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO platform_list_rates "
+                "(rate_key, effective_from, inr_amount, recorded_by, source_note) "
+                "VALUES (:key, '2020-01-01T00:00:00+00', :amount, :by, 'seeded by a test')"
+            ),
+            {"key": pack_rate_key(pack_id, voice), "amount": Decimal(rate), "by": admin},
+        )
+
+
 async def test_a_card_that_sells_below_cost_is_refused_and_writes_nothing() -> None:
     """The veto. A ₹3.00 Sarvam rate is under the ₹4.1211 floor; the operator gets a
     problem+json naming the pack and the append-only history is untouched — which matters
     more than the refusal itself, because a card recorded in error cannot be edited out."""
     admin = await _admin()
+    await _store_rate(admin, pack_id="starter", voice="sarvam", rate="3.00")
     before = await _card_rows()
-    broken = (
-        CreditPack(
-            pack_id="starter",
-            amount_inr=Decimal("2000"),
-            sarvam_inr_per_min=Decimal("3.00"),
-            cartesia_inr_per_min=Decimal("8.00"),
-        ),
-    )
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(config_routes, "PACK_CATALOGUE", broken)
-        async with untenanted_session() as session:
-            with pytest.raises(ProblemError) as raised:
-                await config_routes._record_card(
-                    session, _save(), actor_id=admin, reason="a bad card"
-                )
+    async with untenanted_session() as session:
+        with pytest.raises(ProblemError) as raised:
+            await config_routes._record_card(session, _save(), actor_id=admin, reason="a bad card")
     assert raised.value.code == "rate_card_below_floor"
     assert "starter" in (raised.value.detail or "")
     assert "below cost" in (raised.value.detail or "")
@@ -111,27 +123,12 @@ async def test_a_card_that_breaks_invariant_6_is_refused() -> None:
     twice, and a Cartesia rate under its Sarvam rate sells the dearer voice cheaper. Both
     are refusals, not warnings: the card is wrong rather than thin."""
     admin = await _admin()
-    inverted = (
-        CreditPack(
-            pack_id="starter",
-            amount_inr=Decimal("2000"),
-            sarvam_inr_per_min=Decimal("5.00"),
-            cartesia_inr_per_min=Decimal("8.00"),
-        ),
-        CreditPack(
-            pack_id="max",
-            amount_inr=Decimal("50000"),
-            sarvam_inr_per_min=Decimal("5.50"),
-            cartesia_inr_per_min=Decimal("8.50"),
-        ),
-    )
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setattr(config_routes, "PACK_CATALOGUE", inverted)
-        async with untenanted_session() as session:
-            with pytest.raises(ProblemError) as raised:
-                await config_routes._record_card(
-                    session, _save(), actor_id=admin, reason="an inverted ladder"
-                )
+    await _store_rate(admin, pack_id="max", voice="sarvam", rate="5.50")
+    async with untenanted_session() as session:
+        with pytest.raises(ProblemError) as raised:
+            await config_routes._record_card(
+                session, _save(), actor_id=admin, reason="an inverted ladder"
+            )
     assert "invariant 6" in (raised.value.detail or "")
 
 

@@ -104,13 +104,30 @@ async def test_an_unmapped_rule_appears_without_its_wire_name() -> None:
     assert detail.strip(), "an item with no explanation is worse than the raw name"
 
 
-def test_the_empty_wallet_message_says_inbound_still_works() -> None:
-    """D-521 made prepaid the default, so this is the sentence nearly every client
-    eventually reads — and the obvious reading of "your calling credit ran out" is "my
-    phone line is dead". Answering an inbound call never touches the wallet, so the
-    reassurance leads."""
+def test_the_empty_wallet_message_says_inbound_has_stopped_too() -> None:
+    """⚠ **THIS TEST USED TO ASSERT THE OPPOSITE**, and it was right to until 8 Sep 2026:
+    it required the sentence to OPEN with "People calling you still get through", because
+    D-521 made prepaid the default and the obvious reading of "your calling credit ran out"
+    is "my phone line is dead".
+
+    The founder then made that reading true. At a balance of zero or below the agents stop
+    doing business and the caller hears a short neutral line
+    (`agents.service.CREDIT_STOP_MESSAGE`), because the alternative on offer was never
+    "answer for free" — inbound was metered against a wallet that could only get more
+    negative, with nothing bounding it. So the reassurance is gone, and what replaces it is
+    the thing a client will actually be asked about within the hour: what their own
+    customers hear, and that it says nothing about their account.
+
+    The "Top up" clause survives every rewrite. A refusal with no next action is the one
+    shape this whole module exists to prevent.
+    """
     remedy = BLOCK_REMEDIES["no_credits"]
-    assert remedy.startswith("People calling you still get through"), remedy
+    assert "still get through" not in remedy, remedy
+    assert "no longer answering incoming ones" in remedy, remedy
+    assert "gives no reason" in remedy, (
+        "the client is not told what their callers hear, which is the first thing they "
+        "will be asked and the only answer that protects their reputation"
+    )
     assert "Top up" in remedy, "it must still say what to do"
 
 

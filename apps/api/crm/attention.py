@@ -55,26 +55,37 @@ BLOCK_REMEDIES: dict[str, str] = {
     "dnc": "This person asked not to be called. Nothing to do — we will not dial them.",
     "calling_hours": "Outside 9am to 9pm. We will try again in the next window.",
     "spend_cap": "Your monthly cap is reached. Raise it with your account manager to resume.",
-    # ⚠ THE INBOUND SENTENCE IS LOAD-BEARING AND IS WHY THIS LINE IS TWO SENTENCES.
-    # D-521 made prepaid the default, so this is now the message nearly every client
-    # eventually sees, and the obvious reading of "your calling credit ran out" is "my
-    # phone line is dead" — which for a clinic is a reason to leave, over a lapsed
-    # top-up. A low balance never BLOCKS an incoming call (`check_dispatch` is
-    # outbound-only), so the reassurance goes FIRST.
+    # ⚠ **THE INBOUND SENTENCE IS REVERSED AS OF 8 SEP 2026, AND THIS ENTRY USED TO SAY
+    # THE OPPOSITE.** It read "People calling you still get through — a low balance never
+    # blocks an incoming call, though answering one does use credit like any other", which
+    # was true of the code that day and is now false in the direction that matters most: a
+    # client would read it, do nothing, and their phone would be turning callers away.
     #
-    # ⚠ IT DOES NOT SAY ANSWERING IS FREE, AND IT USED TO. The old sentence read
-    # "answering calls never uses your credit", which conflated not-gated with
-    # not-charged: `charge_for_call` takes minutes and a voice tier and NO direction,
-    # and `workers/pipeline.py` says so in its own words — "the gate is outbound-only,
-    # so inbound still meters". An inbound minute is debited like any other. Telling a
-    # client otherwise is a false statement about money on the one screen they check
-    # when they are worried about money.
-    # The client console carries the same two facts in the same order; a client must not
-    # get two accounts of one event on two screens.
+    # The founder's decision: at a balance of zero or below the agents stop answering and
+    # the caller hears a short neutral message
+    # (`agents.service.CREDIT_STOP_MESSAGE`). So this is now the most consequential
+    # sentence on the screen, and it leads with the consequence rather than a reassurance
+    # that no longer holds.
+    #
+    # IT SAYS WHAT THE CALLER HEARS, AND IT SAYS WHAT WE DO NOT TELL THEM. A client whose
+    # phone has gone quiet will assume the worst — that their customers got a dead line, or
+    # were told the business has not paid — and both of those would be OUR reputational
+    # damage to their name. The one sentence that answers it is that the message gives no
+    # reason, so it is here, in the client's own words, on the screen they check first.
+    #
+    # AND IT SAYS THAT TOPPING UP IS ENOUGH. There is no support ticket, no republish and
+    # no human in the loop: the top-up itself brings the phone back
+    # (`billing.service.record_entry` → `workers/inbound_cutover.py`). A client who does
+    # not know that will ring us at 9pm, and the answer is one they should never have
+    # needed to ask for.
+    #
+    # The client console carries the same facts in the same order; a client must not get
+    # two accounts of one event on two screens.
     "no_credits": (
-        "People calling you still get through — a low balance never blocks an incoming "
-        "call, though answering one does use credit like any other. Your credit ran out, "
-        "so we have stopped making outgoing calls. Top up to start them again."
+        "Your credit ran out, so we have stopped making outgoing calls and your agents "
+        "are no longer answering incoming ones — callers hear a short apology that gives "
+        "no reason and says nothing about your account. Top up and both start again "
+        "straight away."
     ),
     "no_form_consent": "The form did not confirm permission to call. Add the consent "
     "checkbox to your form, or call them yourself.",
@@ -435,8 +446,70 @@ async def knowledge_waiting(
     )
 
 
+#: What the client is told when their agents have stopped answering, and the ONE action
+#: that undoes it. Split out of `BLOCK_REMEDIES` because that map answers "why was this
+#: DIAL refused" and this answers "why is my phone quiet" — the same cause, two different
+#: questions, and a client with no outbound traffic at all never sees the first one.
+INBOUND_STOPPED_DETAIL = (
+    "Your calling credit ran out, so this agent is not answering incoming calls. Callers "
+    "hear a short apology that gives no reason and says nothing about your account. Top "
+    "up and it starts answering again straight away."
+)
+
+
+async def inbound_stopped(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> AttentionSource:
+    """Agents that have stopped answering their number because the wallet is empty.
+
+    **THE ONE SOURCE THAT IS NOT WINDOWED, AND THAT IS THE POINT.** Every other source here
+    is a fortnight of history, because a blocked dial from last month is wallpaper. This
+    one is a LIVE STATE: the client's phone is not being answered as they read the screen,
+    and it will still not be answered tomorrow. Ageing it out would take the row away while
+    the silence continued, which is the failure this queue exists to prevent.
+
+    **READ OFF `agents.inbound_silenced_at`, NOT off the balance.** The column is what the
+    ENGINE was observed to hold (`agents/models.py` argues its shape), so this screen says
+    what a caller would actually hear rather than what our policy says they should — if a
+    vendor write failed and an agent is still answering normally, this row does not appear
+    and an operator has an alarm instead. The alternative — deriving it from
+    `credits_exhausted` — would render a confident "your phone is silent" over an agent
+    that is cheerfully taking bookings.
+
+    It disappears without anybody clearing it: the top-up republishes the agent and clears
+    the column in the same act (`workers/inbound_cutover.py`).
+    """
+    rows = (
+        await session.execute(
+            text(
+                "SELECT id, name, inbound_silenced_at, count(*) OVER () AS matching "
+                "FROM agents WHERE inbound_silenced_at IS NOT NULL AND status = 'live' "
+                "AND deleted_at IS NULL AND archived_at IS NULL "
+                "ORDER BY inbound_silenced_at DESC, id LIMIT :limit"
+            ),
+            {"limit": limit},
+        )
+    ).all()
+    return AttentionSource(
+        kind="inbound_stopped",
+        items=[
+            AttentionItem(
+                kind="inbound_stopped",
+                id=str(row[0]),
+                title=f"“{row[1]}” has stopped answering calls",
+                detail=INBOUND_STOPPED_DETAIL,
+                # The same machine name the dial gate refuses under, so a screen that
+                # groups by rule puts the two halves of one event together.
+                rule="no_credits",
+                occurred_at=row[2],
+                href="/credits",
+            )
+            for row in rows
+        ],
+        total=_matching(rows),
+    )
+
+
 async def attention_queue(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) -> dict[str, Any]:
-    """All four sources, newest first, with per-kind counts for the nav badge.
+    """All five sources, newest first, with per-kind counts for the nav badge.
 
     **A count and a page are different questions, and this answers both separately.**
     `counts`/`total` are how many things EXIST; `items` is the newest `limit` of them.
@@ -491,6 +564,7 @@ async def attention_queue(session: AsyncSession, *, limit: int = DEFAULT_LIMIT) 
         await failed_deliveries(session, limit=limit),
         await stalled_campaigns(session, limit=limit),
         await knowledge_waiting(session, limit=limit),
+        await inbound_stopped(session, limit=limit),
     ]
     items = sorted(
         (item for source in sources for item in source.items),

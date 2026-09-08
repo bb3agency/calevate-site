@@ -430,17 +430,29 @@ async def test_the_warning_carries_the_balance_as_digits_not_a_json_number() -> 
     assert Decimal(body["balance_inr"]) == Decimal("149.90")
 
 
-def test_the_warning_email_leads_with_the_reassurance_not_the_alarm() -> None:
-    """A clinic owner reading "your credit has run out" at 8pm concludes their phone has
-    stopped being answered. It has not, and the mail says so FIRST."""
+def test_the_warning_email_says_what_has_actually_stopped_and_what_callers_hear() -> None:
+    """⚠ **THIS TEST USED TO REQUIRE THE OPPOSITE FIRST SENTENCE.** It asserted that the
+    empty-wallet mail opened with the reassurance "people who call your business still get
+    through", because a clinic owner reading "your credit has run out" at 8pm would wrongly
+    conclude their phone had stopped being answered.
+
+    Since 8 Sep 2026 that conclusion is right, so the reassurance would be the most
+    expensive false statement this product can make — the owner reads it, does nothing, and
+    their callers are turned away all night. The mail now leads with what has happened and
+    then answers the question the owner will be asked within the hour: what their own
+    customers hear."""
     from apps.workers.wallet_alerts import compose
 
     body = compose(
         level=WALLET_LEVEL_EMPTY, balance_inr=Decimal("0"), minutes_left=(), slug="clinic"
     )
+    assert "still get through" not in body
     first = body.splitlines()[0]
-    assert "still get through" in first
-    assert body.index("still get through") < body.index("has stopped")
+    assert "your calls have stopped" in first.lower()
+    assert "incoming" in first
+    assert "gives no reason and says nothing about your account" in body, (
+        "the owner is not told what their callers hear, which is the reputational half"
+    )
     assert "/c/clinic/credits" in body
     # No internals vocabulary anywhere in a client-facing sentence.
     for banned in ("self_serve", "tenant", "ledger", "no_credits", "outbound_stopped"):

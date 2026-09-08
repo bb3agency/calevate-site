@@ -52,6 +52,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Mapping
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
@@ -272,10 +273,35 @@ def start_pricing_refresher() -> None:
     _refresher = asyncio.get_running_loop().create_task(_poll_forever())
 
 
+async def stop_pricing_refresher() -> None:
+    """Cancel the poll. For shutdown and for tests that must not leak a task.
+
+    `stop_fx_refresher`' shape, and it exists for the reason that one does: the two
+    other refreshers in this fleet (`platform_config`, `fx_rates`) can be stopped and
+    this one could not, so a worker shutting down cancelled two of its three background
+    polls and left the third running against a session factory being torn down under it.
+    One way per problem — a seam with a `start` and no `stop` is the half of the pair
+    that the next reader has to discover from a traceback.
+
+    The readers stay installed. Uninstalling them on shutdown would put the picker and
+    the billing seam back on their fallbacks for the remainder of the process's life,
+    which is the opposite of what a shutdown wants; `uninstall_pricing_readers` is the
+    door for a test that needs the un-installed state.
+    """
+    global _refresher
+    if _refresher is None:
+        return
+    _refresher.cancel()
+    with suppress(asyncio.CancelledError):
+        await _refresher
+    _refresher = None
+
+
 __all__ = [
     "PricingSnapshot",
     "install_pricing_readers",
     "refresh_pricing_snapshot",
     "start_pricing_refresher",
+    "stop_pricing_refresher",
     "uninstall_pricing_readers",
 ]

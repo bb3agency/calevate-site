@@ -86,3 +86,64 @@ def test_without_the_readers_an_attested_cartesia_price_is_invisible(_uninstalle
 
     voice_offer.install_tts_price_reader(lambda provider: provider in {"sarvam", "cartesia"})
     assert voice_offer.tts_price_is_billable("cartesia") is True
+
+
+async def test_the_pricing_poll_can_be_stopped() -> None:
+    """A started poll is cancellable and leaves no task behind.
+
+    `start_pricing_refresher` holds its task in a module global so the loop cannot be
+    garbage-collected mid-flight, which is also what makes a process that never stops it
+    leak one: the reference outlives the shutdown that was supposed to end it.
+    """
+    pricing_snapshot.start_pricing_refresher()
+    task = pricing_snapshot._refresher
+    assert task is not None and not task.done()
+
+    await pricing_snapshot.stop_pricing_refresher()
+
+    assert task.cancelled() or task.done()
+    assert pricing_snapshot._refresher is None
+    await pricing_snapshot.stop_pricing_refresher()
+
+
+def test_stopping_leaves_the_readers_installed() -> None:
+    """Shutdown must not put the billing seam back on its defaults.
+
+    `uninstall_pricing_readers` is a separate door for the same reason `close_redis` is
+    not `configure_redis(None)`: a process ending should stop DOING work, not start
+    answering money questions differently on the way out.
+    """
+    assert "uninstall_pricing_readers" not in _calls_in(pricing_snapshot.stop_pricing_refresher)
+
+
+def test_every_refresher_in_this_fleet_has_a_stop() -> None:
+    """The symmetry, pinned — because it was broken and nothing said so.
+
+    `platform_config` and `fx_rates` each shipped a `start_*_refresher` with a matching
+    `stop_*_refresher`; `pricing_snapshot` shipped only the start, so the worker's shutdown
+    cancelled two of its three background polls and left the third reading from a session
+    pool being torn down under it. A fourth refresher would repeat that silently, so the
+    rule is a test rather than a convention: any module exporting a start exports the stop.
+    """
+    from apps.api.core import platform_config
+    from apps.api.ops import fx_rates
+
+    for module in (platform_config, fx_rates, pricing_snapshot):
+        starts = {name for name in module.__all__ if name.startswith("start_")}
+        assert starts, f"{module.__name__} exports no refresher; this test is now aimed wrong"
+        for start in starts:
+            stop = start.replace("start_", "stop_", 1)
+            assert stop in module.__all__, (
+                f"{module.__name__} exports {start} with no {stop}: a background poll that "
+                "cannot be cancelled outlives the shutdown meant to end it and keeps "
+                "borrowing from a pool that is going away"
+            )
+
+
+def test_the_worker_stops_the_pricing_poll_at_shutdown() -> None:
+    assert "stop_pricing_refresher" in _calls_in(worker_settings.shutdown), (
+        "the worker starts the pricing poll and never cancels it: the task outlives the "
+        "session pool it reads through, and the failure it logs on the way out reads like "
+        "a real one"
+    )
+    assert worker_settings.stop_pricing_refresher is pricing_snapshot.stop_pricing_refresher

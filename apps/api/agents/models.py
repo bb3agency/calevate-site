@@ -333,6 +333,19 @@ class Agent(PKMixin, TimestampMixin, Base):
     # "rings somebody's personal mobile". Read by `agents/handoff.py::on_duty`, which is
     # the ONE place the destination for a publish is decided.
     handoff_enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # WHEN THE ENGINE WAS LAST OBSERVED HOLDING THE CREDIT-STOP MESSAGE for this agent
+    # (8 Sep 2026, migration d1a7f39c50be). NULL = it is saying its own words.
+    #
+    # A MIRROR OF THE ENGINE, LIKE `live_tts_voice`, AND NOT A POLICY FLAG. Whether an
+    # agent SHOULD be silent is derived — `compliance.service.credits_exhausted`, one
+    # predicate, no copy — so this column can never be the thing that disagrees with the
+    # wallet. It records only what the vendor was observed to take, which is what makes
+    # `agents.service.reconcile_inbound_answering` idempotent and free when there is
+    # nothing to do, and what stops a failed PATCH from being recorded as a success.
+    #
+    # A TIMESTAMP RATHER THAN A BOOLEAN because "since when" is the first question asked
+    # of a phone line that has gone quiet, by an operator and by the client's own console.
+    inbound_silenced_at: Mapped[datetime | None]
     # WHEN to hand over, in the client's own words, or NULL for the composed default
     # (`agents/handoff.HANDOFF_TRIGGER_DEFAULT`). A TOOL DESCRIPTION, not a prompt:
     # nothing written here reaches the system prompt, so nothing written here can touch
