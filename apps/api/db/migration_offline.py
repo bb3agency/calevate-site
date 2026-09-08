@@ -38,18 +38,28 @@ counterpart of `print` here; `emit_note` prefixes every line with `--` so what l
 SQL comment either way.
 
 WHAT THIS DOES NOT DO: it does not change one byte of online behaviour. Every function
-here is a pass-through when `context.is_offline_mode()` is false.
+here is a pass-through when the migration context is not rendering SQL.
 """
 
 from __future__ import annotations
 
 import sqlalchemy as sa
-from alembic import context, op
+from alembic import op
 
 
 def is_offline() -> bool:
-    """True when alembic is rendering SQL (`--sql`) rather than holding a connection."""
-    return context.is_offline_mode()
+    """True when alembic is rendering SQL (`--sql`) rather than holding a connection.
+
+    Read off the MIGRATION context rather than `alembic.context.is_offline_mode()`, and the
+    difference is not cosmetic: `alembic.context` is the ENVIRONMENT proxy, established only
+    by an `env.py` run, so asking it raises `NameError: the proxy object has not yet been
+    established` in the one other place these functions are executed — `Operations.context`
+    over a live connection, which is how `tests/disclosure_toggle_test.py` and
+    `tests/migration_reversibility_test.py` exercise hard rule 8's "reversible" against the
+    SQL that shipped. `MigrationContext.as_sql` is the same flag one layer down, is set on
+    both paths, and belongs to the context these operations are actually running in.
+    """
+    return bool(op.get_context().as_sql)
 
 
 def emit_note(note: str) -> None:
@@ -59,7 +69,7 @@ def emit_note(note: str) -> None:
     module docstring), and rather than `op.execute("-- ...")` because that appends a `;` and
     goes through the DDL compiler for something that is not DDL.
     """
-    if not context.is_offline_mode():
+    if not is_offline():
         return
     rendered = "\n".join(f"-- {line}" if line else "--" for line in note.splitlines())
     op.get_context().impl.static_output(rendered)
@@ -73,7 +83,7 @@ def probe_skipped_offline(note: str) -> bool:
     re-enforces it on the target database, because a reviewer of the emitted file has no
     other way to learn that a check they can see in the migration source was not performed.
     """
-    if not context.is_offline_mode():
+    if not is_offline():
         return False
     emit_note(note)
     return True
@@ -89,7 +99,7 @@ def execute_data_statement(statement: sa.TextClause, *, note: str) -> int | None
     operator log line rather than for a decision, so `None` is the honest answer and each
     caller prints `note` instead of a number it does not have.
     """
-    if not context.is_offline_mode():
+    if not is_offline():
         return op.get_bind().execute(statement).rowcount
     emit_note(note)
     op.execute(statement)
