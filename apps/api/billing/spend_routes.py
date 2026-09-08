@@ -145,6 +145,14 @@ _CHARS_PER_KCHAR = Decimal("1000")
 #: than a rounding decision — it turns `12345.0000` into `12345` and nothing else. It is
 #: spelled rather than `.normalize()`d because `normalize` renders `10000.0000` as `1E+4`,
 #: which is a true decimal and an unreadable one.
+#:
+#: THE ROUNDING MODE IS STATED AT THE CALL EVEN THOUGH THE ARGUMENT ABOVE SAYS IT CANNOT
+#: ROUND. "Exact for any integer count" is a property of today's writer, not of this line,
+#: and an unstated mode takes the process-global `decimal` context — which any library in
+#: the image may change, at any import, without touching this file. A formatter that
+#: silently becomes a rounding decision on somebody else's import is the failure
+#: `money_rounding_mode_test` exists to make impossible, so the mode is named rather than
+#: inherited.
 _WHOLE_CHAR = Decimal("1")
 
 
@@ -837,7 +845,7 @@ def _tts_plan_rows(
                     if attributed.unpriced_rows
                     else str(to_paise(fee.unused_inr(to_paise(attributed.inr))))
                 ),
-                chars=str(attributed.chars.quantize(_WHOLE_CHAR)),
+                chars=str(attributed.chars.quantize(_WHOLE_CHAR, rounding=rates.ROUNDING)),
                 inr_per_1k_chars=None if price is None else str(price.inr_per_1k_chars),
             )
         )

@@ -717,7 +717,7 @@ async def attest_model_price(
             code="model_price_invalid",
             title="That is not a valid price",
             detail=str(exc),
-            remediation='Send USD per million tokens as a decimal string, e.g. "0.15".',
+            remediation="Type USD per million tokens with a decimal point, like 0.15.",
         ) from None
 
     effective_from = payload.effective_from or datetime.now(UTC)
@@ -811,8 +811,8 @@ async def attest_voice_price(
             title="That is not a valid price",
             detail=str(exc),
             remediation=(
-                'Send rupees per 1,000 characters as a decimal string, e.g. "3.4496" — the '
-                "plan's committed spend divided by the characters it buys."
+                "Type rupees per 1,000 characters with a decimal point, like 3.4496 — "
+                "the plan's committed spend divided by the characters it buys."
             ),
         ) from None
 
@@ -928,7 +928,7 @@ async def attest_voice_plan_fee(
             title="That is not a valid plan fee",
             detail=str(exc),
             remediation=(
-                'Send the invoice total in rupees as a decimal string, e.g. "4312.00" — '
+                "Type the invoice total in rupees with a decimal point, like 4312.00 — "
                 "the whole month, to the paisa, not a per-character rate."
             ),
         ) from None

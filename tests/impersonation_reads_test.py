@@ -68,6 +68,13 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "impersonated session is a client dashboard, which has no screen showing what "
         "Calevate pays a vendor"
     ),
+    "/v1/ops/rate-card": (
+        "the twelve cells of the self-serve card with OUR cost floor and OUR margin beside "
+        "each rate (D-547) — the same class of fact as /v1/ops/model-prices, and the half a "
+        "client must never see. What they DO see is `GET /v1/public/rate-card`, which is "
+        "unauthenticated and carries the rates alone; an impersonated session is a client "
+        "dashboard and has no screen showing what a minute costs Calevate"
+    ),
     "/v1/ops/maintenance": (
         "the maintenance board (D-544) — the open window, what its drain is still waiting "
         "for, and the recent history. An OPS screen and not a client view: the numbers on "

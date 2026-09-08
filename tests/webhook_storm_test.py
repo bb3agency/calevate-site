@@ -145,13 +145,21 @@ HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
 STORM_WIDTH = 24
 HERD_WIDTH = 16
 
-# Statements one delivery may issue. Both branches cost three, which is why the totals
+# Statements one delivery may issue. Both branches cost four, which is why the totals
 # below are exact rather than ranged:
+#   both      — SELECT set_config('statement_timeout', ...) — the session's own bound
 #   accepted  — INSERT claim, INSERT forensic row, UPDATE claim to 'enqueued'
 #   duplicate — INSERT claim (0 rows), SELECT existing, UPDATE duplicate_count
 # (a duplicate that arrives after the first has COMMITTED is absorbed by the Redis fast
 # path and costs zero; that is a different test, in the ack-budget file.)
-STATEMENTS_PER_DELIVERY = 3
+#
+# IT WAS THREE UNTIL THE STATEMENT BOUND EXISTED, and the number moved deliberately rather
+# than being widened to make a red suite green. `untenanted_session` is the one factory
+# with no GUC statement to append the bound to (`db/session.py` says so at the call site),
+# so it costs a round trip of its own. What this file measures is unchanged: concurrency
+# must not buy the handler EXTRA round trips, so the total is still exactly N times a
+# fixed per-delivery cost, and a retry loop or a tenant lookup still fails it.
+STATEMENTS_PER_DELIVERY = 4
 
 # The infra tables the receiver is allowed to touch (hard rule 3: "no DB writes beyond
 # the minimal event row"). Anything else appearing under load is the regression this
@@ -378,6 +386,11 @@ def _assert_round_trip_budget(trips: _Trips, *, deliveries: int) -> None:
         + "\n".join(f"  {s[:120]}" for s in counted[: 3 * deliveries + 6])
     )
     for statement in counted:
+        # The session's own statement bound names no table, so it is not a table this rule
+        # is about — it is what stops one of the statements below running forever. Matching
+        # it against a table allowlist asked the wrong question of it.
+        if "set_config('statement_timeout'" in statement:
+            continue
         assert any(table in statement for table in ALLOWED_TABLES), (
             f"the ack path touched something outside the minimal event row: {statement[:160]}"
         )

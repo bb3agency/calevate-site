@@ -189,11 +189,29 @@ async def test_the_accepted_path_spends_three_db_round_trips_and_two_redis_ops(
     assert response.status_code == 202
     assert response.json()["status"] == "accepted"
 
-    assert len(trips.statements) == 3, "the ack path grew a database round trip:\n" + "\n".join(
+    # FOUR, AND THE FIRST IS A BOUND RATHER THAN A QUERY. `untenanted_session` is the one
+    # factory with no GUC statement to append to, so its `statement_timeout` costs a round
+    # trip of its own (`db/session.py` says so at the call site). It was three until that
+    # bound existed, and the number moved deliberately: this file's argument is that a
+    # fourth statement is a fourth NETWORK ROUND TRIP on every live call, and that is still
+    # true — what changed is that we are buying something with it. An unbounded query on
+    # this session pins the connection, the worker slot and the request for as long as
+    # Postgres feels like taking, on the one service whose premise is that it never stalls;
+    # a sub-millisecond localhost round trip against a 500ms budget is the cheaper of the
+    # two risks, and §2 above is this file's own argument for bounding the wait.
+    #
+    # The pin is not merely loosened by one. `kinds` below still refuses a fourth statement
+    # of any other shape — the "tenant lookup added just to log the org" this file was
+    # written to catch is a SELECT and would fail here exactly as before.
+    assert len(trips.statements) == 4, "the ack path grew a database round trip:\n" + "\n".join(
         f"  {i + 1}. {s[:160]}" for i, s in enumerate(trips.statements)
     )
     kinds = [s.split(" ", 1)[0].upper() for s in trips.statements]
-    assert kinds == ["INSERT", "INSERT", "UPDATE"], kinds
+    assert kinds == ["SELECT", "INSERT", "INSERT", "UPDATE"], kinds
+    assert "set_config('statement_timeout'" in trips.statements[0], (
+        "the one SELECT on this path is the session's statement bound, not a read: "
+        f"{trips.statements[0][:160]}"
+    )
     assert trips.redis_ops == ["get", "set"], trips.redis_ops
     assert trips.enqueues == [webhook_routes.INGEST_JOB]
 
@@ -202,8 +220,17 @@ async def test_the_accepted_path_spends_three_db_round_trips_and_two_redis_ops(
     # reads half that is just as load-bearing: a tenant lookup is a round trip AND a
     # coupling to the tenancy module).
     joined = " ".join(trips.statements).lower()
-    assert "set_config" not in joined, "the receiver must not set a tenant GUC"
-    assert "select" not in joined, "the receiver must not read anything on the ack path"
+    # The `app.` prefix is the point, not `set_config` itself: every GUC this system uses to
+    # enter an RLS context is `app.something` (`db/session.py`), while `statement_timeout` is
+    # a Postgres bound that names no tenant and grants no access. Testing for the function
+    # rather than the namespace made "the receiver resolves a tenant" and "the receiver
+    # bounds its own statement" the same failure.
+    assert "set_config('app." not in joined, "the receiver must not set a tenant GUC"
+    # A READ is a statement that names a table after FROM. The bound above is spelled as a
+    # SELECT because that is how Postgres spells a GUC set; it reads no table, so a bare
+    # substring test conflated "reads a table" with "bounds itself" and had only one
+    # verdict for both.
+    assert " from " not in f" {joined} ", "the receiver must not read anything on the ack path"
     for tenant_table in ("calls", "leads", "agents", "organizations", "engine_agent_routes"):
         assert f" {tenant_table} " not in joined, f"the ack path touched {tenant_table}"
 

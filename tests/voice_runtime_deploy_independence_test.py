@@ -199,6 +199,19 @@ async def test_the_whole_schema_surface_of_this_deployable_is_two_infra_tables()
         "a service that verifies the migration head cannot survive a staged deploy, which "
         "is the exact window it would refuse to serve in"
     )
-    assert " select " not in f" {joined} ", (
-        "the ack path reads nothing; a read is a column whose shape `api` owns"
+    # THE ACK PATH READS NOTHING, and "a read" is a column whose shape `api` owns. The check
+    # is per-statement rather than a substring of the whole drive because the session
+    # bootstrap now issues `SELECT set_config('statement_timeout', ..., true)` — Postgres
+    # spells a transaction-local GUC set as a SELECT, and it touches no table, no column and
+    # nobody's release schedule. A bare substring test read that as a read and would have
+    # forced this deployable to choose between an unbounded statement and this guarantee.
+    # The `named` assertion above is what actually catches a table read: any real one names
+    # its table after FROM.
+    reads = [
+        statement
+        for statement in statements
+        if statement.lower().lstrip().startswith("select") and " from " in f" {statement.lower()} "
+    ]
+    assert not reads, (
+        f"the ack path reads nothing; a read is a column whose shape `api` owns — got {reads}"
     )
