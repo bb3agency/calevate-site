@@ -1291,6 +1291,18 @@ async def record_topup(
             reason="topup",
             ref=ref,
             meta=meta,
+            # A PAYMENT CANNOT BE REFUSED FOR INSUFFICIENT CREDIT, and it was.
+            # `record_entry` refuses any entry that leaves the balance below zero
+            # REGARDLESS OF THE DELTA'S SIGN, so recording a ₹100 bank transfer against a
+            # wallet at minus ₹500 raised `insufficient_credits` — "This account does not have
+            # enough credit for that" — about money that had already arrived, on the one
+            # act that makes the shortfall smaller. An operator was told the client was
+            # short of credit as the reason they could not record the client paying.
+            #
+            # A positive delta cannot make a balance worse, so the guard protects nothing
+            # here; it exists for the debit path, where it is the whole point. The two
+            # sibling credit-adding routes (an adjustment, a restatement) already say this.
+            allow_negative=True,
         )
         written = await _find_topup(scoped, tenant_id=tenant_id, ref=ref)
         assert written is not None, "the row was inserted in this transaction"
