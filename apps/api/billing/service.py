@@ -53,7 +53,7 @@ from apps.api.billing.caps import (
     read_spend_counters,
 )
 from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_by_id
-from apps.api.billing.list_rates import self_serve_rate_at
+from apps.api.billing.list_rates import card_at, self_serve_rate_at
 from apps.api.billing.models import (
     AI_ASSIST_UNIT_TYPES,
     GRANTED_CREDIT_REASONS,
@@ -73,6 +73,7 @@ from apps.api.billing.rates import (
     PREPAID_TIERS,
     ROUNDING,
     VOICE_TIER_LABELS,
+    VoiceTier,
     is_surchargeable_llm_model,
 )
 from apps.api.billing.trials import counter_epoch, read_trial
@@ -294,6 +295,7 @@ async def record_entry(
     ref: str | None = None,
     meta: dict[str, Any] | None = None,
     allow_negative: bool = False,
+    allow_zero: bool = False,
 ) -> Balance:
     """Append one entry and return the new balance.
 
@@ -305,8 +307,20 @@ async def record_entry(
     The read-decide-write runs under a per-tenant advisory lock (see the module
     docstring for why a row lock on the newest entry is not enough), so two concurrent
     charges cannot both compute from the same starting balance.
+
+    `allow_zero` writes a MARKER: a real ledger row that moves no money. The default
+    refuses one, and that default is right for every money writer — a zero delta reaching
+    this function from an amount that was computed is arithmetic that went wrong, and a
+    row recording it would be noise on the one artefact a client's bill is re-derived
+    from. It is opened for the one case that has a marker to write and nowhere else to
+    write it: `credit_lots.ledger_entry_id` is NOT NULL and UNIQUE, so a lot that opens
+    without money arriving — the replacement a re-price mints (`reprice_lot`) — still
+    needs an entry to name. Migration `c9f3a71e58d2` set that precedent for exactly this
+    reason and by exactly this device: a zero-delta `adjustment` row carrying a
+    `meta.kind`, with `balance_after` unchanged, so the ledger records where a lot came
+    from and no wallet moves in either direction.
     """
-    if delta == 0:
+    if delta == 0 and not allow_zero:
         return await get_balance(session, tenant_id=tenant_id)
 
     await lock_tenant_credits(session, tenant_id)
@@ -935,13 +949,20 @@ class LotRates:
     sarvam_inr_per_min: Decimal
     cartesia_inr_per_min: Decimal
 
+    def rate_for(self, voice_tier: VoiceTier) -> Decimal:
+        """What a minute of `voice_tier` costs at these rates.
 
-def lot_rates_of_pack(pack: CreditPack) -> LotRates:
-    """A pack's own card rates, read through the pack's one door (`CreditPack.inr_per_min`)."""
-    return LotRates(
-        sarvam_inr_per_min=pack.inr_per_min("sarvam"),
-        cartesia_inr_per_min=pack.inr_per_min("cartesia"),
-    )
+        `lots.OpenLot.rate_for`'s twin, deliberately spelled the same way and existing for
+        the same reason: the pair and the voice must be resolved TOGETHER or they can
+        disagree. They did — `workers/pipeline` handed `lots.CallDemand` a single figure
+        (the Sarvam list rate) as the fallback for BOTH voices, so a Studio call on a
+        wallet with no open lot was debited at ₹5.00 against a card that sells that minute
+        at ₹8.00 and a cost floor of ₹4.36. A pair plus this accessor is what makes the
+        two unable to come apart.
+        """
+        if voice_tier == "sarvam":
+            return self.sarvam_inr_per_min
+        return self.cartesia_inr_per_min
 
 
 def _smallest_pack() -> CreditPack:
@@ -949,43 +970,89 @@ def _smallest_pack() -> CreditPack:
     return min(PACK_CATALOGUE, key=lambda pack: pack.amount_inr)
 
 
-def lot_rates_for_amount(amount_inr: Decimal) -> LotRates:
-    """The rates a FREE-AMOUNT top-up freezes (plan §0 Q3).
+@dataclass(frozen=True, slots=True)
+class RateCard:
+    """THE PACK CARD IN FORCE AT ONE INSTANT — the one door every lot opener asks.
 
-    The largest pack whose price is at or below the amount paid, and the smallest pack's
-    rates for anything under the first rung. Monotone by construction: topping up ₹4,999
-    can never be dearer per minute than topping up ₹4,000, and it can never be cheaper
-    than the pack the client did not quite buy. Removing free amounts was the alternative
-    and it breaks a documented flow (`MIN_TOPUP_INR` is ₹100), so the rule has to exist
-    either way; this is the one that punishes nobody.
+    **THIS REPLACES FOUR MODULE FUNCTIONS THAT READ THE STATIC CATALOGUE**
+    (`lot_rates_of_pack`, `lot_rates_for_amount`, `lot_rates_for_purchase`,
+    `granted_lot_rates`), and the replacement is the whole point rather than a tidy-up.
+    `list_rates.record_card` writes a dated card on every ops-console price change and
+    `card_at` resolves it, but NOTHING READ IT: every lot took its rates from the
+    `PACK_CATALOGUE` constant, so a card recorded in the console was inert and "raise
+    prices later by recording a new card" was false. One reader, and the promise holds.
+
+    **THE PACK LADDER IS STILL THE CATALOGUE, AND ONLY THE RATES ARE DATED.** Which pack a
+    free amount reaches is decided by `amount_inr` — what a pack COSTS — and that figure is
+    not in `platform_list_rates`, which dates ₹/min cells and nothing else. So the ladder
+    is picked from the catalogue and then priced from the card, which is also the only
+    reading under which `card_at`'s per-cell catalogue fallback means what it says.
+
+    Held as a resolved mapping rather than a session, so the four questions below are
+    answered from ONE read: they are asked inside a per-tenant advisory lock on the path
+    that opens a lot, and four round trips there would be four times the lock hold for one
+    answer (`card_at`'s own argument, one layer up).
     """
-    afforded = [pack for pack in PACK_CATALOGUE if pack.amount_inr <= amount_inr]
-    if not afforded:
-        return lot_rates_of_pack(_smallest_pack())
-    return lot_rates_of_pack(max(afforded, key=lambda pack: pack.amount_inr))
+
+    #: `{pack_id: {voice: ₹/min}}` exactly as `list_rates.card_at` resolved it — every
+    #: pack this build sells is present, with the catalogue's own figure for any cell the
+    #: card never recorded.
+    cells: Mapping[str, Mapping[VoiceTier, Decimal]]
+
+    def of_pack(self, pack: CreditPack) -> LotRates:
+        """One pack's rates as published at this card's instant."""
+        cell = self.cells[pack.pack_id]
+        return LotRates(sarvam_inr_per_min=cell["sarvam"], cartesia_inr_per_min=cell["cartesia"])
+
+    def list_rates(self) -> LotRates:
+        """THE LIST RATES: the smallest pack's, which is what the card's own floor is.
+
+        What a GIFT is spent at (plan §0 Q4) — a grant, a trial credit, a compensating
+        credit-back — because a gift is spent at the standard price, or a ₹50,000 grant
+        would buy a cheaper minute than a ₹50,000 purchase. It is also what prices a
+        minute for a wallet holding no lot at all (`lots.CallDemand.fallback_rates`): the
+        rates a lot opened at this instant would freeze.
+        """
+        return self.of_pack(_smallest_pack())
+
+    def for_amount(self, amount_inr: Decimal) -> LotRates:
+        """The rates a FREE-AMOUNT top-up freezes (plan §0 Q3).
+
+        The largest pack whose price is at or below the amount paid, and the smallest
+        pack's rates for anything under the first rung. Monotone by construction: topping
+        up ₹4,999 can never be dearer per minute than topping up ₹4,000, and it can never
+        be cheaper than the pack the client did not quite buy. Removing free amounts was
+        the alternative and it breaks a documented flow (`MIN_TOPUP_INR` is ₹100), so the
+        rule has to exist either way; this is the one that punishes nobody.
+        """
+        afforded = [pack for pack in PACK_CATALOGUE if pack.amount_inr <= amount_inr]
+        if not afforded:
+            return self.list_rates()
+        return self.of_pack(max(afforded, key=lambda pack: pack.amount_inr))
+
+    def for_purchase(self, *, pack_id: str | None, amount_inr: Decimal) -> LotRates:
+        """The rates one PURCHASE freezes: its pack's, or the free-amount rule's.
+
+        A pack id this build no longer offers falls to the amount rule rather than failing
+        — the same reading `credit_captured_payment` already takes of an unknown pack, and
+        the money has arrived either way.
+        """
+        pack = pack_by_id(pack_id) if pack_id is not None else None
+        if pack is None:
+            return self.for_amount(amount_inr)
+        return self.of_pack(pack)
 
 
-def lot_rates_for_purchase(*, pack_id: str | None, amount_inr: Decimal) -> LotRates:
-    """The rates one PURCHASE freezes: its pack's, or the free-amount rule's.
+async def rate_card_at(session: AsyncSession, *, at: datetime) -> RateCard:
+    """The card in force at `at`. ONE query; see `RateCard`.
 
-    A pack id this build no longer offers falls to the amount rule rather than failing —
-    the same reading `credit_captured_payment` already takes of an unknown pack, and the
-    money has arrived either way.
+    `at` is the CALLER's fact and has no default, for `list_rates.self_serve_rate_at`'s
+    reason: money arriving now freezes the card in force now, and a figure being re-derived
+    for a closed month asks at that month's own pricing instant. A default of `now()` is
+    how a closed month silently acquires today's terms, which is the whole defect D-492
+    exists for.
     """
-    pack = pack_by_id(pack_id) if pack_id is not None else None
-    if pack is None:
-        return lot_rates_for_amount(amount_inr)
-    return lot_rates_of_pack(pack)
-
-
-def granted_lot_rates() -> LotRates:
-    """The rates a GIFT is spent at (plan §0 Q4): the list card, i.e. the smallest pack.
-
-    A grant, a trial credit and a compensating credit-back all take these. The reason is
-    one sentence: a gift is spent at the standard price, or a ₹50,000 grant would buy a
-    cheaper minute than a ₹50,000 purchase.
-    """
-    return lot_rates_of_pack(_smallest_pack())
+    return RateCard(cells=await card_at(session, at=at))
 
 
 @dataclass(frozen=True, slots=True)
@@ -1169,39 +1236,294 @@ async def record_usage_from_lots(
     return LotDebit(charged=True, credits_inr=debited, splits=splits)
 
 
+@dataclass(frozen=True, slots=True)
+class CreditRemoval:
+    """What taking credit back off the lots actually did.
+
+    `overdraft_inr` is the part of the correction NO LOT COULD ABSORB, because the credit
+    had already been spoken: it becomes wallet overdraft, which the signed balance carries
+    and the next purchase repays before opening its own lot. It is returned rather than
+    discarded because an operator who reduces a client's credit past what their lots hold
+    has created that overdraft, and until this field existed nothing told them — the
+    console showed a successful correction and the client discovered it when their
+    dialling stopped.
+
+    **ONE DEFINITION FOR BOTH SHAPES, AND IT IS THE SPLITS.** It is deliberately NOT
+    `LotRestatement.shortfall` on the restatement path: what that lot could not absorb is
+    taken off the REST of the queue first (see below), so a shortfall of ₹2,000 met by a
+    second open lot leaves no overdraft at all. The overdraft is the portion that reached
+    no lot in either shape — the splits with no `lot_id` — and it is the only figure the
+    balance actually goes negative by.
+    """
+
+    splits: list[credit_lots.LotSplit]
+    overdraft_inr: Decimal
+
+
+def _overdraft_of(splits: Sequence[credit_lots.LotSplit]) -> Decimal:
+    """The portion of a debit that came out of no lot — plan §0 Q5's overdraft.
+
+    `lot_id is None` is the marker (`lots.CallSplit`/`AiAssistSplit`), and it is the same
+    test `split_meta` uses to decide the key is absent, so what an operator is told and
+    what the ledger row records cannot come apart.
+    """
+    return to_paise(sum((split.credits for split in splits if split.lot_id is None), Decimal("0")))
+
+
 async def remove_credit_from_lots(
     session: AsyncSession, *, tenant_id: UUID, corrected_entry_id: UUID, amount_inr: Decimal
-) -> list[credit_lots.LotSplit]:
+) -> CreditRemoval:
     """Take credit back off the lots when an operator corrects an entry that ADDED it.
 
     Two shapes, and the branch is which of them the corrected row is:
 
-    * **it opened a lot, and the correction is SMALLER than that purchase** — the
-      ordinary case, and a RESTATEMENT of that lot (ADDENDUM 2 §2.2): `credits_total`
-      falls by the correction, `credits_remaining` floors at zero, and the part the lot
-      could not absorb because it was already spent becomes wallet overdraft, which the
-      balance already carries and the next purchase repays first. The lot's RATES never
-      move — what was sold at ₹4.70 was sold at ₹4.70 even when the amount was wrong.
-    * **anything else** — a credit that opened no lot (one written before lots existed,
-      or one wholly absorbed by an overdraft), or a purchase reversed IN FULL. The second
-      of those is the headline case of this route ("₹50,000 to the wrong client") and it
-      cannot be a restatement: `credits_total > 0` is a CHECK, so a lot cannot be restated
-      to nothing, and `lots.adjust_lot_for_restatement` refuses it by name rather than
-      writing a row the database would reject. So the correction is spent off the queue at
-      FACE VALUE, oldest first — the rule every other debit on this wallet already obeys,
-      and the only one that keeps `SUM(credits_remaining)` equal to the balance the
-      correction produced. It drains the wrong lot too; what it does not promise is that
-      the credit comes off that lot FIRST when an older purchase is still open.
+    * **it opened a lot and the correction is smaller than that lot's total** — the
+      purchase was mis-recorded, so the LOT is restated downwards (ADDENDUM 2 §2.2):
+      `credits_total` falls to what actually arrived and `credits_remaining` floors at
+      zero. The rates never move, which is the promise the client was sold;
+    * **anything else** — the entry opened no lot at all (a credit that predates lots, or
+      one entirely absorbed by an overdraft), or the correction takes back the WHOLE
+      purchase, which a restatement cannot express because `credits_total > 0` is a CHECK
+      and a lot of nothing is not a correction. Then the credit is spent off the FIFO
+      queue at face value, exactly as a dashboard-AI debit is, and the splits say which
+      lots it came out of.
 
-    Returns the splits of the second shape (empty for the first) so the caller can write
-    them onto the adjustment row exactly as a debit does.
+    **THE SHORTFALL IS CONSUMED, NOT DISCARDED, AND THAT IS INVARIANT §2.3.1.** A
+    restatement floors the corrected lot at zero and hands back what it could not absorb.
+    That figure used to be dropped while the caller wrote the FULL correction to the
+    ledger, so the balance fell by more than the lots did and `SUM(credits_remaining)`
+    stayed permanently above it: lot A 5,000/1,000 left beside lot B of 5,000 on a balance
+    of 6,000, corrected by -2,000, left a balance of 4,000 against lots reading 5,000. The
+    wallet, the runway and the voice picker all overstated by ₹1,000 for ever; when B
+    drained, the balance reached -1,000 while the lots still read +1,000, `credits_exhausted`
+    fired a thousand rupees early, and the next top-up repaid an overdraft the lots had
+    never seen. So the shortfall is taken off the REST of the queue, oldest first, and only
+    what no lot can cover becomes overdraft — which is exactly what the second shape does
+    with the whole amount.
+
+    Returns the splits, which the caller writes onto the adjustment row exactly as a debit
+    does, and — in BOTH shapes — how much of the correction reached no lot.
     """
     lot = await lot_of_entry(session, ledger_entry_id=corrected_entry_id)
     if lot is not None and amount_inr < lot.credits_total:
-        await credit_lots.adjust_lot_for_restatement(session, lot_id=lot.lot_id, delta=-amount_inr)
-        return []
-    return await credit_lots.consume(
+        restated = await credit_lots.adjust_lot_for_restatement(
+            session, lot_id=lot.lot_id, delta=-amount_inr
+        )
+        if restated.shortfall <= 0:
+            return CreditRemoval(splits=[], overdraft_inr=_ZERO_PAISE)
+        # `AiAssistDemand` and not a call: this is rupees off a wallet with no minutes and
+        # no voice behind them, which is precisely what that demand means (ADDENDUM 2
+        # §2.1). The splits land in the adjustment row's `meta.lots` beside the second
+        # shape's, so one reader totals both.
+        shortfall_splits = await credit_lots.consume(
+            session,
+            tenant_id=tenant_id,
+            demand=credit_lots.AiAssistDemand(credits=restated.shortfall),
+        )
+        return CreditRemoval(splits=shortfall_splits, overdraft_inr=_overdraft_of(shortfall_splits))
+    splits = await credit_lots.consume(
         session, tenant_id=tenant_id, demand=credit_lots.AiAssistDemand(credits=amount_inr)
+    )
+    return CreditRemoval(splits=splits, overdraft_inr=_overdraft_of(splits))
+
+
+#: The `meta.kind` a re-price marker carries, the shape `ADJUSTMENT_META_KIND` and
+#: `RESTATEMENT_META_KIND` established. It is also what `c9f3a71e58d2`'s `lot_migration`
+#: marker is: a zero-delta `adjustment` row whose whole job is to give a lot an entry to
+#: name.
+LOT_REPRICE_META_KIND: Final = "lot_rate_override"
+
+#: The marker's ledger reference, and therefore THE idempotency key for a re-price —
+#: enforced by `ux_credit_ledger_tenant_reason_ref` rather than by a reader's `if`, which
+#: is `adjustment_ref`'s argument applied to the writer with no external reference of its
+#: own. Content-addressed over (lot, pack) so a double-clicked Save converges: the second
+#: click derives the same ref, finds the row and re-prices nothing. It cannot collapse two
+#: genuinely distinct acts, because the first one CLOSES the lot it names — a second
+#: re-price is a re-price of the REPLACEMENT, under the replacement's id.
+LOT_REPRICE_REF_PREFIX: Final = "lot_rates"
+
+
+def lot_reprice_ref(*, lot_id: UUID, pack_id: str) -> str:
+    return f"{LOT_REPRICE_REF_PREFIX}:{lot_id}:{pack_id}"
+
+
+@dataclass(frozen=True, slots=True)
+class RepricedLot:
+    """What a re-price did: one lot closed, one opened, and no money moved."""
+
+    #: The lot that was closed. Its rates, source and pack are untouched — it stays on the
+    #: table as the truthful record of what was originally sold.
+    closed_lot_id: UUID
+    #: The lot now carrying that credit, at the chosen pack's rates. It INHERITS the
+    #: closed lot's `opened_at`, so the client's spend order does not move.
+    replacement_lot_id: UUID
+    #: What moved across: the closed lot's `credits_remaining`.
+    credits_inr: Decimal
+    #: The zero-delta marker row the replacement names.
+    ledger_entry_id: UUID
+    #: What the credit was priced at before, and what it is priced at now.
+    previous_rates: LotRates
+    rates: LotRates
+
+
+async def reprice_lot(
+    session: AsyncSession,
+    *,
+    tenant_id: UUID,
+    lot_id: UUID,
+    pack: CreditPack,
+    reason: str,
+    operator_id: UUID | None,
+) -> RepricedLot | None:
+    """Sell credit a client ALREADY HOLDS at another pack's rates — close and replace.
+
+    THE QUESTION THIS ANSWERS IS NOT `apply_credit_to_lots`' `override_of_pack_id`. That
+    one prices credit AS IT ARRIVES: an operator recording a payment says "open this at the
+    ₹25,000 pack's rates", and the decision is made once, at the instant money is booked.
+    This one CORRECTS a decision already made, on credit the client is holding — the
+    promotion nobody applied at the till, the negotiated rate agreed after the transfer
+    landed. Two acts, two audiences, two audit actions; neither substitutes for the other.
+
+    **IT IS NOT AN UPDATE, AND MUST NEVER BECOME ONE.** `credit_lots_terms_frozen`
+    (migration `c9f3a71e58d2`) refuses any UPDATE touching a lot's rates, its source or its
+    pack, because "the rates of a purchase are frozen for the life of its credit" is what
+    the client was sold. So the original lot is CLOSED at its own terms and a replacement
+    opens carrying its `credits_remaining` at the new ones. Both rows survive: the closed
+    one says what was sold, the open one says what is now promised.
+
+    **THE REPLACEMENT INHERITS `opened_at`** — see `lots.open_lot`. Consumption is FIFO by
+    that column, so a replacement stamped now would move re-priced credit to the back of
+    the queue and change the spend order the client was promised.
+
+    **NO MONEY MOVES.** `SUM(credits_remaining)` is unchanged across the pair (invariant
+    §2.3.1): what leaves the closed lot arrives on the replacement in the same transaction.
+    The ledger nonetheless gets a row, because `credit_lots.ledger_entry_id` is NOT NULL
+    and UNIQUE and the replacement must name one — a ZERO-DELTA `adjustment` marker, the
+    device migration `c9f3a71e58d2` used for the opening lots and for the same reason.
+
+    `None` = this re-price is already on the ledger and nothing moved; the caller answers
+    from the marker's own lot rather than writing a second one.
+    """
+    await lock_tenant_credits(session, tenant_id)
+    # THE REPLAY CHECK COMES FIRST, and the order is load-bearing rather than tidy. This
+    # re-price's own first act CLOSES the lot it names, so a second click would meet the
+    # `lot_is_spent` refusal below and be told its own success was a failure. `record_topup`
+    # takes the same order for the same reason: idempotency before business rules, because
+    # a replay is not a new decision to judge.
+    ref = lot_reprice_ref(lot_id=lot_id, pack_id=pack.pack_id)
+    if await find_entry_by_ref(session, tenant_id=tenant_id, reason="adjustment", ref=ref):
+        return None
+    lot = await credit_lots.read_lot(session, lot_id=lot_id)
+    if lot is None:
+        # Under RLS "no such lot" and "another tenant's lot" are one answer, deliberately.
+        raise ProblemError.not_found("credit lot")
+    if lot.closed_at is not None:
+        raise ProblemError.business_rule(
+            "lot_is_spent",
+            "That credit has all been spent, so there is nothing left to re-price.",
+            remediation=(
+                "Re-pricing changes what the credit a client still holds costs per minute; "
+                "it cannot repay minutes already made. To give this client something back, "
+                "grant credit instead — it opens a lot of its own."
+            ),
+        )
+    # THE CARD IN FORCE NOW, not the static catalogue: an operator saying "sell this at
+    # the pro pack's rates" means the pro pack as it is published today, and a card
+    # recorded in the ops console is what publishes it (`RateCard`).
+    rates = (await rate_card_at(session, at=datetime.now(UTC))).of_pack(pack)
+    previous = LotRates(
+        sarvam_inr_per_min=lot.sarvam_inr_per_min,
+        cartesia_inr_per_min=lot.cartesia_inr_per_min,
+    )
+    if rates == previous:
+        # Refused rather than performed. It would be a valid close-and-replace producing
+        # an identical lot, a marker row and an audit entry recording a decision nobody
+        # made — and it is what an operator sees when they have picked the wrong lot.
+        raise ProblemError.business_rule(
+            "lot_already_at_those_rates",
+            (
+                f"That credit is already priced at ₹{rate_to_display(rates.sarvam_inr_per_min)} "
+                f"and ₹{rate_to_display(rates.cartesia_inr_per_min)} a minute."
+            ),
+            remediation="Choose a different pack, or a different lot.",
+        )
+
+    balance = await record_entry(
+        session,
+        tenant_id=tenant_id,
+        delta=Decimal("0"),
+        reason="adjustment",
+        ref=ref,
+        meta={
+            "kind": LOT_REPRICE_META_KIND,
+            "lot_id": str(lot_id),
+            "reason": reason,
+            # BOTH pack ids and BOTH rate pairs, as strings (hard rule 7 — a rate a reader
+            # parsed into a float is a rate nobody can reconcile). Written out rather than
+            # left to be looked up from today's card: the card moves and this decision does
+            # not, and an audit trail that has to be re-joined to a catalogue is one nobody
+            # reads.
+            "previous_pack_id": lot.override_of_pack_id or lot.pack_id,
+            "rates_of_pack_id": pack.pack_id,
+            "previous_sarvam_inr_per_min": str(previous.sarvam_inr_per_min),
+            "previous_cartesia_inr_per_min": str(previous.cartesia_inr_per_min),
+            "sarvam_inr_per_min": str(rates.sarvam_inr_per_min),
+            "cartesia_inr_per_min": str(rates.cartesia_inr_per_min),
+            "credits_inr": str(lot.credits_remaining),
+            **({"repriced_by": str(operator_id)} if operator_id else {}),
+        },
+        # A wallet in overdraft may still hold an open lot (a partial repayment), and a
+        # marker that moves nothing must not be the write that refuses on a negative
+        # balance it did not cause.
+        allow_negative=True,
+        allow_zero=True,
+    )
+    marker = await find_entry_by_ref(session, tenant_id=tenant_id, reason="adjustment", ref=ref)
+    assert marker is not None, "the marker was inserted in this transaction"
+
+    if not await credit_lots.close_lot(
+        session, lot_id=lot_id, seen_remaining=lot.credits_remaining
+    ):
+        # A call spent part of this lot between the read above and this write. Refused
+        # rather than retried: the figure the operator was shown, and confirmed against, is
+        # no longer what the lot holds.
+        raise ProblemError.conflict(
+            "credit_lots_contended",
+            "This client's credit changed while we were re-pricing it.",
+            remediation="Reload the wallet and re-price the lot again.",
+        )
+    replacement = await credit_lots.open_lot(
+        session,
+        tenant_id=tenant_id,
+        credits_inr=lot.credits_remaining,
+        sarvam_inr_per_min=rates.sarvam_inr_per_min,
+        cartesia_inr_per_min=rates.cartesia_inr_per_min,
+        source="override",
+        # NULL for the same reason the purchase-time override leaves it NULL: the client
+        # did not buy this pack, they were given its terms, and stamping `pack_id` would
+        # report a purchase that never happened. `override_of_pack_id` is where the
+        # borrowing is recorded.
+        pack_id=None,
+        ledger_entry_id=marker.entry_id,
+        override_of_pack_id=pack.pack_id,
+        opened_at=lot.opened_at,
+    )
+    log.info(
+        "credit_lot_repriced",
+        extra={
+            "tenant_id": str(tenant_id),
+            "lot_id": str(lot_id),
+            "replacement_lot_id": str(replacement),
+            "balance_after": str(balance.amount_inr),
+        },
+    )
+    return RepricedLot(
+        closed_lot_id=lot_id,
+        replacement_lot_id=replacement,
+        credits_inr=lot.credits_remaining,
+        ledger_entry_id=marker.entry_id,
+        previous_rates=previous,
+        rates=rates,
     )
 
 
@@ -2105,10 +2427,6 @@ async def usage_summary(
     # (`billing/plans.py`), and the list price is the prepaid motion's equivalent of a plan
     # rate — the same fact about the same month, so it is asked at the same instant.
     list_rate = await self_serve_rate_at(session, at=priced_at)
-    # WHICH VOICE SPOKE THIS MONTH'S MINUTES, and what each cost (D-547). Read here beside
-    # the other month-scoped facts and from the same `period`, so the per-voice figures and
-    # the total they sit under describe one month.
-    voices = await voice_tier_usage(session, tenant_id=tenant_id, month=period)
     # THE MINUTES AND THE RUNGS COME FROM ONE READ, and it is `_tier_totals`.
     #
     # This function used to sum `telephony_s` itself, in its own query, and then read the
@@ -2128,6 +2446,10 @@ async def usage_summary(
     # over or stopped the numbers should start from 0 again". Nothing is deleted to make
     # that true; the WINDOW moves, and `usage_events` keeps every row (hard rule 4).
     epoch = await counter_epoch(session, tenant_id=tenant_id)
+    # WHICH VOICE SPOKE THIS MONTH'S MINUTES, AND WHAT THE WALLET WAS ACTUALLY CHARGED
+    # (D-547) — out of the ledger's own lot splits, over the same window as the minutes.
+    lot_charges = await voice_tier_usage(session, tenant_id=tenant_id, month=period, since=epoch)
+    voices = lot_charges.by_voice
     totals = await _tier_totals(session, tenant_id=tenant_id, month=period, since=epoch)
     tier_minutes = totals.by_rung
     minutes = sum(tier_minutes.values(), _ZERO_PAISE)
@@ -2304,31 +2626,41 @@ async def usage_summary(
     # worth, and the figure a screen prints as "on us" is the same arithmetic the bill uses
     # rather than a second one. It is the CLIENT's price throughout — never `unit_cost_paid`,
     # which is ours and which no client panel has ever shown.
-    charges = to_paise(
-        month_charges_inr(
-            monthly_fee_inr=(
-                to_paise(Decimal(str(plan[0]))) if plan and plan[0] is not None else None
-            ),
+    #
+    # WHICH OF THE TWO CALLING FIGURES THIS PERIOD TAKES, decided once here. A trial period
+    # took NO wallet debit, so the lots hold nothing to read and the honest answer to "what
+    # would this have cost" is the counterfactual (`absorbed_calling_inr`); every other
+    # period is what the ledger charged (`calling_revenue_inr`, out of the lot splits).
+    # The two are never both published: `month_charges_inr` below is ₹0.00 during a trial
+    # and `trial_absorbed_inr` is ₹0.00 outside one. `counter_epoch` is what makes the
+    # choice total rather than a per-call question — the window starts at the trial's start
+    # while it runs and at its END once it is over, so every row inside it is on one side.
+    calling = (
+        absorbed_calling_inr(
             plan_tier=tier,
             minutes=minutes,
             overage_cost_inr=overage_cost,
             llm_surcharge_inr=surcharge.total_inr,
             self_serve_rate_inr_per_min=list_rate,
         )
+        if trial_active
+        else calling_revenue_inr(
+            plan_tier=tier,
+            prepaid_charged_inr=lot_charges.total_inr,
+            overage_cost_inr=overage_cost,
+            llm_surcharge_inr=surcharge.total_inr,
+        )
+    )
+    charges = to_paise(
+        month_charges_inr(
+            monthly_fee_inr=(
+                to_paise(Decimal(str(plan[0]))) if plan and plan[0] is not None else None
+            ),
+            calling_inr=calling,
+        )
     )
     spend_used = to_paise(
-        _spend_used(
-            period,
-            today,
-            counters.billed_inr,
-            closed_month_billed=calling_revenue_inr(
-                plan_tier=tier,
-                minutes=minutes,
-                overage_cost_inr=overage_cost,
-                llm_surcharge_inr=surcharge.total_inr,
-                self_serve_rate_inr_per_min=list_rate,
-            ),
-        )
+        _spend_used(period, today, counters.billed_inr, closed_month_billed=calling)
     )
 
     return {
@@ -2435,15 +2767,7 @@ async def usage_summary(
     }
 
 
-def month_charges_inr(
-    *,
-    monthly_fee_inr: Decimal | None,
-    plan_tier: str | None,
-    minutes: Decimal,
-    overage_cost_inr: Decimal,
-    llm_surcharge_inr: Decimal,
-    self_serve_rate_inr_per_min: Decimal,
-) -> Decimal:
+def month_charges_inr(*, monthly_fee_inr: Decimal | None, calling_inr: Decimal) -> Decimal:
     """EVERYTHING THIS BILLING PERIOD HAS COST THE CLIENT — the retainer plus the calling.
 
     **THE ADDITION HAS TO HAPPEN SOMEWHERE, AND THE BROWSER IS THE ONE PLACE IT MUST NOT.**
@@ -2468,10 +2792,14 @@ def month_charges_inr(
     Returning a pre-quantized figure here is the defect `calling_revenue_inr` documents at
     length one function down, on the same path.
 
-    `self_serve_rate_inr_per_min` is passed straight through to `calling_revenue_inr`,
-    which is where the argument is explained: it is the month's own list price, resolved by
-    the caller at the month's pricing instant, and it is required rather than defaulted for
-    the reason stated there.
+    **`calling_inr` IS RESOLVED BY THE CALLER, AND THAT IS DELIBERATE.** This function used
+    to take the plan tier, the minutes and a list rate and call `calling_revenue_inr`
+    itself. Since D-547 there are two answers to "what did this period's calling come to" —
+    what the lots were actually charged (`calling_revenue_inr`) and, for a period that was
+    on us, what it WOULD have come to (`absorbed_calling_inr`) — and the caller is the only
+    one holding the fact that decides between them. Pushing that decision in here would
+    mean a `trial_active` flag on a money function, which is how a screen ends up publishing
+    the wrong one of two numbers that look alike.
 
     `monthly_fee_inr` is `None` — not zero — while a client is mid-onboarding with no plan
     row, which is a real state; it contributes nothing and the total is then the calling
@@ -2479,13 +2807,7 @@ def month_charges_inr(
     list price rather than out of an allowance: `calling_revenue_inr` already holds that
     branch and is not re-decided here.
     """
-    return (monthly_fee_inr or Decimal("0")) + calling_revenue_inr(
-        plan_tier=plan_tier,
-        minutes=minutes,
-        overage_cost_inr=overage_cost_inr,
-        llm_surcharge_inr=llm_surcharge_inr,
-        self_serve_rate_inr_per_min=self_serve_rate_inr_per_min,
-    )
+    return (monthly_fee_inr or Decimal("0")) + calling_inr
 
 
 #: A MONTH'S TALK TIME AND CHARGES, SPLIT BY THE VOICE THAT SPOKE (D-547, plan §4.D.4).
@@ -2511,13 +2833,61 @@ def month_charges_inr(
 #: has no voice", and this says "this READER wants call splits only" — and the day a third
 #: kind is added that DOES carry a voice (a per-minute add-on, say), the absent-key guard
 #: silently stops holding and this one does not.
+#: WHICH MONTH A WALLET DEBIT BELONGS TO, and it is NOT the month the row was written in.
+#:
+#: `record_entry` stamps `occurred_at = clock_timestamp()` — the moment of the INSERT — and
+#: for a LATE-SETTLING call that is a different month from the one the call was spoken in:
+#: the reconciliation poller's window straddling midnight IST on the 1st, an ARQ retry
+#: ladder crossing it, a vendor that takes minutes to price a call (D-492's own list). So a
+#: reader windowing these rows on their own `occurred_at` reports a closed month's calling
+#: as ₹0.00 while `usage_events` — stamped with the call's `ended_at` — correctly reports
+#: its minutes. Measured: 14.83 minutes beside ₹0.00 charged.
+#:
+#: The call's own instant is therefore what the window binds, taken from the usage rows the
+#: SAME call wrote, which is the same column and the same table the minutes beside it are
+#: counted from — so the two cannot describe different months. `spend_state` attributes by
+#: `ist_billing_month(ended_at)` and this is that rule, applied to the ledger.
+#:
+#: `u.call_id::text = e.ref` rather than `e.ref::uuid`: a `usage` row's ref is a call id
+#: today, but a dashboard-AI debit's is not a UUID at all, and casting the COLUMN would
+#: fail the whole statement on one such row rather than simply not matching it.
+#:
+#: `e.occurred_at >= :month_from` is a floor and not the window: a debit is written when the
+#: call is metered, which is never BEFORE the call, so it bounds the scan without excluding
+#: anything the EXISTS would have kept.
+_CALL_IN_MONTH = (
+    "e.occurred_at >= :month_from AND EXISTS ("
+    "SELECT 1 FROM usage_events u WHERE u.tenant_id = e.tenant_id AND u.call_id::text = e.ref "
+    "AND u.occurred_at >= :month_from AND u.occurred_at < :month_to)"
+)
+
 _VOICE_SPLIT_SQL: Final = (
     "SELECT split->>'voice_tier' AS tier, "
     "COALESCE(SUM((split->>'minutes')::numeric), 0) AS minutes, "
     "COALESCE(SUM((split->>'credits')::numeric), 0) AS charged "
     "FROM credit_ledger e, LATERAL jsonb_array_elements(e.meta->'lots') AS split "
-    f"WHERE e.tenant_id = :tid AND e.reason = 'usage' AND {_IST_MONTH_WINDOW} "
+    f"WHERE e.tenant_id = :tid AND e.reason = 'usage' AND {_CALL_IN_MONTH} "
     "AND split->>'kind' = 'call' GROUP BY 1"
+)
+
+#: THE MONEY TAKEN OFF THE WALLET FOR CALLING THAT IS NOT MINUTES — today only the D-455
+#: model surcharge, which rides a call's own `usage` row as an `ai_assist` split
+#: (`charge_for_call`).
+#:
+#: **THE `EXISTS` IS WHAT MAKES THIS "CALLING" RATHER THAN "EVERYTHING".** A dashboard-AI
+#: block is an `ai_assist` split too, on a row of its own with no call splits on it; adding
+#: those rupees to a month's CALLING charge would bill a client for the copilot under the
+#: heading of their phone calls, which is neither what the panel says nor what
+#: `calling_revenue_inr` has ever meant. So the predicate is on the ROW: only rows that also
+#: carry a `call` split. A row that carries both is a call and its upgrade, which is exactly
+#: the pair this figure is the second half of.
+_CALL_EXTRA_SPLIT_SQL: Final = (
+    "SELECT COALESCE(SUM((split->>'credits')::numeric), 0) AS charged "
+    "FROM credit_ledger e, LATERAL jsonb_array_elements(e.meta->'lots') AS split "
+    f"WHERE e.tenant_id = :tid AND e.reason = 'usage' AND {_CALL_IN_MONTH} "
+    "AND split->>'kind' = 'ai_assist' "
+    "AND EXISTS (SELECT 1 FROM jsonb_array_elements(e.meta->'lots') AS c "
+    "            WHERE c->>'kind' = 'call')"
 )
 
 
@@ -2529,41 +2899,67 @@ class VoiceUsage:
     charged_inr: Decimal
 
 
+@dataclass(frozen=True, slots=True)
+class LotCharges:
+    """WHAT A MONTH'S CALLING ACTUALLY TOOK OFF A PREPAID WALLET, out of `meta.lots`.
+
+    `by_voice` is the per-tier split the client's panel publishes; `extra_inr` is the money
+    on those same rows that bought no minutes (the D-455 model surcharge). `total_inr` is
+    the sum, and it is the number that IS the prepaid motion's calling revenue — see
+    `calling_revenue_inr`.
+    """
+
+    by_voice: Mapping[str, VoiceUsage]
+    extra_inr: Decimal
+
+    @property
+    def total_inr(self) -> Decimal:
+        """Every rupee of calling this month, whatever split kind carried it."""
+        return sum((voice.charged_inr for voice in self.by_voice.values()), self.extra_inr)
+
+
 async def voice_tier_usage(
-    session: AsyncSession, *, tenant_id: UUID, month: str
-) -> dict[str, VoiceUsage]:
-    """This month's minutes and charges per VOICE TIER, from the ledger's lot splits.
+    session: AsyncSession, *, tenant_id: UUID, month: str, since: datetime | None = None
+) -> LotCharges:
+    """This month's minutes and charges from the ledger's own lot splits (D-547).
 
-    Both tiers are always present, at zero where nothing was spoken, because a panel that
-    omitted the tier a client did not use would make "we never used Studio" and "the field
-    did not load" the same screen.
+    Both tiers are always present in `by_voice`, at zero where nothing was spoken, because
+    a panel that omitted the tier a client did not use would make "we never used Studio"
+    and "the field did not load" the same screen.
 
-    A MANAGED tenant reads zero on both: they are invoiced against a retainer and their
+    A MANAGED tenant reads zero throughout: they are invoiced against a retainer and their
     calls take no wallet debit at all, so there are no splits to read. That is the same
     answer `credit_balance_inr` gives them and for the same reason — it is not a gap.
+
+    `since` is the caller's counting epoch (`trials.counter_epoch`), passed for the reason
+    every other figure on the usage panel takes it: the trial boundary moves the window,
+    and charges read over a wider window than the minutes printed beside them would not
+    describe one period.
     """
-    rows = (
-        await session.execute(text(_VOICE_SPLIT_SQL), {"tid": tenant_id, **_month_bounds(month)})
-    ).all()
+    binds = {"tid": tenant_id, **_month_bounds(month, since=since)}
+    rows = (await session.execute(text(_VOICE_SPLIT_SQL), binds)).all()
     found = {
         str(row[0]): VoiceUsage(
             minutes=Decimal(str(row[1] or 0)), charged_inr=Decimal(str(row[2] or 0))
         )
         for row in rows
     }
-    return {
-        tier: found.get(tier, VoiceUsage(minutes=Decimal("0"), charged_inr=Decimal("0")))
-        for tier in VOICE_TIER_LABELS
-    }
+    extra = (await session.execute(text(_CALL_EXTRA_SPLIT_SQL), binds)).scalar_one()
+    return LotCharges(
+        by_voice={
+            tier: found.get(tier, VoiceUsage(minutes=Decimal("0"), charged_inr=Decimal("0")))
+            for tier in VOICE_TIER_LABELS
+        },
+        extra_inr=Decimal(str(extra or 0)),
+    )
 
 
 def calling_revenue_inr(
     *,
     plan_tier: str | None,
-    minutes: Decimal,
+    prepaid_charged_inr: Decimal,
     overage_cost_inr: Decimal,
     llm_surcharge_inr: Decimal,
-    self_serve_rate_inr_per_min: Decimal,
 ) -> Decimal:
     """What the CLIENT owes for a whole billing period's CALLING, at their own rate.
 
@@ -2591,26 +2987,38 @@ def calling_revenue_inr(
     HERE rather than each carrying the rule. `_spend_used`'s prepaid branch was the one
     that was right, and it is what moved into this function unchanged.
 
-    **THE LIST RATE IS PASSED IN, AND THAT IS THE MONEY FIX (D-492).** This function read
-    `get_settings().self_serve_inr_per_min` — the LIVE setting — for every month it was
-    asked about, so a CLOSED month's statement was re-priced by every later rate move: the
-    same 14.83 minutes rendered ₹88.98 and then ₹133.47 after the rate went 6 -> 9, on a
-    month whose wallet debits had been taken at ₹6 and cannot change. The caller resolves
-    the figure from `billing/list_rates.self_serve_rate_at` at the month's own pricing
-    instant, exactly as it already resolved the PLAN's terms there — a list price is the
-    prepaid motion's equivalent of a plan rate, and it had been the one term in this
-    expression with no valid time. It is a required argument rather than an optional one
-    with a live default: a default is how the defect gets back in, silently, at whichever
-    call site forgets.
+    **THE PREPAID ANSWER IS THE LEDGER'S, AND THAT IS THE MONEY FIX (D-547).** This
+    branch used to be `self_serve_rate_inr_per_min x minutes + llm_surcharge_inr` — one
+    list rate times a month's minutes — and since lots that is the wrong number for every
+    client who did not buy the smallest pack. A wallet is a QUEUE of lots, each frozen at
+    the two rates its own purchase was sold at, and a call is charged by walking them
+    (`lots.consume`); the row that records it carries the splits in `meta.lots`, and
+    `SUM(meta.lots[].credits)` IS that row's delta by construction (invariant §2.3.5). So
+    the money the client owes for calling is a SUM, not a product, and re-deriving it from
+    a rate could not agree with the ledger for:
 
-    **NOT `prepaid_billed_inr`, and the difference is the quantum.** That function prices
-    ONE CALL for a ledger row and quantizes at `MONEY_Q` (the NUMERIC(12,4) storage
-    scale). This is a PERIOD total whose reader quantizes it once to paise, so returning
-    a pre-rounded figure here would round the same amount twice and could move a paisa.
-    Both nevertheless read the list price from the one effective-dated home
-    (`billing/list_rates.py`), which is the property that actually has to hold — and which
-    is what stopped the wallet debit and this figure from being able to disagree about what
-    a minute cost in a month that has closed.
+    * any client on a pack rung below the card's first — a ₹15,000 purchase is ₹4.70 a
+      Sarvam minute against a list price of ₹5.00, reported 6.4% high;
+    * ANY Studio minute at all, at ₹8.00 against the same ₹5.00, reported 37.5% low;
+    * a wallet holding two lots at two prices, where no single rate is right.
+
+    Measured on this tree, the same screen showed both: `UsageTab` renders the per-voice
+    charges out of `meta.lots` beside a `month_charges_inr` derived from list x minutes,
+    and they disagreed on every non-starter wallet — and the same closed month CHANGED
+    VALUE at IST rollover, because the open month read the live counter (which the meter
+    fed from the lots) and the closed one re-derived. The margin panel overstated revenue
+    by the same gap, and `attribution`'s residual was measured against a total the ledger
+    had never charged.
+
+    `prepaid_charged_inr` is therefore READ, by `voice_tier_usage`, from the very rows the
+    wallet was debited on. It is a required argument rather than one with a default for the
+    reason the list rate was: a default is how the re-derivation gets back in, silently, at
+    whichever call site forgets.
+
+    **WHAT ABOUT A PERIOD ON US?** A trial takes no debit, so there are no splits and this
+    correctly answers ₹0.00 — which is exactly what a client on a trial owes.
+    `absorbed_calling_inr` is what prices the counterfactual, and it is a separate function
+    so that neither answer can be mistaken for the other.
 
     **A MANAGED tenant's answer is the overage the caller already priced**, passed in
     rather than recomputed, because `usage_summary` derived it from `overage_rungs` — the
@@ -2620,40 +3028,51 @@ def calling_revenue_inr(
     The retainer is deliberately NOT included: it is published as its own figure on both
     surfaces, and adding it here would double it wherever both are shown.
 
-    **A MEASURED RESIDUAL ON THE PREPAID BRANCH, recorded here so the next reader
-    inherits the evidence rather than re-deriving it (D-254).** This figure and the money
-    actually taken off a prepaid wallet are not the same arithmetic and cannot both be:
+    **THE MEASURED RESIDUAL D-254 RECORDED IS CLOSED ON THIS BRANCH, and the founder
+    decision it was waiting on is no longer needed to close it.** The old text below stands
+    as the record of what was wrong. This figure and the money taken off the wallet used to
+    be two arithmetics — the wallet debited per call at `to_paise`-scale-4 of
+    `rate x (seconds / 60)` (`rates.prepaid_billed_inr`), this one `rate x the month's
+    PUBLISHED minute count` — and the gap was systematic, bounded by half a paisa of
+    minutes times the rate. Measured on this tree, ten calls of 7/7/7/13/41/59/101/137/211/307
+    seconds at ₹6.00 debited ₹89.0000 off the wallet while this function answered ₹88.98
+    (14.83 min x ₹6.00). It is now literally the ledger's own sum, so the two cannot differ
+    at all — and `docs/evidence/deepdive-money.md` N-2 ("is a prepaid statement a receipt
+    for top-ups, a statement of consumption, or both") is answered in the direction the
+    wallet already implemented: the WALLET is the statement. What a client multiplies out
+    by hand on the panel is the per-voice pair published beside the total, each at its own
+    lot rate, which is the arithmetic they can actually check.
+    """
+    if plan_tier in PREPAID_TIERS:
+        return prepaid_charged_inr
+    return overage_cost_inr + llm_surcharge_inr
 
-    * the WALLET is debited per call, `to_paise`-scale-4 of `rate x (this call's seconds
-      / 60)` (`rates.prepaid_billed_inr`, through `charge_for_call`). A call is charged
-      for its own length, which is the only rule a client can be shown per entry;
-    * this is `rate x the month's PUBLISHED minute count`, which is paise-rounded once
-      by `_tier_totals`. It multiplies out against the `minutes_used` printed beside it
-      — the arithmetic a client actually does on a panel.
 
-    Measured on this tree, ten calls of 7/7/7/13/41/59/101/137/211/307 seconds at ₹6.00:
+def absorbed_calling_inr(
+    *,
+    plan_tier: str | None,
+    minutes: Decimal,
+    overage_cost_inr: Decimal,
+    llm_surcharge_inr: Decimal,
+    self_serve_rate_inr_per_min: Decimal,
+) -> Decimal:
+    """WHAT A PERIOD ON US *WOULD* HAVE COST — the counterfactual, and only that (D-536).
 
-        wallet debited (sum of `usage` entries)   ₹89.0000
-        spend_state.billed_inr                   ₹89.0000   <- equals the wallet, by
-                                                                construction (the meter
-                                                                hands both the same
-                                                                figure from the same
-                                                                function)
-        this function, on the closed month        ₹88.98    <- 14.83 min x ₹6.00
+    A trial takes NO wallet debit at all (`workers/pipeline`: `charged_inr` stays ₹0.00
+    when `trial_covers` is true), so there are no lot splits to read and
+    `calling_revenue_inr` correctly answers ₹0.00. `trial_absorbed_inr` is a different
+    question — "what is the service we are giving you worth" — and it has to be priced,
+    which is why it is a second function rather than a flag on the first. Two names for two
+    quantities: one is what the ledger took, the other is what it deliberately did not.
 
-    The gap is bounded by half a paisa of minutes times the rate — under ₹0.05 at any
-    rate this product would quote — and it is systematic rather than random: the panel
-    prices the ROUNDED minute count. Feeding it the exact seconds instead would close it
-    against the wallet and open it against the panel, because ₹89.00 is not
-    `14.83 x ₹6.00` and a figure a client cannot multiply out is the defect
-    `billing/invoice.py` spent a whole slice removing.
+    **THE ARITHMETIC IS THE PIPELINE'S OWN.** The meter accrues exactly
+    `prepaid_billed_inr(minutes, list_rate) + surcharge` into `spend_state.billed_inr` for a
+    call that was on us, so this is the same rule stated once more at period scale rather
+    than a second estimate of the same thing.
 
-    **So there is no engineering-only answer, and the one that closes it is already named
-    as a founder decision**: `docs/evidence/deepdive-money.md` N-2 — what a prepaid
-    statement IS (a receipt for top-ups received, a statement of consumption, or both).
-    If the WALLET is the statement, this branch reads the ledger and the question of
-    re-derivation disappears; if the panel is, the wallet's per-call rule is what has to
-    move. Neither is ours to pick.
+    A MANAGED tenant on a trial is absorbed at the overage its plan would have charged,
+    which is `calling_revenue_inr`'s managed branch unchanged — there is no wallet in that
+    motion and nothing about it is counterfactual except that it is not invoiced.
     """
     if plan_tier in PREPAID_TIERS:
         return self_serve_rate_inr_per_min * minutes + llm_surcharge_inr
@@ -2847,17 +3266,22 @@ async def margin_for_tenant(
     # happen before anything is rounded.
     revenue = month_charges_inr(
         monthly_fee_inr=usage["monthly_fee_inr"],
-        plan_tier=tier,
-        minutes=usage["minutes_used"],
-        overage_cost_inr=usage["overage_cost_inr"],
-        llm_surcharge_inr=usage["llm_surcharge_inr"],
-        # THE MONTH'S OWN LIST RATE (D-492), resolved at the same instant `usage_summary`
-        # resolved the plan and its own copy of this figure at. Re-resolved here rather
-        # than threaded out through `usage_summary`'s dict because that dict is the
-        # client's panel (`UsagePanelOut`) and the list price is not a field of it — and
-        # `month` is exactly the argument that makes the two resolutions agree.
-        self_serve_rate_inr_per_min=await self_serve_rate_at(
-            session, at=month_pricing_instant(str(usage["month"]))
+        # WHAT THE PREPAID WALLET WAS ACTUALLY CHARGED (D-547), read from the same lot
+        # splits `usage_summary` published the per-voice figures from, over the same
+        # counting window. Re-read here rather than threaded out through that function's
+        # dict because the dict is the CLIENT's panel (`UsagePanelOut`) and this is not a
+        # field of it — `month` and `counter_epoch` are what make the two reads agree.
+        #
+        # A period ON US contributes ₹0.00 revenue and that is the honest figure: nothing
+        # was charged. The cost side is unchanged, so a trial shows as the loss it is,
+        # which is what `trials.trial_cost_to_us_inr` exists to size.
+        calling_inr=calling_revenue_inr(
+            plan_tier=tier,
+            prepaid_charged_inr=(
+                await voice_tier_usage(session, tenant_id=tenant_id, month=str(usage["month"]))
+            ).total_inr,
+            overage_cost_inr=usage["overage_cost_inr"],
+            llm_surcharge_inr=usage["llm_surcharge_inr"],
         ),
     )
     margin = to_paise(revenue - cost_inr)
@@ -2879,6 +3303,8 @@ __all__ = [
     "BASE_OVERAGE_RUNG",
     "GRANT_META_KIND",
     "GRANT_REF_PREFIX",
+    "LOT_REPRICE_META_KIND",
+    "LOT_REPRICE_REF_PREFIX",
     "LOW_BALANCE_INR",
     "LOW_BALANCE_JOB",
     "MAX_GRANT_INR",
@@ -2894,18 +3320,23 @@ __all__ = [
     "Balance",
     "CorrectableEntry",
     "CreditReason",
+    "CreditRemoval",
     "CreditTotals",
     "CreditedLot",
     "EntryLot",
     "LedgerEntryRef",
+    "LotCharges",
     "LotDebit",
     "LotRates",
     "MonthSeconds",
     "MonthTotals",
     "OverageRung",
     "PricedLlmSurcharge",
+    "RateCard",
     "RecordedPayment",
+    "RepricedLot",
     "VoiceUsage",
+    "absorbed_calling_inr",
     "adjustment_ref",
     "allocate_paise",
     "apply_credit_to_lots",
@@ -2918,19 +3349,17 @@ __all__ = [
     "find_topup",
     "get_balance",
     "grant_ref",
-    "granted_lot_rates",
     "llm_model_minutes",
     "lock_tenant_credits",
     "lot_of_entry",
-    "lot_rates_for_amount",
-    "lot_rates_for_purchase",
-    "lot_rates_of_pack",
+    "lot_reprice_ref",
     "margin_for_tenant",
     "margin_pct",
     "month_charges_inr",
     "overage_rungs",
     "plan_tier_of",
     "priced_llm_surcharge",
+    "rate_card_at",
     "rate_to_display",
     "read_correctable_entry",
     "read_recorded_payment",
@@ -2938,6 +3367,7 @@ __all__ = [
     "record_usage_from_lots",
     "recorded_payments",
     "remove_credit_from_lots",
+    "reprice_lot",
     "restatement_ref",
     "reversed_amounts",
     "split_overage",

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import random
 from decimal import Decimal
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, UUID, uuid5
 
 import pytest
 from apps.api.billing import lots
@@ -26,6 +26,7 @@ from apps.api.billing.service import (
     charge_for_call,
     get_balance,
     record_entry,
+    remove_credit_from_lots,
 )
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
@@ -54,10 +55,50 @@ async def _balance(tenant_id) -> Decimal:  # type: ignore[no-untyped-def]
 
 
 async def test_the_lots_and_the_balance_agree_after_a_random_walk() -> None:
+    """**THE WALK ISSUES CORRECTIONS AS WELL AS TOP-UPS AND CALLS, AND THAT IS WHY.**
+
+    It used to issue only the two, and a whole class of drift lived in the gap: a DOWNWARD
+    correction of a purchase whose lot is partly spent floors that lot at zero and hands
+    back a shortfall, while the route writes the FULL correction to the ledger. Until the
+    shortfall was consumed from the rest of the queue, the balance fell by more than the
+    lots did and `SUM(credits_remaining)` stayed permanently above it — silently, for ever,
+    on a wallet that still looked healthy. Nothing here could see it, because nothing here
+    ever corrected anything.
+    """
     tenant = await make_tenant()
     rng = random.Random(547)
+    #: Every credit-adding entry this walk wrote, so a correction can name one — a
+    #: correction is bound to the entry it corrects, which is the whole shape of
+    #: `remove_credit_from_lots`' branch.
+    credits_written: list[tuple[UUID, Decimal]] = []
+    corrections = 0
 
     for step in range(30):
+        if credits_written and rng.random() < 0.15:
+            # A DOWNWARD CORRECTION of an earlier credit — an operator finding a
+            # mis-recorded payment. The amount is a fraction of what that entry added, so
+            # it is a legitimate correction of THAT entry (the route's own ceiling), and it
+            # lands on a lot that the calls above may have partly or wholly spent.
+            entry_id, added = credits_written[rng.randrange(len(credits_written))]
+            back = (added / Decimal(rng.randrange(2, 5))).quantize(Decimal("0.01"))
+            if back <= 0:
+                continue
+            async with tenant_session(tenant) as session:
+                removed = await remove_credit_from_lots(
+                    session, tenant_id=tenant, corrected_entry_id=entry_id, amount_inr=back
+                )
+                await record_entry(
+                    session,
+                    tenant_id=tenant,
+                    delta=-back,
+                    reason="adjustment",
+                    ref=f"walk-correction-{step}",
+                    meta={"lots": lots.split_meta(removed.splits)} if removed.splits else None,
+                    allow_negative=True,
+                )
+            corrections += 1
+            continue
+
         if rng.random() < 0.45:
             amount = Decimal(rng.randrange(500, 5000))
             card = CARDS[rng.randrange(len(CARDS))]
@@ -80,6 +121,7 @@ async def test_the_lots_and_the_balance_agree_after_a_random_walk() -> None:
                     pack_id="growth",
                     ledger_entry_id=entry,
                 )
+            credits_written.append((entry, amount))
             continue
 
         tier: lots.VoiceTier = "cartesia" if rng.random() < 0.4 else "sarvam"
@@ -93,7 +135,9 @@ async def test_the_lots_and_the_balance_agree_after_a_random_walk() -> None:
                 tenant_id=tenant,
                 call_id=uuid5(NAMESPACE_URL, f"walk-{tenant}-{step}"),
                 demand=lots.CallDemand(
-                    minutes=minutes, voice_tier=tier, fallback_inr_per_min=Decimal("5.00")
+                    minutes=minutes,
+                    voice_tier=tier,
+                    fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
                 ),
             )
 
@@ -116,6 +160,7 @@ async def test_the_lots_and_the_balance_agree_after_a_random_walk() -> None:
             )
         ).one()
     assert counts[0] > 0, "no lot was ever emptied — the split path never ran"
+    assert corrections > 0, "no correction was issued — the arm this walk was extended for"
 
 
 async def test_a_spent_wallet_holds_no_open_lot_and_a_refund_style_credit_reopens_none() -> None:
@@ -141,7 +186,7 @@ async def test_a_spent_wallet_holds_no_open_lot_and_a_refund_style_credit_reopen
             demand=lots.CallDemand(
                 minutes=Decimal("40"),  # ₹200 against a ₹100 lot
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
         await record_entry(
@@ -158,3 +203,111 @@ async def test_a_spent_wallet_holds_no_open_lot_and_a_refund_style_credit_reopen
     assert await _sum_of_lots(tenant) == Decimal("0.0000")
     async with tenant_session(tenant) as session:
         assert await lots.read_open_lots(session, tenant_id=tenant) == []
+
+
+async def test_a_downward_correction_drains_the_queue_for_what_the_lot_could_not_absorb() -> None:
+    """THE WORKED EXAMPLE the walk above generalises, pinned so the arithmetic is readable.
+
+    Lot A holds ₹1,000 of a ₹5,000 purchase (₹4,000 already spoken); lot B behind it holds
+    ₹5,000; the balance is ₹6,000. An operator corrects A down by ₹2,000.
+
+    A restatement can take only what A still has, so A goes to zero and hands back a
+    shortfall of ₹1,000 — and the ledger is about to fall by the whole ₹2,000. Until that
+    shortfall was consumed from B, the lots read ₹5,000 against a balance of ₹4,000 and
+    stayed ₹1,000 apart FOR EVER: the wallet, the runway and the voice picker all
+    overstated, `credits_exhausted` fired a thousand rupees early once B drained, and the
+    next top-up repaid an overdraft the lots had never seen.
+    """
+    tenant = await make_tenant()
+    entry_a = await credit_entry(tenant, amount="5000.00")
+    entry_b = await credit_entry(tenant, amount="5000.00")
+    async with tenant_session(tenant) as session:
+        await apply_credit_to_lots(
+            session,
+            tenant_id=tenant,
+            credits_inr=Decimal("5000.00"),
+            balance_after=Decimal("5000.00"),
+            rates=LotRates(*CARDS[0]),
+            source="topup",
+            pack_id="growth",
+            ledger_entry_id=entry_a,
+        )
+        await apply_credit_to_lots(
+            session,
+            tenant_id=tenant,
+            credits_inr=Decimal("5000.00"),
+            balance_after=Decimal("10000.00"),
+            rates=LotRates(*CARDS[0]),
+            source="topup",
+            pack_id="growth",
+            ledger_entry_id=entry_b,
+        )
+        # 800 minutes at ₹5.00 spends ₹4,000 — all of it out of A, which is the oldest.
+        await charge_for_call(
+            session,
+            tenant_id=tenant,
+            call_id=uuid5(NAMESPACE_URL, f"drain-{tenant}"),
+            demand=lots.CallDemand(
+                minutes=Decimal("800"),
+                voice_tier="sarvam",
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
+            ),
+        )
+    assert await _balance(tenant) == Decimal("6000.0000")
+    assert await _sum_of_lots(tenant) == Decimal("6000.0000")
+
+    async with tenant_session(tenant) as session:
+        removed = await remove_credit_from_lots(
+            session, tenant_id=tenant, corrected_entry_id=entry_a, amount_inr=Decimal("2000")
+        )
+        await record_entry(
+            session,
+            tenant_id=tenant,
+            delta=Decimal("-2000"),
+            reason="adjustment",
+            ref="worked-example",
+            meta={"lots": lots.split_meta(removed.splits)},
+            allow_negative=True,
+        )
+
+    # The ₹1,000 A could not absorb came off B, so the two structures still agree.
+    assert await _balance(tenant) == Decimal("4000.0000")
+    assert await _sum_of_lots(tenant) == Decimal("4000.0000")
+    assert [split.credits for split in removed.splits] == [Decimal("1000.0000")]
+    # Nobody was pushed into overdraft: B covered the shortfall in full.
+    assert removed.overdraft_inr == Decimal("0.00")
+
+
+async def test_a_correction_with_nothing_left_to_take_reports_the_overdraft_it_created() -> None:
+    """The other end of the same rule: when the whole queue cannot cover the shortfall,
+    what is left is wallet overdraft and the operator is TOLD, because the client's
+    outbound dialling has just stopped and they must not learn it from the client."""
+    tenant = await make_tenant()
+    entry = await credit_entry(tenant, amount="5000.00")
+    async with tenant_session(tenant) as session:
+        await apply_credit_to_lots(
+            session,
+            tenant_id=tenant,
+            credits_inr=Decimal("5000.00"),
+            balance_after=Decimal("5000.00"),
+            rates=LotRates(*CARDS[0]),
+            source="topup",
+            pack_id="growth",
+            ledger_entry_id=entry,
+        )
+        await charge_for_call(
+            session,
+            tenant_id=tenant,
+            call_id=uuid5(NAMESPACE_URL, f"drain-all-{tenant}"),
+            demand=lots.CallDemand(
+                minutes=Decimal("900"),  # ₹4,500 of a ₹5,000 lot
+                voice_tier="sarvam",
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
+            ),
+        )
+        removed = await remove_credit_from_lots(
+            session, tenant_id=tenant, corrected_entry_id=entry, amount_inr=Decimal("2000")
+        )
+    # ₹500 left on the lot, ₹2,000 taken back: ₹1,500 of it reached no lot at all.
+    assert removed.overdraft_inr == Decimal("1500.00")
+    assert await _sum_of_lots(tenant) == Decimal("0.0000")

@@ -397,7 +397,16 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # suffix is what stops a confirmation captured for the Tuesday window ending the one
     # that replaced it, and `maintenance_confirmation` builds all four in one place so
     # `runbooks/maintenance-window.md` and the API cannot drift apart.
-    assert sites == 30, f"found {sites} step-up call sites, expected 30; the census went stale"
+    # THE THIRTY-FIRST IS RE-PRICING ONE CREDIT LOT (`billing/credit_routes.py`, D-547 Q6):
+    # selling credit a client ALREADY HOLDS at another pack's per-minute rates. It is on
+    # this list because it changes a term the client was sold and the freeze trigger
+    # otherwise makes unwritable, and because it is UNCONDITIONAL — unlike the top-up's
+    # purchase-time override beside it, every call to this route departs from the card, so
+    # there is no ordinary path for the confirmation to get in the way of. Its
+    # confirmation carries the LOT id, not the pack's: the lot is the whole content of the
+    # decision, and a header captured while looking at a ₹2,000 lot must not be replayable
+    # against the ₹50,000 one beside it (`lot_reprice_confirmation`).
+    assert sites == 34, f"found {sites} step-up call sites, expected 34; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

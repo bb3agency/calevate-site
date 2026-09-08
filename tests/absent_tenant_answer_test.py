@@ -139,6 +139,15 @@ BODIES: dict[str, dict[str, Any] | None] = {
         "corrects_entry_id": str(uuid.uuid4()),
         "reason": "census",
     },
+    # D-547 Q6. The pack must EXIST: `reprice_credit_lot` refuses an unknown pack id with a
+    # business rule before it looks at the tenant (`record_topup`'s order and its reason),
+    # so a made-up pack here would make this entry vacuous. The lot id in the path names
+    # nothing, which is the point — under RLS an absent tenant and an absent lot are the
+    # same answer, and this census is about which of the two the caller is told.
+    "POST /v1/admin/tenants/{tenant_id}/credit-lots/{lot_id}/override": {
+        "pack_id": "max",
+        "reason": "census",
+    },
     # D-535. Grant, trial start and trial end all demand an operator's own words, so an
     # empty body would 422 and this census would stop measuring the 404 it is about. The
     # amount is inside `MIN_GRANT_INR..MAX_GRANT_INR` for the same reason the adjustment's
@@ -253,6 +262,11 @@ def _confirmation_for(key: str, ids: dict[str, str]) -> str | None:
         "POST /v1/admin/tenants/{tenant_id}/erasure": f"erase_tenant_data:{subject}",
         "POST /v1/admin/tenants/{tenant_id}/closure": f"close_and_schedule_erasure:{subject}",
         "POST /v1/admin/tenants/{tenant_id}/credits/adjustments": f"adjust_credits:{subject}",
+        # Bound to the LOT, not to the tenant (`lot_reprice_confirmation`): the lot is the
+        # whole content of the decision, and the path already carries it.
+        "POST /v1/admin/tenants/{tenant_id}/credit-lots/{lot_id}/override": (
+            f"override_lot_rates:{ids.get('lot_id', '')}"
+        ),
         "POST /v1/admin/tenants/{tenant_id}/credits/restatements": (
             "restate_topup:UTR-CENSUS-1:900.00"
         ),

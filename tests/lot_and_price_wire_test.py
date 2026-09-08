@@ -33,7 +33,7 @@ from apps.api.billing.credit_routes import (
 )
 from apps.api.billing.credit_routes import router as credit_router
 from apps.api.billing.lots import AiAssistDemand, CallDemand
-from apps.api.billing.service import record_entry, record_usage_from_lots
+from apps.api.billing.service import LotRates, record_entry, record_usage_from_lots
 from apps.api.billing.wallet_routes import read_wallet_ledger, read_wallet_lots
 from apps.api.core.context import Principal
 from apps.api.core.errors import install_error_handlers
@@ -489,7 +489,7 @@ async def test_a_wallet_entry_carries_the_lot_split_that_paid_for_it() -> None:
             demand=CallDemand(
                 minutes=Decimal("10"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
         await record_usage_from_lots(

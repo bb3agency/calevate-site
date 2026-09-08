@@ -49,6 +49,7 @@ from apps.api.billing.gst import PlaceOfSupply, split_tax
 from apps.api.billing.invoice import build_invoice
 from apps.api.billing.lots import CallDemand
 from apps.api.billing.service import (
+    LotRates,
     allocate_paise,
     current_billing_month,
     margin_for_tenant,
@@ -539,7 +540,7 @@ async def test_a_self_serve_wallet_is_debited_at_our_cost_not_at_the_price_we_qu
             demand=CallDemand(
                 minutes=Decimal("10"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=metered_cost / Decimal("10"),
+                fallback_rates=LotRates(metered_cost / Decimal("10"), metered_cost / Decimal("10")),
             ),
         )
         summary = await usage_summary(session, tenant_id=tenant_id)

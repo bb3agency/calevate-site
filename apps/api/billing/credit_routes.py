@@ -212,7 +212,7 @@ NOT mounted here — the integrator wires this router into `main.py`.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID
@@ -242,16 +242,16 @@ from apps.api.billing.service import (
     find_topup,
     get_balance,
     grant_ref,
-    granted_lot_rates,
     lock_tenant_credits,
     lot_of_entry,
-    lot_rates_for_amount,
-    lot_rates_of_pack,
+    lot_reprice_ref,
+    rate_card_at,
     read_correctable_entry,
     read_recorded_payment,
     record_entry,
     recorded_payments,
     remove_credit_from_lots,
+    reprice_lot,
     restatement_ref,
     reversed_amounts,
     to_paise,
@@ -270,6 +270,15 @@ log = get_logger(__name__)
 
 router = APIRouter(prefix="/v1/admin/tenants/{tenant_id}/credits", tags=["admin"])
 
+#: THE LOT ITSELF, addressed by id — a second router because the object is different.
+#:
+#: Everything on `router` above is a write to the WALLET: an amount arrives, or is taken
+#: back, and a lot is a consequence of it. The re-price below acts on ONE LOT that already
+#: exists and moves no money at all, so `/credits/...` would name the wrong noun and the
+#: path would have to carry the lot id in a query string to get at it. It is the path the
+#: console already posts to (`apps/web/src/lib/api/creditLots.ts::lotOverridePath`).
+lots_router = APIRouter(prefix="/v1/admin/tenants/{tenant_id}/credit-lots", tags=["admin"])
+
 # Annotated dependencies rather than `Depends()` in a default: this file is not
 # `routes.py`, so it is not covered by the B008 per-file ignore (same reason
 # `agents/prompt_routes.py` is written this way).
@@ -284,6 +293,10 @@ MAX_LIMIT = 200
 # system (half-up, explicit) — this module re-exported a second, context-dependent copy
 # of it, which is how two surfaces end up rounding the same rupee two ways.
 _paise = to_paise
+
+#: A rupee amount of nothing, at the wire's own scale. A named constant rather than
+#: `Decimal("0.00")` at four call sites, so "no overdraft" and "no money" are one literal.
+_ZERO = _paise(Decimal("0"))
 
 
 class Strict(BaseModel):
@@ -453,6 +466,20 @@ class AdjustmentOut(Strict):
     #: because a correction that silently stops a client's calling is the one
     #: consequence an operator must not learn from the client.
     stops_dialling: bool
+    #: WHAT THIS CORRECTION COULD NOT TAKE OFF A LOT, because the credit had already been
+    #: spoken — it is wallet OVERDRAFT, and this is the operator's warning that they have
+    #: created some. `0.00` on every correction that fitted, and on every credit-BACK
+    #: (that direction adds credit and cannot overdraw).
+    #:
+    #: ⚠ **IT IS NOT `RestatementOut.lot_shortfall_inr`'s null.** That route restates a
+    #: payment UPWARDS only, so its shortfall can never exist; this one is the downward
+    #: direction, where it is computed and — until now — thrown away while the FULL
+    #: correction was written to the ledger. The lots and the balance then disagreed for
+    #: ever (`service.remove_credit_from_lots` carries the worked example). The lots are
+    #: now drained to match, and this is what is left over when even that was not enough:
+    #: the client's wallet is negative by this much and their outbound dialling has
+    #: stopped, which `stops_dialling` above says in the other vocabulary.
+    lot_shortfall_inr: Decimal
     #: THE LOT THIS CORRECTION OPENED, and only that (D-547). It is present exactly when
     #: the correction CREDITED the client back, because that direction opens a fresh lot at
     #: the list rates (a gift is spent at the standard price, plan §0 Q4). Taking credit
@@ -586,6 +613,63 @@ class OverridePackOut(Strict):
     amount_inr: Decimal
     sarvam_inr_per_min: Decimal
     cartesia_inr_per_min: Decimal
+
+
+class LotRepriceIn(Strict):
+    """Sell credit a client ALREADY HOLDS at another pack's rates (plan §0 Q6).
+
+    **IT IS NOT `TopUpIn.rates_of_pack_id`, AND THE TWO ARE NOT ONE CAPABILITY.** That
+    field prices credit AS IT ARRIVES: an operator recording a bank transfer says "open
+    this at the ₹25,000 pack's rates", and the decision is made once, at the instant the
+    money is booked — which is also the only instant it CAN be made there, because a lot's
+    rates are frozen the moment it exists. This one CORRECTS a decision already made, on
+    credit the client is holding: the promotion nobody applied at the till, the rate
+    negotiated after the transfer landed, the founding-client deal agreed in week three.
+    Two acts, two audiences, two audit actions, two step-up strings; neither is reachable
+    from the other's surface and collapsing them would mean either re-opening a settled
+    purchase or refusing to honour a promise already made.
+    """
+
+    #: WHOSE RATES. The choices are `CreditsOut.override_packs`, published by the wallet
+    #: read, so the console never keeps a pack ladder of its own.
+    pack_id: str = Field(min_length=1, max_length=64)
+    #: The operator's own words, required for `AdjustmentIn.reason`'s reason and more so
+    #: here: a below-card rate that appears on a client's lot with no explanation is
+    #: exactly the row a later margin review stops on. It reaches the marker entry's
+    #: `meta` and the audit row verbatim.
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _not_only_whitespace(cls, value: str) -> str:
+        trimmed = value.strip()
+        if len(trimmed) < 3:
+            raise ValueError("say why this credit is being re-priced")
+        return trimmed
+
+
+class LotRepriceOut(Strict):
+    """What a re-price did. TWO lots, because it is a close-and-replace and not an edit."""
+
+    tenant_id: UUID
+    #: The lot that was CLOSED, at its own original terms. It stays on the table for ever
+    #: as the truthful record of what was sold; `credit_lots_terms_frozen` is what makes
+    #: that a fact rather than an intention.
+    closed_lot_id: UUID
+    #: THE LOT NOW CARRYING THE CREDIT, at the chosen pack's rates. It inherits the closed
+    #: lot's `opened_at`, so the client's spend order does not move — read back from the
+    #: row rather than assembled here, for `_read_lot`'s reason.
+    lot: CreditLotOut
+    #: The ZERO-DELTA marker entry the replacement names, and its ledger reference. No
+    #: money moved in either direction; the row exists because `credit_lots.ledger_entry_id`
+    #: is NOT NULL and a lot must name an entry.
+    entry_id: UUID
+    ref: str
+    #: What moved across — the closed lot's remaining credit.
+    credits_inr: Decimal
+    #: False = this exact re-price was already on the ledger and nothing happened. 200
+    #: either way, for the reason `TopUpOut.recorded` gives.
+    recorded: bool
 
 
 class RestatementIn(Strict):
@@ -807,6 +891,24 @@ def lot_rate_override_confirmation(pack_id: str) -> str:
     second confirmation for a corrected typo trains people to click through them.
     """
     return f"override_lot_rates:{pack_id}"
+
+
+def lot_reprice_confirmation(lot_id: UUID) -> str:
+    """The step-up string for re-pricing credit a client ALREADY HOLDS (Q6).
+
+    Bound to the LOT, which is the whole content of this decision: a header captured while
+    looking at a ₹2,000 lot must not be replayable against the ₹50,000 one beside it, and
+    the pack is chosen on the same screen and re-keyed with it.
+
+    **IT SHARES A PREFIX WITH `lot_rate_override_confirmation` AND CANNOT COLLIDE WITH IT.**
+    That one is bound to a PACK id (`starter`, `pro`) and gates the purchase-time override
+    on the top-up route; this one is bound to a lot's UUID. No pack id is a UUID and no lot
+    id is a pack name, so the two namespaces are disjoint by the shape of their values —
+    and the prefix is shared deliberately, because an operator reading a rejected header in
+    a console log is looking at the same class of act either way. `tests/` pins both
+    literals, as it does for every confirmation here.
+    """
+    return f"override_lot_rates:{lot_id}"
 
 
 def credit_grant_confirmation(amount_inr: Decimal) -> str:
@@ -1170,6 +1272,7 @@ async def record_topup(
                 recorded=False,
             )
 
+        card = await rate_card_at(scoped, at=datetime.now(UTC))
         meta: dict[str, Any] = {"source": "admin_manual"}
         if principal.user_id:
             meta["recorded_by"] = str(principal.user_id)
@@ -1210,9 +1313,12 @@ async def record_topup(
             tenant_id=tenant_id,
             credits_inr=amount,
             balance_after=balance.amount_inr,
-            rates=(
-                lot_rates_for_amount(amount) if override is None else lot_rates_of_pack(override)
-            ),
+            # OFF THE CARD IN FORCE NOW, not off the static catalogue (`RateCard`): a
+            # card recorded in the ops console is what publishes a rate change, and until
+            # this read existed nothing consulted it, so "raise prices later by recording a
+            # new card" was a promise the lot openers could not keep. `at=now` because this
+            # money is arriving now.
+            rates=(card.for_amount(amount) if override is None else card.of_pack(override)),
             source="topup" if override is None else "override",
             pack_id=None,
             ledger_entry_id=written.entry_id,
@@ -1384,6 +1490,11 @@ async def record_adjustment(
                 balance_inr=_paise(balance.amount_inr),
                 is_low=balance.is_low,
                 recorded=False,
+                # A REPLAY MOVED NO LOTS, so it created no overdraft — and a replay's
+                # receipt must not repeat a warning about one the FIRST call made, which
+                # the wallet read already shows. `0.00`, like `lot` is `None` above and for
+                # the same reason.
+                lot_shortfall_inr=_ZERO,
                 stops_dialling=await credits_exhausted(scoped, tenant_id=tenant_id),
             )
 
@@ -1434,6 +1545,7 @@ async def record_adjustment(
         #   exactly what that value means, and inventing a source would need the CHECK,
         #   the Literal in `billing/lots.py` and a migration to move together for a
         #   distinction the `corrects_entry_id` on the row already carries.
+        overdraft = _ZERO
         if delta < 0:
             returned = await remove_credit_from_lots(
                 scoped,
@@ -1441,8 +1553,9 @@ async def record_adjustment(
                 corrected_entry_id=target.entry_id,
                 amount_inr=amount,
             )
-            if returned:
-                meta["lots"] = split_meta(returned)
+            overdraft = returned.overdraft_inr
+            if returned.splits:
+                meta["lots"] = split_meta(returned.splits)
         balance = await record_entry(
             scoped,
             tenant_id=tenant_id,
@@ -1468,7 +1581,7 @@ async def record_adjustment(
                 tenant_id=tenant_id,
                 credits_inr=delta,
                 balance_after=balance.amount_inr,
-                rates=granted_lot_rates(),
+                rates=(await rate_card_at(scoped, at=datetime.now(UTC))).list_rates(),
                 source="grant",
                 pack_id=None,
                 ledger_entry_id=written.entry_id,
@@ -1527,6 +1640,141 @@ async def record_adjustment(
         recorded=True,
         stops_dialling=stops_dialling,
         lot=credited_lot,
+        lot_shortfall_inr=overdraft,
+    )
+
+
+@lots_router.post(
+    "/{lot_id}/override",
+    response_model=LotRepriceOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Re-price ONE lot at another pack's rates (close and replace)",
+    description=(
+        "Sell credit a client ALREADY HOLDS at another pack's per-minute rates — the "
+        "promotion nobody applied at the till, the deal negotiated after the money "
+        "landed. It is NOT an edit: a lot's terms are frozen for the life of its credit "
+        "(`credit_lots_terms_frozen`), so the original lot is CLOSED at its own rates and "
+        "a replacement opens carrying the same credit at the new ones, inheriting the "
+        "original's place in the spend queue. No money moves in either direction; the "
+        "ledger records a zero-delta `adjustment` marker so the new lot has an entry to "
+        "name. Requires `X-Confirm-Action: override_lot_rates:<lot_id>`. Re-posting the "
+        "same lot and pack returns the existing result and re-prices nothing. To price "
+        "credit as it ARRIVES, use `rates_of_pack_id` on the top-up instead."
+    ),
+)
+async def reprice_credit_lot(
+    tenant_id: UUID,
+    lot_id: UUID,
+    payload: LotRepriceIn,
+    request: Request,
+    principal: CreditsWrite,
+    # Resolved BEFORE the handler body, for `record_topup`'s reason. UNCONDITIONAL here,
+    # unlike there: every call to this route departs from the card, which is the act the
+    # step-up exists for. There is no ordinary path to keep out of its way.
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
+) -> LotRepriceOut:
+    # THE IMPOSSIBLE VALUE FIRST, THE STEP-UP SECOND — `record_topup`'s order and its
+    # reason: an operator who named a pack that does not exist should be told that rather
+    # than told their header is wrong.
+    pack = pack_by_id(payload.pack_id)
+    if pack is None:
+        raise ProblemError.business_rule(
+            "unknown_credit_pack",
+            f"There is no credit pack called {payload.pack_id!r}.",
+            remediation=(
+                "Choose one of the packs published on the wallet read "
+                f"(/v1/admin/tenants/{tenant_id}/credits)."
+            ),
+        )
+    step_up.require(x_confirm_action, lot_reprice_confirmation(lot_id))
+
+    async with tenant_session(tenant_id) as scoped:
+        await _assert_tenant_exists(scoped, tenant_id)
+        repriced = await reprice_lot(
+            scoped,
+            tenant_id=tenant_id,
+            lot_id=lot_id,
+            pack=pack,
+            reason=payload.reason,
+            operator_id=principal.user_id,
+        )
+        ref = lot_reprice_ref(lot_id=lot_id, pack_id=pack.pack_id)
+        if repriced is None:
+            # A REPLAY. The marker is on the ledger, so the replacement it named is the
+            # answer — found through the marker rather than remembered, which is what makes
+            # a double-clicked Save return the same two lot ids as the first click.
+            marker = await _find_entry_by_ref(
+                scoped, tenant_id=tenant_id, reason="adjustment", ref=ref
+            )
+            assert marker is not None, "reprice_lot returned None because it found this row"
+            replayed = await _lot_of_entry(scoped, entry_id=marker.entry_id)
+            assert replayed is not None, "the marker's whole purpose is to name a lot"
+            log.info(
+                "credit_lot_reprice_replay",
+                extra={"tenant_id": str(tenant_id), "lot_id": str(lot_id)},
+            )
+            return LotRepriceOut(
+                tenant_id=tenant_id,
+                closed_lot_id=lot_id,
+                lot=replayed,
+                entry_id=marker.entry_id,
+                ref=ref,
+                credits_inr=_paise(replayed.credits_total),
+                recorded=False,
+            )
+
+        # Same transaction as the write: a term of a client's contract never moves
+        # without its audit row. Its OWN action name, for `credit.topup_rate_override`'s
+        # reason — "show me every below-card sale" must be one query, and this is a
+        # different act from that one on a different object.
+        await write_audit(
+            scoped,
+            action="credit.lot_rate_override",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="credit_lots",
+            object_id=str(lot_id),
+            ip=client_request_ip(request),
+            summary={
+                "replacement_lot_id": str(repriced.replacement_lot_id),
+                "entry_id": str(repriced.ledger_entry_id),
+                "credits_inr": str(_paise(repriced.credits_inr)),
+                "rates_of_pack_id": pack.pack_id,
+                # BOTH pairs, written out rather than left to be looked up from today's
+                # card: the card moves, this decision does not, and an audit entry that has
+                # to be re-joined to a catalogue to be read is one nobody reads.
+                "previous_sarvam_inr_per_min": str(repriced.previous_rates.sarvam_inr_per_min),
+                "previous_cartesia_inr_per_min": str(repriced.previous_rates.cartesia_inr_per_min),
+                "sarvam_inr_per_min": str(repriced.rates.sarvam_inr_per_min),
+                "cartesia_inr_per_min": str(repriced.rates.cartesia_inr_per_min),
+                # The operator's own words — the field a later review of a below-card rate
+                # is actually looking for.
+                "reason": payload.reason,
+            },
+        )
+        # Read back from the row for `_read_lot`'s reason: what the console must show is
+        # what the LOT says, not what this request asked for.
+        replacement = await _read_lot(scoped, lot_id=repriced.replacement_lot_id)
+        assert replacement is not None, "the replacement was opened in this transaction"
+
+    log.info(
+        "credit_lot_repriced",
+        extra={
+            "tenant_id": str(tenant_id),
+            "lot_id": str(lot_id),
+            "replacement_lot_id": str(repriced.replacement_lot_id),
+            "pack_id": pack.pack_id,
+        },
+    )
+    return LotRepriceOut(
+        tenant_id=tenant_id,
+        closed_lot_id=repriced.closed_lot_id,
+        lot=replacement,
+        entry_id=repriced.ledger_entry_id,
+        ref=ref,
+        credits_inr=_paise(repriced.credits_inr),
+        recorded=True,
     )
 
 
@@ -1713,7 +1961,7 @@ async def record_restatement(
             tenant_id=tenant_id,
             credits_inr=added,
             balance_after=balance.amount_inr,
-            rates=lot_rates_for_amount(corrected),
+            rates=(await rate_card_at(scoped, at=datetime.now(UTC))).for_amount(corrected),
             source="topup",
             pack_id=None,
             ledger_entry_id=written.entry_id,
@@ -1896,7 +2144,7 @@ async def grant_credits(
             tenant_id=tenant_id,
             credits_inr=amount,
             balance_after=balance.amount_inr,
-            rates=granted_lot_rates(),
+            rates=(await rate_card_at(scoped, at=datetime.now(UTC))).list_rates(),
             source="grant",
             pack_id=None,
             ledger_entry_id=written.entry_id,
@@ -2019,7 +2267,7 @@ async def read_credits(
         paid_inr=_paise(totals.paid_inr),
         granted_inr=_paise(totals.granted_inr),
         lots=open_lots,
-        # STRAIGHT OFF THE CARD, in card order — the same tuple `lot_rates_of_pack` reads
+        # STRAIGHT OFF THE CARD, in card order — the same tuple `RateCard.of_pack` reads
         # when the write freezes them, so what an operator is shown is what the write does.
         override_packs=[
             OverridePackOut(

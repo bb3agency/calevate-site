@@ -51,7 +51,7 @@ from typing import Any
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing.lots import CallDemand
-from apps.api.billing.service import charge_for_call, find_topup, record_entry
+from apps.api.billing.service import LotRates, charge_for_call, find_topup, record_entry
 from apps.api.db.session import tenant_session
 from scripts.reconcile_credit_ledger import (
     COMPENSATION_REASON,
@@ -294,7 +294,7 @@ async def test_the_production_writers_cannot_mint_a_duplicate_key() -> None:
                 demand=CallDemand(
                     minutes=Decimal("6"),
                     voice_tier="sarvam",
-                    fallback_inr_per_min=Decimal("5.00"),
+                    fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
                 ),
             )
 

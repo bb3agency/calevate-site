@@ -61,7 +61,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from decimal import ROUND_DOWN, Decimal
-from typing import ClassVar, Literal
+from typing import TYPE_CHECKING, ClassVar, Literal
 from uuid import UUID
 
 from sqlalchemy import RowMapping, text
@@ -75,6 +75,13 @@ from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
+
+if TYPE_CHECKING:  # `LotRates` is a type here and never a runtime import.
+    # The PAIR of per-minute rates, `service.LotRates`. Imported for the annotation only:
+    # `service` imports this module at runtime, so a runtime import here would be the
+    # circular one the module-object import above exists to avoid. `from __future__ import
+    # annotations` is what makes the annotation a string and this legal.
+    from apps.api.billing.service import LotRates
 
 #: WHICH VOICE A CALL SPOKE IN, and therefore which of a lot's two rates prices it.
 #: Spelled here rather than imported from `agents/voices.py` because Phase C owns that
@@ -94,7 +101,8 @@ _MAX_CAS_ATTEMPTS = 8
 
 _LOT_COLUMNS = """
 SELECT id, tenant_id, source, pack_id, override_of_pack_id, credits_total,
-       credits_remaining, sarvam_inr_per_min, cartesia_inr_per_min, opened_at
+       credits_remaining, sarvam_inr_per_min, cartesia_inr_per_min, opened_at,
+       closed_at
 FROM credit_lots
 """
 
@@ -131,8 +139,28 @@ INSERT INTO credit_lots
      credits_remaining, sarvam_inr_per_min, cartesia_inr_per_min, ledger_entry_id,
      opened_at, created_at, updated_at)
 VALUES (:id, :tid, :source, :pack_id, :override_of_pack_id, :credits, :credits,
-        :sarvam, :cartesia, :ledger_entry_id, clock_timestamp(), clock_timestamp(),
+        :sarvam, :cartesia, :ledger_entry_id,
+        COALESCE(CAST(:opened_at AS timestamptz), clock_timestamp()), clock_timestamp(),
         clock_timestamp())
+"""
+
+#: CLOSE A LOT WITHOUT SPENDING IT — the first half of a re-price (D-547 Q6, close-and-
+#: replace). `credits_remaining` and `closed_at` are both inside the freeze trigger's
+#: allowlist, so this is the ONE shape of "stop this lot" the terms freeze permits; the
+#: rates, the source and the pack on the row never move, which is what makes the closed row
+#: a truthful record of what was sold. The credit is not destroyed: the caller opens the
+#: replacement carrying `credits_remaining` in the same transaction, which is what keeps
+#: invariant §2.3.1 (`SUM(credits_remaining)` = balance) true at every commit.
+#:
+#: CAS on `credits_remaining`, like `_TAKE_FROM_LOT` and for the same reason: a call that
+#: spent part of this lot between our read and our write would otherwise move a stale
+#: figure onto the replacement and mint or destroy credit.
+_CLOSE_LOT = """
+UPDATE credit_lots
+SET credits_remaining = 0,
+    closed_at = clock_timestamp(),
+    updated_at = clock_timestamp()
+WHERE id = :id AND credits_remaining = :seen AND closed_at IS NULL
 """
 
 #: THE CAS. `credits_remaining = :seen` is the guard; `closed_at IS NULL` keeps a lot that
@@ -177,6 +205,10 @@ class OpenLot:
     sarvam_inr_per_min: Decimal
     cartesia_inr_per_min: Decimal
     opened_at: datetime
+    #: `None` for every lot the FIFO scan returns — it selects open lots only. It is a real
+    #: value on the by-id read, which `service.reprice_lot` uses to tell "this credit is
+    #: already spent" (a sentence an operator can act on) from "no such lot" (a 404).
+    closed_at: datetime | None
 
     def rate_for(self, voice_tier: VoiceTier) -> Decimal:
         """What a minute of `voice_tier` costs out of THIS lot."""
@@ -191,14 +223,28 @@ class CallDemand:
 
     A call is not a demand for a number of credits: what the client used is minutes, and
     what they owe is minutes multiplied by the rate of whichever lot pays for them, which
-    is not knowable until the lots are walked. `fallback_inr_per_min` prices the case with no
-    lots at all (a wallet already in overdraft, or one whose lots predate nothing) and is
-    REQUIRED rather than optional so that no caller can reach an unpriced minute.
+    is not knowable until the lots are walked. `fallback_rates` prices the case with no
+    lots at all (a wallet already in overdraft, one that has never been topped up, or one
+    whose reversal emptied it) and is REQUIRED rather than optional so that no caller can
+    reach an unpriced minute.
+
+    **IT IS A PAIR, AND IT USED TO BE ONE NUMBER.** `workers/pipeline` passed the Sarvam
+    list rate as THE fallback for both voices, so a Studio minute on a wallet with no open
+    lot — a new tenant before their first pack, a wallet after a full reversal, a migrated
+    negative balance — was debited at ₹5.00 against a card that sells it at ₹8.00 and a
+    cost floor of ₹4.36. One figure cannot price two voices, and a caller resolving it by
+    hand beside `voice_tier` is a caller who can resolve the wrong one; the pair plus
+    `LotRates.rate_for` makes them unable to disagree.
     """
 
     minutes: Decimal
     voice_tier: VoiceTier
-    fallback_inr_per_min: Decimal
+    fallback_rates: LotRates
+
+    @property
+    def fallback_inr_per_min(self) -> Decimal:
+        """This demand's fallback rate — the pair, resolved by this demand's own voice."""
+        return self.fallback_rates.rate_for(self.voice_tier)
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,6 +381,7 @@ def _lot_of(row: RowMapping) -> OpenLot:
         sarvam_inr_per_min=Decimal(str(row["sarvam_inr_per_min"])),
         cartesia_inr_per_min=Decimal(str(row["cartesia_inr_per_min"])),
         opened_at=row["opened_at"],
+        closed_at=row["closed_at"],
     )
 
 
@@ -348,9 +395,14 @@ async def _read_open_lot(session: AsyncSession, *, lot_id: UUID) -> OpenLot | No
     return None if row is None else _lot_of(row)
 
 
-async def _read_any_lot(session: AsyncSession, *, lot_id: UUID) -> OpenLot | None:
-    """One lot, open or closed. The restatement path only — a correction has to reach a
-    lot that is already spent, which is the case ADDENDUM 2 §2.2 is written about."""
+async def read_lot(session: AsyncSession, *, lot_id: UUID) -> OpenLot | None:
+    """One lot by id, open or CLOSED — the correction paths' read.
+
+    Public and shared by the two of them rather than private to the restatement, because
+    both have to reach a lot that is already spent: ADDENDUM 2 §2.2's correction, and
+    `service.reprice_lot`, which needs the closed state itself in order to refuse a
+    re-price of credit the client no longer holds with a sentence instead of a 404.
+    """
     row = (await session.execute(text(_SELECT_ANY_LOT), {"id": lot_id})).mappings().one_or_none()
     return None if row is None else _lot_of(row)
 
@@ -366,6 +418,7 @@ async def open_lot(
     pack_id: str | None,
     ledger_entry_id: UUID,
     override_of_pack_id: str | None = None,
+    opened_at: datetime | None = None,
 ) -> UUID:
     """Open one lot for credits that have just been added, and return its id.
 
@@ -378,6 +431,15 @@ async def open_lot(
     rates for a grant (Q4), or an operator's override borrowed from another pack (Q6). This
     function neither reads nor validates them against a catalogue — a lot is a record of
     what was sold, and the day the card moves this row must not.
+
+    `opened_at` DEFAULTS TO NOW AND EXISTS FOR ONE CALLER: the re-price (Q6), which closes
+    a lot and opens a replacement carrying the same credit at another pack's rates. FIFO
+    order is `opened_at` (invariant §2.3.2), so a replacement stamped with the current
+    clock would silently move re-priced credit to the BACK of the client's queue and change
+    the order they were promised their money would be spent in — a lot bought in March
+    would start being spent after one bought in June because an operator corrected its
+    price. The replacement therefore INHERITS the original's `opened_at` and keeps its
+    place. No other caller passes it: money that has just arrived is opened now.
 
     `ValueError`, not a `ProblemError`: every argument here comes from our own catalogue or
     console, never from a client's keyboard, so a bad one is a defect to fix and not a
@@ -407,9 +469,24 @@ async def open_lot(
             "sarvam": _money(sarvam_inr_per_min),
             "cartesia": _money(cartesia_inr_per_min),
             "ledger_entry_id": ledger_entry_id,
+            "opened_at": opened_at,
         },
     )
     return lot_id
+
+
+async def close_lot(session: AsyncSession, *, lot_id: UUID, seen_remaining: Decimal) -> bool:
+    """Close a lot WITHOUT spending it, and say whether the CAS held.
+
+    The first half of a re-price (`service.reprice_lot`): the credit on this lot is about
+    to be re-opened at another pack's rates on a replacement row, because
+    `credit_lots_terms_frozen` refuses an UPDATE that touches the rates and that refusal is
+    the promise the client was sold. `False` means another writer moved or closed this lot
+    between the caller's read and this write — the caller must not open a replacement for a
+    figure that is no longer there.
+    """
+    result = await session.execute(text(_CLOSE_LOT), {"id": lot_id, "seen": _money(seen_remaining)})
+    return rowcount_of(result) == 1
 
 
 async def _take(session: AsyncSession, *, lot_id: UUID, seen: Decimal, take: Decimal) -> bool:
@@ -569,7 +646,7 @@ async def adjust_lot_for_restatement(
     """
     if delta == 0:
         raise ValueError("a restatement of zero changes nothing; do not write one")
-    lot = await _read_any_lot(session, lot_id=lot_id)
+    lot = await read_lot(session, lot_id=lot_id)
     if lot is None:
         raise ProblemError.not_found("credit lot")
     await credit_service.lock_tenant_credits(session, lot.tenant_id)

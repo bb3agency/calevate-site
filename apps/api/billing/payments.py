@@ -171,7 +171,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Final
 from uuid import UUID
@@ -193,9 +193,8 @@ from apps.api.billing.service import (
     find_entry_by_ref,
     find_topup,
     get_balance,
-    granted_lot_rates,
     lock_tenant_credits,
-    lot_rates_for_purchase,
+    rate_card_at,
     record_entry,
     to_paise,
 )
@@ -1131,7 +1130,9 @@ async def credit_captured_payment(
         tenant_id=payment.tenant_id,
         credits_inr=payment.amount_inr,
         balance_after=balance.amount_inr,
-        rates=lot_rates_for_purchase(pack_id=payment.pack_id, amount_inr=payment.amount_inr),
+        rates=(await rate_card_at(session, at=datetime.now(UTC))).for_purchase(
+            pack_id=payment.pack_id, amount_inr=payment.amount_inr
+        ),
         source="topup",
         pack_id=payment.pack_id,
         ledger_entry_id=written.entry_id,
@@ -1252,7 +1253,7 @@ async def _grant_pack_bonus(
         tenant_id=payment.tenant_id,
         credits_inr=bonus_inr,
         balance_after=balance.amount_inr,
-        rates=granted_lot_rates(),
+        rates=(await rate_card_at(session, at=datetime.now(UTC))).list_rates(),
         source="bonus_legacy",
         pack_id=pack.pack_id,
         ledger_entry_id=written_bonus.entry_id,

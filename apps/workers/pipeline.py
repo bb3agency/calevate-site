@@ -55,7 +55,6 @@ from apps.api.billing.caps import (
     lock_tenant_spend_state,
     over_cap_sql,
 )
-from apps.api.billing.list_rates import self_serve_rate_at
 from apps.api.billing.lots import CallDemand
 from apps.api.billing.plans import ist_billing_month, month_pricing_instant, plan_in_effect_sql
 from apps.api.billing.rates import (
@@ -72,6 +71,7 @@ from apps.api.billing.service import (
     charge_for_call,
     month_increment,
     plan_tier_of,
+    rate_card_at,
 )
 from apps.api.billing.trials import trial_covers
 from apps.api.compliance.consent import record_recording_notice
@@ -2534,17 +2534,17 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # free. What Cartesia actually charges is a MONTHLY PLAN with a character
         # allotment, which no execution payload can report, so the cost of the leg is the
         # operator-attested plan rate times the characters OUR transcript says the agent
-        # spoke. `_tts_cost_row` decides which of the two this call is.
-        tts_row = await _tts_cost_row(
-            session,
-            tenant_id=tenant_id,
-            call_id=call_id,
-            voice=voice,
-            engine_tts_inr=cost.tts_inr,
-            at=snapshot.ended_at or datetime.now(UTC),
+        # spoke. `_tts_cost_rows` decides which of the two this call is.
+        rows.extend(
+            await _tts_cost_rows(
+                session,
+                tenant_id=tenant_id,
+                call_id=call_id,
+                voice=voice,
+                engine_tts_inr=cost.tts_inr,
+                at=snapshot.ended_at or datetime.now(UTC),
+            )
         )
-        if tts_row is not None:
-            rows.append(tts_row)
         if cost.llm_inr is not None:
             rows.append(("llm_tok_out", Decimal(1), cost.llm_inr))
 
@@ -2585,16 +2585,28 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # month, and taking two readings of the clock is how a call that settles across the
         # roll gets its plan from one month and its list price from the other.
         priced_at = month_pricing_instant(month)
-        # WHAT A MINUTE COST IN *THIS CALL'S OWN* MONTH (D-492). This was
-        # `get_settings().self_serve_inr_per_min` — the LIVE setting — in both places
-        # below, while the `llm_surcharge` added to it in the same expression was already
-        # resolved at `priced_at`. So a LATE-SETTLING call was debited at NEXT month's
-        # price and surcharged at its own: the reconciliation poller's window straddling
-        # midnight IST on the 1st, an ARQ retry ladder crossing it, or a vendor that takes
-        # minutes to price a call all land there. `billing/list_rates.py` is the one home
-        # of that number now, and `usage_summary` reads it at the same instant, so the
-        # wallet debit, this counter and the client's statement cannot disagree.
-        list_rate = await self_serve_rate_at(session, at=priced_at)
+        # WHAT A MINUTE COST IN *THIS CALL'S OWN* MONTH (D-492), as a PAIR — one rate per
+        # voice — and it is the fallback for a wallet holding no open lot at all.
+        #
+        # TWO DEFECTS MET HERE AND BOTH ARE FIXED BY THE SAME LINE. The figure was
+        # `get_settings().self_serve_inr_per_min` — the LIVE setting — while the
+        # `llm_surcharge` added to it in the same expression was resolved at `priced_at`,
+        # so a LATE-SETTLING call was debited at NEXT month's price and surcharged at its
+        # own (the reconciliation poller's window straddling midnight IST on the 1st, an
+        # ARQ retry ladder crossing it, a vendor that takes minutes to price a call).
+        # D-492 moved it to `list_rates.self_serve_rate_at`, which dated it — and left it
+        # ONE NUMBER handed to both voices. That number is the SARVAM list price, so a
+        # Studio minute on an empty or overdrawn wallet (a new tenant before their first
+        # pack, a wallet after a full reversal, a migrated negative balance) was debited at
+        # ₹5.00 against a card that sells it at ₹8.00 and a cost floor of ₹4.36: below the
+        # card and a hair above cost, on exactly the accounts nobody is watching.
+        #
+        # `RateCard.list_rates` answers BOTH voices from the card in force in this call's
+        # own month — the same table, the same resolution rule and the same ops-console
+        # write that `self_serve_rate_at` reads, since `list_rates.record_card` writes the
+        # legacy key and the whole card at one instant with the starter pack's Sarvam rate
+        # in both. So the dated-ness D-492 bought is kept and the second voice acquires it.
+        fallback_rates = (await rate_card_at(session, at=priced_at)).list_rates()
         # THE PLAN ROW IS READ ONCE HERE and used for both halves below, rather than
         # re-read under the lock: a second reading could land on a different row if an
         # operator changed the plan between the two statements — the wallet debit and the
@@ -2705,11 +2717,12 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 demand=CallDemand(
                     minutes=minutes,
                     voice_tier=voice,
-                    # THE LIST RATE PRICES ONLY WHAT NO LOT COULD (plan §0 Q5 leaves the
+                    # THE LIST CARD PRICES ONLY WHAT NO LOT COULD (plan §0 Q5 leaves the
                     # overdraft at the rate of the lot that ran out; this is the case
                     # where there was no lot at all). Resolved at the call's own month,
-                    # never at today's, for D-492's reason.
-                    fallback_inr_per_min=list_rate,
+                    # never at today's, for D-492's reason — and per VOICE, because one
+                    # number cannot price two of them (`CallDemand.fallback_rates`).
+                    fallback_rates=fallback_rates,
                 ),
                 extra_inr=surcharge_inr,
             )
@@ -2760,7 +2773,14 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             prepaid_billed=(
                 charged_inr
                 if not on_us
-                else prepaid_billed_inr(minutes=minutes, self_serve_rate=list_rate) + surcharge_inr
+                # THE SAME PAIR, RESOLVED BY THE SAME VOICE. A trial call takes no debit,
+                # so what it WOULD have cost is priced exactly as `consume` would have
+                # priced it for a wallet holding no lots — which for a Studio minute is
+                # ₹8.00 and not the Sarvam list price this used to read.
+                else prepaid_billed_inr(
+                    minutes=minutes, self_serve_rate=fallback_rates.rate_for(voice)
+                )
+                + surcharge_inr
             ),
         )
         billed = increment.billed_inr
@@ -2961,7 +2981,7 @@ _AGENT_CHARS_ON_CALL: Final = (
 _CHARS_PER_KCHAR: Final = Decimal("1000")
 
 
-async def _tts_cost_row(
+async def _tts_cost_rows(
     session: AsyncSession,
     *,
     tenant_id: UUID,
@@ -2969,18 +2989,20 @@ async def _tts_cost_row(
     voice: str,
     engine_tts_inr: Decimal | None,
     at: datetime,
-) -> tuple[str, Decimal, Decimal | None] | None:
-    """The one `usage_events` row for this call's SYNTHESIZER leg, or none at all.
+) -> list[tuple[str, Decimal, Decimal | None]]:
+    """The `usage_events` rows for this call's SYNTHESIZER leg — none, one, or two.
 
     Two voices, two sources of truth, and which one applies is a property of the voice:
 
     * **Sarvam** — the engine buys the synthesis and reports what it charged. That figure
       is the cost, on a `tts_chars` row at `qty = 1`, exactly as before. (Whether the
       engine's own figure is right is OPERATIONS §2 gate 7 and is not this seam.)
-    * **Cartesia** — BYOK, so the engine charges nothing and reports nothing worth
-      recording. The cost is the operator-attested plan rate times the characters our
-      transcript says the agent spoke, on a `tts_kchars` row whose `qty` is that count in
-      thousands.
+    * **Cartesia** — BYOK, so the engine is *expected* to charge nothing. The cost is the
+      operator-attested plan rate times the characters our transcript says the agent
+      spoke, on a `tts_kchars` row whose `qty` is that count in thousands — PLUS, if the
+      engine reported a charge anyway, that charge on a `tts_chars` row beside it, with an
+      alarm. Hence a LIST: on that one path this call's synthesis has two costs from two
+      vendors, and dropping either is dropping money.
 
     **AND IT WRITES NO ROW AT ALL RATHER THAN A ZERO, when a Cartesia call has no attested
     price.** A `unit_cost_paid` of ₹0 on a leg that really cost money is a FABRICATED ZERO
@@ -2992,7 +3014,33 @@ async def _tts_cost_row(
     to invent. The alert is the telling.
     """
     if voice != "cartesia":
-        return None if engine_tts_inr is None else ("tts_chars", Decimal(1), engine_tts_inr)
+        return [] if engine_tts_inr is None else [("tts_chars", Decimal(1), engine_tts_inr)]
+    rows: list[tuple[str, Decimal, Decimal | None]] = []
+    if engine_tts_inr is not None and engine_tts_inr > 0:
+        # WHETHER BOLNA BILLS THE BYOK LEG IS OPERATIONS §2 GATE 51, AND THIS IS THE ONLY
+        # MEASUREMENT OF IT WE WILL EVER GET. Their pricing page says a component you bring
+        # your own key for is not charged, and this branch used to act on that reading by
+        # ignoring `engine_tts_inr` on a Cartesia call entirely — so if the reading is
+        # wrong, a real vendor charge vanished with no row, no alarm, and the gate's one
+        # observation thrown away on every call. Recorded BESIDE ours rather than instead
+        # of it: our `tts_kchars` row is the plan cost we actually pay Cartesia, this is
+        # what the engine additionally charged, and the two are different money. The alarm
+        # is what makes it a measurement rather than a line nobody reads.
+        alert(
+            "WORKER_TERMINAL",
+            "engine_billed_byok_tts",
+            detail=(
+                "the engine reported a non-zero synthesizer charge on a Cartesia (BYOK) "
+                "call, which its pricing page says should be free. The charge HAS been "
+                "metered beside our own plan cost, so no money is missing from the ledger "
+                "— what is in doubt is OPERATIONS §2 gate 51: if the engine really bills "
+                "this leg, every Cartesia call is costing more than the margin model says. "
+                "Check the engine invoice against these rows and settle the gate."
+            ),
+            call_id=str(call_id),
+            tenant_id=str(tenant_id),
+        )
+        rows.append(("tts_chars", Decimal(1), engine_tts_inr))
     price = (await attested_tts_prices(session, at=at)).get("cartesia")
     if price is None:
         alert(
@@ -3008,7 +3056,7 @@ async def _tts_cost_row(
             call_id=str(call_id),
             tenant_id=str(tenant_id),
         )
-        return None
+        return rows
     characters = Decimal(
         str(
             (
@@ -3024,8 +3072,9 @@ async def _tts_cost_row(
     # writing NO row is what keeps it out of the cost side rather than putting the rate on
     # it as a leg total.
     if characters <= 0:
-        return None
-    return ("tts_kchars", characters / _CHARS_PER_KCHAR, price.inr_per_1k_chars)
+        return rows
+    rows.append(("tts_kchars", characters / _CHARS_PER_KCHAR, price.inr_per_1k_chars))
+    return rows
 
 
 async def _maybe_notify_hot_lead(

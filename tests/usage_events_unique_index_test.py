@@ -55,7 +55,13 @@ COVERED_UNIT_TYPES = frozenset({"telephony_s", "platform_min", "stt_s", "tts_cha
 #: A disjoint predicate rather than a wider version of the first: the two together ARE the
 #: wider key, and widening in place would have meant dropping the key that protects four
 #: live legs to rebuild it CONCURRENTLY over the whole table. `tts_chars` and `tts_kchars`
-#: are mutually exclusive per call — `pipeline._tts_cost_row` returns one row or none.
+#: are NO LONGER mutually exclusive per call: `pipeline._tts_cost_rows` returns BOTH on a
+#: Cartesia call the engine charged for anyway (OPERATIONS §2 gate 51 — their pricing page
+#: says a BYOK leg is free, so if it is not, that charge is metered beside our plan cost
+#: rather than thrown away). Both indexes key on `(tenant_id, call_id, unit_type)` and
+#: differ only in which unit types their predicate admits, so one row of each unit lands
+#: and neither unit can be written twice — which is the property either of them was ever
+#: for. `test_a_cartesia_call_can_carry_both_tts_units_once_each` below drives it.
 KCHARS_INDEX = "ux_usage_events_tenant_call_kchars"
 KCHARS_UNIT_TYPES = frozenset({"tts_kchars"})
 
@@ -215,11 +221,11 @@ async def test_rows_with_no_call_do_not_collide() -> None:
 
 
 #: The functions that actually write a `usage_events` row for a call. `_meter` builds the
-#: four fixed legs; `_tts_cost_row` decides the synthesizer one, because which of the two
-#: TTS units a call carries is a property of the VOICE it spoke in (D-547) and that
-#: decision does not belong inline in a 300-line meter. Both are scanned, or the sixth unit
-#: type would be invisible to the guard that exists to notice a sixth unit type.
-_WRITERS = frozenset({"_meter", "_tts_cost_row"})
+#: four fixed legs; `_tts_cost_rows` decides the synthesizer ones, because which TTS units
+#: a call carries is a property of the VOICE it spoke in (D-547) and that decision does not
+#: belong inline in a 300-line meter. Both are scanned, or the sixth unit type would be
+#: invisible to the guard that exists to notice a sixth unit type.
+_WRITERS = frozenset({"_meter", "_tts_cost_rows"})
 
 
 def _unit_types_the_metering_path_writes() -> set[str]:
@@ -414,3 +420,35 @@ async def test_on_conflict_do_update_is_still_refused_by_the_append_only_trigger
             )
         ).scalar()
     assert Decimal(qty) == Decimal(1), f"the ledger row was rewritten to {qty}"
+
+
+async def test_a_cartesia_call_can_carry_both_tts_units_once_each() -> None:
+    """The pair the engine-charge measurement needs, and the duplicate it still refuses.
+
+    A Cartesia call the engine billed for writes OUR plan cost (`tts_kchars`) AND the
+    engine's own charge (`tts_chars`). Both indexes key on `(tenant_id, call_id,
+    unit_type)`, so the two units coexist while a SECOND row of either is still refused —
+    which is the replay protection both indexes exist for, unweakened.
+    """
+    tenant_id, agent_id = await _tenant()
+    call_id = await _call(tenant_id, agent_id)
+
+    await _meter_row(tenant_id, call_id, "tts_chars")
+    await _meter_row(tenant_id, call_id, "tts_kchars")
+
+    async with tenant_session(tenant_id) as session:
+        count = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM usage_events WHERE call_id = :c AND "
+                    "unit_type IN ('tts_chars', 'tts_kchars')"
+                ),
+                {"c": call_id},
+            )
+        ).scalar_one()
+    assert count == 2
+
+    with pytest.raises(IntegrityError):
+        await _meter_row(tenant_id, call_id, "tts_chars")
+    with pytest.raises(IntegrityError):
+        await _meter_row(tenant_id, call_id, "tts_kchars")

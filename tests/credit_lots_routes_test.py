@@ -23,7 +23,7 @@ from apps.api.billing.credit_routes import (
 )
 from apps.api.billing.credit_routes import router as credit_router
 from apps.api.billing.lots import CallDemand
-from apps.api.billing.service import charge_for_call
+from apps.api.billing.service import LotRates, charge_for_call
 from apps.api.core.errors import install_error_handlers
 from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI
@@ -233,7 +233,7 @@ async def test_an_adjustment_that_credits_back_opens_a_lot_at_the_list_rates() -
             demand=CallDemand(
                 minutes=Decimal("60"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
         entry_id = (
@@ -297,3 +297,79 @@ async def test_a_captured_payment_with_no_pack_falls_to_the_free_amount_rule() -
     (lot,) = await lot_rows(tenant_id)
     assert lot["pack_id"] is None
     assert lot["cartesia_inr_per_min"] == Decimal("7.0000")
+
+
+async def test_a_correction_that_overdraws_the_wallet_publishes_the_shortfall() -> None:
+    """AN OPERATOR WHO PUSHES A CLIENT INTO OVERDRAFT IS TOLD, ON THE RESPONSE.
+
+    A downward correction of a purchase whose lot is already spoken floors that lot at zero
+    and takes the rest off the queue. When even the queue cannot cover it, what is left is
+    wallet overdraft — the client's outbound dialling has just stopped — and that figure was
+    computed inside `remove_credit_from_lots` and DISCARDED. The console showed a successful
+    correction and the client discovered it when their calls stopped connecting.
+
+    ₹5,000 in, ₹4,500 spoken, ₹2,000 taken back: ₹500 comes off the lot and ₹1,500 reaches
+    no lot at all.
+    """
+    token, tenant_id = await _make_admin(), await _tenant()
+    async with _client() as http:
+        posted = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credits",
+            headers=_headers(token),
+            json={"amount_inr": "5000.00", "payment_ref": "UTR-LOT-OVERDRAW"},
+        )
+        assert posted.status_code == 200, posted.text
+        entry_id = posted.json()["entry_id"]
+        async with tenant_session(tenant_id) as session:
+            await charge_for_call(
+                session,
+                tenant_id=tenant_id,
+                call_id=uuid.uuid4(),
+                demand=CallDemand(
+                    minutes=Decimal("900"),  # ₹4,500 at the ₹5,000 rung's ₹5.00
+                    voice_tier="sarvam",
+                    fallback_rates=LotRates(Decimal("5.00"), Decimal("8.00")),
+                ),
+            )
+        adjusted = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credits/adjustments",
+            headers=_headers(token, credit_adjustment_confirmation(uuid.UUID(entry_id))),
+            json={
+                "corrects_entry_id": entry_id,
+                "amount_inr": "2000.00",
+                "reason": "the bank moved less than we recorded",
+            },
+        )
+    assert adjusted.status_code == 200, adjusted.text
+    body = adjusted.json()
+    assert body["lot_shortfall_inr"] == "1500.00"
+    assert body["stops_dialling"] is True, "and the other vocabulary for the same fact"
+    assert body["balance_inr"] == "-1500.00"
+    # THE LOTS AND THE BALANCE STILL AGREE: every lot is at zero and the difference is
+    # overdraft, which is invariant §2.3.1's second half.
+    (lot,) = await lot_rows(tenant_id)
+    assert lot["credits_remaining"] == Decimal("0.0000")
+
+
+async def test_a_correction_that_fits_reports_no_shortfall() -> None:
+    """The ordinary case must not print a warning: the lot absorbed the whole correction,
+    nothing was drained and nobody was overdrawn."""
+    token, tenant_id = await _make_admin(), await _tenant()
+    async with _client() as http:
+        posted = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credits",
+            headers=_headers(token),
+            json={"amount_inr": "5000.00", "payment_ref": "UTR-LOT-FITS"},
+        )
+        entry_id = posted.json()["entry_id"]
+        adjusted = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credits/adjustments",
+            headers=_headers(token, credit_adjustment_confirmation(uuid.UUID(entry_id))),
+            json={
+                "corrects_entry_id": entry_id,
+                "amount_inr": "1000.00",
+                "reason": "we credited more than the bank moved",
+            },
+        )
+    assert adjusted.status_code == 200, adjusted.text
+    assert adjusted.json()["lot_shortfall_inr"] == "0.00"

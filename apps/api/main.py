@@ -93,6 +93,7 @@ def _mount_routers(application: FastAPI) -> None:
     )
     from apps.api.billing.ai_quota_routes import router as ai_quota_router
     from apps.api.billing.cap_routes import router as caps_router
+    from apps.api.billing.credit_routes import lots_router as credit_lots_admin_router
     from apps.api.billing.credit_routes import router as credits_admin_router
     from apps.api.billing.payment_routes import public_router as public_rate_card_router
     from apps.api.billing.payment_routes import refund_router
@@ -200,6 +201,7 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(client_health_router)
     application.include_router(billing_admin_router)
     application.include_router(credits_admin_router)
+    application.include_router(credit_lots_admin_router)
     # Beside the wallet it deliberately does not touch (D-536): a trial bypasses the credit
     # gate rather than granting credit, so these two routers share a tenant path prefix and
     # nothing else.

@@ -37,7 +37,7 @@ from apps.api.billing.credit_routes import router as credit_router
 from apps.api.billing.invoice import build_invoice
 from apps.api.billing.lots import CallDemand
 from apps.api.billing.routes import router as invoice_router
-from apps.api.billing.service import charge_for_call, get_balance, record_entry
+from apps.api.billing.service import LotRates, charge_for_call, get_balance, record_entry
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.errors import install_error_handlers
 from apps.api.db.base import uuid7
@@ -267,7 +267,7 @@ async def test_two_overlapping_charges_for_one_call_charge_it_once(monkeypatch: 
                 demand=CallDemand(
                     minutes=Decimal("6"),
                     voice_tier="sarvam",
-                    fallback_inr_per_min=Decimal("5.00"),
+                    fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
                 ),
             )
 

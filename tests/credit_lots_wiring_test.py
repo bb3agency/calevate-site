@@ -15,6 +15,7 @@ make impossible and it is invisible on any single screen.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
@@ -22,19 +23,19 @@ import pytest
 from apps.api.billing import service as billing
 from apps.api.billing.lots import AiAssistDemand, CallDemand, read_open_lots, voice_tier_rates
 from apps.api.billing.service import (
+    LotRates,
     apply_credit_to_lots,
     charge_for_call,
     get_balance,
-    granted_lot_rates,
     lot_of_entry,
-    lot_rates_for_amount,
-    lot_rates_for_purchase,
+    rate_card_at,
     record_entry,
     remove_credit_from_lots,
 )
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 from tests.credit_lots_helpers import GROWTH, PLUS, add_lot, credit_entry, lot_rows, make_tenant
 
 
@@ -89,7 +90,7 @@ async def test_a_call_splits_across_two_lots_and_each_part_is_priced_at_its_own_
             demand=CallDemand(
                 minutes=Decimal("30"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
 
@@ -122,7 +123,7 @@ async def test_a_cartesia_call_is_priced_at_the_lots_cartesia_column() -> None:
             demand=CallDemand(
                 minutes=Decimal("10"),
                 voice_tier="cartesia",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
     assert charged == Decimal("70.0000")  # 10 x the growth pack's ₹7.00 Cartesia rate
@@ -147,7 +148,7 @@ async def test_the_overdraft_is_priced_at_the_lot_that_ran_out() -> None:
                 voice_tier="sarvam",
                 # A DIFFERENT fallback, so a test that passed by reading the fallback
                 # instead of the exhausted lot's own rate would be visible.
-                fallback_inr_per_min=Decimal("99.00"),
+                fallback_rates=LotRates(Decimal("99.00"), Decimal("99.00")),
             ),
         )
     assert charged == Decimal("50.0000")
@@ -171,7 +172,7 @@ async def test_a_wallet_with_no_lots_at_all_is_priced_at_the_callers_fallback() 
             demand=CallDemand(
                 minutes=Decimal("4"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("6.00"),
+                fallback_rates=LotRates(Decimal("6.00"), Decimal("6.00")),
             ),
         )
     assert charged == Decimal("24.0000")
@@ -194,7 +195,9 @@ async def test_a_replayed_call_consumes_nothing_a_second_time() -> None:
     await add_lot(tenant_id, credits_inr="500.00", rates=GROWTH)
     call_id = uuid.uuid4()
     demand = CallDemand(
-        minutes=Decimal("10"), voice_tier="sarvam", fallback_inr_per_min=Decimal("5.00")
+        minutes=Decimal("10"),
+        voice_tier="sarvam",
+        fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
     )
     async with tenant_session(tenant_id) as session:
         first = await charge_for_call(session, tenant_id=tenant_id, call_id=call_id, demand=demand)
@@ -215,7 +218,9 @@ async def test_a_call_that_demands_nothing_writes_no_row() -> None:
             tenant_id=tenant_id,
             call_id=uuid.uuid4(),
             demand=CallDemand(
-                minutes=Decimal("0"), voice_tier="sarvam", fallback_inr_per_min=Decimal("5")
+                minutes=Decimal("0"),
+                voice_tier="sarvam",
+                fallback_rates=LotRates(Decimal("5"), Decimal("5")),
             ),
         ) == Decimal("0")
     assert await _open_remaining(tenant_id) == Decimal("500.0000")
@@ -240,7 +245,7 @@ async def test_the_model_surcharge_rides_the_same_row_as_an_ai_assist_split() ->
             demand=CallDemand(
                 minutes=Decimal("10"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
             extra_inr=Decimal("2.50"),
         )
@@ -319,43 +324,54 @@ async def test_a_topup_wholly_absorbed_by_an_overdraft_opens_no_lot_at_all() -> 
 
 
 # --- which rates a purchase freezes (plan §0 Q3 / Q4) -----------------------------
+#
+# THE CARD IS READ FROM `platform_list_rates` NOW, not from the `PACK_CATALOGUE` constant
+# (`service.RateCard`). With no card recorded — which is every one of these tests — every
+# cell falls back to the catalogue, so the answers below are the same figures they always
+# were; `tests/list_rate_card_test.py` is where the RESOLUTION is pinned, and
+# `test_a_recorded_card_prices_the_lot_it_opens` below is what holds the two together.
 
 
-def test_a_free_amount_takes_the_largest_pack_it_could_have_bought() -> None:
+async def _card() -> billing.RateCard:
+    async with tenant_session(await make_tenant()) as session:
+        return await rate_card_at(session, at=datetime.now(UTC))
+
+
+async def test_a_free_amount_takes_the_largest_pack_it_could_have_bought() -> None:
     """₹6,000 buys no pack, but it is more than the ₹5,000 rung — so it is sold at that
     rung's rates. Monotone, and it punishes nobody for topping up between the rungs."""
-    assert lot_rates_for_amount(Decimal("6000")) == billing.LotRates(
+    assert (await _card()).for_amount(Decimal("6000")) == billing.LotRates(
         Decimal("5.00"), Decimal("7.00")
     )
 
 
-def test_a_free_amount_below_the_first_rung_takes_the_list_rates() -> None:
+async def test_a_free_amount_below_the_first_rung_takes_the_list_rates() -> None:
     """₹500 affords no pack at all. The smallest pack's rates are the floor, which is the
     only answer that is neither a gift nor a punishment."""
-    assert lot_rates_for_amount(Decimal("500")) == billing.LotRates(
+    assert (await _card()).for_amount(Decimal("500")) == billing.LotRates(
         Decimal("5.00"), Decimal("8.00")
     )
 
 
-def test_a_purchase_naming_a_pack_takes_that_packs_rates() -> None:
-    assert lot_rates_for_purchase(pack_id="max", amount_inr=Decimal("50000")) == billing.LotRates(
-        Decimal("4.50"), Decimal("6.00")
-    )
+async def test_a_purchase_naming_a_pack_takes_that_packs_rates() -> None:
+    assert (await _card()).for_purchase(
+        pack_id="max", amount_inr=Decimal("50000")
+    ) == billing.LotRates(Decimal("4.50"), Decimal("6.00"))
 
 
-def test_a_purchase_naming_a_pack_this_build_no_longer_offers_falls_to_the_amount() -> None:
+async def test_a_purchase_naming_a_pack_this_build_no_longer_offers_falls_to_the_amount() -> None:
     """The money arrived either way, so an unknown pack id is not a failure — it is a
     purchase whose rates come from what was paid (`credit_captured_payment` takes the
     same reading of an unknown pack for the same reason)."""
-    assert lot_rates_for_purchase(
+    assert (await _card()).for_purchase(
         pack_id="retired-pack", amount_inr=Decimal("6000")
     ) == billing.LotRates(Decimal("5.00"), Decimal("7.00"))
 
 
-def test_a_gift_is_spent_at_the_list_price() -> None:
+async def test_a_gift_is_spent_at_the_list_price() -> None:
     """Plan §0 Q4: otherwise a ₹50,000 grant would buy a cheaper minute than a ₹50,000
     purchase, and the card would be a suggestion."""
-    assert granted_lot_rates() == billing.LotRates(Decimal("5.00"), Decimal("8.00"))
+    assert (await _card()).list_rates() == billing.LotRates(Decimal("5.00"), Decimal("8.00"))
 
 
 # --- corrections ------------------------------------------------------------------
@@ -378,15 +394,17 @@ async def test_a_partial_correction_restates_the_lot_and_leaves_its_rates_alone(
             pack_id="growth",
             ledger_entry_id=entry_id,
         )
-        assert (
-            await remove_credit_from_lots(
-                session,
-                tenant_id=tenant_id,
-                corrected_entry_id=entry_id,
-                amount_inr=Decimal("1000"),
-            )
-            == []
+        removed = await remove_credit_from_lots(
+            session,
+            tenant_id=tenant_id,
+            corrected_entry_id=entry_id,
+            amount_inr=Decimal("1000"),
         )
+        # A restatement that FITS takes nothing off the queue and overdraws nobody: the
+        # lot absorbed the whole correction, so there is nothing to spend and nothing to
+        # warn an operator about.
+        assert removed.splits == []
+        assert removed.overdraft_inr == Decimal("0.00")
     (lot,) = await lot_rows(tenant_id)
     assert (lot["credits_total"], lot["credits_remaining"]) == (
         Decimal("4000.0000"),
@@ -419,7 +437,7 @@ async def test_a_correction_bigger_than_what_is_left_floors_the_lot_and_overdraw
             demand=CallDemand(
                 minutes=Decimal("1800"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
         await remove_credit_from_lots(
@@ -458,10 +476,11 @@ async def test_a_full_reversal_spends_the_queue_because_a_lot_may_not_reach_zero
             pack_id="growth",
             ledger_entry_id=entry_id,
         )
-        splits = await remove_credit_from_lots(
+        removed = await remove_credit_from_lots(
             session, tenant_id=tenant_id, corrected_entry_id=entry_id, amount_inr=Decimal("5000")
         )
-    assert [s.kind for s in splits] == ["ai_assist"]
+    assert [s.kind for s in removed.splits] == ["ai_assist"]
+    assert removed.overdraft_inr == Decimal("0.00")
     assert await _open_remaining(tenant_id) == Decimal("0")
 
 
@@ -474,10 +493,11 @@ async def test_a_correction_of_an_entry_that_opened_no_lot_spends_the_queue() ->
     lotless = await credit_entry(tenant_id, amount="400.00")
     async with tenant_session(tenant_id) as session:
         assert await lot_of_entry(session, ledger_entry_id=lotless) is None
-        splits = await remove_credit_from_lots(
+        removed = await remove_credit_from_lots(
             session, tenant_id=tenant_id, corrected_entry_id=lotless, amount_inr=Decimal("400")
         )
-    assert [s.credits for s in splits] == [Decimal("400.00")]
+    assert [s.credits for s in removed.splits] == [Decimal("400.00")]
+    assert removed.overdraft_inr == Decimal("0.00")
     assert await _open_remaining(tenant_id) == Decimal("600.0000")
 
 
@@ -556,6 +576,40 @@ async def test_the_picker_says_nothing_rather_than_quoting_a_card_it_has_not_sol
 # --- what a month's panel says each voice cost (plan §4.D.4) ----------------------
 
 
+async def _metered_call(session: AsyncSession, *, tenant_id: UUID) -> UUID:
+    """A completed call and the one `usage_events` row the meter writes for it.
+
+    `service._CALL_IN_MONTH` reads a debit's month off those rows rather than off the
+    ledger row's own `occurred_at`, because `record_entry` stamps the moment of the INSERT
+    and a late-settling call's debit is written in the NEXT month. A charge with no metered
+    call is therefore a charge in no month — which is exactly what the pipeline can never
+    produce and what a test must not pretend to.
+    """
+    call_id = uuid.uuid4()
+    agent_id = (
+        await session.execute(
+            text("SELECT id FROM agents WHERE tenant_id = :t LIMIT 1"), {"t": tenant_id}
+        )
+    ).scalar_one()
+    await session.execute(
+        text(
+            "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction, to_e164, "
+            "status, created_at, updated_at) VALUES (:i, :t, :a, :e, 'outbound', "
+            "'+919876500001', 'completed', now(), now())"
+        ),
+        {"i": call_id, "t": tenant_id, "a": agent_id, "e": f"exec_{uuid.uuid4().hex[:12]}"},
+    )
+    await session.execute(
+        text(
+            "INSERT INTO usage_events (id, tenant_id, call_id, unit_type, qty, "
+            "unit_cost_paid, occurred_at, created_at) "
+            "VALUES (gen_random_uuid(), :tid, :cid, 'telephony_s', 60, 1, now(), now())"
+        ),
+        {"tid": tenant_id, "cid": call_id},
+    )
+    return call_id
+
+
 async def test_a_month_splits_its_minutes_and_charges_by_the_voice_that_spoke() -> None:
     """The panel's per-voice figures come out of `meta.lots`, which is the whole reason
     the splits are written: the charges are the rupees actually taken off the wallet, not
@@ -564,33 +618,48 @@ async def test_a_month_splits_its_minutes_and_charges_by_the_voice_that_spoke() 
     The `ai_assist` split on the second call is deliberately there — a D-455 surcharge
     rides a call's own row — and must NOT reach either voice's minutes, because those
     minutes are already counted by the call split beside it.
+
+    **EACH CALL GETS A `usage_events` ROW, AS THE PIPELINE ALWAYS WRITES ONE.** The reader
+    windows a debit by the CALL's own instant rather than by the instant the ledger row was
+    stamped (`service._CALL_IN_MONTH`), because `record_entry` stamps the moment of the
+    INSERT and a late-settling call's debit is therefore written in the NEXT month. Those
+    rows are where the call's instant lives, and they are the same rows the minutes printed
+    beside these charges are counted from.
     """
     tenant_id = await make_tenant()
     await add_lot(tenant_id, credits_inr="10000.00", rates=GROWTH)
     async with tenant_session(tenant_id) as session:
+        sarvam_call = await _metered_call(session, tenant_id=tenant_id)
+        cartesia_call = await _metered_call(session, tenant_id=tenant_id)
         await charge_for_call(
             session,
             tenant_id=tenant_id,
-            call_id=uuid.uuid4(),
+            call_id=sarvam_call,
             demand=CallDemand(
                 minutes=Decimal("10"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
         await charge_for_call(
             session,
             tenant_id=tenant_id,
-            call_id=uuid.uuid4(),
+            call_id=cartesia_call,
             demand=CallDemand(
                 minutes=Decimal("4"),
                 voice_tier="cartesia",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
             extra_inr=Decimal("9.00"),
         )
         month = billing.current_billing_month()
-        voices = await billing.voice_tier_usage(session, tenant_id=tenant_id, month=month)
+        charges = await billing.voice_tier_usage(session, tenant_id=tenant_id, month=month)
+    voices = charges.by_voice
+    # THE SURCHARGE, on the same rows and out of the same read (D-547 HIGH-1). It is an
+    # `ai_assist` split riding the CALL's own row, so it is not in either voice's charge
+    # and it IS in the calling total the statement and the margin panel are struck from.
+    assert charges.extra_inr == Decimal("9.00")
+    assert charges.total_inr == Decimal("87.0000")
     assert voices["sarvam"].minutes == Decimal("10.0000")
     assert voices["sarvam"].charged_inr == Decimal("50.0000")
     assert voices["cartesia"].minutes == Decimal("4.0000")
@@ -604,10 +673,12 @@ async def test_a_wallet_that_spoke_nothing_reports_both_voices_at_zero() -> None
     wallet debit at all, which is not a gap."""
     tenant_id = await make_tenant()
     async with tenant_session(tenant_id) as session:
-        voices = await billing.voice_tier_usage(
+        charges = await billing.voice_tier_usage(
             session, tenant_id=tenant_id, month=billing.current_billing_month()
         )
-    assert {tier: (v.minutes, v.charged_inr) for tier, v in voices.items()} == {
+    assert charges.extra_inr == Decimal("0")
+    assert charges.total_inr == Decimal("0")
+    assert {tier: (v.minutes, v.charged_inr) for tier, v in charges.by_voice.items()} == {
         "sarvam": (Decimal("0"), Decimal("0")),
         "cartesia": (Decimal("0"), Decimal("0")),
     }

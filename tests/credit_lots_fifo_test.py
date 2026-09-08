@@ -13,6 +13,7 @@ from uuid import UUID
 
 import pytest
 from apps.api.billing import lots
+from apps.api.billing.service import LotRates
 from apps.api.db.session import tenant_session
 from tests.credit_lots_helpers import GROWTH, PLUS, add_lot, lot_rows, make_tenant
 
@@ -29,7 +30,7 @@ async def _consume_call(
             demand=lots.CallDemand(
                 minutes=Decimal(minutes),
                 voice_tier=tier,
-                fallback_inr_per_min=Decimal(fallback),
+                fallback_rates=LotRates(Decimal(fallback), Decimal(fallback)),
             ),
         )
 

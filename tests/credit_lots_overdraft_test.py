@@ -13,6 +13,7 @@ from decimal import Decimal
 
 import pytest
 from apps.api.billing import lots
+from apps.api.billing.service import LotRates
 from apps.api.db.session import tenant_session
 from tests.credit_lots_helpers import GROWTH, PLUS, add_lot, lot_rows, make_tenant
 
@@ -31,7 +32,7 @@ async def test_minutes_past_the_last_lot_are_priced_at_that_lot_s_rate() -> None
             demand=lots.CallDemand(
                 minutes=Decimal("35"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("99.00"),
+                fallback_rates=LotRates(Decimal("99.00"), Decimal("99.00")),
             ),
         )
 
@@ -61,7 +62,7 @@ async def test_a_wallet_with_no_lots_at_all_is_priced_at_the_caller_s_fallback()
             demand=lots.CallDemand(
                 minutes=Decimal("4"),
                 voice_tier="cartesia",
-                fallback_inr_per_min=Decimal("8.00"),
+                fallback_rates=LotRates(Decimal("8.00"), Decimal("8.00")),
             ),
         )
 
@@ -101,7 +102,7 @@ async def test_a_call_that_exactly_empties_the_last_lot_takes_no_overdraft() -> 
             demand=lots.CallDemand(
                 minutes=Decimal("20"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
 

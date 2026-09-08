@@ -35,7 +35,7 @@ from apps.api.billing import service as billing
 from apps.api.billing.ai_quota import read_ai_quota
 from apps.api.billing.attribution import period_attribution
 from apps.api.billing.lots import CallDemand
-from apps.api.billing.service import to_paise
+from apps.api.billing.service import LotRates, to_paise
 from apps.api.billing.spend_routes import (
     AgentChargeOut,
     CallChargeOut,
@@ -457,7 +457,7 @@ async def test_a_prepaid_call_is_charged_what_actually_left_the_wallet() -> None
             demand=CallDemand(
                 minutes=Decimal("12"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
         period = await period_attribution(session, tenant_id=tenant_id)
@@ -905,13 +905,23 @@ async def test_cost_that_belongs_to_no_call_stays_inside_the_partition() -> None
     assert period.itemisation_residual_inr == Decimal("0.00")
 
 
-async def test_a_prepaid_month_publishes_the_gap_between_the_wallet_and_the_panel() -> None:
-    """The wallet is debited per call and the panel prices the month's PUBLISHED minutes at
-    the list rate — two arithmetics that cannot both be the itemisation, and whose
-    difference is an open founder decision (`calling_revenue_inr`, deepdive-money N-2).
+async def test_a_prepaid_months_items_and_its_total_are_the_same_rupees() -> None:
+    """THE GAP THIS TEST WAS WRITTEN FOR IS CLOSED, AND THAT IS WHAT IT NOW ASSERTS.
 
-    So the gap is published rather than hidden in a rounded row: the items are the wallet's
-    own rupees, and `itemisation_residual_inr` carries the rest with a reason beside it.
+    It used to pin a deliberate disagreement: the items were the wallet's own debits while
+    `period_charge_inr` priced the month as `list rate x the published minute count`, and
+    the difference — ₹40.00 against ₹50.00 here — was published as
+    `itemisation_residual_inr` because neither arithmetic could be called the lie
+    (deepdive-money N-2).
+
+    Since D-547 the period charge IS the ledger's own sum (`service.calling_revenue_inr`
+    reads `meta.lots`), so a residual on the prepaid motion can only be the paisa a
+    NUMERIC(12,4) debit loses when each call is published at paise. The wallet is the
+    statement, and the itemisation of a statement adds to it.
+
+    The demand is deliberately priced at a rate the LIST CARD does not offer, so a
+    `period_charge_inr` that had gone back to re-deriving from the list rate would be
+    unmistakable rather than a coincidence.
     """
     tenant_id, reception = await _tenant(monthly_fee=None)
     call_id = await _metered_call(tenant_id, reception, seconds=600, unit_cost="0.0100")
@@ -923,9 +933,6 @@ async def test_a_prepaid_month_publishes_the_gap_between_the_wallet_and_the_pane
         await billing.record_entry(
             session, tenant_id=tenant_id, delta=Decimal("500.00"), reason="topup", ref="rzp_gap"
         )
-        # Deliberately NOT the ₹50.00 the panel prices 10 minutes at (₹5/min list rate),
-        # so the two disagree the way the measured residual does — the assertion is about
-        # the mechanism rather than about a paisa.
         await billing.charge_for_call(
             session,
             tenant_id=tenant_id,
@@ -933,15 +940,19 @@ async def test_a_prepaid_month_publishes_the_gap_between_the_wallet_and_the_pane
             demand=CallDemand(
                 minutes=Decimal("8"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
         period = await period_attribution(session, tenant_id=tenant_id)
 
     assert period.itemised_charge_inr == Decimal("40.00"), "the wallet's own rupees"
-    assert period.period_charge_inr == Decimal("50.00"), "the panel's own rupees"
-    assert period.itemisation_residual_inr == Decimal("10.00")
-    assert period.residual_reason == "prepaid_wallet_vs_panel"
+    assert period.period_charge_inr == Decimal("40.00"), "and the total is the same rupees"
+    assert period.period_charge_inr != Decimal("50.00"), (
+        "which is NOT 10 published minutes at the ₹5.00 list rate"
+    )
+    assert period.itemisation_residual_inr == Decimal("0.00")
+    # The reason is an EXPLANATION, and there is nothing to explain when the parts add up.
+    assert period.residual_reason is None
 
 
 async def test_the_client_page_says_when_it_has_shown_only_the_top_calls() -> None:

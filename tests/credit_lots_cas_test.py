@@ -17,6 +17,7 @@ from typing import Any
 
 import pytest
 from apps.api.billing import lots
+from apps.api.billing.service import LotRates
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from tests.credit_lots_helpers import GROWTH, add_lot, lot_rows, make_tenant
@@ -42,7 +43,7 @@ async def test_a_debit_that_lost_the_race_re_reads_and_takes_what_is_left() -> N
                 demand=lots.CallDemand(
                     minutes=Decimal("100"),  # ₹500
                     voice_tier="sarvam",
-                    fallback_inr_per_min=Decimal("5.00"),
+                    fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
                 ),
             )
 
@@ -56,7 +57,7 @@ async def test_a_debit_that_lost_the_race_re_reads_and_takes_what_is_left() -> N
             demand=lots.CallDemand(
                 minutes=Decimal("120"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
 

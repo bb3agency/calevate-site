@@ -14,7 +14,7 @@ from decimal import Decimal
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing.lots import CallDemand
-from apps.api.billing.service import charge_for_call, get_balance, record_entry
+from apps.api.billing.service import LotRates, charge_for_call, get_balance, record_entry
 from apps.api.compliance.service import check_dispatch
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
@@ -88,7 +88,7 @@ async def test_a_completed_call_is_charged_even_into_the_negative() -> None:
             demand=CallDemand(
                 minutes=Decimal("8.5"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
         balance = await get_balance(session, tenant_id=tenant_id)
@@ -110,7 +110,7 @@ async def test_charging_the_same_call_twice_does_not_double_bill() -> None:
                 demand=CallDemand(
                     minutes=Decimal("6"),
                     voice_tier="sarvam",
-                    fallback_inr_per_min=Decimal("5.00"),
+                    fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
                 ),
             )
         balance = await get_balance(session, tenant_id=tenant_id)
@@ -185,7 +185,7 @@ async def test_a_call_that_cost_nothing_leaves_the_wallet_alone() -> None:
             demand=CallDemand(
                 minutes=Decimal("0"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
         await charge_for_call(
@@ -195,7 +195,7 @@ async def test_a_call_that_cost_nothing_leaves_the_wallet_alone() -> None:
             demand=CallDemand(
                 minutes=Decimal("-1"),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
         balance = await get_balance(session, tenant_id=tenant_id)

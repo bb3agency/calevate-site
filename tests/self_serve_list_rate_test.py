@@ -46,7 +46,13 @@ from uuid import UUID
 
 import pytest
 from apps.api.billing.attribution import period_attribution
-from apps.api.billing.list_rates import SELF_SERVE_PER_MIN, record_list_rate, self_serve_rate_at
+from apps.api.billing.list_rates import (
+    PACK_RATE_KEY_PREFIX,
+    SELF_SERVE_PER_MIN,
+    pack_rate_key,
+    record_list_rate,
+    self_serve_rate_at,
+)
 from apps.api.billing.plans import ist_billing_month, ist_month_end, month_pricing_instant
 from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.billing.service import margin_for_tenant, to_paise, usage_summary
@@ -100,12 +106,22 @@ async def _admin() -> UUID:
 
 
 async def _publish(amount: Decimal, *, effective_from: datetime, by: UUID) -> None:
-    """A published rate at a CHOSEN instant.
+    """A published CARD at a CHOSEN instant — the legacy key AND the starter pack's cells.
 
-    Raw SQL rather than `record_list_rate`, deliberately: the production writer always
-    means "from now" (it runs inside the ops config write it dates) and giving it an
+    Raw SQL rather than `record_card`, deliberately: the production writer always means
+    "from now" (it runs inside the ops config write it dates) and giving it an
     `effective_from` argument only tests could pass is how a test-only parameter reaches
     production. Dating history is exactly what this test needs and nothing else may do.
+
+    **IT WRITES THE PACK CELLS TOO, AND THAT IS D-547 RATHER THAN BELT-AND-BRACES.** Since
+    lots, the price of a minute for a wallet holding no lot is the SMALLEST PACK's rate for
+    the call's own voice — a PAIR, resolved through `service.rate_card_at` — because one
+    number cannot price two voices. Production writes both keys at one instant
+    (`list_rates.record_card`, with `SELF_SERVE_PER_MIN` holding the starter pack's Sarvam
+    figure), so a fixture that published only the legacy key would model a history the
+    console cannot produce and would leave the pack cells resolving to the catalogue.
+    The Cartesia cell is deliberately a DIFFERENT number, so a Sarvam assertion that ever
+    started reading it would be unmistakable.
     """
     async with untenanted_session() as session:
         await session.execute(
@@ -113,7 +129,21 @@ async def _publish(amount: Decimal, *, effective_from: datetime, by: UUID) -> No
                 "INSERT INTO platform_list_rates (rate_key, effective_from, inr_amount, "
                 "recorded_by, source_note) VALUES (:k, :ef, :amt, :by, 'list-rate test')"
             ),
-            {"k": SELF_SERVE_PER_MIN, "ef": effective_from, "amt": amount, "by": by},
+            [
+                {"k": SELF_SERVE_PER_MIN, "ef": effective_from, "amt": amount, "by": by},
+                {
+                    "k": pack_rate_key("starter", "sarvam"),
+                    "ef": effective_from,
+                    "amt": amount,
+                    "by": by,
+                },
+                {
+                    "k": pack_rate_key("starter", "cartesia"),
+                    "ef": effective_from,
+                    "amt": amount + Decimal("3.0000"),
+                    "by": by,
+                },
+            ],
         )
 
 
@@ -140,8 +170,8 @@ async def _purge() -> None:
             ).all()
             await conn.execute(text("ALTER TABLE platform_list_rates DISABLE TRIGGER USER"))
             await conn.execute(
-                text("DELETE FROM platform_list_rates WHERE rate_key = :k"),
-                {"k": SELF_SERVE_PER_MIN},
+                text("DELETE FROM platform_list_rates WHERE rate_key = :k OR rate_key LIKE :packs"),
+                {"k": SELF_SERVE_PER_MIN, "packs": f"{PACK_RATE_KEY_PREFIX}:%"},
             )
             for name, mode in modes:
                 verb = {"A": "ENABLE ALWAYS", "R": "ENABLE REPLICA", "D": "DISABLE"}.get(
@@ -255,15 +285,25 @@ async def test_a_closed_months_statement_is_not_repriced_by_a_later_rate_move(
 
     minutes = summary["minutes_used"]
     assert minutes == Decimal("14.83"), "the panel's published minute count"
-    at_the_old_rate = to_paise(minutes * _OLD_RATE)
-    at_todays_rate = to_paise(minutes * _NEW_RATE)
-    assert at_the_old_rate != at_todays_rate, "the fixture must be able to tell them apart"
-
-    assert summary["spend_used_inr"] == at_the_old_rate, (
-        f"the closed month rendered at {summary['spend_used_inr']}; it was charged at "
-        f"{at_the_old_rate} and re-pricing it at today's rate gives {at_todays_rate}"
+    # WHAT THE WALLET WAS ACTUALLY DEBITED, which since D-547 is what the statement reads
+    # (`service.calling_revenue_inr`): the ledger's own lot splits, not `minutes x a rate`.
+    # This wallet held no lot, so the whole call is one overdraft split priced at the
+    # month's own list card — ₹89.0000, and NOT the ₹88.98 the old re-derivation produced
+    # off the published (rounded) minute count. That bounded residual is what reading the
+    # ledger closes.
+    charged = to_paise(_debit(_OLD_RATE))
+    at_todays_rate = to_paise(_debit(_NEW_RATE))
+    assert charged != at_todays_rate, "the fixture must be able to tell them apart"
+    assert charged != to_paise(minutes * _OLD_RATE), (
+        "and it must be able to tell the LEDGER apart from a re-derivation at the same "
+        "rate, or this asserts nothing about which of the two the panel read"
     )
-    assert summary["month_charges_inr"] == at_the_old_rate, "the published total too"
+
+    assert summary["spend_used_inr"] == charged, (
+        f"the closed month rendered at {summary['spend_used_inr']}; the wallet was charged "
+        f"{charged} and re-pricing it at today's rate gives {at_todays_rate}"
+    )
+    assert summary["month_charges_inr"] == charged, "the published total too"
 
 
 async def test_the_admin_margin_panel_books_the_same_revenue(
@@ -282,7 +322,9 @@ async def test_the_admin_margin_panel_books_the_same_revenue(
         margin = await margin_for_tenant(session, tenant_id=tenant_id, month=closed_month)
         attribution = await period_attribution(session, tenant_id=tenant_id, month=closed_month)
 
-    expected = to_paise(Decimal(str(margin["minutes_used"])) * _OLD_RATE)
+    # The LEDGER's own figure, for `test_a_closed_months_statement...`'s reason: revenue is
+    # what the wallet was charged, not the published minute count re-multiplied.
+    expected = to_paise(_debit(_OLD_RATE))
     assert margin["revenue_inr"] == expected
     assert attribution.period_charge_inr == expected, (
         "the per-call itemisation divides the same rupees as the statement"

@@ -77,10 +77,12 @@ closed month and an open one nobody is dialling in.
 `itemisation_residual_inr` is the honest half of the last one. It is exactly ₹0.00 on the
 allocated basis; on the wallet basis it absorbs (a) per-call display rounding, since a
 wallet debit is stored at NUMERIC(12,4) and published at paise, and (b) the measured,
-already-documented gap between the sum of per-call debits and the panel's own closed-month
-figure — `calling_revenue_inr` sets that out in full and names it a founder decision
-(`docs/evidence/deepdive-money.md` N-2). Publishing the gap is the only option that does
-not require picking one of the two as the lie.
+display rounding alone on the prepaid motion. The second term it used to absorb — the gap
+between the sum of per-call debits and a closed-month figure re-derived as `list rate x
+minutes` — is GONE, because `period_charge` is now that same sum read out of the ledger's
+own lot splits (`calling_revenue_inr`, D-547). It is still published, because per-call
+display rounding is real and because the managed motion prices from plan rungs and not
+from the wallet at all.
 
 Money is `Decimal` end to end and never a float (hard rule 7): NUMERIC out of the ledger,
 `Decimal` through every expression here, and `str()` at the route boundary.
@@ -98,8 +100,6 @@ from uuid import UUID
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from apps.api.billing.list_rates import self_serve_rate_at
-from apps.api.billing.plans import month_pricing_instant
 from apps.api.billing.rates import PREPAID_TIERS
 
 # IMPORTED, PRIVATE NAMES AND ALL, exactly as `billing/cost_unit.py` imports `_ROW_COST_SQL`
@@ -131,6 +131,7 @@ from apps.api.billing.service import (
     plan_tier_of,
     to_paise,
     usage_summary,
+    voice_tier_usage,
 )
 from apps.api.core.logging import get_logger
 
@@ -155,6 +156,17 @@ ChargeBasis = Literal["wallet_debit", "allocated"]
 
 #: `residual_reason`. A closed vocabulary rather than prose: the screen owns the wording,
 #: the server owns the fact (`admin/health.py` draws the same line).
+#:
+#: ⚠ **`prepaid_wallet_vs_panel` NOW EXPLAINS ONLY PER-CALL DISPLAY ROUNDING**, and the
+#: name is kept because it is a WIRE value the client bundle already renders
+#: (`apps/web/src/lib/api/spend.ts`) — renaming it in this change would leave a screen
+#: printing nothing for a reason it does not recognise. What it used to explain was a
+#: second, larger term: the panel priced a month as `list rate x the published minute
+#: count` while the wallet was debited per call, and the difference between two
+#: arithmetics was published because neither could be called the lie. Since D-547 the
+#: period charge IS the wallet's own rupees (`service.calling_revenue_inr`), so what is
+#: left is the paisa a NUMERIC(12,4) debit loses when each call is published at paise —
+#: usually ₹0.00. The reason is suppressed entirely when the residual is nil.
 ResidualReason = Literal["prepaid_wallet_vs_panel", "no_billable_minutes"]
 
 # ONE SCAN, ONE REDUCTION, ONE SNAPSHOT. The month's rows are read once through
@@ -576,17 +588,23 @@ async def period_attribution(
     period_charge = to_paise(
         calling_revenue_inr(
             plan_tier=tier,
-            minutes=Decimal(str(usage["minutes_used"])),
+            # WHAT THE PREPAID WALLET WAS ACTUALLY CHARGED (D-547), summed from the lot
+            # splits on the very `usage` rows this page is itemising. It was
+            # `list_rate x minutes`, which since lots is the wrong number for every client
+            # who did not buy the smallest pack and for every Studio minute at any pack —
+            # and the error landed HERE as a residual, the figure whose whole job is to say
+            # how much of a month's charge no call accounts for. A residual measured
+            # against a total the ledger never charged measures nothing.
+            #
+            # The plain IST month, with no trial epoch: `_read_month` above windows the
+            # buckets this total is spread across the same way, and `service._month_bounds`
+            # states the rule — the client's own panel counts from the trial boundary, our
+            # attribution and margin reads count the whole month.
+            prepaid_charged_inr=(
+                await voice_tier_usage(session, tenant_id=tenant_id, month=period)
+            ).total_inr,
             overage_cost_inr=Decimal(str(usage["overage_cost_inr"])),
             llm_surcharge_inr=Decimal(str(usage["llm_surcharge_inr"])),
-            # THE MONTH'S OWN LIST RATE (D-492), at the same pricing instant
-            # `usage_summary` above resolved the plan's rungs at. Without it this page
-            # would itemise a closed month at TODAY's price while the wallet entries it is
-            # attributing were debited at that month's — the itemisation and its own
-            # residual would then disagree with the ledger they are read against.
-            self_serve_rate_inr_per_min=await self_serve_rate_at(
-                session, at=month_pricing_instant(period)
-            ),
         )
     )
     charges, basis, residual_reason = await _allocate_charges(

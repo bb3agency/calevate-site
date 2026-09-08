@@ -16,6 +16,7 @@ from decimal import Decimal
 
 import pytest
 from apps.api.billing import lots
+from apps.api.billing.service import LotRates
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
@@ -33,7 +34,7 @@ async def _spend(tenant_id, *, minutes: str) -> None:  # type: ignore[no-untyped
             demand=lots.CallDemand(
                 minutes=Decimal(minutes),
                 voice_tier="sarvam",
-                fallback_inr_per_min=Decimal("5.00"),
+                fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
 
@@ -174,6 +175,7 @@ async def test_a_lot_that_moved_under_the_correction_is_a_conflict_not_a_silent_
         sarvam_inr_per_min=fresh[0].sarvam_inr_per_min,
         cartesia_inr_per_min=fresh[0].cartesia_inr_per_min,
         opened_at=fresh[0].opened_at,
+        closed_at=fresh[0].closed_at,
     )
 
     async def _stale_read(session: object, *, lot_id: object) -> lots.OpenLot:
@@ -182,7 +184,7 @@ async def test_a_lot_that_moved_under_the_correction_is_a_conflict_not_a_silent_
     with pytest.raises(ProblemError) as raised:
         async with tenant_session(tenant) as session:
             with pytest.MonkeyPatch.context() as patch:
-                patch.setattr(lots, "_read_any_lot", _stale_read)
+                patch.setattr(lots, "read_lot", _stale_read)
                 await lots.adjust_lot_for_restatement(
                     session, lot_id=lot_id, delta=Decimal("100.00")
                 )
