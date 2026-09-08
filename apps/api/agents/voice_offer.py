@@ -13,11 +13,14 @@ THE THREE GROUNDS FOR THE CARTESIA TIER, AND THEIR THREE OWNERS (D-547 §4.C.2)
    (`Settings.cartesia_api_key`, probed live by `ops/secret_probes.py`).
 2. **No attested Cartesia TTS price** — hard rule 7, the rule `offerable_models()` applies
    to an LLM (`NO_ATTESTED_PRICE_REASON`): an unpriced minute is unmetered spend, not a free
-   one, and the only place the refusal is free is the selection. **Phase D wires the real
-   attestation** (`billing/rates.TtsPriceAttestation`, plan §3.5); until then the predicate
-   is INJECTED with a default that answers True for Sarvam (its cost is on the rate card
-   today, `billing/rates.TTS_INR_PER_10K_CHARS`) and False for Cartesia (nobody has
-   attested anything). `install_tts_price_reader` is the seam Phase D installs over.
+   one, and the only place the refusal is free is the selection. The predicate is INJECTED,
+   and **Phase D wired it to the real attestation** (`ops/model_pricing.TtsPriceAttestation`,
+   plan §3.5, D-547): `ops/pricing_snapshot.py` installs a reader over the
+   attested-price store (`ops/model_pricing.tts_price_is_billable`) at startup and
+   refreshes it on the same 30-second poll the LLM price readers use, so attesting a
+   Cartesia price in the ops console makes the tier offerable within one poll — and
+   immediately, because the attestation route refreshes the snapshot itself.
+   `default_tts_price_is_billable` is what answers before any of that has happened.
 3. **The platform-wide cap is reached** — `Settings.cartesia_agent_cap` (Q10): Cartesia's
    TTS is a monthly plan with a concurrency ceiling, so the third clinic on it forces the
    next plan rather than costing a third more, and nothing in a ledger would say so. The
@@ -69,10 +72,23 @@ from apps.api.db.session import admin_session, tenant_session
 TtsPriceReader = Callable[[VoiceProvider], bool]
 
 
-def _default_tts_price_is_billable(provider: VoiceProvider) -> bool:
-    """Before Phase D: Sarvam's TTS cost is on the rate card (`TTS_INR_PER_10K_CHARS`),
-    Cartesia's is attested by nobody. Not a placeholder that says yes — the honest reading
-    of what this tree can price today."""
+def default_tts_price_is_billable(provider: VoiceProvider) -> bool:
+    """The answer BEFORE anything has been read from the price store.
+
+    Sarvam's TTS cost is metered off the engine's own reported synthesizer leg, so that
+    tier is billable with nothing attested; Cartesia's is attested by nobody until an
+    operator reads an invoice. Not a placeholder that says yes — the honest reading of
+    what this tree can price with no store behind it, and the SAME statement
+    `ops/model_pricing.tts_price_is_billable` makes with an empty table.
+
+    PUBLIC because `ops/pricing_snapshot.py` builds its cold snapshot from it (D-547).
+    That module installs the real reader at startup and refreshes it off the request path,
+    so between `install_pricing_readers()` and the first successful read there is a window
+    in which the snapshot has measured nothing — and a snapshot that answered "no" there
+    would refuse EVERY voice, Sarvam included, on a picker whose Sarvam tier needs no
+    attestation at all. One definition, used in both places, is what stops that window
+    from having its own rule (`tests/voice_tier_test.py` pins the two together).
+    """
     return provider == "sarvam"
 
 
@@ -85,8 +101,10 @@ def install_tts_price_reader(reader: TtsPriceReader | None) -> None:
     The sibling of `agents/llm_models.install_llm_credential_reader` and
     `billing/rates.install_llm_price_attestations`, same shape for the same reason: the
     picker must not import the ops console, and it must stay exercisable with no database.
-    **Phase D installs the reader over `TtsPriceAttestation`** (plan §4.D.1); until it does,
-    the default above answers.
+    **`ops/pricing_snapshot.install_pricing_readers` installs it** over the attested-price
+    store (D-547, plan §4.D.1), beside the three LLM readers and refreshed by the same
+    poll; until it is called — in a test, or in a process that never started the
+    refresher — the default above answers.
     """
     global _price_reader
     _price_reader = reader
@@ -94,7 +112,7 @@ def install_tts_price_reader(reader: TtsPriceReader | None) -> None:
 
 def tts_price_is_billable(provider: VoiceProvider) -> bool:
     """Ground 2, in one place."""
-    reader = _price_reader or _default_tts_price_is_billable
+    reader = _price_reader or default_tts_price_is_billable
     return reader(provider)
 
 
@@ -288,6 +306,7 @@ __all__ = [
     "cartesia_credential_installed",
     "cartesia_tier_could_be_offered",
     "count_live_cartesia_agents",
+    "default_tts_price_is_billable",
     "install_tts_price_reader",
     "offerable_voices",
     "offered_catalogue",

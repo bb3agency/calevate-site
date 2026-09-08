@@ -983,6 +983,21 @@ class UsagePanelOut(Strict):
     # an open month carries no retainer at all.
     month_charges_inr: str
     cap_minutes: int | None
+    # WHAT REMAINS OF THE PLAN'S INCLUDED MINUTES — ONE MEANING, NOT TWO (D-547).
+    #
+    # This field used to be the cap remainder for a managed plan AND the wallet balance
+    # divided by the live list rate for a prepaid one, which forced the browser to branch
+    # on `plan_tier` to know which quantity it had been handed
+    # (`apps/web/src/app/c/[slug]/billing/UsageTab.tsx`) — a decision the server had
+    # already made and then thrown away. The prepaid half is also no longer answerable
+    # this way: a minute costs what the LOT it is spent from was sold at, so one balance
+    # over one live rate is wrong for every client who bought at a rate the card no longer
+    # offers, and the honest prepaid runway is a PAIR of figures, one per voice quality
+    # (`billing/wallet.tier_minutes`, published by `GET /v1/billing/wallet/lots`).
+    #
+    # So: the cap remainder, or `None` when this account has no cap to remain under — a
+    # prepaid wallet, a plan with no included minutes, or a live trial. `0` means the cap
+    # is spent (or a spend cap has stopped dialling), never "we cannot say".
     minutes_left: int | None
     capped: bool
     spend_used_inr: str

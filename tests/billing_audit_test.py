@@ -772,7 +772,10 @@ async def test_an_exhausted_wallet_reads_the_same_on_the_panel_and_at_the_gate()
             session, tenant_id=tenant_id, agent_id=agent_id, phone_e164="+919876500098"
         )
 
-    assert summary["minutes_left"] == 0
+    # The panel quotes no runway for a prepaid wallet (D-547 — that figure is the plan
+    # cap's remainder now, and this account has no cap). What must still agree is the fact
+    # the client acts on: the wallet is exhausted and the gate refuses the dial.
+    assert summary["minutes_left"] is None
     assert decision.allowed is False and decision.rule == "no_credits"
 
 

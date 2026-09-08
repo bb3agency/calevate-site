@@ -39,6 +39,7 @@ address.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -51,13 +52,11 @@ from apps.api.billing.service import (
     WALLET_LEVEL_EMPTY,
     WALLET_LEVEL_LOW,
     plan_tier_of,
-    prepaid_minutes_left,
     to_paise,
 )
-from apps.api.billing.service import Balance as WalletBalance
+from apps.api.billing.wallet import TierMinutes, tier_minutes
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.email_render import from_text
@@ -94,7 +93,34 @@ def _retry_after(attempt: int) -> float:
     return RETRY_BACKOFF_S[max(index, 0)]
 
 
-def compose(*, level: str, balance_inr: Decimal, minutes_left: int | None, slug: str) -> str:
+def _runway_sentence(minutes_left: Sequence[TierMinutes]) -> str:
+    """The runway clause: "That is about 620 more minutes of calling on Clear, or 430 on
+    Studio."
+
+    ONE SENTENCE PER VOICE QUALITY, in the client's own words for them (D-547): a wallet is
+    a queue of purchases, each priced at what it was sold at and at a different rate per
+    quality, so "N minutes left" is not answerable without saying on WHICH voice. The
+    labels arrive already resolved (`billing/rates.voice_tier_label`, through
+    `wallet.tier_minutes`) — no vendor name has ever appeared on a client surface and this
+    email is not where the first one arrives.
+
+    EMPTY WHEN EVERY FIGURE IS ZERO, rather than promising nothing. A LOW warning quotes a
+    balance the client still holds, and "you have ₹150" followed by "about 0 more minutes"
+    is a contradiction they cannot act on — it means the lots could not answer, not that
+    the money buys nothing. Written generically over the qualities rather than as two
+    branches, so a third tier reads correctly the day it exists.
+    """
+    if not minutes_left or all(tier.minutes == 0 for tier in minutes_left):
+        return ""
+    first, *rest = minutes_left
+    lead = f"{first.minutes:,} more minutes of calling on {first.label}"
+    tail = "".join(f", or {tier.minutes:,} on {tier.label}" for tier in rest)
+    return f" That is about {lead}{tail}."
+
+
+def compose(
+    *, level: str, balance_inr: Decimal, minutes_left: Sequence[TierMinutes] | None, slug: str
+) -> str:
     """The email body, in a business owner's words.
 
     **THE FIRST SENTENCE OF THE EMPTY-WALLET MAIL IS THE ONE THAT MATTERS**, and it is the
@@ -105,7 +131,8 @@ def compose(*, level: str, balance_inr: Decimal, minutes_left: int | None, slug:
     says anything else.
 
     Nothing here is a code, an identifier, or our vocabulary: no "tier", no "ledger", no
-    "self_serve", no reason string. The reader is a small-business owner, not an operator.
+    "self_serve", no reason string, and no VENDOR name — a client reads "Clear" and
+    "Studio". The reader is a small-business owner, not an operator.
     """
     money = f"₹{to_paise(balance_inr)}"
     lines: list[str] = []
@@ -118,11 +145,7 @@ def compose(*, level: str, balance_inr: Decimal, minutes_left: int | None, slug:
             f"{money}, so campaigns and call-backs are paused until you add more.",
         ]
     else:
-        runway = (
-            f" That is about {minutes_left:,} more minutes of calling."
-            if minutes_left is not None
-            else ""
-        )
+        runway = _runway_sentence(minutes_left or ())
         lines += [
             f"Your calling credit is down to {money}.{runway}",
             "",
@@ -173,6 +196,20 @@ async def notify_low_balance(ctx: dict[str, Any], payload: dict[str, Any]) -> st
                 {"tid": tenant_id},
             )
         ).first()
+        # THE RUNWAY, FROM THE LOTS, on the session that is already open — the same
+        # function the credits screen this email links to renders from
+        # (`billing/wallet.tier_minutes`), so the two cannot quote different minutes for
+        # one wallet.
+        #
+        # ⚠ **IT IS READ NOW, WHILE THE BALANCE ABOVE IS THE ONE AT THE CROSSING**, and the
+        # asymmetry is deliberate. The balance describes the movement that earned this mail
+        # and must not be re-read (a top-up landing in between would make it quote a figure
+        # nobody was ever at). The minutes are not a figure the crossing fixes: they are
+        # what the wallet buys, which depends on which lots are still open — so the honest
+        # answer is the current queue. In the ordinary case they are microseconds apart;
+        # when they are not, the client has just topped up and the larger runway is the
+        # true one.
+        runway = await tier_minutes(session, tenant_id=tenant_id) if row is not None else ()
     if row is None:
         # The tenant went away between the ledger write and this send. Nothing to do and
         # nothing wrong: an erasure does exactly this.
@@ -190,13 +227,7 @@ async def notify_low_balance(ctx: dict[str, Any], payload: dict[str, Any]) -> st
     body = compose(
         level=level,
         balance_inr=balance_inr,
-        # Priced through the SAME function the usage panel and the credits screen use, so
-        # the minutes in this email and the minutes on the screen the email links to
-        # cannot disagree.
-        minutes_left=prepaid_minutes_left(
-            balance=WalletBalance(amount_inr=balance_inr, is_low=True),
-            rate=get_settings().self_serve_inr_per_min,
-        ),
+        minutes_left=runway,
         slug=str(slug),
     )
     message = from_text(

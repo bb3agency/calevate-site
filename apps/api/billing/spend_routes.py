@@ -28,10 +28,12 @@ These routers are NOT mounted here — the integrator mounts them (`main.py`).
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 from time import perf_counter
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -57,6 +59,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
+from apps.api.ops.model_pricing import TTS_PROVIDERS, TtsPriceAttestation, attested_tts_prices
 
 log = get_logger(__name__)
 
@@ -356,6 +359,34 @@ class SpeakingRatePointOut(Strict):
     tts_inr_per_minute: str
 
 
+class SpeakingRateByProviderOut(Strict):
+    """What the measured speaking rate means for ONE voice vendor (D-547).
+
+    The board's other TTS figures are struck at the SARVAM rate card, which is the only
+    price this product had when they were written. With two vendors that is no longer one
+    number: the same 450 chars/minute costs what each vendor charges for 450 characters,
+    and only one of the two has a price this platform can bill from without an attestation.
+
+    `pooled_inr_per_minute` is the SERVER's multiplication — chars per minute, times the
+    rate, over 1,000 — because a browser multiplying two decimal strings is float
+    arithmetic on money (hard rule 7), and its answer would be a third figure disagreeing
+    with the meter's.
+    `null` when there is no attested rate to multiply by, or no pooled measurement to
+    multiply: two different absences, both reported as no number rather than as a zero.
+    """
+
+    #: The VENDOR's own name — this is the admin console and the invoice has a vendor on it.
+    provider: str
+    #: What a CLIENT calls the same tier, from `billing/rates.voice_tier_label`.
+    tier_label: str
+    #: Has an operator attested a ₹/1,000-character price for this vendor? For Sarvam the
+    #: answer is normally False and nothing is wrong: the engine bills that leg and reports
+    #: what it charged, so there is no invoice of ours to divide (`tts_price_is_billable`).
+    price_attested: bool
+    inr_per_1k_chars: str | None
+    pooled_inr_per_minute: str | None
+
+
 class TtsSpeakingRateOut(Strict):
     """GET /v1/admin/spend/tts-speaking-rate — pilot gate 12's number, or the refusal.
 
@@ -377,6 +408,10 @@ class TtsSpeakingRateOut(Strict):
     assumed_low: SpeakingRatePointOut
     assumed_high: SpeakingRatePointOut
     tts_inr_per_10k_chars: str
+    #: THE SAME MEASUREMENT, PRICED PER VENDOR (D-547). One row per voice provider, always
+    #: both, because the tier nobody has priced is the row an operator opened this card for.
+    #: The fields above are the Sarvam-rate-card view they have always been.
+    by_provider: list[SpeakingRateByProviderOut]
 
 
 # ------------------------------------------------------------------------ rendering
@@ -746,6 +781,10 @@ async def fleet_tts_speaking_rate(
     Below `TTS_SPEAKING_RATE_MIN_CALLS` the response says so and carries no rate.
     """
     started = perf_counter()
+    # The attested voice prices, read ONCE before the walk: it is a platform table with no
+    # tenancy, and reading it inside the per-tenant loop would be one query per client for
+    # an answer that does not vary by client.
+    attested = await attested_tts_prices(directory, at=datetime.now(UTC))
     rows = (await directory.execute(text(_DIRECTORY), {"ended": list(_ENDED_STATUSES)})).all()
     samples: list[tts_speaking_rate.CallSample] = []
     for org in rows:
@@ -767,7 +806,7 @@ async def fleet_tts_speaking_rate(
             },
         )
 
-    return _speaking_rate_out(tts_speaking_rate.summarize(samples))
+    return _speaking_rate_out(tts_speaking_rate.summarize(samples), attested=attested)
 
 
 def _point_out(point: tts_speaking_rate.SpeakingRatePoint) -> SpeakingRatePointOut:
@@ -777,7 +816,39 @@ def _point_out(point: tts_speaking_rate.SpeakingRatePoint) -> SpeakingRatePointO
     )
 
 
-def _speaking_rate_out(rate: tts_speaking_rate.TtsSpeakingRate) -> TtsSpeakingRateOut:
+def _by_provider_out(
+    rate: tts_speaking_rate.TtsSpeakingRate, *, attested: Mapping[str, TtsPriceAttestation]
+) -> list[SpeakingRateByProviderOut]:
+    """Both vendors, each priced at its OWN attested rate — or at nothing, stated.
+
+    `inr_for_chars` is the attestation's own multiplication (`ops/model_pricing
+    .TtsPriceAttestation`), so the ₹/minute here, the ₹ the pipeline meters a call at and
+    the margin panel's cost all come out of one function rather than three divisions by
+    1,000.
+    """
+    per_minute = None if rate.pooled is None else rate.pooled.chars_per_minute
+    return [
+        SpeakingRateByProviderOut(
+            provider=provider,
+            tier_label=rates.voice_tier_label(cast("rates.VoiceTier", provider)),
+            price_attested=price is not None,
+            inr_per_1k_chars=None if price is None else str(price.inr_per_1k_chars),
+            pooled_inr_per_minute=(
+                None
+                if price is None or per_minute is None
+                else str(price.inr_for_chars(per_minute))
+            ),
+        )
+        for provider in TTS_PROVIDERS
+        # Walrus in the comprehension so the price is fetched once per row and the three
+        # branches above read the same object.
+        for price in (attested.get(provider),)
+    ]
+
+
+def _speaking_rate_out(
+    rate: tts_speaking_rate.TtsSpeakingRate, *, attested: Mapping[str, TtsPriceAttestation]
+) -> TtsSpeakingRateOut:
     return TtsSpeakingRateOut(
         measured=rate.measured,
         calls=rate.calls,
@@ -790,6 +861,7 @@ def _speaking_rate_out(rate: tts_speaking_rate.TtsSpeakingRate) -> TtsSpeakingRa
         assumed_low=_point_out(rate.assumed_low),
         assumed_high=_point_out(rate.assumed_high),
         tts_inr_per_10k_chars=str(rates.TTS_INR_PER_10K_CHARS),
+        by_provider=_by_provider_out(rate, attested=attested),
     )
 
 

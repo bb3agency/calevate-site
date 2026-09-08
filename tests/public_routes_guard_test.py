@@ -116,8 +116,18 @@ class TestWiring:
         credential, and the first that is a plain read rather than a report: its body is
         five code constants and one console setting, identical for everyone, served by
         the same builder as the authenticated `/packs` read. A third credential-less row
-        is the conversation this tripwire is for."""
-        assert len(exempt) <= 38, sorted(exempt)
+        is the conversation this tripwire is for.
+
+        RAISED 38 -> 40 by the self-service password change, and this one IS a realm pair,
+        which is what the bound was written to expect: `POST /v1/auth/{admin,client}/
+        password/change`. Both carry `verify_session`, so neither is credential-less --
+        they sit here for the reason `/logout/all` does, one row above them, and the two
+        controls are halves of one answer. A person who believes they are compromised must
+        be able to end every other session AND rotate the credential those sessions were
+        opened with; a permission check is the wrong obstacle in front of either, because
+        changing your own password is not a role you hold. The pair moves the count by two
+        and the surface by nothing a reader has to newly understand."""
+        assert len(exempt) <= 40, sorted(exempt)
 
 
 # --- detection ----------------------------------------------------------------

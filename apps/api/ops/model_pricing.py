@@ -44,6 +44,7 @@ from calevate_shared.engine import LLM_MODELS, LlmProvider
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.billing import rates
 from apps.api.core.errors import ProblemError
 from apps.api.ops.secret_service import read_secrets
 
@@ -766,6 +767,34 @@ async def tts_price_is_billable(session: AsyncSession, *, provider: str, at: dat
     return provider in await attested_tts_prices(session, at=at)
 
 
+def reference_tts_price(provider: str) -> Decimal:
+    """The tree's OWN per-1,000-character figure for `provider` — the form's pre-fill.
+
+    `reference_price`'s job for a voice, and it carries `reference_price`'s warning twice
+    over: this is NOT authoritative and no caller may bill from it. It is rendered GREYED
+    beside the form, labelled "confirm against your vendor invoice", because an operator
+    typing a price from a paper invoice is helped by seeing what this platform currently
+    believes and is not helped by having it entered for them.
+
+    NEITHER FIGURE IS A PRICE SOMEBODY READ OFF AN INVOICE, which is why there is no
+    `verified` flag to return: Sarvam's is the published list rate for Bulbul v3
+    (`rates.TTS_INR_PER_10K_CHARS`, evidence class VENDOR-PUBLISHED) and Cartesia's is
+    ARITHMETIC — the Startup plan fee divided by the characters it buys
+    (`rates.CARTESIA_TTS_INR_PER_10K_CHARS`), true only when the whole allotment is spoken
+    and silent about the overage rate, which is UNKNOWN. That is precisely why hard rule 7
+    keeps both out of `unit_cost_paid` and why the attestation exists.
+
+    Raises for an unknown provider, like every other reader here.
+    """
+    _require_tts_provider(provider)
+    per_10k = (
+        rates.TTS_INR_PER_10K_CHARS
+        if provider == "sarvam"
+        else rates.CARTESIA_TTS_INR_PER_10K_CHARS
+    )
+    return per_10k / Decimal("10")
+
+
 async def attest_tts_price(
     session: AsyncSession,
     *,
@@ -856,5 +885,6 @@ __all__ = [
     "model_offerability",
     "offerable_models",
     "reference_price",
+    "reference_tts_price",
     "tts_price_is_billable",
 ]

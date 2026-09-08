@@ -298,6 +298,14 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="one row per model in `calevate_shared.engine.LLM_MODELS`, a closed catalogue "
         "whose size is a decision-log entry — never a caller's row count."
     ),
+    "GET /v1/ops/rate-card": BoundedByConstruction(
+        by="`cells` is the CARD — one cell per credit pack in `billing/credit_packs"
+        ".PACK_CATALOGUE` times one per voice tier in `billing/rates.VOICE_TIERS`, both "
+        "committed constants a reviewed commit changes. Twelve rows today. There is no "
+        "page size DELIBERATELY: an operator commits a price against the whole ladder, "
+        "and a card read back one page at a time is the one thing they must not be able "
+        "to do."
+    ),
     "GET /v1/ops/dashboard-data-use": BoundedByConstruction(
         by="one row per DECLARED LLM leg — `get_args(calevate_shared.engine.LlmProvider)`, "
         "a three-member Literal a reviewed commit widens, never a caller's row count."
@@ -450,6 +458,12 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         "BEFORE that sort and hide the account we are losing the most on, which is the "
         "one an operator opened the board for. Watched by `FLEET_BUDGET_S` in "
         "`billing/spend_routes.py`, the same trade `GET /v1/admin/client-health` makes."
+    ),
+    "GET /v1/admin/spend/tts-speaking-rate": BoundedByConstruction(
+        by="`by_provider` is one row per VOICE VENDOR — `ops/model_pricing.TTS_PROVIDERS`, "
+        "a two-member tuple this repo widens by a reviewed commit and never by anyone's "
+        "row count. The measurement itself is already pooled into one summary before it "
+        "reaches the response, so nothing here grows with the call volume it read."
     ),
     "GET /v1/admin/compliance/holds": BoundedByConstruction(
         by="one row per signed client currently held by a human gate — a work queue that "

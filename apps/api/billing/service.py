@@ -78,7 +78,6 @@ from apps.api.billing.rates import (
 from apps.api.billing.trials import counter_epoch, read_trial
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
-from apps.api.core.settings import get_settings
 from apps.api.db.base import uuid7
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.models import DEFAULT_PLAN_TIER
@@ -284,32 +283,6 @@ async def get_balance(session: AsyncSession, *, tenant_id: UUID) -> Balance:
     """The newest entry's `balance_after`."""
     balance = await _newest_balance(session, tenant_id)
     return Balance(amount_inr=balance, is_low=balance < LOW_BALANCE_INR)
-
-
-def prepaid_minutes_left(*, balance: Balance, rate: Decimal) -> int | None:
-    """A prepaid wallet, priced into WHOLE MINUTES OF CALLING at the live list rate.
-
-    THE ONE PLACE that division is done, because two screens now show its answer — the
-    usage panel's "about N minutes left this month" and the credits screen's runway — and
-    a client comparing them must not be able to find them disagreeing about the same
-    wallet. It takes the rate as an argument rather than reading settings, so the caller
-    stays the one deciding WHICH rate (live vs a closed month's) and this function stays
-    a pure calculation a test can pin.
-
-    Floored, never rounded: `int()` truncates, and quoting a minute the balance does not
-    cover is the direction of error a client discovers mid-call.
-
-    `None` means "no answer", NOT "none left" — an unpriced deployment (`rate <= 0`)
-    knows nothing about runway, and printing a zero there would tell a client with money
-    in their wallet that they cannot call. Zero is reserved for the wallet that really is
-    empty, which is `<= 0` because that is `Balance.is_exhausted` and the dial gate's own
-    condition.
-    """
-    if balance.amount_inr <= 0:
-        return 0
-    if rate <= 0:
-        return None
-    return int(balance.amount_inr / rate)
 
 
 async def record_entry(
@@ -2269,29 +2242,28 @@ async def usage_summary(
     # the same one `usage_summary` and `charge_for_call` use", which was true of two of
     # the three. It is also the function that supplies the default, so a NULL column
     # cannot read as one tier here and as `managed` everywhere else.
+    # `plan_tier_of`, not a fourth hand-rolled `SELECT plan_tier`: `billing/ai_quota.py`
+    # already describes that function as "the one reader of `organizations.plan_tier` —
+    # the same one `usage_summary` and `charge_for_call` use", and it is also the function
+    # that supplies the default, so a NULL column cannot read as one tier here and as
+    # `managed` everywhere else.
     tier = await plan_tier_of(session, tenant_id)
     minutes_left: int | None = None
-    # `PREPAID_TIERS`, never the literal pair. The constant's own docstring names three
-    # places that branch on it and warns that "a fourth tier added to one of them and not
-    # the others is a wallet that stops draining" — and this function was spelling the
-    # set BOTH ways, four lines apart: the literal here and the constant in
-    # `spend_used_inr` below.
-    if tier in PREPAID_TIERS:
-        # Credits gate the self-serve motion ONLY, exactly as the compliance gate does
-        # (compliance/service.py §2b): a managed client is invoiced against a retainer,
-        # so their wallet must not shorten their runway any more than it blocks a dial.
-        balance = await get_balance(session, tenant_id=tenant_id)
-        # DELIBERATELY THE LIVE RATE, NOT `list_rate` (D-492), and the split is the same
-        # one `pipeline._meter` makes between a RATE and a CAP: everything else on this
-        # panel is a fact about the month on screen, and this is a fact about what the
-        # client can still buy TODAY. The balance it divides is the current wallet, not a
-        # month-scoped figure, so pricing it at a closed month's rate would quote a runway
-        # nobody can spend. The top-up flow (`billing/payment_routes.py`) prices from the
-        # same live setting for the same reason, which is the property that has to hold.
-        minutes_left = prepaid_minutes_left(
-            balance=balance, rate=get_settings().self_serve_inr_per_min
-        )
-    elif plan and plan[3] is not None:
+    # **THE CAP REMAINDER, AND NOTHING ELSE (D-547).** This field used to carry TWO
+    # different quantities under one name: what remains of a managed plan's included
+    # minutes, and — for a prepaid wallet — the balance divided by the live list rate.
+    # One field with two meanings forced the browser to branch on `plan_tier` to know
+    # which it had been sent, which is a decision the server had already made and thrown
+    # away (`apps/web/.../billing/UsageTab.tsx`).
+    #
+    # The prepaid half is also no longer ANSWERABLE this way: since lots, a minute costs
+    # what the lot it is spent from was sold at, so one balance over one live rate is the
+    # wrong number for every client who bought at a rate the card no longer offers. The
+    # honest prepaid runway is a PAIR, one figure per voice quality, summed lot by lot —
+    # `billing/wallet.tier_minutes`, published by `GET /v1/billing/wallet/lots` and by the
+    # credits screen. A prepaid account therefore gets `None` here, which is this field's
+    # own long-standing word for "no answer", and the runway is read from the wallet.
+    if plan and plan[3] is not None:
         minutes_left = max(0, int(Decimal(str(plan[3])) - minutes))
 
     # IS THIS CLIENT'S CALLING ON US RIGHT NOW (D-536)? Asked AFTER the runway above so
@@ -2305,7 +2277,8 @@ async def usage_summary(
         # A trial bypasses the credit gate entirely (`compliance.service.credits_exhausted`),
         # so a wallet balance is not what limits this client's calling and quoting minutes
         # from it would be a number they cannot spend down. `None` is this field's own word
-        # for "no answer" (`prepaid_minutes_left`), and the trial block below says why —
+        # for "no answer" (a plan with no cap answers the same way), and the trial
+        # block below says why —
         # publishing 0 would tell a client with a working service that it has stopped.
         minutes_left = None
 
@@ -2957,7 +2930,6 @@ __all__ = [
     "month_charges_inr",
     "overage_rungs",
     "plan_tier_of",
-    "prepaid_minutes_left",
     "priced_llm_surcharge",
     "rate_to_display",
     "read_correctable_entry",

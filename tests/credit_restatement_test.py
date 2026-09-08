@@ -790,7 +790,11 @@ async def test_an_ordinary_replay_is_unchanged_by_any_of_this() -> None:
         )
 
     assert again.status_code == 200, again.text
-    assert again.json() == {
+    body = again.json()
+    # THE LOT IS THE ONE ADDITION (D-547), and a replay names the SAME object the first
+    # call did — a double-clicked Save must not show one lot and then none.
+    lot = body.pop("lot")
+    assert body == {
         "tenant_id": str(tenant_id),
         "entry_id": entry_id,
         "payment_ref": "UTR-ORDINARY",
@@ -799,6 +803,11 @@ async def test_an_ordinary_replay_is_unchanged_by_any_of_this() -> None:
         "is_low": False,
         "recorded": False,
     }
+    assert lot is not None
+    assert Decimal(lot["credits_total"]) == Decimal("2500.10")
+    assert Decimal(lot["credits_remaining"]) == Decimal("2500.10")
+    assert lot["source"] == "topup", "an ordinary payment departs from nothing"
+    assert lot["override_of_pack_id"] is None
 
 
 # --- what the correction does NOT disturb ---------------------------------------

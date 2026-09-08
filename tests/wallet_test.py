@@ -31,24 +31,25 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import payments
 from apps.api.billing.payment_routes import webhook_router
+from apps.api.billing.rates import voice_tier_label
 from apps.api.billing.service import (
     LOW_BALANCE_INR,
     WALLET_LEVEL_EMPTY,
     WALLET_LEVEL_LOW,
     crossed_downwards,
     get_balance,
-    prepaid_minutes_left,
     record_entry,
 )
-from apps.api.billing.service import Balance as WalletBalance
 from apps.api.billing.wallet import (
     MIN_BURN_HISTORY_DAYS,
     PENDING_GRACE_HOURS,
+    TierMinutes,
     read_attempts,
     read_runway,
     read_wallet,
     record_attempt,
     settle_attempt,
+    tier_minutes,
 )
 from apps.api.billing.wallet_routes import (
     read_payment_receipt,
@@ -66,6 +67,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from tests.conftest import accept_agreements
+from tests.credit_lots_helpers import add_lot
 
 pytestmark = [pytest.mark.rls]
 
@@ -293,14 +295,36 @@ async def test_an_empty_wallet_projects_nothing_and_says_it_is_empty() -> None:
     assert runway.days is None
 
 
-def test_minutes_left_never_prints_a_zero_for_an_unpriced_deployment() -> None:
-    """`None` means "no answer", not "none left" — printing a zero for a deployment that
-    quotes no rate would tell a client with money in their wallet that they cannot call."""
-    funded = WalletBalance(amount_inr=Decimal("500"), is_low=False)
-    assert prepaid_minutes_left(balance=funded, rate=Decimal("0")) is None
-    assert prepaid_minutes_left(balance=funded, rate=Decimal("8")) == 62, "floored, never up"
-    empty = WalletBalance(amount_inr=Decimal("0"), is_low=True)
-    assert prepaid_minutes_left(balance=empty, rate=Decimal("0")) == 0
+async def test_the_runway_is_a_pair_priced_off_the_lots_not_a_balance_over_a_rate() -> None:
+    """D-547: `prepaid_minutes_left` divided ONE balance by ONE live list rate and is gone.
+
+    A wallet is a queue of lots, each carrying the two per-minute rates its purchase was
+    sold at, so the runway is one figure per voice quality summed lot by lot. The whole
+    point is that a client who bought cheaply is told the runway they actually have — so
+    this pins the arithmetic against the LOT's rates and against the label a client reads,
+    never against `Settings.self_serve_inr_per_min`.
+    """
+    tenant_id = await _tenant()
+    # ₹1,000 at ₹4.00 (Clear) / ₹8.00 (Studio) — deliberately NOT the list card, so a
+    # regression that reached for the live rate could not accidentally agree.
+    await add_lot(tenant_id, credits_inr="1000", rates=(Decimal("4"), Decimal("8")))
+    async with tenant_session(tenant_id) as session:
+        pair = await tier_minutes(session, tenant_id=tenant_id)
+    assert [tier.provider for tier in pair] == ["sarvam", "cartesia"], "both, catalogue order"
+    assert [tier.minutes for tier in pair] == [250, 125]
+    assert [tier.label for tier in pair] == [
+        voice_tier_label("sarvam"),
+        voice_tier_label("cartesia"),
+    ], "the CLIENT's word for the tier travels with the figure; a vendor name never does"
+
+
+async def test_the_runway_never_quotes_a_minute_the_wallet_cannot_cover() -> None:
+    """Floored, never rounded: a minute quoted that is not there is discovered mid-call."""
+    tenant_id = await _tenant()
+    await add_lot(tenant_id, credits_inr="9.99", rates=(Decimal("5"), Decimal("7")))
+    async with tenant_session(tenant_id) as session:
+        pair = await tier_minutes(session, tenant_id=tenant_id)
+    assert [tier.minutes for tier in pair] == [1, 1], "1.998 and 1.427 both floor to 1"
 
 
 # ============================================================================
@@ -412,7 +436,7 @@ def test_the_warning_email_leads_with_the_reassurance_not_the_alarm() -> None:
     from apps.workers.wallet_alerts import compose
 
     body = compose(
-        level=WALLET_LEVEL_EMPTY, balance_inr=Decimal("0"), minutes_left=0, slug="clinic"
+        level=WALLET_LEVEL_EMPTY, balance_inr=Decimal("0"), minutes_left=(), slug="clinic"
     )
     first = body.splitlines()[0]
     assert "still get through" in first
@@ -421,6 +445,52 @@ def test_the_warning_email_leads_with_the_reassurance_not_the_alarm() -> None:
     # No internals vocabulary anywhere in a client-facing sentence.
     for banned in ("self_serve", "tenant", "ledger", "no_credits", "outbound_stopped"):
         assert banned not in body
+
+
+def test_the_low_balance_mail_quotes_minutes_per_voice_quality_in_the_clients_words() -> None:
+    """D-547. "About N more minutes" is not answerable without saying on WHICH voice.
+
+    The mail used to divide one balance by one live list rate, so it fired with a figure
+    that was wrong for every client who bought at a rate the card no longer offers — and
+    wrong in the direction that stops their calling sooner than they planned for. It now
+    quotes the pair the credits screen it links to renders, and it quotes them in the
+    CLIENT's words: no vendor name has ever appeared on a client surface and this email is
+    not where the first one arrives.
+    """
+    from apps.workers.wallet_alerts import compose
+
+    body = compose(
+        level=WALLET_LEVEL_LOW,
+        balance_inr=Decimal("150.00"),
+        minutes_left=(
+            TierMinutes(provider="sarvam", label=voice_tier_label("sarvam"), minutes=620),
+            TierMinutes(provider="cartesia", label=voice_tier_label("cartesia"), minutes=430),
+        ),
+        slug="clinic",
+    )
+    assert "620 more minutes of calling on " + voice_tier_label("sarvam") in body
+    assert "or 430 on " + voice_tier_label("cartesia") in body
+    for vendor in ("sarvam", "cartesia", "Sarvam", "Cartesia"):
+        assert vendor not in body, "a client reads the tier LABEL, never the vendor"
+
+
+def test_a_low_balance_mail_promises_nothing_rather_than_zero_minutes() -> None:
+    """A LOW warning quotes a balance the client still holds. "You have ₹150" followed by
+    "about 0 more minutes" is a contradiction they cannot act on — it means the lots could
+    not answer, not that the money buys nothing."""
+    from apps.workers.wallet_alerts import compose
+
+    body = compose(
+        level=WALLET_LEVEL_LOW,
+        balance_inr=Decimal("150.00"),
+        minutes_left=(
+            TierMinutes(provider="sarvam", label=voice_tier_label("sarvam"), minutes=0),
+            TierMinutes(provider="cartesia", label=voice_tier_label("cartesia"), minutes=0),
+        ),
+        slug="clinic",
+    )
+    assert "more minutes" not in body
+    assert "₹150" in body
 
 
 # ============================================================================
@@ -877,7 +947,6 @@ async def test_read_wallet_takes_the_verdicts_it_is_given() -> None:
             tenant_id=tenant_id,
             prepaid=True,
             outbound_stopped=True,
-            rate_inr_per_min=Decimal("8"),
         )
     assert summary.outbound_stopped is True
     assert summary.prepaid is True

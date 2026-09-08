@@ -552,10 +552,12 @@ async def test_a_self_serve_wallet_is_debited_at_our_cost_not_at_the_price_we_qu
         "the fixture no longer distinguishes cost from list price, so this pin proves "
         "nothing — re-price it before trusting a green run"
     )
-    # The runway on the client's own panel is priced at the LIST rate…
-    assert summary["minutes_left"] == int(balance.amount_inr / list_price)
-    # …while the wallet actually bought `balance / metered rate` minutes, which is more.
-    assert summary["minutes_left"] < int(balance.amount_inr / (metered_cost / Decimal("10")))
+    # THE PANEL QUOTES NO RUNWAY FOR A PREPAID WALLET ANY MORE (D-547). It used to divide
+    # this balance by the LIST rate, which understated what the wallet had actually bought
+    # (the meter charges our cost, and a client who bought a bigger pack bought a cheaper
+    # minute still). `UsagePanelOut.minutes_left` is now the plan cap's remainder and
+    # nothing else; the prepaid runway is the per-voice pair on the wallet's own lots.
+    assert summary["minutes_left"] is None
 
 
 def test_a_zero_minute_field_still_crosses_the_wire_as_two_decimals() -> None:

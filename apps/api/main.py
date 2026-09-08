@@ -141,12 +141,14 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.integrations.routes import router as integrations_router
     from apps.api.kb.routes import router as kb_router
     from apps.api.legal.routes import router as legal_readiness_router
+    from apps.api.ops.config_routes import rate_card_router as ops_rate_card_router
     from apps.api.ops.config_routes import router as ops_config_router
     from apps.api.ops.dashboard_data_use_routes import router as ops_data_use_router
     from apps.api.ops.fx_routes import router as ops_fx_router
     from apps.api.ops.maintenance_routes import client_router as client_maintenance_router
     from apps.api.ops.maintenance_routes import router as ops_maintenance_router
     from apps.api.ops.model_price_routes import router as ops_model_prices_router
+    from apps.api.ops.model_price_routes import tts_router as ops_tts_prices_router
     from apps.api.ops.routes import router as ops_router
     from apps.api.ops.secret_routes import router as ops_secrets_router
     from apps.api.quality.routes import router as quality_router
@@ -386,6 +388,10 @@ def _mount_routers(application: FastAPI) -> None:
     # is what the lockout page renders from.
     application.include_router(client_maintenance_router)
     application.include_router(ops_config_router)
+    # The card the packs are sold at, as a VIEWER — its own prefix because it is not a
+    # `Settings` key, and the same module because its margins and its refusals are written
+    # there (`ops/config_routes.rate_card_router`).
+    application.include_router(ops_rate_card_router)
     # Credentials — its OWN permission (`platform:secrets`), held by fewer people than
     # anything else on this list. No route on it returns plaintext (§7).
     application.include_router(ops_secrets_router)
@@ -393,6 +399,10 @@ def _mount_routers(application: FastAPI) -> None:
     # configuration, not a credential), effective-dated and append-only. What lets a model
     # whose catalogue price is unverified become offerable.
     application.include_router(ops_model_prices_router)
+    # The VOICE price attestation. Its own router and its own prefix because it is not a
+    # model price, and the same module because it is the same panel and the same act
+    # (`ops/model_price_routes.tts_router`).
+    application.include_router(ops_tts_prices_router)
     # Which LLM legs the in-app assistant may run on, and the operator attestation behind it
     # (D-477). Its own router beside the price panel for `model_price_routes.py`'s reason:
     # same realm and permission, different store and a different write shape.

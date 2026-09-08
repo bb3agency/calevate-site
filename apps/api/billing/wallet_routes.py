@@ -54,10 +54,12 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 
 from apps.api.billing.gst import supplier_identity
+from apps.api.billing.lots import read_open_lots
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import (
     LOW_BALANCE_INR,
     PAYMENT_REF_SQL,
+    get_balance,
     plan_tier_of,
     recorded_payments,
     to_paise,
@@ -71,6 +73,7 @@ from apps.api.billing.wallet import (
     Runway,
     read_attempts,
     read_wallet,
+    tier_minutes,
 )
 from apps.api.compliance.service import credits_exhausted
 from apps.api.core.auth import requires
@@ -175,10 +178,14 @@ class WalletOut(Strict):
     #: managed client's dialling does not stop for a wallet they never bought.
     outbound_stopped: bool
     runway: RunwayOut
-    #: Whole minutes of calling the balance buys at the live list rate. Null when this
-    #: deployment quotes no rate — never a zero, which would tell a client with money in
-    #: their wallet that they cannot call.
-    minutes_left: int | None
+    #: WHOLE MINUTES OF CALLING PER VOICE QUALITY, both always present, in catalogue order
+    #: (D-547). It is no longer one number: a wallet is a queue of purchases, each priced
+    #: at the rates it was sold at, so the minutes it still buys depend on which voice
+    #: speaks them — and the pair is summed lot by lot at each lot's own frozen rate rather
+    #: than by dividing one balance by one list price. `null` (the whole field) when no
+    #: figure may be quoted at all: an invoiced client, or one whose calling is on us
+    #: during a trial. Never a zero standing in for "we cannot say".
+    minutes_left: list[TierMinutesOut] | None
     drawdown: DrawdownOut
     #: WHAT THIS CLIENT PAID FOR versus WHAT WE GAVE THEM, over the life of the wallet
     #: (D-535). The founder's own guardrail: a statement must distinguish credit they
@@ -193,6 +200,24 @@ class WalletOut(Strict):
     #: and this block is what lets the screen say why instead of showing a client with an
     #: empty wallet a service that is inexplicably still working.
     trial: WalletTrialOut | None
+
+
+class TierMinutesOut(Strict):
+    """One voice quality's runway, as the client's own screen reads it.
+
+    THE CLIENT READS `label` AND NEVER `provider`. "Clear" and "Studio" are the product;
+    the vendor's name is ours and appears on no client surface (`billing/rates
+    .voice_tier_label`, which is where the two strings live). `provider` crosses the wire
+    beside it because the browser keys and orders by it and because it is what a support
+    conversation about a ledger row is conducted in — never because a screen should print
+    it.
+    """
+
+    provider: str
+    label: str
+    #: Whole minutes, floored. Zero is a real answer here (an empty or overdrawn wallet
+    #: buys no minutes); "we cannot say" is the null on `minutes_left` itself.
+    minutes: int
 
 
 class WalletTrialOut(Strict):
@@ -245,6 +270,21 @@ class WalletEntryOut(Strict):
     #: `ref` — a restated payment's own `ref` is `restated:<payment_ref>:<total>`, and
     #: taking that apart in a browser would be a second definition of "same payment".
     payment_ref: str | None
+    #: THE LOT SPLITS THIS ROW DREW, verbatim as the ledger stored them (ADDENDUM 2 §2.1,
+    #: `billing/lots.split_meta`) — `[]` for a row that drew none.
+    #:
+    #: Two shapes, told apart by `kind`, and the difference is not cosmetic: a `call` split
+    #: carries `minutes`, `inr_per_min` and `voice_tier` and an `ai_assist` split carries
+    #: NONE of the three, as ABSENT KEYS rather than nulls. A null rate would print as an
+    #: empty rate beside a real charge. `lot_id` is likewise absent on the OVERDRAFT portion
+    #: of either kind — those credits came off no lot, because there was none left.
+    #:
+    #: Passed through UNTOUCHED rather than re-typed into a model: `split_meta` is the one
+    #: spelling of this shape and it already writes every figure as a decimal string
+    #: (hard rule 7). A Pydantic model here would be a second declaration of the same union,
+    #: free to drift from the writer, and its optional fields would serialise as nulls —
+    #: which is the one thing the reader must not receive.
+    lots: list[dict[str, str]]
 
 
 class WalletPaymentOut(Strict):
@@ -374,7 +414,6 @@ async def read_wallet_summary(principal: WalletRead) -> WalletOut:
     """
     assert principal.tenant_id is not None
     tenant_id = principal.tenant_id
-    settings = get_settings()
 
     async with tenant_session(tenant_id) as session:
         tier = await plan_tier_of(session, tenant_id)
@@ -387,10 +426,11 @@ async def read_wallet_summary(principal: WalletRead) -> WalletOut:
             tenant_id=tenant_id,
             prepaid=prepaid,
             outbound_stopped=stopped,
-            # Priced through the SAME function the usage panel calls, at the SAME live
-            # rate the top-up flow prices from, so the runway on this screen, the runway
-            # on the usage screen and the packs a client is offered cannot disagree.
-            rate_inr_per_min=settings.self_serve_inr_per_min,
+            # NO RATE IS PASSED ANY MORE (D-547): the minutes this wallet still buys are
+            # summed from its own lots at the rates each purchase froze, so there is no
+            # live list price for this screen to be priced at and nothing for the caller
+            # to choose. `read_wallet`'s docstring argues why that parameter's absence is
+            # the fix rather than a simplification.
         )
 
     return WalletOut(
@@ -401,7 +441,14 @@ async def read_wallet_summary(principal: WalletRead) -> WalletOut:
         low_balance_threshold_inr=to_paise(LOW_BALANCE_INR),
         outbound_stopped=summary.outbound_stopped,
         runway=_runway_out(summary.runway),
-        minutes_left=summary.minutes_left,
+        minutes_left=(
+            None
+            if summary.minutes_left is None
+            else [
+                TierMinutesOut(provider=tier.provider, label=tier.label, minutes=tier.minutes)
+                for tier in summary.minutes_left
+            ]
+        ),
         drawdown=DrawdownOut(
             calls_inr=to_paise(summary.drawdown.calls_inr),
             ai_assist_inr=to_paise(summary.drawdown.ai_assist_inr),
@@ -426,6 +473,30 @@ async def read_wallet_summary(principal: WalletRead) -> WalletOut:
             else None
         ),
     )
+
+
+def _splits_of(raw: object) -> list[dict[str, str]]:
+    """`meta.lots` as the wire carries it, or `[]`.
+
+    DEFENSIVE ON PURPOSE, and it is not a swallowed error. Every row this reads was written
+    by `lots.split_meta`, so the shape is ours — but `meta` is JSONB on an APPEND-ONLY table
+    that holds rows written by every earlier build of this product, and a client's own
+    statement must not 500 because a row from before lots existed carries something else
+    under that key. What cannot be read as a list of string-valued objects is reported as no
+    splits, which is exactly what those rows have.
+
+    Values are re-stringified rather than trusted: `split_meta` writes strings, and a
+    number that somehow reached the column would otherwise cross the wire as a JSON number
+    and be a float by the time a browser printed it (hard rule 7).
+    """
+    if not isinstance(raw, list):
+        return []
+    splits: list[dict[str, str]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            return []
+        splits.append({str(key): str(value) for key, value in item.items()})
+    return splits
 
 
 @router.get(
@@ -463,7 +534,7 @@ async def read_wallet_ledger(
                     # records), and because it makes the answer depend on the argument
                     # rather than on which session it was handed.
                     "SELECT id, delta, reason, ref, balance_after, occurred_at, "
-                    f"{PAYMENT_REF_SQL} "
+                    f"{PAYMENT_REF_SQL}, meta->'lots' "
                     "FROM credit_ledger WHERE tenant_id = :tid "
                     "ORDER BY occurred_at DESC, id DESC LIMIT :limit"
                 ),
@@ -490,6 +561,7 @@ async def read_wallet_ledger(
                 balance_after_inr=to_paise(Decimal(str(row[4]))),
                 occurred_at=row[5],
                 payment_ref=str(row[6]) if row[6] is not None else None,
+                lots=_splits_of(row[7]),
             )
             for row in rows
         ],
@@ -504,6 +576,122 @@ async def read_wallet_ledger(
             # screen never disagree about which way round time runs.
             for payment in sorted(payments.values(), key=lambda p: p.first_at, reverse=True)
         ],
+    )
+
+
+class WalletTierRunwayOut(Strict):
+    """One voice quality's runway, on the lot panel's own read.
+
+    `minutes_left` is a STRING, unlike `WalletOut.minutes_left`'s integer, and deliberately:
+    this panel prints the server's figure verbatim beside two rates that are also strings,
+    and one number in a row of money-shaped strings arriving as a JSON number is the one
+    that gets `Number()`d somewhere downstream. `null` when the lots cannot answer — a real
+    state (an empty wallet, or a rate this build cannot resolve), never a zero.
+    """
+
+    provider: str
+    label: str
+    minutes_left: str | None
+
+
+class WalletLotOut(Strict):
+    """One open lot, as the CLIENT reads it: what is left, and what it is priced at.
+
+    The vendor spellings (`sarvam_inr_per_min`) are the FIELD NAMES, which is the rule this
+    repository keeps everywhere — a wire name, a column and a ledger value stay in the
+    vendor's vocabulary because that is what an invoice is reconciled against. What a client
+    READS is `tiers[].label` ("Clear", "Studio"), which is why the labels travel on the same
+    payload rather than being guessed at from these keys.
+    """
+
+    lot_id: UUID
+    opened_at: datetime
+    credits_remaining: Decimal
+    sarvam_inr_per_min: Decimal
+    cartesia_inr_per_min: Decimal
+
+
+class WalletLotsOut(Strict):
+    """The lot queue, oldest first, and what it buys on each quality."""
+
+    #: BOTH qualities, always, in catalogue order — a client shown only the one they use
+    #: could not compare before switching an agent.
+    tiers: list[WalletTierRunwayOut]
+    #: Oldest first: the order they will be spent in, which is the whole point of showing
+    #: them. Bounded by `limit`, because every purchase opens a lot and the list grows with
+    #: what the client buys.
+    lots: list[WalletLotOut]
+    #: WHAT THE WALLET OWES, unsigned, `"0.00"` when it owes nothing. Published as its own
+    #: positive figure rather than as a negative balance for `Drawdown`'s reason: a screen
+    #: that has to decide what a minus sign means is a screen that will decide wrong.
+    overdraft_inr: Decimal
+
+
+#: How many open lots one read returns. Bounded because the list IS caller-controlled —
+#: every top-up opens one — which is exactly the shape `check_list_bounds` exists for. Fifty
+#: is `LEDGER_LIMIT`'s depth, so the queue and the history page together.
+MAX_LOTS = 200
+
+
+@router.get(
+    "/lots",
+    response_model=WalletLotsOut,
+    openapi_extra=permission_meta("wallet:read"),
+    summary="The wallet's open credit lots, oldest first, and the minutes they buy per voice",
+    description=(
+        "A wallet is a queue of purchases, not one balance: each carries the per-minute "
+        "rates it was sold at, for each voice quality, and calls spend the oldest first. "
+        "`tiers` is what the remaining credit buys on each quality — summed lot by lot at "
+        "each lot's own rate, never one balance divided by one list price. `overdraft_inr` "
+        "is what the wallet owes; the next top-up repays it before opening a lot."
+    ),
+)
+async def read_wallet_lots(
+    principal: WalletRead,
+    limit: Annotated[int, Query(ge=1, le=MAX_LOTS)] = LEDGER_LIMIT,
+) -> WalletLotsOut:
+    """The queue, its runway and the overdraft — from ONE session.
+
+    `wallet:read`, like every other route on this router: the balance and the runway are
+    already visible to `staff` under that permission (the module docstring argues why it is
+    not `billing:read`), and this is the same fact stated per purchase. Nothing here is a
+    figure that permission does not already publish.
+    """
+    assert principal.tenant_id is not None
+    tenant_id = principal.tenant_id
+
+    async with tenant_session(tenant_id) as session:
+        # THE RUNWAY PAIR, through the one function the credits screen and the low-balance
+        # email also read (`wallet.tier_minutes`), so three surfaces cannot quote three
+        # numbers for one wallet.
+        tiers = await tier_minutes(session, tenant_id=tenant_id)
+        lots = await read_open_lots(session, tenant_id=tenant_id)
+        balance = await get_balance(session, tenant_id=tenant_id)
+
+    return WalletLotsOut(
+        tiers=[
+            WalletTierRunwayOut(
+                provider=tier.provider, label=tier.label, minutes_left=str(tier.minutes)
+            )
+            for tier in tiers
+        ],
+        lots=[
+            WalletLotOut(
+                lot_id=lot.lot_id,
+                opened_at=lot.opened_at,
+                credits_remaining=lot.credits_remaining,
+                sarvam_inr_per_min=lot.sarvam_inr_per_min,
+                cartesia_inr_per_min=lot.cartesia_inr_per_min,
+            )
+            # `read_open_lots` already returns them in `(opened_at, id)` order — the FIFO
+            # scan's own ordering, so this list is the order a call will spend them in.
+            for lot in lots[:limit]
+        ],
+        # THE OVERDRAFT, from the ONE place it is defined: a negative balance IS the debt
+        # (plan §2.3 invariant 1 — every lot is at zero and the difference is what is
+        # owed), so it is negated here rather than re-derived from the lots, which by
+        # definition have nothing left to derive it from.
+        overdraft_inr=to_paise(max(-balance.amount_inr, Decimal("0"))),
     )
 
 
@@ -613,6 +801,7 @@ async def read_payment_receipt(payment_ref: str, principal: WalletRead) -> Recei
 
 __all__ = [
     "MAX_LEDGER_LIMIT",
+    "MAX_LOTS",
     "RECEIPT_NOTE",
     "ReceiptOut",
     "WalletEntryOut",

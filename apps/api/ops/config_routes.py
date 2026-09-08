@@ -49,15 +49,18 @@ summary column, so a reason that lives only in the log stream is a reason nobody
 from __future__ import annotations
 
 import logging
+from decimal import Decimal
 from typing import Annotated, Any
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, Header, Path, Request, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.credit_packs import PACK_CATALOGUE, card_margins, card_refusals
-from apps.api.billing.list_rates import SELF_SERVE_PER_MIN, record_card
+from apps.api.billing.list_rates import PACK_RATE_KEY_PREFIX, SELF_SERVE_PER_MIN, record_card
+from apps.api.billing.rates import MIN_GROSS_MARGIN, ROUNDING, voice_tier_label
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
@@ -791,4 +794,128 @@ def _projected_field(result: WriteResult) -> ConfigFieldOut:
     )
 
 
-__all__ = ["config_confirmation", "require_if_match", "revert_confirmation", "router"]
+# --- the card, as a VIEWER (D-547) ------------------------------------------------
+#
+# Its own router and its own prefix: the card is not a `Settings` key and cannot be written
+# through this file's three routes, which is exactly why the panel that shows it is a viewer.
+# It lives in THIS module because the card's write path, its margin preview and its refusal
+# check are all here (`_record_card`) — the numbers an operator reads must come from the
+# same three functions that score them, or the screen and the gate would be two opinions.
+rate_card_router = APIRouter(prefix="/v1/ops/rate-card", tags=["ops"])
+
+#: The instant the CARD in force was dated. `NULL` on a deployment that has never recorded
+#: one, which is the honest answer and not a zero date: `list_rates.card_at` falls back to
+#: the committed catalogue per cell for exactly that state, so the rates below are real
+#: while their effective instant is genuinely unknown.
+_CARD_EFFECTIVE_FROM = (
+    "SELECT max(effective_from) FROM platform_list_rates "
+    "WHERE rate_key LIKE :prefix AND effective_from <= now()"
+)
+
+
+class RateCardCellOut(BaseModel):
+    """One rung on one voice: what we sell it at, what it costs us, and the verdict.
+
+    EVERY FIGURE IS A DECIMAL STRING (hard rule 7) and every verdict is the SERVER's. The
+    console derives no arithmetic — `gross_margin_pct` is computed here from
+    `rates.gross_margin_ratio`, the one definition of the word, so the panel, the write-path
+    preview and CI's own pack guard cannot report three margins for one cell.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    pack_id: str
+    amount_inr: str
+    #: The wire spelling of the voice tier — the vendor's name, which this console names
+    #: deliberately (an operator connects a rate to the key they installed).
+    voice_tier: str
+    #: What a CLIENT calls that voice, from `billing/rates.voice_tier_label`.
+    tier_label: str
+    inr_per_min: str
+    #: What the minute costs us on this leg — the floor `card_refusals` refuses below.
+    #: Published because it appeared on no surface at all before this route: the margin was
+    #: computed, logged once inside the write path, and never shown to anyone.
+    cost_floor_inr_per_min: str
+    #: The gross margin as a PERCENTAGE string ("17.60"). `null` only where no margin is
+    #: defined (a non-positive rate), which is a real state and not a zero.
+    gross_margin_pct: str | None
+    #: Under the target but above cost — a warning. The approved Sarvam column is
+    #: deliberately in this band down to 8.4%, so a console that treated it as an error
+    #: would refuse the founder's own card.
+    below_target: bool
+    #: Below cost. `card_refusals` refuses the write; nothing may be sold here.
+    below_floor: bool
+
+
+class RateCardOut(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    #: When the card in force was dated, or `null` where none ever was.
+    effective_from: str | None
+    #: The target the thin cells are thin AGAINST, as a percentage string ("20").
+    target_gross_margin_pct: str
+    cells: list[RateCardCellOut]
+
+
+def _pct(ratio: Decimal | None) -> str | None:
+    """A margin RATIO as a percentage string, quantized once, here.
+
+    Two decimals because that is what a percentage means to the person reading it, and
+    quantized at the boundary rather than in the arithmetic — `gross_margin_ratio` is
+    deliberately unquantized so that comparisons against the target are exact.
+    """
+    if ratio is None:
+        return None
+    return str((ratio * 100).quantize(Decimal("0.01"), rounding=ROUNDING))
+
+
+@rate_card_router.get(
+    "",
+    response_model=RateCardOut,
+    openapi_extra=permission_meta("platform:config"),
+    summary="The credit-pack card in force: every rung, both voices, with the server's margin",
+    description=(
+        "Twelve cells — six pack rungs on each of the two voice qualities — each with the "
+        "rate a client is sold, the per-minute cost that rate carries, the gross margin "
+        "the server strikes between them, and two verdicts: below the margin TARGET (a "
+        "warning; the approved card is deliberately thin on the cheaper voice) and below "
+        "COST (a refusal; the card cannot be recorded at all). It is a READ. The card is a "
+        "committed constant in this build, so there is no cell to write here — changing a "
+        "rate is a code change that CI scores with these same functions."
+    ),
+)
+async def read_rate_card(session: GlobalSession, _: ConfigOperator) -> RateCardOut:
+    dated = (
+        await session.execute(text(_CARD_EFFECTIVE_FROM), {"prefix": f"{PACK_RATE_KEY_PREFIX}:%"})
+    ).scalar()
+    amounts = {pack.pack_id: pack.amount_inr for pack in PACK_CATALOGUE}
+    return RateCardOut(
+        effective_from=dated.isoformat() if dated is not None else None,
+        target_gross_margin_pct=_pct(MIN_GROSS_MARGIN) or "0",
+        cells=[
+            RateCardCellOut(
+                pack_id=pack_id,
+                amount_inr=str(amounts[pack_id]),
+                voice_tier=voice,
+                tier_label=voice_tier_label(voice),
+                inr_per_min=str(verdict.rate),
+                cost_floor_inr_per_min=str(verdict.cost),
+                gross_margin_pct=_pct(verdict.margin),
+                below_target=verdict.below_target,
+                below_floor=verdict.below_cost,
+            )
+            # THE PREVIEW'S OWN OUTPUT, in the preview's own order (card order, then voice
+            # order): `_record_card` logs these twelve verdicts and `card_refusals` vetoes
+            # on the same twelve, so the screen shows what the gate scored.
+            for pack_id, voice, verdict in card_margins(PACK_CATALOGUE)
+        ],
+    )
+
+
+__all__ = [
+    "config_confirmation",
+    "rate_card_router",
+    "require_if_match",
+    "revert_confirmation",
+    "router",
+]

@@ -295,8 +295,13 @@ async def test_the_wallet_is_a_string_for_a_self_serve_client() -> None:
     # panel said ₹489.70, off one wallet, in one instant.
     assert body.credit_balance_inr == "300.00"
     assert body.monthly_fee_inr == "9999.00", "and it is not the odd one out any more"
-    # Runway is now priced off the wallet, not the cap (₹300 at the ₹5/min list rate).
-    assert body.minutes_left == 60
+    # THE CAP'S REMAINDER, and only that (D-547). This used to be the wallet balance
+    # divided by the live list rate for a prepaid tenant and the cap remainder for
+    # everyone else — one field with two meanings, which forced the browser to branch on
+    # `plan_tier` to know which it had. It is one meaning now: this fixture's plan carries
+    # a 500-minute cap and 120 minutes were spoken. The prepaid runway is the per-voice
+    # pair on `GET /v1/billing/wallet/lots`, summed off the wallet's own lots.
+    assert body.minutes_left == 380
 
 
 async def test_one_wallet_reads_the_same_on_the_client_panel_and_the_admin_console() -> None:

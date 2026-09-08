@@ -19,10 +19,22 @@ comparison a second time — the defect `SELF_SERVE_TIERS` was extracted to end.
    A projection invented out of two days of data is worse than no projection, because it
    is the number the owner plans around.
 
-2. **Minutes of calling.** The other half of the same question, and the one that is
-   answerable on day one: the balance at the live list rate. It comes from
-   `service.prepaid_minutes_left`, which is the SAME function `usage_summary` calls, so
-   the runway on this screen and the runway on the usage screen cannot disagree.
+2. **Minutes of calling, PER VOICE QUALITY.** The other half of the same question, and the
+   one that is answerable on day one — but it is no longer ONE number, because a wallet is
+   no longer one balance at one rate. Since D-547 it is a queue of LOTS, each carrying the
+   two per-minute rates (Clear, Studio) frozen on the purchase that bought it, so the
+   answer is summed lot by lot at each lot's own rate: `billing/lots.runway()`, the same
+   FIFO queue a call is actually charged from.
+
+   ⚠ **THIS USED TO DIVIDE ONE BALANCE BY ONE LIVE LIST RATE** (`service.prepaid_minutes_left`,
+   now deleted) and the two disagree wherever a client bought at a rate the card no longer
+   offers — which is the whole point of buying a bigger pack. A wallet holding a ₹15,000
+   pack's credit at ₹4.70/min was told its runway at today's ₹5.00 list price, understating
+   it by 6%; the same division on a Studio-voice client overstated it by the width of the
+   Studio premium. The figure that mattered was the second one, because the LOW-BALANCE
+   WARNING quotes it (`workers/wallet_alerts.py`), so the email that says "about N more
+   minutes" was wrong in the direction that stops a client's calling sooner than they
+   planned for.
 
 3. **Where it went.** The debits of the trailing window, split by what caused them. The
    split is over `credit_ledger` rather than `usage_events` because this screen is about
@@ -57,12 +69,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.ai_quota import OVERAGE_META_KIND
+from apps.api.billing.lots import runway as lot_runway
+from apps.api.billing.rates import VOICE_TIERS, VoiceTier, voice_tier_label
 from apps.api.billing.service import (
     Balance,
     CreditTotals,
     credit_totals,
     get_balance,
-    prepaid_minutes_left,
 )
 from apps.api.billing.trials import TrialState, read_trial
 from apps.api.core.logging import get_logger
@@ -186,6 +199,25 @@ class TopUpAttemptRow:
 
 
 @dataclass(frozen=True, slots=True)
+class TierMinutes:
+    """What ONE voice quality's minutes are worth to this wallet right now (D-547 Q7).
+
+    `label` is the CLIENT'S word for the tier — "Clear", "Studio" — resolved from
+    `billing/rates.voice_tier_label` and carried beside the figure so no screen and no
+    email has to keep its own copy of the naming rule, and so a vendor name can never
+    reach a client. `provider` is the wire spelling, which is what a ledger row, a
+    `meta.lots` split and a vendor invoice are reconciled against.
+
+    `minutes` is floored, never rounded, for the reason `lots.runway` quantizes down: a
+    minute quoted that the wallet cannot cover is discovered mid-call.
+    """
+
+    provider: VoiceTier
+    label: str
+    minutes: int
+
+
+@dataclass(frozen=True, slots=True)
 class WalletSummary:
     """Everything the credits screen needs about the money, in one read."""
 
@@ -199,7 +231,11 @@ class WalletSummary:
     #: nothing.
     prepaid: bool
     runway: Runway
-    minutes_left: int | None
+    #: BOTH voice qualities, in catalogue order, or `None` when no minutes figure may be
+    #: quoted at all (an invoiced client, or one whose calling is on us during a trial).
+    #: Never a shorter list: a client shown only the quality they happen to use today could
+    #: not compare the two before switching an agent.
+    minutes_left: tuple[TierMinutes, ...] | None
     drawdown: Drawdown
     #: BOUGHT versus GIVEN, over the whole life of the wallet (D-535). The founder's own
     #: guardrail on granting credit out of nothing: *"a client's statement must distinguish
@@ -508,13 +544,39 @@ async def settle_attempt(
     )
 
 
+async def tier_minutes(session: AsyncSession, *, tenant_id: UUID) -> tuple[TierMinutes, ...]:
+    """The runway pair, labelled for a client. THE ONE PLACE it is composed.
+
+    Public, and read by both surfaces that quote a client minutes: this module's own
+    summary (the credits screen) and `workers/wallet_alerts.py` (the low-balance email that
+    links to it). A client who reads "about 620 minutes left" in an email and a different
+    figure on the screen it links to has been told the platform does not know; the old
+    division had exactly that shape, with a live list rate on both ends of it.
+
+    `lots.runway()` keys its answer `<tier>_minutes` — the shape its two other readers take
+    — so the key is composed from `VOICE_TIERS` rather than typed twice here; a tier added
+    to that tuple then appears on this screen without a second edit, which is the property
+    that keeps the picker, the wallet and the alert quoting the same set of qualities.
+    """
+    minutes = await lot_runway(session, tenant_id=tenant_id)
+    return tuple(
+        TierMinutes(
+            provider=tier,
+            label=voice_tier_label(tier),
+            # `int(...)` truncates what `runway` has already floored to whole minutes; the
+            # second flooring is a no-op and is here because the wire type is an integer.
+            minutes=int(minutes[f"{tier}_minutes"]),
+        )
+        for tier in VOICE_TIERS
+    )
+
+
 async def read_wallet(
     session: AsyncSession,
     *,
     tenant_id: UUID,
     prepaid: bool,
     outbound_stopped: bool,
-    rate_inr_per_min: Decimal,
     now: datetime | None = None,
 ) -> WalletSummary:
     """The wallet's own facts, from ONE balance read. The two VERDICTS are passed in.
@@ -523,11 +585,12 @@ async def read_wallet(
     test behind it; both are asked by the ROUTE, once, so that this module cannot become a
     second credit gate — the one thing the founder's decision explicitly forbade.
 
-    `rate_inr_per_min` is passed rather than read from settings for the reason
-    `prepaid_minutes_left` takes it as an argument: the caller stays the one deciding
-    WHICH rate, and this function stays something a test can pin without a settings
-    override. A tenant with no wallet gets no minutes figure at all — a runway quoted to
-    an invoiced client would be a number about nothing.
+    **THERE IS NO LONGER A RATE PARAMETER, AND ITS ABSENCE IS THE FIX (D-547).** This
+    function used to take the live list price and divide the balance by it. A rate is not a
+    property of a wallet any more: it is frozen on each LOT, at what that purchase was sold
+    at, so the only honest answer is summed from the lots themselves and the caller has
+    nothing left to decide. A tenant with no wallet still gets no minutes figure at all — a
+    runway quoted to an invoiced client would be a number about nothing.
     """
     balance = await get_balance(session, tenant_id=tenant_id)
     runway, drawdown = await read_runway(session, tenant_id=tenant_id, balance=balance, now=now)
@@ -544,7 +607,7 @@ async def read_wallet(
             # so a minutes-left number computed from the balance is a limit they will not
             # meet. `None` is this field's own word for "no answer"; the `trial` block says
             # why, and the screen says it in words.
-            prepaid_minutes_left(balance=balance, rate=rate_inr_per_min)
+            await tier_minutes(session, tenant_id=tenant_id)
             if prepaid and not (trial is not None and trial.is_active(at=at))
             else None
         ),
@@ -563,6 +626,7 @@ __all__ = [
     "PENDING_GRACE_HOURS",
     "Drawdown",
     "Runway",
+    "TierMinutes",
     "TopUpAttemptRow",
     "WalletSummary",
     "read_attempts",
@@ -570,4 +634,5 @@ __all__ = [
     "read_wallet",
     "record_attempt",
     "settle_attempt",
+    "tier_minutes",
 ]

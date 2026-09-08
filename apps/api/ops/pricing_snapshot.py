@@ -11,6 +11,14 @@ shape (its own words, `billing/rates.install_llm_price_attestations` and
     price attestations   () -> Mapping[str, billing.rates.LlmPriceAttestation]
     installed legs        () -> frozenset[calevate_shared.engine.LlmProvider]
     dashboard data use    () -> frozenset[calevate_shared.engine.LlmProvider]
+    TTS price billable    (VoiceProvider) -> bool
+
+The fourth (D-547) is the voice twin of the first, and it is a PREDICATE rather than a
+mapping because its one caller asks one question: `agents/voice_offer.tts_price_is_billable`
+decides whether a voice tier may be offered at all, and it has no use for the figure. The
+figure itself never travels this way — `workers/pipeline.py` meters a Cartesia minute from
+`attested_tts_prices` on its own session, at the instant the call happened, because a price
+is effective-dated and a snapshot is not (see WHAT THE SNAPSHOT DOES NOT DO, below).
 
 The third (D-477) is the same shape for the same reason and is deliberately NOT folded into
 the second: "we hold a key for this leg" and "an operator has attested this leg's vendor does
@@ -47,6 +55,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import MappingProxyType
+from typing import cast
 
 from calevate_shared.engine import LlmProvider
 
@@ -54,14 +63,18 @@ from apps.api.agents.llm_models import (
     install_dashboard_data_use_reader,
     install_llm_credential_reader,
 )
+from apps.api.agents.voice_offer import default_tts_price_is_billable, install_tts_price_reader
+from apps.api.agents.voices import VoiceProvider
 from apps.api.billing.rates import LlmPriceAttestation, install_llm_price_attestations
 from apps.api.core.logging import get_logger
 from apps.api.db.session import untenanted_session
 from apps.api.ops.model_pricing import (
+    TTS_PROVIDERS,
     AttestedModelPrice,
     attested_model_prices,
     dashboard_permitted_providers,
     installed_llm_legs,
+    tts_price_is_billable,
 )
 
 log = get_logger(__name__)
@@ -85,12 +98,34 @@ class PricingSnapshot:
     #: "nobody has attested", never "the operator said no" — see
     #: `agents/llm_models.dashboard_data_use_attested`.
     dashboard_data_use: frozenset[LlmProvider]
+    #: Voice providers a minute may be METERED at a cost on (D-547) — the set form of
+    #: `ops/model_pricing.tts_price_is_billable`. `sarvam` is in it with no attestation
+    #: because the engine bills us for that leg and reports what it charged; a BYOK leg is
+    #: in it only once an operator has read a price off the vendor's invoice.
+    billable_tts: frozenset[str]
 
 
 _EMPTY = PricingSnapshot(
     attestations=MappingProxyType({}),
     installed_providers=frozenset(),
     dashboard_data_use=frozenset(),
+    # THE PICKER'S OWN DEFAULT, not an empty set, and the difference is a screen with no
+    # voices on it. The three LLM fields above fail safe when empty ("nothing attested,
+    # Azure-only"); this one does not — an empty set refuses EVERY voice, including the
+    # Sarvam tier, whose cost the engine meters and which needs no attestation at all. So
+    # the cold snapshot is built from the one function that states that rule
+    # (`voice_offer.default_tts_price_is_billable`) rather than from a second spelling of
+    # it here, and `install_pricing_readers()` before the first refresh answers exactly as
+    # the uninstalled picker would.
+    billable_tts=frozenset(
+        # `cast`, because `TTS_PROVIDERS` is declared as plain strings (it spells the DB
+        # column's values) while the picker's predicate is typed over the catalogue's
+        # Literal. `tests/tts_price_attestation_test.py` is what holds the two vocabularies
+        # equal, so this is a spelling of a fact a test already enforces, not a widening.
+        p
+        for p in TTS_PROVIDERS
+        if default_tts_price_is_billable(cast("VoiceProvider", p))
+    ),
 )
 _snapshot: PricingSnapshot = _EMPTY
 _refresher: asyncio.Task[None] | None = None
@@ -138,6 +173,19 @@ async def refresh_pricing_snapshot() -> PricingSnapshot:
             # and never makes an Azure-catalogue model disappear from the picker.
             installed = await installed_llm_legs(session)
             data_use = await dashboard_permitted_providers(session)
+            # THROUGH THE DOOR, once per provider, rather than reading the price table and
+            # re-deriving the rule here. `tts_price_is_billable` carries the one statement
+            # of what makes a tier billable (an attested figure, or the engine's own
+            # metered Sarvam leg); a second derivation over `attested_tts_prices` would be
+            # the second definition, and the two would differ the day a third provider
+            # arrives. Two round trips on a 30-second poll, off the request path.
+            billable_tts = frozenset(
+                [
+                    provider
+                    for provider in TTS_PROVIDERS
+                    if await tts_price_is_billable(session, provider=provider, at=datetime.now(UTC))
+                ]
+            )
     except Exception as exc:
         log.error("pricing_snapshot_refresh_failed", extra={"reason": type(exc).__name__})
         return _snapshot
@@ -151,6 +199,7 @@ async def refresh_pricing_snapshot() -> PricingSnapshot:
         attestations=MappingProxyType(attestations),
         installed_providers=installed,
         dashboard_data_use=data_use,
+        billable_tts=billable_tts,
     )
     return _snapshot
 
@@ -170,10 +219,15 @@ def _read_dashboard_data_use() -> frozenset[LlmProvider]:
     return _snapshot.dashboard_data_use
 
 
-def install_pricing_readers() -> None:
-    """Point the money module and the picker at THIS process's snapshot.
+def _read_tts_price_billable(provider: str) -> bool:
+    """The sync reader the voice picker installs. Zero IO."""
+    return provider in _snapshot.billable_tts
 
-    Idempotent — installing twice registers the same two functions. Called from startup,
+
+def install_pricing_readers() -> None:
+    """Point the money module and the pickers at THIS process's snapshot.
+
+    Idempotent — installing twice registers the same four functions. Called from startup,
     beside `start_pricing_refresher`; a process that installs but never refreshes serves the
     empty snapshot, which is the safe "nothing attested, Azure-only" default the catalogue
     lane designed for.
@@ -181,6 +235,7 @@ def install_pricing_readers() -> None:
     install_llm_price_attestations(_read_attestations)
     install_llm_credential_reader(_read_installed_providers)
     install_dashboard_data_use_reader(_read_dashboard_data_use)
+    install_tts_price_reader(_read_tts_price_billable)
 
 
 def uninstall_pricing_readers() -> None:
@@ -189,6 +244,7 @@ def uninstall_pricing_readers() -> None:
     install_llm_price_attestations(None)
     install_llm_credential_reader(None)
     install_dashboard_data_use_reader(None)
+    install_tts_price_reader(None)
 
 
 async def _poll_forever() -> None:

@@ -116,7 +116,11 @@ async def test_a_trial_offers_no_runway_number_rather_than_one_nobody_can_spend(
     assert during["minutes_left"] is None, "a wallet is not what bounds a trial"
     assert during["month_charges_inr"] == Decimal("0.00"), "nothing is charged during a trial"
     assert after["trial"]["active"] is False
-    assert after["minutes_left"] == 60, "₹300 at the ₹5/min list price, once the trial is over"
+    # STILL `None` AFTER THE TRIAL, and that is D-547 rather than the trial: this field is
+    # the plan CAP's remainder, and a prepaid wallet has no cap. What ₹300 buys is a PAIR
+    # of figures, one per voice quality, summed off the wallet's own lots at the rates each
+    # purchase froze (`billing/wallet.tier_minutes`) — never one balance over one live rate.
+    assert after["minutes_left"] is None, "a prepaid wallet's runway is not on this panel"
 
 
 async def test_a_trial_past_its_end_date_stops_bypassing_before_any_sweep_runs() -> None:
