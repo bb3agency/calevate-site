@@ -36,10 +36,9 @@ import {
   confirmMatches,
 } from "@/app/admin/ops/opsLanguage";
 import {
-  ttsPricesOf,
   useAttestTtsPrice,
   type TtsPrice,
-} from "@/app/admin/ops/ttsPricing";
+} from "@/lib/api/opsTtsPricing";
 import {
   useAttestModelPrice,
   useModelPrices,
@@ -184,7 +183,9 @@ export function ModelPricingPanel({
             splitting the two would leave the newer one somewhere nobody looks. It is read
             from the SAME payload — an API that does not publish it yet renders a stated
             absence, never an empty table that reads as "no voices are priced". */}
-        {state.status === "read" && <TtsPricesSection payload={state.list} access={access} />}
+        {state.status === "read" && (
+          <TtsPricesSection rows={state.list.tts_prices} access={access} />
+        )}
       </div>
     </Card>
   );
@@ -499,14 +500,12 @@ function AttestForm({
  * label crosses the wire rather than being spelled again here.
  */
 function TtsPricesSection({
-  payload,
+  rows,
   access,
 }: {
-  payload: unknown;
+  rows: readonly TtsPrice[];
   access: { allowed: boolean; reason: string | null };
 }) {
-  const rows = ttsPricesOf(payload);
-
   return (
     <section className="space-y-2 border-t border-line pt-4">
       <div>
@@ -518,11 +517,14 @@ function TtsPricesSection({
         </p>
       </div>
 
-      {rows === null ? (
-        // NOT an empty list and NOT a zero. Either this deployment's API does not publish
-        // the voice prices yet or the payload was not the shape this build validates; both
-        // are "we do not know", and a priced-looking table would be the invention §52 and
-        // hard rule 11 both refuse.
+      {rows.length === 0 ? (
+        // NOT a zero, and this branch is KEPT rather than deleted with the validator it
+        // used to serve. `ModelPricesOut.tts_prices` is required now, so a well-behaved
+        // server always sends both voices and this is unreachable through it — but an
+        // empty list is a cheap net against a server regression, and the thing it prevents
+        // is a section that renders as a confident nothing. "We do not know" and "no voice
+        // costs anything" are opposite claims (§52, hard rule 11), and the second is the
+        // one that gets a Cartesia minute metered as free.
         <NoticeBox
           tone="warn"
           icon={<CircleHelp aria-hidden className="h-5 w-5" />}

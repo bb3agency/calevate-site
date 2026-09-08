@@ -593,6 +593,9 @@ const pending: PendingState = {
     republish_required: false,
     headline: "Callers hear Bulbul v3.",
   },
+  // The per-quality rate this account would pay, from its oldest open lot. Empty here:
+  // this fixture has no wallet, and a screen with no lot prints no rate (D-547).
+  voice_tier_rates: [],
   engine_verification: {
     state: "applied",
     confirmed: true,

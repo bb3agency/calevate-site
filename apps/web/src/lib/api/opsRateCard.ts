@@ -3,6 +3,11 @@
 /**
  * THE RATE CARD, AS THE OPS CONSOLE READS IT — twelve cells, six rungs x two voices.
  *
+ * It sat in `app/admin/ops/` while this read was another lane's to build; with the hand
+ * validators collapsed onto `RateCardOut` it is a query hook, two wire aliases and the copy
+ * a margin verdict reads in — the shape of `opsConfig.ts`, `opsModelPricing.ts` and
+ * `opsFxRate.ts` beside it.
+ *
  * ## Why this is a card and not a price
  *
  * `self_serve_inr_per_min` used to BE the self-serve price, and writing it was writing
@@ -46,6 +51,9 @@ import { useQuery, type UseQueryResult } from "@tanstack/react-query";
 import { ApiProblem } from "@/lib/api/client";
 import { apiRequest } from "@/lib/api/client";
 import { adminSession } from "@/lib/api/admin";
+import type { components } from "@/lib/api/schema";
+
+type Schemas = components["schemas"];
 
 export const OPS_RATE_CARD_PATH = "/v1/ops/rate-card";
 export const OPS_RATE_CARD_QUERY_KEY = ["admin", "ops", "rate-card"] as const;
@@ -54,35 +62,28 @@ export const OPS_RATE_CARD_QUERY_KEY = ["admin", "ops", "rate-card"] as const;
 export type VoiceTier = "sarvam" | "cartesia";
 
 /**
- * One cell: one pack rung on one voice.
+ * One cell: one pack rung on one voice — `RateCardCellOut`, generated.
  *
  * Every money-shaped field is a decimal STRING. `gross_margin_pct` is `null` where the
  * server could not strike a margin (no cost to divide by) — a real state, and NOT zero.
+ *
+ * **THE LOCAL INTERFACE AND `asRateCardCell`/`asRateCard` ARE GONE.** They stood in while
+ * this read was another lane's to build: every field was checked by hand so a missing
+ * `cost_floor_inr_per_min` could not render as `0` and print a 100% margin on a cell that
+ * is under water. `RateCardOut` now declares all of them REQUIRED, so the hand validator
+ * re-checked only what the compiler proves, and the weaker of two spellings of one wire
+ * contract is the one that eventually gets believed. What it CANNOT prove — that this
+ * deployment answered at all — is still handled, by the panel's own read state.
+ *
+ * The one thing lost with the validator is worth naming: `voice_tier` is `string` on the
+ * wire, not the two-member union, so nothing narrows it any more. `tierVendor` takes a
+ * plain string and passes an unrecognised tier through unchanged, which is the same answer
+ * it always gave.
  */
-export interface RateCardCell {
-  pack_id: string;
-  amount_inr: string;
-  voice_tier: VoiceTier;
-  /** What a CLIENT calls this voice ("Clear" / "Studio"), from `VOICE_TIER_LABELS`. */
-  tier_label: string;
-  inr_per_min: string;
-  /** What the minute costs us on this leg — the floor `card_refusals` refuses below. */
-  cost_floor_inr_per_min: string;
-  /** The server's percentage, e.g. `"17.60"`. Never derived here. */
-  gross_margin_pct: string | null;
-  /** Under the 20% target but above cost: a warning an operator reads, never a refusal. */
-  below_target: boolean;
-  /** Below cost. The card cannot be recorded at all — the server refuses the write. */
-  below_floor: boolean;
-}
+export type RateCardCell = Schemas["RateCardCellOut"];
 
-export interface RateCard {
-  /** When the card in force was dated, or `null` if this deployment has never dated one. */
-  effective_from: string | null;
-  /** The target the thin cells are thin against, as a percentage string, e.g. `"20"`. */
-  target_gross_margin_pct: string;
-  cells: RateCardCell[];
-}
+/** The whole card: when it was dated, the margin target, and its twelve cells. */
+export type RateCard = Schemas["RateCardOut"];
 
 /** The vendor, named — this is the one surface where that is required rather than avoided. */
 export const TIER_VENDOR: Record<VoiceTier, string> = {
@@ -92,62 +93,6 @@ export const TIER_VENDOR: Record<VoiceTier, string> = {
 
 export function tierVendor(tier: string): string {
   return tier === "sarvam" || tier === "cartesia" ? TIER_VENDOR[tier] : tier;
-}
-
-function money(value: unknown): value is string {
-  return typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value.trim());
-}
-
-/**
- * THE SEAM. A cell that is not fully formed is DROPPED, not defaulted.
- *
- * The card read is being built by another lane, so this module validates every field it
- * renders rather than trusting the generated type: a missing `cost_floor_inr_per_min`
- * rendered as `0` would print a 100% margin on a cell that is actually under water. A
- * partial payload therefore yields fewer cells or `null`, and the panel renders a stated
- * absence — never a number nobody sent.
- */
-export function asRateCardCell(raw: unknown): RateCardCell | null {
-  if (typeof raw !== "object" || raw === null) return null;
-  const cell = raw as Record<string, unknown>;
-  const tier = cell.voice_tier;
-  if (tier !== "sarvam" && tier !== "cartesia") return null;
-  if (typeof cell.pack_id !== "string" || cell.pack_id === "") return null;
-  if (typeof cell.tier_label !== "string" || cell.tier_label === "") return null;
-  if (!money(cell.amount_inr) || !money(cell.inr_per_min)) return null;
-  if (!money(cell.cost_floor_inr_per_min)) return null;
-  if (typeof cell.below_target !== "boolean" || typeof cell.below_floor !== "boolean") return null;
-  const pct = cell.gross_margin_pct;
-  if (pct !== null && !money(pct)) return null;
-  return {
-    pack_id: cell.pack_id,
-    amount_inr: cell.amount_inr,
-    voice_tier: tier,
-    tier_label: cell.tier_label,
-    inr_per_min: cell.inr_per_min,
-    cost_floor_inr_per_min: cell.cost_floor_inr_per_min,
-    gross_margin_pct: pct,
-    below_target: cell.below_target,
-    below_floor: cell.below_floor,
-  };
-}
-
-export function asRateCard(raw: unknown): RateCard | null {
-  if (typeof raw !== "object" || raw === null) return null;
-  const card = raw as Record<string, unknown>;
-  if (!Array.isArray(card.cells) || card.cells.length === 0) return null;
-  if (!money(card.target_gross_margin_pct)) return null;
-  const cells = card.cells.map(asRateCardCell);
-  // ALL OR NOTHING. A card missing a rung is not a smaller card — it is a card whose
-  // twelve cells this build could not read, and half a price table is the one thing an
-  // operator must not commit against.
-  if (cells.some((cell) => cell === null)) return null;
-  const effective = card.effective_from;
-  return {
-    effective_from: typeof effective === "string" && effective !== "" ? effective : null,
-    target_gross_margin_pct: card.target_gross_margin_pct,
-    cells: cells as RateCardCell[],
-  };
 }
 
 /** The rungs, in the order the card ladders, each with its two voices. */
@@ -236,10 +181,10 @@ export function cardRefusalSentences(error: unknown): string[] | null {
  * clobbers a half-read table buys nothing. The panel re-reads after a config write, which
  * is the only act that dates a new one.
  */
-export function useOpsRateCard(): UseQueryResult<unknown> {
+export function useOpsRateCard(): UseQueryResult<RateCard> {
   return useQuery({
     queryKey: OPS_RATE_CARD_QUERY_KEY,
-    queryFn: () => apiRequest<unknown>(adminSession(), OPS_RATE_CARD_PATH),
+    queryFn: () => apiRequest<RateCard>(adminSession(), OPS_RATE_CARD_PATH),
     refetchInterval: 60_000,
   });
 }

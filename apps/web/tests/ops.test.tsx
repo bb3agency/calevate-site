@@ -191,7 +191,27 @@ function fxRate(): FxRate {
  *  no lever these cases exercise. */
 function modelPrices(): ModelPrices {
   return {
-    prices: [
+    // The voice rung of the same panel (D-547). Unattested is the SHIPPED state -- no key,
+    // no price -- and the panel's job is to render the consequence rather than a blank.
+    tts_prices: [
+      {
+        provider: "cartesia",
+        tier_label: "Studio",
+        tts_model: "sonic-3.5",
+        credential_installed: false,
+        price_attested: false,
+        price_billable: false,
+        offerable: false,
+        billable_without_attestation_reason: null,
+        inr_per_1k_chars: null,
+        reference_inr_per_1k_chars: "34.4960",
+        effective_from: null,
+        attested_at: null,
+        attested_by: null,
+        source_note: null,
+      },
+    ],
+prices: [
       {
         model: "gpt-4o-mini",
         provider: "azure_openai",

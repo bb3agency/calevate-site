@@ -26,10 +26,8 @@
  * see how many characters it was struck from.
  */
 
-/** Money as the server spelled it. Nothing here parses one. */
-function money(value: unknown): value is string {
-  return typeof value === "string" && /^-?\d+(\.\d+)?$/.test(value.trim());
-}
+import { isSignedMoneyString } from "@/lib/money";
+import type { components } from "@/lib/api/schema";
 
 /**
  * One voice vendor's month: what the plan cost, what the calls attributed, and the price
@@ -56,24 +54,30 @@ export function asTtsPlanSpend(raw: unknown): TtsPlanSpend | null {
   const row = raw as Record<string, unknown>;
   const text = (value: unknown): value is string => typeof value === "string" && value !== "";
   if (!text(row.provider) || !text(row.tier_label) || !text(row.month)) return null;
-  if (!money(row.plan_inr) || !money(row.attributed_inr) || !money(row.chars)) return null;
+  if (!isSignedMoneyString(row.plan_inr) || !isSignedMoneyString(row.attributed_inr)) return null;
+  if (!isSignedMoneyString(row.chars)) return null;
   return {
     provider: row.provider,
     tier_label: row.tier_label,
     month: row.month,
     plan_inr: row.plan_inr,
     attributed_inr: row.attributed_inr,
-    unused_inr: money(row.unused_inr) ? row.unused_inr : null,
+    unused_inr: isSignedMoneyString(row.unused_inr) ? row.unused_inr : null,
     chars: row.chars,
-    inr_per_1k_chars: money(row.inr_per_1k_chars) ? row.inr_per_1k_chars : null,
+    inr_per_1k_chars: isSignedMoneyString(row.inr_per_1k_chars) ? row.inr_per_1k_chars : null,
   };
 }
 
 /**
- * THE SEAM. `tts_plan` is being added to the fleet board by the lane building Cartesia
- * metering; until it lands (and on any payload this build cannot fully read) the card
- * renders a stated absence. A plan fee defaulted to ₹0 would show a fleet margin that does
- * not exist, which is the exact error the two figures are separated to prevent.
+ * THE SEAM, AND IT IS STILL A SEAM. ⚠ **`tts_plan` IS NOT ON `FleetSpendOut`** — checked
+ * against `lib/api/openapi.json` after the D-547 regeneration (8 Sep 2026): the fleet board
+ * publishes `clients`, `cost_inr`, `margin_inr`, `margin_pct`, `month`, `revenue_inr` and
+ * `tenants`, and nothing about what the voice vendors billed. So this reader is NOT a
+ * placeholder to collapse onto a generated type: there is no generated type to collapse
+ * onto, and the card renders its stated absence on every load until the API publishes the
+ * field. Reported as a backend finding rather than papered over — a plan fee defaulted to
+ * ₹0 would show a fleet margin that does not exist, which is the exact error the two
+ * figures above are separated to prevent.
  */
 export function ttsPlanSpendOf(board: unknown): TtsPlanSpend[] | null {
   if (typeof board !== "object" || board === null) return null;
@@ -84,43 +88,19 @@ export function ttsPlanSpendOf(board: unknown): TtsPlanSpend[] | null {
 }
 
 /**
- * What the measured speaking rate means for ONE voice vendor: the ₹/min it implies at that
- * vendor's own price, and whether that price exists at all.
+ * What the measured speaking rate means for ONE voice vendor — `SpeakingRateByProviderOut`,
+ * generated.
  *
  * `pooled_inr_per_minute` is the SERVER's multiplication of its own two figures. The
  * browser does not multiply a chars/min string by a ₹/1k string — that is money arithmetic,
  * and the answer would be a third figure disagreeing with the meter's.
+ *
+ * **THE LOCAL INTERFACE AND `asSpeakingRateByProvider`/`speakingRateByProviderOf` ARE
+ * GONE.** `TtsSpeakingRateOut.by_provider` is generated and REQUIRED, every field on the row
+ * with it, so the hand validator re-checked what the compiler proves. The card reads
+ * `rate.by_provider` off the typed response.
  */
-export interface SpeakingRateByProvider {
-  provider: string;
-  tier_label: string;
-  price_attested: boolean;
-  inr_per_1k_chars: string | null;
-  pooled_inr_per_minute: string | null;
-}
-
-export function asSpeakingRateByProvider(raw: unknown): SpeakingRateByProvider | null {
-  if (typeof raw !== "object" || raw === null) return null;
-  const row = raw as Record<string, unknown>;
-  const text = (value: unknown): value is string => typeof value === "string" && value !== "";
-  if (!text(row.provider) || !text(row.tier_label)) return null;
-  if (typeof row.price_attested !== "boolean") return null;
-  return {
-    provider: row.provider,
-    tier_label: row.tier_label,
-    price_attested: row.price_attested,
-    inr_per_1k_chars: money(row.inr_per_1k_chars) ? row.inr_per_1k_chars : null,
-    pooled_inr_per_minute: money(row.pooled_inr_per_minute) ? row.pooled_inr_per_minute : null,
-  };
-}
-
-export function speakingRateByProviderOf(rate: unknown): SpeakingRateByProvider[] | null {
-  if (typeof rate !== "object" || rate === null) return null;
-  const list = (rate as Record<string, unknown>).by_provider;
-  if (!Array.isArray(list) || list.length === 0) return null;
-  const rows = list.map(asSpeakingRateByProvider);
-  return rows.some((row) => row === null) ? null : (rows as SpeakingRateByProvider[]);
-}
+export type SpeakingRateByProvider = components["schemas"]["SpeakingRateByProviderOut"];
 
 /** The vendor, named — this is the admin console, and the invoice has a vendor on it. */
 export function vendorName(provider: string): string {

@@ -68,7 +68,10 @@ type Schemas = components["schemas"];
 export type Voice = Schemas["Voice"];
 
 /**
- * A catalogue row AS THE LISTING ANSWERS IT — `Voice` plus this deployment's verdict on it.
+ * A catalogue row AS THE LISTING ANSWERS IT — `Voice` plus this deployment's verdict on it,
+ * including `tier_label`, the tier's client-facing name ("Clear", "Studio") and the only
+ * name of a voice quality a human may read (founder, 7 Sep 2026; see the tier section at
+ * the foot of this module).
  *
  * It is a SUPERSET of `Voice` on the wire, not an envelope, so anything that renders a
  * `Voice` renders one of these unchanged. The two are kept apart because they answer
@@ -76,22 +79,16 @@ export type Voice = Schemas["Voice"];
  * `SetVoiceOut`), where offerability is meaningless — a stored voice is already chosen —
  * and this is a voice a client MAY choose, which on the Cartesia tier depends on a key and
  * an attested price that can both be missing (D-547).
+ *
+ * `tier_label` is REQUIRED on the wire: `apps/api/agents/voice_routes.py::OfferedVoiceOut`
+ * fills it from `billing/rates.voice_tier_label(provider)`, which is total over the two
+ * providers. This module briefly declared it optional while that field was a handoff; the
+ * local extension is gone now that the generated type carries it, because two spellings of
+ * one wire field is how the two drift. The picker still refuses to fall back to `provider`
+ * if a name is ever missing at runtime — never by the vendor's name, which is the one name
+ * it may not print.
  */
-export type OfferedVoice = Schemas["OfferedVoiceOut"] & {
-  /**
-   * THE TIER'S CLIENT-FACING NAME — "Clear", "Studio" — and the only name of a voice
-   * quality a human may read (founder, 7 Sep 2026; see the tier section at the foot of
-   * this module). It is `apps/api/billing/rates.py::voice_tier_label(provider)`, sent per
-   * row so this side never keeps a second copy of a client-visible name.
-   *
-   * ⚠ **OPTIONAL BECAUSE IT IS NOT ON THE WIRE YET**: `OfferedVoiceOut` does not carry it
-   * in this build's schema, and adding it is a handoff (`agents/voice_offer.py` and the
-   * response model belong to another lane). Optional is the honest type for a field an
-   * older API build does not send, and the picker groups by whatever it is given — never
-   * by `provider`, which names the vendor.
-   */
-  tier_label?: string | null;
-};
+export type OfferedVoice = Schemas["OfferedVoiceOut"];
 
 /**
  * The catalogue AND whether it may be chosen from (D-93).
@@ -203,7 +200,7 @@ export function useSetAgentVoice(target: { tenantId: string; agentId: string; sl
 export type VoiceProvider = Voice["provider"];
 
 /**
- * One voice tier as THIS account currently gets it.
+ * One voice tier as THIS account currently gets it — `VoiceTierRateOut`, generated.
  *
  * `label` is the only string here a human may see. `inr_per_min` is the rate frozen on the
  * account's oldest OPEN credit lot — the next minute's price — as the server's exact
@@ -211,13 +208,17 @@ export type VoiceProvider = Voice["provider"];
  * different claim from any figure and renders as nothing at all. `further_open_lots` is how
  * many lots sit BEHIND that one, each at its own rates, so a screen can say the price
  * changes later without pretending to know when.
+ *
+ * **THIS WAS A LOCAL INTERFACE PLUS A `readVoiceTierRates(unknown)` VALIDATOR, AND BOTH ARE
+ * GONE.** They existed while the lots API was another lane's work in flight: the field was
+ * read POSITIONALLY off the pending payload and every value checked by hand, so this build
+ * would compile and render correctly against a server that did not send it yet. It sends it
+ * — `PendingOut.voice_tier_rates` is generated and REQUIRED — so the hand validator now
+ * re-checks only what the compiler already guarantees, and two spellings of one wire
+ * contract is how the weaker one comes to be believed. Callers read
+ * `pending.voice_tier_rates` off the typed response.
  */
-export type VoiceTierRate = {
-  provider: VoiceProvider;
-  label: string;
-  inr_per_min: string | null;
-  further_open_lots: number;
-};
+export type VoiceTierRate = Schemas["VoiceTierRateOut"];
 
 export type VoiceTierRates = readonly VoiceTierRate[];
 
@@ -228,59 +229,4 @@ export function voiceTierRate(
 ): VoiceTierRate | undefined {
   if (!rates || !provider) return undefined;
   return rates.find((rate) => rate.provider === provider);
-}
-
-/**
- * The field this seam reads out of `GET /v1/agents/{agent_id}/pending`.
- *
- * ⚠ **NOT ON THE WIRE YET** — the lots API is another lane's, in flight as this is written,
- * and the field is reported as a handoff rather than guessed at. Read positionally and
- * VALIDATED rather than declared on `PendingState`, so that (a) this build compiles and
- * renders correctly against an API that does not send it, and (b) the moment the server
- * starts sending it every screen below lights up with no second edit — the alternative was
- * a prop nobody passes, which is the half-wired defect the quality bar names.
- */
-export const VOICE_TIER_RATES_FIELD = "voice_tier_rates";
-
-/** An exact decimal, unsigned, at most four places — `NUMERIC(12,4)` as JSON sends it.
- *  A second spelling of `rateCard.ts`'s private `MONEY_STRING`; hoisting the two into one
- *  money module is a handoff, because that file belongs to another lane this session. */
-const MONEY_STRING = /^\d+(\.\d{1,4})?$/;
-
-const PROVIDERS: readonly string[] = ["sarvam", "cartesia"];
-
-/**
- * The tier rates carried by a pending payload, or `undefined` if it carries none we trust.
- *
- * Validated at the seam for `isRateCard`'s reason, and the stakes here are the same: every
- * value below reaches a client's screen as a PRICE. A row missing a label, or carrying a
- * rate that is not an exact decimal string, is treated exactly like an API that said
- * nothing — the whole set is dropped rather than half-rendered, because a picker showing a
- * price on one tier and a blank on the other reads as "that one is free".
- *
- * `unknown` in, not `PendingState`: the caller hands over the response body it already has
- * and this decides whether the field is there and sound, so no screen writes a cast.
- */
-export function readVoiceTierRates(payload: unknown): VoiceTierRates | undefined {
-  if (typeof payload !== "object" || payload === null) return undefined;
-  const raw = (payload as Record<string, unknown>)[VOICE_TIER_RATES_FIELD];
-  if (!Array.isArray(raw) || raw.length === 0) return undefined;
-  const rates: VoiceTierRate[] = [];
-  for (const entry of raw) {
-    if (typeof entry !== "object" || entry === null) return undefined;
-    const row = entry as Record<string, unknown>;
-    if (typeof row.provider !== "string" || !PROVIDERS.includes(row.provider)) return undefined;
-    if (typeof row.label !== "string" || row.label === "") return undefined;
-    const rate = row.inr_per_min;
-    if (rate !== null && (typeof rate !== "string" || !MONEY_STRING.test(rate))) return undefined;
-    const behind = row.further_open_lots;
-    if (typeof behind !== "number" || !Number.isInteger(behind) || behind < 0) return undefined;
-    rates.push({
-      provider: row.provider as VoiceProvider,
-      label: row.label,
-      inr_per_min: rate,
-      further_open_lots: behind,
-    });
-  }
-  return rates;
 }

@@ -68,6 +68,7 @@
  * protecting anything from its own — which is the half-measure this paragraph replaced.
  */
 
+import type { components } from "../api/schema";
 import { authnRequest, type AuthnRequestOptions } from "./transport";
 import { isSessionGone, needsSecondFactor } from "./problems";
 
@@ -82,18 +83,8 @@ export interface AuthnSession {
   email_verified: boolean;
 }
 
-/**
- * `PasswordChangeOut` — how many OTHER sessions the change ended.
- *
- * ⚠ A LOCAL SPELLING, TO BE DELETED. `pnpm gen:api` has not been run since
- * `POST /v1/auth/{realm}/password/change` shipped (commit `9881af1`), so
- * `lib/api/schema.d.ts` has no entry for the route and there is no generated type to
- * import. Written against `apps/api/authn/routes.py::PasswordChangeOut` — one integer,
- * `extra="forbid"` — and it goes when the snapshot is regenerated.
- */
-interface PasswordChangeOut {
-  revoked: number;
-}
+/** `PasswordChangeOut` — how many OTHER sessions the change ended. */
+type PasswordChangeOut = components["schemas"]["PasswordChangeOut"];
 
 /** `LoginOut`. There is no third value: the second factor is the emailed code (D-170). */
 export type SignInStatus = "authenticated" | "otp_required";

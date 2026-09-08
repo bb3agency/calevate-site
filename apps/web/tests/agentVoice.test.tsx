@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 
 import AgentPromptPage from "@/app/admin/tenants/[tenantId]/agents/[agentId]/prompt/page";
 import type { AgentVoiceState } from "@/lib/api/publishing";
-import { VOICES_PATH, type OfferedVoice, type VoiceCatalogue } from "@/lib/api/voices";
+import {
+  VOICES_PATH,
+  type OfferedVoice,
+  type VoiceCatalogue,
+  type VoiceTierRate,
+  type VoiceTierRates,
+} from "@/lib/api/voices";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, type Routes } from "./harness";
@@ -171,12 +177,12 @@ const VOICE_IN_SYNC: AgentVoiceState = {
   headline: "Callers hear Anushka — the voice platform is holding the configured voice.",
 };
 
-function pendingRoute(voiceState: AgentVoiceState, tierRates?: unknown) {
+function pendingRoute(voiceState: AgentVoiceState, tierRates: VoiceTierRates = []) {
   return {
-    // ⚠ THE FIELD THAT IS NOT ON THE WIRE YET (the handoff). Spread rather than declared,
-    // because `PendingOut` does not carry it in this build's schema and inventing a
-    // declaration would be the guess `readVoiceTierRates` exists to refuse.
-    ...(tierRates === undefined ? {} : { voice_tier_rates: tierRates }),
+    // `PendingOut.voice_tier_rates`, generated and REQUIRED. Empty by default: an account
+    // with no open credit lot has no next-minute rate to quote, and the picker then prices
+    // nothing — which is the state the last test in the tier describe pins.
+    voice_tier_rates: tierRates,
     agent_id: AGENT,
     agent_status: "live",
     published: true,
@@ -235,14 +241,12 @@ function render(over: Partial<Routes> = {}) {
 }
 
 /**
- * This account's per-tier rates as the pending read will carry them (`voice_tier_rates`).
+ * This account's per-tier rates as the pending read carries them (`voice_tier_rates`).
  *
- * ⚠ NOT ON THE WIRE YET — the lots API is another lane's, and this fixture is the exact
- * shape reported as the handoff. `lib/api/voices.readVoiceTierRates` validates it at the
- * seam, so a build whose API omits the field renders no price at all, which is the case
- * the last test in this describe pins.
+ * `VoiceTierRateOut`, generated — so the compiler checks this fixture against the wire and
+ * a field that moves on the server fails here rather than at runtime.
  */
-const TIER_RATES = [
+const TIER_RATES: VoiceTierRate[] = [
   { provider: "sarvam", label: "Clear", inr_per_min: "5.0000", further_open_lots: 0 },
   { provider: "cartesia", label: "Studio", inr_per_min: "8.0000", further_open_lots: 2 },
 ];
@@ -603,30 +607,35 @@ describe("the voice panel", () => {
     expect(container.textContent).not.toContain("₹");
   });
 
-  it("drops the whole rate set rather than half-price the picker", async () => {
-    // A rate that is not an exact decimal string is a body we do not understand, and
-    // rendering the tier we DID understand beside a blank one reads as "that one is free".
-    // `readVoiceTierRates` refuses the set; the picker then prices nothing.
-    const { container } = await render({
-      [VOICES_PATH]: TWO_TIER_CATALOGUE,
-      [PENDING_PATH]: pendingRoute(VOICE_IN_SYNC, [
-        TIER_RATES[0],
-        { ...TIER_RATES[1], inr_per_min: 8 },
-      ]),
-    });
-
-    await screen.findByRole("radio", { name: /Ananya/ });
-    expect(container.textContent).not.toContain("₹");
-  });
+  /*
+   * DELETED: "drops the whole rate set rather than half-price the picker".
+   *
+   * It fed the picker a rate of `8` — a JSON number where the wire sends an exact decimal
+   * string — and asserted that `readVoiceTierRates` refused the WHOLE set rather than
+   * pricing one tier and blanking the other. That validator is gone: `PendingOut.
+   * voice_tier_rates` is generated and every field on `VoiceTierRateOut` is required, so
+   * the payload the test was built on can no longer be constructed without an `as` onto a
+   * wire type — which is exactly what `tests/wireFixtureGuard.test.ts` exists to stop. The
+   * behaviour it protected is now the compiler's: a rate that is not a string does not
+   * type-check anywhere in this app. The test above it still pins the case that IS
+   * reachable — a tier the server sends with `inr_per_min: null` prints no price at all.
+   */
 
   it("renders a voice with no server-sent quality name ungrouped, not under its vendor", async () => {
-    // An API build that does not send `tier_label` yet. The rows still appear — a voice is
-    // not hidden for want of a heading — but nothing invents the heading, because the only
-    // other name available is the vendor's and that is the one name it may not be.
+    // A DELIBERATELY OFF-CONTRACT PAYLOAD, and it has to be one: `OfferedVoiceOut.
+    // tier_label` is generated and REQUIRED, so this is a server regression rather than a
+    // build we support — and `voicePicker.tierLabel` keeps its guard against exactly that,
+    // because the only other name available is the VENDOR's and that is the one name a
+    // client-facing surface may not print. Spelled as a plain literal handed to the route
+    // map (which takes `unknown`), never `as OfferedVoice` — the sanctioned spelling for an
+    // off-contract payload per `tests/wireFixtureGuard.test.ts`.
     const { container } = await render({
       [VOICES_PATH]: {
         ...CATALOGUE,
-        voices: [voice({ tier_label: null }), studio({ tier_label: undefined })],
+        voices: [
+          { ...voice(), tier_label: null },
+          { ...studio(), tier_label: undefined },
+        ],
       },
     });
 

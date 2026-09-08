@@ -11,14 +11,13 @@ import {
   formatRupeeRate,
 } from "@/components/ui";
 import {
-  asRateCard,
   cellVerdict,
   rungs,
   tierVendor,
   useOpsRateCard,
   type RateCard,
   type RateCardCell,
-} from "@/app/admin/ops/rateCard";
+} from "@/lib/api/opsRateCard";
 
 /**
  * THE CARD THE NEXT WRITE WILL DATE — twelve cells, six rungs x two voices.
@@ -49,7 +48,10 @@ import {
  */
 export function RateCardPanel() {
   const query = useOpsRateCard();
-  const card = asRateCard(query.data);
+  // The generated type IS the validation now (`RateCardOut`, every field required), so the
+  // read is used directly and the only remaining question is whether this deployment
+  // answered at all — which is a read state, not a shape.
+  const card = query.data ?? null;
 
   return (
     <section className="space-y-3 rounded-card border border-line bg-surface p-3">

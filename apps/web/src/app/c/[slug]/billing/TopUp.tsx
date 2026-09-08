@@ -34,7 +34,7 @@ import {
   packForAmount,
   packMinutes,
   packRate,
-  readTierLabels,
+  tierLabels,
   type TierLabels,
 } from "./lots";
 
@@ -98,7 +98,7 @@ export function TopUp({ session }: { session: Session }) {
      so a build whose card carries no labels prints no quality names and no per-minute
      rates — an unnamed pair of rupee figures beside one another is worse than silence,
      because a reader assigns the cheaper one to whichever voice they were thinking of. */
-  const labels = readTierLabels(packs.data);
+  const labels = tierLabels(packs.data);
 
   /**
    * Open the provider's window for an order the SERVER created.

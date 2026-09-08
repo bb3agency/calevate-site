@@ -4,8 +4,13 @@ import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import OpsConfigPage from "@/app/admin/ops/config/page";
-import { OPS_RATE_CARD_PATH, asRateCard, cellVerdict } from "@/app/admin/ops/rateCard";
-import { OPS_TTS_PRICES_PATH, ttsPricesOf } from "@/app/admin/ops/ttsPricing";
+import {
+  OPS_RATE_CARD_PATH,
+  cellVerdict,
+  type RateCard,
+  type RateCardCell,
+} from "@/lib/api/opsRateCard";
+import { OPS_TTS_PRICES_PATH, type TtsPrice } from "@/lib/api/opsTtsPricing";
 import { ttsVerdict } from "@/app/admin/ops/ModelPricingPanel";
 import { OPS_CONFIG_PATH, type ConfigField, type ConfigList } from "@/lib/api/opsConfig";
 import { OPS_MODEL_PRICES_PATH } from "@/lib/api/opsModelPricing";
@@ -81,7 +86,7 @@ function configList(): ConfigList {
 }
 
 /** One cell of the card, as `GET /v1/ops/rate-card` publishes it. */
-function cell(over: Record<string, unknown> = {}) {
+function cell(over: Partial<RateCardCell> = {}): RateCardCell {
   return {
     pack_id: "starter",
     amount_inr: "2000.00",
@@ -109,7 +114,7 @@ const HEALTHY = cell({
   below_target: false,
 });
 
-function card(cells: Record<string, unknown>[] = [cell(), HEALTHY]) {
+function card(cells: RateCardCell[] = [cell(), HEALTHY]): RateCard {
   return {
     effective_from: "2026-09-07T04:30:00Z",
     target_gross_margin_pct: "20",
@@ -138,14 +143,20 @@ const MODEL_PRICES_BASE = {
     },
   ],
   as_of: "2026-09-07T00:00:00Z",
+  // REQUIRED on `ModelPricesOut`. Empty here on purpose: this base is what the "no voice
+  // prices" case is rendered from, and `routes()` puts the two real rows on top of it.
+  tts_prices: [],
 };
 
-/** The voice rows as the attestation lane's read publishes them. */
-function ttsRow(over: Record<string, unknown> = {}) {
+/** One voice row, as `GET /v1/ops/model-prices` publishes it. */
+function ttsRow(over: Partial<TtsPrice> = {}): TtsPrice {
   return {
     provider: "cartesia",
     tier_label: "Studio",
     tts_model: "sonic-3.5",
+    // The CATALOGUE figure — a pre-fill to confirm an invoice against, never the value a
+    // minute is metered at. Required on `TtsPriceOut`.
+    reference_inr_per_1k_chars: "3.4496",
     credential_installed: true,
     price_attested: false,
     price_billable: false,
@@ -393,6 +404,8 @@ describe("the voice price that decides whether a tier can be sold", () => {
   });
 
   it("shows nothing rather than a table when the API published no voice prices", async () => {
+    // An EMPTY list, not an absent field: `ModelPricesOut.tts_prices` is required now, so
+    // the case the panel still has to survive is a server that sent no rows.
     const { container } = renderOps(
       routes({ [OPS_MODEL_PRICES_PATH]: MODEL_PRICES_BASE }),
     );
@@ -408,32 +421,32 @@ describe("the voice price that decides whether a tier can be sold", () => {
 
 /* ── the pure functions, where the seam is cheapest to pin ───────────────────────────── */
 
-describe("reading a card off the wire", () => {
-  it("drops the whole card when one cell is malformed, rather than rendering a short one", () => {
-    expect(asRateCard(card())).not.toBeNull();
-    // A missing cost floor would render as a 100% margin on a cell that may be under water.
-    const broken = card([cell(), { ...HEALTHY, cost_floor_inr_per_min: null }]);
-    expect(asRateCard(broken)).toBeNull();
-  });
+/*
+ * DELETED with the validators they tested: "drops the whole card when one cell is
+ * malformed" and "returns null when the payload carries none".
+ *
+ * Both fed `asRateCard` / `ttsPricesOf` a payload with a field missing or of the wrong
+ * type, and asserted the reader dropped the whole set rather than rendering a short card
+ * or defaulting a sellability flag to true. `RateCardOut` and `ModelPricesOut.tts_prices`
+ * are generated now, with every field on both required, so those readers are gone and the
+ * payloads they refused cannot be built without an `as` onto a wire type — the assertion
+ * `tests/wireFixtureGuard.test.ts` exists to stop. The property they protected is the
+ * compiler's: a cell with a null cost floor does not type-check anywhere in this app. The
+ * rendered case that IS still reachable — a read that failed, so no cells at all — is
+ * pinned above by "shows no cells at all when the card could not be read".
+ */
 
+describe("what a margin verdict may say", () => {
   it("never returns a refusal tone for a thin cell — there is no such tone to return", () => {
-    const thin = cellVerdict(asRateCard(card())!.cells[0], "20");
+    const thin = cellVerdict(card().cells[0], "20");
     expect(thin.tone).toBe("thin");
     expect(thin.sentence).toContain("deliberately");
-    const healthy = cellVerdict(asRateCard(card())!.cells[1], "20");
+    const healthy = cellVerdict(card().cells[1], "20");
     expect(healthy.tone).toBe("ok");
   });
 });
 
 describe("reading a voice price off the wire", () => {
-  it("returns null when the payload carries none, so the panel can state the absence", () => {
-    expect(ttsPricesOf(MODEL_PRICES_BASE)).toBeNull();
-    expect(ttsPricesOf({ ...MODEL_PRICES_BASE, tts_prices: [ttsRow()] })).toHaveLength(1);
-    // A row missing the flag that decides sellability is dropped, never defaulted to true.
-    const bad = { ...MODEL_PRICES_BASE, tts_prices: [{ ...ttsRow(), price_billable: undefined }] };
-    expect(ttsPricesOf(bad)).toBeNull();
-  });
-
   it("names both gaps when both are missing, so the operator does one trip", () => {
     expect(ttsVerdict(ttsRow({ credential_installed: false })).label).toBe(
       "Blocked — needs a vendor key and a confirmed price",

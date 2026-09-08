@@ -21,7 +21,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
 import { CreditsTab } from "./CreditsTab";
-import { readTierLabels, readWalletLots, useWalletLots } from "./lots";
+import { VOICE_TIERS, lotRate, tierLabels, tierRunway, useWalletLots } from "./lots";
 import { InvoicedAccount } from "./InvoicedAccount";
 import { OverviewTab } from "./OverviewTab";
 import { TransactionsTab } from "./TransactionsTab";
@@ -112,21 +112,19 @@ export default function BillingPage({ params }: { params: Promise<{ slug: string
      (founder, 7 Sep 2026), and a copy in TypeScript is how the two definitions drift
      until one client meets both. Absent on a build that does not send them yet, and
      every panel then renders no quality name and no per-minute rate at all. */
-  const labels = readTierLabels(packs.data);
+  const labels = tierLabels(packs.data);
 
   /*
    * THE LOT QUEUE — what credit is left, at which two rates, in the order it is spent, and
    * the runway in minutes on each quality (D-547).
    *
-   * Its own read rather than a field on the wallet, and validated at the seam rather than
-   * typed: a balance under lots is several purchases at several frozen rates, and NOTHING
-   * on this screen may quote a per-minute price that is not one of them. So a build whose
-   * API cannot answer (the route is the billing lane's, in flight as this is written)
-   * renders no lot list, no runway pair and no rate — never `wallet.minutes_left`, which
-   * divides one balance by one LIST rate and is the arithmetic lots exist to retire.
+   * Its own read rather than a field on the wallet: a balance under lots is several
+   * purchases at several frozen rates, and NOTHING on this screen may quote a per-minute
+   * price that is not one of them. A read that has not answered renders no lot list, no
+   * runway pair and no rate — never `wallet.minutes_left`, which divides one balance by one
+   * LIST rate and is the arithmetic lots exist to retire.
    */
-  const lotsRead = useWalletLots(session);
-  const lots = readWalletLots(lotsRead.data);
+  const lots = useWalletLots(session).data;
 
   /* One month for the two panels that can look backwards — the per-agent breakdown and the
      statement. Held HERE rather than in each tab so a client who picks July on one does not
@@ -257,15 +255,18 @@ export default function BillingPage({ params }: { params: Promise<{ slug: string
                   : lots.lots.length === 0
                     ? "no credit is left on the account"
                     : lots.lots
-                        .map(
-                          (lot) =>
-                            `${formatINR(lot.credits_remaining)} of credit at ${lots.tiers
-                              .map(
-                                (tier) =>
-                                  `${formatRupeeRate(lot.rates[tier.provider])}/min on ${tier.label}`,
-                              )
-                              .join(" or ")}`,
-                        )
+                        .map((lot) => {
+                          // The NAME comes from the server's runway row and the RATE from
+                          // the lot, joined on the quality — never a vendor string typed
+                          // here, and no name at all for a quality the server did not send.
+                          const priced = VOICE_TIERS.flatMap((tier) => {
+                            const runway = tierRunway(lots, tier);
+                            return runway
+                              ? [`${formatRupeeRate(lotRate(lot, tier))}/min on ${runway.label}`]
+                              : [];
+                          });
+                          return `${formatINR(lot.credits_remaining)} of credit at ${priced.join(" or ")}`;
+                        })
                         .join(", then "),
             },
             {

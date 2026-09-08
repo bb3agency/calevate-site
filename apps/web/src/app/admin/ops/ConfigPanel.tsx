@@ -38,7 +38,7 @@ import {
   confirmMatches,
 } from "@/app/admin/ops/opsLanguage";
 import { RateCardPanel } from "@/app/admin/ops/RateCardPanel";
-import { cardRefusalSentences } from "@/app/admin/ops/rateCard";
+import { cardRefusalSentences } from "@/lib/api/opsRateCard";
 import {
   isLostUpdate,
   useOpsConfig,

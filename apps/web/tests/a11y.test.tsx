@@ -427,6 +427,25 @@ const TTS_SPEAKING_RATE = {
   assumed_low: { chars_per_minute: "360.0000", tts_inr_per_minute: "1.0800" },
   assumed_high: { chars_per_minute: "540.0000", tts_inr_per_minute: "1.6200" },
   tts_inr_per_10k_chars: "30.0000",
+  // BOTH vendors, in the two states this strip renders: one with an attested price (so the
+  // ₹/min line renders) and one without (so the "cannot be sold" sentence does). Required
+  // on `TtsSpeakingRateOut` since D-547.
+  by_provider: [
+    {
+      provider: "sarvam",
+      tier_label: "Clear",
+      price_attested: true,
+      inr_per_1k_chars: "3.0000",
+      pooled_inr_per_minute: "1.3114",
+    },
+    {
+      provider: "cartesia",
+      tier_label: "Studio",
+      price_attested: false,
+      inr_per_1k_chars: null,
+      pooled_inr_per_minute: null,
+    },
+  ],
 };
 
 const FLEET_SPEND = {
@@ -1111,6 +1130,45 @@ const OPS_MODEL_PRICES = {
     },
   ],
   as_of: "2026-08-23T00:00:00Z",
+  // THE VOICE LEG, on the same payload (D-547) and in its two states: a tier the engine
+  // already bills us for (no attestation to demand) and a BYOK tier that is blocked until
+  // somebody types what their invoice says. A one-row fixture would leave the blocked
+  // notice and the attestation form unscanned, which is the whole point of this file.
+  tts_prices: [
+    {
+      provider: "sarvam",
+      tier_label: "Clear",
+      tts_model: "bulbul:v3",
+      credential_installed: true,
+      price_attested: false,
+      price_billable: true,
+      offerable: true,
+      billable_without_attestation_reason:
+        "The call platform bills us for this synthesizer leg and reports what it charged.",
+      reference_inr_per_1k_chars: "3.0000",
+      inr_per_1k_chars: null,
+      effective_from: null,
+      attested_at: null,
+      attested_by: null,
+      source_note: null,
+    },
+    {
+      provider: "cartesia",
+      tier_label: "Studio",
+      tts_model: "sonic-3.5",
+      credential_installed: true,
+      price_attested: false,
+      price_billable: false,
+      offerable: false,
+      billable_without_attestation_reason: null,
+      reference_inr_per_1k_chars: "3.4496",
+      inr_per_1k_chars: null,
+      effective_from: null,
+      attested_at: null,
+      attested_by: null,
+      source_note: null,
+    },
+  ],
 };
 
 // TWO legs whose states differ: an ATTESTED, eligible Azure leg (its facts grid, provenance
@@ -3021,6 +3079,34 @@ const ADMIN_SCREENS: Screen[] = [
             credited_inr: "2500.00",
             entries: 1,
             first_at: "2026-08-12T05:30:00Z",
+          },
+        ],
+        // ONE OPEN LOT AND A PACK LADDER (D-547), because that is the state that renders
+        // the most markup on this screen: the lot list, and the whole re-pricing form with
+        // its two selects, its reason field and its type-to-confirm box. An empty wallet
+        // renders an empty state and none of it.
+        lots: [
+          {
+            lot_id: "0192f0aa-5555-7000-8000-0000000000e1",
+            source: "topup",
+            pack_id: "starter",
+            override_of_pack_id: null,
+            credits_total: "2500.00",
+            credits_remaining: "150.00",
+            sarvam_inr_per_min: "5.0000",
+            cartesia_inr_per_min: "8.0000",
+            sarvam_label: "Clear",
+            cartesia_label: "Studio",
+            opened_at: "2026-08-12T05:30:00Z",
+            closed_at: null,
+          },
+        ],
+        override_packs: [
+          {
+            pack_id: "pro",
+            amount_inr: "25000.00",
+            sarvam_inr_per_min: "4.6000",
+            cartesia_inr_per_min: "6.2500",
           },
         ],
       },

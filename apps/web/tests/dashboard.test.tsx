@@ -132,6 +132,13 @@ const USAGE: UsagePanel = {
   month: "2026-08",
   minutes_used: "120.5",
   calls: 41,
+  // Both voice qualities, always, named by the server (D-547).
+  sarvam_minutes: "120.50",
+  sarvam_charges_inr: "602.50",
+  sarvam_label: "Clear",
+  cartesia_minutes: "0.00",
+  cartesia_charges_inr: "0.00",
+  cartesia_label: "Studio",
   included_minutes: 500,
   overage_minutes: "0",
   overage_minutes_premium: "0",
@@ -182,7 +189,12 @@ function wallet(over: Partial<Wallet> = {}): Wallet {
       min_history_days: 7,
       max_days: 365,
     },
-    minutes_left: 425,
+    // Per QUALITY since D-547: one balance over one live rate is wrong for every
+    // client whose lots were not bought at today's card.
+    minutes_left: [
+      { provider: "sarvam", label: "Clear", minutes: 240 },
+      { provider: "cartesia", label: "Studio", minutes: 171 },
+    ],
     drawdown: {
       calls_inr: "8400.00",
       ai_assist_inr: "0.00",
@@ -550,7 +562,7 @@ describe("the calling credit tile", () => {
           balance_inr: "0.00",
           is_low: true,
           outbound_stopped: true,
-          minutes_left: 0,
+          minutes_left: [{ provider: "sarvam", label: "Clear", minutes: 0 }, { provider: "cartesia", label: "Studio", minutes: 1 }],
         }),
       }),
     );

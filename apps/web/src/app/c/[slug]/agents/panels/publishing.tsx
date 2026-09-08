@@ -33,7 +33,7 @@ import {
   type PendingState,
 } from "@/lib/api/publishing";
 import { useClientSession } from "@/lib/api/session";
-import { readVoiceTierRates, voiceTierRate, type VoiceTierRates } from "@/lib/api/voices";
+import { voiceTierRate, type VoiceTierRates } from "@/lib/api/voices";
 
 /**
  * The unsaved-changes banner (§2b) and the cost-runaway guard, from the client's side of
@@ -102,7 +102,7 @@ export function PublishingPanel({ agent }: { agent: Agent }) {
         <VoiceFacts
           state={state.voice}
           published={agent.published}
-          rates={readVoiceTierRates(state)}
+          rates={state.voice_tier_rates}
         />
         <Fact
           label="Longest one call may run"

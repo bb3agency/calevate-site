@@ -248,6 +248,14 @@ const HUB_USAGE = {
   capped: false,
   cap_minutes: null,
   credit_balance_inr: null,
+  // THE TWO QUALITIES, required on `UsagePanelOut` since D-547. A month with no calls has
+  // none on either, and the panel prints no row for a quality with no minutes.
+  sarvam_minutes: "0.0000",
+  sarvam_charges_inr: "0.00",
+  sarvam_label: "Clear",
+  cartesia_minutes: "0.0000",
+  cartesia_charges_inr: "0.00",
+  cartesia_label: "Studio",
 };
 
 const HUB_CAPS = {
@@ -272,6 +280,25 @@ const TTS_ROUTE = "/v1/admin/spend/tts-speaking-rate";
 
 /** Pilot gate 12's number in the MEASURED state — 4-decimal strings, never parsed. */
 const TTS_MEASURED: TtsSpeakingRate = {
+  // Both voice rungs, ALWAYS — whether a price is attested is not a measurement, so this
+  // travels with the measured and the unmeasured shape alike. The two cases below override
+  // it with priced rows; here it is the shipped state, where only one voice has a price.
+  by_provider: [
+    {
+      provider: "sarvam",
+      tier_label: "Clear",
+      price_attested: true,
+      inr_per_1k_chars: "3.0000",
+      pooled_inr_per_minute: "1.2360",
+    },
+    {
+      provider: "cartesia",
+      tier_label: "Studio",
+      price_attested: false,
+      inr_per_1k_chars: null,
+      pooled_inr_per_minute: null,
+    },
+  ],
   measured: true,
   calls: 41,
   clients: 2,
@@ -511,10 +538,12 @@ describe("the client's spend screen", () => {
     expect(prepaid.container.textContent).not.toContain("380 minutes");
   });
 
-  it("says nothing per voice when the month's payload carries no split", async () => {
-    // An API build before the per-quality fields, and the honest rendering of it: the
-    // month's totals are all still true and still on screen, and no quality is given a
-    // figure — one priced and the other blank would read as "that one is free".
+  it("says nothing per voice for a month with no minutes on either quality", async () => {
+    // REWRITTEN when the six per-quality fields became required. The case this used to
+    // cover — an API build that sent none of them — is no longer expressible, and the case
+    // that replaces it is the one clients actually meet: a quiet month, where both
+    // qualities arrive at "0.0000" and neither gets a ₹0.00 row inviting a question about
+    // nothing. The month's totals are all still true and still on screen.
     const { container } = await renderBillingHub(clientRoutes({
       "/v1/me": ME,
       [CLIENT_ROUTE]: CLIENT_SPEND,

@@ -139,6 +139,9 @@ function settled(over: Partial<PendingState> = {}): PendingState {
     call_cap_is_platform_default: true,
     worst_case_call_cost_inr: "65.00",
     precedence_rule: "Script decides content, rules decide conduct, voice only changes delivery.",
+    // REQUIRED on `PendingOut`. Empty is the honest default here: this account has no open
+    // credit lot to quote a next-minute rate from, so the voice fact prints no price.
+    voice_tier_rates: [],
     voice: {
       configured: storedVoice("bulbul:v3", "Bulbul v3"),
       live: storedVoice("bulbul:v3", "Bulbul v3"),
@@ -364,8 +367,8 @@ describe("which voice callers are actually hearing", () => {
       routes({
         "/v1/agents/agent-1/pending": {
           ...settled(),
-          // ⚠ NOT ON THE WIRE YET — the exact shape reported as the handoff, validated at
-          // the seam by `lib/api/voices.readVoiceTierRates`.
+          // `PendingOut.voice_tier_rates`, generated and required — read as a field now
+          // that the schema carries it, not through a hand validator.
           voice_tier_rates: [
             { provider: "sarvam", label: "Clear", inr_per_min: "5.0000", further_open_lots: 1 },
           ],

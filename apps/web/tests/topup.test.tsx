@@ -89,7 +89,12 @@ function wallet(over: Partial<Wallet> = {}): Wallet {
       min_history_days: 7,
       max_days: 365,
     },
-    minutes_left: 240,
+    // Per QUALITY since D-547, because one balance divided by one live rate is a figure
+    // that is wrong for every client whose lots were bought at anything but today's card.
+    minutes_left: [
+      { provider: "sarvam", label: "Clear", minutes: 240 },
+      { provider: "cartesia", label: "Studio", minutes: 171 },
+    ],
     drawdown: {
       calls_inr: "2730.00",
       ai_assist_inr: "0.00",

@@ -4,7 +4,7 @@ import { Layers } from "lucide-react";
 
 import { Card, NOTICE_TONES, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
 
-import { VOICE_TIERS, formatWhole, type WalletLots } from "./lots";
+import { VOICE_TIERS, formatWhole, lotRate, type WalletLots } from "./lots";
 
 /**
  * THE LOT QUEUE — what credit is left, at which rates, in the order it will be spent.
@@ -93,7 +93,7 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
                   </th>
                   {VOICE_TIERS.map((tier) => (
                     <td key={tier} className="py-3 pr-3 text-right tabular-nums text-ink-muted">
-                      {formatRupeeRate(lot.rates[tier])}/min
+                      {formatRupeeRate(lotRate(lot, tier))}/min
                     </td>
                   ))}
                   <td className="py-3 text-right text-ink-muted">{formatIST(lot.opened_at)}</td>

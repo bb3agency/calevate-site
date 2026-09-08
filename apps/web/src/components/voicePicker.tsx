@@ -72,7 +72,17 @@ export function tierRateReading(
   };
 }
 
-/** The tier's name, or null. Never the vendor's — see the module docstring. */
+/**
+ * The tier's name, or null. Never the vendor's — see the module docstring.
+ *
+ * **THE WIRE NOW REQUIRES `tier_label`** (`OfferedVoiceOut`, generated), so a well-behaved
+ * server always sends one and the null arm is unreachable through it. The check is KEPT
+ * anyway, and deliberately: it is two comparisons against a server regression, and the
+ * only fallback available if it were removed is `voice.provider` — the VENDOR's name,
+ * which is the one name a client-facing surface may not print (founder, 7 Sep 2026). A
+ * voice with no heading still lists; a voice headed "cartesia" would be a rename nobody
+ * approved.
+ */
 function tierLabel(voice: OfferedVoice): string | null {
   const label = voice.tier_label;
   return typeof label === "string" && label !== "" ? label : null;

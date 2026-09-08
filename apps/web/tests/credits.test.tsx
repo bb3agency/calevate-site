@@ -70,7 +70,7 @@ function wallet(over: Partial<Wallet> = {}): Wallet {
       min_history_days: 7,
       max_days: 365,
     },
-    minutes_left: 425,
+    minutes_left: [{ provider: "sarvam", label: "Clear", minutes: 425 }, { provider: "cartesia", label: "Studio", minutes: 304 }],
     drawdown: {
       calls_inr: "8400.00",
       ai_assist_inr: "300.00",
@@ -91,6 +91,7 @@ const LEDGER_ROWS: WalletLedger = {
       reason: "usage",
       ref: "call:9",
       balance_after_inr: "3400.00",
+      lots: [],
       occurred_at: "2026-08-30T09:00:00Z",
       payment_ref: null,
     },
@@ -100,6 +101,7 @@ const LEDGER_ROWS: WalletLedger = {
       reason: "topup",
       ref: "pay_a1b2c3",
       balance_after_inr: "3442.50",
+      lots: [],
       occurred_at: "2026-08-01T09:00:00Z",
       payment_ref: "pay_a1b2c3",
     },
@@ -286,7 +288,7 @@ describe("the hero: how much, and how long it lasts", () => {
       routes({
         [WALLET]: wallet({
           balance_inr: "1000.00",
-          minutes_left: 125,
+          minutes_left: [{ provider: "sarvam", label: "Clear", minutes: 125 }, { provider: "cartesia", label: "Studio", minutes: 89 }],
           runway: {
             basis: "too_new",
             days: null,
@@ -357,7 +359,7 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
           balance_inr: "0.00",
           is_low: true,
           outbound_stopped: true,
-          minutes_left: 0,
+          minutes_left: [{ provider: "sarvam", label: "Clear", minutes: 0 }, { provider: "cartesia", label: "Studio", minutes: 1 }],
           runway: {
             basis: "empty",
             days: null,
@@ -395,7 +397,7 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
           balance_inr: "0.00",
           is_low: true,
           outbound_stopped: true,
-          minutes_left: 0,
+          minutes_left: [{ provider: "sarvam", label: "Clear", minutes: 0 }, { provider: "cartesia", label: "Studio", minutes: 1 }],
           runway: {
             basis: "empty",
             days: null,
@@ -431,7 +433,7 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
 
   it("warns at the low band without claiming anything has stopped yet", async () => {
     await renderBillingHub(
-      routes({ [WALLET]: wallet({ balance_inr: "150.00", is_low: true, minutes_left: 18 }) }),
+      routes({ [WALLET]: wallet({ balance_inr: "150.00", is_low: true, minutes_left: [{ provider: "sarvam", label: "Clear", minutes: 18 }, { provider: "cartesia", label: "Studio", minutes: 13 }] }) }),
     );
     // NOT `findByRole("status")`: `Skeleton` is a live region too (it announces the
     // start of a load), so that query races the panel it is looking for.
@@ -756,6 +758,7 @@ describe("the ledger and its receipts", () => {
               reason: "refund",
               ref: "pay_a1b2c3",
               balance_after_inr: "2900.00",
+              lots: [],
               occurred_at: "2026-08-31T09:00:00Z",
               payment_ref: null,
             },
@@ -765,6 +768,7 @@ describe("the ledger and its receipts", () => {
               reason: "adjustment",
               ref: "adj:1",
               balance_after_inr: "3400.00",
+              lots: [],
               occurred_at: "2026-08-30T09:00:00Z",
               payment_ref: null,
             },

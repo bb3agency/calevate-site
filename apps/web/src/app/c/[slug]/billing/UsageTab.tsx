@@ -23,7 +23,7 @@ import { useUsage, useWriteAccess } from "@/lib/api/hooks";
 import type { Session } from "@/lib/api/client";
 
 import { SpendPanel } from "./SpendPanel";
-import { readVoiceUsage } from "./lots";
+import { voiceUsage } from "./lots";
 
 /**
  * USAGE — what this month has cost, which agent spent it, and the limit that stops it.
@@ -77,11 +77,10 @@ export function UsageTab({
   refused: boolean;
 }) {
   const usage = useUsage(session);
-  /* THE TWO VOICE QUALITIES' SHARE OF THE MONTH, validated at the seam rather than typed:
-     the fields are on `UsagePanelOut` server-side (`apps/api/crm/schemas.py`) and reach
-     `schema.d.ts` at the shared regeneration. Named by the SERVER — a client reads the
+  /* THE TWO VOICE QUALITIES' SHARE OF THE MONTH, off the typed read: the six fields are
+     generated and required on `UsagePanelOut`. Named by the SERVER — a client reads the
      quality's name, never the vendor's. */
-  const voices = readVoiceUsage(usage.data);
+  const voices = voiceUsage(usage.data);
 
   if (refused) {
     return (
@@ -203,16 +202,23 @@ export function UsageTab({
                   about a month. NO TOTAL IS TAKEN HERE (D-458) — "Total so far" below is
                   the server's own `month_charges_inr`, and adding two rupee strings in a
                   browser is the arithmetic that ends with the screen and the statement a
-                  paisa apart. Absent on an API build that does not send them, and both
-                  rows go together: one quality priced and the other blank would read as
-                  "that one is free". */}
-              {voices?.map((voice) => (
-                <Row
-                  key={voice.provider}
-                  label={`${voice.label} voice (${voice.minutes} min)`}
-                  value={formatINR(voice.charges_inr)}
-                />
-              ))}
+                  paisa apart.
+
+                  A QUALITY WITH NO MINUTES GETS NO ROW. The six fields are required on the
+                  wire now, so every month carries both qualities and a quiet one arrives as
+                  `"0.0000"` — and a ₹0.00 row invites a question about nothing, which is
+                  the rule the overage and surcharge rows above already follow. What is NOT
+                  done is hiding a row for want of a CHARGE: minutes a trial absorbed are
+                  minutes the client spoke, and they belong on the screen at ₹0.00. */}
+              {voices?.map((voice) =>
+                hasNonZeroDigit(voice.minutes) ? (
+                  <Row
+                    key={voice.provider}
+                    label={`${voice.label} voice (${voice.minutes} min)`}
+                    value={formatINR(voice.charges_inr)}
+                  />
+                ) : null,
+              )}
               {/* THE MODEL UPGRADE (D-455), on the screen because it is on the statement.
                   A client whose bill grew because they moved their agents onto a dearer
                   AI model has to be able to see WHICH decision did it — the line names the

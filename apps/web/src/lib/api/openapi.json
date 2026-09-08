@@ -246,6 +246,16 @@
             "title": "Is Low",
             "type": "boolean"
           },
+          "lot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CreditLotOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "recorded": {
             "title": "Recorded",
             "type": "boolean"
@@ -273,7 +283,8 @@
           "balance_inr",
           "is_low",
           "recorded",
-          "stops_dialling"
+          "stops_dialling",
+          "lot"
         ],
         "title": "AdjustmentOut",
         "type": "object"
@@ -5074,6 +5085,104 @@
         "title": "CredentialOut",
         "type": "object"
       },
+      "CreditLotOut": {
+        "additionalProperties": false,
+        "description": "ONE LOT, as the admin wallet screen reads it (D-547).\n\nA lot is what one purchase, grant or migration created: credits, and the two per-minute\nrates FROZEN onto them at that instant. It is the object an operator is opening when\nthey credit a wallet, which is why every write below returns the one it touched rather\nthan leaving the console to guess which of five lots moved.\n\n**BOTH VENDOR SPELLINGS AND BOTH CLIENT LABELS.** `sarvam_inr_per_min` names the vendor\nbecause an operator has to connect a rate to the key they installed and the invoice they\nattested; `sarvam_label` is what the client reading their own screen calls it, so a\nsupport call is one vocabulary. Neither is composed in the browser.\n\nMoney and rates are exact decimal STRINGS on the wire for hard rule 7's reason \u2014 a rate\na browser parsed into a float and printed back is a rate nobody can reconcile. They are\ntyped `Decimal` here and serialise as strings through the same JSON encoder every other\nmoney field on this router uses.",
+        "properties": {
+          "cartesia_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cartesia Inr Per Min",
+            "type": "string"
+          },
+          "cartesia_label": {
+            "title": "Cartesia Label",
+            "type": "string"
+          },
+          "closed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Closed At"
+          },
+          "credits_remaining": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Credits Remaining",
+            "type": "string"
+          },
+          "credits_total": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Credits Total",
+            "type": "string"
+          },
+          "lot_id": {
+            "format": "uuid",
+            "title": "Lot Id",
+            "type": "string"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "title": "Opened At",
+            "type": "string"
+          },
+          "override_of_pack_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Override Of Pack Id"
+          },
+          "pack_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pack Id"
+          },
+          "sarvam_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Sarvam Inr Per Min",
+            "type": "string"
+          },
+          "sarvam_label": {
+            "title": "Sarvam Label",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lot_id",
+          "source",
+          "pack_id",
+          "override_of_pack_id",
+          "credits_total",
+          "credits_remaining",
+          "sarvam_inr_per_min",
+          "cartesia_inr_per_min",
+          "sarvam_label",
+          "cartesia_label",
+          "opened_at",
+          "closed_at"
+        ],
+        "title": "CreditLotOut",
+        "type": "object"
+      },
       "CreditPackOut": {
         "additionalProperties": false,
         "description": "One purchasable pack, priced for display. Every rupee value is an exact decimal\nSTRING (hard rule 7) and stays one to the DOM \u2014 nothing here is a JSON number a browser\nwould parse back through a float.\n\nTWO RATES AND TWO TALK TIMES (D-547): what a minute costs depends on the voice the\nAGENT that takes the call speaks with, so a pack quotes both and the client picks per\nagent. Everything is derived server-side from the static catalogue, so the table a\nclient sees and the rates a purchase freezes come from one source and cannot drift.",
@@ -5159,8 +5268,12 @@
       },
       "CreditPacksOut": {
         "additionalProperties": false,
-        "description": "The pack rate card: six packs, each with a Sarvam and a Cartesia \u20b9/min.\n\nThe \"from\" figures are DERIVED MINIMA over the rows below, never typed, so the site\ncannot lead with a rate no pack delivers \u2014 the rule that survives D-547 unchanged.",
+        "description": "The pack rate card: six packs, each with a Sarvam and a Cartesia \u20b9/min.\n\nThe \"from\" figures are DERIVED MINIMA over the rows below, never typed, so the site\ncannot lead with a rate no pack delivers \u2014 the rule that survives D-547 unchanged. The\ntwo tier LABELS obey the same rule for a different kind of value: the name a client\nreads for a voice crosses the wire from `rates.VOICE_TIER_LABELS`, so the marketing\nsite renders a name we chose once rather than a copy that drifts from it.",
         "properties": {
+          "cartesia_tier_label": {
+            "title": "Cartesia Tier Label",
+            "type": "string"
+          },
           "from_cartesia_inr_per_min": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "From Cartesia Inr Per Min",
@@ -5187,6 +5300,10 @@
             },
             "title": "Packs",
             "type": "array"
+          },
+          "sarvam_tier_label": {
+            "title": "Sarvam Tier Label",
+            "type": "string"
           }
         },
         "required": [
@@ -5194,6 +5311,8 @@
           "from_inr_per_min",
           "from_sarvam_inr_per_min",
           "from_cartesia_inr_per_min",
+          "sarvam_tier_label",
+          "cartesia_tier_label",
           "packs"
         ],
         "title": "CreditPacksOut",
@@ -5223,10 +5342,24 @@
             "title": "Is Low",
             "type": "boolean"
           },
+          "lots": {
+            "items": {
+              "$ref": "#/components/schemas/CreditLotOut"
+            },
+            "title": "Lots",
+            "type": "array"
+          },
           "low_balance_threshold_inr": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
             "title": "Low Balance Threshold Inr",
             "type": "string"
+          },
+          "override_packs": {
+            "items": {
+              "$ref": "#/components/schemas/OverridePackOut"
+            },
+            "title": "Override Packs",
+            "type": "array"
           },
           "paid_inr": {
             "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
@@ -5254,6 +5387,8 @@
           "paid_inr",
           "granted_inr",
           "entries",
+          "lots",
+          "override_packs",
           "payments"
         ],
         "title": "CreditsOut",
@@ -13228,10 +13363,18 @@
             },
             "title": "Prices",
             "type": "array"
+          },
+          "tts_prices": {
+            "items": {
+              "$ref": "#/components/schemas/TtsPriceOut"
+            },
+            "title": "Tts Prices",
+            "type": "array"
           }
         },
         "required": [
           "prices",
+          "tts_prices",
           "as_of"
         ],
         "title": "ModelPricesOut",
@@ -13497,6 +13640,10 @@
             "title": "Speaker",
             "type": "string"
           },
+          "tier_label": {
+            "title": "Tier Label",
+            "type": "string"
+          },
           "tts_model": {
             "enum": [
               "bulbul:v3",
@@ -13531,7 +13678,8 @@
           "languages",
           "note",
           "unavailable_reason",
-          "offerable"
+          "offerable",
+          "tier_label"
         ],
         "title": "OfferedVoiceOut",
         "type": "object"
@@ -13769,6 +13917,39 @@
         "title": "OtpRequestIn",
         "type": "object"
       },
+      "OverridePackOut": {
+        "additionalProperties": false,
+        "description": "One pack an operator may sell a purchase at the rates of (Q6).\n\nPublished by the wallet read rather than kept in the console, for the reason every\nother list here is: a pack ladder spelled twice is a ladder that drifts, and the rates\nshown beside each option have to be the ones the write will actually freeze.",
+        "properties": {
+          "amount_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Amount Inr",
+            "type": "string"
+          },
+          "cartesia_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cartesia Inr Per Min",
+            "type": "string"
+          },
+          "pack_id": {
+            "title": "Pack Id",
+            "type": "string"
+          },
+          "sarvam_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Sarvam Inr Per Min",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pack_id",
+          "amount_inr",
+          "sarvam_inr_per_min",
+          "cartesia_inr_per_min"
+        ],
+        "title": "OverridePackOut",
+        "type": "object"
+      },
       "ParamIn": {
         "additionalProperties": false,
         "properties": {
@@ -13836,6 +14017,45 @@
           "source"
         ],
         "title": "ParamIn",
+        "type": "object"
+      },
+      "PasswordChangeIn": {
+        "additionalProperties": false,
+        "description": "The signed-in password change. BOTH passwords, per ASVS 5.0 \u00a76.2.3.\n\n`new_password` is bounded by the same absolute constants as every other password field\nhere \u2014 the SHAPE, not the policy (see `LoginIn`); `authn/policy.py` refuses a short one\nwith the realm's real number in the message. `current_password` is bounded at\n`MIN_PASSWORD_CHARS` too rather than at 1, because a value shorter than the KDF's floor\ncannot be anybody's stored password and refusing it at the boundary costs an Argon2\nverification we would otherwise perform to learn nothing.",
+        "properties": {
+          "current_password": {
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "Current Password",
+            "type": "string"
+          },
+          "new_password": {
+            "maxLength": 128,
+            "minLength": 12,
+            "title": "New Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "PasswordChangeIn",
+        "type": "object"
+      },
+      "PasswordChangeOut": {
+        "additionalProperties": false,
+        "description": "What changed, in numbers the console can put on the screen.\n\n`revoked` is how many OTHER sessions this ended \u2014 the count a person who came here\nbecause they think they were compromised actually wants to see. The caller's own\nsession is not in it: it was rotated, not revoked, and the response carries its new\ncookie.",
+        "properties": {
+          "revoked": {
+            "title": "Revoked",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "revoked"
+        ],
+        "title": "PasswordChangeOut",
         "type": "object"
       },
       "PaymentOut": {
@@ -14127,6 +14347,13 @@
           "voice": {
             "$ref": "#/components/schemas/VoiceStateOut"
           },
+          "voice_tier_rates": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceTierRateOut"
+            },
+            "title": "Voice Tier Rates",
+            "type": "array"
+          },
           "worst_case_call_cost_inr": {
             "anyOf": [
               {
@@ -14151,6 +14378,7 @@
           "worst_case_call_cost_inr",
           "voice",
           "engine_verification",
+          "voice_tier_rates",
           "precedence_rule"
         ],
         "title": "PendingOut",
@@ -15370,6 +15598,102 @@
         "title": "QaSampleOut",
         "type": "object"
       },
+      "RateCardCellOut": {
+        "additionalProperties": false,
+        "description": "One rung on one voice: what we sell it at, what it costs us, and the verdict.\n\nEVERY FIGURE IS A DECIMAL STRING (hard rule 7) and every verdict is the SERVER's. The\nconsole derives no arithmetic \u2014 `gross_margin_pct` is computed here from\n`rates.gross_margin_ratio`, the one definition of the word, so the panel, the write-path\npreview and CI's own pack guard cannot report three margins for one cell.",
+        "properties": {
+          "amount_inr": {
+            "title": "Amount Inr",
+            "type": "string"
+          },
+          "below_floor": {
+            "title": "Below Floor",
+            "type": "boolean"
+          },
+          "below_target": {
+            "title": "Below Target",
+            "type": "boolean"
+          },
+          "cost_floor_inr_per_min": {
+            "title": "Cost Floor Inr Per Min",
+            "type": "string"
+          },
+          "gross_margin_pct": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Margin Pct"
+          },
+          "inr_per_min": {
+            "title": "Inr Per Min",
+            "type": "string"
+          },
+          "pack_id": {
+            "title": "Pack Id",
+            "type": "string"
+          },
+          "tier_label": {
+            "title": "Tier Label",
+            "type": "string"
+          },
+          "voice_tier": {
+            "title": "Voice Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pack_id",
+          "amount_inr",
+          "voice_tier",
+          "tier_label",
+          "inr_per_min",
+          "cost_floor_inr_per_min",
+          "gross_margin_pct",
+          "below_target",
+          "below_floor"
+        ],
+        "title": "RateCardCellOut",
+        "type": "object"
+      },
+      "RateCardOut": {
+        "additionalProperties": false,
+        "properties": {
+          "cells": {
+            "items": {
+              "$ref": "#/components/schemas/RateCardCellOut"
+            },
+            "title": "Cells",
+            "type": "array"
+          },
+          "effective_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "target_gross_margin_pct": {
+            "title": "Target Gross Margin Pct",
+            "type": "string"
+          }
+        },
+        "required": [
+          "effective_from",
+          "target_gross_margin_pct",
+          "cells"
+        ],
+        "title": "RateCardOut",
+        "type": "object"
+      },
       "ReadinessRowOut": {
         "additionalProperties": false,
         "description": "One thing standing in the way, and whose move it is.",
@@ -16285,6 +16609,28 @@
             "title": "Is Low",
             "type": "boolean"
           },
+          "lot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CreditLotOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "lot_shortfall_inr": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lot Shortfall Inr"
+          },
           "payment_ref": {
             "title": "Payment Ref",
             "type": "string"
@@ -16312,7 +16658,9 @@
           "credited_inr",
           "balance_inr",
           "is_low",
-          "recorded"
+          "recorded",
+          "lot",
+          "lot_shortfall_inr"
         ],
         "title": "RestatementOut",
         "type": "object"
@@ -17744,6 +18092,55 @@
           "chunks"
         ],
         "title": "SourceOut",
+        "type": "object"
+      },
+      "SpeakingRateByProviderOut": {
+        "additionalProperties": false,
+        "description": "What the measured speaking rate means for ONE voice vendor (D-547).\n\nThe board's other TTS figures are struck at the SARVAM rate card, which is the only\nprice this product had when they were written. With two vendors that is no longer one\nnumber: the same 450 chars/minute costs what each vendor charges for 450 characters,\nand only one of the two has a price this platform can bill from without an attestation.\n\n`pooled_inr_per_minute` is the SERVER's multiplication \u2014 chars per minute, times the\nrate, over 1,000 \u2014 because a browser multiplying two decimal strings is float\narithmetic on money (hard rule 7), and its answer would be a third figure disagreeing\nwith the meter's.\n`null` when there is no attested rate to multiply by, or no pooled measurement to\nmultiply: two different absences, both reported as no number rather than as a zero.",
+        "properties": {
+          "inr_per_1k_chars": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inr Per 1K Chars"
+          },
+          "pooled_inr_per_minute": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pooled Inr Per Minute"
+          },
+          "price_attested": {
+            "title": "Price Attested",
+            "type": "boolean"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "tier_label": {
+            "title": "Tier Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "tier_label",
+          "price_attested",
+          "inr_per_1k_chars",
+          "pooled_inr_per_minute"
+        ],
+        "title": "SpeakingRateByProviderOut",
         "type": "object"
       },
       "SpeakingRatePointOut": {
@@ -19755,6 +20152,31 @@
         "title": "TestWebhookIn",
         "type": "object"
       },
+      "TierMinutesOut": {
+        "additionalProperties": false,
+        "description": "One voice quality's runway, as the client's own screen reads it.\n\nTHE CLIENT READS `label` AND NEVER `provider`. \"Clear\" and \"Studio\" are the product;\nthe vendor's name is ours and appears on no client surface (`billing/rates\n.voice_tier_label`, which is where the two strings live). `provider` crosses the wire\nbeside it because the browser keys and orders by it and because it is what a support\nconversation about a ledger row is conducted in \u2014 never because a screen should print\nit.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "minutes": {
+            "title": "Minutes",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "label",
+          "minutes"
+        ],
+        "title": "TierMinutesOut",
+        "type": "object"
+      },
       "TierSplitOut": {
         "additionalProperties": false,
         "description": "The margin's cost side, split by the TTS rung each minute was metered on (D-36).\n\nNested inside the margin card rather than mounted as its own route because it answers\na question about THAT card's `cost_inr`: an operator seeing a thin margin needs to\nknow whether the cost is premium voice or the value rung before they can act on it,\nand a second endpoint means a second round trip to learn one number's composition.\n`billing.tier_usage` sums to the same `_tier_totals` the margin does, so the rungs\nadd up to `cost_inr` exactly \u2014 they are a partition of it, not a parallel estimate.\n\n`unattributed` is the honest third bucket: rows a path could not attribute a rung to.\nIt is reported separately because \"we know this ran on the value rung\" and \"we never\nknew\" are different facts, and a bill resolves that ambiguity in the CLIENT's favour\n(`minutes_billable_value` folds it in) while this report must not.\n\nEvery field is required on the wire. A Pydantic default here would generate an\nOPTIONAL TypeScript property and the screen would have to branch on a case the\nserver never emits \u2014 a trap this repo has now been bitten by four times.",
@@ -20191,11 +20613,36 @@
             ],
             "title": "Note"
           },
+          "override_reason": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Override Reason"
+          },
           "payment_ref": {
             "maxLength": 120,
             "minLength": 3,
             "title": "Payment Ref",
             "type": "string"
+          },
+          "rates_of_pack_id": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rates Of Pack Id"
           }
         },
         "required": [
@@ -20341,6 +20788,16 @@
             "title": "Is Low",
             "type": "boolean"
           },
+          "lot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CreditLotOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "payment_ref": {
             "title": "Payment Ref",
             "type": "string"
@@ -20362,7 +20819,8 @@
           "amount_inr",
           "balance_inr",
           "is_low",
-          "recorded"
+          "recorded",
+          "lot"
         ],
         "title": "TopUpOut",
         "type": "object"
@@ -20731,6 +21189,181 @@
         "title": "TrialStatusOut",
         "type": "object"
       },
+      "TtsPriceAttestIn": {
+        "additionalProperties": false,
+        "description": "One voice provider's price, as an operator types it off an invoice.\n\n`ModelPriceAttestIn` with two words changed \u2014 rupees per 1,000 CHARACTERS instead of\ndollars per million TOKENS \u2014 and the same three rules: money as a decimal string,\n`effective_from` optional but timezone-aware when given, evidence required.",
+        "properties": {
+          "effective_from": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "inr_per_1k_chars": {
+            "title": "Inr Per 1K Chars",
+            "type": "string"
+          },
+          "source_note": {
+            "maxLength": 500,
+            "minLength": 3,
+            "title": "Source Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "inr_per_1k_chars",
+          "source_note"
+        ],
+        "title": "TtsPriceAttestIn",
+        "type": "object"
+      },
+      "TtsPriceOut": {
+        "additionalProperties": false,
+        "description": "One VOICE provider's price, as the same panel renders it (D-547).\n\nMONEY IS A STRING END TO END and NO FIELD CARRIES A DEFAULT \u2014 `ModelPriceOut`'s two\nrules, for its two reasons. `null` where nobody has attested, which is a real state the\nconsole renders as \"needs a price\" and is not a zero.\n\nThe field names are the console's own seam\n(`apps/web/src/app/admin/ops/ttsPricing.ts::asTtsPrice`), which validates every one of\nthem and renders a stated absence rather than a default: a `price_billable` this\nresponse failed to send would otherwise read as \"sellable\" on a tier whose every minute\nmeters as free.",
+        "properties": {
+          "attested_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested At"
+          },
+          "attested_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attested By"
+          },
+          "billable_without_attestation_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Billable Without Attestation Reason"
+          },
+          "credential_installed": {
+            "title": "Credential Installed",
+            "type": "boolean"
+          },
+          "effective_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effective From"
+          },
+          "inr_per_1k_chars": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inr Per 1K Chars"
+          },
+          "offerable": {
+            "title": "Offerable",
+            "type": "boolean"
+          },
+          "price_attested": {
+            "title": "Price Attested",
+            "type": "boolean"
+          },
+          "price_billable": {
+            "title": "Price Billable",
+            "type": "boolean"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "reference_inr_per_1k_chars": {
+            "title": "Reference Inr Per 1K Chars",
+            "type": "string"
+          },
+          "source_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Note"
+          },
+          "tier_label": {
+            "title": "Tier Label",
+            "type": "string"
+          },
+          "tts_model": {
+            "title": "Tts Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "tier_label",
+          "tts_model",
+          "credential_installed",
+          "price_attested",
+          "price_billable",
+          "offerable",
+          "billable_without_attestation_reason",
+          "inr_per_1k_chars",
+          "effective_from",
+          "attested_at",
+          "attested_by",
+          "source_note",
+          "reference_inr_per_1k_chars"
+        ],
+        "title": "TtsPriceOut",
+        "type": "object"
+      },
+      "TtsPriceWriteOut": {
+        "additionalProperties": false,
+        "description": "The voice tier as it now stands, plus the instant it was resolved at.",
+        "properties": {
+          "as_of": {
+            "title": "As Of",
+            "type": "string"
+          },
+          "price": {
+            "$ref": "#/components/schemas/TtsPriceOut"
+          }
+        },
+        "required": [
+          "price",
+          "as_of"
+        ],
+        "title": "TtsPriceWriteOut",
+        "type": "object"
+      },
       "TtsSpeakingRateOut": {
         "additionalProperties": false,
         "description": "GET /v1/admin/spend/tts-speaking-rate \u2014 pilot gate 12's number, or the refusal.\n\n`measured` is the field to read first. When it is False the three rate fields are\nnull, `reason` says how many calls there are and how many are needed, and the assumed\nband is the figure still in force. A screen that printed the band as if it were the\nmeasurement \u2014 or printed a placeholder rate \u2014 would be the hard-rule-11 failure the\nthreshold exists to prevent; there is no number here to print in that state.",
@@ -20740,6 +21373,13 @@
           },
           "assumed_low": {
             "$ref": "#/components/schemas/SpeakingRatePointOut"
+          },
+          "by_provider": {
+            "items": {
+              "$ref": "#/components/schemas/SpeakingRateByProviderOut"
+            },
+            "title": "By Provider",
+            "type": "array"
           },
           "calls": {
             "title": "Calls",
@@ -20814,7 +21454,8 @@
           "pooled",
           "assumed_low",
           "assumed_high",
-          "tts_inr_per_10k_chars"
+          "tts_inr_per_10k_chars",
+          "by_provider"
         ],
         "title": "TtsSpeakingRateOut",
         "type": "object"
@@ -21182,6 +21823,18 @@
             "title": "Capped",
             "type": "boolean"
           },
+          "cartesia_charges_inr": {
+            "title": "Cartesia Charges Inr",
+            "type": "string"
+          },
+          "cartesia_label": {
+            "title": "Cartesia Label",
+            "type": "string"
+          },
+          "cartesia_minutes": {
+            "title": "Cartesia Minutes",
+            "type": "string"
+          },
           "credit_balance_inr": {
             "anyOf": [
               {
@@ -21292,6 +21945,18 @@
             "title": "Plan Tier",
             "type": "string"
           },
+          "sarvam_charges_inr": {
+            "title": "Sarvam Charges Inr",
+            "type": "string"
+          },
+          "sarvam_label": {
+            "title": "Sarvam Label",
+            "type": "string"
+          },
+          "sarvam_minutes": {
+            "title": "Sarvam Minutes",
+            "type": "string"
+          },
           "spend_used_inr": {
             "title": "Spend Used Inr",
             "type": "string"
@@ -21328,7 +21993,13 @@
           "plan_tier",
           "credit_balance_inr",
           "trial",
-          "trial_absorbed_inr"
+          "trial_absorbed_inr",
+          "sarvam_minutes",
+          "sarvam_charges_inr",
+          "sarvam_label",
+          "cartesia_minutes",
+          "cartesia_charges_inr",
+          "cartesia_label"
         ],
         "title": "UsagePanelOut",
         "type": "object"
@@ -21689,6 +22360,44 @@
         "title": "VoiceStateOut",
         "type": "object"
       },
+      "VoiceTierRateOut": {
+        "additionalProperties": false,
+        "description": "What ONE voice tier costs this client's NEXT minute, for the voice picker.\n\n**NOT THE CARD'S RATE.** A client who bought a \u20b915,000 pack holds minutes at the rates\nthat pack froze, and a picker quoting today's card would quote a price they do not pay\n(plan \u00a72.1: a lot knows what it was SOLD at). So this is the rate on the OLDEST OPEN\nLOT \u2014 the one the next call is actually drawn from \u2014 and `further_open_lots` says how\nmany purchases sit behind it at rates of their own, which is what stops a single\nfigure being read as the price of the whole wallet.\n\n`inr_per_min` is null when there is no open lot to answer from (an empty or overdrawn\nwallet). It is a real state, not a missing value, and the alternative \u2014 falling back to\nthe card \u2014 would quote a rate the client has not bought.\n\n`label` is the CLIENT-FACING name of the tier and `provider` is the vendor. Both are\npublished because they answer different questions: no client-facing surface names a\nvendor as a product tier (founder, 7 Sep 2026), while `provider` is what a ledger row,\na `meta.lots` split and a vendor invoice are all reconciled on. The label comes from\n`billing/rates.voice_tier_label`, never a literal here and never a second copy in the\nbrowser \u2014 one definition, sent down, for the reason the money figures are.",
+        "properties": {
+          "further_open_lots": {
+            "title": "Further Open Lots",
+            "type": "integer"
+          },
+          "inr_per_min": {
+            "anyOf": [
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Inr Per Min"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "label",
+          "inr_per_min",
+          "further_open_lots"
+        ],
+        "title": "VoiceTierRateOut",
+        "type": "object"
+      },
       "WalletEntryOut": {
         "additionalProperties": false,
         "description": "One line of the wallet, as its owner reads it.\n\nDeliberately NOT `credit_routes.LedgerEntryOut` \u2014 and named apart from it for a\nsecond, mechanical reason: two different schemas under one name make FastAPI emit\nfully-qualified component names for BOTH, which would rename the admin console's\ngenerated type out from under `lib/api/credits.ts`. That one carries `reversible_inr`,\nwhich exists so an OPERATOR can be offered a correction with a ceiling on it. It is\nmeaningless to a client, and publishing it here would invite a screen to render a\ncontrol this realm does not have.",
@@ -21707,6 +22416,16 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "lots": {
+            "items": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            "title": "Lots",
+            "type": "array"
           },
           "occurred_at": {
             "format": "date-time",
@@ -21747,9 +22466,82 @@
           "ref",
           "balance_after_inr",
           "occurred_at",
-          "payment_ref"
+          "payment_ref",
+          "lots"
         ],
         "title": "WalletEntryOut",
+        "type": "object"
+      },
+      "WalletLotOut": {
+        "additionalProperties": false,
+        "description": "One open lot, as the CLIENT reads it: what is left, and what it is priced at.\n\nThe vendor spellings (`sarvam_inr_per_min`) are the FIELD NAMES, which is the rule this\nrepository keeps everywhere \u2014 a wire name, a column and a ledger value stay in the\nvendor's vocabulary because that is what an invoice is reconciled against. What a client\nREADS is `tiers[].label` (\"Clear\", \"Studio\"), which is why the labels travel on the same\npayload rather than being guessed at from these keys.",
+        "properties": {
+          "cartesia_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Cartesia Inr Per Min",
+            "type": "string"
+          },
+          "credits_remaining": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Credits Remaining",
+            "type": "string"
+          },
+          "lot_id": {
+            "format": "uuid",
+            "title": "Lot Id",
+            "type": "string"
+          },
+          "opened_at": {
+            "format": "date-time",
+            "title": "Opened At",
+            "type": "string"
+          },
+          "sarvam_inr_per_min": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Sarvam Inr Per Min",
+            "type": "string"
+          }
+        },
+        "required": [
+          "lot_id",
+          "opened_at",
+          "credits_remaining",
+          "sarvam_inr_per_min",
+          "cartesia_inr_per_min"
+        ],
+        "title": "WalletLotOut",
+        "type": "object"
+      },
+      "WalletLotsOut": {
+        "additionalProperties": false,
+        "description": "The lot queue, oldest first, and what it buys on each quality.",
+        "properties": {
+          "lots": {
+            "items": {
+              "$ref": "#/components/schemas/WalletLotOut"
+            },
+            "title": "Lots",
+            "type": "array"
+          },
+          "overdraft_inr": {
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Overdraft Inr",
+            "type": "string"
+          },
+          "tiers": {
+            "items": {
+              "$ref": "#/components/schemas/WalletTierRunwayOut"
+            },
+            "title": "Tiers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tiers",
+          "lots",
+          "overdraft_inr"
+        ],
+        "title": "WalletLotsOut",
         "type": "object"
       },
       "WalletOut": {
@@ -21781,7 +22573,10 @@
           "minutes_left": {
             "anyOf": [
               {
-                "type": "integer"
+                "items": {
+                  "$ref": "#/components/schemas/TierMinutesOut"
+                },
+                "type": "array"
               },
               {
                 "type": "null"
@@ -21868,6 +22663,38 @@
           "first_at"
         ],
         "title": "WalletPaymentOut",
+        "type": "object"
+      },
+      "WalletTierRunwayOut": {
+        "additionalProperties": false,
+        "description": "One voice quality's runway, on the lot panel's own read.\n\n`minutes_left` is a STRING, unlike `WalletOut.minutes_left`'s integer, and deliberately:\nthis panel prints the server's figure verbatim beside two rates that are also strings,\nand one number in a row of money-shaped strings arriving as a JSON number is the one\nthat gets `Number()`d somewhere downstream. `null` when the lots cannot answer \u2014 a real\nstate (an empty wallet, or a rate this build cannot resolve), never a zero.",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "minutes_left": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Minutes Left"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "label",
+          "minutes_left"
+        ],
+        "title": "WalletTierRunwayOut",
         "type": "object"
       },
       "WalletTrialOut": {
@@ -25298,7 +26125,7 @@
         "x-calevate-permission": "billing:read"
       },
       "post": {
-        "description": "Posting the same payment reference again returns the existing entry and credits nothing. The same reference with a DIFFERENT amount is a conflict, not a second payment.",
+        "description": "Posting the same payment reference again returns the existing entry and credits nothing. The same reference with a DIFFERENT amount is a conflict, not a second payment.\n\nSend `rates_of_pack_id` (with `override_reason`) to open this purchase's credit at ANOTHER pack's per-minute rates \u2014 the founding-client promotion and any negotiated deal. It requires `X-Confirm-Action: override_lot_rates:<pack_id>`, records which pack's terms were borrowed on the lot itself, and is audited under its own action. Rates are frozen when the credit is booked, so this is the only moment they can be set; re-posting the same reference cannot change them.",
         "operationId": "record_topup_v1_admin_tenants__tenant_id__credits_post",
         "parameters": [
           {
@@ -25309,6 +26136,22 @@
               "format": "uuid",
               "title": "Tenant Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
             }
           }
         ],
@@ -29002,6 +29845,44 @@
         ]
       }
     },
+    "/v1/auth/admin/password/change": {
+      "post": {
+        "description": "The self-service change (ASVS 5.0 \u00a76.2.3, \u00a77.4.3). See `service.change_password`.\n\nDEPENDS ON `authed`, NOT `live`: on the admin realm a session that has not answered\nits second factor may do exactly one thing, and changing the account's password is\nnot it \u2014 a password alone must never be able to replace itself, or the second\nfactor is a suggestion.\n\nTHE ADMIN REALM ALSO NEEDS A FRESH SECOND FACTOR, checked here rather than in the\nservice because freshness is a property of the SESSION the router holds and because\n`authn/stepup.STEP_UP_REALM` is admin-only by construction \u2014 the client realm\nstamps no `mfa_verified_at` for the check to read, so a shared check would be\nvacuously true there and would read as protection that is not present. What stands\nin on the client realm is the current password, which is demanded on both.\n\nNO `X-Confirm-Action`, deliberately, and that is not the gap it looks like.\n`core/stepup.StepUp` pairs freshness with an action echo because its subjects are\nOPERATOR actions on OTHER people's tenants, where a screen can be made to send a\nrequest it did not mean to. This route's only possible effect is on the caller's own\ncredential, and it already carries an unguessable value the caller had to type \u2014\ntheir current password \u2014 which no cross-site form can supply. Adding the header\nwould put an ops-console idiom on a consumer password form for no threat it closes.",
+        "operationId": "password_change_v1_auth_admin_password_change_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChangeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordChangeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Change your own password while signed in, ending every other session",
+        "tags": [
+          "auth-admin"
+        ]
+      }
+    },
     "/v1/auth/admin/password/reset/confirm": {
       "post": {
         "operationId": "reset_confirm_v1_auth_admin_password_reset_confirm_post",
@@ -29423,6 +30304,44 @@
           }
         },
         "summary": "Spend one guess against the live one-time code",
+        "tags": [
+          "auth-client"
+        ]
+      }
+    },
+    "/v1/auth/client/password/change": {
+      "post": {
+        "description": "The self-service change (ASVS 5.0 \u00a76.2.3, \u00a77.4.3). See `service.change_password`.\n\nDEPENDS ON `authed`, NOT `live`: on the admin realm a session that has not answered\nits second factor may do exactly one thing, and changing the account's password is\nnot it \u2014 a password alone must never be able to replace itself, or the second\nfactor is a suggestion.\n\nTHE ADMIN REALM ALSO NEEDS A FRESH SECOND FACTOR, checked here rather than in the\nservice because freshness is a property of the SESSION the router holds and because\n`authn/stepup.STEP_UP_REALM` is admin-only by construction \u2014 the client realm\nstamps no `mfa_verified_at` for the check to read, so a shared check would be\nvacuously true there and would read as protection that is not present. What stands\nin on the client realm is the current password, which is demanded on both.\n\nNO `X-Confirm-Action`, deliberately, and that is not the gap it looks like.\n`core/stepup.StepUp` pairs freshness with an action echo because its subjects are\nOPERATOR actions on OTHER people's tenants, where a screen can be made to send a\nrequest it did not mean to. This route's only possible effect is on the caller's own\ncredential, and it already carries an unguessable value the caller had to type \u2014\ntheir current password \u2014 which no cross-site form can supply. Adding the header\nwould put an ops-console idiom on a consumer password form for no threat it closes.",
+        "operationId": "password_change_v1_auth_client_password_change_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PasswordChangeIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PasswordChangeOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Change your own password while signed in, ending every other session",
         "tags": [
           "auth-client"
         ]
@@ -30042,6 +30961,49 @@
           }
         },
         "summary": "The wallet's entries, newest first, with the payments behind them",
+        "tags": [
+          "billing"
+        ],
+        "x-calevate-permission": "wallet:read"
+      }
+    },
+    "/v1/billing/wallet/lots": {
+      "get": {
+        "description": "A wallet is a queue of purchases, not one balance: each carries the per-minute rates it was sold at, for each voice quality, and calls spend the oldest first. `tiers` is what the remaining credit buys on each quality \u2014 summed lot by lot at each lot's own rate, never one balance divided by one list price. `overdraft_inr` is what the wallet owes; the next top-up repays it before opening a lot.",
+        "operationId": "read_wallet_lots_v1_billing_wallet_lots_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WalletLotsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The wallet's open credit lots, oldest first, and the minutes they buy per voice",
         "tags": [
           "billing"
         ],
@@ -35779,7 +36741,7 @@
     },
     "/v1/ops/model-prices": {
       "get": {
-        "description": "Lists every model in the catalogue with its declared leg, the catalogue's own (possibly unverified) reference price, the operator-attested price if one exists, and whether the model is offerable yet \u2014 which needs BOTH its provider credential installed AND a price attested. A model with no attested price is shown as needing one; the reference price is a pre-fill to confirm against a vendor invoice, never the authoritative value.",
+        "description": "Lists every model in the catalogue with its declared leg, the catalogue's own (possibly unverified) reference price, the operator-attested price if one exists, and whether the model is offerable yet \u2014 which needs BOTH its provider credential installed AND a price attested. A model with no attested price is shown as needing one; the reference price is a pre-fill to confirm against a vendor invoice, never the authoritative value. `tts_prices` answers the same three questions for the two VOICE tiers, whose unit is rupees per 1,000 characters rather than dollars per million tokens; a tier with no attested price offers no voices at all.",
         "operationId": "list_model_prices_v1_ops_model_prices_get",
         "responses": {
           "200": {
@@ -35799,7 +36761,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Every model's provider, reference price, attested price and offerability",
+        "summary": "Every model's and every voice tier's reference price, attested price and status",
         "tags": [
           "ops"
         ],
@@ -36077,6 +37039,35 @@
           "ops"
         ],
         "x-calevate-permission": "ops:manage"
+      }
+    },
+    "/v1/ops/rate-card": {
+      "get": {
+        "description": "Twelve cells \u2014 six pack rungs on each of the two voice qualities \u2014 each with the rate a client is sold, the per-minute cost that rate carries, the gross margin the server strikes between them, and two verdicts: below the margin TARGET (a warning; the approved card is deliberately thin on the cheaper voice) and below COST (a refusal; the card cannot be recorded at all). It is a READ. The card is a committed constant in this build, so there is no cell to write here \u2014 changing a rate is a code change that CI scores with these same functions.",
+        "operationId": "read_rate_card_v1_ops_rate_card_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateCardOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "The credit-pack card in force: every rung, both voices, with the server's margin",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
       }
     },
     "/v1/ops/secrets": {
@@ -36360,6 +37351,74 @@
         "x-calevate-permission": "ops:manage"
       }
     },
+    "/v1/ops/tts-prices/{provider}": {
+      "post": {
+        "description": "Records what a voice tier costs THIS account, read off your own vendor invoice, as a NEW effective-dated row \u2014 a correction is a later attestation, never an edit, so a month re-rendered next year resolves the figure its minutes were metered at. Requires `X-Confirm-Action: attest_tts_price:<provider>`. The figure is rupees per 1,000 CHARACTERS as a decimal string, never a float: for a monthly plan it is the committed spend divided by the characters it buys, which is a division only somebody holding the invoice can do. Until it exists, every voice on that tier is refused by the picker, because an unpriced minute is unmetered spend rather than a free one.",
+        "operationId": "attest_voice_price_v1_ops_tts_prices__provider__post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "maxLength": 32,
+              "pattern": "^[a-z][a-z0-9_]*$",
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TtsPriceAttestIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TtsPriceWriteOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Attest one voice provider's TTS price (step-up confirmed, audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "platform:config"
+      }
+    },
     "/v1/organization/llm-defaults": {
       "get": {
         "description": "The language model this account's agents run when the agent itself names none.\n\nResolution is three levels: the agent's own choice, then this account default, then the platform's model. `effective_default` is what an agent that has chosen nothing will run, and each agent reports its own resolved model and which level supplied it.\n\nEach row carries TWO figures and they are different kinds. `client_surcharge_inr_per_minute` is what choosing that model ADDS to this account's bill for every minute it runs \u2014 the plan's own `llm_model_surcharge`, `0` when the plan quotes none and `0` on the model this platform's rates are struck at. `platform_cost_inr_per_minute` is what the language leg costs CALEVATE at list price, per minute of a 5-minute call: the language leg is resent the whole conversation on every turn, so its cost per minute rises with call length and a single figure has to say which length it is for. A client-facing screen shows the surcharge; the supplier cost is an operator's figure.\n\nA row with `is_available: false` cannot be chosen \u2014 this platform has no deployment for it, so choosing it would price one model and run another. `unavailable_reason` says what is missing.",
@@ -36470,7 +37529,7 @@
     },
     "/v1/public/rate-card": {
       "get": {
-        "description": "Unauthenticated and identical for everyone. The list rate (the entry pack's Sarvam rate), the lowest rate any pack delivers on each voice, and the static pack catalogue: amount, credits, both per-minute rates and both talk times. The same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about the caller is read or returned.",
+        "description": "Unauthenticated and identical for everyone. The list rate (the entry pack's Sarvam rate), the lowest rate any pack delivers on each voice, the client-facing name of each voice tier, and the static pack catalogue: amount, credits, both per-minute rates and both talk times. The same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about the caller is read or returned.",
         "operationId": "read_public_rate_card_v1_public_rate_card_get",
         "responses": {
           "200": {

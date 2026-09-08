@@ -1184,6 +1184,8 @@ export interface paths {
         /**
          * Record a client payment onto the wallet — idempotent by the payment reference
          * @description Posting the same payment reference again returns the existing entry and credits nothing. The same reference with a DIFFERENT amount is a conflict, not a second payment.
+         *
+         *     Send `rates_of_pack_id` (with `override_reason`) to open this purchase's credit at ANOTHER pack's per-minute rates — the founding-client promotion and any negotiated deal. It requires `X-Confirm-Action: override_lot_rates:<pack_id>`, records which pack's terms were borrowed on the lot itself, and is audited under its own action. Rates are frozen when the credit is booked, so this is the only moment they can be set; re-posting the same reference cannot change them.
          */
         post: operations["record_topup_v1_admin_tenants__tenant_id__credits_post"];
         delete?: never;
@@ -2692,6 +2694,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/auth/admin/password/change": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change your own password while signed in, ending every other session
+         * @description The self-service change (ASVS 5.0 §6.2.3, §7.4.3). See `service.change_password`.
+         *
+         *     DEPENDS ON `authed`, NOT `live`: on the admin realm a session that has not answered
+         *     its second factor may do exactly one thing, and changing the account's password is
+         *     not it — a password alone must never be able to replace itself, or the second
+         *     factor is a suggestion.
+         *
+         *     THE ADMIN REALM ALSO NEEDS A FRESH SECOND FACTOR, checked here rather than in the
+         *     service because freshness is a property of the SESSION the router holds and because
+         *     `authn/stepup.STEP_UP_REALM` is admin-only by construction — the client realm
+         *     stamps no `mfa_verified_at` for the check to read, so a shared check would be
+         *     vacuously true there and would read as protection that is not present. What stands
+         *     in on the client realm is the current password, which is demanded on both.
+         *
+         *     NO `X-Confirm-Action`, deliberately, and that is not the gap it looks like.
+         *     `core/stepup.StepUp` pairs freshness with an action echo because its subjects are
+         *     OPERATOR actions on OTHER people's tenants, where a screen can be made to send a
+         *     request it did not mean to. This route's only possible effect is on the caller's own
+         *     credential, and it already carries an unguessable value the caller had to type —
+         *     their current password — which no cross-site form can supply. Adding the header
+         *     would put an ops-console idiom on a consumer password form for no threat it closes.
+         */
+        post: operations["password_change_v1_auth_admin_password_change_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/auth/admin/password/reset/confirm": {
         parameters: {
             query?: never;
@@ -2980,6 +3022,46 @@ export interface paths {
         put?: never;
         /** Spend one guess against the live one-time code */
         post: operations["otp_verify_v1_auth_client_otp_verify_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/auth/client/password/change": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change your own password while signed in, ending every other session
+         * @description The self-service change (ASVS 5.0 §6.2.3, §7.4.3). See `service.change_password`.
+         *
+         *     DEPENDS ON `authed`, NOT `live`: on the admin realm a session that has not answered
+         *     its second factor may do exactly one thing, and changing the account's password is
+         *     not it — a password alone must never be able to replace itself, or the second
+         *     factor is a suggestion.
+         *
+         *     THE ADMIN REALM ALSO NEEDS A FRESH SECOND FACTOR, checked here rather than in the
+         *     service because freshness is a property of the SESSION the router holds and because
+         *     `authn/stepup.STEP_UP_REALM` is admin-only by construction — the client realm
+         *     stamps no `mfa_verified_at` for the check to read, so a shared check would be
+         *     vacuously true there and would read as protection that is not present. What stands
+         *     in on the client realm is the current password, which is demanded on both.
+         *
+         *     NO `X-Confirm-Action`, deliberately, and that is not the gap it looks like.
+         *     `core/stepup.StepUp` pairs freshness with an action echo because its subjects are
+         *     OPERATOR actions on OTHER people's tenants, where a screen can be made to send a
+         *     request it did not mean to. This route's only possible effect is on the caller's own
+         *     credential, and it already carries an unguessable value the caller had to type —
+         *     their current password — which no cross-site form can supply. Adding the header
+         *     would put an ops-console idiom on a consumer password form for no threat it closes.
+         */
+        post: operations["password_change_v1_auth_client_password_change_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3299,6 +3381,26 @@ export interface paths {
          * @description Every movement on the wallet — payments, call usage, pack bonuses, operator corrections and refunds — newest first. `payments` carries one line per payment on the page, which is what a receipt is issued against.
          */
         get: operations["read_wallet_ledger_v1_billing_wallet_ledger_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/billing/wallet/lots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The wallet's open credit lots, oldest first, and the minutes they buy per voice
+         * @description A wallet is a queue of purchases, not one balance: each carries the per-minute rates it was sold at, for each voice quality, and calls spend the oldest first. `tiers` is what the remaining credit buys on each quality — summed lot by lot at each lot's own rate, never one balance divided by one list price. `overdraft_inr` is what the wallet owes; the next top-up repays it before opening a lot.
+         */
+        get: operations["read_wallet_lots_v1_billing_wallet_lots_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5741,8 +5843,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Every model's provider, reference price, attested price and offerability
-         * @description Lists every model in the catalogue with its declared leg, the catalogue's own (possibly unverified) reference price, the operator-attested price if one exists, and whether the model is offerable yet — which needs BOTH its provider credential installed AND a price attested. A model with no attested price is shown as needing one; the reference price is a pre-fill to confirm against a vendor invoice, never the authoritative value.
+         * Every model's and every voice tier's reference price, attested price and status
+         * @description Lists every model in the catalogue with its declared leg, the catalogue's own (possibly unverified) reference price, the operator-attested price if one exists, and whether the model is offerable yet — which needs BOTH its provider credential installed AND a price attested. A model with no attested price is shown as needing one; the reference price is a pre-fill to confirm against a vendor invoice, never the authoritative value. `tts_prices` answers the same three questions for the two VOICE tiers, whose unit is rupees per 1,000 characters rather than dollars per million tokens; a tier with no attested price offers no voices at all.
          */
         get: operations["list_model_prices_v1_ops_model_prices_get"];
         put?: never;
@@ -5847,6 +5949,26 @@ export interface paths {
          * @description Calevate's own half of SEC-COMP §3's first bullet. While this is not `active`, NO tenant can launch an outbound campaign, however complete their own Principal Entity registration is. Inbound answering is unaffected.
          */
         post: operations["set_tm_registration_route_v1_ops_platform_tm_registration_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/rate-card": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The credit-pack card in force: every rung, both voices, with the server's margin
+         * @description Twelve cells — six pack rungs on each of the two voice qualities — each with the rate a client is sold, the per-minute cost that rate carries, the gross margin the server strikes between them, and two verdicts: below the margin TARGET (a warning; the approved card is deliberately thin on the cheaper voice) and below COST (a refusal; the card cannot be recorded at all). It is a READ. The card is a committed constant in this build, so there is no cell to write here — changing a rate is a code change that CI scores with these same functions.
+         */
+        get: operations["read_rate_card_v1_ops_rate_card_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5970,6 +6092,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/tts-prices/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attest one voice provider's TTS price (step-up confirmed, audited)
+         * @description Records what a voice tier costs THIS account, read off your own vendor invoice, as a NEW effective-dated row — a correction is a later attestation, never an edit, so a month re-rendered next year resolves the figure its minutes were metered at. Requires `X-Confirm-Action: attest_tts_price:<provider>`. The figure is rupees per 1,000 CHARACTERS as a decimal string, never a float: for a monthly plan it is the committed spend divided by the characters it buys, which is a division only somebody holding the invoice can do. Until it exists, every voice on that tier is refused by the picker, because an unpriced minute is unmetered spend rather than a free one.
+         */
+        post: operations["attest_voice_price_v1_ops_tts_prices__provider__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/organization/llm-defaults": {
         parameters: {
             query?: never;
@@ -6036,7 +6178,7 @@ export interface paths {
         };
         /**
          * The self-serve rate card — list rate and credit packs — for the public site
-         * @description Unauthenticated and identical for everyone. The list rate (the entry pack's Sarvam rate), the lowest rate any pack delivers on each voice, and the static pack catalogue: amount, credits, both per-minute rates and both talk times. The same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about the caller is read or returned.
+         * @description Unauthenticated and identical for everyone. The list rate (the entry pack's Sarvam rate), the lowest rate any pack delivers on each voice, the client-facing name of each voice tier, and the static pack catalogue: amount, credits, both per-minute rates and both talk times. The same builder serves the authenticated `/v1/billing/topups/packs`. Nothing about the caller is read or returned.
          */
         get: operations["read_public_rate_card_v1_public_rate_card_get"];
         put?: never;
@@ -6222,6 +6364,7 @@ export interface components {
             entry_id: string;
             /** Is Low */
             is_low: boolean;
+            lot: components["schemas"]["CreditLotOut"] | null;
             /** Recorded */
             recorded: boolean;
             /** Ref */
@@ -8302,6 +8445,57 @@ export interface components {
             version: number;
         };
         /**
+         * CreditLotOut
+         * @description ONE LOT, as the admin wallet screen reads it (D-547).
+         *
+         *     A lot is what one purchase, grant or migration created: credits, and the two per-minute
+         *     rates FROZEN onto them at that instant. It is the object an operator is opening when
+         *     they credit a wallet, which is why every write below returns the one it touched rather
+         *     than leaving the console to guess which of five lots moved.
+         *
+         *     **BOTH VENDOR SPELLINGS AND BOTH CLIENT LABELS.** `sarvam_inr_per_min` names the vendor
+         *     because an operator has to connect a rate to the key they installed and the invoice they
+         *     attested; `sarvam_label` is what the client reading their own screen calls it, so a
+         *     support call is one vocabulary. Neither is composed in the browser.
+         *
+         *     Money and rates are exact decimal STRINGS on the wire for hard rule 7's reason — a rate
+         *     a browser parsed into a float and printed back is a rate nobody can reconcile. They are
+         *     typed `Decimal` here and serialise as strings through the same JSON encoder every other
+         *     money field on this router uses.
+         */
+        CreditLotOut: {
+            /** Cartesia Inr Per Min */
+            cartesia_inr_per_min: string;
+            /** Cartesia Label */
+            cartesia_label: string;
+            /** Closed At */
+            closed_at: string | null;
+            /** Credits Remaining */
+            credits_remaining: string;
+            /** Credits Total */
+            credits_total: string;
+            /**
+             * Lot Id
+             * Format: uuid
+             */
+            lot_id: string;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /** Override Of Pack Id */
+            override_of_pack_id: string | null;
+            /** Pack Id */
+            pack_id: string | null;
+            /** Sarvam Inr Per Min */
+            sarvam_inr_per_min: string;
+            /** Sarvam Label */
+            sarvam_label: string;
+            /** Source */
+            source: string;
+        };
+        /**
          * CreditPackOut
          * @description One purchasable pack, priced for display. Every rupee value is an exact decimal
          *     STRING (hard rule 7) and stays one to the DOM — nothing here is a JSON number a browser
@@ -8345,9 +8539,14 @@ export interface components {
          * @description The pack rate card: six packs, each with a Sarvam and a Cartesia ₹/min.
          *
          *     The "from" figures are DERIVED MINIMA over the rows below, never typed, so the site
-         *     cannot lead with a rate no pack delivers — the rule that survives D-547 unchanged.
+         *     cannot lead with a rate no pack delivers — the rule that survives D-547 unchanged. The
+         *     two tier LABELS obey the same rule for a different kind of value: the name a client
+         *     reads for a voice crosses the wire from `rates.VOICE_TIER_LABELS`, so the marketing
+         *     site renders a name we chose once rather than a copy that drifts from it.
          */
         CreditPacksOut: {
+            /** Cartesia Tier Label */
+            cartesia_tier_label: string;
             /** From Cartesia Inr Per Min */
             from_cartesia_inr_per_min: string;
             /** From Inr Per Min */
@@ -8358,6 +8557,8 @@ export interface components {
             list_rate_inr_per_min: string;
             /** Packs */
             packs: components["schemas"]["CreditPackOut"][];
+            /** Sarvam Tier Label */
+            sarvam_tier_label: string;
         };
         /** CreditsOut */
         CreditsOut: {
@@ -8369,8 +8570,12 @@ export interface components {
             granted_inr: string;
             /** Is Low */
             is_low: boolean;
+            /** Lots */
+            lots: components["schemas"]["CreditLotOut"][];
             /** Low Balance Threshold Inr */
             low_balance_threshold_inr: string;
+            /** Override Packs */
+            override_packs: components["schemas"]["OverridePackOut"][];
             /** Paid Inr */
             paid_inr: string;
             /** Payments */
@@ -11919,6 +12124,8 @@ export interface components {
             as_of: string;
             /** Prices */
             prices: components["schemas"]["ModelPriceOut"][];
+            /** Tts Prices */
+            tts_prices: components["schemas"]["TtsPriceOut"][];
         };
         /**
          * NationalDndScrubOut
@@ -12076,6 +12283,8 @@ export interface components {
             provider: "sarvam" | "cartesia";
             /** Speaker */
             speaker: string;
+            /** Tier Label */
+            tier_label: string;
             /**
              * Tts Model
              * @enum {string}
@@ -12196,6 +12405,24 @@ export interface components {
              */
             purpose: "email_verify";
         };
+        /**
+         * OverridePackOut
+         * @description One pack an operator may sell a purchase at the rates of (Q6).
+         *
+         *     Published by the wallet read rather than kept in the console, for the reason every
+         *     other list here is: a pack ladder spelled twice is a ladder that drifts, and the rates
+         *     shown beside each option have to be the ones the write will actually freeze.
+         */
+        OverridePackOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Cartesia Inr Per Min */
+            cartesia_inr_per_min: string;
+            /** Pack Id */
+            pack_id: string;
+            /** Sarvam Inr Per Min */
+            sarvam_inr_per_min: string;
+        };
         /** ParamIn */
         ParamIn: {
             /**
@@ -12225,6 +12452,36 @@ export interface components {
             type: "string" | "integer" | "number" | "boolean";
             /** Value */
             value?: string | null;
+        };
+        /**
+         * PasswordChangeIn
+         * @description The signed-in password change. BOTH passwords, per ASVS 5.0 §6.2.3.
+         *
+         *     `new_password` is bounded by the same absolute constants as every other password field
+         *     here — the SHAPE, not the policy (see `LoginIn`); `authn/policy.py` refuses a short one
+         *     with the realm's real number in the message. `current_password` is bounded at
+         *     `MIN_PASSWORD_CHARS` too rather than at 1, because a value shorter than the KDF's floor
+         *     cannot be anybody's stored password and refusing it at the boundary costs an Argon2
+         *     verification we would otherwise perform to learn nothing.
+         */
+        PasswordChangeIn: {
+            /** Current Password */
+            current_password: string;
+            /** New Password */
+            new_password: string;
+        };
+        /**
+         * PasswordChangeOut
+         * @description What changed, in numbers the console can put on the screen.
+         *
+         *     `revoked` is how many OTHER sessions this ended — the count a person who came here
+         *     because they think they were compromised actually wants to see. The caller's own
+         *     session is not in it: it was rotated, not revoked, and the response carries its new
+         *     cookie.
+         */
+        PasswordChangeOut: {
+            /** Revoked */
+            revoked: number;
         };
         /**
          * PaymentOut
@@ -12360,6 +12617,8 @@ export interface components {
             /** Published */
             published: boolean;
             voice: components["schemas"]["VoiceStateOut"];
+            /** Voice Tier Rates */
+            voice_tier_rates: components["schemas"]["VoiceTierRateOut"][];
             /** Worst Case Call Cost Inr */
             worst_case_call_cost_inr: string | null;
         };
@@ -12783,6 +13042,44 @@ export interface components {
             week_start: string;
         };
         /**
+         * RateCardCellOut
+         * @description One rung on one voice: what we sell it at, what it costs us, and the verdict.
+         *
+         *     EVERY FIGURE IS A DECIMAL STRING (hard rule 7) and every verdict is the SERVER's. The
+         *     console derives no arithmetic — `gross_margin_pct` is computed here from
+         *     `rates.gross_margin_ratio`, the one definition of the word, so the panel, the write-path
+         *     preview and CI's own pack guard cannot report three margins for one cell.
+         */
+        RateCardCellOut: {
+            /** Amount Inr */
+            amount_inr: string;
+            /** Below Floor */
+            below_floor: boolean;
+            /** Below Target */
+            below_target: boolean;
+            /** Cost Floor Inr Per Min */
+            cost_floor_inr_per_min: string;
+            /** Gross Margin Pct */
+            gross_margin_pct: string | null;
+            /** Inr Per Min */
+            inr_per_min: string;
+            /** Pack Id */
+            pack_id: string;
+            /** Tier Label */
+            tier_label: string;
+            /** Voice Tier */
+            voice_tier: string;
+        };
+        /** RateCardOut */
+        RateCardOut: {
+            /** Cells */
+            cells: components["schemas"]["RateCardCellOut"][];
+            /** Effective From */
+            effective_from: string | null;
+            /** Target Gross Margin Pct */
+            target_gross_margin_pct: string;
+        };
+        /**
          * ReadinessRowOut
          * @description One thing standing in the way, and whose move it is.
          */
@@ -13172,6 +13469,9 @@ export interface components {
             entry_id: string;
             /** Is Low */
             is_low: boolean;
+            lot: components["schemas"]["CreditLotOut"] | null;
+            /** Lot Shortfall Inr */
+            lot_shortfall_inr: string | null;
             /** Payment Ref */
             payment_ref: string;
             /** Recorded */
@@ -13840,6 +14140,34 @@ export interface components {
             status: string;
             /** Version */
             version: number;
+        };
+        /**
+         * SpeakingRateByProviderOut
+         * @description What the measured speaking rate means for ONE voice vendor (D-547).
+         *
+         *     The board's other TTS figures are struck at the SARVAM rate card, which is the only
+         *     price this product had when they were written. With two vendors that is no longer one
+         *     number: the same 450 chars/minute costs what each vendor charges for 450 characters,
+         *     and only one of the two has a price this platform can bill from without an attestation.
+         *
+         *     `pooled_inr_per_minute` is the SERVER's multiplication — chars per minute, times the
+         *     rate, over 1,000 — because a browser multiplying two decimal strings is float
+         *     arithmetic on money (hard rule 7), and its answer would be a third figure disagreeing
+         *     with the meter's.
+         *     `null` when there is no attested rate to multiply by, or no pooled measurement to
+         *     multiply: two different absences, both reported as no number rather than as a zero.
+         */
+        SpeakingRateByProviderOut: {
+            /** Inr Per 1K Chars */
+            inr_per_1k_chars: string | null;
+            /** Pooled Inr Per Minute */
+            pooled_inr_per_minute: string | null;
+            /** Price Attested */
+            price_attested: boolean;
+            /** Provider */
+            provider: string;
+            /** Tier Label */
+            tier_label: string;
         };
         /**
          * SpeakingRatePointOut
@@ -14657,6 +14985,25 @@ export interface components {
             };
         };
         /**
+         * TierMinutesOut
+         * @description One voice quality's runway, as the client's own screen reads it.
+         *
+         *     THE CLIENT READS `label` AND NEVER `provider`. "Clear" and "Studio" are the product;
+         *     the vendor's name is ours and appears on no client surface (`billing/rates
+         *     .voice_tier_label`, which is where the two strings live). `provider` crosses the wire
+         *     beside it because the browser keys and orders by it and because it is what a support
+         *     conversation about a ledger row is conducted in — never because a screen should print
+         *     it.
+         */
+        TierMinutesOut: {
+            /** Label */
+            label: string;
+            /** Minutes */
+            minutes: number;
+            /** Provider */
+            provider: string;
+        };
+        /**
          * TierSplitOut
          * @description The margin's cost side, split by the TTS rung each minute was metered on (D-36).
          *
@@ -14848,8 +15195,12 @@ export interface components {
             amount_inr: number | string;
             /** Note */
             note?: string | null;
+            /** Override Reason */
+            override_reason?: string | null;
             /** Payment Ref */
             payment_ref: string;
+            /** Rates Of Pack Id */
+            rates_of_pack_id?: string | null;
         };
         /** TopUpIntentIn */
         TopUpIntentIn: {
@@ -14902,6 +15253,7 @@ export interface components {
             entry_id: string;
             /** Is Low */
             is_low: boolean;
+            lot: components["schemas"]["CreditLotOut"] | null;
             /** Payment Ref */
             payment_ref: string;
             /** Recorded */
@@ -15050,6 +15402,75 @@ export interface components {
             trial_id: string;
         };
         /**
+         * TtsPriceAttestIn
+         * @description One voice provider's price, as an operator types it off an invoice.
+         *
+         *     `ModelPriceAttestIn` with two words changed — rupees per 1,000 CHARACTERS instead of
+         *     dollars per million TOKENS — and the same three rules: money as a decimal string,
+         *     `effective_from` optional but timezone-aware when given, evidence required.
+         */
+        TtsPriceAttestIn: {
+            /** Effective From */
+            effective_from?: string | null;
+            /** Inr Per 1K Chars */
+            inr_per_1k_chars: string;
+            /** Source Note */
+            source_note: string;
+        };
+        /**
+         * TtsPriceOut
+         * @description One VOICE provider's price, as the same panel renders it (D-547).
+         *
+         *     MONEY IS A STRING END TO END and NO FIELD CARRIES A DEFAULT — `ModelPriceOut`'s two
+         *     rules, for its two reasons. `null` where nobody has attested, which is a real state the
+         *     console renders as "needs a price" and is not a zero.
+         *
+         *     The field names are the console's own seam
+         *     (`apps/web/src/app/admin/ops/ttsPricing.ts::asTtsPrice`), which validates every one of
+         *     them and renders a stated absence rather than a default: a `price_billable` this
+         *     response failed to send would otherwise read as "sellable" on a tier whose every minute
+         *     meters as free.
+         */
+        TtsPriceOut: {
+            /** Attested At */
+            attested_at: string | null;
+            /** Attested By */
+            attested_by: string | null;
+            /** Billable Without Attestation Reason */
+            billable_without_attestation_reason: string | null;
+            /** Credential Installed */
+            credential_installed: boolean;
+            /** Effective From */
+            effective_from: string | null;
+            /** Inr Per 1K Chars */
+            inr_per_1k_chars: string | null;
+            /** Offerable */
+            offerable: boolean;
+            /** Price Attested */
+            price_attested: boolean;
+            /** Price Billable */
+            price_billable: boolean;
+            /** Provider */
+            provider: string;
+            /** Reference Inr Per 1K Chars */
+            reference_inr_per_1k_chars: string;
+            /** Source Note */
+            source_note: string | null;
+            /** Tier Label */
+            tier_label: string;
+            /** Tts Model */
+            tts_model: string;
+        };
+        /**
+         * TtsPriceWriteOut
+         * @description The voice tier as it now stands, plus the instant it was resolved at.
+         */
+        TtsPriceWriteOut: {
+            /** As Of */
+            as_of: string;
+            price: components["schemas"]["TtsPriceOut"];
+        };
+        /**
          * TtsSpeakingRateOut
          * @description GET /v1/admin/spend/tts-speaking-rate — pilot gate 12's number, or the refusal.
          *
@@ -15062,6 +15483,8 @@ export interface components {
         TtsSpeakingRateOut: {
             assumed_high: components["schemas"]["SpeakingRatePointOut"];
             assumed_low: components["schemas"]["SpeakingRatePointOut"];
+            /** By Provider */
+            by_provider: components["schemas"]["SpeakingRateByProviderOut"][];
             /** Calls */
             calls: number;
             /** Clients */
@@ -15236,6 +15659,12 @@ export interface components {
             cap_minutes: number | null;
             /** Capped */
             capped: boolean;
+            /** Cartesia Charges Inr */
+            cartesia_charges_inr: string;
+            /** Cartesia Label */
+            cartesia_label: string;
+            /** Cartesia Minutes */
+            cartesia_minutes: string;
             /** Credit Balance Inr */
             credit_balance_inr: string | null;
             /** Included Minutes */
@@ -15272,6 +15701,12 @@ export interface components {
             overage_rate_value_inr: string | null;
             /** Plan Tier */
             plan_tier: string;
+            /** Sarvam Charges Inr */
+            sarvam_charges_inr: string;
+            /** Sarvam Label */
+            sarvam_label: string;
+            /** Sarvam Minutes */
+            sarvam_minutes: string;
             /** Spend Used Inr */
             spend_used_inr: string;
             trial: components["schemas"]["UsageTrialOut"];
@@ -15467,6 +15902,38 @@ export interface components {
             republish_required: boolean;
         };
         /**
+         * VoiceTierRateOut
+         * @description What ONE voice tier costs this client's NEXT minute, for the voice picker.
+         *
+         *     **NOT THE CARD'S RATE.** A client who bought a ₹15,000 pack holds minutes at the rates
+         *     that pack froze, and a picker quoting today's card would quote a price they do not pay
+         *     (plan §2.1: a lot knows what it was SOLD at). So this is the rate on the OLDEST OPEN
+         *     LOT — the one the next call is actually drawn from — and `further_open_lots` says how
+         *     many purchases sit behind it at rates of their own, which is what stops a single
+         *     figure being read as the price of the whole wallet.
+         *
+         *     `inr_per_min` is null when there is no open lot to answer from (an empty or overdrawn
+         *     wallet). It is a real state, not a missing value, and the alternative — falling back to
+         *     the card — would quote a rate the client has not bought.
+         *
+         *     `label` is the CLIENT-FACING name of the tier and `provider` is the vendor. Both are
+         *     published because they answer different questions: no client-facing surface names a
+         *     vendor as a product tier (founder, 7 Sep 2026), while `provider` is what a ledger row,
+         *     a `meta.lots` split and a vendor invoice are all reconciled on. The label comes from
+         *     `billing/rates.voice_tier_label`, never a literal here and never a second copy in the
+         *     browser — one definition, sent down, for the reason the money figures are.
+         */
+        VoiceTierRateOut: {
+            /** Further Open Lots */
+            further_open_lots: number;
+            /** Inr Per Min */
+            inr_per_min: string | null;
+            /** Label */
+            label: string;
+            /** Provider */
+            provider: string;
+        };
+        /**
          * WalletEntryOut
          * @description One line of the wallet, as its owner reads it.
          *
@@ -15488,6 +15955,10 @@ export interface components {
              * Format: uuid
              */
             id: string;
+            /** Lots */
+            lots: {
+                [key: string]: string;
+            }[];
             /**
              * Occurred At
              * Format: date-time
@@ -15499,6 +15970,46 @@ export interface components {
             reason: string;
             /** Ref */
             ref: string | null;
+        };
+        /**
+         * WalletLotOut
+         * @description One open lot, as the CLIENT reads it: what is left, and what it is priced at.
+         *
+         *     The vendor spellings (`sarvam_inr_per_min`) are the FIELD NAMES, which is the rule this
+         *     repository keeps everywhere — a wire name, a column and a ledger value stay in the
+         *     vendor's vocabulary because that is what an invoice is reconciled against. What a client
+         *     READS is `tiers[].label` ("Clear", "Studio"), which is why the labels travel on the same
+         *     payload rather than being guessed at from these keys.
+         */
+        WalletLotOut: {
+            /** Cartesia Inr Per Min */
+            cartesia_inr_per_min: string;
+            /** Credits Remaining */
+            credits_remaining: string;
+            /**
+             * Lot Id
+             * Format: uuid
+             */
+            lot_id: string;
+            /**
+             * Opened At
+             * Format: date-time
+             */
+            opened_at: string;
+            /** Sarvam Inr Per Min */
+            sarvam_inr_per_min: string;
+        };
+        /**
+         * WalletLotsOut
+         * @description The lot queue, oldest first, and what it buys on each quality.
+         */
+        WalletLotsOut: {
+            /** Lots */
+            lots: components["schemas"]["WalletLotOut"][];
+            /** Overdraft Inr */
+            overdraft_inr: string;
+            /** Tiers */
+            tiers: components["schemas"]["WalletTierRunwayOut"][];
         };
         /**
          * WalletOut
@@ -15515,7 +16026,7 @@ export interface components {
             /** Low Balance Threshold Inr */
             low_balance_threshold_inr: string;
             /** Minutes Left */
-            minutes_left: number | null;
+            minutes_left: components["schemas"]["TierMinutesOut"][] | null;
             /** Outbound Stopped */
             outbound_stopped: boolean;
             /** Paid Inr */
@@ -15546,6 +16057,24 @@ export interface components {
             first_at: string;
             /** Payment Ref */
             payment_ref: string;
+        };
+        /**
+         * WalletTierRunwayOut
+         * @description One voice quality's runway, on the lot panel's own read.
+         *
+         *     `minutes_left` is a STRING, unlike `WalletOut.minutes_left`'s integer, and deliberately:
+         *     this panel prints the server's figure verbatim beside two rates that are also strings,
+         *     and one number in a row of money-shaped strings arriving as a JSON number is the one
+         *     that gets `Number()`d somewhere downstream. `null` when the lots cannot answer — a real
+         *     state (an empty wallet, or a rate this build cannot resolve), never a zero.
+         */
+        WalletTierRunwayOut: {
+            /** Label */
+            label: string;
+            /** Minutes Left */
+            minutes_left: string | null;
+            /** Provider */
+            provider: string;
         };
         /**
          * WalletTrialOut
@@ -17679,7 +18208,9 @@ export interface operations {
     record_topup_v1_admin_tenants__tenant_id__credits_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
             path: {
                 tenant_id: string;
             };
@@ -20232,6 +20763,39 @@ export interface operations {
             };
         };
     };
+    password_change_v1_auth_admin_password_change_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordChangeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordChangeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     reset_confirm_v1_auth_admin_password_reset_confirm_post: {
         parameters: {
             query?: never;
@@ -20646,6 +21210,39 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    password_change_v1_auth_client_password_change_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordChangeIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordChangeOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {
@@ -21171,6 +21768,37 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["LedgerOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_wallet_lots_v1_billing_wallet_lots_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WalletLotsOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -25431,6 +26059,35 @@ export interface operations {
             };
         };
     };
+    read_rate_card_v1_ops_rate_card_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RateCardOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     list_secrets_v1_ops_secrets_get: {
         parameters: {
             query?: never;
@@ -25612,6 +26269,43 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["SpendCapRecomputeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    attest_voice_price_v1_ops_tts_prices__provider__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TtsPriceAttestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TtsPriceWriteOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

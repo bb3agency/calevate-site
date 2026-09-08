@@ -61,6 +61,7 @@
  */
 
 import { formatPaiseINR } from "@/lib/roi";
+import { MONEY_STRING } from "@/lib/money";
 
 import { apiRequest, type Session } from "./client";
 
@@ -72,20 +73,11 @@ type Schemas = components["schemas"];
  * The card: the entry rate, the lowest rate on each voice, what a client calls each voice,
  * and every pack priced on both.
  *
- * ⚠ **THE INTERSECTION IS A BRIDGE AND IS MEANT TO BECOME REDUNDANT.** `sarvam_tier_label`
- * / `cartesia_tier_label` are on `CreditPacksOut` in `apps/api/billing/payment_routes.py`
- * as of 7 Sep 2026, but `schema.d.ts` is regenerated ONCE across the five lanes landing
- * D-547 rather than per lane, so the generated type does not carry them yet. Writing them
- * here keeps this module honest about the wire in the meantime WITHOUT a type assertion —
- * `as` onto a generated wire type is the exact defect `tests/wireFixtureGuard.test.ts`
- * exists to stop. Once the snapshot is regenerated the intersection is a no-op and should
- * be deleted; nothing breaks either way, which is what makes it safe to leave for one
- * regeneration and wrong to leave for two.
+ * The tier labels ride on `CreditPacksOut` itself: the API names each voice quality
+ * (`billing/rates.VOICE_TIER_LABELS`) and this module passes the name through, so no
+ * browser copy of it can drift from the one the server serves.
  */
-export type PublicRateCard = Schemas["CreditPacksOut"] & {
-  sarvam_tier_label: string;
-  cartesia_tier_label: string;
-};
+export type PublicRateCard = Schemas["CreditPacksOut"];
 /** One pack: amount, credits, a ₹/min and a talk time on each of the two voices. */
 export type RateCardPack = Schemas["CreditPackOut"];
 
@@ -134,9 +126,6 @@ export const PUBLIC_RATE_CARD_PATH = "/v1/public/rate-card";
  * whose value is absent rather than sending an empty one.
  */
 const NOBODY: Session = { orgSlug: "" };
-
-/** A rupee figure as this API spells it: digits, optionally a point and 1–4 digits. */
-const MONEY_STRING = /^\d+(\.\d{1,4})?$/;
 
 /**
  * `"4.6296"` → `46296`, `"5.00"` → `50000`: an exact integer count of ten-thousandths

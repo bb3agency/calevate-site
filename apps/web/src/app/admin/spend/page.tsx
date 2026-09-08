@@ -22,9 +22,9 @@ import {
   useTtsSpeakingRate,
   type FleetTenant,
   type SpeakingRatePoint,
+  type TtsSpeakingRate,
 } from "@/lib/api/spend";
 import {
-  speakingRateByProviderOf,
   ttsPlanSpendOf,
   vendorName,
   type SpeakingRateByProvider,
@@ -479,9 +479,11 @@ function TtsPlanRow({ row }: { row: TtsPlanSpend }) {
  * this strip says what a minute costs on each voice at the price an operator attested, and
  * says plainly when there is no price to apply.
  */
-function SpeakingRateByVendor({ rate }: { rate: unknown }) {
-  const rows = speakingRateByProviderOf(rate);
-  if (rows === null) return null;
+function SpeakingRateByVendor({ rate }: { rate: TtsSpeakingRate }) {
+  // `by_provider` is generated and REQUIRED, so the hand validator that stood in for it is
+  // gone. An empty list is still skipped: a heading over no rows says nothing twice.
+  const rows = rate.by_provider;
+  if (rows.length === 0) return null;
   return (
     <div className="mt-3 border-t border-line pt-3">
       <p className="text-[13px] font-medium text-ink">What that rate costs on each voice</p>

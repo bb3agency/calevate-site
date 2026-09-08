@@ -52,7 +52,6 @@ import type {
   EngineVerification,
 } from "@/lib/api/publishing";
 import {
-  readVoiceTierRates,
   useSetAgentVoice,
   useTenantVoiceCatalogue,
   voiceTierRate,
@@ -1150,12 +1149,13 @@ function VoicePanel({
   const [choice, setChoice] = useState<string | null>(null);
   const state = pending?.voice;
   const selected = choice ?? state?.configured?.voice_id ?? "";
-  // THE RATE IS THIS CLIENT'S, PER TIER, AND IT IS NOT ON THE WIRE YET. `readVoiceTierRates`
-  // takes the pending body it already has and answers `undefined` until the lots API ships
-  // the field (see `lib/api/voices.ts`), at which point this panel prices itself with no
-  // further edit. Never a constant and never the rate card: under D-547 the price of the
-  // next minute is the one frozen on this account's oldest open credit lot.
-  const rates = readVoiceTierRates(pending);
+  // THE RATE IS THIS CLIENT'S, PER TIER, off the pending read this panel already has.
+  // `voice_tier_rates` is generated and REQUIRED (`PendingOut`), so it is read as a field
+  // rather than through the hand validator that stood in while the lots API was in flight.
+  // Never a constant and never the rate card: under D-547 the price of the next minute is
+  // the one frozen on this account's oldest open credit lot. `undefined` here means the
+  // pending read itself has not answered yet.
+  const rates = pending?.voice_tier_rates;
 
   return (
     <Card title="Voice">

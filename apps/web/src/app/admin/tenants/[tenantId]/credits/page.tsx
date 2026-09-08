@@ -55,14 +55,10 @@ import {
 } from "@/lib/api/credits";
 
 import {
-  lotOf,
-  lotRestatementOf,
-  lotsOf,
-  overridePacksOf,
   useApplyLotOverride,
   type CreditLot,
   type OverridePack,
-} from "./lots";
+} from "@/lib/api/creditLots";
 import { useAdminAccess } from "@/app/admin/access";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
@@ -778,7 +774,7 @@ function Outcome({ result }: { result: TopUpResult }) {
       {/* AND THE LOT IT OPENED. A payment is no longer just an amount: it is credit at two
           frozen rates, and those rates are what the client's minutes cost from now until
           this lot is spent. */}
-      <LotReceipt result={result} lead="It opened lot" />
+      <LotReceipt lot={result.lot} lead="It opened lot" />
     </NoticeBox>
   );
 }
@@ -1136,7 +1132,7 @@ function CorrectionOutcome({
                 rates (plan §0 Q4) — so the receipt names it, exactly as a payment's does.
                 One that takes credit away restates the corrected entry's own lot instead,
                 and publishes no new one. */}
-            <LotReceipt result={result} lead="It opened lot" />
+            <LotReceipt lot={result.lot} lead="It opened lot" />
           </>
         ) : (
           <p className="mt-1 text-xs">
@@ -1837,8 +1833,11 @@ function LotsPanel({
   write: { allowed: boolean; reason: string | null };
   clientName: string;
 }) {
-  const lots = lotsOf(wallet);
-  const packs = overridePacksOf(wallet);
+  // Straight off the typed read: `CreditsOut.lots` and `.override_packs` are generated and
+  // REQUIRED, so there is no longer a "this deployment did not send them" shape to detect —
+  // only the two real emptinesses below, which are different facts and are said as such.
+  const lots = wallet.lots;
+  const packs = wallet.override_packs;
 
   return (
     <Card title="Credit lots — what the balance is made of">
@@ -1850,23 +1849,7 @@ function LotsPanel({
         sold, and nothing on this screen except the re-pricing control below can change it.
       </p>
 
-      {lots === null ? (
-        // §52 with money on it: "this deployment does not publish lots yet" and "this
-        // wallet has no lots" are opposite facts, and a table of invented rates is the one
-        // thing that must not appear on a screen an operator prices minutes from.
-        <NoticeBox
-          tone="warn"
-          icon={<CircleHelp aria-hidden className="h-5 w-5" />}
-          title="This deployment did not send the lots behind this balance"
-        >
-          <p className="mt-1 text-xs">
-            The balance above is real; what it is made of was not received, so no rates are
-            shown rather than guessed ones. Every other control on this screen still works —
-            a top-up, a correction and a restatement each say afterwards what they did to the
-            lots.
-          </p>
-        </NoticeBox>
-      ) : lots.length === 0 ? (
+      {lots.length === 0 ? (
         <EmptyState
           title="No open lots"
           hint="Either nothing has been credited yet, or every lot has been spent. A negative balance is overdraft: the next payment repays it before a new lot opens."
@@ -1881,7 +1864,7 @@ function LotsPanel({
         </ul>
       )}
 
-      {lots !== null && lots.length > 0 && (
+      {lots.length > 0 && (
         <OverridePanel
           lots={lots}
           packs={packs}
@@ -1933,8 +1916,8 @@ function OverridePanel({
   write,
   clientName,
 }: {
-  lots: CreditLot[];
-  packs: OverridePack[] | null;
+  lots: readonly CreditLot[];
+  packs: readonly OverridePack[];
   tenantId: string;
   write: { allowed: boolean; reason: string | null };
   clientName: string;
@@ -1942,20 +1925,26 @@ function OverridePanel({
   const [draft, setDraft] = useState<OverrideDraft>(NO_OVERRIDE);
   const apply = useApplyLotOverride(tenantId);
   const chosen = lots.find((lot) => lot.lot_id === draft.lotId) ?? null;
-  const pack = packs?.find((row) => row.pack_id === draft.packId) ?? null;
+  const pack = packs.find((row) => row.pack_id === draft.packId) ?? null;
   const ready =
     chosen !== null &&
     pack !== null &&
     draft.reason.trim().length >= 3 &&
     draft.confirm.trim() === chosen.lot_id;
 
-  if (packs === null) {
+  // KEPT after the collapse, and narrowed from "the field is absent" to "the ladder is
+  // empty". `CreditsOut.override_packs` is required, so a well-behaved server always sends
+  // the ladder and this cannot be reached through one — but the fallback here is to offer
+  // NO CONTROL, which is the safe direction: the alternative would be a pack `<select>`
+  // with nothing in it, and a re-pricing control that cannot show the rates it would freeze
+  // is re-pricing a client's minutes blind.
+  if (packs.length === 0) {
     return (
       <div className="mt-4 border-t border-line pt-4">
         <p className="text-xs text-ink-faint">
           Re-pricing a lot at another pack&apos;s rates is not offered here: this deployment
-          did not send the pack ladder, and a control that let you choose a pack whose rates
-          it could not show you would be re-pricing a client&apos;s minutes blind.
+          sent no pack ladder, and a control that let you choose a pack whose rates it could
+          not show you would be re-pricing a client&apos;s minutes blind.
         </p>
       </div>
     );
@@ -2096,8 +2085,9 @@ function OverridePanel({
  * nothing is claimed, because "we opened a lot at these rates" is exactly the sentence that
  * must not be invented.
  */
-function LotReceipt({ result, lead }: { result: unknown; lead: string }) {
-  const lot = lotOf(result);
+function LotReceipt({ lot, lead }: { lot: CreditLot | null; lead: string }) {
+  // `null` is the WIRE's own answer — a write that restated an existing lot rather than
+  // opening one publishes `lot: null` — so this branch is the contract, not a guard.
   if (lot === null) return null;
   return (
     <p className="mt-2 text-xs">
@@ -2117,10 +2107,10 @@ function LotReceipt({ result, lead }: { result: unknown; lead: string }) {
  * a client's credit; saying it did not, at the moment it did not, is what makes the promise
  * checkable rather than merely true.
  */
-function LotRestatementReceipt({ result }: { result: unknown }) {
-  const restated = lotRestatementOf(result);
-  if (restated === null) return null;
-  const { lot, shortfall_inr } = restated;
+function LotRestatementReceipt({ result }: { result: RestatementResult }) {
+  const lot = result.lot;
+  if (lot === null) return null;
+  const shortfall_inr = result.lot_shortfall_inr;
   return (
     <>
       <p className="mt-2 text-xs">

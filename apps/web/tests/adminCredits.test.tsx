@@ -19,6 +19,8 @@ import {
   type TopUpResult,
 } from "@/lib/api/credits";
 
+import type { CreditLot, OverridePack } from "@/lib/api/creditLots";
+
 import { expectNoA11yViolations } from "./a11y";
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, type Routes } from "./harness";
@@ -106,6 +108,9 @@ function correction(over: Partial<AdjustmentResult> = {}): AdjustmentResult {
     is_low: true,
     recorded: true,
     stops_dialling: false,
+    // A correction that takes credit AWAY restates the corrected entry's own lot and opens
+    // none, so `AdjustmentOut.lot` is null — required on the wire, and null is the answer.
+    lot: null,
     ...over,
   };
 }
@@ -136,6 +141,8 @@ function restatement(over: Partial<RestatementResult> = {}): RestatementResult {
     balance_inr: "50000.00",
     is_low: false,
     recorded: true,
+    lot: null,
+    lot_shortfall_inr: null,
     ...over,
   };
 }
@@ -150,6 +157,10 @@ function credits(over: Partial<Credits> = {}): Credits {
     paid_inr: "2500.00",
     entries: [entry()],
     payments: [payment()],
+    // REQUIRED on `CreditsOut` since D-547, so the default wallet is one with no OPEN lot —
+    // a real state (nothing credited yet, or everything spent), not "the API said nothing".
+    lots: [],
+    override_packs: OVERRIDE_PACKS,
     ...over,
   };
 }
@@ -163,6 +174,7 @@ function result(over: Partial<TopUpResult> = {}): TopUpResult {
     balance_inr: "5000.10",
     is_low: false,
     recorded: true,
+    lot: null,
     ...over,
   };
 }
@@ -977,7 +989,7 @@ describe("restating an under-recorded payment", () => {
 
 const LOT = "0192f0aa-5555-7000-8000-0000000000e1";
 
-function lot(over: Record<string, unknown> = {}) {
+function lot(over: Partial<CreditLot> = {}): CreditLot {
   return {
     lot_id: LOT,
     source: "topup",
@@ -995,7 +1007,7 @@ function lot(over: Record<string, unknown> = {}) {
   };
 }
 
-const OVERRIDE_PACKS = [
+const OVERRIDE_PACKS: OverridePack[] = [
   {
     pack_id: "pro",
     amount_inr: "25000.00",
@@ -1004,8 +1016,8 @@ const OVERRIDE_PACKS = [
   },
 ];
 
-/** The wallet read, with the lot fields the D-547 routes publish. */
-function walletWithLots(over: Record<string, unknown> = {}) {
+/** The wallet read, with a lot on it. `credits()` already carries the two REQUIRED lists. */
+function walletWithLots(over: Partial<Credits> = {}): Credits {
   return { ...credits(), lots: [lot()], override_packs: OVERRIDE_PACKS, ...over };
 }
 
@@ -1022,12 +1034,15 @@ describe("what the balance is made of", () => {
     expect(container.textContent).toContain("never its rates");
   });
 
-  it("says the lots were not sent rather than inventing rates or an empty wallet", async () => {
+  it("says a wallet with no open lot has none, and invents no rates for it", async () => {
+    // REWRITTEN when `CreditsOut.lots` became required. The case this used to cover — an
+    // API that published no lots at all — is no longer expressible: the field is on the
+    // wire and the compiler will not let a fixture omit it. What remains is the real
+    // emptiness, and the assertion that matters is unchanged: no invented ₹0.0000 rate.
     const { container } = await render();
 
-    await screen.findByText("This deployment did not send the lots behind this balance");
+    await screen.findByText("No open lots");
     expect(container.textContent).not.toContain("₹0.0000/min");
-    expect(container.textContent).not.toContain("No open lots");
   });
 
   it("names the lot a payment opened, with the rates frozen onto it", async () => {
@@ -1137,9 +1152,9 @@ describe("selling a lot at another pack's rates", () => {
     expect(button().disabled).toBe(true);
   });
 
-  it("offers no re-pricing at all when the pack ladder was not published", async () => {
+  it("offers no re-pricing at all when the pack ladder is empty", async () => {
     const { container } = await render({
-      [CREDITS_READ]: walletWithLots({ override_packs: undefined }),
+      [CREDITS_READ]: walletWithLots({ override_packs: [] }),
     });
 
     await screen.findByText("Credit lots — what the balance is made of");
