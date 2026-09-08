@@ -51,6 +51,7 @@ from apps.api.billing.attribution import (
     PeriodAttribution,
     period_attribution,
 )
+from apps.api.billing.plans import ist_month_window, month_pricing_instant
 from apps.api.billing.service import to_paise
 from apps.api.core.auth import record_admin_tenant_read, requires
 from apps.api.core.context import Principal
@@ -59,7 +60,14 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
-from apps.api.ops.model_pricing import TTS_PROVIDERS, TtsPriceAttestation, attested_tts_prices
+from apps.api.ops.model_pricing import (
+    PLAN_BILLED_TTS_PROVIDERS,
+    TTS_PROVIDERS,
+    TtsPlanFeeAttestation,
+    TtsPriceAttestation,
+    attested_tts_plan_fees,
+    attested_tts_prices,
+)
 
 log = get_logger(__name__)
 
@@ -98,6 +106,46 @@ _DIRECTORY = (
     "SELECT id, name, slug, plan_tier FROM organizations "
     " WHERE deleted_at IS NULL AND status <> ALL(:ended) ORDER BY name"
 )
+
+#: ONE TENANT's share of the BYOK synthesizer leg for an IST month.
+#:
+#: **`unit_type = 'tts_kchars'` IS THE PROVIDER DISCRIMINATOR, and there is no other.**
+#: `workers/pipeline.py::_tts_cost_row` writes that unit type on the BYOK branch alone; a
+#: Sarvam call's synthesizer cost is the ENGINE's own reported leg figure, on a `tts_chars`
+#: row at `qty = 1` — a whole-leg charge carrying no character count at all. So this sum is
+#: the plan-billed vendors' attributed cost, and `PLAN_BILLED_TTS_PROVIDERS` names them.
+#: `tests/tts_plan_fee_test.py` pins that set at ONE member, because a second plan-billed
+#: vendor could not be told from the first by this query — it would need a discriminator on
+#: the ledger row first, which is a migration and not a `WHERE` clause.
+#:
+#: THREE FIGURES, and the third is the one that keeps the second honest. `unit_cost_paid` is
+#: NULLable, and `SUM` skips a NULL silently: a month holding an unpriced row would report a
+#: smaller attributed total and therefore a LARGER unused allotment, which flatters us. The
+#: count is what lets the difference be withheld instead (`TtsPlanSpendOut.unused_inr`).
+#:
+#: HALF-OPEN on `occurred_at` (`billing/plans.ist_month_window`), never `to_char(... AT TIME
+#: ZONE ...)`: that predicate is STABLE rather than IMMUTABLE and cannot be an index qual,
+#: so it walks a tenant's whole metering history — the measurement is in that function's
+#: own docstring.
+_TTS_ATTRIBUTED_SQL = (
+    "SELECT COALESCE(SUM(qty * unit_cost_paid), 0), COALESCE(SUM(qty), 0), "
+    "count(*) FILTER (WHERE unit_cost_paid IS NULL) "
+    "FROM usage_events WHERE tenant_id = :tid AND unit_type = 'tts_kchars' "
+    "AND occurred_at >= :start AND occurred_at < :next"
+)
+
+#: Characters per unit of `usage_events.qty` on a `tts_kchars` row — the same quantum
+#: `workers/pipeline._CHARS_PER_KCHAR` divides by, spelled here because this is the reader
+#: that multiplies it back. `billing/models.CLIENT_BILLED_UNIT_TYPES` argues why the unit is
+#: a thousand and not one.
+_CHARS_PER_KCHAR = Decimal("1000")
+
+#: A whole character. `qty` is `NUMERIC(14,4)` and the writer stores `characters / 1000`, so
+#: multiplying back is exact for any integer count and this quantize is a FORMATTER rather
+#: than a rounding decision — it turns `12345.0000` into `12345` and nothing else. It is
+#: spelled rather than `.normalize()`d because `normalize` renders `10000.0000` as `1E+4`,
+#: which is a true decimal and an unreadable one.
+_WHOLE_CHAR = Decimal("1")
 
 
 class Strict(BaseModel):
@@ -328,6 +376,67 @@ class FleetTenantOut(Strict):
     margin_pct: str | None
 
 
+class TtsPlanSpendOut(Strict):
+    """ONE voice vendor's month: what the plan cost us, against what our meter attributed.
+
+    THE TWO FIGURES ARE INDEPENDENT MEASUREMENTS AND THE CARD EXISTS TO KEEP THEM APART.
+    `plan_inr` is what the VENDOR billed — a committed monthly spend for a character
+    allotment, paid whether or not the allotment is spoken, read off the invoice by an
+    operator (`ops/model_pricing.TtsPlanFeeAttestation`). `attributed_inr` is what OUR
+    meter charged to calls: the attested per-character rate times the characters our own
+    transcripts say the agents spoke. A board showing only the first could not say which
+    client caused it; one showing only the second under-states what we pay.
+
+    ⚠ **UNKNOWN: whether the vendor's own character count agrees with ours** (OPERATIONS §2
+    gate 51). `chars` is counted from our transcripts and from nothing the vendor says.
+    This card publishes both sides and reconciles neither.
+
+    ⚠ **UNKNOWN: the vendor's OVERAGE rate past the allotment** (plan ADDENDUM 1, unknown
+    #3). `inr_per_1k_chars` prices characters INSIDE the allotment, so a month that ran
+    past it cost more per character than that figure says. `plan_inr` is unaffected — it is
+    what the invoice states, overage included.
+
+    A MONTH NOBODY HAS ATTESTED HAS NO ROW HERE AT ALL. `plan_inr` is required precisely so
+    that absence cannot be spelled as ₹0, which would read as "the vendor billed us
+    nothing" — the one misreading of a missing invoice that flatters us.
+    """
+
+    #: THE VENDOR'S OWN NAME. This is the admin console and the invoice has a vendor on it;
+    #: every client-facing surface gets `tier_label` instead.
+    provider: str
+    #: What a CLIENT calls the same tier — `billing/rates.voice_tier_label`, crossing the
+    #: wire rather than being typed in the browser.
+    tier_label: str
+    #: The IST billing month, `YYYY-MM`.
+    month: str
+    #: What the vendor billed for this month, rupees. Never null: the row exists because an
+    #: operator attested this figure.
+    plan_inr: str
+    #: What this month's calls attributed to this vendor's synthesizer leg, rupees.
+    attributed_inr: str
+    #: `plan_inr - attributed_inr`, the allotment nobody spoke into — THE SERVER's
+    #: subtraction (D-458), because a difference worked out in a browser is float
+    #: arithmetic on money. MAY BE NEGATIVE: a month that attributed more than the plan
+    #: charged is what an overage looks like from our side of the meter, and clamping it at
+    #: zero would hide the one state that matters most.
+    #:
+    #: `null` when the month's attributed total is INCOMPLETE — at least one `tts_kchars`
+    #: row carries no `unit_cost_paid`, so the sum omits real characters and the difference
+    #: would overstate the unused allotment, in the flattering direction. `attributed_inr`
+    #: still reports what WAS attributed, which stays a true statement about those rows.
+    unused_inr: str | None
+    #: Characters this vendor's voices spoke across the fleet this month, from OUR
+    #: transcripts. An exact decimal string like every other figure here, because it is the
+    #: quantity `inr_per_1k_chars` is multiplied by.
+    chars: str
+    #: The attested ₹/1,000 characters those characters were metered at, resolved at the
+    #: month's own pricing instant (`billing/plans.month_pricing_instant`) so a closed month
+    #: reports the rate it was struck at rather than today's. `null` when nothing is
+    #: attested — which is a real state, distinct from a zero, and one in which
+    #: `attributed_inr` is ₹0 because the pipeline writes no cost row it cannot price.
+    inr_per_1k_chars: str | None
+
+
 class FleetSpendOut(Strict):
     """GET /v1/admin/spend — every live client's month, worst margin first.
 
@@ -346,6 +455,12 @@ class FleetSpendOut(Strict):
     margin_inr: str
     margin_pct: str | None
     tenants: list[FleetTenantOut]
+    #: WHAT THE VOICE VENDORS BILLED, beside what this board attributed (D-547 Phase D.3).
+    #: One row per plan-billed vendor with an attested fee for the month, in vendor order;
+    #: an empty list means nobody has attested one, which the console renders as a stated
+    #: absence rather than as ₹0. Bounded by `PLAN_BILLED_TTS_PROVIDERS`, a two-element
+    #: vocabulary's plan-billed subset, so it does not grow with anybody's row count.
+    tts_plan: list[TtsPlanSpendOut]
 
 
 class SpeakingRatePointOut(Strict):
@@ -658,6 +773,78 @@ def _margin_of(period: PeriodAttribution) -> _Margin:
 
 
 @dataclass(frozen=True, slots=True)
+class _TtsAttribution:
+    """The fleet's BYOK synthesizer leg for one month, accumulated across the walk.
+
+    Summed per tenant inside that tenant's own `tenant_session` and added up here, for
+    `FleetSpendOut`'s stated reason: `usage_events` is FORCE RLS'd, an untenanted `SUM`
+    over it returns zero rows and reports success, and reaching for the admin DB role to
+    get a cross-tenant total would break hard rule 1.
+    """
+
+    inr: Decimal
+    #: Characters, already multiplied back out of `qty`'s thousands.
+    chars: Decimal
+    #: How many rows in the window carried no `unit_cost_paid`. Non-zero means `inr` is
+    #: INCOMPLETE — see `_tts_plan_rows`, which withholds the difference rather than
+    #: publishing one that overstates the unused allotment.
+    unpriced_rows: int
+
+    def plus(self, inr: Decimal, chars: Decimal, unpriced_rows: int) -> _TtsAttribution:
+        return _TtsAttribution(
+            inr=self.inr + inr,
+            chars=self.chars + chars,
+            unpriced_rows=self.unpriced_rows + unpriced_rows,
+        )
+
+
+_NO_TTS_ATTRIBUTION = _TtsAttribution(inr=Decimal("0.00"), chars=Decimal(0), unpriced_rows=0)
+
+
+def _tts_plan_rows(
+    *,
+    month: str,
+    fees: Mapping[str, TtsPlanFeeAttestation],
+    prices: Mapping[str, TtsPriceAttestation],
+    attributed: _TtsAttribution,
+) -> list[TtsPlanSpendOut]:
+    """One row per plan-billed vendor that HAS an attested fee for `month`. No others.
+
+    THE ABSENCE IS THE POINT. A vendor with no attestation for this month produces no row,
+    so the console renders a stated absence; a row carrying ₹0 would say the vendor billed
+    us nothing, which is a lie in the direction that flatters us. Sarvam produces no row
+    ever, and not because it is unattested: the engine buys that synthesis and reports what
+    it charged on every call, so there is no monthly invoice of ours to attest and no
+    `tts_kchars` character count of ours to compare one against.
+    """
+    rows: list[TtsPlanSpendOut] = []
+    for provider in sorted(PLAN_BILLED_TTS_PROVIDERS):
+        fee = fees.get(provider)
+        if fee is None:
+            continue
+        price = prices.get(provider)
+        rows.append(
+            TtsPlanSpendOut(
+                provider=provider,
+                tier_label=rates.voice_tier_label(cast("rates.VoiceTier", provider)),
+                month=month,
+                plan_inr=str(to_paise(fee.plan_inr)),
+                attributed_inr=str(to_paise(attributed.inr)),
+                # Withheld, not zeroed, when the sum above is known to have skipped priced
+                # characters — `_TTS_ATTRIBUTED_SQL`'s third figure is exactly this test.
+                unused_inr=(
+                    None
+                    if attributed.unpriced_rows
+                    else str(to_paise(fee.unused_inr(to_paise(attributed.inr))))
+                ),
+                chars=str(attributed.chars.quantize(_WHOLE_CHAR)),
+                inr_per_1k_chars=None if price is None else str(price.inr_per_1k_chars),
+            )
+        )
+    return rows
+
+
+@dataclass(frozen=True, slots=True)
 class _FleetRow:
     """One walked client, before it is stringified."""
 
@@ -696,12 +883,34 @@ async def fleet_spend(
     # and a walk that straddles midnight IST on the 1st would otherwise put some clients
     # in August and the rest in September on one board.
     period = month or billing.current_billing_month()
+    # The voice vendors' side of the month, read ONCE before the walk: both are PLATFORM
+    # tables with no tenancy, and reading them inside the per-tenant loop would be a query
+    # per client for an answer that does not vary by client (`fleet_tts_speaking_rate`
+    # makes the same trade for the same reason).
+    #
+    # TWO DIFFERENT INSTANTS, deliberately. The FEE resolves at NOW, because an invoice
+    # arrives after its month has closed and resolving it at the month's own last instant
+    # would make every attestation about a closed month invisible. The PRICE resolves at
+    # the month's own pricing instant, because that is when the characters were metered —
+    # a closed month must report the rate it was struck at, not today's.
+    window_start, window_next = ist_month_window(period)
+    fees = await attested_tts_plan_fees(directory, month=period, at=datetime.now(UTC))
+    tts_prices = await attested_tts_prices(directory, at=month_pricing_instant(period))
 
     walked: list[_FleetRow] = []
+    attributed = _NO_TTS_ATTRIBUTION
     for org in rows:
         tenant_id = UUID(str(org[0]))
         async with tenant_session(tenant_id) as scoped:
             margin = await billing.margin_for_tenant(scoped, tenant_id=tenant_id, month=period)
+            # Inside the client's own scope, like every other rupee on this board.
+            tts = (
+                await scoped.execute(
+                    text(_TTS_ATTRIBUTED_SQL),
+                    {"tid": tenant_id, "start": window_start, "next": window_next},
+                )
+            ).one()
+        attributed = attributed.plus(_dec(tts[0]), _dec(tts[1]) * _CHARS_PER_KCHAR, int(tts[2]))
         walked.append(
             _FleetRow(
                 tenant_id=tenant_id,
@@ -757,6 +966,7 @@ async def fleet_spend(
             # opened this page for. Ties by name so the order is stable between renders.
             for r in sorted(walked, key=lambda r: (_dec(r.margin["margin_inr"]), r.name))
         ],
+        tts_plan=_tts_plan_rows(month=period, fees=fees, prices=tts_prices, attributed=attributed),
     )
 
 

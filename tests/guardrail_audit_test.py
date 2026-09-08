@@ -505,6 +505,13 @@ class TestRlsCoverage:
             # engine and is billed by the vendor as a monthly plan, so the only figure
             # that may reach `unit_cost_paid` is one a human read off an invoice.
             "platform_tts_prices",
+            # D-547 Phase D.3: the same operator, the same invoice, one question along —
+            # what that vendor BILLED for a whole IST month, against what our own meter
+            # attributed to calls. Platform-global for `platform_tts_prices`' reason (one
+            # vendor account for the deployment, one fee per month) and never an input to
+            # `unit_cost_paid`: it is published beside the metered total, and their
+            # difference is the allotment nobody spoke into.
+            "platform_tts_plan_fees",
             # D-492: the self-serve list price per calling minute, effective-dated so a
             # CLOSED month renders at the rate it was struck at rather than at today's.
             # Platform-global for `platform_model_prices`' reason on the other side of the

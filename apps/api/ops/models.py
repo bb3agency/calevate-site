@@ -328,6 +328,64 @@ class PlatformTtsPrice(Base):
     source_note: Mapped[str] = mapped_column(Text, nullable=False)
 
 
+#: RUPEES for ONE MONTH of a voice vendor's plan, as the invoice states it. NUMERIC(12,2)
+#: and NOT `INR_PER_KCHAR`'s six decimals: this figure is not a division, it is the amount
+#: on the bill, and an invoice is quoted to the paisa. Never a float (hard rule 7).
+PLAN_FEE_INR = Numeric(12, 2)
+
+
+class PlatformTtsPlanFee(Base):
+    """What a voice vendor BILLED US for one IST month, attested by an operator (D-547).
+
+    `PlatformTtsPrice` next door answers "what does one CHARACTER cost" — the figure a
+    usage row multiplies. It cannot answer this one, and the gap between them is the point
+    of the table. A Cartesia plan is a COMMITTED monthly spend for a character allotment:
+    the fee is paid whether or not the allotment is spoken, so the plan spend and the sum
+    our own meter attributed to calls are two different numbers, and their difference is
+    the unused allotment. That difference is the only figure that says whether the plan is
+    the right size, and until this table existed nothing in this tree recorded the half of
+    it that comes from the invoice.
+
+    ⚠ **IT IS NOT AN INPUT TO `unit_cost_paid` AND MUST NEVER BECOME ONE.** A call's cost
+    is the attested PER-CHARACTER rate times the characters it spoke (`PlatformTtsPrice`);
+    dividing this fee by a month's characters after the fact would re-price a month whose
+    rows are already written, on an append-only ledger. It is published beside the metered
+    total, never folded into it.
+
+    ⚠ **UNKNOWN: whether the vendor's own character count agrees with ours**
+    (OPERATIONS §2 gate 51). `usage_events.qty` on a `tts_kchars` row comes from OUR
+    transcript and from nothing the vendor says. This row is the vendor's side of the
+    story and the meter is ours; the spend board publishes both and reconciles neither.
+
+    Append-only, effective-dated per MONTH, platform-scoped — `PlatformTtsPrice`'s three
+    properties for its three reasons, with `effective_from` beside `month` in the key so a
+    CORRECTION is a later attestation for the same month rather than an edit.
+    """
+
+    __tablename__ = "platform_tts_plan_fees"
+
+    #: The voice provider in OUR vocabulary — text, not an enum, for
+    #: `PlatformTtsPrice.provider`'s reason.
+    provider: Mapped[str] = mapped_column(Text, primary_key=True)
+    #: The IST billing month the invoice covers, `YYYY-MM` — the same string
+    #: `billing/plans.ist_billing_month` produces and every billing surface names. A CHECK
+    #: pins the shape, because a row spelled `2026-9` would never match and would read as
+    #: "nobody attested September".
+    month: Mapped[str] = mapped_column(Text, primary_key=True)
+    #: The instant this attestation becomes authoritative for that month.
+    effective_from: Mapped[datetime] = mapped_column(primary_key=True)
+    #: The whole month's fee in rupees. See `PLAN_FEE_INR`.
+    plan_inr: Mapped[Decimal] = mapped_column(PLAN_FEE_INR, nullable=False)
+    #: The operator who attested it — every figure here was typed by a person, so NOT NULL.
+    attested_by: Mapped[uuid.UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("admin_users.id"), nullable=False
+    )
+    attested_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    #: WHERE the figure came from — "Cartesia Startup plan, invoice INV-2026-09-014". It is
+    #: the evidence that makes this an attestation rather than a guess, so NOT NULL.
+    source_note: Mapped[str] = mapped_column(Text, nullable=False)
+
+
 #: INR per ONE US dollar, as the source publishes it. NUMERIC(12,6), never a float
 #: (hard rule 7). Six decimals because a reference rate is quoted to four (`88.4275`) and
 #: two spare digits cost nothing, while a `float` would make the stored number differ from

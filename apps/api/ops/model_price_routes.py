@@ -51,6 +51,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.voice_offer import cartesia_credential_installed, default_tts_price_is_billable
 from apps.api.agents.voices import CARTESIA_TTS_MODEL, DEFAULT_TTS_MODEL
+from apps.api.billing.plans import parse_billing_month
 from apps.api.billing.rates import VoiceTier, voice_tier_label
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
@@ -64,13 +65,16 @@ from apps.api.ops.model_pricing import (
     TTS_PROVIDERS,
     AttestedModelPrice,
     ModelOfferability,
+    TtsPlanFeeAttestation,
     TtsPriceAttestation,
     attest_price,
+    attest_tts_plan_fee,
     attest_tts_price,
     attested_model_prices,
     attested_tts_prices,
     model_offerability,
     reference_price,
+    reference_tts_plan_fee,
     reference_tts_price,
     tts_price_is_billable,
 )
@@ -123,6 +127,23 @@ def tts_attest_confirmation(provider: str) -> str:
     return f"attest_tts_price:{provider}"
 
 
+#: The widest a MONTHLY PLAN FEE can be and still fit `NUMERIC(12,2)`: ten integer digits.
+#: A voice-synthesis plan at or above ₹10,000,000,000 a month is not a figure this API
+#: should try to store, and the column could not hold it anyway.
+_MAX_PLAN_FEE = Decimal("10000000000")
+
+
+def tts_plan_fee_confirmation(provider: str, month: str) -> str:
+    """The step-up string for attesting ONE vendor's fee for ONE month.
+
+    Bound to BOTH, where its two neighbours are bound to one thing each, and the second
+    binding is the one that matters: a header captured while attesting September's invoice
+    must not be replayable to restate October's. A named function with a test pinning the
+    literal, because it is an ops procedure a runbook prints.
+    """
+    return f"attest_tts_plan_fee:{provider}:{month}"
+
+
 def attest_confirmation(model: str) -> str:
     """The step-up string for attesting ONE model's price.
 
@@ -133,14 +154,28 @@ def attest_confirmation(model: str) -> str:
     return f"attest_model_price:{model}"
 
 
-def _money(field_name: str, raw: str, *, unit: str = "USD per million tokens") -> Decimal:
+def _money(
+    field_name: str,
+    raw: str,
+    *,
+    unit: str = "USD per million tokens",
+    maximum: Decimal = _MAX_PRICE,
+    decimals: int = 6,
+) -> Decimal:
     """A money string to a `Decimal`, or a boundary refusal. Never `float(...)`.
 
-    `unit` names what the figure IS in every message, because the two callers price two
-    different things — dollars per million tokens, rupees per thousand characters — and an
-    operator told "must be greater than zero" about the wrong quantity will re-enter the
-    wrong number. The BOUNDS are shared and that is not a coincidence: both columns are
-    `NUMERIC(12,6)`, so six integer digits and six decimals is a fact about the store.
+    `unit` names what the figure IS in every message, because the callers price different
+    things — dollars per million tokens, rupees per thousand characters, rupees for a whole
+    month — and an operator told "must be greater than zero" about the wrong quantity will
+    re-enter the wrong number.
+
+    `maximum` and `decimals` DEFAULT to the two price columns' shape, which is not a
+    coincidence: both are `NUMERIC(12,6)`, so six integer digits and six decimals is a fact
+    about that store. They are parameters because the PLAN FEE is `NUMERIC(12,2)` — an
+    invoice is quoted to the paisa, there is nothing to divide — and accepting six decimals
+    there would let Postgres silently ROUND a figure an operator typed off a bill. A
+    refusal that names the field is the only honest answer to a value the column cannot
+    hold exactly.
 
     Hard rule 7 does not stop at the database: the value arrives as a STRING and becomes a
     `Decimal` directly, so it never passes through a binary float. A non-numeric value, a
@@ -159,15 +194,15 @@ def _money(field_name: str, raw: str, *, unit: str = "USD per million tokens") -
         # .LlmPriceAttestation` refuses it for the same reason, and the two must agree or an
         # accepted zero would crash the snapshot that feeds billing.
         raise ValueError(f"{field_name} must be greater than zero (a zero bills nothing)")
-    if value >= _MAX_PRICE:
-        raise ValueError(f"{field_name} is implausibly large for a price in {unit}")
+    if value >= maximum:
+        raise ValueError(f"{field_name} is implausibly large for a figure in {unit}")
     # `exponent` is `int` for a finite Decimal (guarded above) but typed as
     # `int | Literal['n','N','F']` for the NaN/Inf cases — `isinstance` narrows it for the
     # type checker and is a no-op at runtime here.
     exponent = value.as_tuple().exponent
-    if isinstance(exponent, int) and -exponent > 6:
+    if isinstance(exponent, int) and -exponent > decimals:
         raise ValueError(
-            f"{field_name} has more than six decimal places, which this store cannot hold"
+            f"{field_name} has more than {decimals} decimal places, which this store cannot hold"
         )
     return value
 
@@ -382,6 +417,109 @@ class TtsPriceWriteOut(BaseModel):
 
     price: TtsPriceOut
     as_of: str
+
+
+class TtsPlanFeeAttestIn(BaseModel):
+    """What a voice vendor BILLED US for one month, as an operator types it off the invoice.
+
+    `TtsPriceAttestIn`'s three rules — money as a decimal string, `effective_from` optional
+    but timezone-aware when given, evidence required — with the subject changed. THE FIGURE
+    IS THE WHOLE MONTH, not a rate: the division by the allotment is the OTHER
+    attestation's, and asking for it twice is how the two come to disagree.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The IST billing month the invoice covers, `YYYY-MM`. Validated by
+    #: `billing/plans.parse_billing_month` at the handler — the one parser this product has
+    #: for a billing month, so the panel and the spend board cannot come to disagree about
+    #: what `2026-9` means.
+    month: str = Field(max_length=7)
+    #: RUPEES FOR THE WHOLE MONTH, as a decimal STRING, never a JSON number (hard rule 7).
+    #: The column is `NUMERIC(12,2)` — an invoice is quoted to the paisa — so a third
+    #: decimal is refused rather than silently rounded.
+    plan_inr: str
+    #: When this attestation becomes authoritative. Omit for "from now on"; supply an
+    #: earlier instant to correct the record as of a past moment. MUST be timezone-aware.
+    #: It is NOT the month: a September invoice is normally attested in October, and
+    #: resolving the fee at September's own last instant would make it invisible.
+    effective_from: datetime | None = None
+    #: WHICH PLAN AND WHICH INVOICE — "Cartesia Startup plan, invoice INV-2026-09-014,
+    #: ₹4,312". It is the evidence that makes this an attestation rather than a guess, the
+    #: only thing that lets a reader a year later re-check the figure rather than re-make
+    #: it, and the reason recorded in `audit_log`.
+    source_note: str = Field(min_length=3, max_length=500)
+
+    @field_validator("source_note")
+    @classmethod
+    def _not_whitespace(cls, value: str) -> str:
+        stripped = value.strip()
+        if len(stripped) < 3:
+            raise ValueError("name the plan and the invoice this figure came off")
+        return stripped
+
+    @field_validator("effective_from")
+    @classmethod
+    def _tz_aware(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            raise ValueError(
+                "effective_from must carry a timezone (send an ISO instant with an offset)"
+            )
+        return value
+
+
+class TtsPlanFeeOut(BaseModel):
+    """One attested monthly plan fee, as the panel renders it back.
+
+    MONEY IS A STRING END TO END and NO FIELD CARRIES A DEFAULT — `ModelPriceOut`'s two
+    rules for its two reasons. What this row does NOT carry is what the month ATTRIBUTED:
+    that is a cross-tenant sum of `usage_events` and it belongs to the spend board
+    (`GET /v1/admin/spend`'s `tts_plan`), which reads every client's rows inside that
+    client's own RLS scope. Publishing it from here would mean a second computation of one
+    figure, and the two would come to disagree about a month.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: THE VENDOR'S OWN NAME — this is the surface where an operator reconciles an invoice.
+    provider: str
+    #: What a CLIENT calls the same tier, served rather than typed in the browser.
+    tier_label: str
+    month: str
+    plan_inr: str
+    effective_from: str
+    attested_at: str
+    attested_by: str
+    source_note: str
+    #: THIS TREE'S OWN monthly figure, pre-filled into the form GREYED and labelled
+    #: "confirm against your vendor invoice". Never authoritative: hard rule 7 gives a
+    #: catalogue figure no path to a cost we report as paid, and this one is $49 at a
+    #: relayed conversion for a plan nobody has yet bought
+    #: (`ops/model_pricing.reference_tts_plan_fee`).
+    reference_plan_inr: str
+
+
+class TtsPlanFeeWriteOut(BaseModel):
+    """The fee as it now stands, plus the instant the write was made at."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    plan_fee: TtsPlanFeeOut
+    as_of: str
+
+
+def _plan_fee_row(attested: TtsPlanFeeAttestation) -> TtsPlanFeeOut:
+    return TtsPlanFeeOut(
+        provider=attested.provider,
+        tier_label=voice_tier_label(cast("VoiceTier", attested.provider)),
+        month=attested.month,
+        plan_inr=str(attested.plan_inr),
+        effective_from=attested.effective_from.isoformat(),
+        attested_at=attested.attested_at.isoformat(),
+        attested_by=attested.attested_by,
+        source_note=attested.source_note,
+        reference_plan_inr=str(reference_tts_plan_fee(attested.provider)),
+    )
 
 
 def _row(
@@ -721,10 +859,116 @@ async def attest_voice_price(
     )
 
 
+@tts_router.post(
+    "/{provider}/plan-fee",
+    response_model=TtsPlanFeeWriteOut,
+    openapi_extra=permission_meta("platform:config"),
+    summary="Attest what a voice vendor billed for one month (step-up confirmed, audited)",
+    description=(
+        "Records the MONTHLY PLAN FEE a voice vendor invoiced this account, read off that "
+        "invoice, as a NEW dated row for one IST billing month — a correction is a later "
+        "attestation for the same month, never an edit, so the record of what we believed "
+        "we were billed survives the correction that superseded it. Requires "
+        "`X-Confirm-Action: attest_tts_plan_fee:<provider>:<month>`, bound to both so a "
+        "header captured for one month cannot restate another. The figure is rupees for "
+        "the whole month as a decimal string, quoted to the paisa. It is NOT the "
+        "per-character price beside it and is never an input to what a call is metered at: "
+        "it is published on the spend board against what our own meter attributed, and "
+        "their difference is the allotment nobody spoke into. Only vendors billed as a "
+        "monthly plan can be attested — a vendor whose synthesizer leg the engine buys and "
+        "reports on every call has no invoice of ours to divide."
+    ),
+)
+async def attest_voice_plan_fee(
+    payload: TtsPlanFeeAttestIn,
+    session: GlobalSession,
+    request: Request,
+    principal: PriceOperator,
+    provider: TtsProviderId,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
+) -> TtsPlanFeeWriteOut:
+    """One attestation in, one audit row, in the same transaction — `attest_voice_price`.
+
+    NO `refresh_pricing_snapshot` HERE, and the omission is deliberate rather than an
+    oversight: that snapshot feeds the VOICE PICKER and the billing seam, and a plan fee
+    reaches neither. It is read by the spend board, which queries the table on every
+    render. A background refresh for a figure nothing cached would be a task that looks
+    like wiring and does nothing.
+    """
+    # The one parser this product has for a billing month, BEFORE the step-up string is
+    # built from it: a header confirming `2026-9` must not be accepted for a month that
+    # spelling could never have named.
+    parse_billing_month(payload.month)
+    step_up.require(x_confirm_action, tts_plan_fee_confirmation(provider, payload.month))
+    if principal.user_id is None:
+        # `attested_by` is NOT NULL and references `admin_users`: every figure here was
+        # typed by a person. Refusing explicitly turns an impossible state into a sentence
+        # rather than an integrity error rendered as a 500.
+        raise ProblemError(
+            kind="auth",
+            code="tts_plan_fee_actor_unknown",
+            title="This session has no admin identity",
+            detail="A plan-fee attestation has to be attributable to an operator.",
+        )
+    try:
+        fee = _money(
+            "plan_inr",
+            payload.plan_inr,
+            unit="rupees for the whole month",
+            maximum=_MAX_PLAN_FEE,
+            decimals=2,
+        )
+    except ValueError as exc:
+        raise ProblemError(
+            kind="validation",
+            code="tts_plan_fee_invalid",
+            title="That is not a valid plan fee",
+            detail=str(exc),
+            remediation=(
+                'Send the invoice total in rupees as a decimal string, e.g. "4312.00" — '
+                "the whole month, to the paisa, not a per-character rate."
+            ),
+        ) from None
+
+    attested = await attest_tts_plan_fee(
+        session,
+        provider=provider,
+        month=payload.month,
+        plan_inr=fee,
+        effective_from=payload.effective_from or datetime.now(UTC),
+        source_note=payload.source_note,
+        actor_id=principal.user_id,
+    )
+    await write_audit(
+        session,
+        action="platform.tts_plan_fee_attested",
+        actor=principal,
+        object_type="platform_tts_plan_fees",
+        # The vendor AND the month: an audit row naming only the vendor could not tell two
+        # months' attestations apart, which is the whole subject of this table.
+        object_id=f"{provider}:{payload.month}",
+        ip=client_request_ip(request),
+        # The change itself: the vendor, the month, the figure, the instant it takes effect
+        # and the operator's stated evidence. No secret, no PII.
+        summary={
+            "provider": provider,
+            "month": attested.month,
+            "plan_inr": str(attested.plan_inr),
+            "effective_from": attested.effective_from.isoformat(),
+            "source_note": attested.source_note,
+        },
+    )
+    return TtsPlanFeeWriteOut(plan_fee=_plan_fee_row(attested), as_of=datetime.now(UTC).isoformat())
+
+
 __all__ = [
     "BILLABLE_WITHOUT_ATTESTATION_REASON",
     "attest_confirmation",
     "router",
     "tts_attest_confirmation",
+    "tts_plan_fee_confirmation",
     "tts_router",
 ]

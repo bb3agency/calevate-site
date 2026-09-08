@@ -249,6 +249,12 @@ _APPEND_ONLY_PROBE_SET = {
     # probe that could fail on the constraint instead of on the trigger would report a
     # protected ledger as protected for the wrong reason (`fx_rate_observations`' own note).
     "platform_tts_prices": "source_note = source_note || 'x'",
+    # D-547 Phase D.3: not tenant-scoped either, for `platform_model_prices`' reason.
+    # `source_note` rather than `plan_inr`, which carries
+    # `ck_platform_tts_plan_fees_positive`, or `month`, which carries the month-shape CHECK
+    # — a probe that could fail on a constraint instead of on the trigger would report a
+    # protected ledger as protected for the wrong reason (`fx_rate_observations`' own note).
+    "platform_tts_plan_fees": "source_note = source_note || 'x'",
     # D-499: platform-scoped for `platform_model_prices`' reason — the payer is Calevate,
     # so there is no tenant whose row this could be and no `tenant_id` to mutate. `ref` is
     # the safe target: `qty`/`unit_cost_paid` carry non-negative CHECKs and `ref` carries
@@ -758,6 +764,14 @@ class RestoreDrill:
             # and is a FIXTURE, never read as a real plan rate.
             "INSERT INTO platform_tts_prices (provider, effective_from, inr_per_1k_chars, "
             "attested_by, source_note) VALUES ('cartesia', now(), 3.4496, "
+            f"'{ADMIN_ID}', 'restore-drill fixture')",
+            # D-547 Phase D.3: one attested monthly plan fee, for `platform_model_prices`'
+            # reason — a FOR EACH ROW trigger cannot fire on an empty table. The month is a
+            # literal of the shape `ck_platform_tts_plan_fees_month_shape` requires and the
+            # fee is >0 for the positive CHECK; both are FIXTURES, never read as a real
+            # invoice, and the note says so.
+            "INSERT INTO platform_tts_plan_fees (provider, month, effective_from, plan_inr, "
+            "attested_by, source_note) VALUES ('cartesia', '2026-01', now(), 4312.00, "
             f"'{ADMIN_ID}', 'restore-drill fixture')",
             # D-477: one attestation, for `platform_model_prices`' reason — a FOR EACH ROW
             # trigger cannot fire on an empty table. `attested_by` is the ADMIN_ID seeded

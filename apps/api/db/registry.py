@@ -435,14 +435,33 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "vendor as a monthly plan, so the only figure that can reach `unit_cost_paid` is "
         "one a human read off an invoice (hard rule 7). `ops/model_pricing.attest_tts_price` "
         "is the only writer and it REQUIRES its caller to be step-up confirmed and to write "
-        "the audit row on the same session — the same contract `attest_price` carries. ⚠ THE "
-        "OPS ROUTE THAT CALLS IT IS NOT BUILT YET (`ops/config_routes.py` is another lane's "
-        "file, D-547 Phase D handoff), so today the only callers are tests; the row is "
-        "unreachable from any realm until that panel lands. Holds a provider name, one "
+        "the audit row on the same session — the same contract `attest_price` carries. The "
+        "ops route that calls it is `POST /v1/ops/tts-prices/{provider}` "
+        "(`ops/model_price_routes.tts_router`), on the model-pricing panel because it is the "
+        "same act. Holds a provider name, one "
         "NUMERIC rupees-per-1k-characters figure, an attester id and a source note — no "
         "PII, no credential, no tenant data. Append-only (see APPEND_ONLY_TABLES): a "
         "correction is a new effective-dated row, never an edit, so a re-rendered month "
         "resolves the price its minutes were metered at."
+    ),
+    "platform_tts_plan_fees": (
+        "platform-scoped, admin realm only (D-547, Phase D.3). What a voice vendor BILLED US "
+        "for one IST month, attested by an operator off the invoice — one Cartesia account "
+        "for the whole deployment, one fee per month, so there is no tenant whose row this "
+        "could be and it carries no tenant_id. It is the twin of `platform_tts_prices` one "
+        "question along: that table says what one CHARACTER costs (the figure a usage row "
+        "multiplies), this one says what the whole MONTH cost, and their difference is the "
+        "allotment nobody spoke into — the only figure that says whether the plan is the "
+        "right size. ⚠ IT IS NOT AN INPUT TO `unit_cost_paid` and must never become one: "
+        "dividing a fee by a month's characters after the fact would re-price a month whose "
+        "ledger rows are already written. `ops/model_pricing.attest_tts_plan_fee` is the "
+        "only writer and REQUIRES its caller to be step-up confirmed and to write the audit "
+        "row on the same session; the route is `POST /v1/ops/tts-prices/{provider}/plan-fee` "
+        "and the read surface is `GET /v1/admin/spend`'s `tts_plan`. Holds a provider name, "
+        "a YYYY-MM string, one NUMERIC rupee figure, an attester id and a source note — no "
+        "PII, no credential, no tenant data. Append-only (see APPEND_ONLY_TABLES): a "
+        "correction is a new dated row for the SAME month, never an edit, so the record of "
+        "what we believed we were billed survives the correction that superseded it."
     ),
     "platform_ai_usage": (
         "platform-scoped, admin realm only (D-499). The ADMIN copilot's AI spend — an "
@@ -650,6 +669,10 @@ APPEND_ONLY_TABLES = [
     # one vendor further down the call: a figure somebody could edit would silently
     # re-price a month whose Cartesia characters have already been metered against it.
     "platform_tts_prices",
+    # The attested monthly PLAN FEE (D-547 Phase D.3). Append-only for its per-character
+    # twin's reason: a fee somebody could edit would silently restate what a closed month
+    # cost us, on the one board that compares it against what our own meter attributed.
+    "platform_tts_plan_fees",
     # The ADMIN copilot's own AI spend (D-499). Append-only for `usage_events`' reason
     # rather than `platform_model_prices`': it is a LEDGER of money already paid to a
     # provider, and `platform_ai_spend` is the counter derived from it. A row somebody

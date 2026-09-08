@@ -871,20 +871,300 @@ async def attest_tts_price(
     )
 
 
+# --- the TTS PLAN FEE: what the vendor BILLED, beside what our meter attributed -------
+#
+# WHY A SECOND ATTESTATION AND NOT A SECOND COLUMN ON THE FIRST. `TtsPriceAttestation`
+# above answers "what does one CHARACTER cost" — the figure a usage row multiplies, and a
+# RATE that applies from an instant until a later attestation supersedes it, deliberately
+# not per month. A plan FEE is the opposite shape: a committed monthly spend that belongs
+# to exactly one month and says nothing about any other, paid whether or not the allotment
+# is spoken. Folding them together would give one table two keys and a nullable figure in
+# each row. It is the SAME ACT — an operator reads their own invoice and puts their name to
+# a number — so it keeps the same provenance columns, the same append-only rule and the
+# same refusals; only the subject changes.
+#
+# ⚠ IT IS NOT AN INPUT TO `unit_cost_paid` AND MUST NEVER BECOME ONE. A call's cost is the
+# attested PER-CHARACTER rate times the characters it spoke; dividing this fee by a month's
+# characters after the fact would re-price a month whose ledger rows are already written.
+# It is PUBLISHED BESIDE the metered total (`billing/spend_routes.py`), never folded in.
+
+
+#: The voice providers whose synthesizer leg this platform pays for as a MONTHLY PLAN, and
+#: whose attributed cost therefore lands on `usage_events.unit_type = 'tts_kchars'`.
+#:
+#: THE UNIT TYPE IS THE PROVIDER DISCRIMINATOR, and that is a fact about the writer rather
+#: than a convention: `workers/pipeline.py::_tts_cost_row` writes `tts_kchars` on the BYOK
+#: branch only — a Sarvam call's synthesizer cost is the ENGINE's own reported leg figure
+#: on a `tts_chars` row at `qty = 1`, which is a whole-leg charge and carries no character
+#: count at all. So a `tts_kchars` sum IS this set's attributed cost, and a provider
+#: outside the set has no character count of ours to compare an invoice against.
+#:
+#: `tests/tts_plan_fee_test.py` pins it inside `TTS_PROVIDERS` and pins Sarvam OUT of it, so
+#: a third vendor arriving on a monthly plan is one edit here rather than a silent zero on
+#: the spend board.
+PLAN_BILLED_TTS_PROVIDERS: Final[frozenset[str]] = frozenset({"cartesia"})
+
+
+@dataclass(frozen=True, slots=True)
+class TtsPlanFeeAttestation:
+    """What a voice vendor BILLED US for one IST month, as the invoice states it.
+
+    RUPEES FOR THE WHOLE MONTH, not a rate — there is nothing to divide here, and the
+    division by the allotment is `TtsPriceAttestation`'s figure. Frozen and provenance-
+    carrying for that class's reasons: an attestation that reached a caller must not be
+    mutable underneath it, and `source_note` is what makes the next reader inherit the
+    evidence (which plan, which invoice) rather than the conclusion.
+
+    ⚠ **UNKNOWN: whether the vendor's own character count agrees with ours** (OPERATIONS §2
+    gate 51). `usage_events.qty` on a `tts_kchars` row is counted from OUR transcript and
+    from nothing the vendor says, so what this row records and what our meter attributed
+    are two independent measurements. The spend board publishes both and reconciles
+    neither; nothing here closes that gate.
+
+    ⚠ **UNKNOWN: the vendor's OVERAGE rate past the allotment** (plan ADDENDUM 1, unknown
+    #3). This figure is what the invoice SAYS, so a month that ran into overage records the
+    larger number and needs no separate rate — but the per-character attestation beside it
+    still prices only characters INSIDE the allotment, and no overage number is invented in
+    either place.
+    """
+
+    provider: str
+    #: The IST billing month the invoice covers, `YYYY-MM` — `billing/plans
+    #: .ist_billing_month`'s own spelling, which is what the spend board groups by.
+    month: str
+    plan_inr: Decimal
+    effective_from: datetime
+    attested_at: datetime
+    #: The operator, by id — never empty, because the billing seam refuses an
+    #: unattributed attestation (D-31/D-32).
+    attested_by: str
+    source_note: str
+
+    def unused_inr(self, attributed_inr: Decimal) -> Decimal:
+        """The allotment nobody spoke into: the fee, less what our meter attributed.
+
+        THE ONE SUBTRACTION, on the SERVER (D-458). A browser subtracting two decimal
+        strings is float arithmetic on money, and its answer would be a third figure
+        disagreeing with both. It may be NEGATIVE, and that is a real and useful state
+        rather than an error to clamp: it means the month attributed more than the plan
+        charged, which is what running into an overage looks like from our side of the
+        meter — and the vendor's overage RATE is UNKNOWN, so the honest report is the
+        signed difference and not a floor at zero.
+        """
+        return self.plan_inr - attributed_inr
+
+
+def _require_plan_billed_provider(provider: str) -> str:
+    """A provider that is billed as a monthly plan, or the sentence saying why not.
+
+    Refused rather than stored, because a stored fee for a provider outside
+    `PLAN_BILLED_TTS_PROVIDERS` would render a spend-board row whose `attributed_inr` is
+    structurally ZERO — no `tts_kchars` row is ever written for that leg — and whose
+    unused-allotment figure would therefore be the whole fee. That is a wrong number in the
+    flattering direction ("we are wasting the entire plan"), arrived at from a true
+    attestation, which is the worst kind.
+    """
+    _require_tts_provider(provider)
+    if provider not in PLAN_BILLED_TTS_PROVIDERS:
+        raise ProblemError(
+            kind="validation",
+            code="tts_plan_fee_provider_not_plan_billed",
+            title="This voice vendor is not billed as a monthly plan",
+            detail=(
+                f"{provider!r} is metered from the engine's own reported synthesizer leg on "
+                "every call, so there is no monthly invoice of ours to attest and no "
+                "character count of ours to compare one against."
+            ),
+            remediation=(
+                "Monthly plan fees are attested for "
+                + ", ".join(sorted(PLAN_BILLED_TTS_PROVIDERS))
+                + ". If this vendor has moved onto a plan, that is a code change — the "
+                "metering has to write a per-character row for it first."
+            ),
+        )
+    return provider
+
+
+async def attested_tts_plan_fees(
+    session: AsyncSession, *, month: str, at: datetime
+) -> dict[str, TtsPlanFeeAttestation]:
+    """Every provider's attested plan fee for ONE IST month, keyed by provider.
+
+    `at` IS THE BELIEF INSTANT, NOT THE MONTH, and the difference from
+    `attested_tts_prices` is the whole reason both exist. A price is resolved AT the month
+    it priced, because a call's cost was struck inside it. A FEE arrives on an invoice
+    AFTER the month has closed — often weeks after — so resolving it at the month's own
+    last instant would make every correction, and usually the original attestation itself,
+    invisible. So `month` selects the subject and `at` selects which attestation about that
+    subject was live: `now()` for the live board, an earlier instant to reproduce what a
+    board rendered on a past day.
+
+    A provider with no attestation for `month` on or before `at` is ABSENT from the
+    mapping, and every caller in this tree treats that the same way: the row is not
+    rendered at all. ₹0 would read as "the vendor billed us nothing", which is the one
+    misreading of a missing invoice that flatters us.
+
+    ONE ROUND TRIP: `DISTINCT ON (provider) … ORDER BY provider, effective_from DESC` over
+    `ix_platform_tts_plan_fees_provider_month`, the shape every reader in this module uses.
+    """
+    if at.tzinfo is None:
+        raise ValueError("`at` must be timezone-aware — a naive instant has no month")
+    rows = (
+        await session.execute(
+            text(
+                "SELECT DISTINCT ON (provider) provider, month, plan_inr, effective_from, "
+                "attested_at, attested_by, source_note FROM platform_tts_plan_fees "
+                "WHERE month = :month AND effective_from <= :at "
+                "ORDER BY provider, effective_from DESC"
+            ),
+            {"month": month, "at": at},
+        )
+    ).all()
+    return {
+        str(row[0]): TtsPlanFeeAttestation(
+            provider=str(row[0]),
+            month=str(row[1]),
+            # `Decimal(str(...))`, never `Decimal(...)`: the convention every NUMERIC read
+            # in this tree keeps, so the day a driver hands back a float the fee does not
+            # inherit the binary error.
+            plan_inr=Decimal(str(row[2])),
+            effective_from=row[3],
+            attested_at=row[4],
+            attested_by=str(row[5]),
+            source_note=str(row[6]),
+        )
+        for row in rows
+    }
+
+
+def reference_tts_plan_fee(provider: str) -> Decimal:
+    """This tree's OWN monthly figure for `provider` — the form's pre-fill, nothing more.
+
+    `reference_tts_price`'s job for a whole month, and it carries that function's warning
+    unchanged: hard rule 7 gives a catalogue figure NO path to a cost we report as paid.
+    ₹4,312 is `rates.CARTESIA_STARTUP_PLAN_FEE_INR`, which is $49 at the ₹88 conversion the
+    Cartesia evidence file states throughout — and that file is REPORTED (a relayed research
+    run; `cartesia.ai` is egress-blocked from this container), for a plan nobody has yet
+    bought at a fee no invoice of ours has yet stated. It is rendered GREYED beside the form
+    and labelled "confirm against your vendor invoice".
+
+    Raises for a provider that is not billed as a monthly plan, like the writer does.
+    """
+    _require_plan_billed_provider(provider)
+    return rates.CARTESIA_STARTUP_PLAN_FEE_INR
+
+
+async def attest_tts_plan_fee(
+    session: AsyncSession,
+    *,
+    provider: str,
+    month: str,
+    plan_inr: Decimal,
+    effective_from: datetime,
+    source_note: str,
+    actor_id: object,
+) -> TtsPlanFeeAttestation:
+    """Record one operator-attested monthly plan fee as a NEW dated row. Never an UPDATE.
+
+    `attest_tts_price`'s contract, verbatim, because it is the same act: the caller MUST
+    have step-up confirmed and MUST write the audit row on this same session; a provider
+    that is not plan-billed, a non-positive figure and a duplicate
+    `(provider, month, effective_from)` are each refused with a sentence an operator can
+    act on rather than a 500 on a constraint.
+
+    A CORRECTION IS A LATER ATTESTATION FOR THE SAME MONTH — a distinct `effective_from`,
+    never an edit — so the history of what we believed we were billed, and when, survives
+    the correction that superseded it.
+
+    `month` is validated (shape) at the API boundary, where the type is enforced; the
+    database CHECK is the backstop.
+    """
+    _require_plan_billed_provider(provider)
+    if plan_inr <= 0:
+        raise ProblemError(
+            kind="validation",
+            code="tts_plan_fee_not_positive",
+            title="A plan fee must be greater than zero",
+            detail="The figure is rupees for the whole month and must be strictly positive.",
+            remediation=(
+                "Enter the amount on the invoice. A zero is refused because it is "
+                "indistinguishable on the spend board from the vendor having billed us "
+                "nothing — and a month nobody has attested is shown as absent, precisely "
+                "so those two states never look alike."
+            ),
+        )
+    existing = (
+        await session.execute(
+            text(
+                "SELECT 1 FROM platform_tts_plan_fees "
+                "WHERE provider = :p AND month = :m AND effective_from = :ef"
+            ),
+            {"p": provider, "m": month, "ef": effective_from},
+        )
+    ).first()
+    if existing is not None:
+        raise ProblemError(
+            kind="conflict",
+            code="tts_plan_fee_duplicate_instant",
+            title="A plan fee already exists for this vendor and month at this instant",
+            detail=(
+                f"{provider!r} already has an attestation for {month} effective from "
+                f"{effective_from.isoformat()}. A correction is a NEW effective instant, "
+                "never an edit of an existing one."
+            ),
+            remediation=(
+                "To correct the figure, attest it again with a later effective date (the "
+                "default is now). The history is append-only by design — it is the record "
+                "of what we believed we were billed, and when."
+            ),
+        )
+    row = (
+        await session.execute(
+            text(
+                "INSERT INTO platform_tts_plan_fees "
+                "(provider, month, effective_from, plan_inr, attested_by, source_note) "
+                "VALUES (:p, :m, :ef, :fee, :by, :note) RETURNING attested_at"
+            ),
+            {
+                "p": provider,
+                "m": month,
+                "ef": effective_from,
+                "fee": plan_inr,
+                "by": actor_id,
+                "note": source_note,
+            },
+        )
+    ).one()
+    return TtsPlanFeeAttestation(
+        provider=provider,
+        month=month,
+        plan_inr=plan_inr,
+        effective_from=effective_from,
+        attested_at=row[0],
+        attested_by=str(actor_id),
+        source_note=source_note,
+    )
+
+
 __all__ = [
+    "PLAN_BILLED_TTS_PROVIDERS",
     "PROVIDER_CREDENTIAL",
     "TTS_PROVIDERS",
     "AttestedModelPrice",
     "ModelOfferability",
+    "TtsPlanFeeAttestation",
     "TtsPriceAttestation",
     "attest_price",
+    "attest_tts_plan_fee",
     "attest_tts_price",
     "attested_model_prices",
+    "attested_tts_plan_fees",
     "attested_tts_prices",
     "installed_llm_legs",
     "model_offerability",
     "offerable_models",
     "reference_price",
+    "reference_tts_plan_fee",
     "reference_tts_price",
     "tts_price_is_billable",
 ]
