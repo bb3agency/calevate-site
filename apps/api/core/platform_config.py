@@ -382,6 +382,14 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "one — each agent must be re-published before the switch is real for it.",
     ),
     # ---- live: read through get_settings() at the point of use ---------------------
+    # The per-statement budget the app's sessions carry. `live`, and checked rather than
+    # inherited from `db_pool_size` two lines of settings away, which is `env_only` for a
+    # reason that does NOT apply here: the pool is built once, before this store can be
+    # read, whereas the timeout is resolved on every session open
+    # (`db/session._statement_timeout_ms_value` → `get_settings()`) and installed with
+    # `set_config(..., true)` on the transaction that session opens. So the next session
+    # after a save carries the new value, with no restart and no pool rebuild.
+    "db_statement_timeout_ms": AppliesRule(LIVE),
     "object_store_endpoint": AppliesRule(LIVE),  # workers/storage._client(), per call
     "object_store_bucket": AppliesRule(LIVE),  # workers/storage, per call
     "bolna_webhook_source_ips": AppliesRule(LIVE),  # bolna_source_ips(get_settings())

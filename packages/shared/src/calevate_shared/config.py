@@ -277,6 +277,33 @@ class Settings(BaseSettings):
     # legitimate configuration.
     db_pool_size: int = Field(default=16, ge=1, le=32)
 
+    # How long ONE statement on a session from `apps/api/db/session.py` may run before
+    # Postgres cancels it. `db_pool_size` bounds how many connections exist and
+    # `db/session._POOL_TIMEOUT_S` bounds the WAIT for one; NOTHING bounded what the
+    # holder then does with it, so a single unindexable scan could pin a pooled connection
+    # for as long as the server was willing to run it and `db_pool_size` of those took the
+    # deployable down on a query nobody cancelled.
+    #
+    # A SETTING RATHER THAN A CONSTANT, and it is the opposite call from `_POOL_TIMEOUT_S`
+    # next door. That one is doctrine — every wait on that path is bounded the same way, and
+    # nobody re-tunes it during an incident. This one is the number an operator MUST be able
+    # to move without a deploy: the day a report page starts timing out, the choice is
+    # raising this for an hour while the index is built, or shipping code from a laptop at
+    # midnight. It is applied per session open (`db/session._statement_timeout_ms_value`
+    # reads `get_settings()`), so a console change takes effect on the next session in every
+    # process that runs the config refresher — `applies: live`
+    # (`core/platform_config.FIELD_APPLIES`).
+    #
+    # Ten seconds by default, chosen against what is already true on this path: a caller
+    # that has waited `_POOL_TIMEOUT_S` (5s) for a connection has already given up, so a
+    # query still holding one at twice that has certainly outlived the request that asked
+    # for it. The floor of one second is what stops a typo taking the platform down more
+    # thoroughly than the defect this closes — under a second, ordinary healthy writes
+    # start failing — and the two-minute ceiling is there because a REQUEST budget past
+    # that is not a budget, it is the unbounded case wearing a number. Workers that need
+    # longer say so in code (`db/session.long_running_statements`), never by raising this.
+    db_statement_timeout_ms: int = Field(default=10_000, ge=1_000, le=120_000)
+
     # 63 is the S3 bucket-name maximum, and the endpoint bound is a URL's practical
     # ceiling. Both are console-settable, so a value the vendor cannot accept has to be
     # refused at the screen rather than at the first recording upload.

@@ -92,8 +92,11 @@ about that are worth the next reader's attention, because each was a reason not 
   measurement is now the evidence for what the residency withdrawal bought.
 
 Resilience shipped here: a request timeout and jittered backoff on 429 (SURFACES §3.3).
-The circuit breaker that section also describes is deliberately NOT built — see the
-throttle block below for what is and is not retried, and why.
+The circuit breaker that section also describes is deliberately NOT built, and the
+argument for that is written where the code is — `engine/vendor_http.py`, the block above
+`THROTTLE_STATUS`, which now answers the slowness case as well as the 429 case. (It said
+"see the throttle block below" and that block discussed only retries, so the reader
+arrived at an answer to a different question.)
 """
 
 from __future__ import annotations

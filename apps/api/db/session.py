@@ -13,8 +13,9 @@ Every deployable shares the engine below: `apps/api`, `apps/voice-runtime` and
 transcript.
 """
 
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from collections.abc import AsyncIterator, Iterator
+from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
 from uuid import UUID
 
 from calevate_shared.config import Settings
@@ -25,6 +26,8 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+
+from apps.api.core.settings import get_settings
 
 _engine: AsyncEngine | None = None
 _sessionmaker: async_sessionmaker[AsyncSession] | None = None
@@ -56,6 +59,199 @@ _POOL_TIMEOUT_S = 5.0
 #: `scripts/check_session_nesting.py` refuses a third level, so the pool's capacity and
 #: the code's shape cannot drift apart the way they had.
 MAX_NESTED_CONNECTIONS = 2
+
+# --- Statement timeouts -------------------------------------------------------------
+#
+# WITHOUT THESE, NOTHING IN THIS PROCESS STOPS A QUERY AT ANY DURATION. `pool_timeout`
+# above bounds the WAIT for a connection and says nothing about what the holder then does
+# with it, so one unindexable scan holds a pooled connection for as long as Postgres is
+# willing to run it. At `db_pool_size` such queries the pool is gone and every other caller
+# meets `_POOL_TIMEOUT_S`, i.e. the whole deployable fails on a query nobody cancelled. A
+# bound on the connection wait without a bound on the statement is not a bound; it just
+# decides which caller notices first.
+#
+# The shape is not hypothetical: the §12 subject-erasure arms in `apps/workers/retention.py`
+# match on `strpos(regexp_replace(<column>, '[^0-9]', '', 'g'), :digits)`, a per-row
+# function call no index can serve. They are no longer the live example because that
+# module BATCHED them (`_delete_in_batches`, `LIMIT :batch`) — which is the right fix, and
+# `long_running_statements` below says why it is not this one.
+#
+# TRANSACTION-LOCAL, VIA THE SAME `set_config(..., true)` THE TENANT GUC USES. Not a
+# server-side default, not `SET` on the connection, not an engine `connect_args`: this
+# module's whole RLS contract rests on a pooled connection carrying nothing out of the
+# transaction that set it, and a second, differently-scoped mechanism for the same job is
+# the drift the repo's "one way per problem" bar refuses. It costs no extra round trip —
+# each factory below appends the call to the `SELECT` it was already sending.
+#
+# WHAT IT BOUNDS IS ONE STATEMENT, NOT THE TRANSACTION. `statement_timeout` is per
+# command, so a transaction that issues ten queries gets ten budgets, and a transaction
+# open across an engine HTTP round trip is not cancelled by it. That is the right shape
+# for what it defends — no single query may pin a connection — and callers wanting a
+# whole-transaction bound still need their own deadline (`_DURABLE_DEADLINE_S`,
+# `job_timeout`). Note also that a `SET LOCAL`-scoped value is IGNORED outside a
+# transaction; every factory here is inside `session.begin()`, which is what makes it
+# take effect at all.
+#
+# Milliseconds, because that is what the GUC's bare-integer form means; the value is
+# passed as a string because `set_config`'s third argument makes it a text function.
+
+#: THE DEFAULT IS A SETTING, NOT A LITERAL: `Settings.db_statement_timeout_ms`
+#: (`applies: live`), which carries the ten-second default and the argument for it. It is
+#: read HERE, per session open, rather than captured at import — that is what makes the
+#: console's classification true, and it is free: `get_settings()` is an O(1), IO-free
+#: read of a snapshot (hard rule 3).
+#:
+#: The one number worth repeating beside the code: ten seconds coincides with the vendor
+#: ladder's `REQUEST_TIMEOUT_S` (10.0) and that is a coincidence, not a relationship. The
+#: two bound different resources, neither is a fallback for the other, and moving one
+#: implies nothing about the other.
+#:
+#: THE OVERRIDE'S SIZE IS A CONSTANT AND MUST STAY ONE, which is the opposite call from
+#: the default one line up. It is not an operator's dial: it is defined RELATIVE to
+#: `apps.workers.settings.WorkerSettings.job_timeout` (300s), a value in code, and the
+#: relation is the whole of its correctness. 120s is well UNDER that, not near it —
+#: past `job_timeout` arq cancels the JOB (an `asyncio.CancelledError` at whatever line
+#: was executing), whereas a `statement_timeout` cancellation is an ordinary
+#: `QueryCanceled` the job can catch, log and reschedule, and two minutes leaves three for
+#: it to do that. A console that could raise this above `job_timeout` would convert the
+#: recoverable failure into the unrecoverable one, and it would do it in the WORKERS,
+#: which do not run `start_config_refresher` (`apps/workers/settings.startup`) and so
+#: would not see the change until a restart anyway.
+LONG_RUNNING_STATEMENT_TIMEOUT_MS = 120_000
+
+#: `None` means "no caller has declared anything, so read the setting at use time". A
+#: value captured here instead would freeze the live setting at import.
+_statement_timeout_ms: ContextVar[int | None] = ContextVar(
+    "calevate_statement_timeout_ms", default=None
+)
+
+
+def _statement_timeout_ms_value() -> int:
+    """This session's budget: a declared override, else the live setting."""
+    declared = _statement_timeout_ms.get()
+    return declared if declared is not None else get_settings().db_statement_timeout_ms
+
+
+@contextmanager
+def long_running_statements(
+    timeout_ms: int = LONG_RUNNING_STATEMENT_TIMEOUT_MS,
+) -> Iterator[None]:
+    """Raise the statement budget for sessions opened inside this block. ONE door.
+
+    A retention sweep, an erasure scan or a campaign reap legitimately runs longer than
+    a request, and the alternative designs both fail the same way: a per-factory
+    `statement_timeout_ms=` keyword would have to be threaded through seven context
+    managers and would be spelt at the call site of every worker query rather than once
+    per job, and a worker-wide default set at bootstrap would raise the budget for the
+    request-shaped reads workers ALSO make (`check_dispatch`, `get_platform_status`)
+    without anyone choosing that.
+
+    So the budget is raised by ENTERING something named, and a job that needs longer says
+    so in its own code. A job that does not is bounded like a request — the failure mode
+    this closes is a slow query nobody declared, and it must not be reachable by
+    omission.
+
+    A `ContextVar`, so an asyncio task that enters this cannot raise the budget for a
+    sibling task running on the same loop; the value is restored on exit even if the body
+    raises. Nesting is fine and the innermost wins.
+
+    **NOTHING ENTERS THIS YET, AND THE FIRST CANDIDATE DELIBERATELY DOES NOT.** The
+    obvious caller looked like the subject-erasure arms in `apps/workers/retention.py`,
+    whose `strpos(regexp_replace(<column>, '[^0-9]', '', 'g'), :digits)` predicates are
+    unindexable by construction. That module now answers the question itself, and its
+    answer is right: it BATCHES them (`_delete_in_batches`, `LIMIT :batch`) so each
+    statement finishes far inside any timeout, and its own comment refuses the
+    alternative — "an override exempting the erasure job from the timeout would keep it
+    working and would also keep the lock, which is the actual defect".
+    That is the rule this door is held to. It exists for work that is legitimately long
+    and cannot be cut up — not as the escape hatch for a statement that should have been
+    batched. If nothing ever needs it, the honest end state is to delete it rather than
+    to find it a user.
+    """
+    if timeout_ms <= 0:
+        raise ValueError("statement timeout must be positive; there is no 'no timeout'")
+    token = _statement_timeout_ms.set(timeout_ms)
+    try:
+        yield
+    finally:
+        _statement_timeout_ms.reset(token)
+
+
+#: Appended to the `SELECT` each factory below already issues, so the bound costs zero
+#: extra round trips on the latency-critical path (hard rule 3).
+_TIMEOUT_SQL = "set_config('statement_timeout', :stmt_timeout_ms, true)"
+
+
+def _timeout_param() -> dict[str, str]:
+    return {"stmt_timeout_ms": str(_statement_timeout_ms_value())}
+
+
+# --- Migration connection timeouts --------------------------------------------------
+#
+# THEY LIVE HERE RATHER THAN IN `alembic/env.py`, and the reason is testability, not
+# tidiness: `env.py` RUNS the migrations at import time and its module-level
+# `context.is_offline_mode()` raises without a live `MigrationContext`, so a constant
+# defined there cannot be imported by a test and a value nothing can assert is a value
+# that drifts. This module is already the one place that says what a connection to this
+# database carries; `env.py` reads these two and builds its engine with them.
+
+#: How long a DDL statement may WAIT for its lock before giving up.
+#:
+#: **THE OUTAGE STARTS BEFORE THE LOCK IS EVER ACQUIRED**, which is the fact that decides
+#: this number. `ALTER TABLE` needs ACCESS EXCLUSIVE; it conflicts with every other table
+#: lock, so it queues behind any open read — and once it is queued, every subsequent
+#: query on that table queues behind IT. A migration blocked on a long `SELECT` therefore
+#: takes the table down for the duration of the block, not for the duration of the ALTER.
+#: (GoCardless, "Zero-downtime Postgres migrations - the hard parts" and
+#: `github.com/gocardless/activerecord-safer_migrations`, both read 8 Sep 2026: "even brief
+#: locks can block access while waiting in the queue behind long-running queries"; their
+#: gem's defaults are lock_timeout 750ms / statement_timeout 1500ms.)
+#:
+#: THREE SECONDS RATHER THAN THEIR 750ms, and the difference is the retry. Their gem
+#: retries the migration in-process, so it can afford to give up almost at once; ours
+#: aborts the DEPLOY, and a deploy that fails because one report query happened to be
+#: running is a deploy a human re-runs at 3am for no defect. Three seconds buys the
+#: ordinary case without buying the pathological one — it is short enough that the queue
+#: it creates is a latency blip on one table rather than an outage, and long enough that
+#: a healthy uncontended `ALTER` (which takes the lock immediately) never sees it. It is
+#: NOT calibrated against a measurement of this database's lock waits, because there is
+#: no production database yet to measure; if one ever shows 3s to be wrong, the fix is
+#: this constant and the evidence goes here.
+#:
+#: The retry is the deploy, re-run — the correct place for it, because the thing to wait
+#: for (the long read ahead in the queue finishing) is not something the migration can
+#: influence by waiting longer.
+MIGRATION_LOCK_TIMEOUT_MS = 3_000
+
+#: How long one migration statement may RUN once it holds its lock.
+#:
+#: Kept far above `MIGRATION_LOCK_TIMEOUT_MS` on purpose: `statement_timeout` covers the
+#: lock wait too, so a value below it would preempt `lock_timeout` and every contended
+#: migration would report the wrong cause. Five minutes is generous enough for the real
+#: index builds and backfills this schema has (including the 25 revisions that use
+#: `autocommit_block()`, 24 of them for `CREATE INDEX CONCURRENTLY` (counted 8 Sep 2026) — a value a
+#: `CREATE INDEX` cannot finish inside is a value to raise WITH a measurement, never a
+#: reason to unset the bound) and short enough that a runaway
+#: statement fails the deploy instead of holding ACCESS EXCLUSIVE indefinitely — which is
+#: the other half of the same outage.
+MIGRATION_STATEMENT_TIMEOUT_MS = 300_000
+
+
+def migration_connect_args() -> dict[str, str]:
+    """libpq `options` carrying both GUCs, for the engine `alembic/env.py` builds.
+
+    A CONNECT-TIME option rather than two `SET` statements after connecting, because a
+    `SET` is transactional: `transaction_per_migration=True` gives each revision its own
+    transaction, and a revision that rolls back would roll the GUCs back with it, leaving
+    the rest of the run unprotected in exactly the situation where protection matters.
+    Options passed in the connection string cannot be undone by a rollback.
+    """
+    return {
+        "options": (
+            f"-c lock_timeout={MIGRATION_LOCK_TIMEOUT_MS} "
+            f"-c statement_timeout={MIGRATION_STATEMENT_TIMEOUT_MS}"
+        )
+    }
 
 
 def get_engine(settings: Settings | None = None) -> AsyncEngine:
@@ -174,8 +370,8 @@ async def tenant_session(tenant_id: UUID) -> AsyncIterator[AsyncSession]:
     maker = get_sessionmaker()
     async with maker() as session, session.begin():
         await session.execute(
-            text("SELECT set_config('app.tenant_id', :tid, true)"),
-            {"tid": str(tenant_id)},
+            text(f"SELECT set_config('app.tenant_id', :tid, true), {_TIMEOUT_SQL}"),
+            {"tid": str(tenant_id), **_timeout_param()},
         )
         yield session
 
@@ -229,8 +425,8 @@ async def user_session(user_id: UUID) -> AsyncIterator[AsyncSession]:
     maker = get_sessionmaker()
     async with maker() as session, session.begin():
         await session.execute(
-            text("SELECT set_config('app.user_id', :uid, true)"),
-            {"uid": str(user_id)},
+            text(f"SELECT set_config('app.user_id', :uid, true), {_TIMEOUT_SQL}"),
+            {"uid": str(user_id), **_timeout_param()},
         )
         yield session
 
@@ -250,7 +446,8 @@ async def invite_session(token_hash: str) -> AsyncIterator[AsyncSession]:
     maker = get_sessionmaker()
     async with maker() as session, session.begin():
         await session.execute(
-            text("SELECT set_config('app.invite_hash', :hash, true)"), {"hash": token_hash}
+            text(f"SELECT set_config('app.invite_hash', :hash, true), {_TIMEOUT_SQL}"),
+            {"hash": token_hash, **_timeout_param()},
         )
         yield session
 
@@ -267,8 +464,8 @@ async def ingest_config_session(webhook_id: UUID) -> AsyncIterator[AsyncSession]
     maker = get_sessionmaker()
     async with maker() as session, session.begin():
         await session.execute(
-            text("SELECT set_config('app.ingest_webhook_id', :wid, true)"),
-            {"wid": str(webhook_id)},
+            text(f"SELECT set_config('app.ingest_webhook_id', :wid, true), {_TIMEOUT_SQL}"),
+            {"wid": str(webhook_id), **_timeout_param()},
         )
         yield session
 
@@ -297,7 +494,10 @@ async def credential_session() -> AsyncIterator[AsyncSession]:
     """
     maker = get_sessionmaker()
     async with maker() as session, session.begin():
-        await session.execute(text("SELECT set_config('app.auth', 'on', true)"))
+        await session.execute(
+            text(f"SELECT set_config('app.auth', 'on', true), {_TIMEOUT_SQL}"),
+            _timeout_param(),
+        )
         yield session
 
 
@@ -319,7 +519,10 @@ async def admin_session() -> AsyncIterator[AsyncSession]:
     """
     maker = get_sessionmaker()
     async with maker() as session, session.begin():
-        await session.execute(text("SELECT set_config('app.admin', 'on', true)"))
+        await session.execute(
+            text(f"SELECT set_config('app.admin', 'on', true), {_TIMEOUT_SQL}"),
+            _timeout_param(),
+        )
         yield session
 
 
@@ -330,4 +533,14 @@ async def untenanted_session() -> AsyncIterator[AsyncSession]:
     the fail-closed property."""
     maker = get_sessionmaker()
     async with maker() as session, session.begin():
+        # The one factory that had no `SELECT` of its own, so here the bound costs a
+        # round trip rather than nothing — and this is the factory the LATENCY-CRITICAL
+        # receiver uses (`apps/voice-runtime/webhook_routes.py`), so that cost was weighed
+        # rather than waved through: one localhost round trip on a connection the pool
+        # already holds, against a 500ms ack budget (hard rule 3) whose other bound
+        # (`_DURABLE_DEADLINE_S`, 2s) can only fire on the receiver's own clock and cannot
+        # stop the QUERY. It is set for the same reason the others are: a global-table
+        # scan is exactly the shape that pins a connection, and "the session with no GUC"
+        # must not also be the session with no bound.
+        await session.execute(text(f"SELECT {_TIMEOUT_SQL}"), _timeout_param())
         yield session

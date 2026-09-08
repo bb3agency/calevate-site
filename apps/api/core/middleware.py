@@ -72,7 +72,28 @@ SECURITY_HEADERS = {
     "Cross-Origin-Opener-Policy": "same-origin",
     # HSTS is also set at the edge (DEPLOYMENT §5); duplicated so a direct-to-origin
     # request is never weaker than a proxied one.
+    #
+    # **NO `preload`, AND THAT IS A DECISION, NOT AN OMISSION — the next auditor can stop
+    # here.** The token does nothing on its own: it is a marker that the domain has been
+    # SUBMITTED to hstspreload.org and baked into browser binaries, and what gets baked in
+    # is `calevate.tech` plus every subdomain, for every visitor, with a removal path
+    # measured in browser release cycles. That commits hosts nobody has issued a
+    # certificate for yet (a status page, a docs site, a partner CNAME) to HTTPS-or-
+    # nothing before they exist, and it is irreversible on the timescale this product
+    # plans in. It is therefore a DEPLOYMENT commitment for a human with the domain, not a
+    # line of code — adding the token without the submission would be a claim about the
+    # preload list that is simply false.
     "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+    # **NO `Permissions-Policy`, and it would be a header for show.** It is only honoured
+    # for a DOCUMENT (or an embedded one): it governs what a browsing context may ask the
+    # user's device for. This origin serves `application/json` and
+    # `application/problem+json` and, in prod, nothing else — `bootstrap.docs_served` is
+    # `app_env != "prod"`, so Swagger, ReDoc and `openapi.json` are the only HTML this app
+    # can produce and none of them is served where it would matter. A policy attached to a
+    # JSON body is not parsed by anything. The one adjacent risk — this origin being
+    # framed by someone else's page — is already answered above by `X-Frame-Options: DENY`
+    # and `Cross-Origin-Opener-Policy`, which ARE honoured here. The header belongs on the
+    # dashboard origin (`apps/web`), where a document exists to constrain.
 }
 
 Handler = Callable[[Request], Awaitable[Response]]

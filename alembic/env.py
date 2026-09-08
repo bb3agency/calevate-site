@@ -10,6 +10,11 @@ from pathlib import Path
 
 from alembic import context
 from apps.api.db.registry import Base
+from apps.api.db.session import (
+    MIGRATION_LOCK_TIMEOUT_MS,
+    MIGRATION_STATEMENT_TIMEOUT_MS,
+    migration_connect_args,
+)
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 
@@ -43,6 +48,19 @@ def _database_url() -> str:
 
 
 def run_migrations_offline() -> None:
+    # Offline mode EMITS SQL for a human to run, so there is no connection to hang a
+    # connect-time option on and the two `SET`s go into the script instead — first, so
+    # every statement after them is covered. Session-scoped rather than `SET LOCAL`: the
+    # emitted file is one psql session under the single `BEGIN` this branch produces, and
+    # a `SET LOCAL` would expire at the first `COMMIT` while the DDL kept coming.
+    #
+    # ⚠ A FULL `alembic upgrade head --sql` DOES NOT COMPLETE IN THIS REPO, and that is
+    # older than these two lines: `versions/f4a1d0b6e29c_two_notices_two_toggles.py`
+    # queries the database inside `upgrade()`, which offline mode has no connection for,
+    # so the render dies there (reproduced 8 Sep 2026). The header this function emits is
+    # therefore verified — `tests/statement_timeout_test.py` asserts it against a real
+    # render — while everything past that revision is unreachable offline until that
+    # migration stops reading.
     context.configure(
         url=_database_url(),
         target_metadata=target_metadata,
@@ -51,11 +69,32 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
     )
     with context.begin_transaction():
+        context.execute(f"SET lock_timeout = {MIGRATION_LOCK_TIMEOUT_MS}")
+        context.execute(f"SET statement_timeout = {MIGRATION_STATEMENT_TIMEOUT_MS}")
         context.run_migrations()
 
 
 def run_migrations_online() -> None:
-    engine = create_engine(_database_url())
+    # **BOTH TIMEOUTS, AT CONNECT, BECAUSE A MIGRATION IS HOW THIS SITE GOES DOWN.**
+    #
+    # `ALTER TABLE` takes ACCESS EXCLUSIVE, which conflicts with every other table lock.
+    # With `lock_timeout` unset it waits FOREVER behind any open read — and the damage
+    # does not start when it acquires the lock, it starts when it queues for it: every
+    # query that arrives afterwards queues behind the waiting DDL, so the table is down
+    # for as long as the read it is stuck behind runs. That is the outage hard rule 8's
+    # "a migration in the same release as every new tenant table" makes a live path.
+    # `MIGRATION_LOCK_TIMEOUT_MS` turns it into a failed deploy, which is recoverable by
+    # re-running the deploy; the outage is not recoverable by anything.
+    #
+    # `statement_timeout` is the other half and is not redundant: `lock_timeout` bounds
+    # only the WAIT, so a DDL that acquires its lock and then rewrites a large table
+    # holds ACCESS EXCLUSIVE for the whole rewrite with nothing to stop it.
+    #
+    # Both are read from `apps.api.db.session` — see there for the numbers and why they
+    # are those numbers, and for why a connect-time libpq option rather than two `SET`
+    # statements (a `SET` is transactional, and `transaction_per_migration` below means a
+    # rolled-back revision would take the GUCs with it).
+    engine = create_engine(_database_url(), connect_args=migration_connect_args())
     with engine.connect() as connection:
         context.configure(
             connection=connection,
@@ -72,9 +111,11 @@ def run_migrations_online() -> None:
             # they read at 3am, that "a failure leaves the database at the last revision
             # that fully applied".
             #
-            # Worse, it was not even one clean transaction: three revisions use
-            # `op.get_context().autocommit_block()` for `CREATE INDEX CONCURRENTLY`, and
-            # each of those is an unconditional commit point. Alembic's own docstring for
+            # Worse, it was not even one clean transaction: 25 revisions use
+            # `op.get_context().autocommit_block()`, 24 of them for `CREATE INDEX
+            # CONCURRENTLY` (counted 8 Sep 2026; this said "three", which was true when it
+            # was written and is not now), and each of those is an unconditional commit
+            # point. Alembic's own docstring for
             # that method says so — "It is recommended that when an application includes
             # migrations with 'autocommit' blocks, that `transaction_per_migration` be
             # used." This repo has such blocks and did not use it, so a failed run could

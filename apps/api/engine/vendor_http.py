@@ -100,6 +100,52 @@ REQUEST_TIMEOUT_S = 10.0
 #    workers, so the adapter may stall a request by a second or two — not by two
 #    minutes. A `Retry-After` longer than the ceiling is not slept through: it is
 #    reported as `transient`, which is the caller's cue to reschedule the work.
+#
+# **AND THERE IS NO CIRCUIT BREAKER. This is the paragraph `bolna.py`'s module docstring
+# sends the reader here for, and it used to arrive at a block that discussed only 429.**
+#
+# THE CASE A BREAKER WOULD COVER IS NOT 429, IT IS SLOWNESS. `REQUEST_TIMEOUT_S` bounds
+# ONE call, never the aggregate, so a vendor degrading to nine-second responses trips
+# nothing above — every request succeeds — while each one holds its caller for nine
+# seconds. That is the uncovered shape, and the question is whether anything else already
+# bounds it. Read against the two callers, something does:
+#
+# * **The dial path is bounded twice over.** `campaign_dispatch._tick_lease` is a
+#   platform-wide single-flight lease, so a slow tick cannot be joined by the next one
+#   thirty seconds later — the second tick takes no lease, dials nothing and exits. And
+#   within a tick the dials are SERIAL (`_dispatch_for_campaign` awaits one contact at a
+#   time) and the tick's whole spend is capped by `_outbound_pool()` — six lines at the
+#   shipped `PLATFORM_LINES_TOTAL = 10` and a reserve of `max(MIN_INBOUND_RESERVE = 4,
+#   10 x inbound_reserve_ratio = 3)`. So the worst case is six sequential ten-second
+#   calls — sixty seconds, inside both `WorkerSettings.job_timeout` (300s) and
+#   `TICK_LEASE_TTL_S` (330s). A degraded vendor slows dialling; it cannot accumulate.
+# * **The polling path is bounded by the job, and its failure is already alarmed.**
+#   `pipeline.reconcile_outstanding_calls` probes up to `OUTSTANDING_PROBE_BUDGET` (200)
+#   executions serially, which at ten seconds each does NOT fit in `job_timeout` — so arq
+#   cancels the tick, and a cron cancelled three times running is the alert
+#   `apps/workers/settings.py` already raises. The degradation surfaces as a named
+#   incident rather than as silence.
+#
+# WHAT A BREAKER WOULD COST, against that. It is only useful if its state is SHARED — the
+# four deployables are separate processes and a per-process breaker learns nothing from
+# the other three — so it is a new Redis key with its own consistency, its own failure
+# mode when Redis is the thing that is down, and its own half-open probe. On this vendor
+# the half-open probe is the problem that decides it: the endpoint whose slowness we care
+# about is `POST /call`, which is NOT idempotent, so "send one request to see if the
+# vendor is back" is a live phone call to a real person placed by a state machine rather
+# than by the compliance gate. An OPEN breaker is worse still — it refuses dials that
+# `check_dispatch` has already cleared, which is a campaign that silently stops with no
+# refusal recorded against any contact.
+#
+# So: bounded elsewhere, alarmed elsewhere, and the mechanism would put an unsolicited
+# call in the hands of a timer. The gap this leaves is honest and named — a vendor that is
+# slow but NOT failing makes campaigns dial slowly and makes reconciliation ticks die on
+# `job_timeout`, and neither is repaired by tripping. It is also the gap the existing
+# alarm cannot see: `engine/health.record_engine_failure` counts 5xx and unreachable
+# minutes into `engine_error_spike`, i.e. FAILURES, and a nine-second 200 is not one. If
+# that ever needs a control it is a LATENCY signal into that same surface — which already
+# has the table, the window and the page — not a breaker in front of the dial.
+
 THROTTLE_STATUS = 429
 THROTTLE_MAX_ATTEMPTS = 3
 THROTTLE_BASE_S = 0.5

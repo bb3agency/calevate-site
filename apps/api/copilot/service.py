@@ -266,10 +266,11 @@ _FILTERED_FINISH_REASONS: Final = frozenset({"content_filter", "safety", "recita
 #: TEN SECONDS, AND THE NUMBER IS A FRACTION OF THE BUDGET RATHER THAN A GUESS AT A QUERY.
 #: `TOTAL_BUDGET_S` is 90 and a useful answer is two or three lookups plus the turns that
 #: read them, so a single lookup that has taken ten seconds has already cost more than the
-#: whole shape should; letting it run costs the question. There is no `statement_timeout`
-#: set anywhere in this deployment (grepped across `apps/api/db` and `apps/api/core` rather
-#: than recalled), so before this the database was the only thing deciding how long a
-#: copilot lookup could take.
+#: whole shape should; letting it run costs the question. This is now the SECOND bound and
+#: still not a redundant one: `db/session.py` cancels a single statement at
+#: `Settings.db_statement_timeout_ms` (10s by default), which is per STATEMENT, while a
+#: read tool may issue several — so the database bounds each query and this bounds the
+#: lookup. When it was written there was no database-side bound at all.
 READ_TOOL_BUDGET_S: Final = 10.0
 
 #: What the model is told when it asks for a lookup it has already run this answer.
@@ -814,9 +815,10 @@ async def _run_one_read_tool(
     """One read call, run under its own clock, as (its terminal step frame, its result).
 
     **THE PER-CALL BUDGET IS THE POINT OF THIS FUNCTION.** `run_read_tool` never raises,
-    but nothing bounded how long it could take: this deployment sets no
-    `statement_timeout` anywhere (checked by grep across `apps/api/db` and
-    `apps/api/core`, not recalled), so one lookup against a lock or a bad plan could burn
+    and when this was written nothing bounded how long it could take, because the
+    deployment set no `statement_timeout` at all. It does now (`db/session.py`), but that
+    bounds ONE STATEMENT and a lookup may issue several, so one lookup against a lock or a
+    bad plan could still burn
     the whole of `TOTAL_BUDGET_S` and turn a question into either a fallback answer with
     no tools or a "the assistant stopped part-way" body. A stopped lookup is a SENTENCE
     the model can act on — the same shape every other failure in `run_read_tool` already

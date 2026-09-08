@@ -1173,9 +1173,10 @@ async def test_an_identical_repeated_lookup_is_refused_rather_than_run_again(
 async def test_a_lookup_that_hangs_is_stopped_and_answered_with_a_sentence(
     azure_only: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Nothing else bounds a read tool: this deployment sets no `statement_timeout`, so one
-    lookup against a lock could eat the whole of `TOTAL_BUDGET_S` and turn a question into
-    "the assistant stopped part-way". A stopped lookup is a sentence the model can act on.
+    """Nothing else bounds a read TOOL: `db/session.py`'s `statement_timeout` bounds one
+    statement and a lookup may issue several, so a lookup against a lock could still eat
+    the whole of `TOTAL_BUDGET_S` and turn a question into "the assistant stopped
+    part-way". A stopped lookup is a sentence the model can act on.
 
     FAILS IF: `READ_TOOL_BUDGET_S` stops being applied — the test then hangs rather than
     failing, which is why the budget is monkeypatched down rather than waited out.
