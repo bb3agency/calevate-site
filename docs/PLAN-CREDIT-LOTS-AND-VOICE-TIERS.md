@@ -1,8 +1,18 @@
 # PLAN — Credit lots with per-lot rates, and a second voice tier (Cartesia)
 
-**Status: IN PROGRESS — Phase A and Phase C (partial) started 7 Sep 2026; decisions §0 all taken.** This document is the guide for the implementation and is
-kept current as each phase lands (a phase is marked DONE here with the commit that landed
-it). It was written on 7 Sep 2026 from three read-only maps of the tree, each claim below
+**Status: LANDED, WITH THREE THINGS OPEN AND NAMED (read §12 before believing anything is
+finished).** Every phase A–F and every frontend lane F1–F4 is COMMITTED on branch
+`claude/calevate-legal-ops-docs-rd2c4t` in `014d77f..be5a5ec` (7–8 Sep 2026); each phase
+heading below carries the commit that landed it and, where the build departed from what
+this document specified, what changed and why. **⚠ THE PHASE HEADINGS USED TO SAY
+"DONE (uncommitted)" FOR A, B1 AND C AND SAID NOTHING AT ALL FOR D, E, F OR F1–F4** — the
+first was stale from the moment those commits were written and the second was a hole a
+reader could only fill by guessing. **What is NOT built is §12**, and it is not tidy: Phase
+D.3's monthly plan-fee row, the Q6 lot re-price ROUTE (whose admin screen is committed and
+posts to a path the API does not serve), and three money-path defects found by audit AFTER
+the phases landed. Decisions §0 all taken. This document is the guide for the
+implementation and is kept current as each phase lands (a phase is marked LANDED here with
+the commit that landed it). It was written on 7 Sep 2026 from three read-only maps of the tree, each claim below
 cites the file and line it was read from, and anything not verified is marked UNKNOWN.
 Decision-log entry on landing: **D-547** (next free id after D-546, `docs/ROADMAP.md:786`).
 
@@ -133,9 +143,9 @@ One-shot data migration in the same revision: for every tenant with `balance_aft
 
 ### 3.5 TTS price attestation (hard rule 7)
 Today `tts_chars` usage rows write `qty = 1` and `unit_cost_paid = CostBreakdown.tts_inr`, the ENGINE's reported synthesizer leg cost (`workers/pipeline.py:2500-2520`, `engine/bolna.py:5487`). Under a BYOK Cartesia plan the engine's synthesizer figure is expected to be zero (we pay Cartesia, not Bolna) — **UNKNOWN until gate 51 (§9)**. So the Cartesia leg needs its own attested cost seam:
-- `TtsPriceAttestation` beside `LlmPriceAttestation` (`rates.py:494`), operator-attested in the same ops panel (`ops/model_pricing.py`), value = the plan's marginal rate per 1,000 characters (Startup: ₹4,312 / 1.25M = ₹3.4496/1k, recorded as such with its evidence class).
-- `qty` = agent characters spoken, counted from OUR transcript turns (the same measurement `billing/tts_speaking_rate.py` already makes), NOT from the vendor.
-- `unit_cost_paid` = attested rate × qty. The plan fee itself is recorded once a month as a platform cost row (the `platform_ai_usage` shape) so the margin panel shows both the attributed cost and the true plan spend, and their difference is the plan's unused allotment.
+- `TtsPriceAttestation` ⚠ **THIS ADDRESS IS STALE AS BUILT: it lives at `ops/model_pricing.py:655`, NOT in `billing/rates.py`** — the attestation types sit with the ops panel that writes them. Operator-attested, value = the plan's marginal rate per 1,000 characters (Startup: ₹4,312 / 1.25M = ₹3.4496/1k, recorded as such with its evidence class).
+- `qty` = agent characters spoken, counted from OUR transcript turns (the same measurement `billing/tts_speaking_rate.py` already makes), NOT from the vendor. ⚠ **AS BUILT THE UNIT IS `tts_kchars`, A NEW ONE, AND NOT `tts_chars`** — `unit_cost_paid` is `NUMERIC(12,4)`, so a per-CHARACTER rate stores as `0.0034` and our own cost would meter 1.4% light on every Cartesia call. `qty` is therefore characters ÷ 1,000, which is what the attested ₹/1k figure is denominated in (`billing/models.py:157`, `apps/workers/pipeline.py:2959-3028`).
+- `unit_cost_paid` = attested rate × qty. The plan fee itself is recorded once a month as a platform cost row (the `platform_ai_usage` shape) so the margin panel shows both the attributed cost and the true plan spend, and their difference is the plan's unused allotment. ⚠ **THAT SECOND SENTENCE IS PHASE D.3 AND IS NOT BUILT** (§12.1): no committed migration creates the table, so the board publishes the attributed cost with nothing beside it and the unused allotment is computed nowhere.
 - Until a Cartesia price is attested, `offerable_voices()` (§4.3) refuses the Cartesia tier with `NO_ATTESTED_PRICE_REASON` — the exact rule `offerable_models()` applies to an LLM (`agents/llm_models.py:452-476`).
 
 ---
@@ -144,7 +154,7 @@ Today `tts_chars` usage rows write `qty = 1` and `unit_cost_paid = CostBreakdown
 
 Order is by dependency. Each phase ends with its tests green standalone and the ratchet's `ledgers-and-money` area at zero uncovered (`scripts/check_coverage_ratchet.py:410-428`, `tests/fixtures/coverage_baseline.json`).
 
-### Phase A — DONE (uncommitted, 7 Sep 2026)
+### Phase A — LANDED `2e16152` (7 Sep 2026)
 
 The catalogue is six packs x two rates with `plus` (₹15,000) in the ladder, the margin guard judges each rate against its own re-derived, telephony-free cost floor (Sarvam ₹4.1211 / Cartesia ₹4.3639 — the whole Sarvam column clears cost and sits under the 20% target, deliberately), `platform_list_rates` takes twelve `pack:*:*` rows per card under one `effective_from` written from the ops console behind a margin preview and a refusal, and every deprecated wire field stays at zero for one release.
 Files: `billing/credit_packs.py`, `billing/rates.py`, `billing/payment_routes.py`, `billing/list_rates.py`, `ops/config_routes.py`, tests.
@@ -154,8 +164,43 @@ Files: `billing/credit_packs.py`, `billing/rates.py`, `billing/payment_routes.py
 4. `platform_list_rates` gains the twelve `pack:*:*` keys; `record_card` writes them; the ops console's rate write (`config_routes.py:683-718`) becomes a card write with a preview of every margin before commit.
 5. `rates.py` module prose (`:1-24, 65-70, 103, 778`), `credit_packs.py` prose (`:1-46, 130-158`), `voices.py:14` — rewritten; `scripts/check_docs_drift.py` §4b gains the second TTS rung so TRD §10.1 and `rates.py` are compared on both.
 
-### Phase B — lots and the FIFO debit
-B1 — DONE (uncommitted, 7 Sep 2026): table, migration, lots.py, tests. B2 (callers) pending Phase A.
+### Phase B — LANDED. B1 `b0c4b00`, B2 `1df9a5a` (7 Sep 2026)
+
+**B1** — the table, migration `c9f3a71e58d2`, `billing/lots.py` and its tests. Three
+corrections the build made to this document are ADDENDUM 4 and are the spec now: the
+terms-frozen allowlist has to include `credits_total`, `consume()` takes a DEMAND rather
+than a credit count, and `FOR UPDATE` is deliberately NOT taken.
+
+**B2** — the callers, and there is now ONE DOOR PER DIRECTION rather than a door per
+caller: `billing/service.apply_credit_to_lots` for everything that adds credit (Razorpay
+capture, manual top-up, restatement, adjustment both ways, grants, trial credit) and
+`record_usage_from_lots` for everything that spends it (the call meter and the dashboard-AI
+block). `charge_for_call` takes a `CallDemand` and RETURNS what was debited; eleven call
+sites moved with it and no parallel single-rate path was left behind. Overdraft is repaid
+before a new lot opens and the overdrawn minutes are priced at the EXHAUSTED lot's rate, so
+a client who runs past their balance mid-call is not repriced by it. A replay consumes
+nothing — the existing `(tenant_id,'usage',call_id)` uniqueness is the idempotency.
+
+**⚠ TWO DELIBERATE DEPARTURES FROM THIS PLAN, BOTH BECAUSE THE PLAN WAS WRONG. They
+supersede §4.C.8 and §3.5 respectively.**
+
+1. **`meta.tts_tier` was NOT re-spelled to the voice vocabulary.** §4.C.8 said to re-point
+   `BASE_OVERAGE_RUNG`/`_RUNGS` to `("sarvam","cartesia","")`. Those slots are the plan's
+   OVERAGE-RATE rungs — `billing/service._RUNGS` names the pair it belongs to,
+   `plans.overage_rate` / `overage_rate_value` — and re-spelling them would re-bucket every
+   historical `premium` row on months that are CLOSED. The voice is a different fact about
+   the same call, so it is stamped on its own key: `meta.voice_tier`
+   (`apps/workers/pipeline.py:2499,2508`, both with the reasoning above them).
+2. **Cartesia characters meter as a NEW `tts_kchars` unit, not on `tts_chars`.** §3.5 put
+   the attested figure on the existing per-character row. `usage_events.unit_cost_paid` is
+   `NUMERIC(12,4)`, so a per-CHARACTER rate stores as `0.0034` — our own cost would have
+   been metered 1.4% light on every Cartesia call. The unit is thousands of characters
+   (`billing/models.py:157`, `apps/workers/pipeline.py:2959-3028`), which the attested
+   ₹/1k figure is already denominated in.
+
+**When no Cartesia price is attested the meter writes NO cost row and raises an alarm**,
+rather than a fabricated zero — hard rule 7's reason: a catalogue figure has no path to
+`unit_cost_paid`, and a silent zero is worse than a gap because it looks like a measurement.
 
 Files: `billing/models.py`, `billing/service.py`, `billing/lots.py` (new), `workers/pipeline.py`, `billing/payments.py`, `billing/credit_routes.py`, `billing/ai_quota.py`, `compliance/service.py`, migration, tests.
 1. `billing/lots.py`: `open_lot(session, tenant_id, *, credits, rates, source, pack_id, ledger_entry_id)` and `consume(session, tenant_id, *, minutes, voice_tier, call_id) -> list[LotSplit]`. Both run INSIDE the caller's transaction and INSIDE the existing per-tenant advisory lock (`service.py:233-248`); `consume` reads open lots FIFO with `FOR UPDATE`, decrements with a CAS `UPDATE ... WHERE credits_remaining = :seen` (BACKEND-PATTERNS §5), closes a lot at zero.
@@ -167,7 +212,18 @@ Files: `billing/models.py`, `billing/service.py`, `billing/lots.py` (new), `work
 7. `ai_quota.py:1189-1196` debits the same wallet in rupees, not minutes: it consumes lots FIFO at face value (₹1 = 1 credit), no rate. Documented in the lot split as `voice_tier = NULL`.
 8. Tests (each a file, per BACKEND-PATTERNS §9): FIFO order; a split across two lots priced at two rates; a debit larger than all lots (overdraft, priced at the last lot's rate); repayment then lot open on the next top-up; replay makes no second consumption; a lot's rates cannot be updated (trigger); cross-tenant zero rows; invariant 1 after a randomised sequence of top-ups and debits; the migration opens one lot per positive balance and none for a negative one.
 
-### Phase C — PARTIAL DONE (uncommitted, 7 Sep 2026): C.1,2,3,4,5,6,7,8-helper; C.3 built to ADDENDUM 3's schema, gate 52 narrowed to hosted-platform acceptance
+### Phase C — LANDED `1cccfd2` (7 Sep 2026). C.1–C.8 all built; C.3 to ADDENDUM 3's schema, gate 52 narrowed to hosted-platform acceptance
+
+**C.8 landed with §4.C.8's LAST SENTENCE SUPERSEDED** — `meta.tts_tier` and the overage
+rungs were left exactly as they were, and the voice got `meta.voice_tier` of its own. The
+reason is under Phase B above; it is the same departure, recorded in both places because
+the sentence that specified it is here.
+
+**A Cartesia voice still CANNOT be published, and refuses by name.** The catalogue ships
+EMPTY because the Telugu voice ids need one authenticated call that needs the key installed
+first, so `_synthesizer_config` raises `cartesia_voice_incomplete`
+(`apps/api/engine/bolna.py:571-598`) — not the planned `cartesia_wire_shape_unverified`,
+because ADDENDUM 3 made the wire shape known and that name would now be a lie.
 Files: `agents/voices.py`, `agents/voice_routes.py`, `agents/verification.py`, `engine/bolna.py`, `agents/llm_models.py` (pattern) → `agents/voice_offer.py` (new), `core/platform_config.py`, `packages/shared/.../engine.py`, `packages/shared/.../model_lifecycle.py` (or a TTS twin), tests + conformance.
 1. **Catalogue**: `TtsModel = Literal["bulbul:v3", "sonic-3.5"]`; `Voice.provider: Literal["sarvam","cartesia"]`; Cartesia entries from Q1 with `voice_id_for()` unchanged in shape (`"sonic-3.5:<voice_id>"`). `sonic-3` is deliberately NOT in the catalogue (Bolna: use 3.5 in production, `cartesia.md:66`; a sunset of 20 Oct 2026 for `sonic-3` is REPORTED by Comet from `docs.cartesia.ai` and is NOT on Bolna's page — recorded as REPORTED, not asserted). The `_NOTE` at `voices.py:306` stops hardcoding ₹30/10k.
 2. **Offerability**: `offerable_voices()` mirrors `offerable_models()` (`llm_models.py:452-500`): a Cartesia voice is offered only when `cartesia_api_key` is installed (`secret_probes.py:145`), a Cartesia price is attested (§3.5), AND the `cartesia_agent_cap` (Q10) is not exceeded — each refusal a named reason the picker renders. `GET /v1/agents/voices` (`voice_routes.py:230`) returns the reason per unavailable voice, never a shorter list.
@@ -178,19 +234,78 @@ Files: `agents/voices.py`, `agents/voice_routes.py`, `agents/verification.py`, `
 7. **Conformance**: `packages/shared/tests/engine_conformance/contract_test.py:79-85,1263` pin one TTS model; extended to require both adapters (bolna, fake) to round-trip both providers.
 8. `voice_tier(agent)` helper = provider of its voice; the pipeline stamps `meta.tts_tier` with it (`pipeline.py:2484` currently the constant `"premium"`; `BASE_OVERAGE_RUNG`/`_RUNGS` (`service.py:1190-1197`) are re-pointed to `("sarvam","cartesia","")`).
 
-### Phase D — Cartesia metering and the margin panel
+### Phase D — LANDED IN PART `1df9a5a`, `a822c7e` (7–8 Sep 2026). D.3 IS NOT BUILT; D.4's revenue half IS NOT BUILT
+
+**Built**: D.1 (`TtsPriceAttestation` and `tts_price_is_billable`) and D.2 (the metering
+seam), D.4's panel half (`UsagePanelOut` gained `sarvam_minutes`/`cartesia_minutes` and
+their charges, `crm/schemas.py:1035-1038`, fed by `voice_tier_usage`, with no total derived
+in the browser — D-458 kept).
+
+**⚠ `TtsPriceAttestation` LIVES IN `ops/model_pricing.py:655`, NOT IN `billing/rates.py`** —
+§3.5 says "beside `LlmPriceAttestation` (`rates.py:494`)" and that address is STALE: the
+attestation types moved to the ops module with the panel that writes them, and this plan
+was never re-pointed. `billing/rates.py` is not where to look.
+
+**NOT BUILT — D.3**, the monthly `cartesia_plan` platform cost row. A `PlatformTtsPlanFee`
+model and a migration for `platform_tts_plan_fees` exist UNCOMMITTED in the working tree as
+another lane's in-flight work; nothing in `014d77f..be5a5ec` carries them, so the spend
+board today shows the ATTRIBUTED Cartesia cost with no plan spend to compare it against.
+
+**NOT BUILT — D.4's revenue half.** `calling_revenue_inr` still prices a prepaid month as
+`self_serve_rate_inr_per_min * minutes` (`billing/service.py:2900`), a single Sarvam list
+rate, and does NOT take the lot splits' sum. §12 carries it as an open money-path defect.
 Files: `billing/rates.py`, `ops/model_pricing.py`, `workers/pipeline.py`, `billing/service.py` (margin SQL), `billing/attribution.py`, `billing/cost_unit.py`, `crm/schemas.py` (`UsagePanelOut`), tests.
 1. §3.5's `TtsPriceAttestation`, ops attestation panel entry, and `tts_price_is_billable("cartesia")`.
 2. Pipeline: for a Cartesia call, `tts_chars` row `qty` = agent characters from transcript, `unit_cost_paid` = attested rate × qty; for a Sarvam call the existing engine-leg figure stays (its own attestation question is gate 7, `docs/OPERATIONS.md:88`, unchanged).
 3. Monthly `cartesia_plan` platform cost row (operator-attested amount, once per IST month) so the spend board shows plan spend vs attributed.
 4. `calling_revenue_inr` (`service.py:2194-2231`) takes the lot splits' sum instead of `(minutes × one rate)`; `_ROW_TIER_SQL` (`:1233`) reads the new tier spellings; `UsagePanelOut` gains `sarvam_minutes`, `cartesia_minutes`, and their charges, still with NO total computed in the browser (D-458).
 
-### Phase E — the public rate card and API shapes
+### Phase E — LANDED `2e16152`, `2952c90`, `be5a5ec` (7–8 Sep 2026)
+
+E.1's two rates per pack landed with Phase A's response models; E.2's `isRateCard` and a
+per-voice `cheapestPack` landed with the marketing pages. **The lane found `cheapestPack`
+answering the wrong question**: it matched on the DEPRECATED single rate, which holds the
+cheaper column, so "cheapest pack for the premium voice" silently returned the cheapest
+pack for the other one. The rate-card fixture was rewritten rather than extended — it
+described a five-pack, one-rate card that no longer exists and kept passing only because
+the deprecated fields are held alive for a release. The final OpenAPI regeneration is
+`be5a5ec`, which is also where seven placeholder types six lanes had written collapsed onto
+the generated ones.
 Files: `billing/payment_routes.py`, `apps/web/src/lib/api/rateCard.ts`, OpenAPI snapshot, `tests/public_rate_card_test.py`, `tests/list_bounds_guard_test.py`.
 1. `GET /v1/public/rate-card` returns both rates per pack; still bounded by the static catalogue; still `public, max-age=60`.
 2. `isRateCard` (`rateCard.ts:125-143`) validates the new fields as money strings; `cheapestPack` becomes per-voice.
 
-### Phase F — Terms and the legal register
+### Phase F — LANDED `5ceb0bd`, `7333e3b` (7 Sep 2026)
+
+Terms §6.1 and Refunds §1 carry the lot promise, three documents bump material and the
+Python catalogue bumps with them. **Two things landed that this section did not ask for and
+that matter more than the wording.**
+
+**Cartesia joined the sub-processor register in its own voice-synthesis row**, beside the
+contingency row it already had, with its Location cell reading NOT VERIFIED — nothing in
+our evidence names a region, its retention on a plan we could buy is unknown, and nobody
+has established whether its DPA can be signed without an enterprise contract. Its old row
+asserted "United States" with nothing behind it. **⚠ THIS IS THE ONE CLIENT-FACING PLACE A
+VENDOR IS STILL NAMED, AND THAT IS DELIBERATE**: the 7 Sep naming decision bars a vendor as
+a PRODUCT CHOICE, and this document exists as a DISCLOSURE — a marketing label on a
+sub-processor register would defeat the only thing it is for.
+
+**The privacy notice and the DPA stopped being true and now say so** (`7333e3b`). Both
+asserted that speech recognition AND voice synthesis run on an Indian provider on both call
+legs, which was true when there was one voice. Synthesis stays there for the FIRST quality
+only; the notice says in terms that this used to be unconditional and stopped being so.
+**The DPA warranty is the finding worth reading twice**: clause 5 warranted that every
+sub-processor is engaged under a written contract with equivalent obligations, and nobody
+has established that this vendor's agreement can be signed without an enterprise contract —
+so it is NARROWED in the open rather than left to cover a row it does not. Where Cartesia
+processes is NOT written, because nothing we have read says; naming a country from its
+"designed for users in the United States only" line would have been a guess wearing a
+citation. A callout counting our vendors whose terms permit training said one; there are two.
+
+The lane also found that reverting the version bumps alone left every test green — the
+register compares document IDENTITY, not text, so a clause can be rewritten with no bump
+and nothing sees it. Closed for the clause that matters with two text-pinning tests; the
+general fix (a hash of each document's operative strings) is NOT built.
 Files: `apps/web/src/lib/legal/terms.ts` §6.1, `refunds.ts` §1/§3 wording, `versions.ts`, `apps/web/tests/legal.test.tsx`, `tests/legalRegister.test.ts`, `tests/legal_agreements_test.py`.
 1. §6.1 gains: *"Each purchase of credit is priced at the per-minute rates shown for that purchase when you made it, for the voice each agent uses. Those rates apply to that purchase's credit until it is spent, and a later change to our rate card does not change them. Credit does not expire. Credit is spent oldest purchase first."* — the founder approves the wording before the version bump.
 2. §6.1's *"not the rate your credit balance is drawn down at"* (`terms.ts:326`) and Refunds §1 (`refunds.ts:56-59`) are reworded to the plural ("the rates").
@@ -202,24 +317,94 @@ Files: `apps/web/src/lib/legal/terms.ts` §6.1, `refunds.ts` §1/§3 wording, `v
 
 Ownership for parallel lanes is by directory; the pricing page and the wallet hub are separate lanes.
 
-### F1 — Wallet hub (`apps/web/src/app/c/[slug]/billing/**`)
+### F1 — LANDED `7dbb455`, `be5a5ec` (7–8 Sep 2026). Wallet hub (`apps/web/src/app/c/[slug]/billing/**`)
+
+**⚠ THE "Sarvam / Cartesia minutes" WORDING BELOW IS SUPERSEDED ON EVERY CLIENT SCREEN.**
+The founder's 7 Sep 2026 naming decision (`f6d7996`) bars a vendor name from any
+client-facing surface: a client reads **"Clear"** and **"Studio"**, defined once at
+`billing/rates.py::VOICE_TIER_LABELS` and SENT over the wire, never held as a second copy
+in TypeScript. The wire fields, the ledger, the lot rows and `meta.tts_tier` keep the
+vendor spelling, because that is what they mean and it is what an auditor reconciles
+against a vendor invoice. A payload with no labels renders no quality name and no rate,
+rather than falling back to a vendor's word.
+
+**The runway callers disagreed by more than the finding predicted** (`a822c7e`): the old
+one-balance-÷-one-rate division understated a client's runway by 6% on the cheap voice and
+OVERSTATED it by 40% on the premium one — and the overstatement was the number the
+low-balance email quoted. `prepaid_minutes_left` is DELETED, not deprecated; the alert now
+names both qualities or stays silent. The usage tab's "minutes of calling left this month"
+carried two meanings (a division for a prepaid tenant, a cap remainder otherwise) and now
+renders only for the tenant it is true for. The `LotsPanel` says what a client was actually
+sold, oldest first; the pack matcher matches on the DEARER quality, because a pack that
+covers a month of the premium voice covers it on the cheaper one and the reverse
+under-buys. "One voice, one rate" is gone from the explainer with a note saying it was
+there and why it was false.
+
+**The free-amount floor is `service.lot_rates_for_amount` and it floors at the SMALLEST
+pack** — §0 Q3 states that floor only by EXAMPLE ("₹100–4,999 → ₹2,000-pack rates"), which
+is not a rule a reader can apply to a card whose rungs move. The implemented rule is: the
+largest pack at or below the amount, and the smallest pack's rates for anything under the
+first rung. Monotone by construction, so a client can never pay more per minute for buying
+more.
 - `TopUp.tsx`: the pack cards show **two rates per pack** and two talk-time figures; the "Extra credit" column goes (`pricing/page.tsx:188` has the same column). A free amount shows the rule from Q3 in words before the Razorpay button.
 - `WalletHero.tsx` / `CreditsTab.tsx` / `OverviewTab.tsx`: balance stays rupees; runway becomes the Q7 pair; a new **Lots** list (open lots, oldest first, each with its two rates and remaining credits) — the sentence a client reads is *"3,200 credits at ₹4.70 / ₹6.50, then 2,000 at ₹5.00 / ₹8.00"*.
 - `WhatCallsCost.tsx:26-53,132`: "one voice, one rate" and its rationale are rewritten around the two voices; `UsageTab.tsx:154-223`: the legacy "reduced rate (NULL on every plan)" pair is replaced by Sarvam/Cartesia minutes and charges from `UsagePanelOut`.
 - `TransactionsTab.tsx`: a `usage` entry expands to its lot splits.
 - Tests to re-point: `tests/topup.test.tsx:380-564`, `tests/credits.test.tsx:205-626`, `tests/spend.test.tsx:301-531`, `tests/billingHub.tsx`.
 
-### F2 — Pricing page, homepage, ROI (`apps/web/src/app/pricing`, `/`, `/roi`, `components/marketing/**`)
+### F2 — LANDED `2952c90` (7 Sep 2026). Pricing page, homepage, ROI (`apps/web/src/app/pricing`, `/`, `/roi`, `components/marketing/**`)
+
+The provenance rule the marketing test applies to money is EXTENDED to the tier NAME: each
+card carries the client-facing label beside each rate and a page renders the label the API
+sent, so stubbing different labels must change what the page prints. The ROI calculator
+gains a voice BEFORE it gains a pack, so a pack cannot be repriced under the buyer by a
+later choice. Every price sentence that cited a settings constant as "the site's price"
+stopped being true when the card became a ladder, and the prose now says what is served.
 - `pricing/page.tsx`: the stale header doc (`:20-52`) goes; the lede prints both "from" rates; the pack table has both rate columns; `METERED[1]` (`:70-77`, "two voice tiers, a plan can quote them") is rewritten for the per-agent meaning; `PLAN_SHAPE` (`:100-105`) likewise.
 - Provenance test (`tests/marketingPages.test.tsx:200-241`): `fromCard` is extended to both rate fields per pack — the rule (every ₹ figure on the page must be one the API sent) is unchanged. Fixture `tests/fixtures/rateCard.ts:17-30` gains `plus` and the second rate.
 - ROI calculator (`components/marketing/roiCalculator.tsx`, `lib/roi.ts:173-212`): gains a voice choice; `calevatePaisePerMin` is fed from the chosen voice's rate on the chosen pack; `tests/roi.test.ts:31-53` re-pointed.
 
-### F3 — Agent voice (admin picker + client display)
+### F3 — LANDED `38d5fcb`, `be5a5ec` (7–8 Sep 2026). Agent voice (admin picker + client display)
+
+**The picker is a RADIO GROUP, not the `select` this section implies**, and the reason is
+the one idiom rule: a `select` element cannot hold a price or a refusal sentence, and the
+model picker next door had already solved exactly that. It groups by the tier's
+client-facing name, which comes from the wire (`OfferedVoiceOut.tier_label` beside
+`provider`), so the browser never holds a second copy of a name the server owns; a voice
+whose tier the server did not name renders UNGROUPED rather than falling back to the
+vendor's word. **An unofferable voice is SHOWN, disabled, with its reason verbatim** —
+filtering it out is the exact defect `offerable_voices` exists to prevent, because a missing
+Cartesia row is indistinguishable from a tier we do not sell, and the operator who pasted a
+key an hour ago would never learn the PRICE is what is still missing. The rate sits on the
+tier heading rather than on each row (a rate is a property of the tier) and outside the
+group's accessible name, so what a screen reader announces does not change when the client's
+oldest lot does.
 - Admin: `admin/tenants/[tenantId]/agents/[agentId]/prompt/page.tsx:1116-1176` (`VoicePanel`) groups voices by provider, shows each voice's per-minute rate on the client's OPEN lots (cheapest first), and renders the `offerable_voices` refusal reason for an unavailable Cartesia voice. Copy at `:1143` rewritten.
 - Client: `c/[slug]/agents/panels/publishing.tsx:136-198` (`VoiceFacts`) shows the tier and its rate; `:138-139` rewritten.
 - `lib/api/voices.ts:4,68-82` types regenerate; `tests/agentVoice.test.tsx:15,73,190-450`, `tests/agentDetail.test.tsx:122,348,352` re-pointed.
 
-### F4 — Admin console
+### F4 — LANDED `fed3f9d`, `a822c7e`, `be5a5ec` (7–8 Sep 2026). Admin console
+
+**⚠ THE TWELVE-CELL CARD *EDITOR* BELOW CANNOT BE BUILT AS SPECIFIED, AND THIS IS A
+CONFLICT WITH THE PLAN RATHER THAN A SHORTCUT.** The card is a COMMITTED CONSTANT
+(`billing/credit_packs.PACK_CATALOGUE`), so there is no wire act that writes a cell and an
+editor would post nowhere. `RateCardPanel.tsx` is therefore a VIEWER plus a preview plus
+the server's refusals: all twelve cells with their rate, the cost that minute carries, the
+server's margin and a verdict per cell — thin rungs amber, below-cost rungs a stop box, and
+those are DIFFERENT THINGS on purpose. An editable card needs a route that takes twelve
+cells through the refusal check, which is a backend decision nobody has taken.
+
+**The test that matters most asserts a thin margin stays a WARNING**: the whole Sarvam
+column is under the 20% target by design, down to 8.42% at the top rung, so a console that
+treated thin as an error would refuse the founder's own card.
+
+**An unattested voice price renders its CONSEQUENCE rather than an empty field** — the
+platform reports the leg as zero, every minute meters as free, and the picker refuses the
+tier. An empty field looks like nothing is wrong.
+
+The credits screen lists open lots oldest-first with both rates and states the two things a
+client was promised: credit spends oldest first, and a restatement moves totals and never
+rates. ⚠ **The Q6 override CONTROL is committed and its backend ROUTE is not** — see §12.
 - `admin/ops/ConfigPanel.tsx`: the list-rate write becomes a card editor with a margin preview per cell (Phase A.4); `ModelPricingPanel.tsx` gains the Cartesia TTS attestation row (Phase D.1).
 - `admin/tenants/[tenantId]/credits/page.tsx`: grants and restatements show the lot they open/adjust; the Q6 override control ("sell at pack X's rates"), audited.
 - `admin/spend/page.tsx`: Cartesia plan spend vs attributed; the "TTS speaking rate — measured" card now feeds `qty` for Cartesia rows (Phase D.2).
@@ -287,6 +472,10 @@ A (card)  ──►  B (lots + debit)  ──►  D (Cartesia metering)  ──�
 
 ## 11. Definition of done
 
+**This is the TARGET, not a status.** ⚠ Several lines below are NOT met — the margin
+panel's plan-spend half, the statement's per-lot revenue, and the ratchet run itself —
+and §12 names each with its evidence. Read §12 before reading a tick into any line here.
+
 - A clinic buys a ₹15,000 pack and sees 3,191 Sarvam minutes / 2,307 Cartesia minutes and two rates on its wallet; a second ₹2,000 pack appears BEHIND it with its own rates.
 - A call on a Cartesia agent debits FIFO at the oldest lot's Cartesia rate, splits across lots when one runs out, and the ledger row shows the splits.
 - A wallet driven negative is repaid by the next top-up before a new lot opens.
@@ -296,6 +485,56 @@ A (card)  ──►  B (lots + debit)  ──►  D (Cartesia metering)  ──�
 - Terms §6.1 states the lot promise and the version register carries the bump.
 - `make coverage-ratchet` green with `ledgers-and-money` at zero; every guard in §7 green; D-547 in ROADMAP; TRD/BRD/DATA-MODEL/FLOWS/OPERATIONS updated in the same commits.
 - Gates 51–53 filed in OPERATIONS §2 and NOT claimed as done.
+
+---
+
+## 12. What is NOT built, as of 8 Sep 2026
+
+**Read this before treating any heading above as finished.** Everything here was verified
+against the tree and against `git log 014d77f..be5a5ec` on 8 Sep 2026. Nothing in this
+section is tidied into a closed item, and where another lane has uncommitted work in the
+tree that would close one, that is said rather than counted.
+
+### 12.1 Open engineering items
+
+| # | What is missing | Evidence, read 8 Sep 2026 |
+|---|---|---|
+| 1 | **The Q6 lot re-price ROUTE.** `POST /v1/admin/tenants/{tenantId}/credit-lots/{lotId}/override` does not exist. **The seam is HALF-WIRED at `be5a5ec`**: the admin control, its step-up string and its draft state are committed (`apps/web/src/lib/api/creditLots.ts:83`, `apps/web/src/app/admin/tenants/[tenantId]/credits/page.tsx:207,252`) and the READ half is served (`CreditsOut.override_packs`, `billing/credit_routes.py:577,731`), so an operator who presses the control today posts to a path the API does not serve. | The path is absent from `apps/web/src/lib/api/openapi.json` and from every router in `apps/api/`. A `service.reprice_lot` exists UNCOMMITTED in the working tree as another lane's in-flight work. |
+| 2 | **Phase D.3 — the monthly `tts_plan` platform cost row.** The spend board publishes the ATTRIBUTED Cartesia cost with no plan spend beside it, so the unused allotment — the only figure that says whether the plan is the right size — is not computed anywhere. | No `platform_tts_plan_fees` table in any committed migration. A `PlatformTtsPlanFee` model and a migration exist UNCOMMITTED in the tree. |
+| 3 | **An editable rate card.** F4's twelve-cell editor cannot exist against a committed constant; a route that takes twelve cells through the refusal check has not been designed. | §5 F4 above. |
+| 4 | **A text-level drift guard for legal documents.** The register compares document IDENTITY, not text, so a clause can be rewritten with no version bump and nothing sees it. Closed for the lot clause by two text-pinning tests; the general fix (a hash of each document's operative strings) is unbuilt. | Phase F above. |
+
+### 12.2 Three money-path defects, found by audit AFTER the phases landed
+
+Each is a wrong NUMBER on a live surface, not a missing feature. All three are OPEN in
+`014d77f..be5a5ec`; uncommitted work by other lanes touching the second was present in the
+tree while this was written, and is not counted as landed.
+
+1. **A closed month's statement is still priced at list-rate × minutes.**
+   `calling_revenue_inr`'s prepaid branch returns `self_serve_rate_inr_per_min * minutes +
+   llm_surcharge_inr` (`apps/api/billing/service.py:2900`) — ONE rate, the Sarvam list
+   one — while the wallet was actually debited by walking the lots at each lot's own frozen
+   rate for the voice that spoke. The two disagree for any client who bought at anything
+   but the list rate, and by the whole Sarvam/Cartesia gap for a Studio month. Phase D.4
+   specified the fix ("takes the lot splits' sum") and it is not built.
+2. **A downward correction can break the sum-of-lots invariant.** `adjust_lot_for_restatement`
+   returns the `shortfall` that ADDENDUM 2 §2.2 requires the caller to book as wallet
+   overdraft; on the adjustment path the shortfall is computed and then DISCARDED, so
+   `SUM(credit_lots.credits_remaining)` and the wallet balance can part company —
+   invariant §2.3.1's exact failure.
+3. **A Studio call on an empty wallet falls back to the SARVAM list rate.**
+   `CallDemand.fallback_inr_per_min` is fed `list_rate` unconditionally
+   (`apps/workers/pipeline.py:2712`), and `list_rate` is `self_serve_rate_at(...)` — the
+   single Sarvam figure. Q5's rule ("the rate of the lot that ran out") is honoured when
+   there WAS a lot; the case with no lot at all under-charges a Cartesia call by the
+   difference between the two columns, on the one occasion the client is already overdrawn.
+
+### 12.3 Blocked outside this repository (unchanged)
+
+The Telugu voice ids (the library is behind a login; the catalogue ships EMPTY and a
+Cartesia publish refuses by name) and OPERATIONS §2 gates **51**, **52**, **53** and **54**.
+Cartesia's overage rate past the allotment and the BYOK platform fee's billing granularity
+remain UNKNOWN, and both floors are struck without them.
 
 ---
 

@@ -4016,11 +4016,16 @@ gives the `meta.lots` entry as `{lot_id, credits, minutes, inr_per_min, voice_ti
 such a split, and the plan does not say which. DATA-MODEL states what the plan states and no
 more.
 
-## §77 — the pack card, the lots and the second voice: three phases landed, and the documents caught up
+## §77 — the pack card, the lots and the second voice: every phase landed, five fixes beside them, and what is still open
 
 **§76 recorded the model as prose, ahead of the code. This section records the code**, in
-one entry per phase that actually landed, and then the documents that were re-pointed at it
-in the same session. Every figure below was read from the tree on 7 Sep 2026 at the file and
+one entry per phase that actually landed, then the five fixes in the same wave that are not
+D-547 at all, then the documents that were re-pointed at it. ⚠ **THIS SECTION USED TO CARRY
+THREE PHASE ENTRIES AND STOP** — A, B1 and "C (partial)", written while the rest was still
+being built — so a reader met a wave that looked a third finished. Every phase A–F and every
+frontend lane F1–F4 is committed on `claude/calevate-legal-ops-docs-rd2c4t` in
+`014d77f..be5a5ec`; what is genuinely open is the closing paragraph and
+`docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md` §12, and neither is tidy. Every figure below was read from the tree on 7 Sep 2026 at the file and
 line named; nothing is restated from the plan.
 
 ### Phase A — the pack card becomes six rungs × two rates, and the floor is derived
@@ -4084,7 +4089,15 @@ A zero or negative balance opens none. It runs inside the `NO FORCE`/`FORCE` bra
 `tests/migration_rls_bracket_test.py` enforces, because unbracketed the INSERT would match
 zero rows and report success.
 
-### Phase C (partial) — Cartesia becomes a second voice, and the publish diff stops trusting the speaker
+### Phase C — Cartesia becomes a second voice, and the publish diff stops trusting the speaker
+
+⚠ **THIS ENTRY WAS HEADED "Phase C (partial)" AND THAT WAS NEVER TRUE OF THE COMMIT IT
+DESCRIBES.** `1cccfd2` carries C.1 through C.8: the two-provider catalogue, `voice_offer.py`,
+the synthesizer block, `set_tts_credential` and `Settings.bolna_tts_credential_name`, the
+provider/model/voice read-back, `TTS_MODEL_LIFECYCLE` with `check_model_lifecycle` extended
+to a second table rather than a second script, and the conformance suite round-tripping both
+providers on both adapters. C.8's LAST clause is the one thing that did NOT land as
+specified, and deliberately — see Phase B2 below on `meta.tts_tier`.
 
 The catalogue widens to two providers; `agents/voice_offer.py` mirrors `offerable_models()`
 with three ordered grounds, each a sentence the picker renders: no `cartesia_api_key`
@@ -4111,6 +4124,201 @@ published**, and refuses by name (`cartesia_voice_incomplete`,
 `engine/bolna.py:571-598`): the catalogue ships EMPTY because the Telugu voice ids need one
 authenticated call that needs the key installed first.
 
+### Phase B2 — one door per direction, and two places the plan was wrong
+
+`billing/lots.py` existed and nothing called it. B2 is the wiring, and there is **one door
+per direction rather than a door per caller**: `apply_credit_to_lots` for everything that
+adds credit — Razorpay capture, manual top-up, restatement, adjustment both ways, grants,
+trial credit — and `record_usage_from_lots` for everything that spends it, the call meter
+and the dashboard-AI block alike (`apps/api/billing/service.py:1016,1116`).
+`charge_for_call` takes a **DEMAND** now, not a rupee amount, and RETURNS what was actually
+debited, because a call's demand is minutes and a voice and what those cost is not
+computable before the lots are walked. Eleven call sites moved with it; no parallel
+single-rate path was left behind.
+
+Overdraft is repaid before a new lot opens, and the overdrawn minutes are priced at the
+**EXHAUSTED lot's** rate rather than a fallback — a client who runs past their balance
+mid-call is not repriced by it. A replay consumes nothing: the existing
+`(tenant_id,'usage',call_id)` uniqueness is the idempotency, so the second delivery finds
+the row and walks no lots.
+
+**Two deliberate departures from the plan, both because the plan was wrong, and both now
+recorded in it.** `meta.tts_tier` was NOT re-spelled to the voice vocabulary as §4.C.8
+asked: those slots are the plan's **overage-rate rungs** — `billing/service._RUNGS` names
+the pair, `plans.overage_rate` / `overage_rate_value` — and re-spelling them would re-bucket
+every historical `premium` row in months that are CLOSED. The voice is a different fact
+about the same call and got its own stamp, `meta.voice_tier`
+(`apps/workers/pipeline.py:2499,2508`). And Cartesia characters meter as a **new
+`tts_kchars` unit** rather than on `tts_chars`, because `usage_events.unit_cost_paid` is
+`NUMERIC(12,4)` and a per-character rate stores as `0.0034` — our own cost would have been
+metered **1.4% light on every Cartesia call**.
+
+When no Cartesia price is attested the meter writes **no cost row and raises an alarm**,
+not a fabricated zero. Hard rule 7 is the reason: a catalogue figure has no path to
+`unit_cost_paid`, and a silent zero is worse than a gap because it looks like a measurement.
+
+Eight mutants were reverted one at a time and seven came back red. **The eighth came back
+GREEN and is reported rather than buried**: a `kind` filter in the per-voice SQL changes no
+answer today, because the other split shape carries no voice key and is dropped downstream.
+The clause stays and the measurement is written above it.
+
+### Phase D — the metering seam landed; the plan-fee row and the revenue half did not
+
+`TtsPriceAttestation` and `tts_price_is_billable` are built, and they live in
+`apps/api/ops/model_pricing.py:655` — **not** in `billing/rates.py` where the plan said to
+put them; the attestation types sit with the ops panel that writes them, and the plan has
+been re-pointed. `UsagePanelOut` gained `sarvam_minutes`/`cartesia_minutes` and their
+charges (`apps/api/crm/schemas.py:1035-1038`), fed by `voice_tier_usage`, with no total
+derived in the browser (D-458 kept).
+
+**Two halves are NOT built and are named here rather than left to be inferred.** Phase D.3's
+monthly plan-fee row does not exist in any committed migration, so the spend board publishes
+the ATTRIBUTED Cartesia cost with nothing to compare it against — and the difference between
+the two is the only figure that says whether the plan is the right size. And Phase D.4's
+revenue half is unbuilt: `calling_revenue_inr` still prices a prepaid month as
+`self_serve_rate_inr_per_min × minutes` (`apps/api/billing/service.py:2900`), one Sarvam
+list rate, against a wallet that was debited by walking lots at each lot's own frozen rate.
+
+### Phase E — the public card carries two columns, and `cheapestPack` was answering the wrong question
+
+`GET /v1/public/rate-card` returns both rates per pack, still bounded by the static
+catalogue and still `public, max-age=60`. `isRateCard` validates the new fields as money
+strings.
+
+**`cheapestPack` matched on the DEPRECATED single rate**, which holds the cheaper column, so
+"cheapest pack for the premium voice" silently returned the cheapest pack for the other one.
+It takes a voice now, and a card whose two columns bottom out on different rungs is the
+test. The rate-card fixture was **rewritten rather than extended**: it carried five packs
+and one rate and kept passing only because the deprecated fields are held alive for a
+release — it described a card that no longer exists. It is typed against the wire shape now,
+which is what would have caught it.
+
+### Phase F — the lot promise becomes a term, and one document is deliberately allowed to name the vendor
+
+Terms §6.1 states what the database started doing that morning: a purchase of credit is
+priced at the rates shown when it was made, one per voice quality, and those rates hold
+until that credit is spent whatever the card does afterwards; credit does not expire; it is
+spent oldest purchase first. Refunds §1 carries the same promise, which is what makes an
+unused balance a determinate amount rather than a number that moves with the card. Three
+documents bump material and the Python catalogue bumps with them.
+
+**Cartesia joins the sub-processor register in its own voice-synthesis row**, beside the
+contingency row it already had, because one row cannot hold two standings. Its Location cell
+says **NOT VERIFIED** and a new section says so in words: nothing in our evidence names a
+region, its retention on a plan we could buy is unknown, and nobody has established whether
+its data-processing agreement can be signed without an enterprise contract. Its old row
+asserted "United States" with nothing behind it. **This is the one client-facing place a
+vendor is still named, and that is the point**: the naming rule bars a vendor as a PRODUCT
+CHOICE, and this document exists as a DISCLOSURE — a marketing label on a sub-processor
+register would defeat the only thing it is for.
+
+The lane found what it was asked to test for: **reverting the version bumps alone left every
+test green.** The register compares document IDENTITY, not text, so a clause can be
+rewritten with no bump and nothing sees it. Closed for the clause that matters with two
+text-pinning tests; the general fix — a hash of each document's operative strings — is NOT
+built.
+
+### The privacy notice and the DPA stop being true about one voice, and say so
+
+Both documents asserted that speech recognition **and** voice synthesis run on an Indian
+provider on both call legs. That was true when there was one voice. The second quality is
+spoken by a company nobody here can place, so the sentence is **withdrawn rather than
+narrowed quietly**: recognition and the first extraction pass stay where they were,
+synthesis stays there for the FIRST quality only, and the notice says in terms that this
+used to be unconditional and stopped being so. A test bans the old sentence from growing
+back.
+
+**Where the second vendor processes is NOT written, because nothing we have read says.** No
+region, no residency commitment, and its own pages are unreachable from this build
+environment. The notice says assume outside India and quotes the one line the vendor does
+give — that its services are designed for users in the United States only — with the note
+that this is about who the service is FOR, not where processing happens. Naming a country
+from that would have been a guess wearing a citation.
+
+**The DPA warranty is the finding worth reading twice.** Clause 5 warranted that EVERY
+sub-processor on the register is engaged under a written contract with equivalent
+obligations, and nobody has established that this vendor's agreement can be signed without
+an enterprise contract — so that warranty could not honestly cover the new row. It is
+narrowed in the open: we do not represent one is in place, and it will be when somebody
+establishes it can be. A callout counting our vendors whose terms permit training said one;
+**there are two.** Certification vocabulary is deliberately absent — the evidence records
+the vendor asserting four certifications and records the actual report as behind an access
+request nobody made. Both documents bump MATERIAL, because a new recipient of
+caller-derived text is a disclosure rather than a clarification, and an account holding the
+old revision is re-asked.
+
+### F1 — the wallet stops averaging two rates into one wrong number
+
+Every minutes figure on this hub was one balance divided by one live rate. **That arithmetic
+is what lots retire**, and the disagreement was worse than the finding predicted: the old
+division understated a client's runway by **6% on the cheap voice and OVERSTATED it by 40%
+on the premium one** — and the overstatement was the number the low-balance email quoted.
+`prepaid_minutes_left` is DELETED, not deprecated; the hero's single figure is a pair read
+from the lot queue, and when the queue cannot answer it prints NO minutes at all rather than
+the old number. The alert names both qualities or stays silent rather than promising zero.
+The same wrong figure turned up twice more than the plan knew about: the usage tab's
+"minutes of calling left this month" carried two meanings — a division for a prepaid tenant,
+a cap remainder otherwise — and now renders only for the tenant it is true for.
+
+A new lots panel says what a client was actually sold, in the order it happens, and an
+overdrawn wallet says what is owed and that the next top-up clears it before opening
+anything new. The pack matcher matches on the **DEARER** quality: a pack that covers a month
+of the premium voice covers it on the cheaper one, and the reverse under-buys. "One voice,
+one rate" is gone from the explainer with a note saying it was there and why it was false. A
+debit expands to its splits, and an assistant split renders with no rate and no voice
+because it HAS neither — the absent-key shape, not a null one.
+
+**No name a client reads is held in the browser.** A payload with no labels renders no
+quality name and no rate, rather than falling back to a vendor's word. The free-amount
+preview follows the SERVER's rule for which pack's rates an odd amount buys at, which floors
+at the smallest pack — **the plan states that floor only by example**, which is not a rule a
+reader can apply to a card whose rungs move.
+
+### F3 — the voice picker shows two qualities, their price, and why one is refused
+
+A `select` element cannot hold a price or a refusal sentence, so the picker becomes the
+**radio group the model picker already is** — one idiom for "pick one priced thing from a
+grouped list", not two. It groups by the tier's client-facing name, and that name comes from
+the wire (`OfferedVoiceOut.tier_label` beside `provider`), so the browser never holds a
+second copy of a name the server owns; a voice whose tier the server did not name renders
+ungrouped rather than falling back to the vendor's word.
+
+**An unofferable voice is SHOWN, disabled, with its reason verbatim.** Filtering it out is
+the exact defect `offerable_voices` was built to prevent: a missing Cartesia row is
+indistinguishable from a tier we do not sell, so the operator who pasted a key an hour ago
+would never learn that the PRICE is what is still missing. The rate sits on the tier heading
+rather than on each row, because a rate is a property of the tier — two personas in one tier
+cost the same — and outside the group's accessible name, so what a screen reader announces
+does not change when the client's oldest lot does. The client-side panel prices the voice
+callers actually HEAR, not the one waiting to go live.
+
+### F4 — the console shows the card, the lots, and what an unattested price costs
+
+Four operator screens learn the two-voice card. The rate panel shows all twelve cells with
+the rate, the cost that minute carries, the server's margin and a verdict per cell — thin
+rungs get an amber box naming each one, below-cost rungs get a stop box, and **those are
+different things on purpose**. A refused write renders the server's own two sentences rather
+than one generic failure, because below-cost and non-monotone have different remedies. The
+test that matters most asserts a thin margin stays a **WARNING**: the whole Sarvam column is
+under the 20% target by design, down to 8.42% at the top rung, so a console that treated
+thin as an error would refuse the founder's own card.
+
+**An unattested voice price renders its CONSEQUENCE rather than an empty field** — the
+platform reports the leg as zero, every minute meters as free, and the picker refuses the
+tier. An empty field looks like nothing is wrong.
+
+**The card panel is a VIEWER, not the twelve-cell editor the plan specified, and that is a
+conflict rather than a shortcut**: the card is a committed constant, so there is no wire act
+that writes a cell and an editor would post nowhere. An editable card needs a route that
+takes twelve cells through the refusal check, which is a backend decision nobody has taken.
+
+The credits screen lists open lots oldest-first with both rates and states the two things a
+client was promised — credit spends oldest first, and a restatement moves totals and never
+rates. ⚠ **The Q6 override control is committed and the route it posts to is not**: the read
+half is served (`CreditsOut.override_packs`) and the write path
+`POST /v1/admin/tenants/{tenantId}/credit-lots/{lotId}/override` exists in no router and in
+no OpenAPI snapshot. That seam is half-wired and is recorded as open in the plan's §12.
+
 ### The documents, re-pointed at what landed
 
 | Document | What it now says |
@@ -4122,11 +4330,136 @@ authenticated call that needs the key installed first.
 | `runbooks/deploy-failed.md` §4 | Rolling the CODE back touches none of this; downgrading past `c9f3a71e58d2` **destroys the frozen rates of every lot opened since the upgrade**, and no wallet moves because lots never wrote a delta. Dump `credit_lots` before you do it, and record it as a billing fact: re-upgrading re-opens every balance as one ₹5.00/₹7.00 migration lot, not at what the client paid. |
 | `docs/BUILD-LOG.md` | This section. |
 
-**What is still not built, said plainly**: Phase B2 (the callers — pipeline, payments,
-credit_routes, ai_quota — so a call is still NOT priced from a lot today), Phase D
-(`TtsPriceAttestation` and the margin panel), Phase E (the wire shapes), Phase F (Terms
-§6.1) and the frontend. **What is blocked outside this repository**: the Telugu voice ids,
-and OPERATIONS gates 51–54.
+### Five fixes in the same wave that are not D-547 at all
+
+**Statement and lock timeouts.** Nothing bounded a query anywhere: the application
+connection set only a POOL timeout and the migration connection set nothing at all, so one
+slow scan held a pooled connection indefinitely, and an `ALTER TABLE` waiting for `ACCESS
+EXCLUSIVE` queued every later query on that table behind a lock it had not yet acquired —
+**the outage starts before the lock is taken**, which is what makes the second worse than it
+sounds. The application timeout is transaction-local, appended to the `SELECT` each session
+factory already issues, so six of the seven pay no extra round trip, and it is a `Settings`
+value read per session open rather than a literal, which is what makes its `live`
+classification true instead of decorative. The migration GUCs go in as **libpq options
+rather than post-connect `SET`s**, because a `SET` would roll back with a failed revision
+under transaction-per-migration — exactly when the timeout is most needed. The statement
+timeout there stays far above the lock wait for a reason **verified against this Postgres by
+a test rather than recalled from documentation**: the statement timeout also covers the lock
+wait, so a smaller value would preempt the lock timeout and report the wrong cause. No
+circuit breaker, and the reason is now written where the pointer sent readers — the
+uncovered case was never 429 but SLOWNESS, which trips no ladder, and it is bounded anyway
+by a single-flight dispatch lease, serial dials and a six-line pool cap; a breaker's
+half-open probe on a non-idempotent dial is an unsolicited phone call placed by a timer.
+Four stale claims were corrected in passing, each verified rather than reworded. **Found
+while testing and recorded rather than fixed**: no offline migration render has ever
+completed in this repo, because one revision queries the database inside `upgrade()` and
+offline mode has no connection to give it.
+
+**The erasure-coverage guard.** Every comparable rule in this repo is structurally
+enumerated — RLS against the catalog, ledgers against their triggers, alarms both
+directions, list bounds. The legally most expensive one was hand-written per table, and the
+code already recorded what that cost: `handoff_attempts` survived BOTH clocks because
+nothing named it, and `outbox_messages` was invisible to every tenant-scoped arm of both
+erasures. Two tables, found by a person reading, months apart. `scripts/check_erasure_coverage.py`
+walks a bounded **CALL GRAPH from the two erasure entrypoints rather than
+grepping**, because *"swept by retention, unreachable by erasure"* is exactly what
+`handoff_attempts` was and a grep cannot tell those apart. Both directions: a table with a
+subject handle and no arm fails, and an exemption naming a table that no longer exists fails
+too. **Forty-two tables in scope, eighteen reached, twenty-four exempt — and none of the
+twenty-four was a live hole.** What changed is that each argument is now written where a
+reviewer can weigh it. Two are worth reading: `kb_retrieval_logs` would hold raw caller
+utterances and is exempt only because nothing can WRITE it yet, with an existing test that
+fails the day a producer lands; and `lead_events` is safe on a six-producer payload audit
+rather than on any schema property, so a seventh producer breaks the argument visibly. The
+two unbounded erasure arms are **BATCHED rather than given a timeout exemption** — a
+statement timeout would cancel them, so a subject's erasure would fail for the tenant being
+large, and an exemption keeps the lock, which was the real defect. The loop raises rather
+than returning a partial count, because a partial count would put "we erased everything" on
+a document that is not true.
+
+**The DPDP by-name limitation, in the compliance document rather than only the
+certificate.** The erasure keys on the DIGITS the request carries, because that is the one
+handle the schema guarantees; a record holding a person's NAME and no number of theirs is
+unreachable, and that is now stated where a reviewer looks. **The argument against closing
+it is the part worth keeping**: a name is not unique, so searching free text for one would
+delete the records of everybody who shares it — a worse outcome than an honest gap. Closing
+it needs a verification standard and an accepted false-positive rate, which is a founder and
+counsel decision rather than an engineering one. The gap also moved out of a code comment
+and into the known-gaps registry, with a probe that reads the predicates off the IMPORTED
+module rather than the file text — so reformatting cannot flip it, and closing the defect at
+either end turns CI red until the entry is deleted. It opens no operations gate, because it
+is not a vendor assumption.
+
+**Self-service password change, and the four-route rotation barrier.** A user who suspected
+their password was compromised had to sign OUT into an email reset that depends on the
+mailbox being uncompromised — the exact thing in doubt. Logout-all covered half of it, but
+revoking sessions without rotating the credential leaves the attacker able to sign back in.
+**The caller's own session is ROTATED, not spared, and that is the interesting part**:
+sparing "the caller's row" would spare exactly the THIEF's session, because a stolen cookie
+is a copy of the victim's own token. The current password is required on both realms and
+step-up cannot substitute for it — step-up reads a factor timestamp only the admin realm
+ever stamps, so on the client realm the check would be vacuously true. A change to the SAME
+password is refused, because otherwise a person is told "done", loses every other session,
+and believes a live credential is dead. `set_password`'s revocation rule, which was enforced
+by whoever remembered, is an **AST census** now, both directions.
+
+**The rotation barrier is where that lane earned its keep.** The brief said two routes rotate
+the realm's cookie. Reading the SERVICE rather than the comment found **FOUR**: session
+refresh and password change HELD the barrier, while OTP completion and step-up verify only
+**WAITED** on it — and both call `reset()` immediately before dispatching, so they were
+waiting on a flag they had just nulled. Waiting protects a rotation from everyone else; only
+HOLDING protects everyone else from it. The result was the intermittent whole-family
+revocation nobody could reproduce. All four hold now, and the docstring names which four,
+cited (`apps/web/src/lib/authn/realm.ts:47-68`, `apps/api/authn/sessions.py:66-80`). It
+deliberately did NOT invent a queue for rotation-against-rotation: the one remaining caller
+is the idle-timeout modal, and the bar for an invention is not met by a case that cannot
+happen yet.
+
+**The placeholder-type collapse after the OpenAPI regeneration.** Six lanes built this
+feature in parallel and each was told not to regenerate a whole-app artefact carrying six
+lanes' changes, so each wrote a local placeholder for wire fields that did not exist yet — an
+optional field, an intersection, a hand-rolled validator — and marked it temporary. The
+regeneration makes all of them real and REQUIRED, which turns every placeholder from
+redundant into **a second, weaker spelling of a wire contract**. Seven collapse onto their
+generated types. **Three stay, and the distinction is the point**: a validator that re-checks
+what a type now guarantees is deleted, but one that checks something a type CANNOT — that
+money is an exact decimal string, that a partial payload is dropped whole rather than
+half-rendered, that a split carrying no voice is an assistant charge and not a call — is a
+runtime guarantee about untrusted input and stays. Three tests are deleted rather than kept
+alive with a cast, each leaving a comment naming what it protected and where that property
+now lives. **The fixtures were the real find, again**: six described shapes the wire no
+longer has, and three of those crashed their screens the moment the placeholders came off —
+including the accessibility sweep, whose fixtures had no voice rows, no lots and no
+attestation state at all, so it had been sweeping a page that never rendered its own new
+markup. `MONEY_STRING` was spelled seven times across four modules and is one module now,
+with TWO rules rather than one — unsigned four-decimal for wire money, signed any-scale for
+ledger figures — because they were genuinely different and collapsing them would have
+loosened both.
+
+**Three smaller reds cleared in the same wave, each only visible once two lanes were in one
+tree.** A comment explaining that coverage suppressions are forbidden on the ledgers-and-money
+surface **became one**: coverage's exclude pattern matches the directive ANYWHERE on a line,
+so the sentence excluded the constant underneath it and cost the surface its zero. The
+`TRUNCATE` guard on `credit_ledger` started failing the moment `credit_lots` existed, because
+a lot names the ledger entry that opened it and Postgres refuses a plain `TRUNCATE` with
+**0A000 before any trigger runs** — a real refusal, but the foreign key's and not ours, and
+one that would evaporate the day the last dependent is dropped; the test treats 0A000 as a
+re-aim and mounts the CASCADE form, which does reach the trigger. And a copilot cursor test
+stamped each turn body with the owner's uuid, which goes through the redaction hook — a uuid4
+carries a digit run that matches the phone pattern often enough to matter, and this run drew
+one.
+
+**What is still not built, said plainly**: this paragraph used to name Phase B2, D, E, F and
+the whole frontend, and **all of those have since landed in this same wave** — the phase
+entries above carry their commits. What has NOT landed is narrower and is enumerated with its
+evidence in `docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md` §12: Phase **D.3**'s monthly plan-fee
+row, the Q6 lot re-price **route** (whose admin control is committed and posts to a path no
+router serves), an editable rate card, a text-level drift guard for legal documents, and
+**three money-path defects found by audit after the phases landed** — a closed month's
+statement still priced at list-rate × minutes, a downward correction that discards the
+shortfall and can part `SUM(credits_remaining)` from the wallet balance, and a Studio call on
+an empty wallet falling back to the Sarvam list rate. **What is blocked outside this
+repository**: the Telugu voice ids, and OPERATIONS gates 51–54.
 
 ## State of the system — what a future session inherits
 
