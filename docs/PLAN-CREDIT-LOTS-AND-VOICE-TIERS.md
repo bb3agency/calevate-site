@@ -488,46 +488,36 @@ and §12 names each with its evidence. Read §12 before reading a tick into any 
 
 ---
 
-## 12. What is NOT built, as of 8 Sep 2026
+## 12. What is NOT built, as of 8 Sep 2026 (revised at `5735eac`)
 
-**Read this before treating any heading above as finished.** Everything here was verified
-against the tree and against `git log 014d77f..be5a5ec` on 8 Sep 2026. Nothing in this
-section is tidied into a closed item, and where another lane has uncommitted work in the
-tree that would close one, that is said rather than counted.
+**Read this before treating any heading above as finished.** Verified against the tree at
+`5735eac`, not against the doc's own earlier state.
 
-### 12.1 Open engineering items
+⚠ **THIS SECTION WAS WRITTEN AT `be5a5ec` AND FIVE OF ITS SEVEN ITEMS CLOSED IN THE FOUR
+COMMITS THAT FOLLOWED.** It is corrected rather than left standing, because a plan that
+says "not built" about built work sends the next reader to rebuild it — the same defect
+this section was created to fix, one commit later.
 
-| # | What is missing | Evidence, read 8 Sep 2026 |
+### 12.1 Closed since this section was written
+
+| Was open | Closed by | Verified at `5735eac` |
 |---|---|---|
-| 1 | **The Q6 lot re-price ROUTE.** `POST /v1/admin/tenants/{tenantId}/credit-lots/{lotId}/override` does not exist. **The seam is HALF-WIRED at `be5a5ec`**: the admin control, its step-up string and its draft state are committed (`apps/web/src/lib/api/creditLots.ts:83`, `apps/web/src/app/admin/tenants/[tenantId]/credits/page.tsx:207,252`) and the READ half is served (`CreditsOut.override_packs`, `billing/credit_routes.py:577,731`), so an operator who presses the control today posts to a path the API does not serve. | The path is absent from `apps/web/src/lib/api/openapi.json` and from every router in `apps/api/`. A `service.reprice_lot` exists UNCOMMITTED in the working tree as another lane's in-flight work. |
-| 2 | **Phase D.3 — the monthly `tts_plan` platform cost row.** The spend board publishes the ATTRIBUTED Cartesia cost with no plan spend beside it, so the unused allotment — the only figure that says whether the plan is the right size — is not computed anywhere. | No `platform_tts_plan_fees` table in any committed migration. A `PlatformTtsPlanFee` model and a migration exist UNCOMMITTED in the tree. |
-| 3 | **An editable rate card.** F4's twelve-cell editor cannot exist against a committed constant; a route that takes twelve cells through the refusal check has not been designed. | §5 F4 above. |
-| 4 | **A text-level drift guard for legal documents.** The register compares document IDENTITY, not text, so a clause can be rewritten with no version bump and nothing sees it. Closed for the lot clause by two text-pinning tests; the general fix (a hash of each document's operative strings) is unbuilt. | Phase F above. |
+| The Q6 lot re-price ROUTE (the admin control posted to a path no router served) | `a7f4641` | `credit-lots` is in `apps/web/src/lib/api/openapi.json`; `service.reprice_lot` is close-and-replace, the replacement inherits `opened_at`, and a zero-delta `adjustment` marker carries `meta.kind='lot_rate_override'`. |
+| Phase D.3 — the monthly `tts_plan` platform cost row | `bc6da1d` | `alembic/versions/b7d4e91a0c58_platform_tts_plan_fees.py`; `FleetSpendOut.tts_plan` on the wire; Sarvam refused by name because we buy no bundle there and hold no character count of our own. |
+| A closed month priced at list-rate x minutes | `f5b3a3d` | `calling_revenue_inr` takes `prepaid_charged_inr` — the splits' sum. A trial's absorbed figure is a separate function, because the splits are empty there and it would have gone to zero. |
+| A downward correction breaking the sum-of-lots invariant | `f5b3a3d` | The shortfall is consumed from the rest of the queue (`billing/service.py`) and published as `AdjustmentOut.lot_shortfall_inr`. The randomised walk now issues corrections and asserts it issued some. |
+| A Studio call on an empty wallet at the Sarvam list rate | `f5b3a3d` | `CallDemand.fallback_rates` is a PAIR resolved by the demand's own voice, so the two cannot disagree by construction. |
 
-### 12.2 Three money-path defects, found by audit AFTER the phases landed
+### 12.2 Still open in this repository
 
-Each is a wrong NUMBER on a live surface, not a missing feature. All three are OPEN in
-`014d77f..be5a5ec`; uncommitted work by other lanes touching the second was present in the
-tree while this was written, and is not counted as landed.
-
-1. **A closed month's statement is still priced at list-rate × minutes.**
-   `calling_revenue_inr`'s prepaid branch returns `self_serve_rate_inr_per_min * minutes +
-   llm_surcharge_inr` (`apps/api/billing/service.py:2900`) — ONE rate, the Sarvam list
-   one — while the wallet was actually debited by walking the lots at each lot's own frozen
-   rate for the voice that spoke. The two disagree for any client who bought at anything
-   but the list rate, and by the whole Sarvam/Cartesia gap for a Studio month. Phase D.4
-   specified the fix ("takes the lot splits' sum") and it is not built.
-2. **A downward correction can break the sum-of-lots invariant.** `adjust_lot_for_restatement`
-   returns the `shortfall` that ADDENDUM 2 §2.2 requires the caller to book as wallet
-   overdraft; on the adjustment path the shortfall is computed and then DISCARDED, so
-   `SUM(credit_lots.credits_remaining)` and the wallet balance can part company —
-   invariant §2.3.1's exact failure.
-3. **A Studio call on an empty wallet falls back to the SARVAM list rate.**
-   `CallDemand.fallback_inr_per_min` is fed `list_rate` unconditionally
-   (`apps/workers/pipeline.py:2712`), and `list_rate` is `self_serve_rate_at(...)` — the
-   single Sarvam figure. Q5's rule ("the rate of the lot that ran out") is honoured when
-   there WAS a lot; the case with no lot at all under-charges a Cartesia call by the
-   difference between the two columns, on the one occasion the client is already overdrawn.
+| # | What is missing | Why it is not merely unfinished |
+|---|---|---|
+| 1 | **An editable rate card.** The twelve-cell editor F4 specifies cannot exist against a committed constant, and a route taking twelve cells through `card_refusals` has not been designed. | The console is a viewer plus preview plus refusals, which is honest today. Changing a rate is a deploy. If a rate ever has to move without one, this is the work. |
+| 2 | **A text-level drift guard for the legal set.** The register compares document IDENTITY, not text, so a clause can be rewritten with no version bump and nothing sees it. | Closed for the credit-lot clause by two text-pinning tests. The general fix is a hash of each document's operative strings folded into its revision. |
+| 3 | **Inbound calls debit the wallet and nothing bounds a negative balance on inbound.** | Not a bug — a product decision nobody has taken. The copy now says what the ledger does (`8 Sep 2026`); whether answering SHOULD be free is the founder's call, and the answer changes code either way. |
+| 4 | **`install_pricing_readers()` is not called at worker startup**, only in `apps/api/main.py`. | Harmless today: workers read prices through the async reader, and the sync one falls back to `provider == "sarvam"`. It is a latent trap — the first worker to call a sync reader silently gets the fallback. One line in `apps/workers/settings.py::startup`. |
+| 5 | **`kb_retrieval_logs`' erasure tripwire matches the TABLE STRING only.** A producer written as `session.add(KbRetrievalLog(...))` would not trip `tests/kb_tiers_test.py`, and that table is exempt from erasure coverage on the ground that no producer exists. | The exemption is correct today and its tripwire has a hole. Match the ORM class name too. |
+| 6 | **`alembic upgrade head --sql` has never completed**, and it is wider than one revision: twelve migrations call `op.get_bind()`. | Blocks only the documented emit-SQL-for-a-human path. Guard each read with `context.is_offline_mode()`. |
 
 ### 12.3 Blocked outside this repository (unchanged)
 
