@@ -399,9 +399,12 @@ def _runway_out(runway: Runway) -> RunwayOut:
     summary="Balance, how long it lasts, and where the money went",
     description=(
         "The prepaid wallet as its owner reads it. `outbound_stopped` is the dial "
-        "gate's own verdict, asked rather than re-derived — inbound calls are never "
-        "stopped by a balance. `runway.days` is null whenever a projection may not "
-        "honestly be asserted, and `runway.basis` says which reason."
+        "gate's own verdict, asked rather than re-derived; since D-551 it also decides "
+        "INBOUND, because an exhausted wallet silences every answering agent "
+        "(`agents.service.reconcile_inbound_answering`) — the field keeps its name "
+        "because it is still the dial gate's answer, not a second predicate. "
+        "`runway.days` is null whenever a projection may not honestly be asserted, and "
+        "`runway.basis` says which reason."
     ),
 )
 async def read_wallet_summary(principal: WalletRead) -> WalletOut:

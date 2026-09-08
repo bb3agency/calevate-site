@@ -3193,7 +3193,10 @@ class PlanTierOut(BaseModel):
         "`managed` is for a client genuinely billed on a plan retainer — it has no "
         "wallet, the credits screen says so, and nothing stops their dialling for want "
         "of credit. **Setting `prepaid` on an account with no credit stops its OUTBOUND "
-        "calling at the next dial**; inbound answering is unaffected either way. "
+        "calling at the next dial**, and since D-551 it also stops its agents ANSWERING "
+        "incoming calls — not from here, which moves no ledger entry, but from the next "
+        "reconciliation edge (`workers/inbound_cutover.py`, reached from the next metered "
+        "call or the next publish). Moving back to `managed` reverses both. "
         "Idempotent: setting the tier an account is already on returns 200, "
         "`changed: false`, and writes no audit row. 404 means no such client."
     ),

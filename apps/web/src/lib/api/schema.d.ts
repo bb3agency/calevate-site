@@ -5984,11 +5984,35 @@ export interface paths {
         };
         /**
          * The credit-pack card in force: every rung, both voices, with the server's margin
-         * @description Twelve cells — six pack rungs on each of the two voice qualities — each with the rate a client is sold, the per-minute cost that rate carries, the gross margin the server strikes between them, and two verdicts: below the margin TARGET (a warning; the approved card is deliberately thin on the cheaper voice) and below COST (a refusal; the card cannot be recorded at all). It is a READ. The card is a committed constant in this build, so there is no cell to write here — changing a rate is a code change that CI scores with these same functions.
+         * @description Twelve cells — six pack rungs on each of the two voice qualities — each with the rate a client is sold, the per-minute cost that rate carries, the gross margin the server strikes between them, and two verdicts: below the margin TARGET (a warning; the approved card is deliberately thin on the cheaper voice) and below COST (a refusal; the card cannot be recorded at all). It also carries every card already recorded whose date has not arrived (`pending`), the notice period in days, the soonest date this deployment would accept right now, and how many clients a new card would be announced to. Writing one is `POST` on this same path; a card is written whole and takes effect on its own date.
          */
         get: operations["read_rate_card_v1_ops_rate_card_get"];
         put?: never;
-        post?: never;
+        /**
+         * Record a future rate card (step-up confirmed, audited, clients notified)
+         * @description Publishes a whole twelve-cell card — six pack rungs on each of the two voice qualities — to take effect on a date at least 30 days out. Requires `X-Confirm-Action: record_rate_card:<effective_from>`. Rates are exact decimal strings, never JSON numbers. The write is refused if the date is sooner than the notice period (a price CUT included), if any cell is below its voice's per-minute cost floor, if a bigger pack would buy a dearer minute, if a cell is missing or sent twice, or if a card is already scheduled at that instant. Nothing changes until the date: credit already bought keeps the rates it was bought at, because every purchase freezes its rates onto its own lot.
+         */
+        post: operations["record_rate_card_v1_ops_rate_card_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/rate-card/cancellations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Withdraw a scheduled rate card before it takes effect (step-up confirmed)
+         * @description Records that a card recorded earlier will never take effect. Requires `X-Confirm-Action: cancel_rate_card:<effective_from>`. It is a POST and not a DELETE because nothing is deleted: rate history is append-only, so the withdrawal is its own row and both facts — what was scheduled, and that it was withdrawn — stay readable. Only a card whose date is still in the future may be withdrawn; one already in force has priced purchases, and unwinding it would restate lots that are already frozen.
+         */
+        post: operations["cancel_rate_card_v1_ops_rate_card_cancellations_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6894,7 +6918,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "lead_blocked" | "delivery_failed" | "campaign_stalled" | "kb_rejected";
+            kind: "lead_blocked" | "delivery_failed" | "campaign_stalled" | "kb_rejected" | "inbound_stopped";
             /**
              * Occurred At
              * Format: date-time
@@ -8597,6 +8621,7 @@ export interface components {
             from_sarvam_inr_per_min: string;
             /** List Rate Inr Per Min */
             list_rate_inr_per_min: string;
+            next_change?: components["schemas"]["RateCardChangeOut"] | null;
             /** Packs */
             packs: components["schemas"]["CreditPackOut"][];
             /** Sarvam Tier Label */
@@ -12630,6 +12655,21 @@ export interface components {
             /** Verified At */
             verified_at: string | null;
         };
+        /**
+         * PendingCardOut
+         * @description A card that has been recorded and has NOT taken effect yet.
+         *
+         *     `cells` is what will be in force on the day rather than the rows this card happens to
+         *     carry — `list_rates.PendingCard` resolves it AT that instant, so carry-forward and the
+         *     per-cell catalogue fallback are already applied and the operator reads the card the
+         *     platform will actually price with.
+         */
+        PendingCardOut: {
+            /** Cells */
+            cells: components["schemas"]["RateCardCellOut"][];
+            /** Effective From */
+            effective_from: string;
+        };
         /** PendingChangeOut */
         PendingChangeOut: {
             /** Field */
@@ -13134,6 +13174,41 @@ export interface components {
              */
             week_start: string;
         };
+        /** RateCardCancelIn */
+        RateCardCancelIn: {
+            /**
+             * Effective From
+             * Format: date-time
+             */
+            effective_from: string;
+            /** Reason */
+            reason: string;
+        };
+        /** RateCardCancelOut */
+        RateCardCancelOut: {
+            /** Cancelled */
+            cancelled: boolean;
+            /** Effective From */
+            effective_from: string;
+        };
+        /**
+         * RateCardCellIn
+         * @description One posted cell: a pack rung, a voice, and the ₹/min to sell that minute at.
+         *
+         *     **MONEY ARRIVES AS AN EXACT DECIMAL STRING** (hard rule 7, which does not stop at the
+         *     database). A JSON number is an IEEE double before Pydantic ever sees it, so `4.85`
+         *     reaches the process as 4.8499999999999996447 and a rate card would be published from a
+         *     value nobody typed. `mode="before"` is what makes that refusable — by the time the
+         *     field is coerced the damage is done and both spellings look identical.
+         */
+        RateCardCellIn: {
+            /** Inr Per Min */
+            inr_per_min: number | string;
+            /** Pack Id */
+            pack_id: string;
+            /** Voice Tier */
+            voice_tier: string;
+        };
         /**
          * RateCardCellOut
          * @description One rung on one voice: what we sell it at, what it costs us, and the verdict.
@@ -13163,14 +13238,68 @@ export interface components {
             /** Voice Tier */
             voice_tier: string;
         };
+        /**
+         * RateCardChangeOut
+         * @description A card that has been recorded and starts on a date that has not arrived.
+         *
+         *     **IT DOES NOT REPRICE ANYTHING TODAY**, and the field it hangs off says so: `packs` is
+         *     what a top-up made ON OR AFTER `effective_from` will freeze onto its lot, and credit
+         *     bought before then keeps the rates it was bought at for as long as it lasts (Terms §6.1;
+         *     `credit_lots` is what makes that structural rather than a policy).
+         */
+        RateCardChangeOut: {
+            /** Effective From */
+            effective_from: string;
+            /** Packs */
+            packs: components["schemas"]["CreditPackOut"][];
+        };
+        /**
+         * RateCardIn
+         * @description A whole card and the date it starts. Twelve cells, exactly — no partial edits.
+         *
+         *     **THE CARD IS POSTED WHOLE BECAUSE IT IS JUDGED WHOLE.** `credit_packs.card_refusals`
+         *     scores a rate against its voice's cost floor AND against the rung either side of it
+         *     (invariant 6: a bigger pack never buys a dearer minute), so a one-cell PATCH could only
+         *     ever be validated against eleven cells read back from somewhere else — which is a
+         *     read-then-write on money, and the shape BACKEND-PATTERNS §4 refuses. The console sends
+         *     what it is showing.
+         */
+        RateCardIn: {
+            /** Cells */
+            cells: components["schemas"]["RateCardCellIn"][];
+            /**
+             * Effective From
+             * Format: date-time
+             */
+            effective_from: string;
+            /** Reason */
+            reason: string;
+        };
         /** RateCardOut */
         RateCardOut: {
             /** Cells */
             cells: components["schemas"]["RateCardCellOut"][];
+            /** Earliest Effective From */
+            earliest_effective_from: string;
             /** Effective From */
             effective_from: string | null;
+            /** Notice Days */
+            notice_days: number;
+            /** Notice Recipients */
+            notice_recipients: number;
+            /** Pending */
+            pending: components["schemas"]["PendingCardOut"][];
             /** Target Gross Margin Pct */
             target_gross_margin_pct: string;
+        };
+        /** RateCardWriteOut */
+        RateCardWriteOut: {
+            /** Cells */
+            cells: components["schemas"]["RateCardCellOut"][];
+            /** Clients Notified */
+            clients_notified: boolean;
+            /** Effective From */
+            effective_from: string;
         };
         /**
          * ReadinessRowOut
@@ -26308,6 +26437,76 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["RateCardOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_rate_card_v1_ops_rate_card_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RateCardIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RateCardWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    cancel_rate_card_v1_ops_rate_card_cancellations_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RateCardCancelIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RateCardCancelOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

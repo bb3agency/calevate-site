@@ -102,21 +102,26 @@ DEFAULT_WINDOW = _DEFAULT_WINDOW
 # The client-facing wording of the two tenant-level refusals, shared with the campaign
 # launch gate so the same condition never gets explained two different ways.
 SPEND_CAP_REASON = "This account has reached its spending cap for the month."
-# ⚠ THE SECOND SENTENCE IS NOT PADDING (D-521). Prepaid is the default motion now, so
-# this is the refusal most clients will eventually read — on a blocked lead, on the
-# launch gate and on the readiness screen — and "no calling credit left" invites the
-# reading "our phone line is dead". It is not: a low balance never BLOCKS an incoming
-# call, because `check_dispatch` refuses an inbound agent before it reads money at all.
-# ⚠ THAT IS NOT THE SAME AS FREE, AND THIS COMMENT USED TO SAY IT WAS ("answering an
-# inbound call never touches the wallet"). `charge_for_call` takes no direction and
-# `workers/pipeline.py` says so itself — the gate is outbound-only, so inbound still
-# meters. Not gated and not charged are two facts; merging them put a false statement
-# about money on three client screens until 8 Sep 2026.
-# Saying which half stopped is the difference between a client topping up and a client
-# ringing to ask whether their business is off the air.
+# ⚠ THE SECOND SENTENCE IS REVERSED AS OF 8 SEP 2026 AND USED TO READ "Incoming calls
+# are still answered." (D-521). That was true of the code that day and D-551 made it
+# false: at a balance of zero or below `agents.service.reconcile_inbound_answering`
+# silences every answering agent through the engine, so the phone genuinely stops being
+# answered and a caller hears `agents.service.CREDIT_STOP_MESSAGE` instead.
+#
+# Prepaid is the default motion, so this is the refusal most clients will eventually read
+# — on a blocked lead, on the launch gate and on the readiness screen — and a reassurance
+# here would be the most expensive false sentence in the product: the owner reads it, does
+# nothing, and their callers go on being turned away. It therefore says BOTH halves and
+# says that a top-up undoes both, matching `crm/attention.BLOCK_REMEDIES["no_credits"]`
+# fact for fact — a client must not get two accounts of one event on two screens.
+#
+# What it deliberately does NOT do is tell the client what to say to a caller: the in-call
+# message gives no reason (`agents.service.credit_stop_prompt`), and the screens that have
+# room for it say so. This string has to fit beside a blocked lead.
 NO_CREDITS_REASON = (
-    "This account has no calling credit left, so we have stopped making outgoing calls. "
-    "Incoming calls are still answered."
+    "This account has no calling credit left, so we have stopped making outgoing calls "
+    "and the agents are no longer answering incoming ones. Adding credit starts both "
+    "again straight away."
 )
 
 #: The `consent_ledger` statuses that stop a dial (D-117). Derived from the ledger's own

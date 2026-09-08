@@ -116,6 +116,7 @@ from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
 from apps.workers.engine_violations import SWEEP_MINUTE, sweep_engine_violations
 from apps.workers.fx_pull import PULL_MINUTES, pull_fx_rate
 from apps.workers.handoff import record_handoff_started
+from apps.workers.inbound_cutover import apply_inbound_credit_state
 from apps.workers.kb_aggregation import (
     DIGEST_HOUR,
     DIGEST_MINUTE,
@@ -259,6 +260,17 @@ FUNCTIONS: list[Any] = [
         # client list; the child sends one notice.
         fan_out_rate_card_notice,
         notify_rate_card_change,
+        # D-551. THE CREDIT CUTOVER ON THE INBOUND LEG. Published by
+        # `billing.service.record_entry` on BOTH crossings of zero, in the same transaction
+        # as the ledger row that earned them, and by the post-call meter as its backstop.
+        # An unregistered name here is the `check_job_wiring` shape 3 failure at its worst
+        # in this list, because it fails in BOTH directions and neither is visible: the
+        # outbox marks the row published, arq drops the job with a warning nothing reads,
+        # and either a client with no credit goes on having calls answered that nobody is
+        # paying for, or — the one that loses the client — a client who has just topped up
+        # keeps hearing their own customers turned away, all night, with every screen
+        # reporting their balance restored.
+        apply_inbound_credit_state,
         # D-534. The upload lane's one job: read a client's document into text, approve it
         # if its submitter could, and publish it to the voice platform. Enqueued through
         # the OUTBOX in the same transaction as the `kb_uploads` row, so an unregistered

@@ -46,11 +46,18 @@
  * and `below_target` is a number an operator should read and act on, not a blocked save.
  */
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
 import { ApiProblem } from "@/lib/api/client";
 import { apiRequest } from "@/lib/api/client";
 import { adminSession } from "@/lib/api/admin";
+import { formatISTInput } from "@/components/ui";
+import { lookup } from "@/lib/lookup";
 import type { components } from "@/lib/api/schema";
 
 type Schemas = components["schemas"];
@@ -187,4 +194,382 @@ export function useOpsRateCard(): UseQueryResult<RateCard> {
     queryFn: () => apiRequest<RateCard>(adminSession(), OPS_RATE_CARD_PATH),
     refetchInterval: 60_000,
   });
+}
+
+/* ══════════════════════════════════════════════════════════════════════════════════════
+ * THE CARD AS A WRITE (D-550)
+ *
+ * The panel above this comment reads a card; everything below records one. The whole
+ * surface is three acts — record a future card, withdraw a scheduled one, and read the
+ * two numbers an operator needs before either (how soon a card may start, and how many
+ * clients it will be announced to).
+ *
+ * ## The instant is spelled with an OFFSET, and that is load-bearing
+ *
+ * The step-up header the API checks is `record_rate_card:<effective_from.isoformat()>` —
+ * the isoformat of the instant the SERVER parsed out of the body, not of the string this
+ * console sent. Those two are equal only for a spelling Python round-trips unchanged.
+ * `Date.prototype.toISOString()` is NOT one: it emits `2026-10-14T18:30:00.000Z`, which
+ * `fromisoformat` parses and prints back as `2026-10-14T18:30:00+00:00`, so the header
+ * would name an instant one character-string away from the one the handler computed and
+ * every save would be refused with `step_up_required` — a refusal whose own screen tells
+ * the operator to reload, which would never help.
+ *
+ * So a picked DAY becomes `YYYY-MM-DDT00:00:00+05:30` (`cardInstant`), and the header is
+ * built from that exact string. It is midnight IST for `istDateToInstant`'s reason — a
+ * calendar day named by a person in India is that day's first instant there, not UTC
+ * midnight, which is 05:30 IST the same morning — and it is written rather than derived
+ * because India has observed UTC+05:30 with no daylight saving since 1945.
+ *
+ * A CANCELLATION echoes the server's own `pending[].effective_from` VERBATIM for the
+ * same reason: that string came out of `isoformat()`, so sending it back reproduces the
+ * instant, and re-deriving it here would be a second spelling of one fact.
+ *
+ * ## Money never becomes a number
+ *
+ * Every rate the operator types is sent as the exact string they typed. `RateCardCellIn.
+ * inr_per_min` is `number | string` on the wire (Pydantic's `Decimal`), and the API's own
+ * validator REFUSES the number arm — "a JSON number is a binary float and cannot hold a
+ * rupee amount" — so `CellDraft.inr_per_min` is `string` here and a float cannot be sent
+ * from this console at all.
+ */
+
+/** A card recorded and not yet in force, as the read publishes it. */
+export type PendingCard = Schemas["PendingCardOut"];
+
+/** The answer to a recorded card: the instant, the twelve cells, and the notice promise. */
+export type RateCardWrite = Schemas["RateCardWriteOut"];
+
+/** The answer to a withdrawal. `cancelled: false` means it was already withdrawn. */
+export type RateCardCancel = Schemas["RateCardCancelOut"];
+
+/**
+ * The scheduled cards, from a read that may not carry the field at all.
+ *
+ * `pending` is REQUIRED on `RateCardOut`, so the compiler proves a current API sends it.
+ * This reader exists for the other API — a deployment serving the build from before
+ * D-550, whose payload has no `pending` key — because the alternative is `card.pending.
+ * map(...)` throwing inside render and taking the whole configuration screen down with
+ * it. The parameter is deliberately WIDER than `RateCard` so no cast is needed and a
+ * `RateCard` still satisfies it.
+ */
+export function pendingCards(card: {
+  pending?: readonly PendingCard[] | null;
+}): readonly PendingCard[] {
+  return Array.isArray(card.pending) ? card.pending : [];
+}
+
+/**
+ * How many clients a new card would be announced to, or `null` where the API did not say.
+ *
+ * NULL IS A REAL ANSWER AND IS RENDERED AS ONE. A console that showed `0` for "the field
+ * was absent" would tell an operator that recording a card emails nobody, which is the
+ * one sentence on this screen that must never be guessed (hard rule 11).
+ */
+export function noticeRecipients(card: { notice_recipients?: number | null }): number | null {
+  return typeof card.notice_recipients === "number" ? card.notice_recipients : null;
+}
+
+/** The notice period in days, or `null` from an API that does not publish it. */
+export function noticeDays(card: { notice_days?: number | null }): number | null {
+  return typeof card.notice_days === "number" ? card.notice_days : null;
+}
+
+/**
+ * The earliest DAY (IST, `YYYY-MM-DD`) whose midnight the server would accept.
+ *
+ * The API publishes an INSTANT — `now + notice_days` — and this screen picks a DAY that
+ * is sent as midnight IST. Midnight of the instant's own IST date is EARLIER than the
+ * instant on all but one second of the day, so offering that date would offer a day the
+ * server refuses; the floor is therefore the next IST day unless the instant is itself
+ * exactly midnight IST. Erring later is the only safe direction: a floor a day too early
+ * is a refusal an operator cannot see coming, and a floor a day too late costs a day on a
+ * change that is thirty days out.
+ *
+ * `null` when the API published no instant, which leaves the picker with no `min` — the
+ * server is the real gate either way, and inventing a floor would be inventing a rule.
+ */
+export function earliestPickableDate(instant: string | null | undefined): string | null {
+  if (!instant) return null;
+  const at = new Date(instant);
+  if (Number.isNaN(at.getTime())) return null;
+  const istMidnight = formatISTInput(at.toISOString());
+  if (istMidnight === "") return null;
+  const [day = "", time = ""] = istMidnight.split("T");
+  if (time === "00:00") return day;
+  const next = new Date(`${day}T00:00:00+05:30`);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return formatISTInput(next.toISOString()).split("T")[0] ?? null;
+}
+
+/**
+ * A picked IST day as the instant the API is sent — and the one the step-up header names.
+ *
+ * NOT `istDateToInstant`, which is otherwise the right helper and is used everywhere else
+ * on this console: it ends in `toISOString()`, and this one value has to survive a Python
+ * `fromisoformat(...).isoformat()` round trip unchanged, because the server builds the
+ * confirmation string from what it parsed. See the section header above.
+ */
+export function cardInstant(day: string): string | null {
+  const typed = day.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(typed)) return null;
+  const at = new Date(`${typed}T00:00:00+05:30`);
+  return Number.isNaN(at.getTime()) ? null : `${typed}T00:00:00+05:30`;
+}
+
+/**
+ * The step-up strings, copied VERBATIM from `apps/api/ops/config_routes.py`.
+ *
+ * Two of them, bound to the INSTANT, because the API binds them that way and says why: a
+ * confirmation captured while scheduling a rise for December must not be replayable
+ * against one that starts tomorrow week, and withdrawing a card is a different act from
+ * recording one. Copied rather than derived, for `configConfirmation`'s reason — this is a
+ * property of the request being sent, and a mismatch is REFUSED by the server.
+ */
+export function recordCardConfirmation(effectiveFrom: string): string {
+  return `record_rate_card:${effectiveFrom}`;
+}
+
+export function cancelCardConfirmation(effectiveFrom: string): string {
+  return `cancel_rate_card:${effectiveFrom}`;
+}
+
+/** One cell of a card being drafted. The rate is the operator's exact typed string. */
+export interface CellDraft {
+  pack_id: string;
+  voice_tier: string;
+  inr_per_min: string;
+}
+
+export interface RecordCardInput {
+  /** The instant, offset-spelled, from `cardInstant`. */
+  effectiveFrom: string;
+  reason: string;
+  cells: readonly CellDraft[];
+}
+
+export function useRecordRateCard() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ effectiveFrom, reason, cells }: RecordCardInput) =>
+      apiRequest<RateCardWrite>(adminSession(), OPS_RATE_CARD_PATH, {
+        method: "POST",
+        body: {
+          effective_from: effectiveFrom,
+          reason,
+          // The typed strings, unchanged. No `Number()` anywhere on this path.
+          cells: cells.map((cell) => ({
+            pack_id: cell.pack_id,
+            voice_tier: cell.voice_tier,
+            inr_per_min: cell.inr_per_min,
+          })),
+        },
+        confirmAction: recordCardConfirmation(effectiveFrom),
+      }),
+    // Re-read rather than splicing the response in. A recorded card changes `pending`,
+    // and it can change `earliest_effective_from` and the card in force too (a date that
+    // has since arrived), so a console that patched one field would show a fresh card
+    // inside a stale page — `useSetConfig`'s argument, one surface along.
+    onSuccess: () => void client.invalidateQueries({ queryKey: OPS_RATE_CARD_QUERY_KEY }),
+  });
+}
+
+export interface CancelCardInput {
+  /** The server's own `pending[].effective_from`, echoed back unchanged. */
+  effectiveFrom: string;
+  reason: string;
+}
+
+export function useCancelRateCard() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ effectiveFrom, reason }: CancelCardInput) =>
+      apiRequest<RateCardCancel>(adminSession(), `${OPS_RATE_CARD_PATH}/cancellations`, {
+        method: "POST",
+        body: { effective_from: effectiveFrom, reason },
+        confirmAction: cancelCardConfirmation(effectiveFrom),
+      }),
+    onSuccess: () => void client.invalidateQueries({ queryKey: OPS_RATE_CARD_QUERY_KEY }),
+  });
+}
+
+/* ── what a rate MOVED by, computed without ever parsing one ────────────────────────── */
+
+/**
+ * A decimal STRING as an integer and the scale it was written at. `null` when the string
+ * is not a plain decimal — which is what a half-typed box holds most of the time.
+ *
+ * This is the whole of the arithmetic on this screen, and it exists so that the delta
+ * beside a cell can be exact. `Number("4.85")` is the one thing hard rule 7 forbids, and a
+ * delta computed that way prints `0.30000000000000004` next to a rupee figure an operator
+ * is about to commit. Integers scaled by the decimal places are exact for subtraction,
+ * and `BigInt` cannot overflow at any rupee amount this platform will ever hold.
+ */
+// `BigInt(n)` rather than the `0n` literal form: `tsconfig.json` targets ES2017, where
+// TypeScript refuses the literal syntax (TS2737). The RUNTIME value is the same object —
+// every browser this console supports has had `BigInt` since 2020 — so this is a syntax
+// accommodation and not a different kind of number.
+const ZERO = BigInt(0);
+const TWO = BigInt(2);
+const TEN = BigInt(10);
+const PERCENT_SCALE = BigInt(10000);
+
+interface ScaledDecimal {
+  units: bigint;
+  scale: number;
+}
+
+function scaledDecimal(value: string): ScaledDecimal | null {
+  const typed = value.trim();
+  if (!/^-?\d+(\.\d+)?$/.test(typed)) return null;
+  const negative = typed.startsWith("-");
+  const [whole = "0", fraction = ""] = typed.replace(/^-/, "").split(".");
+  const units = BigInt(`${whole}${fraction}`);
+  return { units: negative ? -units : units, scale: fraction.length };
+}
+
+/** The two figures at a common scale — the only thing a subtraction needs. */
+function aligned(a: ScaledDecimal, b: ScaledDecimal): [bigint, bigint, number] {
+  const scale = Math.max(a.scale, b.scale);
+  const lift = (value: ScaledDecimal) => value.units * TEN ** BigInt(scale - value.scale);
+  return [lift(a), lift(b), scale];
+}
+
+/** An integer scaled by `scale` back to the decimal string it stands for. */
+function unscale(units: bigint, scale: number): string {
+  const negative = units < ZERO;
+  const digits = (negative ? -units : units).toString().padStart(scale + 1, "0");
+  const whole = digits.slice(0, digits.length - scale);
+  const fraction = scale === 0 ? "" : `.${digits.slice(digits.length - scale)}`;
+  return `${negative ? "-" : ""}${whole}${fraction}`;
+}
+
+/** Which way a rate moved, by how much, and by what percentage of the old rate. */
+export interface RateDelta {
+  direction: "up" | "down" | "same";
+  /** The absolute difference, exact, at the finer of the two scales ("0.5000"). */
+  amount: string;
+  /** The move as a percentage of the old rate, to two decimals. `null` from a zero base. */
+  percent: string | null;
+}
+
+/**
+ * What one cell moved by, from the two decimal strings — never from two numbers.
+ *
+ * `null` when either side is not a decimal (an empty or half-typed box), which the panel
+ * renders as no delta rather than as "unchanged": those are different statements, and the
+ * second one would be a claim about a value nobody has finished typing.
+ *
+ * The PERCENTAGE is the one figure here that cannot be exact, and it is rounded half-up at
+ * two decimals inside integer arithmetic rather than by a float division. It is a reading
+ * aid beside an exact rupee delta, and it is never sent anywhere: what the API receives is
+ * the typed rate alone.
+ */
+export function rateDelta(from: string, to: string): RateDelta | null {
+  const before = scaledDecimal(from);
+  const after = scaledDecimal(to);
+  if (!before || !after) return null;
+  const [a, b, scale] = aligned(before, after);
+  const diff = b - a;
+  if (diff === ZERO) return { direction: "same", amount: unscale(ZERO, scale), percent: "0.00" };
+  const magnitude = diff < ZERO ? -diff : diff;
+  const base = a < ZERO ? -a : a;
+  // Half-up on the last kept digit, done on integers: `(2·num + den) / (2·den)`.
+  const percent =
+    base === ZERO ? null : unscale((magnitude * PERCENT_SCALE * TWO + base) / (base * TWO), 2);
+  return { direction: diff > ZERO ? "up" : "down", amount: unscale(magnitude, scale), percent };
+}
+
+/**
+ * The rate in force for one cell of a card, or `null` when that card has no such cell.
+ *
+ * Absent rather than zero, for the reason the whole panel is built on: a missing cell must
+ * read as "we have nothing to compare against", never as "it used to be free".
+ */
+export function rateOf(
+  card: { cells: readonly RateCardCell[] },
+  packId: string,
+  voiceTier: string,
+): string | null {
+  const found = card.cells.find(
+    (cell) => cell.pack_id === packId && cell.voice_tier === voiceTier,
+  );
+  return found ? found.inr_per_min : null;
+}
+
+/* ── the four refusals, each with an operator-actionable sentence ────────────────────── */
+
+/**
+ * WHAT THE SERVER SAID NO TO, and what the operator does about it.
+ *
+ * Four codes, four different acts. They are separated rather than funnelled into one red
+ * box because the remedy differs every time: a card that starts too soon needs a later
+ * DATE (and the earliest one is a fact this screen already holds), a card below cost needs
+ * a higher RATE in a named cell, a malformed card is a bug in this console, and a date
+ * already scheduled needs the existing card withdrawn first — which is a button on this
+ * same panel.
+ *
+ * The server's own `detail` is always rendered alongside: it names the pack, the voice and
+ * both numbers, and a paraphrase would be the version people argue with. `remediation` is
+ * the API's own next step and is printed when it sent one.
+ */
+export interface CardRefusal {
+  code: string;
+  title: string;
+  /** This console's sentence — what to do, in the operator's own terms. */
+  advice: string;
+  /** The server's `detail`, split where it carries several causes. */
+  sentences: string[];
+}
+
+const REFUSAL_TITLES: Record<string, string> = {
+  rate_card_too_soon: "This card starts too soon — nothing was saved",
+  rate_card_below_floor: "The rate card was refused — nothing was saved",
+  rate_card_malformed: "This is not a whole card — nothing was saved",
+  rate_card_already_scheduled: "A card already starts on that date — nothing was saved",
+  rate_card_not_scheduled: "There is no card to withdraw",
+  rate_card_already_in_force: "That card has already taken effect",
+};
+
+/**
+ * The refusal a rate-card write hit, or `null` for anything else — a 500, a timeout, a
+ * step-up skew — which `WriteFailure` already renders and which this must not swallow.
+ */
+export function cardRefusal(error: unknown, earliestDay: string | null): CardRefusal | null {
+  if (!(error instanceof ApiProblem)) return null;
+  const title = lookup(REFUSAL_TITLES, error.code);
+  if (title === undefined) return null;
+  return { code: error.code, title, advice: refusalAdvice(error, earliestDay), sentences: detailOf(error) };
+}
+
+function refusalAdvice(error: ApiProblem, earliestDay: string | null): string {
+  if (error.code === "rate_card_too_soon") {
+    return earliestDay === null
+      ? "Clients are given notice before their rates move, so a card has to start far enough ahead. Pick a later date — the read above publishes the earliest one this deployment accepts."
+      : `Clients are given notice before their rates move. The earliest date this deployment will accept is ${earliestDay} — pick that or later and save again.`;
+  }
+  if (error.code === "rate_card_below_floor") {
+    return "Raise the rates named below. A minute may not be sold for less than it costs us, and a bigger pack may never buy a dearer minute than a smaller one.";
+  }
+  if (error.code === "rate_card_malformed") {
+    return "This is a fault in the console, not in what you typed: a card is sent whole, every pack on both voices. Reload the page and try once; if it happens again, say so in the deploy channel rather than working around it.";
+  }
+  if (error.code === "rate_card_already_scheduled") {
+    return "Withdraw the card already scheduled for that date first — it has not taken effect, so nothing has been priced at it — then record this one. Or pick a different date.";
+  }
+  if (error.code === "rate_card_already_in_force") {
+    return "A card can only be withdrawn before its date. Record a new card with the rates you want instead.";
+  }
+  return "The card scheduled for that date is no longer there — reload the page to see what is actually scheduled.";
+}
+
+/** The server's `detail`, split on the joiner `_record_card` uses for several causes. */
+function detailOf(error: ApiProblem): string[] {
+  const colon = error.message.indexOf(": ");
+  const body = colon >= 0 ? error.message.slice(colon + 2) : error.message;
+  const sentences = body
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+  return sentences.length > 0 ? sentences : [error.message];
 }

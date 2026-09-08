@@ -125,7 +125,7 @@ export default function DashboardPage({
           ? wallet.data.prepaid
             ? `${wallet.data.balance_inr} INR left${
                 wallet.data.outbound_stopped
-                  ? " — outgoing calls have stopped, incoming calls are still answered"
+                  ? " — outgoing calls have stopped and the agents are no longer answering incoming ones; adding credit starts both again straight away"
                   : wallet.data.is_low
                     ? " — running low"
                     : ""
@@ -567,7 +567,7 @@ function CallingCreditTile({
       hint={
         <Link href={href} className="underline hover:text-ink">
           {state === "stopped"
-            ? "Outgoing calls have stopped — people ringing you still get through. Add credit"
+            ? "Calls have stopped, outgoing and incoming. Add credit to start both again"
             : state === "low"
               ? "Running low — top up before outgoing calls stop"
               : "Add credit or see where it went"}

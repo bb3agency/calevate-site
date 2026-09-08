@@ -580,7 +580,7 @@ export function ConfigPanel({ access }: { access: { allowed: boolean; reason: st
                 LOT was sold at: the write now records the whole twelve-cell card under one
                 `effective_from`, and an operator who cannot see the twelve cells is
                 committing a price table they have not read. */}
-            <RateCardPanel />
+            <RateCardPanel access={access} />
             {grouped(state.config.fields).map((group) => (
               <section key={group.title} className="space-y-2">
                 <div>

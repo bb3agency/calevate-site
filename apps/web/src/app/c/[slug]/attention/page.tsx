@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { use, type ComponentType } from "react";
-import { ArrowRight, BookOpen, Megaphone, Share2, ShieldAlert } from "lucide-react";
+import { ArrowRight, BookOpen, Megaphone, PhoneOff, Share2, ShieldAlert } from "lucide-react";
 
 import {
   Card,
@@ -51,6 +51,16 @@ const KIND_COPY: Record<
     tone: "bg-sky-100 text-sky-800 dark:bg-sky-950 dark:text-sky-300",
     medallion: "bg-sky-50 text-sky-600 dark:bg-sky-950 dark:text-sky-400",
     icon: Megaphone,
+  },
+  inbound_stopped: {
+    // ROSE, and the strongest words on this screen: every other row is something that
+    // already happened, and this one is a phone that is not being answered AS THE OWNER
+    // READS IT. `crm/attention.inbound_stopped` deliberately does not window it out for
+    // that reason, so the chip must not read like history either.
+    label: "Calls not being answered",
+    tone: "bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300",
+    medallion: "bg-rose-50 text-rose-600 dark:bg-rose-950 dark:text-rose-400",
+    icon: PhoneOff,
   },
   kb_rejected: {
     label: "Knowledge not accepted",

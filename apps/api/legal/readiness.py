@@ -207,11 +207,19 @@ ROW_COPY: dict[str, _Copy] = {
         # top-up form was on "Calling credit" while Usage was the month's charges and
         # could not take a payment. Both are tabs of Credits & billing now (D-525), which
         # is why this says the SCREEN and not the tab — the Credits tab is where the
-        # button is, and the screen opens on Overview, which carries it too. And "Calls
-        # resume" said more than it meant — only OUTGOING calls ever stopped (D-521).
+        # button is, and the screen opens on Overview, which carries it too.
+        #
+        # ⚠ THE SECOND CLAUSE USED TO READ "incoming calls are answered throughout", which
+        # D-521 was right about and D-551 made FALSE: a wallet at zero now silences inbound
+        # answering too, and a caller hears a short apology. A readiness screen that tells a
+        # client their phone is still being answered while it is not is the worst place in
+        # the product to be out of date, so this now says both halves and matches
+        # `crm/attention.BLOCK_REMEDIES["no_credits"]` fact for fact — a client must not get
+        # two accounts of one event on two screens.
         next_step=(
-            "Add credit on the Credits & billing screen. Outgoing calls resume as soon "
-            "as the payment clears; incoming calls are answered throughout."
+            "Add credit on the Credits & billing screen. Outgoing calls resume and your "
+            "agents start answering incoming ones again as soon as the payment clears; "
+            "until then callers hear a short apology."
         ),
     ),
     "national_dnd_scrub_missing": _Copy(

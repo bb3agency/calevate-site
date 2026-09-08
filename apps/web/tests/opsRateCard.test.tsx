@@ -6,7 +6,11 @@ import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import OpsConfigPage from "@/app/admin/ops/config/page";
 import {
   OPS_RATE_CARD_PATH,
+  cardInstant,
   cellVerdict,
+  earliestPickableDate,
+  rateDelta,
+  type PendingCard,
   type RateCard,
   type RateCardCell,
 } from "@/lib/api/opsRateCard";
@@ -114,13 +118,56 @@ const HEALTHY = cell({
   below_target: false,
 });
 
-function card(cells: RateCardCell[] = [cell(), HEALTHY]): RateCard {
+function card(cells: RateCardCell[] = [cell(), HEALTHY], over: Partial<RateCard> = {}): RateCard {
   return {
     effective_from: "2026-09-07T04:30:00Z",
     target_gross_margin_pct: "20",
     cells,
+    // THE WRITE HALF OF THE READ (D-550). `earliest_effective_from` is an INSTANT and the
+    // picker's floor is a DAY: 09:44 UTC is 15:14 IST, so midnight on the 8th is already
+    // past and the earliest day this fixture can offer is the 9th. Every assertion about
+    // the floor below is arranged around that being derived rather than echoed.
+    pending: [],
+    notice_days: 30,
+    notice_recipients: 3,
+    earliest_effective_from: "2026-10-08T09:44:00Z",
+    ...over,
   };
 }
+
+/**
+ * A card with EVERY rung on BOTH voices — what the write form needs, because it posts the
+ * cells it is showing and each box is required. `card()` above is deliberately ragged (one
+ * voice per rung) and stays that way: it is what the read tests are arranged around, and it
+ * exercises the "no rate in force to compare against" arm of the delta.
+ */
+function fullCard(over: Partial<RateCard> = {}): RateCard {
+  return card(
+    [
+      cell(),
+      cell({ voice_tier: "cartesia", tier_label: "Studio", inr_per_min: "6.0000", below_target: false }),
+      cell({ pack_id: "max", amount_inr: "50000.00", inr_per_min: "4.5000" }),
+      cell({
+        pack_id: "max",
+        amount_inr: "50000.00",
+        voice_tier: "cartesia",
+        tier_label: "Studio",
+        inr_per_min: "5.5000",
+        below_target: false,
+      }),
+    ],
+    over,
+  );
+}
+
+/** The card the write tests read, with one rung already scheduled to move. */
+const SCHEDULED: PendingCard = {
+  effective_from: "2026-10-20T00:00:00+00:00",
+  cells: [
+    cell({ inr_per_min: "5.5000" }),
+    cell({ voice_tier: "cartesia", tier_label: "Studio", inr_per_min: "6.0000", below_target: false }),
+  ],
+};
 
 const MODEL_PRICES_BASE = {
   prices: [
@@ -452,6 +499,255 @@ describe("reading a voice price off the wire", () => {
       "Blocked — needs a vendor key and a confirmed price",
     );
     expect(ttsVerdict(ttsRow({ offerable: true })).label).toBe("On sale to customers");
+  });
+});
+
+
+/* ════════════════════════════════════════════════════════════════════════════════════ */
+
+/**
+ * RECORDING A CARD — the half the founder asked for: "make it editable, and every time the
+ * price is updated all the affected clients should be notified about it for sure."
+ *
+ * What these pin, worst consequence first:
+ *
+ * 1. **THE NUMBER OF CLIENTS WHO GET AN EMAIL IS IN FRONT OF THE OPERATOR BEFORE THEY
+ *    SAVE.** The notice is the founder's condition on the whole feature, and its size is
+ *    something you learn before sending it, not from the replies. A screen that hid it
+ *    would make "tell everyone" a surprise.
+ * 2. **THE INSTANT ON THE WIRE IS THE ONE THE STEP-UP HEADER NAMES.** The API builds
+ *    `record_rate_card:<isoformat>` from the instant it PARSED, so a console that sent
+ *    `toISOString()` would name `…T18:30:00.000Z` while the server computed
+ *    `…T18:30:00+00:00` and every save would be refused with a message telling the
+ *    operator to reload — which would never help. This is the single most expensive
+ *    regression available on this screen, and it is invisible in a diff.
+ * 3. **MONEY IS THE TYPED STRING.** A JSON number is a binary float; the API refuses one
+ *    outright, and a console that sent `4.85` as a number would be refused on every save.
+ * 4. **A REFUSAL SAYS WHAT TO DO.** `rate_card_too_soon` must print the earliest date this
+ *    deployment accepts — the operator's next act is picking it.
+ * 5. **A SCHEDULED CARD CAN BE TAKEN BACK,** with the server's own instant echoed, because
+ *    a card recorded by mistake is otherwise priced into every purchase from its date.
+ * 6. **AN OLDER API MUST NOT BLANK THE SCREEN.** `pending` is required on the current
+ *    build and absent on the previous one; reading it blindly would throw inside render and
+ *    take the whole configuration screen — settings, secrets, prices — down with it.
+ */
+describe("recording the next rate card", () => {
+  it("says how many clients will be emailed before anything is sent", async () => {
+    const { container } = renderOps(routes({ [OPS_RATE_CARD_PATH]: fullCard() }));
+
+    await screen.findByRole("button", { name: /Record a new card/ });
+    fireEvent.click(screen.getByRole("button", { name: /Record a new card/ }));
+
+    // The SERVER's count, in front of the button, before a keystroke is typed.
+    await screen.findByText("3 clients will be emailed as soon as you record this");
+    expect(container.textContent).toContain("Clients on an invoiced plan are not emailed");
+    // And the promise that stops the support call, on the same panel.
+    expect(container.textContent).toContain("Credit already bought is not repriced");
+  });
+
+  it("does not invent a count when the API did not publish one", async () => {
+    // The previous build's payload: no `notice_recipients` key at all. A console that
+    // showed `0` here would tell an operator that recording a card emails nobody.
+    const older = fullCard();
+    delete (older as { notice_recipients?: number }).notice_recipients;
+    const { container } = renderOps(routes({ [OPS_RATE_CARD_PATH]: older }));
+
+    fireEvent.click(await screen.findByRole("button", { name: /Record a new card/ }));
+
+    await screen.findByText("We do not know how many clients would be emailed");
+    expect(container.textContent).not.toContain("0 clients will be emailed");
+    expect(container.textContent).toContain("no number is shown rather than a guessed one");
+  });
+
+  it("sends the typed rates as exact strings, with the step-up bound to the instant it sent", async () => {
+    const { calls } = renderOps(
+      routes({
+        [OPS_RATE_CARD_PATH]: fullCard(),
+        [`POST ${OPS_RATE_CARD_PATH}`]: {
+          effective_from: "2026-10-20T00:00:00+05:30",
+          cells: [],
+          clients_notified: true,
+        },
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Record a new card/ }));
+    fireEvent.change(screen.getByLabelText("Rupees per minute, starter pack on Sarvam Clear"), {
+      target: { value: "5.5000" },
+    });
+    fireEvent.change(screen.getByLabelText(/The day the new rates start/), {
+      target: { value: "2026-10-20" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Cartesia raised/), {
+      target: { value: "Cartesia raised its per-character price" },
+    });
+    fireEvent.change(screen.getByLabelText(/Type RECORD/), { target: { value: "RECORD" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Record card$/ }));
+
+    const write = await waitForCall(calls, `POST ${OPS_RATE_CARD_PATH}`);
+    // THE EXACT STRING THE OPERATOR TYPED — never a JSON number (hard rule 7). The quotes
+    // are the assertion: `"inr_per_min":5.5` would be a float on the wire.
+    expect(write.body).toContain('"inr_per_min":"5.5000"');
+    expect(write.body).toContain('"pack_id":"starter"');
+    // MIDNIGHT IST WITH THE OFFSET WRITTEN IN, not `toISOString()`. Both halves are
+    // asserted because only their EQUALITY makes the save possible.
+    expect(write.body).toContain('"effective_from":"2026-10-20T00:00:00+05:30"');
+    expect(write.headers["X-Confirm-Action"]).toBe("record_rate_card:2026-10-20T00:00:00+05:30");
+  });
+
+  it("shows what each rate moved by, against the card in force", async () => {
+    renderOps(routes({ [OPS_RATE_CARD_PATH]: fullCard() }));
+
+    fireEvent.click(await screen.findByRole("button", { name: /Record a new card/ }));
+    fireEvent.change(screen.getByLabelText("Rupees per minute, starter pack on Sarvam Clear"), {
+      target: { value: "5.5000" },
+    });
+
+    // Exact rupees and the percentage of the old rate, both derived without parsing either
+    // figure into a JavaScript number.
+    await screen.findByText(/up ₹0\.5000 \(10\.00%\)/);
+  });
+
+  it("names the earliest permitted date when the server says the card starts too soon", async () => {
+    const { container } = renderOps(
+      routes({
+        [OPS_RATE_CARD_PATH]: fullCard(),
+        [`POST ${OPS_RATE_CARD_PATH}`]: problem(422, {
+          kind: "validation",
+          type: "urn:calevate:validation/rate_card_too_soon",
+          title: "This card starts too soon",
+          detail: "a rate card starts at least 30 days out; that instant is 4 days away",
+          retryable: false,
+        }),
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole("button", { name: /Record a new card/ }));
+    fireEvent.change(screen.getByLabelText(/The day the new rates start/), {
+      target: { value: "2026-10-20" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Cartesia raised/), {
+      target: { value: "moving the entry rung" },
+    });
+    fireEvent.change(screen.getByLabelText(/Type RECORD/), { target: { value: "RECORD" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Record card$/ }));
+
+    await screen.findByText("This card starts too soon — nothing was saved");
+    // THE DATE, not "pick a later one". `earliest_effective_from` is 15:14 IST on the 8th,
+    // so midnight on the 8th is already past and the first day this deployment will accept
+    // is the 9th — derived here, exactly as the picker's floor is.
+    expect(container.textContent).toContain(
+      "The earliest date this deployment will accept is 2026-10-09",
+    );
+    // And the server's own sentence, verbatim, beside it.
+    expect(container.textContent).toContain("that instant is 4 days away");
+  });
+
+  it("offers the earliest permitted day as the picker's own floor", async () => {
+    renderOps(routes({ [OPS_RATE_CARD_PATH]: fullCard() }));
+
+    fireEvent.click(await screen.findByRole("button", { name: /Record a new card/ }));
+    const picker = screen.getByLabelText(/The day the new rates start/) as HTMLInputElement;
+    // The client-side floor and the sentence under it are one answer, and the server is
+    // still the real gate — see `earliestPickableDate`.
+    expect(picker.min).toBe("2026-10-09");
+    expect(screen.getByText(/earliest day this deployment accepts is 2026-10-09/)).toBeTruthy();
+  });
+});
+
+describe("a card that is scheduled but has not started", () => {
+  it("lists it with what it moves, and can withdraw it with the server's own instant", async () => {
+    const { calls, container } = renderOps(
+      routes({
+        [OPS_RATE_CARD_PATH]: fullCard({ pending: [SCHEDULED] }),
+        [`POST ${OPS_RATE_CARD_PATH}/cancellations`]: {
+          effective_from: SCHEDULED.effective_from,
+          cancelled: true,
+        },
+      }),
+    );
+
+    await screen.findByText(/Scheduled changes/);
+    // What it MOVES, not just what it is: the operator is deciding whether to let it stand.
+    expect(container.textContent).toContain("up ₹0.5000 (10.00%)");
+
+    fireEvent.click(screen.getByRole("button", { name: /Withdraw/ }));
+    fireEvent.change(screen.getByPlaceholderText(/superseded by/), {
+      target: { value: "recorded against the wrong quarter" },
+    });
+    fireEvent.change(screen.getByLabelText(/Type WITHDRAW/), { target: { value: "WITHDRAW" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Withdraw$/ }));
+
+    const write = await waitForCall(calls, `POST ${OPS_RATE_CARD_PATH}/cancellations`);
+    // THE SERVER'S OWN STRING, ECHOED — re-deriving it here is how the step-up header and
+    // the row the API looks up stop naming the same instant.
+    expect(write.body).toContain(`"effective_from":"${SCHEDULED.effective_from}"`);
+    expect(write.headers["X-Confirm-Action"]).toBe(
+      `cancel_rate_card:${SCHEDULED.effective_from}`,
+    );
+  });
+
+  it("says nothing is scheduled rather than leaving a blank, and survives an API that omits the field", async () => {
+    // The PREVIOUS BUILD's payload: no `pending` key at all. Reading it blindly would throw
+    // inside render and take the whole configuration screen down — settings, model prices,
+    // secrets — for a field that is merely absent.
+    const older = fullCard();
+    delete (older as { pending?: unknown }).pending;
+    const { container } = renderOps(routes({ [OPS_RATE_CARD_PATH]: older }));
+
+    await screen.findByText(/Nothing is scheduled/);
+    // The rest of the panel is still there, which is the property being pinned.
+    expect(container.textContent).toContain("Rate card — six packs, two voices");
+    expect(screen.getByRole("button", { name: /Record a new card/ })).toBeTruthy();
+  });
+});
+
+/* ── the seams where the arithmetic and the two date rules are cheapest to pin ───────── */
+
+describe("what a rate moved by, computed without parsing money", () => {
+  it("is exact in rupees and rounded only in the percentage", () => {
+    expect(rateDelta("5.0000", "5.5000")).toEqual({
+      direction: "up",
+      amount: "0.5000",
+      percent: "10.00",
+    });
+    expect(rateDelta("6.0000", "5.5000")).toEqual({
+      direction: "down",
+      amount: "0.5000",
+      percent: "8.33",
+    });
+    // The case a float gets wrong: 0.1 + 0.2 arithmetic on these two produces
+    // 0.30000000000000004 through `Number`, and this is exact.
+    expect(rateDelta("4.10", "4.40")?.amount).toBe("0.30");
+    expect(rateDelta("5.0000", "5.0000")?.direction).toBe("same");
+  });
+
+  it("says nothing at all about a box that is empty or half-typed", () => {
+    // NOT "unchanged": that would be a claim about a value nobody has finished typing.
+    expect(rateDelta("5.0000", "")).toBeNull();
+    expect(rateDelta("5.0000", "5.")).toBeNull();
+    expect(rateDelta("", "5.0000")).toBeNull();
+  });
+});
+
+describe("the two date rules the step-up header rests on", () => {
+  it("spells a picked day as midnight IST with the offset written in", () => {
+    // NOT `toISOString()`. The server rebuilds the confirmation string from what it
+    // parsed, and only this spelling round-trips through Python unchanged.
+    expect(cardInstant("2026-10-20")).toBe("2026-10-20T00:00:00+05:30");
+    expect(cardInstant("")).toBeNull();
+    expect(cardInstant("20/10/2026")).toBeNull();
+  });
+
+  it("moves the floor to the next day unless the instant is itself midnight IST", () => {
+    // 09:44 UTC is 15:14 IST — midnight on the 8th has already passed, so offering it
+    // would offer a day the server refuses.
+    expect(earliestPickableDate("2026-10-08T09:44:00Z")).toBe("2026-10-09");
+    // Exactly midnight IST: that day is itself acceptable.
+    expect(earliestPickableDate("2026-10-07T18:30:00Z")).toBe("2026-10-08");
+    // No instant, no invented floor — the server is the gate either way.
+    expect(earliestPickableDate(null)).toBeNull();
+    expect(earliestPickableDate("not a date")).toBeNull();
   });
 });
 

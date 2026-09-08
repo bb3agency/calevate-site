@@ -1562,6 +1562,19 @@ async def _settle_inbound_credit_state(
     exactly the argument `publish_agent`'s maintenance guard makes one page up, and this is
     the same class of defect on the way out.
 
+    ═══ IT PRESERVES A CUTOVER; IT NEVER STARTS ONE, AND THAT LINE IS THE DESIGN ═══
+
+    An agent that is NOT already silenced is left alone here even when the wallet is empty.
+    Starting a cutover is an EDGE — `reconcile_inbound_answering`, reached from the ledger's
+    crossing of zero or the pipeline's backstop — and letting a publish start one would make
+    an unrelated console action (a voice change, a cap change, a prompt rollback) silently
+    change what a client's callers hear, decided by a money question its author never asked.
+    That is the same class of surprise this function exists to prevent, pointing the other
+    way. What it costs is bounded and stated: an agent published for an account that has
+    been at zero all along keeps answering until the next edge — at most one metered call,
+    which enqueues a reconciliation itself (`workers/pipeline.py`) — and no rupee is at risk
+    meanwhile, because the meter refuses the debit either way.
+
     A VENDOR FAILURE HERE DOES NOT FAIL THE PUBLISH, for `route_inbound_numbers`' reason:
     the agent itself is already published and verified, this is a separate engine fact, and
     raising would make an unrelated console action fail on an account that has merely run
@@ -1578,8 +1591,20 @@ async def _settle_inbound_credit_state(
         # column never claims something about an agent nobody can ring.
         await _stamp_inbound_silence(session, agent_id=agent_id, silenced=False)
         return
+    was_silenced = (
+        await session.execute(
+            text("SELECT inbound_silenced_at IS NOT NULL FROM agents WHERE id = :aid"),
+            {"aid": agent_id},
+        )
+    ).scalar()
     if not await credits_exhausted(session, tenant_id=tenant_id):
+        # THE RESTORE, and it lands here rather than in the reconciler because THIS is the
+        # publish that put the agent's own words back. Unconditional: clearing a stamp that
+        # was already clear costs one indexed UPDATE and removes the branch where a
+        # forgotten arm leaves a paid-up client's agent recorded as silent for ever.
         await _stamp_inbound_silence(session, agent_id=agent_id, silenced=False)
+        return
+    if not was_silenced:
         return
     if not engine.capabilities.has("script_override"):
         return

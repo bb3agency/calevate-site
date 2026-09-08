@@ -31,6 +31,7 @@ from apps.api.billing.credit_packs import PACK_CATALOGUE
 from apps.api.billing.list_rates import record_card
 from apps.api.billing.rates import VOICE_TIERS, voice_tier_label
 from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.main import app
 from apps.workers import rate_card_notice
 from apps.workers.rate_card_notice import (
     NOTICE_JOB,
@@ -44,6 +45,7 @@ from apps.workers.rate_card_notice import (
     pack_rates,
 )
 from arq import Retry
+from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.admin_security_test import _make_admin
 from tests.conftest import purge_platform_list_rates
@@ -329,3 +331,60 @@ def test_the_ist_offset_of_a_card_recorded_far_ahead_is_stable() -> None:
     offset with no daylight saving, so the rendering cannot drift under it."""
     far = CARD_AT + timedelta(days=365)
     assert _starts_on(far) == "1 December 2027"
+
+
+# ── the number the console shows BEFORE the send ─────────────────────────────────────
+
+
+async def _notice_recipients() -> int:
+    """What `GET /v1/ops/rate-card` says the book is, right now."""
+    token = await _make_admin()
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
+        read = await http.get("/v1/ops/rate-card", headers={"Authorization": f"Bearer {token}"})
+    assert read.status_code == 200, read.text
+    return int(read.json()["notice_recipients"])
+
+
+async def test_the_console_count_draws_the_same_line_the_fan_out_does() -> None:
+    """THE NUMBER BESIDE THE RECORD BUTTON IS THE NUMBER THAT GETS EMAILED.
+
+    The console tells an operator how many clients a card will be announced to before they
+    record it, and that promise is only worth anything if the count and the fan-out agree
+    about who is on the list. They are two spellings of one predicate — `_WALLET_TENANTS`
+    plus `PREPAID_TIERS` in the worker, one SQL statement in `ops/config_routes` — so this
+    moves the book in each of the three directions that separate them and watches both.
+
+    An ABSOLUTE count would be wrong to assert: this database is shared with every other
+    suite, so what is pinned is the DELTA each kind of account makes.
+    """
+    before = await _notice_recipients()
+
+    # A prepaid client with an address of record: on the list, both ways.
+    prepaid = await _tenant("self_serve")
+    assert await _notice_recipients() == before + 1
+
+    # MANAGED (invoiced): the credit-pack card does not price them, so telling them their
+    # prices are changing would be false. Neither the count nor the fan-out includes them.
+    await _tenant("managed")
+    assert await _notice_recipients() == before + 1
+
+    # Prepaid but with nowhere to send it: the fan-out's `_WALLET_TENANTS` requires an
+    # address, so a count that included this account would promise an email nobody gets.
+    await _tenant("self_serve", billing_email=None)
+    assert await _notice_recipients() == before + 1
+
+    # AND THE FAN-OUT AGREES. The parent enqueues one child per prepaid client with an
+    # address; the tenant added above is in that set and the other two are not.
+    await _record_a_card()
+    await fan_out_rate_card_notice({}, {"effective_from": CARD_AT.isoformat()})
+    async with untenanted_session() as session:
+        queued = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM outbox_messages WHERE job = :job "
+                    "AND payload ->> 'tenant_id' = :tid"
+                ),
+                {"job": NOTICE_JOB, "tid": str(prepaid)},
+            )
+        ).scalar()
+    assert queued == 1

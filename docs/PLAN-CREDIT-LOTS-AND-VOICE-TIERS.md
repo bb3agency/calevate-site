@@ -510,14 +510,21 @@ this section was created to fix, one commit later.
 
 ### 12.2 Still open in this repository
 
-| # | What is missing | Why it is not merely unfinished |
+⚠ **FIVE OF THE SIX ITEMS THIS TABLE CARRIED WERE CLOSED ON 8 SEP 2026.** They are moved
+into 12.1 rather than deleted, because "was open, closed by" is the only form of this
+section that a later reader can check.
+
+| Was open | Closed by | Verified |
 |---|---|---|
-| 1 | **An editable rate card.** The twelve-cell editor F4 specifies cannot exist against a committed constant, and a route taking twelve cells through `card_refusals` has not been designed. | The console is a viewer plus preview plus refusals, which is honest today. Changing a rate is a deploy. If a rate ever has to move without one, this is the work. |
-| 2 | **A text-level drift guard for the legal set.** The register compares document IDENTITY, not text, so a clause can be rewritten with no version bump and nothing sees it. | Closed for the credit-lot clause by two text-pinning tests. The general fix is a hash of each document's operative strings folded into its revision. |
-| 3 | **Inbound calls debit the wallet and nothing bounds a negative balance on inbound.** | Not a bug — a product decision nobody has taken. The copy now says what the ledger does (`8 Sep 2026`); whether answering SHOULD be free is the founder's call, and the answer changes code either way. |
-| 4 | **`install_pricing_readers()` is not called at worker startup**, only in `apps/api/main.py`. | Harmless today: workers read prices through the async reader, and the sync one falls back to `provider == "sarvam"`. It is a latent trap — the first worker to call a sync reader silently gets the fallback. One line in `apps/workers/settings.py::startup`. |
-| 5 | **`kb_retrieval_logs`' erasure tripwire matches the TABLE STRING only.** A producer written as `session.add(KbRetrievalLog(...))` would not trip `tests/kb_tiers_test.py`, and that table is exempt from erasure coverage on the ground that no producer exists. | The exemption is correct today and its tripwire has a hole. Match the ORM class name too. |
-| 6 | **`alembic upgrade head --sql` has never completed**, and it is wider than one revision: twelve migrations call `op.get_bind()`. | Blocks only the documented emit-SQL-for-a-human path. Guard each read with `context.is_offline_mode()`. |
+| **An editable rate card** — the twelve-cell editor F4 specifies could not exist against a committed constant. | D-550 | `POST /v1/ops/rate-card` writes a dated twelve-cell card behind the 30-day notice floor, the per-voice cost floor, the monotone-column check and a step-up confirmation; `POST /v1/ops/rate-card/cancellations` withdraws a scheduled one with a compensating row (nothing is updated, nothing is deleted). `RateCardPanel.tsx` is the console: the in-force table, scheduled changes with per-card withdraw, the editable 6x2 grid, an IST date picker floored at `earliest_effective_from`, the per-cell delta against the card in force, and the count of clients who will be emailed shown IN FRONT of the button. Every prepaid client is notified when the card is RECORDED, `fan_out_rate_card_notice` -> `notify_rate_card_change`, one promise per (date, client). |
+| **A text-level drift guard for the legal set** — the register compared document IDENTITY, not text, so a clause could be rewritten with no version bump and nothing would see it. | `19ce6a5` | The operative strings of each document are hashed and pinned, so a rewrite without a version bump turns CI red rather than shipping silently. |
+| **Inbound calls debit the wallet and nothing bounds a negative balance on inbound** — recorded here as a product decision nobody had taken. | D-551 | The founder took it on 8 Sep 2026: the business is warned first, and at zero the agent stops answering and a caller hears a short apology that gives no reason and says nothing about the account. Enforced as durable engine state (`agents/service.reconcile_inbound_answering`, mirrored in `agents.inbound_silenced_at`) because an inbound call reaches nothing of ours before it is answered — there is no pre-answer hook, so hard rule 3 is untouched rather than satisfied. Recovery has three independent paths, since the failure is silent: both crossings of zero publish the job in the ledger row's own transaction, every republish re-decides, and `_meter` enqueues one reconciliation per call for a tenant it finds exhausted. |
+| **`install_pricing_readers()` is not called at worker startup** | `6344c22` | `apps/workers/settings.py::startup` calls `start_pricing_refresher`, which installs the readers and starts the poll together. `stop_pricing_refresher` landed with it — it was the one refresher in the fleet with a start and no stop — and the symmetry is now pinned for the whole fleet rather than for this module. |
+| **`kb_retrieval_logs`' erasure tripwire matches the TABLE STRING only** | `6344c22` | The tripwire matches the ORM class name too, so a producer written as `session.add(KbRetrievalLog(...))` trips it. |
+
+| # | What is still missing | Why it is not merely unfinished |
+|---|---|---|
+| 1 | **`alembic upgrade head --sql` has never completed**, and it is wider than one revision: twelve migrations call `op.get_bind()` and none guards the call with `context.is_offline_mode()` (counted in the tree on 8 Sep 2026, unchanged by D-550's and D-551's own migrations). | Blocks only the documented emit-SQL-for-a-human path; every online upgrade is unaffected. The fix is per-migration and mechanical, and it is the last item on this list. |
 
 ### 12.3 Blocked outside this repository (unchanged)
 
