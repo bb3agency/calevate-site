@@ -7,8 +7,11 @@ import {
   formatRateINR,
   packMinutes,
   packRate,
+  rateToTenThousandths,
   tierLabel,
   VOICE_TIERS,
+  type PublicRateCard,
+  type VoiceTier,
 } from "@/lib/api/rateCard";
 import Link from "next/link";
 
@@ -87,8 +90,9 @@ const METERED: readonly { title: string; body: string }[] = [
     title: "The voice each agent uses",
     body:
       "Each agent speaks with one of two voices, and the two are priced differently — the " +
-      "better one costs us more, so it costs you more. You choose it per agent, not for " +
-      "the whole account, so the agent that only reads back an appointment time need not " +
+      "better one costs us more, so it costs you more. The voice is set per agent rather " +
+      "than for the whole account — tell your account manager which voice each agent " +
+      "should speak with — so the agent that only reads back an appointment time need not " +
       "be paid for like the one that sells. Every call is stamped with the voice it " +
       "actually used, so a month is priced from what happened rather than from what was " +
       "configured at the end of it.",
@@ -122,9 +126,16 @@ const PLAN_SHAPE: readonly { term: string; detail: string }[] = [
   },
   {
     term: "A rate for anything past the bundle",
+    // ⚠ THIS USED TO PROMISE A PER-VOICE OVERAGE RATE, AND A MANAGED PLAN CANNOT CARRY
+    // ONE. `plans` has exactly two overage columns (`overage_rate` and
+    // `overage_rate_value`, `apps/api/billing/models.py:281-296`) and the second is D-36's
+    // TTS ladder — premium/value — not one of the two VOICE QUALITIES the self-serve card
+    // prices; and every call is counted on the base rung anyway
+    // (`apps/workers/pipeline.py:2743-2745` passes `tts_tier=BASE_OVERAGE_RUNG`, "one voice
+    // quality, so the base rung on every call"). So the order form has one overage rate,
+    // and a sentence promising a column per voice is a quote nobody could honour.
     detail:
-      "Per minute, applied to the minutes over the included allowance, and quoted for " +
-      "each voice your agents use — the same two-rate shape as the published card above.",
+      "Per minute, applied to the minutes over the included allowance.",
   },
   {
     term: "A start date the plan is priced from",
@@ -134,6 +145,57 @@ const PLAN_SHAPE: readonly { term: string; detail: string }[] = [
       "thing it said the first time.",
   },
 ];
+
+/**
+ * THE DEAREST ₹/min the card quotes on one voice — the ENTRY rung of the ladder, and the
+ * end of the band that describes somebody's FIRST purchase.
+ *
+ * ⚠ **THE PAGE USED TO QUOTE THREE DIFFERENT "THE PRICE" IN SIX LINES** (audit, 8 Sep
+ * 2026): the h1 said the dearest Clear rung, the lede said "from" the cheapest, the h2 said
+ * "start today from" the cheapest again and the paragraph under it said the dearest — four
+ * consecutive elements, four figures, and the one a buyer would actually pay first is the
+ * one none of them led with. Nobody's first purchase is the largest pack. So the page
+ * quotes a BAND, once per voice, both ends from the card — the shape the console's own
+ * explainer settled on (`app/c/[slug]/billing/WhatCallsCost.tsx::rateBand`).
+ *
+ * The cheap end is a field the API publishes (`from_*_inr_per_min`, `cardFromRate`); this
+ * end is not, so it is a COMPARISON across the rows the card sent. Nothing is computed:
+ * `rateToTenThousandths` reads the digits into the API's own NUMERIC(12,4) scale and the
+ * two are compared as integers, and what is rendered is the string the server sent.
+ *
+ * Its twin in the console (`billing/lots.ts::dearestRate`) is not imported and cannot be:
+ * that module is `"use client"` and reads the SIGNED-IN card type, while this page is an
+ * async server component reading `CreditPacksOut` off the public route. One accessor each,
+ * both four lines, rather than a shared module that would drag a client hook into the
+ * marketing tree.
+ */
+function cardDearestRate(card: PublicRateCard, voice: VoiceTier): string {
+  // SEEDED WITH THE SERVER'S OWN PUBLISHED MINIMUM rather than with the first pack, so the
+  // function is TOTAL: a card that somehow carried no rows still answers with a rate the
+  // API sent instead of `undefined` rendered into a price sentence. The max of the
+  // published floor and every rung is the entry rung, which is the figure wanted.
+  let dearest = cardFromRate(card, voice);
+  for (const pack of card.packs) {
+    const rate = packRate(pack, voice);
+    if (rateToTenThousandths(rate) > rateToTenThousandths(dearest)) dearest = rate;
+  }
+  return dearest;
+}
+
+/**
+ * One voice's ladder as a sentence: `"₹5.00 a minute, down to ₹4.50 on the largest pack"`.
+ *
+ * A ladder with one rung is not a band, and "down to ₹5.00" would be a discount described
+ * where there is none, so that case says the one figure once.
+ */
+function bandSentence(card: PublicRateCard, voice: VoiceTier): string {
+  const dearest = cardDearestRate(card, voice);
+  const cheapest = cardFromRate(card, voice);
+  if (rateToTenThousandths(dearest) === rateToTenThousandths(cheapest)) {
+    return `${formatRateINR(dearest)} a minute`;
+  }
+  return `${formatRateINR(dearest)} a minute, down to ${formatRateINR(cheapest)} on the largest pack`;
+}
 
 export default async function PricingPage() {
   // The one request this page makes. `fetchPublicRateCard` never throws — it logs and
@@ -159,12 +221,12 @@ export default async function PricingPage() {
         title={
           rateCard === null
             ? "You are billed for the minutes your agents actually talk"
-            : `${formatRateINR(rateCard.list_rate_inr_per_min)} a minute of talk time`
+            : `Talk time on the ${tierLabel(rateCard, "sarvam")} voice: ${bandSentence(rateCard, "sarvam")}`
         }
         lede={
           rateCard === null
             ? "Not per seat, not per agent, not per number — you pay for the minutes your agents actually talk. Our live rate card could not be loaded just now, so there is no figure on this page we can stand behind; reload in a moment."
-            : `From ${formatRateINR(cardFromRate(rateCard, "sarvam"))} a minute on the ${tierLabel(rateCard, "sarvam")} voice with prepaid credit, and from ${formatRateINR(cardFromRate(rateCard, "cartesia"))} on the ${tierLabel(rateCard, "cartesia")} voice. No monthly fee, no per-seat charge, no charge per agent or per number, and nothing to sign — you are billed for the minutes your agents actually talk, and credit does not expire.`
+            : `That is the everyday voice; the ${tierLabel(rateCard, "cartesia")} voice, which costs us more to run, is ${bandSentence(rateCard, "cartesia")}. No monthly fee, no per-seat charge, no charge per agent and no charge per number — you are billed for the minutes your agents actually talk, and credit does not expire.`
         }
       />
 
@@ -173,9 +235,14 @@ export default async function PricingPage() {
         <div className={`${SHELL} ${SECTION}`}>
           <Eyebrow index="00">Self-serve</Eyebrow>
           <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
+            {/* NO FIGURE HERE, DELIBERATELY. This heading used to say "Start today from
+                ₹4.50 a minute" — a third price in six lines, and the cheapest rung of the
+                ladder, which is the one nobody's first purchase is at. The band is
+                overhead in the h1 and every rung is in the table below; a heading that
+                re-quoted one end of it was the duplicate the audit found. */}
             {rateCard === null
               ? "Our self-serve rate"
-              : `Start today from ${formatRateINR(cardFromRate(rateCard, "sarvam"))} a minute`}
+              : "Prepaid credit, and the rate comes down as the pack gets bigger"}
           </h2>
           {rateCard === null ? (
             <p role="status" className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
@@ -186,18 +253,34 @@ export default async function PricingPage() {
           ) : (
             <>
               <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-                Pay as you go at {formatRateINR(rateCard.list_rate_inr_per_min)} a minute of
-                talk time on the {tierLabel(rateCard, "sarvam")} voice, with no monthly fee
-                and nothing to sign. Buy credit in advance and the rate comes down — the same
-                minutes, priced lower per minute the more you put on the account at once.
-                Credit does not expire, and the rates you bought at stay with that credit
-                until it is spent, whatever we publish later.
+                {/* THIS CARD IS PUBLISHED; A MANAGED PLAN IS QUOTED — and the page has to
+                    say which is which, because it says both. The figures below are the
+                    real ones and nobody has to ask for them; the negotiated arrangement
+                    lower down is the one with no publishable number. It says nothing
+                    about how an ACCOUNT is opened: `self_serve_signup_enabled` is a live
+                    switch and the door that reads it is the homepage's, so a second
+                    sentence about it here would be a second place to get it wrong (the
+                    argument `components/marketing/faq.tsx` already makes). */}
+                This is a published price, not a quote — you do not have to ask what a
+                minute costs, and there is no monthly fee and no minimum. Buy credit in
+                advance and the rate comes down: the same minutes, priced lower per minute
+                the more you put on the account at once. Credit does not expire, and the
+                rates you bought at stay with that credit until it is spent, whatever we
+                publish later.
               </p>
               <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+                {/* "YOU CHOOSE IT AGENT BY AGENT" WAS FALSE IN THE CLIENT REALM, and this
+                    is the register both surfaces now use. The voice IS per agent, but
+                    changing it is ours (D-21) — the picker is mounted in the admin realm
+                    only, and the client's own agent screen says so in these words
+                    ("Your account manager can confirm it",
+                    `app/c/[slug]/agents/panels/publishing.tsx`). A page that told a buyer
+                    they would have the control would be selling one that is not there. */}
                 Each agent speaks with one of two voices. The {tierLabel(rateCard, "sarvam")}{" "}
                 voice is the everyday one; the {tierLabel(rateCard, "cartesia")} voice costs
-                more per minute because it costs us more, and you choose it agent by agent
-                rather than for the whole account. Both columns are below.
+                more per minute because it costs us more. It is set per agent rather than
+                for the whole account — tell your account manager which voice each agent
+                should speak with. Both columns are below.
               </p>
               {/* `ScrollRegion`, not a bare `overflow-x-auto` div: a scroll container
                   that no keyboard can reach is unusable without a mouse, and
@@ -427,8 +510,16 @@ export default async function PricingPage() {
             price of a minute, not what a minute does.
           </p>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            Accounts are opened by hand with you rather than online, which is also why the
-            price is a conversation. It is a short one:{" "}
+            {/* ⚠ THIS USED TO SAY THE PRICE IS A CONVERSATION, ON A PAGE THAT PUBLISHES
+                ONE. Both halves were true of DIFFERENT things and the page ran them
+                together: the self-serve card above is published, and it is the MANAGED
+                plan that is negotiated. It also asserted a deployment fact — that accounts
+                are opened by hand — which `self_serve_signup_enabled` decides at runtime
+                and the homepage door already reads. */}
+            The card above is published, so what a minute costs is not something you have
+            to ask for. What is a conversation is a managed plan — the monthly fee, the
+            talk time in it and the rate past it are agreed with you, because what they
+            should say depends on your call pattern. It is a short conversation:{" "}
             <Link href="/roi" className={INLINE_LINK}>
               bring your own numbers
             </Link>{" "}

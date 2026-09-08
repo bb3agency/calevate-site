@@ -4,7 +4,7 @@ import { Layers } from "lucide-react";
 
 import { Card, NOTICE_TONES, formatINR, formatIST, formatRupeeRate } from "@/components/ui";
 
-import { VOICE_TIERS, formatWhole, lotRate, type WalletLots } from "./lots";
+import { formatWhole, isVoiceTier, lotRate, type WalletLots } from "./lots";
 
 /**
  * THE LOT QUEUE — what credit is left, at which rates, in the order it will be spent.
@@ -29,7 +29,20 @@ import { VOICE_TIERS, formatWhole, lotRate, type WalletLots } from "./lots";
  * ## Names, money and the two absences
  *
  * The column headings are the SERVER's names for the two qualities and the panel does not
- * render without them (`lots.ts`) — no client-facing surface names a vendor as a tier. Every
+ * render without them (`lots.ts`) — no client-facing surface names a vendor as a tier.
+ *
+ * ⚠ **THE HEADINGS AND THE CELLS USED TO COME FROM TWO DIFFERENT ARRAYS.** The `<th>`s
+ * iterated `lots.tiers` — the server's order — and the `<td>`s iterated the browser
+ * constant `VOICE_TIERS`, so the table was correct only while two independently declared
+ * orderings happened to agree. The first person to reorder the server's tiers, or add a
+ * third, would have put a Studio rate under a Clear heading with nothing failing anywhere:
+ * a wrong per-minute price, on the screen a client checks their bill against, delivered
+ * silently. One array drives both now, and each cell picks its rate BY THE HEADING'S OWN
+ * `provider` through `lotRate`. A quality the server names but this browser cannot price
+ * gets a heading and an EMPTY cell — an absent figure renders as absent (D-458), never as
+ * the other voice's rate. `tests/credits.test.tsx` feeds a reversed tier order.
+ *
+ * Every
  * figure is an exact decimal string formatted from its digits: `formatINR` for credits (a
  * credit is ₹1) and `formatRupeeRate` for the rates, which keeps the server's full
  * NUMERIC(12,4) precision because ₹4.7000/min rounded to two places stops multiplying out.
@@ -91,9 +104,14 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
                       </span>
                     )}
                   </th>
-                  {VOICE_TIERS.map((tier) => (
-                    <td key={tier} className="py-3 pr-3 text-right tabular-nums text-ink-muted">
-                      {formatRupeeRate(lotRate(lot, tier))}/min
+                  {lots.tiers.map((tier) => (
+                    <td
+                      key={tier.provider}
+                      className="py-3 pr-3 text-right tabular-nums text-ink-muted"
+                    >
+                      {isVoiceTier(tier.provider)
+                        ? `${formatRupeeRate(lotRate(lot, tier.provider))}/min`
+                        : null}
                     </td>
                   ))}
                   <td className="py-3 text-right text-ink-muted">{formatIST(lot.opened_at)}</td>
@@ -108,7 +126,20 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
 }
 
 /**
- * The runway, as a figure per voice quality (plan §0 Q7).
+ * The runway, as a figure per voice quality (plan §0 Q7) — for a wallet that HAS credit.
+ *
+ * ⚠ **A DAY-ONE WALLET USED TO READ "about 0 minutes on Clear", BESIDE A BANNER THAT HAD
+ * ALREADY SAID THE ACCOUNT HAS NO CREDIT YET.** Two zeroes for one fact, and the second one
+ * in the unit a client plans in — which is how a brand-new account's first screen came to
+ * report its own emptiness twice. The decision: **no open lots, no runway lines.** This
+ * component answers "how long does what you have last", and a wallet with nothing in it has
+ * no answer to give; the hero above already says so once, in the register that belongs to
+ * it (day one is not an outage). The same applies to a spent-out or overdrawn wallet, where
+ * every lot is closed and there is no rate left to run down.
+ *
+ * The condition is the LOTS, not the minutes being zero: a wallet with credit whose runway
+ * the server declines to price sends `null`, which is filtered below and is a different
+ * fact — "we cannot say" is not "you have none".
  *
  * One balance can no longer buy one number of minutes: the wallet holds several lots at
  * several rates and the answer depends on which voice the agent that takes the call speaks
@@ -119,6 +150,7 @@ export function LotsPanel({ lots }: { lots: WalletLots }) {
  * A quality the server declines to answer for prints nothing rather than a zero.
  */
 export function TierRunwayLines({ lots }: { lots: WalletLots }) {
+  if (lots.lots.length === 0) return null;
   const priced = lots.tiers.filter((tier) => tier.minutes_left !== null);
   if (priced.length === 0) return null;
   return (

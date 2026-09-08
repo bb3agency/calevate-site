@@ -10,10 +10,13 @@
  * answer even when the product does not have one — so the two questions with no settled
  * answer are answered with the SHAPE of the arrangement and no figure:
  *
- * - **Cost.** D-11's managed pricing is negotiated per client and D-34's self-serve tier
- *   has no published number, so the answer describes the structure (a plan with talk
- *   time included, a rate beyond it) and says plainly that the figures are agreed with
- *   you. A number here would be a quote nobody can honour.
+ * - **Cost.** ⚠ **D-34's self-serve tier HAS a published number now** (D-545/D-547: a
+ *   static pack card served at `GET /v1/public/rate-card`), and this bullet said it did
+ *   not. So the answer separates the two: the prepaid card is published and lives on
+ *   `/pricing`, while D-11's managed pricing is negotiated per client and still has no
+ *   publishable figure — every money column on `plans` is nullable with no default. No
+ *   number appears HERE either way, because this component is handed no card and a typed
+ *   one would be a quote nobody can honour.
  * - **Getting started.** Written so it is true on both sides of
  *   `self_serve_signup_enabled` — the flag-dependent sentence belongs to the doors
  *   section, which reads the flag, and duplicating it here would be a second place to
@@ -62,11 +65,28 @@ const QUESTIONS: { q: string; a: string }[] = [
   },
   {
     q: "What does it cost?",
+    /*
+     * ⚠ THIS ANSWER USED TO SAY THE PRICE IS NEVER PUBLISHED, AND HALF OF IT IS (D-545,
+     * D-547). There are two ways to buy and they have opposite answers: prepaid credit is
+     * a published card — a per-minute rate on each of the two voices, falling as the pack
+     * gets bigger, served from `GET /v1/public/rate-card` and printed on `/pricing` — while
+     * a MANAGED plan is negotiated per client (D-11) and genuinely has no publishable
+     * figure. Saying only the second, on a site that prints the first, reads as a refusal
+     * to say what anything costs.
+     *
+     * NO FIGURE HERE, and there cannot be one: this is a static client component with no
+     * card in hand, and a rate typed into it would be the drift `lib/api/rateCard.ts`
+     * exists to prevent. It points at the page that holds the live numbers instead — and
+     * it does so without the words "per minute" or "pricing", because this block renders
+     * on the HOMEPAGE, where `tests/publicLanding.test.tsx` bans a price, a fee and the
+     * vocabulary of one outside the ROI calculator.
+     */
     a:
-      "We quote it for your business: a plan with a bundle of talk time included, and a " +
-      "rate for anything past that bundle. What those figures are depends on how much " +
-      "you call and get called, so we agree them with you rather than publishing one " +
-      "number and then changing it for every client.",
+      "Two answers, depending on how you buy. Prepaid calling credit is published: a " +
+      "rate for each of the two voices, coming down the more credit you buy at once, and " +
+      "the whole ladder is on our price list. A monthly plan — a bundle of talk time " +
+      "included and a rate for anything past that bundle — we quote for your business, " +
+      "because what those figures should say depends on how much you call and get called.",
   },
   {
     q: "Where does the agent get its answers from?",

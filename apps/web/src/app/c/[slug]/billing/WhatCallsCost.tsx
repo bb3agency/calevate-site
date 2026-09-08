@@ -33,8 +33,10 @@ import { VOICE_TIERS, cheapestRate, dearestRate, type TierLabels } from "./lots"
  *    §2.2, and the six-pack two-rate catalogue in `apps/api/billing/credit_packs.py`). The
  *    catalogue now carries two qualities at two per-minute rates, the choice is a property
  *    of the AGENT (plan §2.1, §3.3: the tier is derived from the chosen voice's provider,
- *    so an agent cannot hold one and be billed the other), and a new agent defaults to the
- *    cheaper one (§0 Q9) — a default that costs more per minute has to be a choice somebody
+ *    so an agent cannot hold one and be billed the other) — though the CHOICE is not the
+ *    client's to make in this realm: the picker is admin-only and changing a voice is ours
+ *    (D-21), so what this panel promises is that they tell us, not that they set it. A new
+ *    agent defaults to the cheaper one (§0 Q9) — a default that costs more per minute has to be a choice somebody
  *    made. The rationale that survives is the one that made "one voice" a selling point:
  *    neither quality is a degraded tier, and what you hear in a demo is what a customer
  *    hears at three in the morning.
@@ -55,10 +57,17 @@ import { VOICE_TIERS, cheapestRate, dearestRate, type TierLabels } from "./lots"
  *    figure is ₹0.00 at `minutes <= 0`, and `billing/service.charge_for_call` returns before
  *    touching the ledger at `amount_inr <= 0`, so no entry is even written.
  *
- * 5. **Credits do not expire.** `credit_ledger` (migration `f170dbce6f47`) carries delta /
- *    reason / ref / balance_after / occurred_at / meta and NO expiry column; the balance is
- *    the sum of the deltas, and the only sweeping job in the tree sweeps idempotency
- *    records. Nothing can take credit back except a refund the client asked for.
+ * 5. **Credits do not expire — but calls are not the only thing that spends them.**
+ *    `credit_ledger` (migration `f170dbce6f47`) carries delta / reason / ref /
+ *    balance_after / occurred_at / meta and NO expiry column; the balance is the sum of the
+ *    deltas, and the only sweeping job in the tree sweeps idempotency records. ⚠ **THIS
+ *    ENTRY USED TO END "nothing can take credit back except a refund", AND THE FACT BELOW
+ *    IT USED TO SAY "nothing runs it down except your own calls".** Both were false in the
+ *    same direction: a block of extra dashboard AI a person accepts is a `usage` debit on
+ *    this wallet (`apps/api/billing/ai_quota.py`, one row, `ref = ai_assist:<YYYY-MM>`), and
+ *    `WhereItWent` renders it as "Extra AI help" TWO CARDS BELOW this panel — with a
+ *    "Corrections" row beside it. A claim contradicted by another panel on the same screen
+ *    is the cheapest kind of wrong to find and the most expensive kind to be caught in.
  *
  * 6. **The GST position, stated as a benefit AND as a warning.** `billing/gst.py` is
  *    explicit: the legal person is a sole proprietor trading as Calevate, is NOT registered
@@ -134,16 +143,23 @@ export function WhatCallsCost({
           icon={<Waves className="h-4 w-4" aria-hidden />}
           claim={
             labels
-              ? `Two voice qualities — ${labels.sarvam} and ${labels.cartesia} — and you choose which one each agent speaks with`
-              : "Two voice qualities, and you choose which one each agent speaks with"
+              ? `Two voice qualities — ${labels.sarvam} and ${labels.cartesia} — and each agent speaks with one of them`
+              : "Two voice qualities, and each agent speaks with one of them"
           }
         >
-          The choice belongs to the agent, not to the account: a receptionist that answers
+          {/* ⚠ THIS SAID "YOU CHOOSE WHICH ONE EACH AGENT SPEAKS WITH", AND A CLIENT
+              CANNOT. The voice picker is mounted in the admin realm only; changing an
+              agent&rsquo;s voice is ours (D-21), which is why the client&rsquo;s own agent
+              screen carries the fact and no control ("Your account manager can confirm
+              it", `app/c/[slug]/agents/panels/publishing.tsx`). The per-agent part was
+              true and is kept; the control was not. */}
+          The voice belongs to the agent, not to the account: a receptionist that answers
           all day and an outbound campaign can speak with different voices, and each call is
-          charged at its own agent&rsquo;s rate. Neither is a cut-down version of the other —
-          what you hear in a demo is what your customers hear at three in the morning. A new
-          agent starts on the cheaper voice, so nothing costs you more per minute unless you
-          asked for it.
+          charged at its own agent&rsquo;s rate. Tell your account manager which voice you
+          want an agent to speak with and we set it. Neither is a cut-down version of the
+          other — what you hear in a demo is what your customers hear at three in the
+          morning. A new agent starts on the cheaper voice, so nothing costs you more per
+          minute unless you asked for it.
         </Fact>
 
         <Fact
@@ -155,7 +171,9 @@ export function WhatCallsCost({
           rate card later, credit you already own is untouched. Your calls are charged
           against your oldest credit first, so when you top up at a better rate you finish
           the older credit before you reach it — the list above shows exactly what is left
-          at each price.
+          at each price. Moving an agent to the other voice costs you nothing and changes
+          none of your credit: the same purchase is drawn down, at the other rate that was
+          fixed on it when you bought it.
         </Fact>
 
         <Fact
@@ -179,8 +197,17 @@ export function WhatCallsCost({
           icon={<InfinityIcon className="h-4 w-4" aria-hidden />}
           claim="Your credit never expires"
         >
-          Nothing runs it down except your own calls, and nothing takes it back. Buy a
-          large pack in a quiet month and it is still there in a busy one.
+          {/* ⚠ THIS SAID "NOTHING RUNS IT DOWN EXCEPT YOUR OWN CALLS", TWO CARDS ABOVE A
+              PANEL THAT RENDERS "Extra AI help" AS ITS OWN DRAWDOWN ROW. A block of extra
+              dashboard AI, accepted by a person at a modal naming the figure, is one
+              `credit_ledger` debit against this wallet (`apps/api/billing/ai_quota.py`),
+              and a correction we post is another (`WhereItWent`&rsquo;s "Corrections" row).
+              Neither is a call, and both take credit off. What survives is the claim the
+              fact is actually about: nothing EXPIRES and nothing is swept. */}
+          Your calls run it down, and so does a block of extra dashboard AI if you accept
+          one — nothing else does. It never expires and is never swept, so a large pack
+          bought in a quiet month is still there in a busy one. If we ever billed you
+          wrongly, the correction is posted here too, where you can see it.
         </Fact>
 
         <Fact

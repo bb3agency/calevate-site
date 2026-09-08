@@ -287,7 +287,14 @@ export function TopUp({ session }: { session: Session }) {
               screen. Only rendered with the names, for `labels`' reason above. */}
           {labels && (
             <p className="text-sm text-ink-muted">
-              Every pack buys both voice qualities — you choose which one each agent speaks
+              {/* "YOU CHOOSE WHICH ONE EACH AGENT SPEAKS WITH" WAS FALSE IN THIS REALM: the
+                  voice picker is mounted in admin only and changing a voice is ours (D-21),
+                  which is why the client's agent screen carries the fact and no control.
+                  Per-agent is true and stays; the control does not. Same sentence as
+                  `WhatCallsCost`, in the same register, because two wordings of one rule is
+                  how a client comes to believe the more generous one. */}
+              Every pack buys both voice qualities, and which one prices a call is set per
+              agent — tell your account manager which voice you want each agent to speak
               with. A bigger pack makes each minute cheaper, and the rates on the pack you
               buy stay with that credit until you have spent it.
             </p>
@@ -746,7 +753,7 @@ function matchSentence(
     ? ` — about ${dear} minutes on ${labels.cartesia} and ${cheap} on ${labels.sarvam}`
     : "";
   if (match.short) {
-    return `About ${formatCount(wanted)} minutes a month is more than one pack. The largest is ${amount}${spread} — add credit more than once, or talk to us about a monthly plan.`;
+    return `About ${formatCount(wanted)} minutes a month is more than one pack. The largest is ${amount}${spread} — add credit more than once, or talk to us about a monthly invoiced plan.`;
   }
   return `About ${formatCount(wanted)} minutes a month? ${amount} covers it whichever voice you choose${spread}.`;
 }

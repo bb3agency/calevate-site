@@ -21,7 +21,14 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
 import { CreditsTab } from "./CreditsTab";
-import { VOICE_TIERS, lotRate, tierLabels, tierRunway, useWalletLots } from "./lots";
+import {
+  VOICE_TIERS,
+  formatWhole,
+  lotRate,
+  tierLabels,
+  tierRunway,
+  useWalletLots,
+} from "./lots";
 import { InvoicedAccount } from "./InvoicedAccount";
 import { OverviewTab } from "./OverviewTab";
 import { TransactionsTab } from "./TransactionsTab";
@@ -241,7 +248,14 @@ export default function BillingPage({ params }: { params: Promise<{ slug: string
                       .map(
                         (tier) =>
                           `${tier.label}: ${
-                            tier.minutes_left === null ? "not priced" : `${tier.minutes_left} minutes`
+                            /* `formatWhole`, not the raw string: the wire sends
+                               `"1080.0000"` and every screen on this hub renders it as
+                               "1,080". A copilot fact is read ALOUD, and "one thousand
+                               and eighty point zero zero zero zero minutes" is the
+                               assistant quoting a database column at a client. */
+                            tier.minutes_left === null
+                              ? "not priced"
+                              : `${formatWhole(tier.minutes_left)} minutes`
                           }`,
                       )
                       .join("; "),

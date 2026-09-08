@@ -8,8 +8,11 @@ import type { Wallet, WalletLedger } from "@/lib/api/wallet";
 import { expectNoA11yViolations } from "./a11y";
 import { WALLET_LOTS_PATH } from "@/app/c/[slug]/billing/lots";
 
+import BillingPage from "@/app/c/[slug]/billing/page";
+import { useCopilotSurfaceHolder, type SurfaceHolder } from "@/lib/copilot/registry";
+
 import { renderBillingHub } from "./billingHub";
-import { problem, stillLoading } from "./harness";
+import { problem, renderClientPage, stillLoading } from "./harness";
 
 /**
  * Calling credit (`/c/<slug>/credits`) — the screen a client opens to answer three
@@ -545,6 +548,125 @@ describe("the credit itself: what is left, and at which rates", () => {
     expect(container.textContent).not.toContain("/min");
   });
 
+  it("takes the RATE COLUMNS from the server's own tier order, not from a constant here", async () => {
+    /*
+     * ⚠ **THE SILENT ONE.** The headings iterated `lots.tiers` (the server's order) and the
+     * cells iterated the browser constant `VOICE_TIERS` — two independently declared
+     * orderings that agreed by coincidence. Reorder the server's tiers and every lot row
+     * puts the dearer voice's rate under the cheaper voice's heading: a wrong per-minute
+     * price on the screen a client checks their bill against, with nothing failing
+     * anywhere and no way for them to know.
+     *
+     * So the fixture REVERSES the tier order and nothing else. The rates are the same
+     * strings; what is asserted is that each one lands in the column named for its own
+     * quality. Against the old code this passes header assertions and fails here.
+     */
+    const reversed = {
+      ...LOTS,
+      tiers: [
+        { provider: "cartesia", label: "Studio", minutes_left: "800" },
+        { provider: "sarvam", label: "Clear", minutes_left: "1080" },
+      ],
+    };
+    await renderBillingHub(routes({ [LOTS_ROUTE]: reversed }));
+
+    const table = await screen.findByRole("table", { name: /in the order it will be spent/i });
+    const headers = within(table)
+      .getAllByRole("columnheader")
+      .map((th) => th.textContent);
+    expect(headers).toEqual(["Credit left", "Studio", "Clear", "Bought"]);
+    // Row 1 is the ₹3,200 lot at ₹4.70 (sarvam) / ₹6.50 (cartesia). Studio leads the
+    // headings now, so ₹6.50 must be the FIRST rate cell and ₹4.70 the second.
+    const cells = within(within(table).getAllByRole("row")[1] as HTMLElement)
+      .getAllByRole("cell")
+      .map((td) => td.textContent);
+    expect(cells[0]).toBe("₹6.5000/min");
+    expect(cells[1]).toBe("₹4.7000/min");
+  });
+
+  it("prints no rate at all in a column for a quality it cannot price", async () => {
+    // A tier the server names and this browser has no accessor for gets its heading and an
+    // EMPTY cell. The alternative — falling through to one of the two rates we do know — is
+    // the same wrong-price defect wearing a different hat, and an absent figure renders as
+    // absent (D-458).
+    await renderBillingHub(
+      routes({
+        [LOTS_ROUTE]: {
+          ...LOTS,
+          tiers: [
+            { provider: "sarvam", label: "Clear", minutes_left: "1080" },
+            { provider: "elevenlabs", label: "Theatre", minutes_left: "600" },
+          ],
+        },
+      }),
+    );
+
+    const table = await screen.findByRole("table", { name: /in the order it will be spent/i });
+    expect(within(table).getByRole("columnheader", { name: "Theatre" })).toBeTruthy();
+    const cells = within(within(table).getAllByRole("row")[1] as HTMLElement)
+      .getAllByRole("cell")
+      .map((td) => td.textContent);
+    expect(cells[0]).toBe("₹4.7000/min");
+    expect(cells[1]).toBe("");
+  });
+
+  it("prints no runway line for a wallet with no credit on it", async () => {
+    /*
+     * DAY ONE PRINTED ITS OWN EMPTINESS TWICE: the banner said the account has no credit
+     * yet, and the runway line under the balance said "about 0 minutes on Clear" — the same
+     * fact, in the unit a client plans in, on the first screen they ever open. The decision
+     * (see `TierRunwayLines`): no open lots, no runway lines. It answers "how long does what
+     * you have last", and a wallet with nothing in it has no answer to give.
+     */
+    const { container } = await renderBillingHub(
+      routes({
+        [LOTS_ROUTE]: {
+          tiers: [
+            { provider: "sarvam", label: "Clear", minutes_left: "0" },
+            { provider: "cartesia", label: "Studio", minutes_left: "0" },
+          ],
+          lots: [],
+          overdraft_inr: "0.00",
+        },
+        [WALLET]: wallet({ balance_inr: "0.00", outbound_stopped: true, is_low: true }),
+        [LEDGER]: { entries: [], payments: [] },
+      }),
+    );
+
+    await screen.findByText(/cannot make outgoing calls until there is credit/);
+    expect(container.textContent).not.toContain("minutes on Clear");
+    expect(container.textContent).not.toContain("0 minutes");
+  });
+
+  it("explains a negative balance on the hero, where the negative balance is", async () => {
+    /*
+     * "Outgoing calls stop when this reaches zero" sat over a figure that can be BELOW
+     * zero: a call already in progress is finished rather than cut off (plan §0 Q5). The
+     * sentence that explains it lives in `LotsPanel`, which renders only when the lot read
+     * succeeded — so an overdrawn hero on a deployment whose API has no lots route showed
+     * "−₹120.00" with nothing but a sentence about zero.
+     */
+    const { container } = await renderBillingHub(
+      routes({
+        [LOTS_ROUTE]: problem(404, { title: "Not found" }),
+        [WALLET]: wallet({ balance_inr: "-120.00", outbound_stopped: true, is_low: true }),
+      }),
+    );
+
+    const tile = (await screen.findByText("Calling credit")).closest("div") as HTMLElement;
+    within(tile).getByText("-₹120.00");
+    expect(tile.textContent).toMatch(/a little below zero/);
+    expect(tile.textContent).toMatch(/next top-up clears what is owed first/);
+    // And it is not said to everybody: a wallet in credit gets the plain sentence only.
+    expect(container.textContent).toContain("Outgoing calls stop when this reaches zero");
+  });
+
+  it("says nothing about going below zero on a wallet that is in credit", async () => {
+    const { container } = await renderBillingHub(routes());
+    await screen.findByText("₹3,400.00");
+    expect(container.textContent).not.toMatch(/a little below zero/);
+  });
+
   it("renders no lot panel at all for a wallet with nothing in it and nothing owed", async () => {
     // Day one. The hero above already says the balance is empty; a table of headings over
     // no rows says it a second time in a worse register.
@@ -937,5 +1059,101 @@ describe("the states that are not a balance", () => {
     );
     await screen.findByText(/limited to people with access to it/);
     expect(screen.queryByText("₹3,400.00")).toBeNull();
+  });
+});
+
+/**
+ * WHAT CALLS COST — the console's one claim about how our pricing works, and therefore the
+ * one place a wrong sentence about money is served to every client on every visit.
+ *
+ * Each assertion below is a sentence an audit found FALSE on 8 Sep 2026, pinned in the
+ * corrected form. Two of them were contradicted by another panel on the same screen, which
+ * is the cheapest kind of wrong to find and the most expensive kind to be caught in.
+ */
+describe("the explainer's claims about the money", () => {
+  it("names extra AI help as something that draws the credit down", async () => {
+    // IT USED TO SAY "Nothing runs it down except your own calls" — TWO CARDS ABOVE
+    // "Extra AI help", which `WhereItWent` renders from `drawdown.ai_assist_inr` (₹300.00
+    // on this fixture) because a block of dashboard AI a person accepts is a debit on this
+    // wallet (`apps/api/billing/ai_quota.py`).
+    const { container } = await renderBillingHub(routes());
+    const explainer = (await screen.findByText("What calls cost")).closest(
+      "section",
+    ) as HTMLElement;
+    expect(explainer.textContent).not.toMatch(/Nothing runs it down except your own calls/);
+    expect(explainer.textContent).toMatch(/extra dashboard AI/i);
+    // The panel it used to contradict is on the same screen, saying the same thing.
+    const spend = (
+      await screen.findByText(/Where your credit went in the last 30 days/)
+    ).closest("section") as HTMLElement;
+    within(spend).getByText("Extra AI help");
+    expect(container.textContent).toContain("₹300.00");
+  });
+
+  it("answers what a voice change does to credit already bought", async () => {
+    // THE QUESTION NO SCREEN ANSWERED, and the most likely support ticket two rates per lot
+    // generates. The true answer is that nothing happens to the credit: the SAME lot is
+    // drawn down, at the other rate that was frozen on it at purchase.
+    await renderBillingHub(routes());
+    const explainer = (await screen.findByText("What calls cost")).closest(
+      "section",
+    ) as HTMLElement;
+    expect(explainer.textContent).toMatch(/Moving an agent to the other voice costs you nothing/);
+    expect(explainer.textContent).toMatch(/the same purchase is drawn down/i);
+  });
+
+  it("does not offer a client a voice control this realm does not have", async () => {
+    // D-21: the picker is mounted in admin only, which is why the client's agent screen
+    // carries the fact and no control. "You choose which one each agent speaks with" told
+    // them otherwise, on the screen where they are about to spend money on the difference.
+    await renderBillingHub(routes());
+    const explainer = (await screen.findByText("What calls cost")).closest(
+      "section",
+    ) as HTMLElement;
+    expect(explainer.textContent).not.toMatch(/you choose which one/i);
+    expect(explainer.textContent).toMatch(/tell your account manager/i);
+  });
+});
+
+
+/**
+ * WHAT THE ASSISTANT IS TOLD ABOUT THIS SCREEN.
+ *
+ * The hub declares its facts to the copilot (`lib/copilot/registry.ts`) and those facts are
+ * READ ALOUD. That makes them a client-facing surface with no pixels, which is exactly how
+ * a raw `NUMERIC` string got into one: every panel on the screen renders minutes through
+ * `formatWhole`, and the fact interpolated the column.
+ */
+describe("the facts the hub hands the assistant", () => {
+  function Probe({ onHolder }: { onHolder: (holder: SurfaceHolder | null) => void }) {
+    onHolder(useCopilotSurfaceHolder());
+    return null;
+  }
+
+  it("says the runway in the words a person uses, not the digits the column holds", async () => {
+    let holder: SurfaceHolder | null = null;
+    await renderClientPage(
+      <>
+        <BillingPage params={Promise.resolve({ slug: "acme" })} />
+        <Probe onHolder={(next) => (holder = next)} />
+      </>,
+      routes({
+        [LOTS_ROUTE]: {
+          ...LOTS,
+          tiers: [
+            { provider: "sarvam", label: "Clear", minutes_left: "1080.0000" },
+            { provider: "cartesia", label: "Studio", minutes_left: "800.4000" },
+          ],
+        },
+      }),
+    );
+    await screen.findByText("₹3,400.00");
+
+    const facts = (holder as SurfaceHolder | null)?.read()?.facts ?? [];
+    const runway = facts.find((fact) => fact.key === "minutes_left");
+    expect(runway?.value).toContain("Clear: 1,080 minutes");
+    expect(runway?.value).toContain("Studio: 800 minutes");
+    // The raw column, which is what it used to say out loud.
+    expect(runway?.value).not.toContain("1080.0000");
   });
 });

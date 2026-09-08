@@ -338,6 +338,102 @@ describe("the pricing page", () => {
     expect(text).not.toContain("₹");
   });
 
+  it("quotes each voice's ladder as a band, once, with both ends from the card", async () => {
+    /*
+     * THE PAGE QUOTED THREE DIFFERENT "THE PRICE" IN SIX LINES (audit, 8 Sep 2026): the h1
+     * carried the DEAREST rung, the lede said "from" the cheapest, the h2 said "Start today
+     * from" the cheapest again and the paragraph under it said the dearest — ₹5.00, ₹4.50,
+     * ₹4.50, ₹5.00 in four consecutive elements, none of them the figure somebody's FIRST
+     * purchase is at. Every one of those was provenance-clean, which is exactly why the
+     * `fromCard` assertion above could not see it: the defect is not an invented number, it
+     * is the same true numbers said four ways.
+     *
+     * So this counts. In the PROSE — the page minus the rate table, which is a ladder and is
+     * meant to repeat rungs — each rupee figure may appear ONCE. A band is two figures said
+     * once each; the duplicate this test exists for is a third and fourth sighting.
+     */
+    stubApi(RATE_CARD_ROUTES);
+    const { container } = render(await PricingPage());
+    const table = container.querySelector("#self-serve table")?.textContent ?? "";
+    const prose = bodyText(container).replace(table, "");
+    const counted = new Map<string, number>();
+    for (const figure of prose.match(/₹[\d,]+(\.\d{2})?/g) ?? []) {
+      counted.set(figure, (counted.get(figure) ?? 0) + 1);
+    }
+    for (const [figure, times] of counted) {
+      expect(times, `${figure} is quoted ${times} times outside the table`).toBe(1);
+    }
+    // And the band is BOTH ends of the everyday voice's ladder, in one sentence: the entry
+    // rung a first purchase is actually at, and the floor the largest pack reaches.
+    const dearestSarvam = formatRateForTest(
+      RATE_CARD.packs
+        .map((pack) => packRate(pack, "sarvam"))
+        .reduce((a, b) => (Number(a) >= Number(b) ? a : b)),
+    );
+    const h1 = container.querySelector("h1")?.textContent ?? "";
+    expect(h1).toContain(dearestSarvam);
+    expect(h1).toContain(formatRateForTest(RATE_CARD.from_sarvam_inr_per_min));
+    // The heading that used to re-quote one end of it says no figure at all now.
+    expect(prose).not.toMatch(/start today/i);
+  });
+
+  it("says which price is published and which is a conversation, and never the reverse", async () => {
+    // BOTH WERE ON THE PAGE AND NEITHER WAS QUALIFIED: "nothing to sign" and "Start today"
+    // over the card, and "the price is a conversation" four sections down. They are true of
+    // DIFFERENT things — the self-serve card is published, a managed plan is quoted — and a
+    // buyer who read both learned that we will not say what a minute costs on the page that
+    // says exactly that.
+    stubApi(RATE_CARD_ROUTES);
+    const { container } = render(await PricingPage());
+    const text = bodyText(container);
+    expect(text).toMatch(/published price, not a quote/i);
+    expect(text).toMatch(/agreed with you/i);
+    expect(text).not.toMatch(/the price is a conversation/i);
+    // And no claim about how an ACCOUNT is opened: `self_serve_signup_enabled` decides that
+    // at runtime and the homepage door is the one place that reads it.
+    expect(text).not.toMatch(/opened by hand|rather than online|nothing to sign/i);
+  });
+
+  it("promises no per-voice overage rate on a managed plan", async () => {
+    /*
+     * `plans` HAS NO SUCH COLUMN. There are two overage columns
+     * (`apps/api/billing/models.py:281-296`) and the second is D-36's premium/value TTS
+     * ladder, not one of the two VOICE QUALITIES the self-serve card prices — and every
+     * call is counted on the base rung regardless (`apps/workers/pipeline.py:2743-2745`,
+     * `tts_tier=BASE_OVERAGE_RUNG`). So the plan section may not name a voice: a client
+     * order form cannot carry a rate per voice, and the copy promised one.
+     *
+     * Asserted with the RELABELLED card, so the guard catches a voice name however it got
+     * onto the page — the labels arrive on the wire and a hand-typed "Studio" would pass a
+     * test written against today's names.
+     */
+    stubApi({
+      "/v1/public/rate-card": {
+        ...RATE_CARD,
+        sarvam_tier_label: "Everyday",
+        cartesia_tier_label: "Concert",
+      },
+    });
+    const { container } = render(await PricingPage());
+    const plan = container.querySelector("#plan")?.textContent ?? "";
+    expect(plan.length, "the plan section did not render").toBeGreaterThan(100);
+    expect(plan).not.toMatch(/Everyday|Concert/);
+    expect(plan).not.toMatch(/each voice|per voice|two-rate/i);
+  });
+
+  it("does not offer the buyer a voice control the client realm does not have", async () => {
+    // D-21 STANDS: the voice picker is mounted in the admin realm only, and the client's
+    // own agent screen says so ("Changing it is still ours … which is why there is no
+    // control here"). A pricing page telling a buyer they choose it agent by agent sells a
+    // control that is not there, and the register that IS true — tell your account manager
+    // — is the one the console now uses on both of its own screens.
+    stubApi(RATE_CARD_ROUTES);
+    const { container } = render(await PricingPage());
+    const text = bodyText(container);
+    expect(text).toMatch(/account manager/i);
+    expect(text).not.toMatch(/you choose it|choose it agent by agent|you choose which/i);
+  });
+
   it("sends the reader to the one place a real figure lives", async () => {
     stubApi(RATE_CARD_ROUTES);
     const { container } = render(await PricingPage());

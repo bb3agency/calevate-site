@@ -367,7 +367,12 @@ function voiceOptions(
     caption:
       voice === "sarvam"
         ? `The everyday voice, and where every agent starts. Down to ${formatRateINR(cardFromRate(card, voice))}/min on the deepest pack.`
-        : `Costs more per minute because it costs us more; chosen agent by agent. Down to ${formatRateINR(cardFromRate(card, voice))}/min on the deepest pack.`,
+        // "CHOSEN AGENT BY AGENT" READ AS A CONTROL THE CLIENT HOLDS, AND THEY DO NOT:
+        // the voice picker is mounted in the admin realm only and changing a voice is ours
+        // (D-21). Per-agent is the true and load-bearing half — it is why this calculator
+        // prices one voice at a time — so it is said as the property it is, in the same
+        // register `/pricing` and the console now use.
+        : `Costs more per minute because it costs us more, and it is set per agent rather than for the whole account. Down to ${formatRateINR(cardFromRate(card, voice))}/min on the deepest pack.`,
   }));
 }
 

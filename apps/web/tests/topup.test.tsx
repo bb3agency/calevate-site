@@ -547,6 +547,18 @@ describe("the top-up panel", () => {
     expect(sent?.body).toBe(JSON.stringify({ pack_id: "max" }));
   });
 
+  it("does not tell a client they pick each agent's voice themselves", async () => {
+    // D-21: the voice picker is mounted in the admin realm only, which is why the client's
+    // agent screen carries the fact and no control ("Changing it is still ours … which is
+    // why there is no control here"). This line said "you choose which one each agent
+    // speaks with", on the screen where they are about to pay for the difference between
+    // the two. Per-agent is true and stays; the control is not ours to promise.
+    const { container } = await renderBillingHub(routes(), "Credits");
+    await screen.findByText(/Every pack buys both voice qualities/);
+    expect(container.textContent).not.toMatch(/you choose which one each agent/i);
+    expect(container.textContent).toMatch(/tell your account manager/i);
+  });
+
   it("lands the reader on a pack from the minutes they call, without doing money arithmetic", async () => {
     // THE QUESTION THE OLD TABLE MADE THE READER ANSWER THEMSELVES. Six columns of
     // arithmetic on a phone is not how somebody decides how much to put on their phone
@@ -588,6 +600,10 @@ describe("the top-up panel", () => {
     // recommending a pack that does not cover it.
     fireEvent.change(field, { target: { value: "40000" } });
     await waitFor(() => expect(suggestion()).toContain("more than one pack"));
+    // AND IT NAMES THE RIGHT THING TO ASK FOR. It used to say "a monthly plan", which is
+    // the arrangement `InvoicedAccount` describes as having NO wallet at all — offered, on
+    // the top-up screen, as though it were an upgrade to the thing being bought.
+    expect(suggestion()).toContain("a monthly invoiced plan");
 
     // Not a number: a sentence they can act on, and no recommendation invented from it.
     fireEvent.change(field, { target: { value: "lots" } });

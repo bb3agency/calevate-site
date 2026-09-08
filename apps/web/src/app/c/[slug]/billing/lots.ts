@@ -79,6 +79,20 @@ export type VoiceTier = "sarvam" | "cartesia";
 /** Both qualities, in the order the card leads with them (the cheaper minute first). */
 export const VOICE_TIERS: readonly VoiceTier[] = ["sarvam", "cartesia"];
 
+/**
+ * Is this string one of the two qualities this browser knows how to price?
+ *
+ * The wire spells a quality as a bare `string` wherever the server ENUMERATES them
+ * (`WalletTierRunwayOut.provider`, a lot split's `voice_tier`), so every place that turns a
+ * server-sent provider into one of our accessors needs the same narrowing. One predicate
+ * rather than three inline `includes(... as VoiceTier)` casts, because the failure it
+ * guards is silent: a quality we cannot price must render NOTHING, and a cast renders the
+ * wrong voice's rate.
+ */
+export function isVoiceTier(value: unknown): value is VoiceTier {
+  return typeof value === "string" && (VOICE_TIERS as readonly string[]).includes(value);
+}
+
 /** What a CLIENT calls each quality. Only ever read from a response. */
 export type TierLabels = Readonly<Record<VoiceTier, string>>;
 
@@ -253,15 +267,14 @@ export function readLotSplits(entry: unknown): readonly LotSplit[] | undefined {
     }
     if (row.kind !== "call") return undefined;
     if (!isMoneyString(row.minutes) || !isMoneyString(row.inr_per_min)) return undefined;
-    if (typeof row.voice_tier !== "string") return undefined;
-    if (!VOICE_TIERS.includes(row.voice_tier as VoiceTier)) return undefined;
+    if (!isVoiceTier(row.voice_tier)) return undefined;
     splits.push({
       kind: "call",
       lot_id: row.lot_id,
       credits: row.credits,
       minutes: row.minutes,
       inr_per_min: row.inr_per_min,
-      voice_tier: row.voice_tier as VoiceTier,
+      voice_tier: row.voice_tier,
     });
   }
   return splits;

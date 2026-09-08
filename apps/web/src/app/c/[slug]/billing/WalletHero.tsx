@@ -138,6 +138,25 @@ export function WalletHero({
           <p className="mt-2 text-xs text-ink-muted">
             Outgoing calls stop when this reaches zero. Incoming calls are never affected.
           </p>
+          {/* ⚠ "STOP WHEN THIS REACHES ZERO" SAT OVER A FIGURE THAT CAN BE NEGATIVE, and
+              the sentence that explains a negative balance lives in `LotsPanel`, which
+              only renders when the lot read SUCCEEDED — so a hero reading "−₹120.00" could
+              appear with nothing on the screen but a sentence about zero. A call already
+              running when the credit went is finished rather than cut off, which is the
+              only way a balance goes below zero, and the next top-up repays it first (plan
+              §0 Q5, ADDENDUM 2 §2.2).
+
+              Read off the SIGN of the string the server sent — no arithmetic, no
+              comparison against a parsed number (hard rule 7) — and rendered only when it
+              applies: an edge case explained to every client on every visit is noise, and
+              this one is a fact about a figure that is on screen or it is not. */}
+          {wallet.balance_inr.trimStart().startsWith("-") && (
+            <p className="mt-2 text-xs text-ink-muted">
+              It can go a little below zero when a call is already in progress — we finish
+              that call rather than cut it off. Your next top-up clears what is owed first,
+              and the rest opens as new credit.
+            </p>
+          )}
         </div>
 
         {/* THE RUNWAY, at the same weight as the balance — see the module comment. */}
