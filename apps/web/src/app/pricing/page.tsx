@@ -128,7 +128,7 @@ const PLAN_SHAPE: readonly { term: string; detail: string }[] = [
     term: "A rate for anything past the bundle",
     // ⚠ THIS USED TO PROMISE A PER-VOICE OVERAGE RATE, AND A MANAGED PLAN CANNOT CARRY
     // ONE. `plans` has exactly two overage columns (`overage_rate` and
-    // `overage_rate_value`, `apps/api/billing/models.py:281-296`) and the second is D-36's
+    // `overage_rate_second`, `apps/api/billing/models.py`) and the second is D-36's
     // TTS ladder — premium/value — not one of the two VOICE QUALITIES the self-serve card
     // prices; and every call is counted on the base rung anyway
     // (`apps/workers/pipeline.py:2743-2745` passes `tts_tier=BASE_OVERAGE_RUNG`, "one voice

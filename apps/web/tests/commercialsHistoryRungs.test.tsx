@@ -68,6 +68,10 @@ function twoRungPlan(over: Partial<PlanRow> = {}): PlanRow {
     monthly_fee_inr: "9999.0000",
     included_minutes: 100,
     overage_rate_inr: "8.0000",
+    // BOTH SPELLINGS, the wire's own shape for one release (hard rule 8 step 1, D-558).
+    // A payload carrying ONLY the deprecated name — a console talking to an API that has
+    // not been redeployed — is `rungRenameFallback.test.tsx`.
+    overage_rate_second_inr: "5.5000",
     overage_rate_value_inr: "5.5000",
     // D-455: what this client pays extra, per minute, for a model THEY chose.
     llm_model_surcharge_inr: null,
@@ -91,6 +95,9 @@ function twoRungPlan(over: Partial<PlanRow> = {}): PlanRow {
       below_target_margin: [],
       min_gross_margin: "0.20",
       cost_floor_inr_per_min: "3.70",
+    // WHICH SPEAKING RATE THAT FLOOR IS STRUCK AT (D-557) — this panel is a REFUSAL
+    // surface, so it is deliberately the frozen assumed basis and says so.
+    cost_floor_basis: "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12)",
     },
     ...over,
   };
@@ -135,12 +142,17 @@ async function historyCells(): Promise<string[]> {
 }
 
 describe("the agreement history prints both rungs of the price", () => {
-  it("shows the premium and the value rate as separate columns", async () => {
+  it("shows both overage rates as separate columns", async () => {
     const { container } = await render(twoRungPlan());
     await screen.findByText("Every agreement, newest first");
 
-    expect(container.textContent).toContain("Premium / min");
-    expect(container.textContent).toContain("Value / min");
+    // "Base overage / min" / "Second overage / min", not "Premium / min" / "Value / min":
+    // these columns are `plans.overage_rate` and `plans.overage_rate_value`, and the old
+    // headings used rung vocabulary this product does not use (`tests/
+    // rung_naming_copy_test.py` is the guard) while implying a voice difference the two
+    // columns do not carry.
+    expect(container.textContent).toContain("Base overage / min");
+    expect(container.textContent).toContain("Second overage / min");
     // Both rates, UNROUNDED. `rate()` prints the API's digits and never re-derives them:
     // ₹7.1250 shown as ₹7.13 would break `qty x unit = amount` on the invoice.
     const cells = await historyCells();
@@ -156,6 +168,7 @@ describe("the agreement history prints both rungs of the price", () => {
         monthly_fee_inr: null,
         included_minutes: null,
         overage_rate_inr: null,
+        overage_rate_second_inr: "5.5000",
         overage_rate_value_inr: "5.5000",
       }),
     );
@@ -169,7 +182,7 @@ describe("the agreement history prints both rungs of the price", () => {
   it("prints an em dash for a rung a plan genuinely does not quote", async () => {
     // Unset is not zero, on either rung: "₹0/min" is free minutes and an absent rate is a
     // plan that quotes none. The dash is the only honest rendering of the second.
-    await render(twoRungPlan({ overage_rate_value_inr: null }));
+    await render(twoRungPlan({ overage_rate_second_inr: null, overage_rate_value_inr: null }));
     const cells = await historyCells();
 
     expect(cells).toContain("₹8.0000");

@@ -1682,8 +1682,8 @@ describe("the confirmation door", () => {
  * Both realms rendered an identical launcher and an identical panel, on the one floating
  * surface that appears over every screen in both consoles and that can change a client's
  * data. The marker is NOT a new treatment: it is the slate the admin shell already wears
- * (`components/realmChrome.tsx` — the rail across the top of the window and the sidebar's
- * identity block), so the two cannot drift into two different "admin" colours.
+ * (`components/realmChrome.tsx` — the sidebar's identity block), so the two cannot drift
+ * into two different "admin" colours.
  */
 describe("telling the two realms apart", () => {
   function dock(realm: "client" | "admin") {

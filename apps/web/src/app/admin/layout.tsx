@@ -30,7 +30,6 @@ import {
   SIDEBAR_IDENTITY_ROW_CLASS,
   SIDEBAR_ROW_CLASS,
   SidebarBrand,
-  SidebarCollapseToggle,
   SidebarCollapsibleBlock,
   SidebarGroupHeading,
   SidebarLabel,
@@ -41,7 +40,7 @@ import {
 } from "@/components/sidebarCollapse";
 import { AdminCopilotDock } from "@/components/copilot/CopilotDock";
 import { OfflineBanner } from "@/components/offline";
-import { ADMIN_REALM_IDENTITY_CLASS, AdminRealmRail } from "@/components/realmChrome";
+import { ADMIN_REALM_IDENTITY_CLASS } from "@/components/realmChrome";
 import { MAIN_CONTENT_ID, NOTICE_TONES, NoticeBox, SkipLink } from "@/components/ui";
 import { useHeldTenants } from "@/lib/api/admin";
 import { ApiProblem } from "@/lib/api/client";
@@ -471,11 +470,10 @@ function Sidebar({ isMobileOpen, onClose }: { isMobileOpen: boolean; onClose: ()
       <SidebarBrand
         isCollapsed={isCollapsed}
         onClose={onClose}
+        onToggle={toggle}
         title="Calevate admin"
         subtitle="Operator console"
       />
-
-      <SidebarCollapseToggle isCollapsed={isCollapsed} onToggle={toggle} />
 
       <nav className={sidebarNavClass}>
         {NAV.map((group) => (
@@ -516,8 +514,9 @@ function IdentityFooter({ isCollapsed }: { isCollapsed: boolean }) {
 
   return (
     <div className={SIDEBAR_FOOTER_CLASS}>
-      {/* The realm in the CHROME as well as in the words — the second half of the signal
-          the rail at the top of the window carries. `components/realmChrome.tsx`. */}
+      {/* The realm in the CHROME as well as in the words, and — since the rail across the
+          top of the window was removed (9 Sep 2026) — the shell's only realm marker that
+          is not a word. `components/realmChrome.tsx`. */}
       <div className={`${SIDEBAR_IDENTITY_ROW_CLASS} ${ADMIN_REALM_IDENTITY_CLASS}`}>
         <span
           aria-hidden
@@ -529,8 +528,16 @@ function IdentityFooter({ isCollapsed }: { isCollapsed: boolean }) {
             a `<p>` inside one is invalid markup the parser silently unnests. */}
         <SidebarLabel isCollapsed={isCollapsed}>
           <span className="block truncate text-sm font-semibold text-white">Admin realm</span>
+          {/* SHORT ENOUGH TO READ, rather than long and cut. This said `${role} · signed
+              in across every client`, which is 42 characters in a label that has ~171px
+              (255px panel less the footer's `px-3`, the row's `p-1.5`, the 36px glyph and
+              the gap) — so what an operator actually read was "superadmin · signed in
+              acros…", a phrase that ends mid-word and conveys nothing after the role. The
+              fix is the copy, not a `title`: a tooltip on a sentence nobody can read is a
+              workaround, and the cut fact — that this session is not inside any single
+              client — is sayable in three words. */}
           <span className="block truncate text-xs text-white/70">
-            {role ? `${role} · signed in across every client` : "Signed in across every client"}
+            {role ? `${role} · all clients` : "All clients"}
           </span>
         </SidebarLabel>
       </div>
@@ -769,36 +776,36 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
               {/* `data-app-shell` is what `globals.css` scopes its `overflow: hidden` pin
                   to. The document scrolls by default; a shell that clips its own content is
                   the only thing that needs the document to stop. */}
-              <div data-app-shell className="fixed inset-0 flex flex-col overflow-hidden bg-app font-sans">
-                {/* WHICH CONSOLE THIS IS, IN COLOUR, ACROSS THE WHOLE WINDOW — over the
-                    sidebar as well as the content, which is why this shell is a COLUMN
-                    where the client shell is a row. See `components/realmChrome.tsx`. */}
-                <AdminRealmRail />
-                <div className="flex min-h-0 flex-1">
-                  {/* FIRST focusable thing in the shell — WCAG 2.4.1, Level A. Same component,
-                      same target id and same position as the client shell's, because the two
-                      shells are siblings and a reader who learns the control in one must find
-                      it in the other. */}
-                  <SkipLink />
-                  <Sidebar isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
-                  <div className="flex flex-1 flex-col overflow-hidden">
-                    {/* One statement about the whole window, above every screen — the same
-                        strip and the same position as the client shell's, because an operator
-                        who learns it in one console must find it in the other. Renders
-                        nothing while online. */}
-                    <OfflineBanner />
-                    <TopHeader onMenuToggle={() => setIsMobileOpen(true)} />
-                    {/* `tabIndex={-1}`: a fragment target that is not focusable scrolls but
-                        does not take focus, which is the classic reason a skip link does
-                        nothing on the next Tab. */}
-                    <main
-                      id={MAIN_CONTENT_ID}
-                      tabIndex={-1}
-                      className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6"
-                    >
-                      <div className="mx-auto max-w-[1280px]">{children}</div>
-                    </main>
-                  </div>
+              {/* A ROW, exactly like the client shell's. It was a COLUMN wrapping a row,
+                  because `AdminRealmRail` — a slate bar across the top of the whole window,
+                  above the sidebar as well as the content — needed a band of its own. The
+                  founder removed the rail (9 Sep 2026, `components/realmChrome.tsx`), and a
+                  column holding one child is not a shell layout, it is the leftovers of one.
+                  The two shells' outermost element is now the same expression. */}
+              <div data-app-shell className="fixed inset-0 flex overflow-hidden bg-app font-sans">
+                {/* FIRST focusable thing in the shell — WCAG 2.4.1, Level A. Same component,
+                    same target id and same position as the client shell's, because the two
+                    shells are siblings and a reader who learns the control in one must find
+                    it in the other. */}
+                <SkipLink />
+                <Sidebar isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
+                <div className="flex flex-1 flex-col overflow-hidden">
+                  {/* One statement about the whole window, above every screen — the same
+                      strip and the same position as the client shell's, because an operator
+                      who learns it in one console must find it in the other. Renders
+                      nothing while online. */}
+                  <OfflineBanner />
+                  <TopHeader onMenuToggle={() => setIsMobileOpen(true)} />
+                  {/* `tabIndex={-1}`: a fragment target that is not focusable scrolls but
+                      does not take focus, which is the classic reason a skip link does
+                      nothing on the next Tab. */}
+                  <main
+                    id={MAIN_CONTENT_ID}
+                    tabIndex={-1}
+                    className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6"
+                  >
+                    <div className="mx-auto max-w-[1280px]">{children}</div>
+                  </main>
                 </div>
               </div>
               {/* The screen assistant. OUTSIDE the shell `div` (which is `overflow:

@@ -43,6 +43,7 @@ import {
   useOpsRateCard,
   useRecordRateCard,
   type CartesiaVolume,
+  type SpeakingRate,
   type CellDraft,
   type PendingCard,
   type RateCard,
@@ -165,6 +166,12 @@ function RateCardTable({ card }: { card: RateCard }) {
   // whole-card failure above is. `?? null` rather than a non-null assertion because the
   // generated type cannot describe an older deployment.
   const volume: CartesiaVolume | null = card.cartesia_volume ?? null;
+  // `?? null` for the same reason and with the same narrowing, one block down: the field is
+  // REQUIRED on the wire, and an API older than 9 Sep 2026 sends none — which the generated
+  // type cannot describe. Unlike the volume it does not suppress the table: a card whose
+  // Clear cost was struck at the assumed rate is still a readable card, it just cannot say
+  // which rate that was.
+  const speakingRate: SpeakingRate | null = card.speaking_rate ?? null;
   if (volume === null) {
     return (
       <NoticeBox
@@ -191,6 +198,7 @@ function RateCardTable({ card }: { card: RateCard }) {
       </p>
 
       <CartesiaVolumeNotice volume={volume} />
+      {speakingRate !== null ? <SpeakingRateNotice rate={speakingRate} /> : null}
 
       <ScrollRegion label="The rate card, by pack and voice">
         <table className="w-full min-w-[640px] text-sm">
@@ -524,6 +532,65 @@ function CartesiaVolumeNotice({ volume }: { volume: CartesiaVolume }) {
         Modelled at {volume.assumed_chars_per_call_minute} characters a call-minute, the top of
         an unmeasured band. The measured figure above uses no such assumption — it divides the
         characters our meter counted by the minutes it billed.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * **WHAT THE CLEAR COLUMN'S "COST AT VOLUME" IS STRUCK AT (D-557).**
+ *
+ * The same defect as the block above it, one voice over and one step earlier. Clear is priced
+ * per CHARACTER, and a per-character price becomes a per-minute cost only through how many
+ * characters an agent speaks in a minute — which nothing had measured, so every floor on this
+ * screen divided by an assumption the blueprint itself calls unmeasured. This is the reading,
+ * or the honest statement that there is not one yet: no placeholder rate, and a figure from
+ * too few calls is never called a measurement.
+ *
+ * The rendered arm is `null`-guarded for `CartesiaVolumeNotice`'s reason: an API older than
+ * 9 Sep 2026 sends no such field, and the generated type cannot describe an older deployment.
+ */
+function SpeakingRateNotice({ rate }: { rate: SpeakingRate }) {
+  return (
+    <div className="space-y-2 rounded-card border border-line bg-surface-muted p-3 text-xs">
+      <p className="text-ink">
+        <span className="font-semibold">
+          Clear is priced per character, so its cost per minute depends on how much the agent
+          talks
+        </span>
+        .{" "}
+        {rate.measured ? (
+          <>
+            Measured across{" "}
+            <span className="font-semibold tabular-nums">{rate.calls}</span> calls (
+            {rate.window}): <MonoValue>{rate.chars_per_call_minute}</MonoValue> characters a
+            call-minute, which puts a Clear minute at{" "}
+            <span className="font-semibold tabular-nums">
+              {formatRupeeRate(rate.cost_floor_inr_per_min)}
+            </span>
+            .
+          </>
+        ) : (
+          <>
+            Nobody has measured it yet — {rate.calls} of {rate.minimum_calls} calls with a
+            transcript — so the column above is struck at the blueprint&apos;s assumed{" "}
+            <MonoValue>{rate.chars_per_call_minute}</MonoValue> characters a call-minute.
+          </>
+        )}
+      </p>
+      <p className="text-ink-faint">
+        {/* THE FROZEN BOUND, NAMED. It is what a save is refused below, and it does not move
+            with the measurement — a veto that did would refuse tomorrow the card it accepted
+            today, because twenty more calls were answered. */}
+        A card is refused below{" "}
+        <span className="tabular-nums">{formatRupeeRate(rate.refusal_floor_inr_per_min)}</span> a
+        minute, which stays where it is whatever the measurement says.{" "}
+        {rate.floor_above_refusal ? (
+          <span className="font-semibold text-red-600">
+            The measured cost is ABOVE that bound: some rungs may be under water and still
+            recordable. That is a pricing decision, not a screen problem.
+          </span>
+        ) : null}
       </p>
     </div>
   );

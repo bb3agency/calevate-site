@@ -27,7 +27,10 @@
  * - Say what happened AND what to do next; never blame the reader.
  * - Legally load-bearing telecom terms (DLT, PE, TM, DND) are KEPT verbatim and glossed
  *   in place — GOV.UK plain-language guidance allows an unavoidable technical term when it
- *   is explained where it is used. `TermGloss` below is that mechanism.
+ *   is explained where it is used. `TermGloss` (components/ui) is that mechanism and
+ *   `<Term id="…" />` (lib/glossary) is the vocabulary — one definition per term, shared
+ *   with the client realm, so an operator and a client never read two explanations of
+ *   the same word.
  *
  * Screen-specific prose (a panel's intro, a one-off warning) stays on its panel; what is
  * centralised here is the vocabulary shared across panels and the field/confirm controls
@@ -47,16 +50,19 @@ import {
   FIELD_LABEL,
   MonoValue,
   NoticeBox,
-  TermGloss,
   type NoticeTone,
 } from "@/components/ui";
 import { FieldMessage, type TrackedProps } from "@/components/formValidation";
 
-// `MonoValue` and `TermGloss` now live in the shared primitives (components/ui) so the
-// client realm and the marketing site gloss terms and render codes the same way this
-// console does. Re-exported here so the ops screens that import them from this module
-// keep working — one definition, two import paths, no drift.
-export { MonoValue, TermGloss };
+// `MonoValue` now lives in the shared primitives (components/ui) so the client realm and
+// the marketing site render codes the same way this console does. Re-exported here so the
+// ops screens that import it from this module keep working — one definition, two import
+// paths, no drift.
+//
+// `TermGloss` was re-exported beside it and no longer is: the glossing of a term now goes
+// through `<Term id="…" />` (lib/glossary), so a second import path for the raw mechanism
+// was a door back to two wordings of one term.
+export { MonoValue };
 
 /* ────────────────────────────────────────────────────────────────────────────
  * 1. WHEN A CHANGE TAKES EFFECT  ("applies")
@@ -303,8 +309,8 @@ export function loadShedModeCopy(mode: string): ModeCopy {
  * 5. OUR TELEMARKETER REGISTRATION  (DLT)
  *
  * Enum → plain sentence. The telecom acronyms stay (they are the legal terms an operator
- * will see on the registrar's own letter) and are glossed via `TermGloss`, per the
- * plain-language rule on unavoidable technical terms.
+ * will see on the registrar's own letter) and are glossed via `<Term id="tm" />`
+ * (lib/glossary), per the plain-language rule on unavoidable technical terms.
  * ──────────────────────────────────────────────────────────────────────────── */
 
 export type TmStatus =

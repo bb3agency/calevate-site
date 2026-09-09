@@ -757,14 +757,17 @@ function OperatorRow({
           )}
         </span>
         <span className="min-w-0">
-          <span className="block truncate text-ink">
+          <span title={operator.name ?? undefined} className="block truncate text-ink">
             {operator.name ?? "No name on file"}
           </span>
           {/* The whole address, like the client realm's pending-invite row (D-436): a
               super admin has to be able to tell two accounts at one domain apart before
               revoking one of them, and the confirmations below are typed against a row
               they must be sure of. */}
-          <span className="block truncate font-mono text-xs text-ink-muted">
+          <span
+            title={operator.email ?? undefined}
+            className="block truncate font-mono text-xs text-ink-muted"
+          >
             {operator.email ?? "no address on file"}
           </span>
         </span>

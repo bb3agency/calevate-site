@@ -278,3 +278,75 @@ describe("prefers-reduced-motion", () => {
     }
   });
 });
+
+/**
+ * THE COLLAPSE TOGGLE DOES NOT GET A ROW TO ITSELF (founder, 9 Sep 2026).
+ *
+ * `SidebarCollapseToggle` was a full-width `<div className="hidden justify-end pb-1
+ * pr-[22px] lg:flex">` rendered as a SIBLING between `<SidebarBrand>` and `<nav>` in both
+ * shells. So one 16px glyph claimed an entire horizontal band of the panel: a stripe of
+ * empty space under the wordmark with an icon floating at its right edge, and every nav
+ * item pushed down by a row that contained nothing else. The founder read it as a layout
+ * mistake, which is what it was.
+ *
+ * The assertions below are STRUCTURAL, not pixel, because jsdom has no layout and a test
+ * that claimed to measure the gap would be the vacuous pass this file's own header
+ * refuses at length. What is decidable — and what is exactly the defect — is the DOM
+ * shape: the toggle's parent is the brand block, and there is no element between the
+ * brand and the `<nav>`. Shrinking `pb-1` to `pb-0` would leave that shape intact and is
+ * precisely the "fix" this pins against.
+ *
+ * The COLLAPSED case is asserted separately because that is where a right-aligned control
+ * on a 72px rail is most likely to break: the mark and the toggle cannot share 36px, so
+ * the mark yields (`lg:hidden`) and the row centres. If a later change deletes the toggle
+ * on the rail instead, there is no way to expand the panel again — so its survival is the
+ * assertion, in both states.
+ */
+describe.each([
+  ["admin realm", renderAdminShell],
+  ["client realm", renderClientShell],
+])("the sidebar's header block — %s", (_realm, renderShell) => {
+  function brandOf(container: HTMLElement): HTMLElement {
+    const brand = container.querySelector<HTMLElement>("[data-sidebar-brand]");
+    if (!brand) throw new Error("no brand block in the panel — SidebarBrand moved");
+    return brand;
+  }
+
+  it("puts the collapse toggle INSIDE the brand row, not in a band of its own", async () => {
+    stubDesktopViewport();
+    const container = await renderShell();
+    const brand = brandOf(container);
+
+    const toggle = container.querySelector("[data-sidebar-collapse-toggle]");
+    expect(toggle, "the collapse toggle is gone entirely").toBeTruthy();
+    expect(
+      toggle?.parentElement,
+      "the toggle is a band of its own again — it belongs in the brand row",
+    ).toBe(brand);
+
+    // NOTHING between the brand and the nav. The old shape was brand → toggle row → nav,
+    // and this is the assertion that a re-added row cannot slip past by being styled flat.
+    const nav = container.querySelector("nav");
+    expect(brand.nextElementSibling, "an element reappeared between the brand and the nav").toBe(
+      nav,
+    );
+  });
+
+  it("keeps the toggle on the 72px rail, where the brand mark yields to it", async () => {
+    stubDesktopViewport();
+    const container = await renderShell();
+    collapse();
+
+    const brand = brandOf(container);
+    const toggle = container.querySelector("[data-sidebar-collapse-toggle]");
+    expect(toggle, "nothing expands the panel again once it is collapsed").toBeTruthy();
+    expect(toggle?.parentElement).toBe(brand);
+    expect(screen.getByLabelText("Expand sidebar")).toBe(toggle);
+
+    // The mark steps aside at `lg` only, so the 255px mobile drawer still shows it.
+    const mark = brand.querySelector("img");
+    expect(mark?.className, "the brand mark still fills the rail the toggle needs").toContain(
+      "lg:hidden",
+    );
+  });
+});

@@ -90,11 +90,18 @@ async def test_a_sarvam_call_still_meters_the_engines_own_leg_figure() -> None:
     moves that row — its `qty` is still 1 and its price is still the whole leg."""
     tenant_id, call_id = await _tenant_with_call(agent_chars="900")
     async with tenant_session(tenant_id) as session:
+        # The characters come from the TRANSCRIPT through the meter's own reader, which
+        # is where `_meter` gets them too (D-557 hoisted the query out of this function
+        # so the fleet speaking-rate counter and this cost row count one call once).
+        _, agent_chars = await pipeline._agent_transcript(
+            session, tenant_id=tenant_id, call_id=call_id
+        )
         rows = await _tts_cost_rows(
             session,
             tenant_id=tenant_id,
             call_id=call_id,
             voice="sarvam",
+            agent_chars=agent_chars,
             engine_tts_inr=Decimal("1.6200"),
             at=datetime.now(UTC),
         )
@@ -106,12 +113,19 @@ async def test_a_sarvam_call_the_engine_priced_nothing_for_writes_no_row() -> No
     difference is the whole of D-370: a ₹0 row is indistinguishable from a working leg."""
     tenant_id, call_id = await _tenant_with_call(agent_chars="900")
     async with tenant_session(tenant_id) as session:
+        # The characters come from the TRANSCRIPT through the meter's own reader, which
+        # is where `_meter` gets them too (D-557 hoisted the query out of this function
+        # so the fleet speaking-rate counter and this cost row count one call once).
+        _, agent_chars = await pipeline._agent_transcript(
+            session, tenant_id=tenant_id, call_id=call_id
+        )
         assert (
             await _tts_cost_rows(
                 session,
                 tenant_id=tenant_id,
                 call_id=call_id,
                 voice="sarvam",
+                agent_chars=agent_chars,
                 engine_tts_inr=None,
                 at=datetime.now(UTC),
             )
@@ -136,11 +150,18 @@ async def test_a_cartesia_call_meters_our_own_character_count_at_the_attested_ra
             actor_id=await _operator(),
         )
     async with tenant_session(tenant_id) as session:
+        # The characters come from the TRANSCRIPT through the meter's own reader, which
+        # is where `_meter` gets them too (D-557 hoisted the query out of this function
+        # so the fleet speaking-rate counter and this cost row count one call once).
+        _, agent_chars = await pipeline._agent_transcript(
+            session, tenant_id=tenant_id, call_id=call_id
+        )
         rows = await _tts_cost_rows(
             session,
             tenant_id=tenant_id,
             call_id=call_id,
             voice="cartesia",
+            agent_chars=agent_chars,
             # ₹0 from the engine, which is the whole reason this seam exists.
             engine_tts_inr=Decimal("0"),
             at=at,
@@ -163,12 +184,19 @@ async def test_a_cartesia_call_with_no_attested_price_writes_no_row_rather_than_
     never a number this code invents."""
     tenant_id, call_id = await _tenant_with_call(agent_chars="900")
     async with tenant_session(tenant_id) as session:
+        # The characters come from the TRANSCRIPT through the meter's own reader, which
+        # is where `_meter` gets them too (D-557 hoisted the query out of this function
+        # so the fleet speaking-rate counter and this cost row count one call once).
+        _, agent_chars = await pipeline._agent_transcript(
+            session, tenant_id=tenant_id, call_id=call_id
+        )
         assert (
             await _tts_cost_rows(
                 session,
                 tenant_id=tenant_id,
                 call_id=call_id,
                 voice="cartesia",
+                agent_chars=agent_chars,
                 engine_tts_inr=Decimal("0"),
                 at=datetime(2024, 1, 1, tzinfo=UTC),
             )
@@ -191,12 +219,19 @@ async def test_a_cartesia_call_whose_agent_said_nothing_meters_nothing() -> None
             actor_id=await _operator(),
         )
     async with tenant_session(tenant_id) as session:
+        # The characters come from the TRANSCRIPT through the meter's own reader, which
+        # is where `_meter` gets them too (D-557 hoisted the query out of this function
+        # so the fleet speaking-rate counter and this cost row count one call once).
+        _, agent_chars = await pipeline._agent_transcript(
+            session, tenant_id=tenant_id, call_id=call_id
+        )
         assert (
             await _tts_cost_rows(
                 session,
                 tenant_id=tenant_id,
                 call_id=call_id,
                 voice="cartesia",
+                agent_chars=agent_chars,
                 engine_tts_inr=Decimal("0"),
                 at=at,
             )
@@ -235,11 +270,18 @@ async def test_a_non_zero_engine_charge_on_a_cartesia_call_is_metered_and_alarme
         pipeline, "alert", lambda stage, code, **kw: raised.append((str(stage), code))
     )
     async with tenant_session(tenant_id) as session:
+        # The characters come from the TRANSCRIPT through the meter's own reader, which
+        # is where `_meter` gets them too (D-557 hoisted the query out of this function
+        # so the fleet speaking-rate counter and this cost row count one call once).
+        _, agent_chars = await pipeline._agent_transcript(
+            session, tenant_id=tenant_id, call_id=call_id
+        )
         rows = await _tts_cost_rows(
             session,
             tenant_id=tenant_id,
             call_id=call_id,
             voice="cartesia",
+            agent_chars=agent_chars,
             engine_tts_inr=Decimal("0.4100"),
             at=at,
         )
@@ -269,11 +311,18 @@ async def test_a_cartesia_call_the_engine_charged_nothing_for_raises_nothing(
     raised: list[str] = []
     monkeypatch.setattr(pipeline, "alert", lambda stage, code, **kw: raised.append(code))
     async with tenant_session(tenant_id) as session:
+        # The characters come from the TRANSCRIPT through the meter's own reader, which
+        # is where `_meter` gets them too (D-557 hoisted the query out of this function
+        # so the fleet speaking-rate counter and this cost row count one call once).
+        _, agent_chars = await pipeline._agent_transcript(
+            session, tenant_id=tenant_id, call_id=call_id
+        )
         rows = await _tts_cost_rows(
             session,
             tenant_id=tenant_id,
             call_id=call_id,
             voice="cartesia",
+            agent_chars=agent_chars,
             engine_tts_inr=Decimal("0"),
             at=at,
         )
@@ -292,11 +341,18 @@ async def test_the_engines_charge_survives_a_cartesia_call_with_no_attested_pric
     raised: list[str] = []
     monkeypatch.setattr(pipeline, "alert", lambda stage, code, **kw: raised.append(code))
     async with tenant_session(tenant_id) as session:
+        # The characters come from the TRANSCRIPT through the meter's own reader, which
+        # is where `_meter` gets them too (D-557 hoisted the query out of this function
+        # so the fleet speaking-rate counter and this cost row count one call once).
+        _, agent_chars = await pipeline._agent_transcript(
+            session, tenant_id=tenant_id, call_id=call_id
+        )
         rows = await _tts_cost_rows(
             session,
             tenant_id=tenant_id,
             call_id=call_id,
             voice="cartesia",
+            agent_chars=agent_chars,
             engine_tts_inr=Decimal("0.4100"),
             at=datetime(2024, 1, 1, tzinfo=UTC),
         )

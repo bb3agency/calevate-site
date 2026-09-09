@@ -154,7 +154,12 @@ function GapRow({
               any other heading. UX-DOCTRINE §2: heading level is a property of where the
               component is allowed to be used, and this component is only ever used inside
               a card. */}
-          <h3 className="mt-1.5 truncate text-sm font-semibold text-ink">{gap.topic_label}</h3>
+          <h3
+            title={gap.topic_label}
+            className="mt-1.5 truncate text-sm font-semibold text-ink"
+          >
+            {gap.topic_label}
+          </h3>
           {showAgent && gap.agent_name ? (
             <p className="text-[12px] text-ink-muted">{gap.agent_name}</p>
           ) : null}

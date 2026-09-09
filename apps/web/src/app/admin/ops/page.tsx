@@ -54,8 +54,9 @@ import {
 } from "@/lib/api/admin";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
+import { Term } from "@/lib/glossary";
 import { hasKey, lookup } from "@/lib/lookup";
-import { TermGloss, loadShedModeCopy, tmStatusCopy } from "@/app/admin/ops/opsLanguage";
+import { loadShedModeCopy, tmStatusCopy } from "@/app/admin/ops/opsLanguage";
 
 /**
  * The operations surface — the big red switch, the load-shed mode, the one legal fact
@@ -966,15 +967,9 @@ function TmRegistrationPanel({
       <div className="space-y-4">
         <p className="text-sm text-ink-muted">
           Calevate is the registered{" "}
-          <TermGloss term="telemarketer (TM)">
-            the business registered with India&apos;s telecom system to place calls on a
-            client&apos;s behalf
-          </TermGloss>
+          <Term id="tm" term="telemarketer (TM)" audience="operator" />
           ; each client is its own{" "}
-          <TermGloss term="principal entity (PE)">
-            the business the calls are for, registered in its own name under India&apos;s
-            telecom rules (DLT)
-          </TermGloss>
+          <Term id="pe" term="principal entity (PE)" audience="operator" />
           . This is one fact for the whole platform.
         </p>
 

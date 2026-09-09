@@ -204,7 +204,7 @@ VoiceProvider = TtsProvider
 #:
 #: **IT IS `meta.voice_tier` AND NOT `meta.tts_tier`, AND THIS COMMENT NAMED THE WRONG KEY.**
 #: `usage_events.meta.tts_tier` is the PLAN'S OVERAGE RUNG (`BASE_OVERAGE_RUNG`, the
-#: `plans.overage_rate` / `overage_rate_value` pair), which is a different fact about the
+#: `plans.overage_rate` / `overage_rate_second` pair), which is a different fact about the
 #: same call; the money lane stamps the two separately and says why in as many words
 #: (`apps/workers/pipeline.py`, beside `"tts_tier"`). No code here read it wrongly — the
 #: comment was the only thing that would have misled the next reader into folding them.

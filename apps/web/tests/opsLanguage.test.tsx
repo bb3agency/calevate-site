@@ -5,7 +5,6 @@ import { describe, expect, it } from "vitest";
 import {
   KeyField,
   MonoValue,
-  TermGloss,
   TimingBadge,
   TypeToConfirm,
   confirmMatches,
@@ -139,23 +138,6 @@ describe("TypeToConfirm", () => {
     const input = screen.getByLabelText(/Type/) as HTMLInputElement;
     expect(input.placeholder).toBe("STOP");
     expect(input.className).toContain("font-mono");
-  });
-});
-
-describe("TermGloss", () => {
-  it("keeps the term, exposes the gloss as its accessible name, and reaches it by keyboard", () => {
-    render(<TermGloss term="DLT">{"India's telecom message registry."}</TermGloss>);
-    const el = screen.getByText("DLT");
-    // The gloss is the accessible name (so a screen reader gets it) …
-    expect(el.getAttribute("aria-label")).toBe("DLT: India's telecom message registry.");
-    // … the term is keyboard-reachable, so the hover/focus box is not mouse-only …
-    expect(el.getAttribute("tabindex")).toBe("0");
-    // … and the visible gloss lives in `data-gloss`, drawn by a CSS ::after box, NOT as a
-    // child text node — so the ONLY rendered text is the term (see TermGloss). No native
-    // `title` (it would double the styled box).
-    expect(el.getAttribute("data-gloss")).toBe("India's telecom message registry.");
-    expect(el.getAttribute("title")).toBeNull();
-    expect(el.textContent).toBe("DLT");
   });
 });
 

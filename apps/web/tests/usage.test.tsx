@@ -86,9 +86,14 @@ function usage(over: Partial<UsagePanel> = {}): UsagePanel {
     monthly_fee_inr: "4999.00",
     overage_cost_inr: "10159.00",
     overage_minutes: "1563.00",
+    // BOTH SPELLINGS: the wire carries the deprecated pair beside the new one
+    // for one release (hard rule 8 step 1, D-558), with identical figures.
+    overage_minutes_base_rung: "1563.00",
+    overage_minutes_second_rung: "0.00",
     overage_minutes_premium: "1563.00",
     overage_minutes_value: "0.00",
     overage_rate_inr: "6.5000",
+    overage_rate_second_inr: null,
     overage_rate_value_inr: null,
     // D-455: the model surcharge, unset on every plan today — so a ₹0.00 total and no
     // models named is the shipped shape of this panel.

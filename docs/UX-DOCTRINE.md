@@ -240,8 +240,16 @@ The bands the agent workspace uses, in order, are the template:
 twice, one of them is the source and the other must be deleted, not kept in sync.
 
 **Copy is part of the IA.** Plain language, the owner's words. A technical or legal term
-(DLT, PE/TM, DND, DPDP, 140/160-series) appears only inside `<TermGloss>`, which explains it
-in place on hover, keyboard focus and tap.
+(DLT, PE/TM, DND, DPDP, KYC, 140/160-series) appears only inside a gloss, which explains it
+in place on hover, keyboard focus and tap — and the WORDS of that explanation come from
+`lib/glossary` (`<Term id="dlt" />`), never typed at the call site. `TermGloss`
+(`components/ui`) is the mechanism; the glossary is the vocabulary. Two explanations of one
+term is the same defect as two spellings of one fact above: "Principal Entity" had four.
+A screen may override what is PRINTED (`term="principal entity (PE)"`) and may take the
+operator's wording (`audience="operator"`) where the admin console needs the registrar's
+exact phrasing; it may not rewrite the explanation. `tests/glossary.test.tsx` fails on a
+screen that prints a glossary term and never explains it, and its exemption table is where
+"this reader does not need it" is written down with the reason.
 
 ---
 
@@ -281,7 +289,8 @@ and it is the half a test can drive without a render.
 **Reuse these. Do not hand-roll an equivalent.**
 
 `components/ui.tsx` — `Card`, `SectionHeading`, `Fact`, `Disclosure`, `ToggleSwitch`,
-`StatTile`, `Avatar`, `StatusBadge`, `MonoValue`, `TermGloss`, `ProblemNotice`,
+`StatTile`, `Avatar`, `StatusBadge`, `MonoValue`, `TermGloss` (via `lib/glossary`'s
+`Term`), `ProblemNotice`,
 `RestrictionNote`, `NoticeBox`, `NOTICE_TONES`, `ScrollRegion`, `SkipLink`,
 `MAIN_CONTENT_ID`, `EmptyState`, `Skeleton`, `FilterChip`; the class constants `FIELD`,
 `FIELD_LABEL`, `FIELD_HINT`, `PRIMARY_BUTTON_LG`, `PRIMARY_BUTTON`, `PRIMARY_BUTTON_SM`,

@@ -23,7 +23,6 @@ import {
   RestrictionNote,
   SECONDARY_BUTTON_SM,
   Skeleton,
-  TermGloss,
   DANGER_BUTTON,
   formatCount,
   formatIST,
@@ -41,6 +40,7 @@ import {
   type DeletionRequestSummary,
   type ErasureProof,
 } from "@/lib/api/dataRights";
+import { Term } from "@/lib/glossary";
 import { lookup } from "@/lib/lookup";
 import { useMe, useWriteAccess } from "@/lib/api/hooks";
 import { type Session } from "@/lib/api/client";
@@ -211,9 +211,7 @@ export default function DataRightsPage() {
       <p className="text-sm text-ink-muted">
         Under India&rsquo;s data protection law a person can ask you what you hold about
         them, and can ask you to erase it. You are the{" "}
-        <TermGloss term="data fiduciary">
-          the business responsible for this data under India&apos;s privacy law
-        </TermGloss>{" "}
+        <Term id="dataFiduciary" />{" "}
         and Calevate holds the records on your behalf, so both requests are answered from
         here. Every request below is recorded against your account, so there is a lasting
         record of who asked and when.

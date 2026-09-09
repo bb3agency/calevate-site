@@ -279,20 +279,34 @@ class Plan(PKMixin, TimestampMixin, Base):
     monthly_fee: Mapped[Decimal | None] = mapped_column(MONEY)
     included_min: Mapped[int | None] = mapped_column(Integer)
     overage_rate: Mapped[Decimal | None] = mapped_column(MONEY)
-    # The second rung of D-36's TTS ladder, as a PRICE. `billing/rates.py` already
-    # resolves every call to `premium` or `value` and stamps it on the usage row; this
-    # is the only place billing can quote the two differently.
+    # THE PLAN'S SECOND OVERAGE-RATE SLOT, paired with `overage_rate` above. A founder
+    # PRICING LEVER, not a voice quality: nothing about which voice spoke is involved in
+    # choosing it, and `billing/service.py`'s rung constants, `apps/workers/pipeline.py`
+    # beside the `meta.tts_tier` stamp and `agents/voices.py` all say so.
     #
-    # **NULL means "this plan quotes no separate value rate" — bill everything at
+    # **NULL means "this plan quotes no separate second rate" — bill everything at
     # `overage_rate`.** That is every plan row that existed before migration
     # b1d5c8e73f04, so the column changed no client's bill on the day it landed. It is
-    # NOT "the value rate is zero": a rate of zero is free minutes, and an unset rate is
-    # a plan that never offered a discount for the cheaper voice.
+    # NOT "the second rate is zero": a rate of zero is free minutes, and an unset rate is
+    # a plan that never quoted a second one at all.
     #
     # No default is supplied and none should be guessed. TRD §10.1's cost bands are
     # explicitly unmeasured (the chars-per-minute ratio and the platform fee are both
     # pilot gates), so a retail number derived from them would be invention wearing a
     # citation. What goes here is a founder decision.
+    overage_rate_second: Mapped[Decimal | None] = mapped_column(MONEY)
+    # ⚠ DEPRECATED, STEP 1 OF TWO (hard rule 8, migration c72b9e40af15). This is the
+    # column `overage_rate_second` replaces; its name claimed a voice-quality tier that
+    # never chose it. It is STILL WRITTEN — `billing/terms.py::record_terms` inserts the
+    # operator's figure into both — and still read as the fallback half of
+    # `billing/plans.py::OVERAGE_RATE_SECOND_SQL`, so a row written by a process that
+    # has not been redeployed yet still prices correctly. STEP 2 drops it; dropping it in
+    # the release that stopped writing it is what hard rule 8 forbids.
+    #
+    # Declared here rather than deleted from the model because `scripts/
+    # check_metadata_columns.py` compares `Base.metadata` against the live schema BOTH
+    # WAYS: a live column absent from its model is `--autogenerate` proposing a DROP in a
+    # diff a human is asked to skim.
     overage_rate_value: Mapped[Decimal | None] = mapped_column(MONEY)
     # WHAT A CLIENT PAYS, PER MINUTE, FOR CHOOSING A DEARER LANGUAGE MODEL (D-455,
     # migration e4a91c6b02d7). D-454 gave them the choice; this is the only place billing
@@ -309,7 +323,7 @@ class Plan(PKMixin, TimestampMixin, Base):
     # **NULL means "this plan quotes no model surcharge"** — an upgraded minute is billed
     # at `overage_rate` like any other. It is NOT "the surcharge is zero": giving the
     # better model away is a decision, never having been asked is not. The number is a
-    # founder decision and no default is invented here, for `overage_rate_value`'s reason.
+    # founder decision and no default is invented here, for `overage_rate_second`'s reason.
     llm_model_surcharge: Mapped[Decimal | None] = mapped_column(MONEY)
     # ADMIN-owned ceilings. The client cannot move these — that is what makes them a
     # ceiling rather than a suggestion.
@@ -760,6 +774,58 @@ class PlatformTtsVolume(Base):
     # and carries a fraction, so rounding on the way in would lose characters we paid for.
     characters: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default="0")
     call_minutes: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, server_default="0"
+    )
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class PlatformSpeakingRate(Base):
+    """**HOW MANY CHARACTERS THE FLEET'S AGENTS SPEAK PER MINUTE OF CALL** — the number the
+    whole TTS cost model divides by, and until D-557 the one number in it that was a guess.
+
+    WHY IT EXISTS. `rates.TTS_ASSUMED_CHARS_PER_CALL_MINUTE` is TRD §10.1's 360-540 band,
+    which the doc itself calls unmeasured (pilot gate 12); it is the single biggest lever in
+    the cost model, worth ₹1.12 a minute on the Studio floor and ₹0.42 on the Clear one.
+    `billing/tts_speaking_rate.py` measured it from our own transcripts — and nothing
+    consumed the measurement: every floor and margin still divided by 540. This counter is
+    what a page can read in one row so the arithmetic can use the reading.
+
+    WHY A COUNTER AND NOT THE WALK. `PlatformTtsVolume`'s argument above, for the identical
+    reason: `calls` and `transcript_turns` FORCE RLS, an untenanted read of either returns
+    zero rows and reports SUCCESS, and the per-tenant walk that answers it honestly costs
+    one session checkout per account — 8,480 of them on this repository's own development
+    database. The walk survives on the board an operator opens, because percentiles need one
+    sample per call and no counter can hold a distribution. The COST MODEL needs only the
+    pooled rate, and a pooled rate is three running totals.
+
+    **THREE INDEPENDENT TOTALS.** `agent_chars` is what the agent said, `call_seconds` is how
+    long those calls lasted, `calls` is how many there were — the third is not decoration:
+    it is what `TTS_SPEAKING_RATE_MIN_CALLS` is judged against, and a pooled figure with no
+    sample size behind it is exactly the "small number laundered into a fact" hard rule 11
+    exists to stop.
+
+    **EVERY VOICE, WHICH IS WHY IT IS NOT A COLUMN ON `PlatformTtsVolume`.** That table is a
+    BILLING volume — Cartesia characters on calls whose leg could be priced — because it
+    prices a subscription. How fast an agent talks is a fact about the agent, the same fact
+    whichever vendor synthesizes it, and it is applied to the Clear floor. Different
+    population, different key, different question.
+
+    NOT append-only, and it must not be: it is a counter. The LEDGER is `usage_events`; the
+    SOURCE here is `transcript_turns`, and migration `a3f81c2e6d94` backfills straight from
+    it, which is also why its downgrade can simply drop the table.
+    """
+
+    __tablename__ = "platform_speaking_rate"
+
+    # IST billing month, 'YYYY-MM' — `billing/plans.ist_billing_month`'s cut, the same one
+    # the meter attributes the call by.
+    month: Mapped[str] = mapped_column(Text, primary_key=True)
+    calls: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    # A character count is an integer and nothing divides before summing.
+    agent_chars: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default="0")
+    # Seconds, the unit every duration in this codebase lives in. NUMERIC because the
+    # meter's own duration is a Decimal.
+    call_seconds: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, server_default="0"
     )
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)

@@ -1723,19 +1723,24 @@ async def publish_kb(
 
 
 class TierSplitOut(BaseModel):
-    """The margin's cost side, split by the TTS rung each minute was metered on (D-36).
+    """The margin's cost side, split by the OVERAGE RUNG each minute was metered on.
+
+    A rung is one of the plan's two overage-rate slots (`plans.overage_rate` and
+    `plans.overage_rate_second`) and **not a voice quality** — nothing about which voice
+    spoke chooses one, and which voice did is a different fact on a different key
+    (`usage_events.meta.voice_tier`, `agents/voices.py`).
 
     Nested inside the margin card rather than mounted as its own route because it answers
     a question about THAT card's `cost_inr`: an operator seeing a thin margin needs to
-    know whether the cost is premium voice or the value rung before they can act on it,
-    and a second endpoint means a second round trip to learn one number's composition.
+    know which agreed rate the cost sits behind before they can act on it, and a second
+    endpoint means a second round trip to learn one number's composition.
     `billing.tier_usage` sums to the same `_tier_totals` the margin does, so the rungs
     add up to `cost_inr` exactly — they are a partition of it, not a parallel estimate.
 
     `unattributed` is the honest third bucket: rows a path could not attribute a rung to.
-    It is reported separately because "we know this ran on the value rung" and "we never
+    It is reported separately because "we know which rate this ran on" and "we never
     knew" are different facts, and a bill resolves that ambiguity in the CLIENT's favour
-    (`minutes_billable_value` folds it in) while this report must not.
+    (`minutes_billable_second_rung` folds it in) while this report must not.
 
     Every field is required on the wire. A Pydantic default here would generate an
     OPTIONAL TypeScript property and the screen would have to branch on a case the
@@ -1744,12 +1749,49 @@ class TierSplitOut(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    minutes_premium: str
-    minutes_value: str
+    minutes_base_rung: str
+    minutes_second_rung: str
     minutes_unattributed: str
-    cost_premium_inr: str
-    cost_value_inr: str
+    cost_base_rung_inr: str
+    cost_second_rung_inr: str
     cost_unattributed_inr: str
+    # ⚠ DEPRECATED, STEP 1 OF TWO (hard rule 8, D-558). The four fields above replace
+    # these four, carrying the identical figures from the identical expression in
+    # `billing.tier_usage`. The console prefers the new names and falls back to these, so
+    # a bundle and an API that are one release apart in either direction still render the
+    # card. STEP 2 deletes these four and that fallback together.
+    #
+    # `deprecated=` is deliberately NOT used here — it warns on every attribute access
+    # and FastAPI reads every field on every response; `json_schema_extra` puts the same
+    # `deprecated: true` on the wire without putting a warning in an operator's log.
+    minutes_premium: str = Field(
+        description=(
+            "DEPRECATED — renamed to `minutes_base_rung`, which carries the identical "
+            "figure. Removed in the next release."
+        ),
+        json_schema_extra={"deprecated": True},
+    )
+    minutes_value: str = Field(
+        description=(
+            "DEPRECATED — renamed to `minutes_second_rung`, which carries the identical "
+            "figure. Removed in the next release."
+        ),
+        json_schema_extra={"deprecated": True},
+    )
+    cost_premium_inr: str = Field(
+        description=(
+            "DEPRECATED — renamed to `cost_base_rung_inr`, which carries the identical "
+            "figure. Removed in the next release."
+        ),
+        json_schema_extra={"deprecated": True},
+    )
+    cost_value_inr: str = Field(
+        description=(
+            "DEPRECATED — renamed to `cost_second_rung_inr`, which carries the identical "
+            "figure. Removed in the next release."
+        ),
+        json_schema_extra={"deprecated": True},
+    )
 
 
 class MarginOut(BaseModel):
@@ -2492,14 +2534,32 @@ class CommercialTermsIn(BaseModel):
     # THE OPEN FOUNDER DECISION, and the surface is not blocked on it: the field is
     # settable and stays NULL until somebody decides the number. No default is offered
     # here or anywhere else — TRD §10.1's cost bands are unmeasured pilot gates, so a
-    # retail value-tier rate derived from them would be invention wearing a citation
-    # (`billing/models.py::Plan.overage_rate_value` carries the full argument).
-    overage_rate_value_inr: Decimal | None = Field(
+    # retail second rate derived from them would be invention wearing a citation
+    # (`billing/models.py::Plan.overage_rate_second` carries the full argument).
+    overage_rate_second_inr: Decimal | None = Field(
         default=None, ge=0, le=MAX_RATE_INR, max_digits=12, decimal_places=4
+    )
+    # ⚠ DEPRECATED, STEP 1 OF TWO (hard rule 8, D-558) — the name above replaces it.
+    # STILL ACCEPTED so a console bundle one release behind can still record terms;
+    # `_one_second_rate` below resolves the pair and REFUSES a request that sends both
+    # with different figures, because silently picking one of two disagreeing rates is
+    # how a client ends up billed at a number nobody typed. STEP 2 deletes this field
+    # and that validator together.
+    overage_rate_value_inr: Decimal | None = Field(
+        default=None,
+        ge=0,
+        le=MAX_RATE_INR,
+        max_digits=12,
+        decimal_places=4,
+        description=(
+            "DEPRECATED — renamed to `overage_rate_second_inr`. Still accepted; sending "
+            "both with different values is refused. Removed in the next release."
+        ),
+        json_schema_extra={"deprecated": True},
     )
     # WHAT A CLIENT PAYS EXTRA, PER MINUTE, FOR CHOOSING A DEARER LANGUAGE MODEL (D-455).
     # The other open founder decision on this row, and settable for the same reason
-    # `overage_rate_value_inr` is: `billing/rates.py::llm_cost_inr_per_minute` says what
+    # `overage_rate_second_inr` is: `billing/rates.py::llm_cost_inr_per_minute` says what
     # the dearer model costs US and says in as many words that it is not a client price,
     # so deriving a retail surcharge from it here would publish our margin as a rate. NULL
     # is "this plan quotes no model surcharge" and is what every plan holds today — a
@@ -2524,6 +2584,7 @@ class CommercialTermsIn(BaseModel):
         "setup_fee_inr",
         "monthly_fee_inr",
         "overage_rate_inr",
+        "overage_rate_second_inr",
         "overage_rate_value_inr",
         "llm_model_surcharge_inr",
         "hard_cap_spend_inr",
@@ -2537,6 +2598,44 @@ class CommercialTermsIn(BaseModel):
                 'money crosses the wire as a string ("9999.00"), never as a JSON float'
             )
         return value
+
+    @property
+    def second_overage_rate_inr(self) -> Decimal | None:
+        """THE plan's second overage rate, from whichever of the two names carried it.
+
+        The new name wins; the deprecated one is the fallback for a console that has not
+        been redeployed (step 1 of hard rule 8's two-step, D-558). Read as a property
+        rather than resolved into a field so the request stays exactly what was sent —
+        `_one_second_rate` compares the pair, and a validator that rewrote one of them
+        would delete the evidence it needs.
+        """
+        if self.overage_rate_second_inr is not None:
+            return self.overage_rate_second_inr
+        return self.overage_rate_value_inr
+
+    @model_validator(mode="after")
+    def _one_second_rate(self) -> CommercialTermsIn:
+        """A request may name the second overage rate under either name — never under
+        both with different figures.
+
+        REFUSED rather than resolved, because there is no reading of two disagreeing
+        rates that is safe on a money field: picking the new one silently discards a
+        number an operator typed, and picking the old one silently discards the one they
+        typed second. The operator is told which two figures conflict and re-sends one.
+        Equal values pass — a client that populates both from one input is doing the
+        correct thing during the deprecation.
+        """
+        both_named = (
+            self.overage_rate_second_inr is not None and self.overage_rate_value_inr is not None
+        )
+        if both_named and self.overage_rate_second_inr != self.overage_rate_value_inr:
+            raise ValueError(
+                "overage_rate_second_inr and the deprecated overage_rate_value_inr are "
+                "the same rate and were sent with different values "
+                f"({self.overage_rate_second_inr} and {self.overage_rate_value_inr}) — "
+                "send overage_rate_second_inr only"
+            )
+        return self
 
     @model_validator(mode="after")
     def _window_is_a_window(self) -> CommercialTermsIn:
@@ -2597,6 +2696,16 @@ class PlanMarginOut(BaseModel):
     #: second copy of either constant.
     min_gross_margin: str
     cost_floor_inr_per_min: str
+    #: **WHICH SPEAKING RATE THAT FLOOR WAS STRUCK AT (D-557).** A margin computed from a
+    #: measurement and a margin computed from an assumption are different claims, and a
+    #: panel that shows them identically is the defect D-557 closes. This one is deliberately
+    #: the FROZEN assumed basis and always will be: it is a REFUSAL surface (a bundle below
+    #: it is rejected at the write path), and a veto that moved with a measurement would
+    #: refuse terms tomorrow that it accepted today because twenty more calls were answered —
+    #: D-556's settlement, one leg over. The measured floor is published beside it on the
+    #: operator's own screens (`GET /v1/ops/rate-card`, `GET /v1/admin/spend/tts-speaking-
+    #: rate`), which is where a warning belongs.
+    cost_floor_basis: str
 
 
 class PlanRowOut(BaseModel):
@@ -2609,7 +2718,17 @@ class PlanRowOut(BaseModel):
     monthly_fee_inr: str | None
     included_minutes: int | None
     overage_rate_inr: str | None
-    overage_rate_value_inr: str | None
+    overage_rate_second_inr: str | None
+    # ⚠ DEPRECATED, STEP 1 OF TWO (hard rule 8, D-558) — the identical figure under the
+    # name `overage_rate_second_inr` replaces it. Emitted so a console one release behind
+    # still renders the rate; STEP 2 deletes it.
+    overage_rate_value_inr: str | None = Field(
+        description=(
+            "DEPRECATED — renamed to `overage_rate_second_inr`, which carries the "
+            "identical figure. Removed in the next release."
+        ),
+        json_schema_extra={"deprecated": True},
+    )
     # Per minute, added to whichever rung above a minute landed on, for the minutes the
     # client's own model choice upgraded (D-455). Null when this plan quotes none.
     llm_model_surcharge_inr: str | None
@@ -2702,6 +2821,7 @@ def _margin_out(terms: billing_terms.CommercialTerms) -> PlanMarginOut:
         below_target_margin=list(verdict.below_target()),
         min_gross_margin=str(billing_rates.MIN_GROSS_MARGIN),
         cost_floor_inr_per_min=str(billing_rates.SELF_SERVE_COST_FLOOR_INR_PER_MIN),
+        cost_floor_basis=billing_rates.ASSUMED_SPEAKING_RATE.label,
     )
 
 
@@ -2714,7 +2834,8 @@ def _plan_out(record: billing_terms.PlanRecord) -> PlanRowOut:
         monthly_fee_inr=_amount(terms.monthly_fee),
         included_minutes=terms.included_min,
         overage_rate_inr=_amount(terms.overage_rate),
-        overage_rate_value_inr=_amount(terms.overage_rate_value),
+        overage_rate_second_inr=_amount(terms.overage_rate_second),
+        overage_rate_value_inr=_amount(terms.overage_rate_second),
         llm_model_surcharge_inr=_amount(terms.llm_model_surcharge),
         hard_cap_minutes=terms.hard_cap_min,
         hard_cap_spend_inr=_amount(terms.hard_cap_spend),
@@ -2867,7 +2988,7 @@ async def record_commercial_terms(
         monthly_fee=payload.monthly_fee_inr,
         included_min=payload.included_minutes,
         overage_rate=payload.overage_rate_inr,
-        overage_rate_value=payload.overage_rate_value_inr,
+        overage_rate_second=payload.second_overage_rate_inr,
         llm_model_surcharge=payload.llm_model_surcharge_inr,
         hard_cap_min=payload.hard_cap_minutes,
         hard_cap_spend=payload.hard_cap_spend_inr,

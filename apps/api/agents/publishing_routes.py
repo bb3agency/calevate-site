@@ -36,7 +36,7 @@ rejected, and the reason is the feature itself rather than tidiness:
   voice is not admin-only information. `list_voices` is client-realm readable on the
   stated grounds that a client "is legally the Principal Entity and should be able to
   see what their own agent sounds like", and D-36's ladder is a PRICE ladder — premium
-  and value bill at different rates (`plans.overage_rate` vs `overage_rate_value`,
+  and value bill at different rates (`plans.overage_rate` vs `overage_rate_second`,
   §2b's "honest degraded-tier billing"), and `usage_events.meta.tts_tier` already
   records which rung a call ran on. A client billed by rung must be able to read the
   rung. What stays admin-only is the WRITE, which is D-21 and unchanged.

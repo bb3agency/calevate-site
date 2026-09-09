@@ -20,7 +20,6 @@ import {
   NOTICE_TONES,
   ProblemNotice,
   RestrictionNote,
-  TermGloss,
   formatIST,
   type NoticeTone,
   PRIMARY_BUTTON_SM,
@@ -28,6 +27,7 @@ import {
 import { useFormValidation } from "@/components/formValidation";
 import { useWriteAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
+import { Term } from "@/lib/glossary";
 import { lookup } from "@/lib/lookup";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
@@ -618,7 +618,7 @@ export default function MessagingConsentPage() {
           <Rule icon={<CircleHelp className="h-4 w-4" />} title="This is your evidence, not a DLT record.">
             It is what you would produce if a number is challenged — who agreed, when,
             and on what. It is not the consent recorded on{" "}
-            <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss>, which
+            <Term id="dlt" />, which
             Indian telecom rules define separately, and it does not stand in for one.
           </Rule>
         </ul>

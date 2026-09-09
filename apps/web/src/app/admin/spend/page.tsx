@@ -307,10 +307,12 @@ function TtsSpeakingRateCard() {
             Replaces the assumed {trimRate(rate.assumed_low.chars_per_minute)}–
             {trimRate(rate.assumed_high.chars_per_minute)} chars/min (
             {formatRupeeRate(rate.assumed_low.tts_inr_per_minute)}–
-            {formatRupeeRate(rate.assumed_high.tts_inr_per_minute)}/min) in TRD §10.1. The pooled
-            figure is what the TTS leg really costs per call-minute — re-derive the cost floor
-            from it, not from the band.
+            {formatRupeeRate(rate.assumed_high.tts_inr_per_minute)}/min) in TRD §10.1. ⚠ This
+            paragraph used to end &ldquo;re-derive the cost floor from it, not from the
+            band&rdquo; — an instruction to a person that nothing carried out. It is code now,
+            and what it produced is below.
           </p>
+          <FleetFloorLine rate={rate} />
         </div>
       ) : (
         <div className="space-y-3 text-sm text-ink-muted">
@@ -334,9 +336,44 @@ function TtsSpeakingRateCard() {
             {formatRupeeRate(rate.assumed_high.tts_inr_per_minute)}/min), which is an
             assumption and not a reading.
           </p>
+          <FleetFloorLine rate={rate} />
         </div>
       )}
     </Card>
+  );
+}
+
+/**
+ * **THE FIGURE THE COST MODEL ACTUALLY DIVIDES BY, AND THE FLOOR IT PRODUCED (D-557).**
+ *
+ * Everything above this line is the archive, walked one client at a time so a distribution
+ * can be drawn. This is the platform counter the post-call meter moves — the same pooled
+ * question, answered in one row — and it is the only speaking rate any rupee in this product
+ * is struck at. Both are shown because if they disagree, one of them is wrong.
+ *
+ * The refusal figure beside it is the bound a rate card is refused below, and it does NOT
+ * move with the measurement: a veto that did would refuse tomorrow the card it accepted
+ * today, because twenty more calls were answered.
+ */
+function FleetFloorLine({ rate }: { rate: TtsSpeakingRate }) {
+  // `?? null`: the block is REQUIRED on the wire, and an API older than 9 Sep 2026 sends
+  // none — which the generated type cannot describe.
+  const fleet = rate.fleet ?? null;
+  if (fleet === null) return null;
+  return (
+    <p>
+      <span className="font-semibold text-ink">What the cost model uses:</span> {fleet.basis}.
+      A Clear call-minute costs {formatRupeeRate(fleet.cost_floor_inr_per_min)} at that rate;
+      a rate card is refused below{" "}
+      {formatRupeeRate(fleet.refusal_floor_inr_per_min)}, which stays where it is whatever
+      this measurement says.{" "}
+      {fleet.floor_above_refusal ? (
+        <span className="font-semibold text-red-600">
+          The measured cost is ABOVE that bound — some rungs may be under water and still
+          recordable. That is a pricing decision.
+        </span>
+      ) : null}
+    </p>
   );
 }
 

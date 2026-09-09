@@ -60,6 +60,7 @@ from apps.api.billing.models import (
     PAID_CREDIT_REASONS,
 )
 from apps.api.billing.plans import (
+    OVERAGE_RATE_SECOND_SQL,
     ist_billing_month,
     ist_month_window,
     month_pricing_instant,
@@ -1702,6 +1703,61 @@ def current_billing_month() -> str:
     return ist_billing_month(datetime.now(UTC))
 
 
+# ─── THE OVERAGE RUNGS, AND THE LEDGER TOKENS THAT NAME THEM ────────────────────
+#
+# A rung is one of the PLAN's two overage-rate slots — `plans.overage_rate` and
+# `plans.overage_rate_second` — plus a third bucket that is not a rung at all. They are a
+# founder PRICING LEVER and **NOT voice-quality tiers**: there is one voice quality now
+# (the single-tier voice decision), nothing about which voice spoke chooses a rung, and
+# which voice DID speak is a different fact on a different key (`meta.voice_tier`,
+# `agents/voices.py`).
+#
+# ⚠ **THE FOUR STRINGS BELOW ARE LEDGER TOKENS AND THEY ARE FROZEN FOREVER (D-558).**
+# They are not vocabulary and no reader may re-spell them. `usage_events` is in
+# `db/registry.APPEND_ONLY_TABLES` and a database trigger enforces it: there is no UPDATE,
+# ever, so every row already written carries the key `tts_tier` and the value `premium`
+# and always will. Writing a new token instead would oblige every reader of a money figure
+# to accept BOTH for the rest of the product's life — and the first reader that ever
+# stopped would silently re-file every closed month's minutes into `unattributed`, which
+# `tier_usage` bills at the CHEAPER rung. That moves settled invoices and the margin card
+# for months a client has already paid. Renaming them buys nothing to set against that:
+# the token reaches no human. What a client reads is `invoice._RUNG_WORDING`, what an
+# operator reads is the admin screen's own labels, and D-558 corrected both.
+#
+# So the CONSTANTS carry the meaning and the strings stay put. Nothing in this module
+# spells a rung inline; every use goes through a name that says which rate it is.
+
+#: The `usage_events.meta` key the post-call pipeline stamps the rung on. Frozen: see
+#: above. Spelled once so the writer (`pipeline._meter`) and the reader (`_ROW_TIER_SQL`)
+#: cannot drift apart, which is the failure this key has no way to survive.
+LEDGER_RUNG_KEY: Final = "tts_tier"
+
+#: The rung every call is metered on: the plan's BASE overage rate, `plans.overage_rate`.
+#: With one voice quality this is a single constant rather than a per-call choice —
+#: `pipeline._meter` stamps it on every metered call, and no path stamps anything else.
+BASE_OVERAGE_RUNG: Final = "premium"
+
+#: The plan's SECOND overage rate, `plans.overage_rate_second`. No live path stamps it;
+#: rows in the archive carry it, and `split_overage`/`overage_rungs` still price it,
+#: because a founder setting a second rate is one column away.
+SECOND_OVERAGE_RUNG: Final = "value"
+
+#: NOT A RUNG — a row written before rung attribution existed, or by a path that could not
+#: attribute one. Reporting keeps the distinction (`tier_usage.minutes_unattributed`);
+#: PRICING folds it into the cheaper slot, because a call we cannot attribute is never
+#: charged the dearer rate (SURFACES §2b).
+UNATTRIBUTED_RUNG: Final = ""
+
+#: The rungs, in the order every map in this module lists them. The ORDER is load-bearing:
+#: `allocate_paise` breaks ties by position, so a set that iterated differently between two
+#: renders of one closed month would move a paisa between two buckets for no reason.
+OVERAGE_RUNGS: Final = (BASE_OVERAGE_RUNG, SECOND_OVERAGE_RUNG, UNATTRIBUTED_RUNG)
+
+#: The two rungs a row may actually NAME. `UNATTRIBUTED_RUNG` is what a row that names
+#: none of these falls to, so it is deliberately not in here.
+_NAMED_RUNGS: Final = (BASE_OVERAGE_RUNG, SECOND_OVERAGE_RUNG)
+
+
 def split_overage(
     *,
     overage_min: Decimal,
@@ -1772,8 +1828,8 @@ class OverageRung:
     this module has no business choosing it.
 
     These rungs are the PLAN'S two overage-rate slots (`overage_rate` /
-    `overage_rate_value`), which are a founder pricing lever independent of the single
-    voice quality — `overage_rate_value` is NULL on every plan, so today only the base
+    `overage_rate_second`), which are a founder pricing lever independent of the single
+    voice quality — the second rate is NULL on every plan, so today only the base
     rung ever carries minutes. The label is a plain `str` (it was the voice `TtsTier`,
     removed by the single-tier voice decision) because that is all `invoice._RUNG_WORDING`
     and this module need of it.
@@ -1809,35 +1865,18 @@ def overage_rungs(
     survives it.
 
     A plan with no value rate has ONE rung carrying every overage minute, which is the
-    shape every invoice had before `plans.overage_rate_value` existed — and `rate_value
+    shape every invoice had before a second rate could be quoted — and `rate_value
     is None` is "this plan quotes no separate value rate", never "the value rung is
     free".
     """
     if rate_value is None:
         both = premium_min + value_min
-        return (OverageRung("premium", both, rate, to_paise(both * rate)),)
+        return (OverageRung(BASE_OVERAGE_RUNG, both, rate, to_paise(both * rate)),)
     return (
-        OverageRung("premium", premium_min, rate, to_paise(premium_min * rate)),
-        OverageRung("value", value_min, rate_value, to_paise(value_min * rate_value)),
+        OverageRung(BASE_OVERAGE_RUNG, premium_min, rate, to_paise(premium_min * rate)),
+        OverageRung(SECOND_OVERAGE_RUNG, value_min, rate_value, to_paise(value_min * rate_value)),
     )
 
-
-#: The rungs, in the order every map in this module lists them. These are the PLAN's two
-#: overage-rate slots (`overage_rate` / `overage_rate_value`), NOT voice-quality tiers —
-#: there is one voice quality now (the single-tier voice decision). `""` is the third and
-#: it is not a rung: it is a row written before rung attribution existed, or by a path that
-#: could not attribute one. Reporting keeps the distinction; PRICING folds it into the
-#: cheaper slot, because a call we cannot attribute is never charged the dearer rate
-#: (SURFACES §2b). `overage_rate_value` is NULL on every plan, so today all minutes land
-#: on the base (`premium`) rung; `pipeline._meter` stamps that rung on every call.
-_RUNGS: Final = ("premium", "value", "")
-
-#: The rung `pipeline._meter` stamps on `usage_events.meta.tts_tier` for every call. There
-#: is one voice quality (the single-tier voice decision), so every call bills at the plan's
-#: BASE overage rate — the `premium` slot of `_RUNGS`, paired with `plans.overage_rate`.
-#: Named (not an inline literal in the pipeline) so the writer and the `_RUNGS` reader
-#: cannot drift: the value the meter stamps must be one the rung reader recognises.
-BASE_OVERAGE_RUNG: Final = "premium"
 
 # --- THE cost expression, and the rung a row's money is counted on ----------------
 #
@@ -1873,7 +1912,7 @@ _ROW_COST_SQL: Final = (
 # that actually ran; the single-tier voice decision removed that correction — with one
 # voice quality a call can never be metered on the wrong rung — so the reader reads the
 # stamp and nothing re-writes it.
-_ROW_TIER_SQL: Final = "COALESCE(meta->>'tts_tier', '')"
+_ROW_TIER_SQL: Final = f"COALESCE(meta->>'{LEDGER_RUNG_KEY}', '{UNATTRIBUTED_RUNG}')"
 
 
 #: WHICH LANGUAGE MODEL A ROW'S MINUTES CARRY A SURCHARGE FOR — the model's own name when
@@ -2014,13 +2053,13 @@ async def rung_seconds(
         )
     ).all()
 
-    seconds = dict.fromkeys(_RUNGS, Decimal("0"))
-    cost = dict.fromkeys(_RUNGS, Decimal("0"))
+    seconds = dict.fromkeys(OVERAGE_RUNGS, Decimal("0"))
+    cost = dict.fromkeys(OVERAGE_RUNGS, Decimal("0"))
     by_model: dict[str, Decimal] = {UNSURCHARGED_MODEL: Decimal("0")}
     for label, model, secs, spent in rows:
         # An unrecognised label is treated as unattributed rather than trusted: a tier
         # this module does not know is not a tier it can price.
-        key = str(label) if str(label) in ("premium", "value") else ""
+        key = str(label) if str(label) in _NAMED_RUNGS else UNATTRIBUTED_RUNG
         secs_d = Decimal(str(secs or 0))
         seconds[key] += secs_d
         cost[key] += Decimal(str(spent or 0))
@@ -2059,13 +2098,13 @@ def _minutes_from_seconds(
 
 def rung_minutes(seconds: Mapping[str, Decimal]) -> dict[str, Decimal]:
     """Per-rung SECONDS -> per-rung MINUTES, paise-exact and summing to the month's total."""
-    return _minutes_from_seconds(seconds, _RUNGS)
+    return _minutes_from_seconds(seconds, OVERAGE_RUNGS)
 
 
 def llm_model_minutes(seconds: Mapping[str, Decimal]) -> dict[str, Decimal]:
     """Per-MODEL SECONDS -> per-model MINUTES, the same allocation as `rung_minutes`.
 
-    Sorted keys, because the model set is open where `_RUNGS` is a fixed tuple, and
+    Sorted keys, because the model set is open where `OVERAGE_RUNGS` is a fixed tuple, and
     `_minutes_from_seconds` needs a stable order to place its remainder deterministically.
     `UNSURCHARGED_MODEL` (`''`) sorts first, which is arbitrary and stable — the only
     property that matters is that it does not depend on dict iteration.
@@ -2241,7 +2280,7 @@ def priced_overage(
     order and each call's marginal minutes were charged at that call's own rung. The two
     agree whenever a plan quotes ONE rate (`sum of  (over(before+m) - over(before)) x rate` is
     `max(0, total - included) x rate`), which is every plan in the database today because
-    `plans.overage_rate_value` is an open founder decision and is NULL everywhere. They
+    `plans.overage_rate_second` is an open founder decision and is NULL everywhere. They
     disagree the moment one is quoted — measured at ₹880.00 against ₹520.00 on a
     two-rung month whose cheap minutes arrived first — and the disagreement lands in two
     places at once: `/c/<slug>/usage` prints both figures, in adjacent cards, for one
@@ -2265,10 +2304,10 @@ def priced_overage(
     overage_min = max(_ZERO_PAISE, minutes - included_min)
     premium_min, value_min = split_overage(
         overage_min=overage_min,
-        billable_premium=minutes_by_rung["premium"],
+        billable_premium=minutes_by_rung[BASE_OVERAGE_RUNG],
         # Unattributed folds in with value: SURFACES §2b's rule is that a call we cannot
         # prove got the premium voice is never charged the premium rate.
-        billable_value=minutes_by_rung["value"] + minutes_by_rung[""],
+        billable_value=minutes_by_rung[SECOND_OVERAGE_RUNG] + minutes_by_rung[UNATTRIBUTED_RUNG],
         included_min=included_min,
         rate=rate,
         rate_value=rate_value,
@@ -2539,7 +2578,8 @@ async def usage_summary(
                 # a client headroom the gate will refuse them.
                 plan_in_effect_sql(
                     "monthly_fee, included_min, overage_rate, "
-                    f"{EFFECTIVE_CAP_MIN_SQL}, {EFFECTIVE_CAP_SPEND_SQL}, overage_rate_value, "
+                    f"{EFFECTIVE_CAP_MIN_SQL}, {EFFECTIVE_CAP_SPEND_SQL}, "
+                    f"{OVERAGE_RATE_SECOND_SQL}, "
                     "llm_model_surcharge"
                 )
             ),
@@ -2553,8 +2593,8 @@ async def usage_summary(
         await warn_no_plan_in_effect(session, tenant_id=tenant_id, at=priced_at)
     included = int(plan[1] or 0) if plan else 0
     overage_rate = Decimal(str(plan[2])) if plan and plan[2] is not None else Decimal("0")
-    # NULL is not zero: "this plan quotes no separate value rate" (bill everything at
-    # `overage_rate`) and "the value rung is free" are different plans.
+    # NULL is not zero: "this plan quotes no separate second rate" (bill everything at
+    # `overage_rate`) and "the second rung is free" are different plans.
     value_rate = Decimal(str(plan[5])) if plan and plan[5] is not None else None
     # PRICED THROUGH THE ONE MONTH-PRICING FUNCTION, which `build_invoice` prints the
     # lines of and which the METER now charges each call the difference in
@@ -2714,6 +2754,7 @@ async def usage_summary(
     spend_used = to_paise(
         _spend_used(period, today, counters.billed_inr, closed_month_billed=calling)
     )
+    second_rate_display = rate_to_display(value_rate) if value_rate is not None else None
 
     return {
         "month": period,
@@ -2727,16 +2768,26 @@ async def usage_summary(
         # summed exactly inside `split_overage` and then `to_paise` on each half turned
         # 5.005 + 4.995 into 5.01 + 5.00 on the way out. Nothing on this path rounds a
         # minute; `_tier_totals` did it once, for all of them, so that they add up.
+        "overage_minutes_base_rung": overage_premium,
+        "overage_minutes_second_rung": overage_value,
+        # ⚠ DEPRECATED, STEP 1 OF TWO (hard rule 8, D-558). The two names above replace
+        # these: `premium`/`value` claimed a voice quality that never chose the rung.
+        # BOTH are emitted and carry the SAME figures, so nothing reading the wire
+        # breaks; STEP 2 deletes the pair below and the console's fallback with it.
         "overage_minutes_premium": overage_premium,
         "overage_minutes_value": overage_value,
         "overage_cost_inr": overage_cost,
         # The rate the overage was priced at, published so the invoice does not have to
         # re-read `plans` and risk picking a different row than this computation did.
         "overage_rate_inr": rate_to_display(overage_rate),
-        # None when this plan quotes no separate value rate — in which case BOTH rungs
+        # None when this plan quotes no separate second rate — in which case BOTH rungs
         # above were priced at `overage_rate_inr`, and saying None rather than repeating
-        # the premium rate is what tells a reader which of those two worlds they are in.
-        "overage_rate_value_inr": (rate_to_display(value_rate) if value_rate is not None else None),
+        # the base rate is what tells a reader which of those two worlds they are in.
+        # Bound once above and published twice, for the reason `tier_usage` gives: two
+        # spellings of one rate must not be two evaluations of it.
+        "overage_rate_second_inr": second_rate_display,
+        # ⚠ DEPRECATED, STEP 1 OF TWO — the name `overage_rate_second_inr` replaces.
+        "overage_rate_value_inr": second_rate_display,
         # THE MODEL SURCHARGE, as three figures a client can check against each other
         # (D-455): the minutes that carried it, the rate they carried, and the total —
         # which is `minutes x rate` because `priced_llm_surcharge` quantized it once.
@@ -3241,22 +3292,37 @@ async def tier_usage(
     # `cost_inr`'s own figure — `to_paise` of the same sum `margin_for_tenant` takes — is
     # what makes the partition true by construction rather than by two roundings
     # happening to agree.
-    cost_premium, cost_value, cost_unattributed = allocate_paise(
-        [cost["premium"], cost["value"], cost[""]],
+    cost_base, cost_second, cost_unattributed = allocate_paise(
+        [cost[BASE_OVERAGE_RUNG], cost[SECOND_OVERAGE_RUNG], cost[UNATTRIBUTED_RUNG]],
         to_paise(sum(cost.values(), Decimal("0"))),
     )
+    # Bound once and published twice below, under the new name and the one it deprecates.
+    # Spelling the arithmetic twice is how a two-step deprecation ends up publishing two
+    # different answers to one question — which is worse than the name it set out to fix.
+    minutes_base = minutes[BASE_OVERAGE_RUNG]
+    minutes_second = minutes[SECOND_OVERAGE_RUNG]
+    minutes_billable_second = minutes[SECOND_OVERAGE_RUNG] + minutes[UNATTRIBUTED_RUNG]
 
     return {
         "month": period,
-        "minutes_premium": minutes["premium"],
-        "minutes_value": minutes["value"],
-        "minutes_unattributed": minutes[""],
-        # What a bill may charge at each rung: unproven never reaches the premium side.
-        "minutes_billable_premium": minutes["premium"],
-        "minutes_billable_value": minutes["value"] + minutes[""],
-        "cost_premium_inr": cost_premium,
-        "cost_value_inr": cost_value,
+        "minutes_base_rung": minutes_base,
+        "minutes_second_rung": minutes_second,
+        "minutes_unattributed": minutes[UNATTRIBUTED_RUNG],
+        # What a bill may charge at each rung: unproven never reaches the dearer side.
+        "minutes_billable_base_rung": minutes_base,
+        "minutes_billable_second_rung": minutes_billable_second,
+        "cost_base_rung_inr": cost_base,
+        "cost_second_rung_inr": cost_second,
         "cost_unattributed_inr": cost_unattributed,
+        # ⚠ DEPRECATED, STEP 1 OF TWO (hard rule 8, D-558). The SAME six figures under the
+        # names that claimed a voice quality — same bindings, so the pair cannot disagree.
+        # STEP 2 deletes these six.
+        "minutes_premium": minutes_base,
+        "minutes_value": minutes_second,
+        "minutes_billable_premium": minutes_base,
+        "minutes_billable_value": minutes_billable_second,
+        "cost_premium_inr": cost_base,
+        "cost_value_inr": cost_second,
     }
 
 

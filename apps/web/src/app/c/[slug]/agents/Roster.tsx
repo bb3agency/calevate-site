@@ -323,7 +323,7 @@ function AgentRow({
             <DirectionIcon aria-hidden className="h-4 w-4" />
           </span>
           <span className="min-w-0 flex-1">
-            <span className="block truncate text-sm font-semibold text-ink">
+            <span title={agent.name} className="block truncate text-sm font-semibold text-ink">
               {agent.name}
             </span>
             <span className="block text-xs text-ink-muted">

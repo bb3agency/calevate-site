@@ -205,14 +205,6 @@ export const SIDEBAR_IDENTITY_ROW_CLASS =
   "flex items-center gap-3 overflow-hidden rounded-lg p-1.5";
 
 /**
- * The brand block at the top of both panels, and the mobile drawer's close button.
- *
- * The two shells rendered this identically apart from the two lines of text, so it is one
- * component taking those two lines. The mark is `BrandIcon` and NOT a lucide glyph in a
- * `bg-brand-strong` chip: the artwork is dark green ink on transparency and would render
- * green-on-green (`components/brand.tsx`).
- */
-/**
  * The scrolling nav column, shared by both shells.
  *
  * HOISTED rather than typed twice (6 Sep 2026). The client layout and the admin layout
@@ -221,37 +213,103 @@ export const SIDEBAR_IDENTITY_ROW_CLASS =
  * per problem" rule exists to stop, and the reason the brand and toggle spacing already
  * live in this file.
  *
- * `pt-1`, not `pt-4`: the gap above the first nav item is set by the toggle row directly
- * above it, which has its own padding. Paying for it twice is what made the header block
- * look empty.
+ * `pt-1`, not `pt-4`: the gap above the first nav item is set by the brand block's own
+ * `pb-3` directly above it. Paying for it twice is what made the header block look empty.
  */
 export const sidebarNavClass = "custom-scrollbar relative flex-1 overflow-y-auto px-3 pt-1 pb-4";
 
+/**
+ * The brand block at the top of both panels — the mark, the two lines of text, the
+ * collapse toggle, and the mobile drawer's close button. ONE ROW.
+ *
+ * The two shells rendered this identically apart from the two lines of text, so it is one
+ * component taking those two lines. The mark is `BrandIcon` and NOT a lucide glyph in a
+ * `bg-brand-strong` chip: the artwork is dark green ink on transparency and would render
+ * green-on-green (`components/brand.tsx`).
+ *
+ * ## THE COLLAPSE TOGGLE IS IN THIS ROW, AND IT USED TO BE A ROW OF ITS OWN
+ *
+ * `SidebarCollapseToggle` was a separate full-width `<div>` rendered between the brand and
+ * the `<nav>` in both shells, holding one 16px icon right-aligned. So a single glyph
+ * claimed an entire horizontal band of the panel: ~32px of empty space under the wordmark
+ * with an icon floating at its right edge, and every nav item pushed down by a row that
+ * contained nothing else. The founder read it as a layout mistake (9 Sep 2026), which is
+ * what it was. Shrinking `pb-1`/`pr-[22px]` would have treated the symptom — the ROW is
+ * the defect — so the control moved into the row that was already there.
+ *
+ * Nesting it here is valid markup: this block is a `<div>`, not a link, and it already
+ * holds the drawer's close `<button>`. The two never coexist — the close button is
+ * `lg:hidden` (drawer only) and the toggle is `hidden lg:flex` (desktop only) — so they
+ * share one slot at the end of the row rather than competing for it.
+ *
+ * ## WHAT HAPPENS ON THE 72px COLLAPSED RAIL, which is where this shape could break
+ *
+ * The rail's content box is 36px wide and the brand mark alone fills it, so the mark and
+ * the toggle cannot share that line. The mark yields: `lg:hidden` when collapsed, and
+ * `lg:justify-center lg:gap-0` centres what is left on the rail's 36px centre line — the
+ * same line every nav icon and the identity glyph sit on. That costs nothing readable,
+ * because `BrandIcon` is decorative (`alt=""`) and the words it accompanies are still in
+ * the accessibility tree, faded rather than unmounted, in `SidebarLabel`. What it buys is
+ * the property the old two-button version was written to get: ONE control, always present,
+ * never unmounted, and — now — a header block whose height does not change when the panel
+ * collapses, so no nav item moves vertically during the gesture.
+ *
+ * Below `lg` none of it applies: the panel is the 255px drawer, the mark is shown, the
+ * toggle is not rendered at all and the close button is, exactly as before.
+ */
 export function SidebarBrand({
   isCollapsed,
   onClose,
+  onToggle,
   title,
   subtitle,
 }: {
   isCollapsed: boolean;
   onClose: () => void;
+  onToggle: () => void;
   title: string;
   subtitle: string;
 }) {
-  // `pt-5 pb-2`, not `py-5`. The brand, the collapse toggle and the nav each carried
+  // `pt-5 pb-3`, not `py-5`. The brand, the collapse toggle and the nav each carried
   // their own generous vertical padding, and stacked they put ~72px between the wordmark
   // and the first nav item — a gap that read as a missing element rather than as
   // breathing room. The space ABOVE the wordmark sets it off from the window edge and is
-  // unchanged; only the space between it and the toggle below closes.
+  // unchanged; `pb-3` plus the nav's own `pt-1` is the 16px below it.
   return (
-    <div className="flex items-center gap-3 overflow-hidden px-[18px] pt-5 pb-2">
-      <BrandIcon size={36} />
+    <div
+      data-sidebar-brand
+      className={`flex items-center overflow-hidden px-[18px] pt-5 pb-3 ${
+        isCollapsed ? "gap-3 lg:justify-center lg:gap-0" : "gap-3"
+      }`}
+    >
+      <BrandIcon size={36} className={isCollapsed ? "lg:hidden" : ""} />
       <SidebarLabel isCollapsed={isCollapsed}>
         <span className="block text-[17px] font-bold leading-none tracking-tight text-ink">
           {title}
         </span>
         <span className="block text-[11px] font-medium text-ink-muted">{subtitle}</span>
       </SidebarLabel>
+      {/* The one control that collapses and expands the panel.
+          It used to be TWO buttons — a "Collapse sidebar" in the brand row that was
+          unmounted when collapsed, and an "Expand sidebar" in a row that only existed when
+          collapsed. That is two pops in one gesture: a control vanishing, and the panel
+          getting a whole row taller. One button that is always there has neither, and it
+          is also the disclosure pattern a reader expects — same control, `aria-expanded`
+          says which way it currently is. */}
+      <button
+        type="button"
+        data-sidebar-collapse-toggle
+        onClick={onToggle}
+        aria-expanded={!isCollapsed}
+        aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        className="hidden shrink-0 items-center justify-center rounded-md p-1.5 text-ink-faint hover:bg-black/5 lg:flex dark:hover:bg-white/5"
+      >
+        {isCollapsed ? (
+          <PanelLeftOpen className="h-4 w-4" />
+        ) : (
+          <PanelLeftClose className="h-4 w-4" />
+        )}
+      </button>
       <button
         type="button"
         onClick={onClose}
@@ -259,48 +317,6 @@ export function SidebarBrand({
         className="flex shrink-0 items-center justify-center rounded-md p-1.5 text-ink-faint hover:bg-black/5 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
       >
         <X className="h-5 w-5" />
-      </button>
-    </div>
-  );
-}
-
-/**
- * The one control that collapses and expands the panel.
- *
- * It used to be TWO buttons — a "Collapse sidebar" in the brand row that was unmounted
- * when collapsed, and an "Expand sidebar" in a row that only existed when collapsed. That
- * is two pops in one gesture: a control vanishing, and the panel getting a whole row
- * taller. One button in one row that is always there has neither, and it is also the
- * disclosure pattern a reader expects — same control, `aria-expanded` says which way it
- * currently is.
- *
- * `pr-[22px]` puts it exactly on the rail's centre line when collapsed (72 - 22 - 14 = 36)
- * and, expanded, within 2px of where the old collapse button sat.
- */
-// `pb-1`: the other half of the same gap. The toggle sits between two blocks that both
-// padded away from it, so it was the widest-spaced control in the shell while being the
-// least important one.
-export function SidebarCollapseToggle({
-  isCollapsed,
-  onToggle,
-}: {
-  isCollapsed: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <div className="hidden justify-end pb-1 pr-[22px] lg:flex">
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={!isCollapsed}
-        aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-        className="flex items-center justify-center rounded-md p-1.5 text-ink-faint hover:bg-black/5 dark:hover:bg-white/5"
-      >
-        {isCollapsed ? (
-          <PanelLeftOpen className="h-4 w-4" />
-        ) : (
-          <PanelLeftClose className="h-4 w-4" />
-        )}
       </button>
     </div>
   );

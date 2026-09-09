@@ -141,10 +141,15 @@ const USAGE: UsagePanel = {
   cartesia_label: "Studio",
   included_minutes: 500,
   overage_minutes: "0",
+  // BOTH SPELLINGS: the wire carries the deprecated pair beside the new one
+  // for one release (hard rule 8 step 1, D-558), with identical figures.
+  overage_minutes_base_rung: "0",
+  overage_minutes_second_rung: "0",
   overage_minutes_premium: "0",
   overage_minutes_value: "0",
   overage_cost_inr: "10159.00",
   overage_rate_inr: "6.5000",
+  overage_rate_second_inr: null,
   overage_rate_value_inr: null,
   // D-455: the model surcharge, unset on every plan today.
   llm_surcharge_rate_inr: null,

@@ -72,6 +72,10 @@ function plan(over: Partial<PlanRow> = {}): PlanRow {
     monthly_fee_inr: "9999.0000",
     included_minutes: 100,
     overage_rate_inr: "7.1250",
+    // BOTH SPELLINGS, because that is what the wire carries for one release (hard rule 8
+    // step 1, D-558): `overage_rate_second_inr` is the name, `overage_rate_value_inr` is
+    // deprecated and carries the identical figure.
+    overage_rate_second_inr: null,
     overage_rate_value_inr: null,
     // D-455: what this client pays extra, per minute, for a model THEY chose.
     llm_model_surcharge_inr: null,
@@ -96,6 +100,9 @@ function plan(over: Partial<PlanRow> = {}): PlanRow {
       below_target_margin: [],
       min_gross_margin: "0.20",
       cost_floor_inr_per_min: "3.70",
+    // WHICH SPEAKING RATE THAT FLOOR IS STRUCK AT (D-557) — this panel is a REFUSAL
+    // surface, so it is deliberately the frozen assumed basis and says so.
+    cost_floor_basis: "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12)",
     },
     ...over,
   };
@@ -176,7 +183,10 @@ describe("the commercials screen", () => {
   it("offers no default for the value-tier rate", async () => {
     await render();
 
-    const field = (await screen.findByLabelText(/Value-tier rate/)) as HTMLInputElement;
+    // "Second overage rate", not "Value-tier rate": the field is `overage_rate_value`, a
+    // second agreed rate on the plan, and the old label both used excluded rung vocabulary
+    // and claimed it priced a different voice (`tests/rung_naming_copy_test.py`).
+    const field = (await screen.findByLabelText(/Second overage rate/)) as HTMLInputElement;
     expect(field.value).toBe("");
   });
 

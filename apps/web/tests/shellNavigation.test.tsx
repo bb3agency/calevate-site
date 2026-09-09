@@ -287,6 +287,30 @@ describe("currentNavItem", () => {
  * rather than as a position or a label, because where it sits is a design decision and
  * whether it exists is not.
  */
+/**
+ * A TRUNCATED VALUE NOBODY CAN READ IS NOT INFORMATION THE SCREEN IS SHOWING.
+ *
+ * The client shell's identity block names the account you are signed into, inside a fixed
+ * 255px panel with `truncate` and — until 9 Sep 2026 — no `title`, no tooltip and no
+ * expanded view. A real Indian SMB name ("Sri Lakshmi Multispeciality Dental Clinic") is
+ * cut, and on the one line in the console that answers "whose data am I about to change"
+ * there was no way to find out.
+ *
+ * The truncation itself STAYS, and deliberately: the panel width is fixed and no honest
+ * short form of an arbitrary business name exists. What changed is that the full value is
+ * reachable, which is the minimum this defect class demands.
+ */
+describe("the account name is readable, not merely present", () => {
+  it("puts the whole organisation name within reach when the panel clips it", async () => {
+    const container = await renderClientShell("/c/acme");
+    const named = [...container.querySelectorAll<HTMLElement>("[title]")].find(
+      (el) => el.getAttribute("title") === "Acme",
+    );
+    expect(named, "the sidebar's account name is truncated with no way to read it").toBeTruthy();
+    expect(named?.className).toContain("truncate");
+  });
+});
+
 describe("your own account", () => {
   it("is reachable from the client console", async () => {
     const container = await renderClientShell("/c/acme");
@@ -315,19 +339,32 @@ describe("your own account", () => {
  * Admin" test and fail this one, which is the point.
  */
 describe("the two consoles do not look like each other", () => {
-  it("marks the admin shell with a chrome the client shell does not have", async () => {
+  it("renders NO rail across the top of the admin window, and no leftover of one", async () => {
+    // THE RAIL IS GONE (founder, 9 Sep 2026). It was an `h-1.5` slate bar above the
+    // sidebar and the content — which is why this shell was a COLUMN where the client
+    // shell is a row — and the founder removed it on the ground that the sidebar already
+    // says "Calevate admin / Operator console" and the identity block already says who
+    // you are signed in as, so the realm is stated twice in words before any chrome.
+    //
+    // This asserts the ABSENCE and the SHAPE together, because half a removal is the
+    // likelier regression: a re-added rail, or a column wrapper left behind with one
+    // child in it. The outermost shell element must be the same expression the client
+    // shell uses.
     const admin = await renderAdminShell("/admin");
-    const rail = admin.querySelector("[data-admin-realm-rail]");
-    expect(rail, "the admin shell carries no realm chrome at all").toBeTruthy();
-    // Not a word: it carries no text, so it reads at a glance and in the corner of an eye.
-    expect(rail?.textContent).toBe("");
-    expect(rail?.className).toContain("bg-slate-900");
+    expect(admin.querySelector("[data-admin-realm-rail]")).toBeNull();
+    expect(admin.querySelector(".h-1\\.5.bg-slate-900")).toBeNull();
 
-    const client = await renderClientShell("/c/acme");
-    expect(client.querySelector("[data-admin-realm-rail]")).toBeNull();
+    const adminShell = admin.querySelector("[data-app-shell]");
+    const clientShell = (await renderClientShell("/c/acme")).querySelector("[data-app-shell]");
+    expect(adminShell?.className).not.toContain("flex-col");
+    expect(adminShell?.className).toBe(clientShell?.className);
   });
 
-  it("puts the same treatment on the block that names the realm", async () => {
+  it("still tells the two shells apart without reading a word", async () => {
+
+    // The identity block is what survives the rail's removal, and it is now the shell's
+    // ONLY realm marker that is not a word — so it is asserted harder than it was, on
+    // both the treatment and the absence of that treatment in the client shell.
     const admin = await renderAdminShell("/admin");
     const identity = admin.querySelector(".bg-slate-900.text-white");
     expect(identity, "the admin identity block is dressed like a client's").toBeTruthy();

@@ -16,11 +16,11 @@ import {
   NOTICE_TONES,
   ProblemNotice,
   SectionHeading,
-  TermGloss,
   ToggleSwitch,
 } from "@/components/ui";
 import { useSetDisclosure, type Agent } from "@/lib/api/agents";
 import { useClientSession } from "@/lib/api/session";
+import { Term } from "@/lib/glossary";
 
 /**
  * The two opening notices, as switches — and the one sentence the switches do not reach.
@@ -111,10 +111,11 @@ export function OpeningNotices({ agent }: { agent: Agent }) {
             <>
               Calls are still recorded — this only stops the agent announcing it. Telling
               callers their call is recorded is still your responsibility under the{" "}
-              <TermGloss term="DPDP">
-                India&apos;s Digital Personal Data Protection Act
-              </TermGloss>{" "}
-              Act; with this off, it has to be covered by your own privacy notice or
+              {/* The whole term is inside the box: with the word "Act" left outside it,
+                  the accessible name read "DPDP: India's Digital Personal Data Protection
+                  Act" and the sentence then said "Act" again. The visible words are
+                  unchanged. */}
+              <Term id="dpdp" term="DPDP Act" />; with this off, it has to be covered by your own privacy notice or
               consent. If a caller asks, the agent still says yes.
             </>
           }

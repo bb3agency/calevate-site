@@ -3864,6 +3864,23 @@
             ],
             "title": "Overage Rate Inr"
           },
+          "overage_rate_second_inr": {
+            "anyOf": [
+              {
+                "maximum": 1000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overage Rate Second Inr"
+          },
           "overage_rate_value_inr": {
             "anyOf": [
               {
@@ -3879,6 +3896,8 @@
                 "type": "null"
               }
             ],
+            "deprecated": true,
+            "description": "DEPRECATED \u2014 renamed to `overage_rate_second_inr`. Still accepted; sending both with different values is refused. Removed in the next release.",
             "title": "Overage Rate Value Inr"
           },
           "setup_fee_inr": {
@@ -8183,6 +8202,68 @@
           "source"
         ],
         "title": "FlagStateOut",
+        "type": "object"
+      },
+      "FleetSpeakingRateOut": {
+        "additionalProperties": false,
+        "description": "**THE FIGURE THE COST MODEL ACTUALLY DIVIDES BY, AND WHAT IT COSTS US (D-557).**\n\nEverything else on this board is the ARCHIVE, walked one tenant at a time so a\ndistribution can be built. This block is the platform COUNTER the post-call meter moves\n\u2014 one row per month, readable on a page \u2014 and it is the only figure any rupee elsewhere\nin this product is struck at. The two are two spellings of one measurement over the same\npopulation, which is why both are here: if they disagree, one of them is wrong and an\noperator can see it.\n\n`measured` says which claim the floor below is. When it is False the floor is TRD \u00a710.1's\nassumed band still in force and `calls`/`minimum_calls` say how far short the sample is \u2014\nnever a placeholder rate, which is the hard-rule-11 failure the threshold exists for.",
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "chars_per_minute": {
+            "title": "Chars Per Minute",
+            "type": "string"
+          },
+          "cost_floor_inr_per_min": {
+            "title": "Cost Floor Inr Per Min",
+            "type": "string"
+          },
+          "floor_above_refusal": {
+            "title": "Floor Above Refusal",
+            "type": "boolean"
+          },
+          "measured": {
+            "title": "Measured",
+            "type": "boolean"
+          },
+          "minimum_calls": {
+            "title": "Minimum Calls",
+            "type": "integer"
+          },
+          "refusal_floor_inr_per_min": {
+            "title": "Refusal Floor Inr Per Min",
+            "type": "string"
+          },
+          "window": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window"
+          }
+        },
+        "required": [
+          "measured",
+          "chars_per_minute",
+          "calls",
+          "minimum_calls",
+          "window",
+          "basis",
+          "cost_floor_inr_per_min",
+          "refusal_floor_inr_per_min",
+          "floor_above_refusal"
+        ],
+        "title": "FleetSpeakingRateOut",
         "type": "object"
       },
       "FleetSpendOut": {
@@ -14808,6 +14889,10 @@
             ],
             "title": "Committed Gross Margin"
           },
+          "cost_floor_basis": {
+            "title": "Cost Floor Basis",
+            "type": "string"
+          },
           "cost_floor_inr_per_min": {
             "title": "Cost Floor Inr Per Min",
             "type": "string"
@@ -14857,7 +14942,8 @@
           "overage_gross_margin",
           "below_target_margin",
           "min_gross_margin",
-          "cost_floor_inr_per_min"
+          "cost_floor_inr_per_min",
+          "cost_floor_basis"
         ],
         "title": "PlanMarginOut",
         "type": "object"
@@ -14995,6 +15081,17 @@
             ],
             "title": "Overage Rate Inr"
           },
+          "overage_rate_second_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overage Rate Second Inr"
+          },
           "overage_rate_value_inr": {
             "anyOf": [
               {
@@ -15004,6 +15101,8 @@
                 "type": "null"
               }
             ],
+            "deprecated": true,
+            "description": "DEPRECATED \u2014 renamed to `overage_rate_second_inr`, which carries the identical figure. Removed in the next release.",
             "title": "Overage Rate Value Inr"
           },
           "setup_fee_inr": {
@@ -15028,6 +15127,7 @@
           "monthly_fee_inr",
           "included_minutes",
           "overage_rate_inr",
+          "overage_rate_second_inr",
           "overage_rate_value_inr",
           "llm_model_surcharge_inr",
           "hard_cap_minutes",
@@ -16180,6 +16280,9 @@
             "title": "Pending",
             "type": "array"
           },
+          "speaking_rate": {
+            "$ref": "#/components/schemas/SpeakingRateOut"
+          },
           "target_gross_margin_pct": {
             "title": "Target Gross Margin Pct",
             "type": "string"
@@ -16193,6 +16296,7 @@
           "notice_days",
           "earliest_effective_from",
           "cartesia_volume",
+          "speaking_rate",
           "notice_recipients"
         ],
         "title": "RateCardOut",
@@ -18674,6 +18778,68 @@
         "title": "SpeakingRateByProviderOut",
         "type": "object"
       },
+      "SpeakingRateOut": {
+        "additionalProperties": false,
+        "description": "**WHAT THE CLEAR COLUMN'S COST IS STRUCK AT, AND WHETHER ANYONE MEASURED IT (D-557).**\n\nThe Studio column's at-volume cost comes from two counts of a month somebody ran and\nneeds no speaking rate at all. The CLEAR column has no such counts \u2014 the engine buys that\nsynthesis and reports a rupee figure with no character count anywhere\n(`rates.ENGINE_REPORTS_TTS_MODEL`) \u2014 so its cost per CALL-MINUTE is characters-per-minute\ntimes a rupee-per-character card, and characters-per-minute was TRD \u00a710.1's unmeasured\n360-540 band. This block is the measurement that replaces it, or the honest statement\nthat there is not one yet.\n\nThe same fields the admin spend board publishes, built from the same two objects\n(`rates.SpeakingRateBasis`, `rates.sarvam_cost_floor_at`) \u2014 a second SERIALIZATION of one\narithmetic, never a second arithmetic.",
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "calls": {
+            "title": "Calls",
+            "type": "integer"
+          },
+          "chars_per_call_minute": {
+            "title": "Chars Per Call Minute",
+            "type": "string"
+          },
+          "cost_floor_inr_per_min": {
+            "title": "Cost Floor Inr Per Min",
+            "type": "string"
+          },
+          "floor_above_refusal": {
+            "title": "Floor Above Refusal",
+            "type": "boolean"
+          },
+          "measured": {
+            "title": "Measured",
+            "type": "boolean"
+          },
+          "minimum_calls": {
+            "title": "Minimum Calls",
+            "type": "integer"
+          },
+          "refusal_floor_inr_per_min": {
+            "title": "Refusal Floor Inr Per Min",
+            "type": "string"
+          },
+          "window": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window"
+          }
+        },
+        "required": [
+          "measured",
+          "chars_per_call_minute",
+          "calls",
+          "minimum_calls",
+          "window",
+          "basis",
+          "cost_floor_inr_per_min",
+          "refusal_floor_inr_per_min",
+          "floor_above_refusal"
+        ],
+        "title": "SpeakingRateOut",
+        "type": "object"
+      },
       "SpeakingRatePointOut": {
         "additionalProperties": false,
         "description": "A chars-per-call-minute figure and the TTS \u20b9/min it implies at the live rate card.\n\nBoth are exact decimal STRINGS \u2014 a speaking rate is priced by multiplying it, so it is\nmoney's shadow and crosses the wire the way money does (hard rule 7).",
@@ -20710,10 +20876,20 @@
       },
       "TierSplitOut": {
         "additionalProperties": false,
-        "description": "The margin's cost side, split by the TTS rung each minute was metered on (D-36).\n\nNested inside the margin card rather than mounted as its own route because it answers\na question about THAT card's `cost_inr`: an operator seeing a thin margin needs to\nknow whether the cost is premium voice or the value rung before they can act on it,\nand a second endpoint means a second round trip to learn one number's composition.\n`billing.tier_usage` sums to the same `_tier_totals` the margin does, so the rungs\nadd up to `cost_inr` exactly \u2014 they are a partition of it, not a parallel estimate.\n\n`unattributed` is the honest third bucket: rows a path could not attribute a rung to.\nIt is reported separately because \"we know this ran on the value rung\" and \"we never\nknew\" are different facts, and a bill resolves that ambiguity in the CLIENT's favour\n(`minutes_billable_value` folds it in) while this report must not.\n\nEvery field is required on the wire. A Pydantic default here would generate an\nOPTIONAL TypeScript property and the screen would have to branch on a case the\nserver never emits \u2014 a trap this repo has now been bitten by four times.",
+        "description": "The margin's cost side, split by the OVERAGE RUNG each minute was metered on.\n\nA rung is one of the plan's two overage-rate slots (`plans.overage_rate` and\n`plans.overage_rate_second`) and **not a voice quality** \u2014 nothing about which voice\nspoke chooses one, and which voice did is a different fact on a different key\n(`usage_events.meta.voice_tier`, `agents/voices.py`).\n\nNested inside the margin card rather than mounted as its own route because it answers\na question about THAT card's `cost_inr`: an operator seeing a thin margin needs to\nknow which agreed rate the cost sits behind before they can act on it, and a second\nendpoint means a second round trip to learn one number's composition.\n`billing.tier_usage` sums to the same `_tier_totals` the margin does, so the rungs\nadd up to `cost_inr` exactly \u2014 they are a partition of it, not a parallel estimate.\n\n`unattributed` is the honest third bucket: rows a path could not attribute a rung to.\nIt is reported separately because \"we know which rate this ran on\" and \"we never\nknew\" are different facts, and a bill resolves that ambiguity in the CLIENT's favour\n(`minutes_billable_second_rung` folds it in) while this report must not.\n\nEvery field is required on the wire. A Pydantic default here would generate an\nOPTIONAL TypeScript property and the screen would have to branch on a case the\nserver never emits \u2014 a trap this repo has now been bitten by four times.",
         "properties": {
+          "cost_base_rung_inr": {
+            "title": "Cost Base Rung Inr",
+            "type": "string"
+          },
           "cost_premium_inr": {
+            "deprecated": true,
+            "description": "DEPRECATED \u2014 renamed to `cost_base_rung_inr`, which carries the identical figure. Removed in the next release.",
             "title": "Cost Premium Inr",
+            "type": "string"
+          },
+          "cost_second_rung_inr": {
+            "title": "Cost Second Rung Inr",
             "type": "string"
           },
           "cost_unattributed_inr": {
@@ -20721,11 +20897,23 @@
             "type": "string"
           },
           "cost_value_inr": {
+            "deprecated": true,
+            "description": "DEPRECATED \u2014 renamed to `cost_second_rung_inr`, which carries the identical figure. Removed in the next release.",
             "title": "Cost Value Inr",
             "type": "string"
           },
+          "minutes_base_rung": {
+            "title": "Minutes Base Rung",
+            "type": "string"
+          },
           "minutes_premium": {
+            "deprecated": true,
+            "description": "DEPRECATED \u2014 renamed to `minutes_base_rung`, which carries the identical figure. Removed in the next release.",
             "title": "Minutes Premium",
+            "type": "string"
+          },
+          "minutes_second_rung": {
+            "title": "Minutes Second Rung",
             "type": "string"
           },
           "minutes_unattributed": {
@@ -20733,17 +20921,23 @@
             "type": "string"
           },
           "minutes_value": {
+            "deprecated": true,
+            "description": "DEPRECATED \u2014 renamed to `minutes_second_rung`, which carries the identical figure. Removed in the next release.",
             "title": "Minutes Value",
             "type": "string"
           }
         },
         "required": [
+          "minutes_base_rung",
+          "minutes_second_rung",
+          "minutes_unattributed",
+          "cost_base_rung_inr",
+          "cost_second_rung_inr",
+          "cost_unattributed_inr",
           "minutes_premium",
           "minutes_value",
-          "minutes_unattributed",
           "cost_premium_inr",
-          "cost_value_inr",
-          "cost_unattributed_inr"
+          "cost_value_inr"
         ],
         "title": "TierSplitOut",
         "type": "object"
@@ -22098,6 +22292,9 @@
             "title": "Clients",
             "type": "integer"
           },
+          "fleet": {
+            "$ref": "#/components/schemas/FleetSpeakingRateOut"
+          },
           "measured": {
             "title": "Measured",
             "type": "boolean"
@@ -22164,7 +22361,8 @@
           "assumed_low",
           "assumed_high",
           "tts_inr_per_10k_chars",
-          "by_provider"
+          "by_provider",
+          "fleet"
         ],
         "title": "TtsSpeakingRateOut",
         "type": "object"
@@ -22627,17 +22825,40 @@
             "title": "Overage Minutes",
             "type": "string"
           },
+          "overage_minutes_base_rung": {
+            "title": "Overage Minutes Base Rung",
+            "type": "string"
+          },
           "overage_minutes_premium": {
+            "deprecated": true,
+            "description": "DEPRECATED \u2014 renamed to `overage_minutes_base_rung`, which carries the identical figure. Removed in the next release.",
             "title": "Overage Minutes Premium",
             "type": "string"
           },
+          "overage_minutes_second_rung": {
+            "title": "Overage Minutes Second Rung",
+            "type": "string"
+          },
           "overage_minutes_value": {
+            "deprecated": true,
+            "description": "DEPRECATED \u2014 renamed to `overage_minutes_second_rung`, which carries the identical figure. Removed in the next release.",
             "title": "Overage Minutes Value",
             "type": "string"
           },
           "overage_rate_inr": {
             "title": "Overage Rate Inr",
             "type": "string"
+          },
+          "overage_rate_second_inr": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Overage Rate Second Inr"
           },
           "overage_rate_value_inr": {
             "anyOf": [
@@ -22648,6 +22869,8 @@
                 "type": "null"
               }
             ],
+            "deprecated": true,
+            "description": "DEPRECATED \u2014 renamed to `overage_rate_second_inr`, which carries the identical figure. Removed in the next release.",
             "title": "Overage Rate Value Inr"
           },
           "plan_tier": {
@@ -22684,10 +22907,13 @@
           "calls",
           "included_minutes",
           "overage_minutes",
-          "overage_minutes_premium",
-          "overage_minutes_value",
+          "overage_minutes_base_rung",
+          "overage_minutes_second_rung",
           "overage_cost_inr",
           "overage_rate_inr",
+          "overage_rate_second_inr",
+          "overage_minutes_premium",
+          "overage_minutes_value",
           "overage_rate_value_inr",
           "llm_surcharge_rate_inr",
           "llm_surcharge_minutes",

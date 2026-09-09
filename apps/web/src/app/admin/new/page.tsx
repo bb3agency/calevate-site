@@ -24,7 +24,6 @@ import {
   ProblemNotice,
   SECONDARY_BUTTON,
   Skeleton,
-  TermGloss,
   formatIST,
 } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
@@ -54,6 +53,7 @@ import {
 
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
+import { Term } from "@/lib/glossary";
 
 import { IntakeStep } from "./IntakeStep";
 import { WIZARD_LANGUAGES } from "./languages";
@@ -638,7 +638,9 @@ function ResumePanel({ onResume }: { onResume: (row: UnfinishedOnboarding) => vo
             className="flex flex-wrap items-center justify-between gap-3 rounded-card border border-line bg-app p-3"
           >
             <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-ink">{row.name}</p>
+              <p title={row.name} className="truncate text-sm font-semibold text-ink">
+                {row.name}
+              </p>
               <p className="mt-0.5 text-xs text-ink-faint">
                 <MonoValue>/c/{row.slug}</MonoValue>
                 {" · "}
@@ -882,8 +884,8 @@ function CreatedPanel({
             <ListChecks aria-hidden className="mt-0.5 h-4 w-4 shrink-0 text-ink-faint" />
             <span>
               Getting a phone number and registering with{" "}
-              <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss>/
-              <TermGloss term="PE">Principal Entity — the client, as registered on DLT</TermGloss>{" "}
+              <Term id="dlt" />/
+              <Term id="pe" term="PE" audience="operator" />{" "}
               — still done by hand
             </span>
           </li>

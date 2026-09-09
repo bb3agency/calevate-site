@@ -631,11 +631,19 @@ platform_tts_prices(provider, effective_from, inr_per_1k_chars NUMERIC(12,6),
 --   characters were metered at. `ops/model_pricing.tts_price_is_billable` is the ONE door
 --   that decides whether a voice tier may be offered at all.
 plans(id, tenant_id, setup_fee, monthly_fee, included_min INT, overage_rate,
-  overage_rate_value NUMERIC NULL, hard_cap_min INT, hard_cap_spend NUMERIC,
+  overage_rate_second NUMERIC NULL, overage_rate_value NUMERIC NULL,
+  hard_cap_min INT, hard_cap_spend NUMERIC,
   client_cap_min INT NULL, client_cap_spend NUMERIC NULL,
   concurrency_ceiling INT DEFAULT 10, effective_from, effective_to)
-  -- `overage_rate_value` prices D-36's value TTS rung; NULL means the plan quotes no
-  -- separate value rate and everything bills at `overage_rate` (migration b1d5c8e73f04).
+  -- `overage_rate_second` is the plan's SECOND overage-rate slot — a founder pricing
+  -- lever, NOT a voice quality (nothing about which voice spoke chooses a rung; that is
+  -- `usage_events.meta.voice_tier`). NULL means the plan quotes no separate second rate
+  -- and everything bills at `overage_rate` (migrations b1d5c8e73f04, c72b9e40af15).
+  -- `overage_rate_value` is the name it replaces and is MID-DEPRECATION (D-558, hard
+  -- rule 8 step 1): still written from the same bind by `billing/terms.py::record_terms`
+  -- and still read as the fallback half of `billing/plans.py::OVERAGE_RATE_SECOND_SQL`,
+  -- so a process that has not been redeployed prices a month identically. Step 2 drops
+  -- it; dropping it in the release that stopped writing it is what rule 8 forbids.
   -- `client_cap_*` are the CLIENT's own ceilings beside the admin's `hard_cap_*`; the
   -- effective cap is LEAST(admin, client), DERIVED and never stored, so clearing the
   -- client's own lands back on the admin's rather than on unlimited (billing/caps.py).

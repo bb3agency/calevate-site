@@ -254,7 +254,11 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
                             row leads to, and a number nobody can read is not one
                             (D-436). NULL means the engine gave us no number for the
                             leg — not that we withheld it. */}
-                        <span className="truncate text-sm font-semibold tabular-nums text-ink">
+                        {/* NOT `truncate`, and it was — the comment above has always
+                            said IN FULL while the class said otherwise. E.164 is bounded
+                            at 15 digits plus the `+`, so there is nothing to clip and no
+                            reason to risk clipping the one value the row exists for. */}
+                        <span className="text-sm font-semibold tabular-nums text-ink">
                           {call.caller_e164 ?? "Unknown number"}
                         </span>
                         <StatusBadge value={call.status} kind="call" />
@@ -266,7 +270,14 @@ export default function CallsPage({ params }: { params: Promise<{ slug: string }
                       </span>
                       {/* The summary as the API redacted it — `text_redacted`'s
                           treatment applies to derived prose too (crm/schemas.py). */}
-                      <span className="mt-0.5 block truncate text-[13px] text-ink-muted">
+                      {/* One line, because the list is scanned rather than read — but
+                          a sentence cut at a fixed width is unreadable, so the whole of
+                          the redacted summary is on the title as well as on the call's
+                          own screen. */}
+                      <span
+                        title={call.summary ?? undefined}
+                        className="mt-0.5 block truncate text-[13px] text-ink-muted"
+                      >
                         {call.summary ?? "No summary yet"}
                       </span>
                       <span className="mt-0.5 block truncate text-[11px] text-ink-faint">

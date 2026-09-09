@@ -208,7 +208,11 @@ function InviteRow({
         <div className="min-w-0">
           <p className="flex items-center gap-2 text-sm font-medium text-ink">
             <Mail className="h-4 w-4 shrink-0 text-ink-faint" aria-hidden />
-            <span className="truncate">{invite.email}</span>
+            {/* Same rule as the operator directory: two invitations to one domain are
+                told apart by the local part, which is the half a truncation eats. */}
+            <span title={invite.email} className="truncate">
+              {invite.email}
+            </span>
           </p>
           <p className="mt-0.5 text-xs text-ink-muted">
             {lookup(ROLE_COPY, invite.role)?.label ?? invite.role} · issued{" "}

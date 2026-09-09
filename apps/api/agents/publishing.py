@@ -114,7 +114,7 @@ from apps.api.agents.service import effective_call_cap, publish_agent
 from apps.api.agents.verification import EngineDrift, verify_publish
 from apps.api.agents.voices import Voice, get_voice
 from apps.api.billing.lots import voice_tier_rates
-from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
+from apps.api.billing.plans import NOW_SQL, OVERAGE_RATE_SECOND_SQL, plan_in_effect_sql
 from apps.api.billing.service import to_paise
 from apps.api.compliance.caller_memory import spdi_refuses_memory
 from apps.api.core.errors import ProblemError
@@ -538,9 +538,9 @@ async def _overage_rate(session: AsyncSession, tenant_id: UUID) -> Decimal | Non
     quoting ₹0.00 for a ten-minute call is the one answer that is actively wrong.
 
     **The dearest, because this feeds a worst case.** A plan may now quote two rates —
-    `overage_rate` and `overage_rate_value`, the premium and value TTS rungs (D-36) —
-    and which one a call bills at is decided by the voice that actually ran, which is
-    not knowable in advance. A ceiling computed from the cheaper rung would promise a
+    `overage_rate` and `overage_rate_second`, the plan's two overage-rate slots (D-36) —
+    and which one a call bills at is decided by the rung it is metered on, which is not
+    knowable in advance. A ceiling computed from the cheaper rung would promise a
     number the very next call can exceed, and a cost ceiling has exactly one direction
     of error it must not have.
 
@@ -559,7 +559,7 @@ async def _overage_rate(session: AsyncSession, tenant_id: UUID) -> Decimal | Non
                 # Resolved through `plan_in_effect_sql` rather than "newest row wins":
                 # a quote is a promise about the NEXT call, so it must price on the plan
                 # in force now, not on one an operator has staged for next month.
-                plan_in_effect_sql("GREATEST(overage_rate, overage_rate_value)", at=NOW_SQL)
+                plan_in_effect_sql(f"GREATEST(overage_rate, {OVERAGE_RATE_SECOND_SQL})", at=NOW_SQL)
             ),
             {"tid": tenant_id},
         )

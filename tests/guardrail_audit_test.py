@@ -513,6 +513,17 @@ class TestRlsCoverage:
             # difference is the allotment nobody spoke into.
             "platform_tts_plan_fees",
             "platform_tts_volume",
+            # D-557: how many characters the fleet's agents spoke per minute of call —
+            # three integers a month (calls, characters, seconds) and no text. Platform-
+            # global because a speaking rate is a property of the FLEET: no single tenant's
+            # figure can price a cost floor, and the cross-tenant sum is UNASKABLE in app
+            # code (`calls` and `transcript_turns` FORCE RLS, and an untenanted read of
+            # either returns zero rows while reporting success). Reaching for the admin DB
+            # role to get one would break hard rule 1, so a counter the meter moves is the
+            # way. What crosses from `transcript_turns` is a `length()`, never a character
+            # of a transcript, so hard rules 5 and 6 are not engaged, and there is no call
+            # id, tenant id or phone number in it to recover from a sum.
+            "platform_speaking_rate",
             # D-492: the self-serve list price per calling minute, effective-dated so a
             # CLOSED month renders at the rate it was struck at rather than at today's.
             # Platform-global for `platform_model_prices`' reason on the other side of the

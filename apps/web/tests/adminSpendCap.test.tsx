@@ -113,9 +113,18 @@ function healthy(): Routes {
       margin_inr: "3001.40",
       margin_pct: "59.99",
       tiers: {
+        // BOTH SPELLINGS, because that is what the wire carries for one release
+        // (hard rule 8 step 1, D-558): `*_base_rung` / `*_second_rung` are the
+        // names, `*_premium` / `*_value` are deprecated and carry the identical
+        // figure. The screen prefers the new pair;
+        // `rungRenameFallback.test.tsx` is the one that omits it.
+        minutes_base_rung: "600.00",
+        minutes_second_rung: "200.00",
         minutes_premium: "600.00",
         minutes_value: "200.00",
         minutes_unattributed: "12.00",
+        cost_base_rung_inr: "1500.00",
+        cost_second_rung_inr: "480.00",
         cost_premium_inr: "1500.00",
         cost_value_inr: "480.00",
         cost_unattributed_inr: "21.00",

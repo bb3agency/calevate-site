@@ -97,7 +97,7 @@ describe("every other state of the console", () => {
     // The ROLE, which only renders once `/v1/admin/me` has answered — so this waits for
     // the query to settle rather than catching the shell in its loading state, where a
     // gate that blanks on every error would still look correct.
-    expect(await screen.findByText(/superadmin · signed in across every client/)).toBeTruthy();
+    expect(await screen.findByText(/superadmin · all clients/)).toBeTruthy();
     expect(container.textContent).not.toContain("Two-step verification required");
   });
 

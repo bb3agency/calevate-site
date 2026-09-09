@@ -451,7 +451,10 @@ export default function DashboardPage({
                   <span className="min-w-0 flex-1">
                     {/* IN FULL (D-436) — the recent-calls rail is the fastest route
                         from "somebody rang" to ringing them back. */}
-                    <span className="block truncate text-[13px] font-semibold text-ink">
+                    {/* NOT `truncate`, for the reason the comment above gives: E.164 is
+                        bounded at 16 characters, so the number the rail exists to let you
+                        ring back can be shown whole. */}
+                    <span className="block text-[13px] font-semibold text-ink">
                       {call.caller_e164 ?? "Unknown number"}
                     </span>
                     <span className="block truncate text-[12px] text-ink-muted">

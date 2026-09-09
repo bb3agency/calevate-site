@@ -128,7 +128,11 @@ function UploadRow({ upload, agentName }: { upload: KbUpload; agentName: string 
         </span>
         <span className="ml-auto flex flex-wrap items-center gap-2 text-xs text-ink-faint">
           {size && <span className="tabular-nums">{size}</span>}
-          {agentName && <span className="truncate">{agentName}</span>}
+          {agentName && (
+            <span title={agentName} className="truncate">
+              {agentName}
+            </span>
+          )}
           {shown.change_detected_at && (
             <span className="whitespace-nowrap">
               Page changed {formatIST(shown.change_detected_at)}

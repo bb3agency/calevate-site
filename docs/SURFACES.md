@@ -129,12 +129,15 @@ the first-campaign hold, which really are about a stranger signing up, still app
     refused rather than the dial after the next call happens to meter. Inbound is
     unaffected — the gate is outbound-only — which is what makes an immediate stop a
     safe control to hand a client. The reasoning is in `apps/api/billing/caps.py`.
-  - **Two overage rates.** `plans.overage_rate_value` prices the value TTS rung
+  - **Two overage rates.** `plans.overage_rate_second` prices the second rung
     separately (D-36's ladder; `usage_events.meta.tts_tier` already says which rung a
-    call ran on). **NULL means the plan quotes no separate value rate — everything bills
-    at `overage_rate`**, which is every plan that predates the column, so no bill moved
-    when it landed. The included allowance is consumed on the DEARER rung first, leaving
-    the cheaper minutes to be charged for, and unattributed minutes bill at the value
+    call ran on). It is a founder PRICING LEVER and not a voice quality — the ledger key
+    still reads `tts_tier` because `usage_events` is append-only and its tokens are
+    frozen (D-558), and which voice actually spoke is `meta.voice_tier`. **NULL means the
+    plan quotes no separate second rate — everything bills at `overage_rate`**, which is
+    every plan that predates the column, so no bill moved when it landed. The included
+    allowance is consumed on the DEARER rung first, leaving the cheaper minutes to be
+    charged for, and unattributed minutes bill at the second
     rate (the same honesty rule `billing/rates.py` applies to cost). The invoice prints
     one line per rung so each still multiplies out. **No retail value rate is set
     anywhere in the codebase** — TRD §10.1's bands are unmeasured, so the number is a

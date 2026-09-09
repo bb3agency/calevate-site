@@ -12,6 +12,7 @@
 
 import clsx from "clsx";
 import { ChevronDown } from "lucide-react";
+import { useCallback, useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 
 import { lookup } from "@/lib/lookup";
@@ -525,13 +526,16 @@ export function MonoValue({
  * glossed where it is used — this is that mechanism, and the ONLY sanctioned way to put a
  * compliance term (DLT, PE, TM, DND, DPDP, the 140/160 number series) on screen.
  *
+ * Prefer `<Term id="dlt" />` (`@/lib/glossary`) to writing the words here: the map is what
+ * keeps one term from being explained two ways on two screens. This component is the
+ * mechanism; the glossary is the vocabulary.
+ *
  * ## Why the gloss is a styled box, not the native `title`
  *
  * The term shows its meaning in a small box on HOVER, on keyboard FOCUS, and on TAP — the
  * three input modes a `title` tooltip fails: `title` is mouse-only, delayed, unstyled, and
- * shows nothing on a touch screen. The box is a pure-CSS `::after` pseudo-element, so it
- * needs no positioning JS; the `<abbr>` is `tabIndex={0}` so a keyboard user reaches it and
- * a touch user taps it into focus.
+ * shows nothing on a touch screen. The `<abbr>` is `tabIndex={0}` so a keyboard user reaches
+ * it and a touch user taps it into focus.
  *
  * ## Why the gloss lives in `data-gloss`, NOT as a child text node
  *
@@ -546,8 +550,97 @@ export function MonoValue({
  * `::after` pseudo-element is not part of the accessibility tree — so the meaning is not read
  * twice. No native `title`: it would double the visible tooltip under the styled one.
  *
+ * ## TWO DEFECTS A BROWSER FOUND, BOTH INVISIBLE TO jsdom
+ *
+ * Measured in Chromium against the production Tailwind bundle (the instrument
+ * `tests/responsive.test.ts` describes), because jsdom applies no CSS and this component is
+ * ENTIRELY CSS. The founder photographed a gloss box that looked "cut off"; it was both of
+ * these at once.
+ *
+ * **1. The box was empty — the gloss text never rendered, on any screen, in any browser.**
+ * The class was the arbitrary PROPERTY form of `after:` + `[content: attr(...)]` (spelled
+ * without the space, which is why it is not spelled that way here: Tailwind scans comments
+ * too, and naming the class in prose is enough to emit a rule for it). Tailwind emits
+ * `content: var(--tw-content)` into EVERY `after:` rule it generates, and `--tw-content`
+ * defaults to `""` — so `.hover\:after\:block:hover::after` and
+ * `.focus\:after\:block:focus::after`, which sort later in the sheet and carry a higher
+ * specificity, blanked the content in exactly the two states that reveal the box. Measured:
+ * `getComputedStyle(el, "::after").content === '""'`, an 18×10px empty white rectangle.
+ * The fix is the `content-[…]` UTILITY, which sets `--tw-content` itself, so every later
+ * `content: var(--tw-content)` resolves to the gloss instead of over-writing it.
+ *
+ * **2. The box was clipped by the shell.** It was `after:absolute after:bottom-full`, whose
+ * containing block is the `<abbr>` — inside `<main class="overflow-y-auto">` (a scroll
+ * container: `overflow-y: auto` forces the `visible` x-axis to `auto`, so it clips
+ * horizontally too) and inside every `ScrollRegion`. Measured at 1280×800: a term in the
+ * right-hand column had 106px of a 192px box cut off by `main`'s right edge, and a term in a
+ * table inside a `ScrollRegion` lost 16.5px of its 26.5px height off the region's top edge.
+ *
+ * So the box is now `position: fixed` — which escapes ancestor overflow entirely — with its
+ * coordinates written as custom properties by `placeGloss` when the term is hovered, focused
+ * or tapped, and kept in step while it is showing. What that buys over the alternatives:
+ *
+ * - **CSS anchor positioning** (`anchor-name` + `position-area` + `position-try-fallbacks`)
+ *   is the pure-CSS answer and needs no listener, but it is not in every browser we serve,
+ *   so it would need the clipped `absolute` rules kept underneath as an `@supports`
+ *   fallback — two positioning mechanisms in one component, and the fallback is the broken
+ *   one. Take it when support is universal; it deletes `placeGloss` and nothing else.
+ * - **A portal / the native `popover` attribute** puts a real element in the top layer,
+ *   which also solves it — and costs the property the section above is about: the gloss
+ *   becomes a DOM text node that every `getByText` on every screen using a term would then
+ *   match. Rejected for that, not for the DOM weight.
+ *
+ * The one place `fixed` does NOT escape is inside an ancestor that carries a transform,
+ * filter or `contain`, which becomes the containing block for fixed descendants — an
+ * identity `translate-x-0` counts. Nothing glossed today sits in one; the shells' sidebar
+ * panel does (`sidebarCollapse.tsx` animates `transform`), so a gloss put INSIDE the
+ * sidebar would be placed relative to the panel rather than the viewport.
+ *
+ * With JS unavailable (a hydration failure, a blocked bundle) the vars are unset, `top`,
+ * `left` and `bottom` all resolve to `auto`, and a fixed box at its static position lands
+ * beside the term — unclipped, unflipped, still readable. It degrades, it does not vanish.
+ *
  *   <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss>
  */
+
+/** `after:max-w-[16rem]`, in px — the widest the box can be, so the flip can be decided
+ *  without measuring a pseudo-element (which cannot be read with `getBoundingClientRect`
+ *  and whose computed width is only resolvable while it is displayed). */
+const GLOSS_MAX_WIDTH = 256;
+/** Enough for the longest gloss in `@/lib/glossary` at that width — three 12px lines plus
+ *  padding. Used only to decide above-or-below, never to size the box. */
+const GLOSS_MAX_HEIGHT = 76;
+/** The gap between term and box, and the margin the box keeps off a viewport edge. */
+const GLOSS_GAP = 6;
+const GLOSS_EDGE = 8;
+
+/**
+ * Writes the fixed coordinates of one term's gloss box.
+ *
+ * Exported for the test: the geometry is the part that was broken, and asserting it through
+ * a real hover would need a browser. Given the term's viewport rect and the viewport size,
+ * this is the whole positioning decision — clamp inside the right edge, and flip below when
+ * there is not room above.
+ */
+export function glossPosition(
+  rect: { top: number; bottom: number; left: number },
+  viewport: { width: number; height: number },
+): { left: string; top: string; bottom: string } {
+  const left = Math.max(
+    GLOSS_EDGE,
+    Math.min(rect.left, viewport.width - GLOSS_MAX_WIDTH - GLOSS_EDGE),
+  );
+  // Above by default (it covers the sentence the reader has already read rather than the
+  // one they have not); below only when the term sits too near the top for the box to fit,
+  // which is every term in the first row of the first panel on a screen.
+  const fitsAbove = rect.top >= GLOSS_MAX_HEIGHT + GLOSS_GAP + GLOSS_EDGE;
+  return {
+    left: `${Math.round(left)}px`,
+    top: fitsAbove ? "auto" : `${Math.round(rect.bottom + GLOSS_GAP)}px`,
+    bottom: fitsAbove ? `${Math.round(viewport.height - rect.top + GLOSS_GAP)}px` : "auto",
+  };
+}
+
 export function TermGloss({
   term,
   children,
@@ -555,27 +648,76 @@ export function TermGloss({
   term: string;
   children: string;
 }) {
+  const ref = useRef<HTMLElement>(null);
+  // The listener is attached only while a gloss is showing, and detached when it hides:
+  // a `scroll` handler per glossed term on a screen that has a dozen of them would run on
+  // every frame of every scroll for boxes nobody is looking at.
+  const detach = useRef<(() => void) | null>(null);
+
+  const place = useCallback(() => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const at = glossPosition(r, { width: window.innerWidth, height: window.innerHeight });
+    el.style.setProperty("--gloss-left", at.left);
+    el.style.setProperty("--gloss-top", at.top);
+    el.style.setProperty("--gloss-bottom", at.bottom);
+  }, []);
+
+  const show = useCallback(() => {
+    place();
+    if (detach.current) return;
+    // `capture`, because the thing that moves the term is `<main>` scrolling, not the
+    // window: a scroll event on an inner element does not bubble to `window` in the
+    // bubbling phase but is seen in the capture phase.
+    const onMove = () => place();
+    window.addEventListener("scroll", onMove, { capture: true, passive: true });
+    window.addEventListener("resize", onMove, { passive: true });
+    detach.current = () => {
+      window.removeEventListener("scroll", onMove, { capture: true });
+      window.removeEventListener("resize", onMove);
+      detach.current = null;
+    };
+  }, [place]);
+
+  const hide = useCallback(() => {
+    detach.current?.();
+  }, []);
+
+  useEffect(() => hide, [hide]);
+
   // tabIndex on a non-interactive <abbr> so the box reveals on keyboard FOCUS and on TAP,
   // not mouse-hover alone (the WAI-ARIA tooltip pattern needs a focusable trigger). <abbr>
   // is kept rather than <button> because TermGloss renders inside <label>/<legend>, where a
   // nested interactive control would hijack the label.
   return (
     <abbr
+      ref={ref}
       aria-label={`${term}: ${children}`}
       data-gloss={children}
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
       tabIndex={0}
+      // The handlers only POSITION the box; CSS is still what reveals it, so a gloss that
+      // never gets a pointer or focus event costs nothing and one whose JS failed still
+      // shows (see the docstring's last paragraph).
+      onPointerEnter={show}
+      onPointerLeave={hide}
+      onFocus={show}
+      onBlur={hide}
       className={clsx(
         "relative cursor-help rounded-sm underline decoration-dotted underline-offset-2",
         "outline-none focus-visible:ring-2 focus-visible:ring-brand-strong",
         // The gloss box, drawn from `data-gloss` (see docstring). `normal-case`/`font-normal`
         // so it reads plainly even when the term sits inside an uppercase or bold label;
         // `whitespace-normal` + a max width so a long gloss wraps instead of running off-screen.
-        "after:pointer-events-none after:absolute after:bottom-full after:left-0 after:z-50 after:mb-1",
+        // `fixed` + the three custom properties are the anti-clipping mechanism, also above.
+        "after:pointer-events-none after:fixed after:z-50",
+        "after:[left:var(--gloss-left,auto)] after:[top:var(--gloss-top,auto)]",
+        "after:[bottom:var(--gloss-bottom,auto)]",
         "after:hidden after:w-max after:max-w-[16rem] after:whitespace-normal after:rounded-md",
         "after:border after:border-line after:bg-surface after:px-2 after:py-1 after:text-left",
         "after:text-xs after:font-normal after:normal-case after:not-italic after:leading-snug",
-        "after:text-ink after:shadow-lg after:[content:attr(data-gloss)]",
+        "after:text-ink after:shadow-lg after:content-[attr(data-gloss)]",
         "hover:after:block focus:after:block",
       )}
     >

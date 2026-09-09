@@ -372,7 +372,12 @@ function Outcomes({ outcomes }: { outcomes: Record<string, number> }) {
       {rows.map(([outcome, count]) => (
         <div key={outcome}>
           <div className="flex items-baseline justify-between gap-3">
-            <span className="truncate text-[13px] capitalize text-ink-muted">
+            {/* An outcome tag comes from the agent's own extraction schema, so its
+                length is the client's choice and nothing else on this screen repeats it. */}
+            <span
+              title={outcome.replace(/_/g, " ")}
+              className="truncate text-[13px] capitalize text-ink-muted"
+            >
               {outcome.replace(/_/g, " ")}
             </span>
             <span className="text-[13px] font-semibold tabular-nums text-ink">

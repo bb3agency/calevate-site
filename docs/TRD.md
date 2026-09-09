@@ -1282,7 +1282,7 @@ is §10.1's **₹2.89–4.28**.
 > `CARTESIA_TTS_INR_PER_10K_CHARS`, the Cartesia Startup plan's fee over its allotment,
 > DERIVED rather than typed. Two rungs, two vendors, and NOT a return of v2: what D-547
 > added is a dearer voice, not the cheaper one this note records as withdrawn.
-> `plans.overage_rate_value` still exists as a dormant founder pricing lever), and "LLM 0.04–0.10" — which is stale in the OTHER direction now. D-36 replaced it
+> `plans.overage_rate_second` still exists as a dormant founder pricing lever), and "LLM 0.04–0.10" — which is stale in the OTHER direction now. D-36 replaced it
 > with ₹0.00 (Sarvam 105B, free per token), D-400 replaced that with a real,
 > duration-dependent leg, and **D-410 has repriced that leg onto `gpt-4o-mini`** — same
 > curve, a cheaper vendor price, and an output leg 4x its input leg rather than 8.3x.
@@ -1438,9 +1438,20 @@ true only when the allotment is exactly consumed.
 
 **Cost per call-minute.** Assumption doing the most work: the agent speaks 40–60% of a call at
 ~900 characters/minute of speech → **360–540 TTS characters per call-minute**. That ratio is
-the single biggest lever on the TTS line (pilot gate 12) and is now measured — see the
-paragraph opening this section: the band is the fallback until the admin spend board's
-"TTS speaking rate — measured" card reads `measured` at twenty or more calls.
+the single biggest lever on the TTS line (pilot gate 12). It is measured from our own
+transcripts, and **since D-557 (9 Sep 2026) the arithmetic below actually uses the
+measurement**: `billing/rates.SELF_SERVE_COST_FLOOR_INR_PER_MIN` is
+`sarvam_cost_floor_at(ASSUMED_SPEAKING_RATE)` — this band's top — and
+`sarvam_cost_floor_at(basis)` is the same floor at whatever the fleet's POOLED rate turns
+out to be, published on the ops rate card and the admin spend board with the sample size and
+the window beside it. ⚠ This paragraph previously said the band "is now measured", which was
+true of the board and false of every rupee: the measurement existed and nothing consumed it.
+**The band remains the fallback and the FROZEN refusal**: below twenty calls with a
+transcript (`TTS_SPEAKING_RATE_MIN_CALLS`) no figure is published as measured, and the write
+paths keep vetoing against this band's top even after one is — a veto that moved with a
+measurement would refuse tomorrow the card it accepted today (D-556's settlement, applied
+here). Pooled and not p50/p95: a month's bill divides by the pooled rate, and the tail is
+published as exposure rather than multiplied into a floor.
 
 | Leg | Rate | Per call-minute |
 |---|---|---|

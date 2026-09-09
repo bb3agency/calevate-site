@@ -182,8 +182,8 @@ export function CopilotDock({
           setIsOpen((open) => !open);
         }}
         // SLATE ON THE ADMIN REALM, green on the client's. The same signal the admin
-        // shell already carries (`components/realmChrome.tsx`: the rail across the top of
-        // the window and the sidebar's identity block), reused rather than re-invented —
+        // shell already carries (`components/realmChrome.tsx`: the sidebar's identity
+        // block), reused rather than re-invented —
         // the launcher is the one control that floats over every screen in both consoles,
         // so it is the worst place for the two realms to look alike. The focus ring stays
         // brand in both: it marks the keyboard, not the realm.

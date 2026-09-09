@@ -515,6 +515,49 @@ class SpeakingRateByProviderOut(Strict):
     pooled_inr_per_minute: str | None
 
 
+class FleetSpeakingRateOut(Strict):
+    """**THE FIGURE THE COST MODEL ACTUALLY DIVIDES BY, AND WHAT IT COSTS US (D-557).**
+
+    Everything else on this board is the ARCHIVE, walked one tenant at a time so a
+    distribution can be built. This block is the platform COUNTER the post-call meter moves
+    — one row per month, readable on a page — and it is the only figure any rupee elsewhere
+    in this product is struck at. The two are two spellings of one measurement over the same
+    population, which is why both are here: if they disagree, one of them is wrong and an
+    operator can see it.
+
+    `measured` says which claim the floor below is. When it is False the floor is TRD §10.1's
+    assumed band still in force and `calls`/`minimum_calls` say how far short the sample is —
+    never a placeholder rate, which is the hard-rule-11 failure the threshold exists for.
+    """
+
+    #: Whether `chars_per_minute` is a measurement or the assumed 540 still standing in.
+    measured: bool
+    #: The pooled fleet rate the cost model uses: Sigma agent characters x 60 / Sigma call
+    #: seconds. NOT p50 or p95 — a month's TTS bill divides by the pooled rate, the median
+    #: understates a right-skewed distribution, and the p95 would price every minute of the
+    #: month as the worst call of the month. The tail is `p95` above, as exposure.
+    chars_per_minute: str
+    #: The sample behind it and the bar it must clear, published in both states.
+    calls: int
+    minimum_calls: int
+    #: The IST months the counter spans (`"2026-07..2026-09"`), or null when it holds
+    #: nothing. An assumption has no window.
+    window: str | None
+    #: One line naming the basis, so a screen never has to compose it from the fields above
+    #: and two screens cannot compose it differently.
+    basis: str
+    #: **THE CLEAR COST FLOOR AT THAT RATE, AND THE FROZEN ONE THE WRITE PATHS REFUSE ON.**
+    #: They differ the moment a measurement lands. The veto stays on the frozen figure for
+    #: D-556's reason one leg over: a refusal that moved with a measurement would make a rate
+    #: card recordable today and refused tomorrow because twenty more calls were answered.
+    #: When `floor_above_refusal` is true the fleet speaks MORE than the model assumes, some
+    #: rung may be under water and still recordable, and that is the state this board exists
+    #: to show.
+    cost_floor_inr_per_min: str
+    refusal_floor_inr_per_min: str
+    floor_above_refusal: bool
+
+
 class TtsSpeakingRateOut(Strict):
     """GET /v1/admin/spend/tts-speaking-rate — pilot gate 12's number, or the refusal.
 
@@ -540,6 +583,9 @@ class TtsSpeakingRateOut(Strict):
     #: both, because the tier nobody has priced is the row an operator opened this card for.
     #: The fields above are the Sarvam-rate-card view they have always been.
     by_provider: list[SpeakingRateByProviderOut]
+    #: REQUIRED, never optional: a panel that can render without it is a panel that can
+    #: quietly go back to showing a measurement nothing consumes (D-557).
+    fleet: FleetSpeakingRateOut
 
 
 # ------------------------------------------------------------------------ rendering
@@ -1008,6 +1054,11 @@ async def fleet_tts_speaking_rate(
     # tenancy, and reading it inside the per-tenant loop would be one query per client for
     # an answer that does not vary by client.
     attested = await attested_tts_prices(directory, at=datetime.now(UTC))
+    # THE FLEET COUNTER, on the session already open — one aggregate over one row per month
+    # (D-557). This is the figure the cost model divides by; the walk below is the archive it
+    # is checked against and the only source of a distribution. Read BEFORE the walk so the
+    # two describe the same instant as closely as one request can.
+    fleet = await tts_speaking_rate.fleet_speaking_rate(directory)
     rows = (await directory.execute(text(_DIRECTORY), {"ended": list(_ENDED_STATUSES)})).all()
     samples: list[tts_speaking_rate.CallSample] = []
     for org in rows:
@@ -1029,7 +1080,7 @@ async def fleet_tts_speaking_rate(
             },
         )
 
-    return _speaking_rate_out(tts_speaking_rate.summarize(samples), attested=attested)
+    return _speaking_rate_out(tts_speaking_rate.summarize(samples), attested=attested, fleet=fleet)
 
 
 def _point_out(point: tts_speaking_rate.SpeakingRatePoint) -> SpeakingRatePointOut:
@@ -1069,8 +1120,33 @@ def _by_provider_out(
     ]
 
 
+def _fleet_speaking_rate_out(fleet: tts_speaking_rate.FleetSpeakingRate) -> FleetSpeakingRateOut:
+    """The counter as the cost model reads it: one basis, and the floor it produces.
+
+    The floor is `rates.sarvam_cost_floor_at`, the SAME function `SELF_SERVE_COST_FLOOR_INR_
+    PER_MIN` is defined as over the assumed basis — so the measured figure and the frozen one
+    cannot differ by arithmetic, only by basis, which is the whole claim this block makes.
+    """
+    basis = fleet.basis()
+    floor = rates.sarvam_cost_floor_at(basis)
+    return FleetSpeakingRateOut(
+        measured=basis.measured,
+        chars_per_minute=str(basis.chars_per_call_minute),
+        calls=basis.calls,
+        minimum_calls=basis.minimum_calls,
+        window=basis.window,
+        basis=basis.label,
+        cost_floor_inr_per_min=str(floor.inr_per_min),
+        refusal_floor_inr_per_min=str(floor.refusal_inr_per_min),
+        floor_above_refusal=floor.above_refusal,
+    )
+
+
 def _speaking_rate_out(
-    rate: tts_speaking_rate.TtsSpeakingRate, *, attested: Mapping[str, TtsPriceAttestation]
+    rate: tts_speaking_rate.TtsSpeakingRate,
+    *,
+    attested: Mapping[str, TtsPriceAttestation],
+    fleet: tts_speaking_rate.FleetSpeakingRate,
 ) -> TtsSpeakingRateOut:
     return TtsSpeakingRateOut(
         measured=rate.measured,
@@ -1085,6 +1161,7 @@ def _speaking_rate_out(
         assumed_high=_point_out(rate.assumed_high),
         tts_inr_per_10k_chars=str(rates.TTS_INR_PER_10K_CHARS),
         by_provider=_by_provider_out(rate, attested=attested),
+        fleet=_fleet_speaking_rate_out(fleet),
     )
 
 

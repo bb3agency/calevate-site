@@ -49,6 +49,17 @@ import { problem, renderAdminPage, stillLoading, type Routes } from "./harness";
 
 const TENANTS_PATH = "/v1/admin/tenants";
 
+/**
+ * The widest the sidebar's identity line can be and still be READ.
+ *
+ * 255px panel (`sidebarPanelClass`), less the footer's `px-3` (24px), the identity row's
+ * `p-1.5` (12px), the 36px glyph and the 12px gap, leaves the label ~171px; `text-xs`
+ * averages about 5.5px a character. So ~30 characters is where the clip starts, and the
+ * line that produced this rule — `superadmin · signed in across every client`, 42 — was
+ * cut at "acros…".
+ */
+const IDENTITY_LINE_MAX_CHARS = 30;
+
 function me(over: Partial<AdminMe> = {}): AdminMe {
   return {
     realm: "admin",
@@ -290,7 +301,58 @@ describe("the admin nav, once the console knows who it is", () => {
     );
 
     await waitFor(() => expect(container.textContent).toContain("superadmin"));
-    expect(container.textContent).toContain("signed in across every client");
+    expect(container.textContent).toContain("superadmin · all clients");
+  });
+
+  /**
+   * THE LINE HAS TO BE READABLE, NOT MERELY PRESENT (founder, 9 Sep 2026).
+   *
+   * It read `${role} · signed in across every client` inside a `truncate` in a fixed
+   * 255px panel, and what an operator actually saw was **"superadmin · signed in acros…"**
+   * — cut mid-word, with no `title`, no tooltip and no wrap, on the one line in the shell
+   * that says what this session can reach. A truncated value nobody can read is not
+   * information the screen is showing; it is information the screen is pretending to show.
+   *
+   * The fix was the COPY, so the guard is on the copy. jsdom implements no layout and
+   * cannot measure a clip, so what is decidable here is the property that made the clip
+   * inevitable: the line's length against the width the label actually has. That width is
+   * arithmetic, not a guess — 255px panel, less the footer's `px-3` (24), the identity
+   * row's `p-1.5` (12), the 36px glyph and the 12px gap = 171px, and `text-xs` averages
+   * ~5.5px a character. Anything past ~30 characters is cut, so 30 is the ceiling pinned
+   * here, for both the role and the no-role spelling.
+   *
+   * It also pins the sentence NOT ending mid-word, which is the specific insult: a cut
+   * that lands on a word boundary at least leaves a phrase.
+   */
+  it("says what this session reaches in a line that FITS the sidebar", async () => {
+    const { container } = renderAdminPage(
+      <AdminLayout>
+        <p>screen</p>
+      </AdminLayout>,
+      shell({ [ADMIN_ME_PATH]: SUPERADMIN }),
+    );
+    await waitFor(() => expect(container.textContent).toContain("superadmin"));
+
+    const line = [...container.querySelectorAll("span")]
+      .map((el) => el.textContent ?? "")
+      .find((text) => text.startsWith("superadmin · "));
+    expect(line, "the identity line no longer names the role first").toBeTruthy();
+    expect(line!.length).toBeLessThanOrEqual(IDENTITY_LINE_MAX_CHARS);
+
+    // The no-role spelling is the same line with the same ceiling: it renders whenever
+    // `/v1/admin/me` has not answered, which is every first paint.
+    const { container: blank } = renderAdminPage(
+      <AdminLayout>
+        <p>screen</p>
+      </AdminLayout>,
+      shell({ [ADMIN_ME_PATH]: problem(503, { title: "Service unavailable", retryable: true }) }),
+    );
+    await waitFor(() => expect(blank.textContent).toContain("Admin realm"));
+    const fallback = [...blank.querySelectorAll("span")]
+      .map((el) => el.textContent ?? "")
+      .find((text) => /^[A-Z][a-z]+ clients?$/.test(text));
+    expect(fallback, "the no-role identity line is missing").toBeTruthy();
+    expect(fallback!.length).toBeLessThanOrEqual(IDENTITY_LINE_MAX_CHARS);
   });
 
   it("asks for its identity ONCE for the whole shell, with no tenant attached", async () => {

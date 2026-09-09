@@ -173,7 +173,7 @@ export function UsageTab({
                 next minute will cost them.
 
                 ONE RATE ON THIS TILE, AND THE SECOND RUNG IS GONE FROM THE SCREEN. It used
-                to branch on `overage_rate_value_inr` — a plan's "reduced" overage rate,
+                to branch on `overage_rate_second_inr` — a plan's "reduced" overage rate,
                 NULL on every plan that has ever existed — and print a two-rate hint nobody
                 could ever see. What a client's minutes actually cost at two different
                 prices is now a real fact and a different one: the two VOICE QUALITIES

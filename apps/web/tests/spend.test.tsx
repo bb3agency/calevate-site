@@ -239,10 +239,15 @@ const HUB_USAGE = {
   month_charges_inr: "0.00",
   monthly_fee_inr: null,
   overage_minutes: "0.0000",
+  // BOTH SPELLINGS: the wire carries the deprecated pair beside the new one
+  // for one release (hard rule 8 step 1, D-558), with identical figures.
+  overage_minutes_base_rung: "0.0000",
+  overage_minutes_second_rung: "0.0000",
   overage_minutes_premium: "0.0000",
   overage_minutes_value: "0.0000",
   overage_cost_inr: "0.00",
   overage_rate_inr: "0.0000",
+  overage_rate_second_inr: null,
   overage_rate_value_inr: null,
   llm_surcharge_inr: "0.00",
   llm_surcharge_minutes: "0.0000",
@@ -313,6 +318,20 @@ const TTS_MEASURED: TtsSpeakingRate = {
   assumed_low: { chars_per_minute: "360.0000", tts_inr_per_minute: "1.0800" },
   assumed_high: { chars_per_minute: "540.0000", tts_inr_per_minute: "1.6200" },
   tts_inr_per_10k_chars: "30.0000",
+  // THE BLOCK THE COST MODEL ACTUALLY READS (D-557). The fields above are the archive,
+  // walked one tenant at a time for its percentiles; this is the platform counter, and the
+  // floor it produces is the one every Clear rate on the rate card is judged against.
+  fleet: {
+    measured: true,
+    chars_per_minute: "437.1429",
+    calls: 41,
+    minimum_calls: 20,
+    window: "2026-08..2026-09",
+    basis: "measured 437.1429 chars/call-min over 41 calls, 2026-08..2026-09",
+    cost_floor_inr_per_min: "3.8125",
+    refusal_floor_inr_per_min: "4.1211",
+    floor_above_refusal: false,
+  },
 };
 
 /** The refusal: twelve calls, twenty needed, no rate anywhere in the payload. */
@@ -325,6 +344,19 @@ const TTS_UNMEASURED: TtsSpeakingRate = {
   p50: null,
   p95: null,
   pooled: null,
+  // The counter is short too, and says so with the sample rather than a placeholder rate:
+  // the assumed band is what the cost model is still divided by.
+  fleet: {
+    measured: false,
+    chars_per_minute: "540",
+    calls: 12,
+    minimum_calls: 20,
+    window: null,
+    basis: "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12); 12 of 20 calls measured",
+    cost_floor_inr_per_min: "4.1211",
+    refusal_floor_inr_per_min: "4.1211",
+    floor_above_refusal: false,
+  },
 };
 
 describe("the client's spend screen", () => {

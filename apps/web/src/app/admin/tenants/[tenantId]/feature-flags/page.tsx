@@ -14,7 +14,6 @@ import {
   ProblemNotice,
   RestrictionNote,
   Skeleton,
-  TermGloss,
   formatIST,
 } from "@/components/ui";
 import { ActionButton } from "@/components/actionButton";
@@ -32,6 +31,7 @@ import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { Term } from "@/lib/glossary";
 
 /**
  * Per-tenant feature flags (SURFACES §1) — read them, and flip one.
@@ -168,7 +168,8 @@ export default function FeatureFlagsPage({
         <ul className="mt-1 space-y-1 text-xs opacity-90">
           <li>
             Not the platform switches. Halting outbound calling, the load-shed mode and our
-            own telemarketer registration are global and live on{" "}
+            own <Term id="tm" term="telemarketer" audience="operator" /> registration are global
+            and live on{" "}
             <Link href="/admin/ops" className="font-medium underline">
               the operations screen
             </Link>
@@ -181,9 +182,9 @@ export default function FeatureFlagsPage({
           <li>
             <span className="font-medium">Never a compliance control.</span> Nothing here
             can switch off the{" "}
-            <TermGloss term="DNC">do-not-call list</TermGloss>, calling hours, the
+            <Term id="dnc" audience="operator" />, calling hours, the
             disclosure line, the campaign review or{" "}
-            <TermGloss term="KYC">Know Your Customer — the business identity check</TermGloss>{" "}
+            <Term id="kyc" audience="operator" />{" "}
             for a client. If someone asks for that, the answer is no and the reason is that
             those checks are the law, not a preference.
           </li>

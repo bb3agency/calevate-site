@@ -193,7 +193,12 @@ function AgentKnowledgeList({
       {mine.map((source) => (
         <li key={source.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2.5">
           <BookOpen aria-hidden className="h-3.5 w-3.5 shrink-0 self-center text-ink-faint" />
-          <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink">
+          {/* A knowledge source is named by its file or its URL, so the distinguishing
+              part is routinely past the cut. */}
+          <span
+            title={source.name}
+            className="min-w-0 flex-1 truncate text-sm font-medium text-ink"
+          >
             {source.name}
           </span>
           <span className="flex items-center gap-1 text-xs text-ink-muted">

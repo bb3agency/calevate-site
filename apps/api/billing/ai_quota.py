@@ -48,7 +48,7 @@ So it is NOT a `plans` column, and the reasoning matters more than the conclusio
 window, the total order, `month_pricing_instant`), and that is THE mechanism for anything
 a client and Calevate agreed. The day a founder prices per-tenant AI quota, it becomes a
 nullable `plans` column resolved by that same function and defaulting to the tier value
-here when NULL — exactly the shape `plans.overage_rate_value` already has. What is
+here when NULL — exactly the shape `plans.overage_rate_second` already has. What is
 refused is a SECOND effective-dating mechanism for one more number, and what is refused
 just as firmly is a column with no writer (`billing/terms.py` is the only writer of a
 `plans` row, and a term no operator can type is a defect that looks like a feature).

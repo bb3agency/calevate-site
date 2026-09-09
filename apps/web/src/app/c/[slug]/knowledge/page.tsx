@@ -441,7 +441,11 @@ export default function KnowledgePage() {
                               {formatCount(source.chunks)}{" "}
                               {source.chunks === 1 ? "answer" : "answers"}
                             </span>
-                            {agentName && <span className="truncate">{agentName}</span>}
+                            {agentName && (
+                              <span title={agentName} className="truncate">
+                                {agentName}
+                              </span>
+                            )}
                             {source.published_at && (
                               <span className="whitespace-nowrap">
                                 Published {formatIST(source.published_at)}

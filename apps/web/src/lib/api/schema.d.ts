@@ -7979,7 +7979,13 @@ export interface components {
             monthly_fee_inr?: number | string | null;
             /** Overage Rate Inr */
             overage_rate_inr?: number | string | null;
-            /** Overage Rate Value Inr */
+            /** Overage Rate Second Inr */
+            overage_rate_second_inr?: number | string | null;
+            /**
+             * Overage Rate Value Inr
+             * @deprecated
+             * @description DEPRECATED — renamed to `overage_rate_second_inr`. Still accepted; sending both with different values is refused. Removed in the next release.
+             */
             overage_rate_value_inr?: number | string | null;
             /** Setup Fee Inr */
             setup_fee_inr?: number | string | null;
@@ -9936,6 +9942,41 @@ export interface components {
              * @enum {string}
              */
             source: "platform_default" | "tenant_override";
+        };
+        /**
+         * FleetSpeakingRateOut
+         * @description **THE FIGURE THE COST MODEL ACTUALLY DIVIDES BY, AND WHAT IT COSTS US (D-557).**
+         *
+         *     Everything else on this board is the ARCHIVE, walked one tenant at a time so a
+         *     distribution can be built. This block is the platform COUNTER the post-call meter moves
+         *     — one row per month, readable on a page — and it is the only figure any rupee elsewhere
+         *     in this product is struck at. The two are two spellings of one measurement over the same
+         *     population, which is why both are here: if they disagree, one of them is wrong and an
+         *     operator can see it.
+         *
+         *     `measured` says which claim the floor below is. When it is False the floor is TRD §10.1's
+         *     assumed band still in force and `calls`/`minimum_calls` say how far short the sample is —
+         *     never a placeholder rate, which is the hard-rule-11 failure the threshold exists for.
+         */
+        FleetSpeakingRateOut: {
+            /** Basis */
+            basis: string;
+            /** Calls */
+            calls: number;
+            /** Chars Per Minute */
+            chars_per_minute: string;
+            /** Cost Floor Inr Per Min */
+            cost_floor_inr_per_min: string;
+            /** Floor Above Refusal */
+            floor_above_refusal: boolean;
+            /** Measured */
+            measured: boolean;
+            /** Minimum Calls */
+            minimum_calls: number;
+            /** Refusal Floor Inr Per Min */
+            refusal_floor_inr_per_min: string;
+            /** Window */
+            window: string | null;
         };
         /**
          * FleetSpendOut
@@ -12892,6 +12933,8 @@ export interface components {
             below_target_margin: string[];
             /** Committed Gross Margin */
             committed_gross_margin: string | null;
+            /** Cost Floor Basis */
+            cost_floor_basis: string;
             /** Cost Floor Inr Per Min */
             cost_floor_inr_per_min: string;
             /** Effective Committed Rate Inr Per Min */
@@ -12941,7 +12984,13 @@ export interface components {
             monthly_fee_inr: string | null;
             /** Overage Rate Inr */
             overage_rate_inr: string | null;
-            /** Overage Rate Value Inr */
+            /** Overage Rate Second Inr */
+            overage_rate_second_inr: string | null;
+            /**
+             * Overage Rate Value Inr
+             * @deprecated
+             * @description DEPRECATED — renamed to `overage_rate_second_inr`, which carries the identical figure. Removed in the next release.
+             */
             overage_rate_value_inr: string | null;
             /** Setup Fee Inr */
             setup_fee_inr: string | null;
@@ -13386,6 +13435,7 @@ export interface components {
             notice_recipients: number;
             /** Pending */
             pending: components["schemas"]["PendingCardOut"][];
+            speaking_rate: components["schemas"]["SpeakingRateOut"];
             /** Target Gross Margin Pct */
             target_gross_margin_pct: string;
         };
@@ -14489,6 +14539,42 @@ export interface components {
             tier_label: string;
         };
         /**
+         * SpeakingRateOut
+         * @description **WHAT THE CLEAR COLUMN'S COST IS STRUCK AT, AND WHETHER ANYONE MEASURED IT (D-557).**
+         *
+         *     The Studio column's at-volume cost comes from two counts of a month somebody ran and
+         *     needs no speaking rate at all. The CLEAR column has no such counts — the engine buys that
+         *     synthesis and reports a rupee figure with no character count anywhere
+         *     (`rates.ENGINE_REPORTS_TTS_MODEL`) — so its cost per CALL-MINUTE is characters-per-minute
+         *     times a rupee-per-character card, and characters-per-minute was TRD §10.1's unmeasured
+         *     360-540 band. This block is the measurement that replaces it, or the honest statement
+         *     that there is not one yet.
+         *
+         *     The same fields the admin spend board publishes, built from the same two objects
+         *     (`rates.SpeakingRateBasis`, `rates.sarvam_cost_floor_at`) — a second SERIALIZATION of one
+         *     arithmetic, never a second arithmetic.
+         */
+        SpeakingRateOut: {
+            /** Basis */
+            basis: string;
+            /** Calls */
+            calls: number;
+            /** Chars Per Call Minute */
+            chars_per_call_minute: string;
+            /** Cost Floor Inr Per Min */
+            cost_floor_inr_per_min: string;
+            /** Floor Above Refusal */
+            floor_above_refusal: boolean;
+            /** Measured */
+            measured: boolean;
+            /** Minimum Calls */
+            minimum_calls: number;
+            /** Refusal Floor Inr Per Min */
+            refusal_floor_inr_per_min: string;
+            /** Window */
+            window: string | null;
+        };
+        /**
          * SpeakingRatePointOut
          * @description A chars-per-call-minute figure and the TTS ₹/min it implies at the live rate card.
          *
@@ -15324,36 +15410,65 @@ export interface components {
         };
         /**
          * TierSplitOut
-         * @description The margin's cost side, split by the TTS rung each minute was metered on (D-36).
+         * @description The margin's cost side, split by the OVERAGE RUNG each minute was metered on.
+         *
+         *     A rung is one of the plan's two overage-rate slots (`plans.overage_rate` and
+         *     `plans.overage_rate_second`) and **not a voice quality** — nothing about which voice
+         *     spoke chooses one, and which voice did is a different fact on a different key
+         *     (`usage_events.meta.voice_tier`, `agents/voices.py`).
          *
          *     Nested inside the margin card rather than mounted as its own route because it answers
          *     a question about THAT card's `cost_inr`: an operator seeing a thin margin needs to
-         *     know whether the cost is premium voice or the value rung before they can act on it,
-         *     and a second endpoint means a second round trip to learn one number's composition.
+         *     know which agreed rate the cost sits behind before they can act on it, and a second
+         *     endpoint means a second round trip to learn one number's composition.
          *     `billing.tier_usage` sums to the same `_tier_totals` the margin does, so the rungs
          *     add up to `cost_inr` exactly — they are a partition of it, not a parallel estimate.
          *
          *     `unattributed` is the honest third bucket: rows a path could not attribute a rung to.
-         *     It is reported separately because "we know this ran on the value rung" and "we never
+         *     It is reported separately because "we know which rate this ran on" and "we never
          *     knew" are different facts, and a bill resolves that ambiguity in the CLIENT's favour
-         *     (`minutes_billable_value` folds it in) while this report must not.
+         *     (`minutes_billable_second_rung` folds it in) while this report must not.
          *
          *     Every field is required on the wire. A Pydantic default here would generate an
          *     OPTIONAL TypeScript property and the screen would have to branch on a case the
          *     server never emits — a trap this repo has now been bitten by four times.
          */
         TierSplitOut: {
-            /** Cost Premium Inr */
+            /** Cost Base Rung Inr */
+            cost_base_rung_inr: string;
+            /**
+             * Cost Premium Inr
+             * @deprecated
+             * @description DEPRECATED — renamed to `cost_base_rung_inr`, which carries the identical figure. Removed in the next release.
+             */
             cost_premium_inr: string;
+            /** Cost Second Rung Inr */
+            cost_second_rung_inr: string;
             /** Cost Unattributed Inr */
             cost_unattributed_inr: string;
-            /** Cost Value Inr */
+            /**
+             * Cost Value Inr
+             * @deprecated
+             * @description DEPRECATED — renamed to `cost_second_rung_inr`, which carries the identical figure. Removed in the next release.
+             */
             cost_value_inr: string;
-            /** Minutes Premium */
+            /** Minutes Base Rung */
+            minutes_base_rung: string;
+            /**
+             * Minutes Premium
+             * @deprecated
+             * @description DEPRECATED — renamed to `minutes_base_rung`, which carries the identical figure. Removed in the next release.
+             */
             minutes_premium: string;
+            /** Minutes Second Rung */
+            minutes_second_rung: string;
             /** Minutes Unattributed */
             minutes_unattributed: string;
-            /** Minutes Value */
+            /**
+             * Minutes Value
+             * @deprecated
+             * @description DEPRECATED — renamed to `minutes_second_rung`, which carries the identical figure. Removed in the next release.
+             */
             minutes_value: string;
         };
         /** TmRegistrationIn */
@@ -15915,6 +16030,7 @@ export interface components {
             calls: number;
             /** Clients */
             clients: number;
+            fleet: components["schemas"]["FleetSpeakingRateOut"];
             /** Measured */
             measured: boolean;
             /** Minimum Calls */
@@ -16117,13 +16233,31 @@ export interface components {
             overage_cost_inr: string;
             /** Overage Minutes */
             overage_minutes: string;
-            /** Overage Minutes Premium */
+            /** Overage Minutes Base Rung */
+            overage_minutes_base_rung: string;
+            /**
+             * Overage Minutes Premium
+             * @deprecated
+             * @description DEPRECATED — renamed to `overage_minutes_base_rung`, which carries the identical figure. Removed in the next release.
+             */
             overage_minutes_premium: string;
-            /** Overage Minutes Value */
+            /** Overage Minutes Second Rung */
+            overage_minutes_second_rung: string;
+            /**
+             * Overage Minutes Value
+             * @deprecated
+             * @description DEPRECATED — renamed to `overage_minutes_second_rung`, which carries the identical figure. Removed in the next release.
+             */
             overage_minutes_value: string;
             /** Overage Rate Inr */
             overage_rate_inr: string;
-            /** Overage Rate Value Inr */
+            /** Overage Rate Second Inr */
+            overage_rate_second_inr: string | null;
+            /**
+             * Overage Rate Value Inr
+             * @deprecated
+             * @description DEPRECATED — renamed to `overage_rate_second_inr`, which carries the identical figure. Removed in the next release.
+             */
             overage_rate_value_inr: string | null;
             /** Plan Tier */
             plan_tier: string;

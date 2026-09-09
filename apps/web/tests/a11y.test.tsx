@@ -820,10 +820,15 @@ const USAGE = {
   calls: 41,
   included_minutes: 500,
   overage_minutes: "0",
+  // BOTH SPELLINGS: the wire carries the deprecated pair beside the new one
+  // for one release (hard rule 8 step 1, D-558), with identical figures.
+  overage_minutes_base_rung: "0",
+  overage_minutes_second_rung: "0",
   overage_minutes_premium: "0",
   overage_minutes_value: "0",
   overage_cost_inr: "0.00",
   overage_rate_inr: "6.5000",
+  overage_rate_second_inr: null,
   overage_rate_value_inr: null,
   // D-455's model surcharge. Present and ZERO, which is the shipped state — every plan
   // quotes no surcharge until a founder sets one — and NOT absent: the field is required
@@ -1289,6 +1294,7 @@ const PLAN_ROW = {
   monthly_fee_inr: "9999.0000",
   included_minutes: 500,
   overage_rate_inr: "7.1250",
+  overage_rate_second_inr: null,
   overage_rate_value_inr: null,
   hard_cap_minutes: 2000,
   hard_cap_spend_inr: "20000.0000",
@@ -1366,9 +1372,18 @@ const TENANT_ROUTES: Routes = {
     margin_inr: "613549.50",
     margin_pct: "60.39",
     tiers: {
+      // BOTH SPELLINGS, because that is what the wire carries for one release
+      // (hard rule 8 step 1, D-558): `*_base_rung` / `*_second_rung` are the
+      // names, `*_premium` / `*_value` are deprecated and carry the identical
+      // figure. The screen prefers the new pair;
+      // `rungRenameFallback.test.tsx` is the one that omits it.
+      minutes_base_rung: "900.00",
+      minutes_second_rung: "280.00",
       minutes_premium: "900.00",
       minutes_value: "280.00",
       minutes_unattributed: "24.50",
+      cost_base_rung_inr: "300000.00",
+      cost_second_rung_inr: "90000.00",
       cost_premium_inr: "300000.00",
       cost_value_inr: "90000.00",
       cost_unattributed_inr: "12350.50",

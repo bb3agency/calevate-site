@@ -532,6 +532,23 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "the equivalence with platform_settings that this registry did not honour until "
         "now. Holds a month key and NUMERIC totals: no prompt, no answer text, no PII."
     ),
+    "platform_speaking_rate": (
+        "platform-scoped, admin realm only. How many CHARACTERS the fleet's agents spoke "
+        "per minute of call (D-557) — three totals a month, from every tenant's calls, "
+        "because a speaking rate is the property of a FLEET and no single tenant's figure "
+        "can price a cost floor. It is `platform_ai_spend`'s shape and `platform_tts_volume`'s "
+        "reason: the cross-tenant sum it holds is unaskable in app code (`calls` and "
+        "`transcript_turns` FORCE RLS and an untenanted read of either returns zero rows and "
+        "reports SUCCESS), and reaching for the admin DB role to get one would break hard "
+        "rule 1. WHAT KEEPS IT FROM BEING A LEAK: it holds a month key, a call COUNT, a "
+        "character COUNT and a seconds total — three integers and no text. Its source is "
+        "`transcript_turns`, and what crosses is a `length()`, never a character of a "
+        "transcript, so hard rules 5 and 6 are not engaged; there is no call id, no tenant id "
+        "and no phone number in it, and none can be recovered from a sum. NOT append-only "
+        "(see APPEND_ONLY_TABLES) because it is a counter and not a ledger — every figure is "
+        "re-derivable from the calls and turns that produced it, which is how migration "
+        "a3f81c2e6d94 backfills it."
+    ),
     "platform_tts_volume": (
         "platform-scoped, admin realm only. How many Studio (Cartesia) call-minutes and "
         "characters the WHOLE fleet spoke in one IST month (D-556) — the volume every "

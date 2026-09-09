@@ -128,6 +128,23 @@ NOW_SQL = "now()"
 
 _BILLING_MONTH = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")
 
+# THE PLAN'S SECOND OVERAGE RATE, read in the ONE place every reader of it reads it.
+#
+# `plans.overage_rate_second` is the column; `plans.overage_rate_value` is the name it
+# used to have (migration c72b9e40af15), kept and still written through step 1 of hard
+# rule 8's two-step. Four statements price off this slot — `usage_summary`,
+# `pipeline._meter`, `terms._ROW_COLUMNS` and the publish-time ceiling in
+# `agents/publishing.py` — and a fifth spelling of the fallback is how two of them would
+# end up quoting different rates for one month. `COALESCE` and not `GREATEST`: this is
+# one figure recorded twice, so the NEW column wins whenever it holds anything at all,
+# including when the two disagree because an un-redeployed writer touched only the old.
+#
+# NULL out of this expression means "this plan quotes no separate second rate" and never
+# "the second rung is free" — every caller keeps that distinction.
+#
+# STEP 2 replaces this whole expression with the bare column name.
+OVERAGE_RATE_SECOND_SQL = "COALESCE(overage_rate_second, overage_rate_value)"
+
 
 def plan_in_effect_sql(columns: str, *, at: str = ":at") -> str:
     """`SELECT {columns} FROM plans` for the ONE row in effect at `at`.
@@ -325,6 +342,7 @@ async def warn_no_plan_in_effect(
 __all__ = [
     "IST",
     "NOW_SQL",
+    "OVERAGE_RATE_SECOND_SQL",
     "ist_billing_month",
     "ist_month_end",
     "ist_month_window",

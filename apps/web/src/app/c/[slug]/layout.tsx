@@ -14,7 +14,6 @@ import {
   SIDEBAR_IDENTITY_ROW_CLASS,
   SIDEBAR_ROW_CLASS,
   SidebarBrand,
-  SidebarCollapseToggle,
   SidebarGroupHeading,
   SidebarLabel,
   sidebarFadeClass,
@@ -151,11 +150,10 @@ function Sidebar({
       <SidebarBrand
         isCollapsed={isCollapsed}
         onClose={onClose}
+        onToggle={toggle}
         title="Calevate"
         subtitle="AI agents"
       />
-
-      <SidebarCollapseToggle isCollapsed={isCollapsed} onToggle={toggle} />
 
       <nav className={sidebarNavClass}>
         {groups.map((group) => (
@@ -200,7 +198,15 @@ function Sidebar({
               </>
             ) : (
               <>
-                <span className="block truncate text-sm font-semibold text-ink">
+                {/* TRUNCATION STAYS and the value is made reachable instead: the panel
+                    is a fixed 255px and a business name is arbitrary ("Sri Lakshmi
+                    Multispeciality Dental Clinic"), so nothing short enough to fit is
+                    honest. `title` is the minimum that makes the cut recoverable; it is
+                    omitted while the read is in flight, because "—" is not a name. */}
+                <span
+                  title={me.data?.organization?.name ?? undefined}
+                  className="block truncate text-sm font-semibold text-ink"
+                >
                   {me.data?.organization?.name ?? "—"}
                 </span>
                 <span className="block truncate text-xs capitalize text-ink-muted">

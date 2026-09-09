@@ -85,6 +85,7 @@ from apps.api.billing.rates import (
     TTS_ASSUMED_CHARS_PER_CALL_MINUTE,
     VOICE_TIERS,
     CartesiaPlan,
+    SarvamCostFloor,
     VoiceTier,
     cartesia_best_marginal_cost_inr_per_min,
     cartesia_cheapest_plan,
@@ -94,10 +95,11 @@ from apps.api.billing.rates import (
     cartesia_plan_crossover_call_minutes,
     cartesia_plan_marginal_cost_inr_per_min,
     cartesia_rung_breakeven_call_minutes,
-    cost_floor_inr_per_min,
     rate_margin,
+    sarvam_cost_floor_at,
     voice_tier_label,
 )
+from apps.api.billing.tts_speaking_rate import fleet_speaking_rate
 from apps.api.billing.tts_volume import CartesiaVolume, fleet_cartesia_volume
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
@@ -1100,6 +1102,43 @@ class CartesiaVolumeOut(BaseModel):
     ladder: list[CartesiaLadderPointOut]
 
 
+class SpeakingRateOut(BaseModel):
+    """**WHAT THE CLEAR COLUMN'S COST IS STRUCK AT, AND WHETHER ANYONE MEASURED IT (D-557).**
+
+    The Studio column's at-volume cost comes from two counts of a month somebody ran and
+    needs no speaking rate at all. The CLEAR column has no such counts — the engine buys that
+    synthesis and reports a rupee figure with no character count anywhere
+    (`rates.ENGINE_REPORTS_TTS_MODEL`) — so its cost per CALL-MINUTE is characters-per-minute
+    times a rupee-per-character card, and characters-per-minute was TRD §10.1's unmeasured
+    360-540 band. This block is the measurement that replaces it, or the honest statement
+    that there is not one yet.
+
+    The same fields the admin spend board publishes, built from the same two objects
+    (`rates.SpeakingRateBasis`, `rates.sarvam_cost_floor_at`) — a second SERIALIZATION of one
+    arithmetic, never a second arithmetic.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    measured: bool
+    #: The pooled fleet rate — Sigma agent characters x 60 / Sigma call seconds — or the
+    #: assumed 540 when the sample is short. POOLED and not p95: a month's bill divides by
+    #: the pooled rate, and pricing every minute as the worst call of the month would refuse
+    #: rungs that are profitable in aggregate.
+    chars_per_call_minute: str
+    calls: int
+    minimum_calls: int
+    window: str | None
+    basis: str
+    #: The Clear floor at that rate, and the FROZEN one the write path refuses below. They
+    #: differ the moment a measurement lands; `floor_above_refusal` marks the dangerous
+    #: direction, where the fleet talks MORE than the model assumes and a rung can be under
+    #: water and still recordable (D-556's settlement, applied to the speaking rate).
+    cost_floor_inr_per_min: str
+    refusal_floor_inr_per_min: str
+    floor_above_refusal: bool
+
+
 class PendingCardOut(BaseModel):
     """A card that has been recorded and has NOT taken effect yet.
 
@@ -1137,6 +1176,11 @@ class RateCardOut(BaseModel):
     #: missing is a console that can print a best case as a fact again, which is the whole
     #: defect (`CartesiaVolumeOut`).
     cartesia_volume: CartesiaVolumeOut
+    #: **THE SPEAKING RATE EVERY CLEAR COST FIGURE ABOVE IS STRUCK AT.** Required for the
+    #: same reason as the block above it: a console that renders a "COSTS US" column without
+    #: saying whether the number behind it was measured is the defect D-556 and D-557 both
+    #: exist to remove.
+    speaking_rate: SpeakingRateOut
     #: How many clients would be emailed if a card were recorded now — the prepaid book,
     #: counted with the fan-out's own predicate (`_NOTICE_RECIPIENTS`). Published on the
     #: READ rather than only echoed on the write because the number an operator needs is
@@ -1192,18 +1236,27 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
     counter now (`billing/tts_volume`), which is one indexed row on the session already
     open."""
     now = datetime.now(UTC)
-    # WHAT THE PLATFORM ACTUALLY SPOKE THIS MONTH, before anything is rendered. It is a
-    # per-tenant walk (`billing/tts_volume`) because `usage_events` is FORCE RLS'd and this
-    # session's `app.admin` widens `organizations` alone — the same shape and the same cost
-    # the fleet spend board already pays, with the same over-budget warning. It runs on the
-    # READ and not on the write for the reason `notice_recipients` does: the figure an
-    # operator needs is the one they read BEFORE pressing Record.
+    # WHAT THE PLATFORM ACTUALLY SPOKE THIS MONTH, before anything is rendered. ⚠ **THIS
+    # COMMENT USED TO SAY "It is a per-tenant walk (`billing/tts_volume`)" AND CONTRADICTED
+    # THE DOCSTRING FOUR LINES ABOVE IT**, which records that the walk was replaced by a
+    # counter precisely because it cost one session checkout per account. It is ONE indexed
+    # row (`billing/tts_volume.fleet_cartesia_volume`) on the session already open, and so is
+    # the speaking rate below it. Both run on the READ and not on the write for the reason
+    # `notice_recipients` does: the figure an operator needs is the one they read BEFORE
+    # pressing Record.
     # ONE RATE FOR THE WHOLE RESPONSE, resolved here. `usd_inr_rate_now` is the ONE
     # spelling of "the published rate while it is fresh, else the operator's typed one"
     # (`core/fx.py`); `billing/number_rental.py` calls it the same way. Resolving it per
     # figure would let a five-minute tick land between two rows of one table.
     fx = usd_inr_rate_now(get_settings().usd_inr_rate)
     volume = await fleet_cartesia_volume(session, month=ist_billing_month(now))
+    # THE FLEET SPEAKING RATE, on the session already open — one aggregate over one row per
+    # month (`billing/tts_speaking_rate.fleet_speaking_rate`, D-557). Deliberately NOT the
+    # per-tenant walk the admin board uses for its percentiles: that shape is what turned
+    # one read of THIS route into 8,480 session checkouts, and the paragraph above is the
+    # scar. The basis is resolved ONCE here and threaded through every Clear cost below, for
+    # the reason `fx` is: a screen whose rows were struck at two bases does not add up.
+    clear_floor = sarvam_cost_floor_at((await fleet_speaking_rate(session)).basis())
     measured_cost = cartesia_measured_cost_inr_per_call_minute(
         characters=volume.characters, call_minutes=volume.call_minutes, usd_inr=fx.rate
     )
@@ -1223,36 +1276,56 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
     return RateCardOut(
         effective_from=dated.isoformat() if dated is not None else None,
         target_gross_margin_pct=_pct(MIN_GROSS_MARGIN) or "0",
-        cells=_cells_out(in_force, measured_cost=measured_cost, fx=fx),
+        cells=_cells_out(in_force, measured_cost=measured_cost, fx=fx, clear=clear_floor),
         pending=[
             PendingCardOut(
                 effective_from=card.effective_from.isoformat(),
-                cells=_cells_out(card_with_rates(card.cells), measured_cost=measured_cost, fx=fx),
+                cells=_cells_out(
+                    card_with_rates(card.cells),
+                    measured_cost=measured_cost,
+                    fx=fx,
+                    clear=clear_floor,
+                ),
             )
             for card in scheduled
         ],
         cartesia_volume=_cartesia_volume_out(volume, fx=fx),
+        speaking_rate=_speaking_rate_out(clear_floor),
         notice_days=CARD_NOTICE_DAYS,
         earliest_effective_from=(now + timedelta(days=CARD_NOTICE_DAYS)).isoformat(),
         notice_recipients=recipients,
     )
 
 
-def _volume_cost(voice: VoiceTier, measured: Decimal | None) -> Decimal | None:
-    """What one minute of `voice` cost at this month's MEASURED Cartesia volume.
+def _volume_cost(
+    voice: VoiceTier, measured: Decimal | None, clear: SarvamCostFloor
+) -> Decimal | None:
+    """What one minute of `voice` cost at what the platform ACTUALLY did.
 
-    Sarvam's cost is a per-character list price in RUPEES and moves with neither volume nor
-    the dollar, so its at-volume cost IS its structural floor — the same number twice, which
-    is the honest answer and not a gap. Cartesia's is the measurement at the live rate, or
-    `None` when there was none.
+    ⚠ **THIS USED TO RETURN THE STRUCTURAL FLOOR FOR SARVAM AND SAY THAT WAS THE HONEST
+    ANSWER** — *"Sarvam's cost is a per-character list price in RUPEES and moves with neither
+    volume nor the dollar, so its at-volume cost IS its structural floor"*. The first half is
+    true and the conclusion was wrong, and D-557 is the correction: a per-CHARACTER price
+    becomes a per-CALL-MINUTE cost only through the speaking rate, and the speaking rate is
+    the one input in the whole model nobody had measured. So the Clear column's at-volume
+    cost is now the floor at the fleet's MEASURED rate — the same number as before, exactly,
+    while no measurement clears the threshold, and a different one the day it does.
+
+    Studio's is unchanged: two independent counts of a month somebody ran
+    (`cartesia_measured_cost_inr_per_call_minute`), which is a better figure than any
+    speaking rate and must not be re-derived from one. `None` when there was no such month.
     """
     if voice == "sarvam":
-        return cost_floor_inr_per_min(voice)
+        return clear.inr_per_min
     return measured
 
 
 def _cells_out(
-    card: tuple[CreditPack, ...], *, measured_cost: Decimal | None, fx: UsdInrRate
+    card: tuple[CreditPack, ...],
+    *,
+    measured_cost: Decimal | None,
+    fx: UsdInrRate,
+    clear: SarvamCostFloor,
 ) -> list[RateCardCellOut]:
     """One card as twelve rendered cells, verdicts included — TWICE OVER since 9 Sep 2026.
 
@@ -1279,7 +1352,7 @@ def _cells_out(
     amounts = {pack.pack_id: pack.amount_inr for pack in card}
     cells: list[RateCardCellOut] = []
     for pack_id, voice, verdict in card_margins(card):
-        at_volume_cost = _volume_cost(voice, measured_cost)
+        at_volume_cost = _volume_cost(voice, measured_cost, clear)
         at_volume = (
             None if at_volume_cost is None else rate_margin(verdict.rate, cost=at_volume_cost)
         )
@@ -1313,6 +1386,21 @@ def _cells_out(
 def _opt_str(value: Decimal | None) -> str | None:
     """A Decimal as its exact string, or `None` — so an absence cannot render as `"0"`."""
     return None if value is None else str(value)
+
+
+def _speaking_rate_out(clear: SarvamCostFloor) -> SpeakingRateOut:
+    """The basis and the floor it produced, as the console reads them. No arithmetic here."""
+    return SpeakingRateOut(
+        measured=clear.basis.measured,
+        chars_per_call_minute=str(clear.basis.chars_per_call_minute),
+        calls=clear.basis.calls,
+        minimum_calls=clear.basis.minimum_calls,
+        window=clear.basis.window,
+        basis=clear.basis.label,
+        cost_floor_inr_per_min=str(clear.inr_per_min),
+        refusal_floor_inr_per_min=str(clear.refusal_inr_per_min),
+        floor_above_refusal=clear.above_refusal,
+    )
 
 
 def _cartesia_volume_out(volume: CartesiaVolume, *, fx: UsdInrRate) -> CartesiaVolumeOut:
@@ -1677,14 +1765,20 @@ async def record_rate_card(
     )
     return RateCardWriteOut(
         effective_from=at.isoformat(),
-        # NO VOLUME WALK ON THE WRITE, and the at-volume verdicts are therefore absent
-        # rather than wrong. This is an echo of what was just recorded; the panel re-reads
-        # the card immediately afterwards and that read carries the measurement. Paying for
-        # a fleet walk inside a write that already holds a step-up confirmation would put a
-        # per-tenant loop between an operator and their save for a number the next request
-        # brings anyway.
+        # NO CARTESIA VOLUME ON THE WRITE, and that column's at-volume verdicts are
+        # therefore absent rather than wrong. This is an echo of what was just recorded; the
+        # panel re-reads the card immediately afterwards and that read carries the
+        # measurement. **THE SPEAKING RATE IS READ HERE ANYWAY, AND THE ASYMMETRY IS THE
+        # POINT**: it is one aggregate over one row per month, not the per-tenant walk this
+        # route's docstring records the scar of, so the Clear cells this write echoes are
+        # struck at the SAME basis the next read will show them at. Echoing them at the
+        # assumed 540 while the panel shows the measured figure would put two costs on one
+        # cell a second apart, which is the drift this whole change is closing.
         cells=_cells_out(
-            card, measured_cost=None, fx=usd_inr_rate_now(get_settings().usd_inr_rate)
+            card,
+            measured_cost=None,
+            fx=usd_inr_rate_now(get_settings().usd_inr_rate),
+            clear=sarvam_cost_floor_at((await fleet_speaking_rate(session)).basis()),
         ),
         clients_notified=notified is not None,
     )

@@ -18,7 +18,6 @@ import {
   DANGER_BUTTON,
   dncSourceCopy,
   MonoValue,
-  TermGloss,
   TypeToConfirm,
   confirmMatches,
 } from "@/app/admin/ops/opsLanguage";
@@ -48,6 +47,7 @@ import {
 } from "@/lib/api/opsDnc";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
+import { Term } from "@/lib/glossary";
 
 /**
  * The PLATFORM-WIDE do-not-call screen — `/v1/ops/dnc/global` given the screen it never had.
@@ -357,7 +357,7 @@ function SuppressPanel({
               only governs outbound dialling. It is{" "}
               <span className="font-semibold">not</span> the national customer preference
               register (
-              <TermGloss term="DND">India&apos;s national Do Not Disturb registry</TermGloss>)
+              <Term id="dnd" />)
               — that is a separate per-campaign scrub, recorded against the campaign it
               covers.
             </p>

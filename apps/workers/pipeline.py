@@ -56,7 +56,12 @@ from apps.api.billing.caps import (
     over_cap_sql,
 )
 from apps.api.billing.lots import CallDemand
-from apps.api.billing.plans import ist_billing_month, month_pricing_instant, plan_in_effect_sql
+from apps.api.billing.plans import (
+    OVERAGE_RATE_SECOND_SQL,
+    ist_billing_month,
+    month_pricing_instant,
+    plan_in_effect_sql,
+)
 from apps.api.billing.rates import (
     MONEY_Q,
     PREPAID_TIERS,
@@ -67,6 +72,7 @@ from apps.api.billing.rates import (
 )
 from apps.api.billing.service import (
     BASE_OVERAGE_RUNG,
+    LEDGER_RUNG_KEY,
     UNSURCHARGED_MODEL,
     charge_for_call,
     lock_tenant_credits,
@@ -75,6 +81,7 @@ from apps.api.billing.service import (
     rate_card_at,
 )
 from apps.api.billing.trials import trial_covers
+from apps.api.billing.tts_speaking_rate import bump_speaking_rate
 from apps.api.billing.tts_volume import CHARS_PER_KCHAR, PLAN_BILLED_VOICE, bump_cartesia_volume
 from apps.api.compliance.consent import record_recording_notice
 from apps.api.compliance.deletion import refile_erasure_for_late_records
@@ -2507,14 +2514,24 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 # asked six weeks later what it assumed.
                 "currency_stated": cost.currency_stated,
                 # The overage rung, recorded per row so metering can be audited by rung.
-                # **THIS IS THE PLAN'S OVERAGE-RATE SLOT AND NOT A VOICE** — `_RUNGS` in
-                # `billing/service.py` says so in as many words, and the pair it names is
-                # `plans.overage_rate` / `overage_rate_value`. D-547 gave the product a
-                # second VOICE, which is a different fact about the same call, so it is
-                # stamped on its own key below rather than re-using this one: folding the
-                # two together would re-price every historical `premium` row the day the
-                # vocabulary moved, on months that are closed.
-                "tts_tier": BASE_OVERAGE_RUNG,
+                # **THIS IS THE PLAN'S OVERAGE-RATE SLOT AND NOT A VOICE** —
+                # `OVERAGE_RUNGS` in `billing/service.py` says so in as many words, and
+                # the pair it names is `plans.overage_rate` / `overage_rate_second`.
+                # D-547 gave the product a second VOICE, which is a different fact about
+                # the same call, so it is stamped on its own key below rather than
+                # re-using this one: folding the two together would re-price every
+                # historical row the day the vocabulary moved, on months that are closed.
+                #
+                # ⚠ **THE KEY AND THE VALUE ARE FROZEN LEDGER TOKENS (D-558), AND THAT IS
+                # WHY THEY STILL READ `tts_tier` / `premium` AFTER THE RENAME.**
+                # `usage_events` is append-only under hard rule 4 and a database trigger
+                # enforces it, so every row ever written carries these two strings and no
+                # UPDATE can reach them. Stamping a new token would oblige every money
+                # reader to accept both forever, and the first one that stopped would
+                # re-file every closed month into `unattributed` — which `tier_usage`
+                # bills at the CHEAPER rung. The constants carry the meaning instead;
+                # nothing a human reads is this string.
+                LEDGER_RUNG_KEY: BASE_OVERAGE_RUNG,
                 "tts_voice": voice_id if isinstance(voice_id, str) else None,
                 # WHICH VOICE SPOKE, and therefore which of a lot's two rates paid for
                 # this call and which vendor's TTS bill it belongs to (D-547). Derived
@@ -2553,12 +2570,14 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         # allotment, which no execution payload can report, so the cost of the leg is the
         # operator-attested plan rate times the characters OUR transcript says the agent
         # spoke. `_tts_cost_rows` decides which of the two this call is.
+        turns, agent_chars = await _agent_transcript(session, tenant_id=tenant_id, call_id=call_id)
         rows.extend(
             await _tts_cost_rows(
                 session,
                 tenant_id=tenant_id,
                 call_id=call_id,
                 voice=voice,
+                agent_chars=agent_chars,
                 engine_tts_inr=cost.tts_inr,
                 at=snapshot.ended_at or datetime.now(UTC),
             )
@@ -2609,6 +2628,25 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 )
                 * CHARS_PER_KCHAR,
                 call_minutes=minutes,
+            )
+
+        # **THE FLEET'S SPEAKING RATE, THE COST MODEL'S BIGGEST UNMEASURED LEVER (D-557).**
+        # Same transaction, same exactly-once guard, same reason as the Studio counter
+        # above — and EVERY VOICE, because how fast an agent talks is a fact about the agent
+        # and is applied to the Clear floor, which is the Sarvam-voiced one. Two independent
+        # totals again: the characters our transcript says the agent spoke, and the seconds
+        # this call actually billed. Deriving either from the other would put the unmeasured
+        # 360-540 band back inside the measurement built to replace it.
+        #
+        # A call with no transcript at all is NOT counted (`turns == 0`): it would raise the
+        # sample size that decides whether the figure may be published while contributing no
+        # characters, which is the one way a counter can launder an absence into a low rate.
+        if turns > 0:
+            await bump_speaking_rate(
+                session,
+                month=ist_billing_month(snapshot.ended_at or datetime.now(UTC)),
+                agent_chars=agent_chars,
+                call_seconds=duration_s,
             )
 
         # WHAT THE CLIENT OWES FOR THIS CALL, which is not what it cost us (P1.1/P1.3).
@@ -2682,7 +2720,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 text(
                     plan_in_effect_sql(
                         "COALESCE(included_min, 0) AS included_min, "
-                        "overage_rate, overage_rate_value, llm_model_surcharge"
+                        f"overage_rate, {OVERAGE_RATE_SECOND_SQL}, llm_model_surcharge"
                     )
                 ),
                 {"tid": tenant_id, "at": priced_at},
@@ -2690,7 +2728,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
         ).first()
         # THE PLAN'S TERMS AS THIS CALL SEES THEM. Both rungs, not one: this counter no
         # longer picks a marginal rate per call. It used to — the call's own `tts_tier`
-        # chose between `overage_rate` and `overage_rate_value` and the allowance was
+        # chose between `overage_rate` and the second rate, and the allowance was
         # spent in ARRIVAL order — which is a SECOND way of pricing a month beside the one
         # the invoice uses, and the two diverge as soon as a plan quotes both rates.
         # `billing.service.priced_overage` is now the only rule and
@@ -2704,16 +2742,17 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             # to price the panel, the cap AND the invoice.
             else Decimal("0")
         )
-        # NULL is not zero: "this plan quotes no separate value rate" (bill every overage
-        # minute at `overage_rate`) and "the value rung is free" are different plans.
-        overage_rate_value = (
+        # NULL is not zero: "this plan quotes no separate second rate" (bill every
+        # overage minute at `overage_rate`) and "the second rung is free" are different
+        # plans.
+        overage_rate_second = (
             Decimal(str(plan_rates[2]))
             if plan_rates is not None and plan_rates[2] is not None
             else None
         )
         # WHAT THIS CLIENT PAYS FOR CHOOSING A DEARER LANGUAGE MODEL (D-455). NULL is "this
         # plan quotes no model surcharge" and never "the upgrade is free" — the same
-        # reading as the value rate above, on the column beside it, and the state every
+        # reading as the second rate above, on the column beside it, and the state every
         # plan is in until a founder decides the number.
         llm_surcharge = (
             Decimal(str(plan_rates[3]))
@@ -2861,11 +2900,11 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
             seconds=duration_s,
             # The rung this call's minutes attribute against — the same value stamped on
             # the row above (one voice quality, so the base rung on every call).
-            tts_tier=BASE_OVERAGE_RUNG,
+            rung=BASE_OVERAGE_RUNG,
             llm_model_bucket=llm_bucket,
             included_min=included_min,
             rate=overage_rate,
-            rate_value=overage_rate_value,
+            rate_value=overage_rate_second,
             llm_surcharge=llm_surcharge,
             # WHAT THE PREPAID BRANCH ACCRUES, handed over rather than recomputed (D-547).
             # `spend_state.billed_inr` for a prepaid tenant must equal the sum of the
@@ -2983,7 +3022,7 @@ async def _counter_increment(
     month: str,
     minutes: Decimal,
     seconds: Decimal,
-    tts_tier: str,
+    rung: str,
     llm_model_bucket: str,
     included_min: Decimal,
     rate: Decimal,
@@ -3032,7 +3071,7 @@ async def _counter_increment(
     `over(before + m) - over(before)` at a rate chosen from THIS call's rung, i.e. it
     spent the included allowance in arrival order — where the invoice spends it on the
     DEARER rung first. The two agree for a plan quoting one rate (so they agreed for
-    every plan in the database, `plans.overage_rate_value` being an open founder
+    every plan in the database, `plans.overage_rate_second` being an open founder
     decision) and diverge as soon as a second is quoted: measured at ₹880.00 against
     ₹520.00 on a two-rung month whose cheap minutes arrived first, which is a client
     reading two totals for one month on one screen and a spend cap biting against the
@@ -3047,7 +3086,7 @@ async def _counter_increment(
         session,
         tenant_id=tenant_id,
         month=month,
-        tier=tts_tier,
+        tier=rung,
         llm_model_bucket=llm_model_bucket,
         seconds=seconds,
         included_min=included_min,
@@ -3070,16 +3109,42 @@ async def _counter_increment(
     )
 
 
-#: How many characters the AGENT spoke on one call, from OUR OWN transcript.
+#: How many characters the AGENT spoke on one call, and whether there is a transcript at
+#: all — from OUR OWN transcript, in ONE round trip.
 #:
 #: The same measurement `billing/tts_speaking_rate.py` makes and deliberately the same
 #: SQL shape: `COALESCE(text_redacted, text)` reads the default-redacted column first, and
 #: the aggregate returns a LENGTH and never a character, so hard rules 5 and 6 are not
 #: engaged. It runs AFTER `_persist_transcript`, which is what puts the rows there.
+#:
+#: **THE TURN COUNT IS THE SECOND FIGURE AND IT IS NOT DECORATION** (D-557): a zero
+#: character count means "the agent said nothing" on a call that HAS a transcript and
+#: "we have no transcript" on one that does not, and the fleet speaking-rate counter must
+#: include the first and exclude the second — exactly the population `tts_speaking_rate
+#: ._AGENT_CHARS_PER_CALL` samples with its JOIN. `FILTER` rather than a second query,
+#: because the answer to both questions is one scan of one call's turns.
 _AGENT_CHARS_ON_CALL: Final = (
-    "SELECT COALESCE(SUM(length(COALESCE(text_redacted, text))), 0) FROM transcript_turns "
-    "WHERE tenant_id = :tid AND call_id = :cid AND speaker = 'agent'"
+    "SELECT count(*), COALESCE(SUM(length(COALESCE(text_redacted, text))) "
+    "FILTER (WHERE speaker = 'agent'), 0) FROM transcript_turns "
+    "WHERE tenant_id = :tid AND call_id = :cid"
 )
+
+
+async def _agent_transcript(
+    session: AsyncSession, *, tenant_id: UUID, call_id: UUID
+) -> tuple[int, int]:
+    """`(turns, agent_chars)` for one call. Read ONCE per call and used twice.
+
+    It used to be read inside `_tts_cost_rows`, on the Cartesia branch only. Both the
+    synthesizer cost row and the fleet speaking-rate counter need the same count, and
+    fetching it twice would be the redundant round trip CLAUDE.md's coverage-ratchet note
+    names as the usual cause of a branch nobody can reach.
+    """
+    row = (
+        await session.execute(text(_AGENT_CHARS_ON_CALL), {"tid": tenant_id, "cid": call_id})
+    ).one()
+    return int(row[0]), int(row[1])
+
 
 #: Characters per unit of `usage_events.qty` on a `tts_kchars` row. See
 #: `billing/models.CLIENT_BILLED_UNIT_TYPES` for why the unit is a THOUSAND and not one.
@@ -3092,6 +3157,7 @@ async def _tts_cost_rows(
     tenant_id: UUID,
     call_id: UUID,
     voice: str,
+    agent_chars: int,
     engine_tts_inr: Decimal | None,
     at: datetime,
 ) -> list[tuple[str, Decimal, Decimal | None]]:
@@ -3162,16 +3228,10 @@ async def _tts_cost_rows(
             tenant_id=str(tenant_id),
         )
         return rows
-    characters = Decimal(
-        str(
-            (
-                await session.execute(
-                    text(_AGENT_CHARS_ON_CALL), {"tid": tenant_id, "cid": call_id}
-                )
-            ).scalar()
-            or 0
-        )
-    )
+    # `agent_chars` is the caller's, read once for this call (`_agent_transcript`) and
+    # shared with the fleet speaking-rate counter — the same characters, so a Cartesia
+    # invoice and the fleet's chars-per-minute can never disagree about one call.
+    characters = Decimal(agent_chars)
     # A call whose agent spoke nothing synthesised nothing. `qty = 0` with a real price is
     # the honest row — `_ROW_COST_SQL` reads a zero-qty row as a whole-leg row (D-370), so
     # writing NO row is what keeps it out of the cost side rather than putting the rate on

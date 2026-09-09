@@ -947,19 +947,55 @@ class UsagePanelOut(Strict):
     calls: int
     included_minutes: int
     overage_minutes: str
-    # The two TTS rungs the overage was split across (D-36's ladder, `billing/rates.py`).
-    # They add to `overage_minutes` exactly, so an owner can check the arithmetic.
-    overage_minutes_premium: str
-    overage_minutes_value: str
+    # The two overage-rate rungs the overage was split across — the plan's
+    # `overage_rate` and `overage_rate_second` slots, NOT voice qualities. They add to
+    # `overage_minutes` exactly, so an owner can check the arithmetic.
+    overage_minutes_base_rung: str
+    overage_minutes_second_rung: str
     overage_cost_inr: str
     # The rate the overage was actually priced at, published so the invoice does not
     # re-read `plans` and risk quoting a different row.
     overage_rate_inr: str
-    # The value rung's rate, or None when this plan quotes no separate one — in which
+    # The second rung's rate, or None when this plan quotes no separate one — in which
     # case BOTH rungs above were priced at `overage_rate_inr`. None rather than a repeat
-    # of the premium rate, because "one rate" and "two rates that happen to be equal"
-    # are different plans and the screen says different things about them.
-    overage_rate_value_inr: str | None
+    # of the base rate, because "one rate" and "two rates that happen to be equal" are
+    # different plans and the screen says different things about them.
+    overage_rate_second_inr: str | None
+    # ⚠ DEPRECATED, STEP 1 OF TWO (hard rule 8, D-558). The three fields above replace
+    # these three; `premium`/`value` named a voice quality that never chose the rung.
+    # They carry the IDENTICAL figures — `billing/service.usage_summary` emits each pair
+    # from one expression — so no consumer breaks while it moves. The console prefers the
+    # new names and falls back to these, which is what lets an older bundle keep working
+    # against a newer API and vice versa; STEP 2 deletes these three fields, their
+    # `deprecated` marks, and that fallback together.
+    #
+    # Marked with `json_schema_extra` rather than Pydantic's own `deprecated=`, and that
+    # is not a style choice: `deprecated=` emits a runtime DeprecationWarning on every
+    # ATTRIBUTE ACCESS, and FastAPI serialises this model by reading every field on every
+    # request — so the correct wire annotation would have put a warning in the log of a
+    # path hard rule 6 already keeps quiet, on a response nobody has done anything wrong
+    # to ask for. The generated OpenAPI carries `deprecated: true` either way.
+    overage_minutes_premium: str = Field(
+        description=(
+            "DEPRECATED — renamed to `overage_minutes_base_rung`, which carries the "
+            "identical figure. Removed in the next release."
+        ),
+        json_schema_extra={"deprecated": True},
+    )
+    overage_minutes_value: str = Field(
+        description=(
+            "DEPRECATED — renamed to `overage_minutes_second_rung`, which carries the "
+            "identical figure. Removed in the next release."
+        ),
+        json_schema_extra={"deprecated": True},
+    )
+    overage_rate_value_inr: str | None = Field(
+        description=(
+            "DEPRECATED — renamed to `overage_rate_second_inr`, which carries the "
+            "identical figure. Removed in the next release."
+        ),
+        json_schema_extra={"deprecated": True},
+    )
     # THE LANGUAGE-MODEL SURCHARGE (D-455) — what this month's calling cost EXTRA because
     # the client chose a dearer AI model, and at what rate. Three figures that check
     # against each other by hand: `llm_surcharge_inr` is `llm_surcharge_minutes` x

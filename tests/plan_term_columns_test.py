@@ -1,13 +1,13 @@
 """Every agreed column on `plans` is classified, and the classification is used.
 
 THE DEFECT. `billing/terms.py::TERM_COLUMNS` is the list the SELECT, the INSERT and the
-change-detection equality all read, and it grew `overage_rate_value` when D-36's second
-TTS rung landed (migration b1d5c8e73f04). `PlanRecord.states_pricing` — the predicate
+change-detection equality all read, and it grew a second overage-rate column when D-36's
+second rung landed (migration b1d5c8e73f04). `PlanRecord.states_pricing` — the predicate
 that decides whether an account HAS a price — carried its own hand-written copy of the
 four price columns and did not grow with it.
 
-So a plan quoting only the value-tier rate, which is exactly the row a founder writes the
-day that price is decided, answered `states_pricing = False`. `read_terms` filed it as
+So a plan quoting only the second overage rate, which is exactly the row a founder
+writes the day that price is decided, answered `states_pricing = False`. `read_terms` filed it as
 `unpriced`, and the console renders that state as **"No price agreed … They are still
 invoiced nothing"** — over a plan that `usage_summary` bills at ₹5.50 a minute. A screen
 telling an operator a paying account is unbilled is the most expensive direction this
@@ -70,6 +70,15 @@ NOT_AGREED_TERMS: dict[str, str] = {
     "effective_to": "valid time, not a term",
     "created_at": "bookkeeping",
     "updated_at": "bookkeeping",
+    # ⚠ MID-DEPRECATION, STEP 1 OF TWO (hard rule 8, migration c72b9e40af15, D-558). This
+    # is the name `overage_rate_second` replaces, and it is deliberately NOT in
+    # `PRICING_COLUMNS`: an operator agrees ONE second rate, and two entries would put two
+    # `CommercialTerms` fields and two change-detection comparisons behind one number. It
+    # is still written and still read — from the same bind and through one COALESCE —
+    # which `test_the_deprecated_second_rate_column_is_still_written_and_read` pins, and
+    # that test is what makes this line an accounted-for column rather than a forgotten
+    # one. STEP 2 deletes the column and this entry together.
+    "overage_rate_value": "deprecated alias of overage_rate_second, still dual-written",
 }
 
 #: A value of the right shape for each pricing column, so the reader can be exercised one
@@ -80,7 +89,7 @@ ONE_VALUE_EACH: dict[str, Any] = {
     "monthly_fee": Decimal("9999.0000"),
     "included_min": 500,
     "overage_rate": Decimal("8.0000"),
-    "overage_rate_value": Decimal("5.5000"),
+    "overage_rate_second": Decimal("5.5000"),
     # D-455's model surcharge — the SECOND column this file's forcing function has caught
     # on the way in, which is the whole point of the equality assertion below.
     "llm_model_surcharge": Decimal("1.5000"),
@@ -104,7 +113,7 @@ def test_every_agreed_column_is_classified_as_a_price_or_a_ceiling() -> None:
 
 
 def test_a_plan_quoting_only_one_price_column_states_a_price() -> None:
-    """The reader, one column at a time. `overage_rate_value` is the entry that was
+    """The reader, one column at a time. The second overage rate is the entry that was
     missing, and the loop is what stops the NEXT one being missed: a pricing column added
     without `states_pricing` learning to read it fails here."""
     for column, value in ONE_VALUE_EACH.items():
@@ -199,3 +208,40 @@ def _any_uuid() -> UUID:
 def _any_instant() -> datetime:
     """As above, for `created_at` — aware, because this repo has no naive instants."""
     return datetime.now(UTC)
+
+
+# ─────────────── the column mid-deprecation, and both halves of its two-step ───────────────
+
+
+def test_the_deprecated_second_rate_column_is_still_written_and_read() -> None:
+    """`plans.overage_rate_value` is NOT abandoned — it is dual-written from one bind.
+
+    THE FAILURE THIS CATCHES is somebody "finishing the rename" by deleting the legacy
+    half of `_INSERT` while the column is still in the schema and still read by a process
+    that has not been redeployed. That is a plan row whose second rate exists under one
+    name and is NULL under the other, and hard rule 8 exists for exactly it.
+
+    Asserted on the generated SQL rather than on a round trip because the property is
+    about the STATEMENT: one bind, two columns, so the two can never hold different
+    numbers for one agreement whatever a caller does.
+    """
+    from apps.api.billing.terms import _INSERT, _ROW_COLUMNS
+
+    assert "overage_rate_second" in _INSERT and "overage_rate_value" in _INSERT, (
+        "the INSERT stopped writing one of the two names for the second overage rate — "
+        "step 2 of the deprecation may not land before the release that removes the column"
+    )
+    assert _INSERT.count(":overage_rate_second") == 2, (
+        "both columns must be written from the SAME bind; two binds is two numbers behind "
+        "one agreed rate"
+    )
+    assert ":overage_rate_value" not in _INSERT, (
+        "the deprecated column takes no bind of its own — `CommercialTerms` carries one "
+        "second rate and the INSERT writes it twice"
+    )
+    assert "COALESCE(overage_rate_second, overage_rate_value) AS overage_rate_second" in (
+        _ROW_COLUMNS
+    ), (
+        "the SELECT must read the new column and fall back to the one it replaces, under "
+        "the canonical name — `_record` reads `_mapping` by name"
+    )

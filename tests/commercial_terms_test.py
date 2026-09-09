@@ -569,6 +569,92 @@ async def test_the_value_tier_rate_is_settable_and_stays_unset_by_default() -> N
     assert set_now["overage_rate_value_inr"] == "5.5000"
 
 
+# ────────── the second overage rate mid-rename (hard rule 8 step 1, D-558) ──────────
+
+
+async def test_the_second_overage_rate_is_written_and_read_under_its_new_name() -> None:
+    """`overage_rate_second_inr` is the name; the response carries BOTH for one release.
+
+    A console a deploy behind still reads `overage_rate_value_inr`, so the two must be one
+    figure — never two, and never one present and one null.
+    """
+    tenant_id = await _tenant()
+    token = await _make_admin("operator")
+
+    await _post(
+        token,
+        tenant_id,
+        {
+            "monthly_fee_inr": "100.00",
+            "overage_rate_inr": "8.0000",
+            "overage_rate_second_inr": "5.5000",
+        },
+    )
+    row = (await _get(token, tenant_id)).json()["in_effect"]
+
+    assert row["overage_rate_second_inr"] == "5.5000"
+    assert row["overage_rate_value_inr"] == "5.5000", (
+        "the deprecated name must carry the identical figure until step 2 removes it"
+    )
+
+
+async def test_the_deprecated_name_is_still_accepted_from_an_older_console() -> None:
+    """The other direction of the same release skew: a bundle that has not been
+    redeployed sends the OLD field name, and an operator's agreement must still record."""
+    tenant_id = await _tenant()
+    token = await _make_admin("operator")
+
+    await _post(
+        token,
+        tenant_id,
+        {
+            "monthly_fee_inr": "100.00",
+            "overage_rate_inr": "8.0000",
+            "overage_rate_value_inr": "4.2500",
+        },
+    )
+    row = (await _get(token, tenant_id)).json()["in_effect"]
+
+    assert row["overage_rate_second_inr"] == "4.2500", (
+        "a rate sent under the deprecated name did not reach the column that prices it — "
+        "an operator would have agreed a second rate and been billed at the base one"
+    )
+
+
+async def test_two_different_second_rates_in_one_request_are_refused() -> None:
+    """REFUSED, not resolved. There is no safe reading of two disagreeing rates on a money
+    field: preferring either one silently discards a number an operator typed. Equal
+    values pass, because a client populating both from one input is doing the right thing
+    during the deprecation."""
+    tenant_id = await _tenant()
+    token = await _make_admin("operator")
+
+    conflict = await _post(
+        token,
+        tenant_id,
+        {
+            "monthly_fee_inr": "100.00",
+            "overage_rate_inr": "8.0000",
+            "overage_rate_second_inr": "5.5000",
+            "overage_rate_value_inr": "2.0000",
+        },
+    )
+    assert conflict.status_code == 422, conflict.text
+
+    agreeing = await _post(
+        token,
+        tenant_id,
+        {
+            "monthly_fee_inr": "100.00",
+            "overage_rate_inr": "8.0000",
+            "overage_rate_second_inr": "5.5000",
+            "overage_rate_value_inr": "5.5000",
+        },
+    )
+    assert agreeing.status_code == 201, agreeing.text
+    assert (await _get(token, tenant_id)).json()["in_effect"]["overage_rate_second_inr"] == "5.5000"
+
+
 # ============================================================================
 # 6. Tenancy (hard rule 1)
 # ============================================================================

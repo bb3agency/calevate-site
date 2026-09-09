@@ -107,6 +107,19 @@ export type RateCard = Schemas["RateCardOut"];
  */
 export type CartesiaVolume = Schemas["CartesiaVolumeOut"];
 
+/**
+ * **WHAT THE CLEAR COLUMN'S COST IS STRUCK AT, AND WHETHER ANYONE MEASURED IT (D-557).**
+ *
+ * Studio's at-volume cost comes from two counts of a month somebody ran. Clear has no such
+ * counts — the engine buys that synthesis and reports a rupee figure with no character count
+ * — so its cost per CALL-MINUTE is characters-per-minute times a per-character card, and
+ * characters-per-minute was an unmeasured assumption in the blueprint for as long as this
+ * product has existed. This block says which figure the column used: a measurement pooled
+ * from our own transcripts, or the assumption still standing in, with the sample size and the
+ * months behind it. Every field is the server's; nothing here is computed in the browser.
+ */
+export type SpeakingRate = Schemas["SpeakingRateOut"];
+
 /** The vendor, named — this is the one surface where that is required rather than avoided. */
 export const TIER_VENDOR: Record<VoiceTier, string> = {
   sarvam: "Sarvam",

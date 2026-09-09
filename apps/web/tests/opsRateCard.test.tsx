@@ -15,6 +15,7 @@ import {
   type CartesiaVolume,
   type RateCard,
   type RateCardCell,
+  type SpeakingRate,
 } from "@/lib/api/opsRateCard";
 import { OPS_TTS_PRICES_PATH, type TtsPrice } from "@/lib/api/opsTtsPricing";
 import { ttsVerdict } from "@/app/admin/ops/ModelPricingPanel";
@@ -187,12 +188,31 @@ const HEALTHY = cell({
   below_floor_at_volume: false,
 });
 
+function speakingRate(over: Partial<SpeakingRate> = {}): SpeakingRate {
+  return {
+    measured: false,
+    chars_per_call_minute: "540",
+    calls: 3,
+    minimum_calls: 20,
+    window: null,
+    basis: "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12); 3 of 20 calls measured",
+    cost_floor_inr_per_min: "4.1211",
+    refusal_floor_inr_per_min: "4.1211",
+    floor_above_refusal: false,
+    ...over,
+  };
+}
+
 function card(cells: RateCardCell[] = [cell(), HEALTHY], over: Partial<RateCard> = {}): RateCard {
   return {
     effective_from: "2026-09-07T04:30:00Z",
     target_gross_margin_pct: "20",
     cells,
     cartesia_volume: cartesiaVolume(),
+    // WHICH SPEAKING RATE THE CLEAR COLUMN IS STRUCK AT (D-557). The unmeasured state is
+    // the shipped one — twenty calls with a transcript is what closes pilot gate 12 — so it
+    // is what the default fixture carries, and the floor equals the frozen refusal exactly.
+    speaking_rate: speakingRate(),
     // THE WRITE HALF OF THE READ (D-550). `earliest_effective_from` is an INSTANT and the
     // picker's floor is a DAY: 09:44 UTC is 15:14 IST, so midnight on the 8th is already
     // past and the earliest day this fixture can offer is the 9th. Every assertion about

@@ -3,7 +3,7 @@
 import type { ComponentType } from "react";
 import { PhoneIncoming, PhoneOutgoing, PhoneOff, ShieldAlert, ShieldCheck } from "lucide-react";
 
-import { Card, MonoValue, NoticeBox, ProblemNotice, Skeleton, TermGloss, formatIST } from "@/components/ui";
+import { Card, MonoValue, NoticeBox, ProblemNotice, Skeleton, formatIST } from "@/components/ui";
 import {
   DOCUMENT_KINDS,
   KYC_STATUS_COPY,
@@ -24,6 +24,7 @@ import type { Session } from "@/lib/api/client";
 import { useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
+import { Term } from "@/lib/glossary";
 
 /**
  * Business verification — the page somebody opens because their calls stopped.
@@ -203,7 +204,7 @@ export default function VerificationPage() {
         Indian telecom rules require two separate things of a business before it may place
         calls: that the business behind the connection is identified, and that it is
         registered with the{" "}
-        <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> registrar to
+        <Term id="dlt" /> registrar to
         run campaigns. Both are below. Either one outstanding stops outgoing calls; neither
         one affects the calls coming in.
       </p>
@@ -287,7 +288,7 @@ function SubscriberVerification({ session }: { session: Session }) {
                 now, so the sentence points down the page instead of away from it. */}
             <span className={LEAD_IN}>
               This is separate from your{" "}
-              <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss>{" "}
+              <Term id="dlt" />{" "}
               registration.
             </span>{" "}
             The two overlap in the documents they rest on, but they are held by different
@@ -417,7 +418,7 @@ function DltStatuses({ registration }: { registration: PeRegistration }) {
       <div>
         <dt className="font-semibold text-ink">
           Your business as a{" "}
-          <TermGloss term="Principal Entity">the business the registrar recognises as responsible for these campaigns</TermGloss>
+          <Term id="pe" />
           : {entity?.label ?? registration.status ?? "not filed"}
         </dt>
         <dd className="text-ink-muted">
@@ -466,10 +467,10 @@ function CalevateTelemarketerId({ registration }: { registration: PeRegistration
   if (id === "") {
     return (
       <dd className="mt-1 text-ink-muted">
-        Our own telemarketer registration is not through yet, so there is nothing for you
-        to authorise against on the registrar&apos;s portal. That holds up outbound
-        campaigns for every Calevate account at once and there is nothing at your end that
-        clears it. Calls coming IN are unaffected.
+        Our own <Term id="tm" term="telemarketer" /> registration is not through yet, so
+        there is nothing for you to authorise against on the registrar&apos;s portal. That
+        holds up outbound campaigns for every Calevate account at once and there is nothing
+        at your end that clears it. Calls coming IN are unaffected.
       </dd>
     );
   }
@@ -758,7 +759,9 @@ function PhoneNumbers({ record }: { record: KycRecord }) {
       </p>
       <ul className={`mt-3 ${LIST}`}>
         <li>
-          <span className={LEAD_IN}>Open the account and pass their KYC.</span> They ask
+          <span className={LEAD_IN}>
+            Open the account and pass their <Term id="kyc" />.
+          </span> They ask
           for the same business details we ask for below, and the address proof normally
           has to match the city the number is issued in. Operators keep outgoing calls
           disabled until their own check clears.

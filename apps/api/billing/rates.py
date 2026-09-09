@@ -40,8 +40,8 @@ a different VENDOR at a different price, chosen per agent, never a fallback.
 
 `SURFACES §2b`'s "never silently upgrade a degraded call" rule survives only where it still
 has meaning: the PLAN's two overage-rate slots (`plans.overage_rate` /
-`overage_rate_value`) in `billing/service.py`. Those are a founder pricing lever, not a
-voice quality, and `overage_rate_value` is NULL on every plan today.
+`overage_rate_second`) in `billing/service.py`. Those are a founder pricing lever, not a
+voice quality, and the second rate is NULL on every plan today.
 
 WHAT THE ENGINE STILL DOES NOT REPORT
 -------------------------------------
@@ -1026,6 +1026,157 @@ def _ex_tts_cost_inr_per_min() -> Decimal:
     )
 
 
+# --- WHICH SPEAKING RATE A COST FIGURE WAS STRUCK AT (D-557) --------------------------
+#
+# THE HALF-WIRED SEAM THIS CLOSES. `billing/tts_speaking_rate.py` has measured the speaking
+# rate from our own transcripts — and nothing consumed it. Every floor, every
+# margin and every break-even in this file divided by the assumed 540 while a measurement
+# sat on a board beside them. A number that is measured, displayed and then ignored by the
+# arithmetic it was built to correct is the defect CLAUDE.md calls a half-wired feature;
+# this type is the wire.
+#
+# **A BASIS TRAVELS WITH ITS FIGURE, AND THAT IS THE WHOLE TYPE.** A margin computed from a
+# measurement and a margin computed from an assumption are different claims, and a screen
+# that shows them identically is the class of defect D-556 was raised for one leg over. So
+# nothing here takes a bare `Decimal` speaking rate: a caller passes the basis, and every
+# consumer can therefore say — on the wire, not in a comment — whether the rupee it printed
+# was measured, from how many calls, over which months.
+#
+# **NO DEFAULT ARGUMENT ANYWHERE.** `sarvam_cost_floor_at` requires the basis, so a consumer
+# that silently reverts to the assumption has to say so in its own source. That is what
+# `tests/tts_speaking_rate_loop_test.py` reverts to prove the loop cannot quietly reopen.
+
+
+@dataclass(frozen=True, slots=True)
+class SpeakingRateBasis:
+    """A chars-per-call-minute figure and WHERE IT CAME FROM. Never one without the other.
+
+    `measured` is not decoration: it decides how a screen may label the rupee derived from
+    it, and it is refused unless the sample really cleared the bar (`__post_init__`). The
+    window is the IST billing months the sample spans — present exactly when the figure is
+    measured, because an assumption has no window and inventing one would make TRD §10.1's
+    band look like a reading of some period.
+    """
+
+    #: Characters of agent speech per minute of CALL. Strictly positive: a zero rate would
+    #: price the TTS leg at nothing, which is the flattering direction, and a fleet that
+    #: has spoken no characters at all is an ABSENCE of a measurement, not a rate of zero.
+    chars_per_call_minute: Decimal
+    measured: bool
+    #: How many calls the figure was pooled over, and the bar it had to clear. Both are
+    #: published even when the figure is the assumption, because "we have 7 calls and need
+    #: 20" is the sentence an operator needs and "unmeasured" is not.
+    calls: int
+    minimum_calls: int
+    #: `"2026-07..2026-09"`, or `None` for an assumption.
+    window: str | None
+
+    def __post_init__(self) -> None:
+        if self.chars_per_call_minute <= 0:
+            raise ValueError("a speaking rate must be positive")
+        if self.calls < 0 or self.minimum_calls < 0:
+            raise ValueError("a sample size cannot be negative")
+        # THE ONE RULE THAT MAKES `measured` MEAN ANYTHING. Hard rule 11 applied to our own
+        # data: a figure from under the bar may be shown, and may not be CALLED a
+        # measurement — so the type refuses to hold that combination at all, rather than
+        # leaving each of the four consumers to remember the check.
+        if self.measured and self.calls < self.minimum_calls:
+            raise ValueError(
+                f"{self.calls} call(s) is below the {self.minimum_calls} a published "
+                "speaking rate needs; build an assumed basis instead"
+            )
+        if self.measured != (self.window is not None):
+            raise ValueError("a measured speaking rate has a window and an assumed one does not")
+
+    @property
+    def label(self) -> str:
+        """One line an operator can read under a rupee. No vendor names — this is a rate."""
+        if self.measured:
+            return (
+                f"measured {self.chars_per_call_minute} chars/call-min "
+                f"over {self.calls} calls, {self.window}"
+            )
+        assumed = (
+            f"assumed {self.chars_per_call_minute} chars/call-min "
+            "(TRD 10.1, unmeasured - pilot gate 12)"
+        )
+        # A bar of zero is not a sample that fell short — it is the module-level constant,
+        # struck before anything had been counted. Printing "0 of 0 calls" against it reads
+        # as a failed measurement rather than as the model's own assumption.
+        if self.minimum_calls == 0:
+            return assumed
+        return f"{assumed}; {self.calls} of {self.minimum_calls} calls measured"
+
+
+def assumed_speaking_rate(*, calls: int = 0, minimum_calls: int = 0) -> SpeakingRateBasis:
+    """TRD §10.1's band at its TOP, plus the sample that FAILED to displace it.
+
+    The top and not the middle, for the reason the floor takes every worst case: a chattier
+    agent than assumed is the expensive direction, and Indic character density is exactly
+    the risk §10.1 names. `calls`/`minimum_calls` are the sample that fell short, carried so
+    a screen can say how far short rather than only "unmeasured".
+    """
+    return SpeakingRateBasis(
+        chars_per_call_minute=TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1],
+        measured=False,
+        calls=calls,
+        minimum_calls=minimum_calls,
+        window=None,
+    )
+
+
+#: The basis every FROZEN figure in this module is struck at, and the fallback whenever no
+#: measurement has cleared the bar.
+ASSUMED_SPEAKING_RATE: Final[SpeakingRateBasis] = assumed_speaking_rate()
+
+
+@dataclass(frozen=True, slots=True)
+class SarvamCostFloor:
+    """What one Clear call-minute costs at a NAMED speaking rate, and what it is judged at.
+
+    `refusal_inr_per_min` is `SELF_SERVE_COST_FLOOR_INR_PER_MIN` — the FROZEN bound the
+    write paths actually refuse below — carried beside the live figure for the reason the
+    Cartesia block carries both (D-556): the two differ the moment a measurement lands, and
+    an operator must be able to see which number blocks a save.
+    """
+
+    inr_per_min: Decimal
+    basis: SpeakingRateBasis
+    refusal_inr_per_min: Decimal
+
+    @property
+    def above_refusal(self) -> bool:
+        """The dangerous direction, named. True when the fleet really speaks MORE than the
+        model assumes, so a rung can be recordable and still under water."""
+        return self.inr_per_min > self.refusal_inr_per_min
+
+
+def sarvam_cost_floor_inr_per_min_at(basis: SpeakingRateBasis) -> Decimal:
+    """The Clear floor at a named speaking rate, at `MONEY_Q`. The one arithmetic.
+
+    NO FX ARGUMENT, deliberately, and it is the same freeze `SELF_SERVE_COST_FLOOR_INR_PER_
+    MIN` has always carried: this voice's own leg is priced per character in RUPEES, and the
+    engine fee it shares with the other voice is struck at `COST_MODEL_USD_INR`. Exactly ONE
+    input to this figure moves — the speaking rate — which is what makes a change in it
+    readable as the measurement landing rather than as a currency tick.
+    """
+    return (
+        _ex_tts_cost_inr_per_min() + tts_inr_per_call_minute(basis.chars_per_call_minute)
+    ).quantize(MONEY_Q, rounding=ROUNDING)
+
+
+def sarvam_cost_floor_at(basis: SpeakingRateBasis) -> SarvamCostFloor:
+    """The Clear floor at `basis`, carrying the basis and the frozen refusal beside it."""
+    return SarvamCostFloor(
+        inr_per_min=sarvam_cost_floor_inr_per_min_at(basis),
+        basis=basis,
+        # Not `SELF_SERVE_COST_FLOOR_INR_PER_MIN`: that constant is DEFINED as this function
+        # over the assumed basis three lines below, and naming it here would be a forward
+        # reference at import time. One arithmetic, evaluated twice.
+        refusal_inr_per_min=sarvam_cost_floor_inr_per_min_at(ASSUMED_SPEAKING_RATE),
+    )
+
+
 #: THE SARVAM-VOICE COST FLOOR: the worst-case cost of one call-minute spoken by Bulbul
 #: v3, at `MONEY_Q`. DERIVED from the legs above (see the table) — never typed. It is what
 #: every pack's `sarvam_inr_per_min` is judged against (`credit_packs.pack_rate_margin`)
@@ -1035,9 +1186,17 @@ def _ex_tts_cost_inr_per_min() -> Decimal:
 #: The name keeps its pre-D-547 spelling because eleven readers across `admin/`, `tests/`
 #: and this file use it; `cost_floor_inr_per_min("sarvam")` is the same number by the
 #: voice's name, and the door new code should use.
-SELF_SERVE_COST_FLOOR_INR_PER_MIN: Final[Decimal] = (
-    _ex_tts_cost_inr_per_min() + tts_inr_per_call_minute(TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1])
-).quantize(MONEY_Q, rounding=ROUNDING)
+#:
+#: ⚠ **IT IS THE FROZEN REFUSAL, AND SINCE D-557 IT IS NO LONGER THE ONLY FLOOR.** It is
+#: this file's own function over the ASSUMED basis, so it cannot drift from the measured
+#: figure by arithmetic — only by basis. `sarvam_cost_floor_at(basis)` is the same floor at
+#: whatever the fleet's transcripts actually say, and the two are published side by side
+#: (`billing/spend_routes`, `ops/config_routes`). The veto stays here, on the frozen one,
+#: for D-556's reason one leg over: a refusal that moved with a measurement would make a
+#: card recordable today and refused tomorrow because twenty more calls were answered.
+SELF_SERVE_COST_FLOOR_INR_PER_MIN: Final[Decimal] = sarvam_cost_floor_at(
+    ASSUMED_SPEAKING_RATE
+).inr_per_min
 
 
 # --- THE CARTESIA TIER: a SUBSCRIPTION + an ALLOTMENT + an OVERAGE -------------------------
@@ -2120,6 +2279,7 @@ def llm_surcharge_billed_inr(*, minutes: Decimal, surcharge: Decimal | None) -> 
 
 
 __all__ = [
+    "ASSUMED_SPEAKING_RATE",
     "BASE_RATE_LLM_MODEL",
     "CARTESIA_BEST_MARGINAL_COST_INR_PER_MIN",
     "CARTESIA_COST_FLOOR_INR_PER_MIN",
@@ -2159,7 +2319,10 @@ __all__ = [
     "LlmPriceAttestation",
     "LlmPriceAttestationReader",
     "RateMargin",
+    "SarvamCostFloor",
+    "SpeakingRateBasis",
     "VoiceTier",
+    "assumed_speaking_rate",
     "attested_llm_prices",
     "cartesia_best_marginal_cost_inr_per_min",
     "cartesia_cheapest_plan",
@@ -2186,6 +2349,8 @@ __all__ = [
     "llm_surcharge_billed_inr",
     "prepaid_billed_inr",
     "rate_margin",
+    "sarvam_cost_floor_at",
+    "sarvam_cost_floor_inr_per_min_at",
     "sarvam_llm_reference_inr_per_ktok",
     "stt_cost_inr",
     "stt_rate_inr_per_minute",

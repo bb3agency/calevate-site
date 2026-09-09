@@ -212,9 +212,9 @@ export function CopilotPanel({
           Both realms rendered an identical panel, so an operator with both tabs open had
           nothing peripheral to tell them apart, on the one surface that can change a
           client's data. This is NOT a second treatment invented here: it is the SAME
-          slate the admin shell already wears (`components/realmChrome.tsx` — the rail
-          across the top of the window and the sidebar's identity block), reused from the
-          same constant so the two can never drift into two different "admin" colours.
+          slate the admin shell already wears (`components/realmChrome.tsx` — the sidebar's
+          identity block), reused from the same constant so the two can never drift into two
+          different "admin" colours.
           The client realm is deliberately untouched: the marker belongs on the surface
           that is unusual, and an operator learns one exception rather than two
           conventions. */}

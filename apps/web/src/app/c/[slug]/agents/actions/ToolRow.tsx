@@ -59,7 +59,9 @@ export function ToolRow({
     <li className="rounded-card border border-line bg-app p-3">
       <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium text-ink">{tool.name}</p>
+          <p title={tool.name} className="truncate text-sm font-medium text-ink">
+            {tool.name}
+          </p>
           <p className="truncate text-xs text-ink-muted">
             {label} · {tool.trigger === "after_call" ? "After the call" : "During the call"}
           </p>

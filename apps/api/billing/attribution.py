@@ -42,7 +42,7 @@ WHAT IS EXACT AND WHAT IS AN ALLOCATION — READ THIS BEFORE PUBLISHING A FIGURE
   own minutes at its own rung's rate, `allocate_paise` distributes the paise, and the
   parts therefore sum to the published month total EXACTLY. `charge_basis` is `allocated`.
   Where a plan quotes ONE rate — which is every plan in the database today, because
-  `plans.overage_rate_value` is an open founder decision — this reduces to plain minutes.
+  `plans.overage_rate_second` is an open founder decision — this reduces to plain minutes.
 
   Rejected: charging each call its own MARGINAL contribution (`month_increment`, which the
   meter uses for the live counter). It telescopes to the month total only in the order the
@@ -109,7 +109,7 @@ from apps.api.billing.rates import PREPAID_TIERS
 #
 #   _ROW_COST_SQL       what one usage row contributes to our cost (D-370: a zero-`qty`
 #                       row carries its WHOLE leg cost)
-#   _ROW_TIER_SQL       which overage rung a call's money counts on (`meta.tts_tier`; the
+#   _ROW_TIER_SQL       which overage rung a call's money counts on (`LEDGER_RUNG_KEY`; the
 #                       cross-rung correction re-attribution was removed with the second
 #                       voice quality — the single-tier voice decision)
 #   _SURCHARGED_MODEL_SQL which model surcharge a row's minutes carry, if any (D-455)
@@ -536,8 +536,8 @@ async def period_attribution(
 
     rate = Decimal(str(usage["overage_rate_inr"]))
     rate_value = (
-        Decimal(str(usage["overage_rate_value_inr"]))
-        if usage["overage_rate_value_inr"] is not None
+        Decimal(str(usage["overage_rate_second_inr"]))
+        if usage["overage_rate_second_inr"] is not None
         else None
     )
     # The plan's model surcharge, from the SAME `usage_summary` read that priced it —

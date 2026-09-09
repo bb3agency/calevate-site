@@ -27,7 +27,6 @@ import {
   RestrictionNote,
   Skeleton,
   StatTile,
-  TermGloss,
   formatCount,
   formatIST,
   istDateStamp,
@@ -66,6 +65,7 @@ import { FIRST_CAMPAIGN_BLOCKERS } from "@/lib/api/firstCampaign";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 import { useClientRealm, useClientSession } from "@/lib/api/session";
+import { Term } from "@/lib/glossary";
 import { lookup } from "@/lib/lookup";
 import { useUnsavedGuard } from "@/lib/useUnsavedGuard";
 import { canDialOut, isAssignable } from "@/lib/agentState";
@@ -214,7 +214,7 @@ const BLOCKER_COPY: Record<string, BlockerNote> = {
     text: (
       <>
         Attach the{" "}
-        <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> voice template
+        <Term id="dlt" /> voice template
         this campaign speaks under.
       </>
     ),
@@ -222,7 +222,7 @@ const BLOCKER_COPY: Record<string, BlockerNote> = {
   dlt_template_not_approved: {
     text: (
       <>
-        The <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> template is
+        The <Term id="dlt" /> template is
         still with the registrar.
       </>
     ),
@@ -235,9 +235,9 @@ const BLOCKER_COPY: Record<string, BlockerNote> = {
     text: (
       <>
         Promotional calls need a{" "}
-        <TermGloss term="140">India&apos;s marketing-call number range</TermGloss> number;
+        <Term id="series140" /> number;
         service calls need a{" "}
-        <TermGloss term="160">India&apos;s service-call number range</TermGloss> one.
+        <Term id="series160" /> one.
       </>
     ),
   },
@@ -295,7 +295,7 @@ const BLOCKER_COPY: Record<string, BlockerNote> = {
     text: (
       <>
         Your business isn&apos;t registered with{" "}
-        <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> yet — that&apos;s
+        <Term id="dlt" /> yet — that&apos;s
         the government register every business must be on before an automated call can go out in
         its name. We do this registration for you; ask your account manager where it&apos;s up
         to. Calls coming IN are unaffected and keep working.
@@ -307,7 +307,7 @@ const BLOCKER_COPY: Record<string, BlockerNote> = {
     text: (
       <>
         Your business&apos;s{" "}
-        <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> registration
+        <Term id="dlt" /> registration
         isn&apos;t active — it&apos;s either still with the registrar or it has lapsed. Only an
         active registration may place campaign calls. We chase this with the registrar; your
         account manager can tell you where it stands. Calls coming IN are unaffected.
@@ -318,7 +318,7 @@ const BLOCKER_COPY: Record<string, BlockerNote> = {
   tm_link_not_active: {
     text: (
       <>
-        Your <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> registration
+        Your <Term id="dlt" /> registration
         hasn&apos;t authorised Calevate to call on your behalf yet. It&apos;s a one-time link
         between your business and us on the register, and we set it up — your account manager
         will confirm when it&apos;s live.
@@ -466,11 +466,9 @@ function PlatformOutageNotice({ reason }: { reason: string }) {
         </p>
         <p className="mt-1 text-ink-muted">
           Our own{" "}
-          <TermGloss term="telemarketer (TM)">
-            the business registered to place calls on another business&apos;s behalf
-          </TermGloss>{" "}
+          <Term id="tm" term="telemarketer (TM)" />{" "}
           registration with the{" "}
-          <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> registrar is
+          <Term id="dlt" /> registrar is
           not live at the moment, so no campaign on Calevate can launch — not just yours. This
           is on us and there is no setting on your side that changes it. We are on it, and this
           campaign will be launchable again the moment it is restored. Calls coming IN are
@@ -674,7 +672,7 @@ const CLASSIFICATIONS: {
     hint: (
       <>
         Offers and marketing — dials from a{" "}
-        <TermGloss term="140">India&apos;s marketing-call number range</TermGloss> number
+        <Term id="series140" /> number
       </>
     ),
   },
@@ -684,7 +682,7 @@ const CLASSIFICATIONS: {
     hint: (
       <>
         Updates to existing customers —{" "}
-        <TermGloss term="160">India&apos;s service-call number range</TermGloss> or standard
+        <Term id="series160" /> or standard
       </>
     ),
   },
@@ -694,7 +692,7 @@ const CLASSIFICATIONS: {
     hint: (
       <>
         Order and appointment updates —{" "}
-        <TermGloss term="160">India&apos;s service-call number range</TermGloss> or standard
+        <Term id="series160" /> or standard
       </>
     ),
   },
@@ -1451,7 +1449,7 @@ export default function CampaignsPage() {
 
               <label className="block">
                 <span className={FIELD_LABEL}>
-                  <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> template
+                  <Term id="dlt" /> template
                 </span>
                 <select
                   value={templateId}
@@ -1475,7 +1473,7 @@ export default function CampaignsPage() {
                   !templates.isLoading && (
                     <span className={FIELD_HINT}>
                       Your{" "}
-                      <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss>{" "}
+                      <Term id="dlt" />{" "}
                       templates could not be read, so this picker is empty. That is not
                       &ldquo;you have none&rdquo;.
                     </span>

@@ -9,7 +9,6 @@ import {
   NoticeBox,
   ProblemNotice,
   Skeleton,
-  TermGloss,
   formatIST,
   type NoticeTone,
 } from "@/components/ui";
@@ -22,6 +21,7 @@ import {
 import { useClientRealm, useClientSession } from "@/lib/api/session";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { noFill } from "@/lib/copilot/types";
+import { Term } from "@/lib/glossary";
 
 /**
  * Campaign review — the page somebody opens because their first launch was refused.
@@ -357,7 +357,7 @@ function WhatIsHeld({ state }: { state: FirstCampaignState }) {
         </li>
         <li>
           <span className={LEAD_IN}>The other checks are separate.</span> Your{" "}
-          <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> template, your
+          <Term id="dlt" /> template, your
           business verification and your credit balance each stop a launch on their own, and
           clearing this one does not clear those. Your campaign screen names whichever ones
           apply.
@@ -374,7 +374,7 @@ function WhileYouWait() {
       <ul className={LIST}>
         <li>
           Finish the campaign — upload the contact list, choose the number and the{" "}
-          <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> template, and
+          <Term id="dlt" /> template, and
           answer where the list came from. All of that is what we read, so a campaign that is
           ready is a review that is quicker.
         </li>

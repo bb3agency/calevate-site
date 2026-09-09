@@ -11,7 +11,6 @@ import {
   ProblemNotice,
   RestrictionNote,
   Skeleton,
-  TermGloss,
   formatIST,
 } from "@/components/ui";
 import { useRecordKyc, useTenant, useTenantKyc } from "@/lib/api/admin";
@@ -36,6 +35,7 @@ import {
 import { useAdminAccess } from "@/app/admin/access";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
+import { Term } from "@/lib/glossary";
 
 /**
  * Recording a business's identity verification — R-11's last gate, and an audited write.
@@ -114,7 +114,7 @@ export default function TenantKycPage({
             name. Delete it if one lands in the shell. */}
         <h1 className="mt-1 text-xl font-semibold text-ink">
           Identity verification (
-          <TermGloss term="KYC">Know Your Customer — the business identity check</TermGloss>)
+          <Term id="kyc" audience="operator" />)
         </h1>
         <p className="text-sm text-ink-muted">
           The subscriber check behind a phone connection. A verified record opens number

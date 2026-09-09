@@ -71,7 +71,9 @@ export function StepList({ steps }: { steps: CopilotStep[] }) {
                 lines — a panel whose step list is taller than its answer has inverted the
                 thing it was built to support. */}
             {step.status === "running" && step.args !== "" && (
-              <p className="truncate font-mono text-[11px] text-ink-faint">{step.args}</p>
+              <p title={step.args} className="truncate font-mono text-[11px] text-ink-faint">
+                {step.args}
+              </p>
             )}
             {/* `break-words` because this is the TOOL'S OWN ANSWER, up to
                 `service.MAX_STEP_CHARS` of it, and the panel is 24rem wide at most. A

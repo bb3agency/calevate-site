@@ -324,12 +324,24 @@ async def test_a_rung_with_no_minutes_gets_no_line() -> None:
     async with tenant_session(tenant_id) as session:
         invoice = await build_invoice(session, tenant_id=tenant_id)
     overage = [i for i in invoice["line_items"] if "Extra calling" in i["description"]]
-    assert len(overage) == 1 and "value voice" in overage[0]["description"]
+    # "second rate", not "value voice": `invoice._RUNG_WORDING` describes the plan's two
+    # OVERAGE-RATE SLOTS, which is what these rungs are, and no longer claims a voice
+    # (9 Sep 2026 — the constant's own comment carries the argument).
+    assert len(overage) == 1 and "second rate" in overage[0]["description"]
 
 
 # ============================================================================
 # 5. No price is invented
 # ============================================================================
+
+
+#: BOTH NAMES OF THE SECOND OVERAGE RATE, because the guard below has to follow the price
+#: and not the spelling. D-558 renamed the column to `overage_rate_second` and left
+#: `overage_rate_value` in place, still written, through step 1 of hard rule 8's two-step —
+#: and a scan that had kept looking only for the old name would have gone quietly vacuous
+#: on the column that now carries the number, which is the exact failure mode a guard has.
+#: STEP 2 drops the second entry with the column.
+SECOND_RATE_COLUMN_NAMES = ("overage_rate_second", "overage_rate_value")
 
 
 def test_nothing_in_the_codebase_derives_a_retail_value_rate() -> None:
@@ -345,26 +357,38 @@ def test_nothing_in_the_codebase_derives_a_retail_value_rate() -> None:
             continue
         for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
             stripped = line.strip()
-            if stripped.startswith("#") or "overage_rate_value" not in stripped:
+            if stripped.startswith("#"):
                 continue
-            # An assignment of a literal to the column is the shape a made-up default
-            # takes. Reading it, storing None, or naming it in SQL is fine.
-            if "overage_rate_value = " in stripped and "Decimal(" in stripped:
-                offenders.append(f"{path}:{number}")
-    assert offenders == [], f"a retail value rate must be a founder decision: {offenders}"
+            for column in SECOND_RATE_COLUMN_NAMES:
+                if column not in stripped:
+                    continue
+                # An assignment of a literal to the column is the shape a made-up default
+                # takes. Reading it, storing None, or naming it in SQL is fine.
+                if f"{column} = " in stripped and "Decimal(" in stripped:
+                    offenders.append(f"{path}:{number}")
+    assert offenders == [], f"a retail second rate must be a founder decision: {offenders}"
 
 
 @pytest.mark.parametrize("rate", ["-0.0001", "-1"])
-async def test_a_negative_value_rate_is_refused_by_the_schema(rate: str) -> None:
-    """`ck_plans_overage_rate_value_nonnegative`. A negative rate is not a discount, it
-    is a plan that pays the client to make calls."""
+@pytest.mark.parametrize("column", SECOND_RATE_COLUMN_NAMES)
+async def test_a_negative_value_rate_is_refused_by_the_schema(column: str, rate: str) -> None:
+    """`ck_plans_overage_rate_{second,value}_nonnegative`. A negative rate is not a
+    discount, it is a plan that pays the client to make calls.
+
+    BOTH COLUMNS, because during the two-step BOTH hold the rate (D-558) and a constraint
+    the new column did not inherit would be a hole opened by a rename. The column name is
+    interpolated from this module's own tuple and never from anything a caller supplies —
+    `scripts/check_raw_sql.py` puts `tests/` out of scope precisely because a test builds
+    SQL from its own literals, and this stays inside that reason.
+    """
     from sqlalchemy.exc import IntegrityError
 
+    assert column in SECOND_RATE_COLUMN_NAMES
     tenant_id = await _tenant()
     await _plan(tenant_id, included=0, value_rate=None)
     with pytest.raises(IntegrityError):
         async with tenant_session(tenant_id) as session:
             await session.execute(
-                text("UPDATE plans SET overage_rate_value = :r WHERE tenant_id = :t"),
+                text(f"UPDATE plans SET {column} = :r WHERE tenant_id = :t"),
                 {"r": Decimal(rate), "t": tenant_id},
             )

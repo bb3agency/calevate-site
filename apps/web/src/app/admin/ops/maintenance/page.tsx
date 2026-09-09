@@ -541,7 +541,11 @@ export default function MaintenancePage() {
                     forced on the deadline
                   </span>
                 )}
-                <span className="min-w-0 flex-1 truncate text-ink-muted">{row.reason}</span>
+                {/* Free operator-typed text on a one-line row. It stays one line — the
+                    list is a schedule, not a log — so the whole reason is on the title. */}
+                <span title={row.reason} className="min-w-0 flex-1 truncate text-ink-muted">
+                  {row.reason}
+                </span>
               </li>
             ))}
           </ul>

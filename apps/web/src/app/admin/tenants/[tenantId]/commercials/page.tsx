@@ -170,6 +170,27 @@ function rate(value: string | null): string | null {
   return value === null ? null : formatRupeeRate(value);
 }
 
+/**
+ * The plan's SECOND overage rate, from whichever of the two wire names carries it.
+ *
+ * Step 1 of a two-step deprecation (hard rule 8, D-558): `overage_rate_value_inr` named a
+ * voice quality that never chose the rung, `overage_rate_second_inr` names the agreed rate.
+ * The server emits BOTH with the identical figure for one release.
+ *
+ * **THE FALLBACK IS NOT DEAD CODE.** This bundle and the API are deployed separately, so a
+ * console that has shipped can be talking to an API that has not — and the only version of
+ * this screen that renders a second rate in both worlds is one that accepts either name.
+ * `??` and not `||`, because `null` is a real reading here ("this plan quotes no separate
+ * second rate") and must NOT fall through to the other field: falling through would make an
+ * unset rate on a new API read whatever the deprecated field happened to hold.
+ *
+ * STEP 2 deletes this function and its call sites, and reads the new field directly.
+ */
+function secondOverageRate(row: PlanRow | null): string | null {
+  if (row === null) return null;
+  return row.overage_rate_second_inr ?? row.overage_rate_value_inr;
+}
+
 function InEffect({ row }: { row: PlanRow | null }) {
   if (!row) return null;
   const rows: { label: string; value: string | null }[] = [
@@ -180,8 +201,13 @@ function InEffect({ row }: { row: PlanRow | null }) {
       // No `?? 0`: an absent allowance and an allowance of zero are different terms.
       value: row.included_minutes === null ? null : String(row.included_minutes),
     },
-    { label: "Overage rate / min", value: rate(row.overage_rate_inr) },
-    { label: "Value-tier rate / min", value: rate(row.overage_rate_value_inr) },
+    // NAMED FOR THE COLUMN, NOT FOR A TIER. `overage_rate_second` is the plan's SECOND
+    // overage-rate slot — a founder pricing lever, and `billing/service.py::OverageRung`
+    // says in as many words that it is "independent of the single voice quality". It was
+    // labelled "Value-tier rate", which used rung vocabulary this product does not use
+    // and told an operator it priced a different voice. It does not.
+    { label: "Base overage rate / min", value: rate(row.overage_rate_inr) },
+    { label: "Second overage rate / min", value: rate(secondOverageRate(row)) },
     // D-455. Added to whichever rate above a minute landed on, for the minutes this
     // client's OWN model choice upgraded. Unset on every plan until a founder decides it.
     { label: "AI model surcharge / min", value: rate(row.llm_model_surcharge_inr) },
@@ -226,7 +252,7 @@ interface Draft {
   monthly_fee_inr: string;
   included_minutes: string;
   overage_rate_inr: string;
-  overage_rate_value_inr: string;
+  overage_rate_second_inr: string;
   llm_model_surcharge_inr: string;
   hard_cap_minutes: string;
   hard_cap_spend_inr: string;
@@ -248,8 +274,8 @@ const COPILOT_FIELDS: readonly FlatFieldSpec<keyof Draft & string>[] = [
   { id: "terms-setup", key: "setup_fee_inr", label: "Setup fee (₹, one-time)", type: "text", help: "Billed once, on the onboarding month's statement. Empty means none." },
   { id: "terms-monthly", key: "monthly_fee_inr", label: "Monthly retainer (₹)", type: "text", help: "Empty means no retainer." },
   { id: "terms-included", key: "included_minutes", label: "Included minutes", type: "number", help: "The monthly allowance before overage. Empty means none included." },
-  { id: "terms-overage", key: "overage_rate_inr", label: "Overage rate (₹ / minute)", type: "text", help: "Four decimal places, published unrounded." },
-  { id: "terms-value", key: "overage_rate_value_inr", label: "Value-tier rate (₹ / minute)", type: "text", help: "Leave EMPTY unless a rate has actually been decided — an unset rate bills everything at the rate above." },
+  { id: "terms-overage", key: "overage_rate_inr", label: "Base overage rate (₹ / minute)", type: "text", help: "Four decimal places, published unrounded." },
+  { id: "terms-value", key: "overage_rate_second_inr", label: "Second overage rate (₹ / minute)", type: "text", help: "A second agreed rate for this plan, not a different voice. Leave EMPTY unless a rate has actually been decided — an unset rate bills everything at the rate above." },
   { id: "terms-llm-surcharge", key: "llm_model_surcharge_inr", label: "AI model surcharge (₹ / minute)", type: "text", help: "Applies only to a model the client picked. Leave EMPTY unless a number has been decided." },
   { id: "terms-concurrency", key: "concurrency_ceiling", label: "Concurrent calls", type: "number", help: "Engine capacity for this account." },
   { id: "terms-cap-spend", key: "hard_cap_spend_inr", label: "Spend ceiling (₹ / month)", type: "text", help: "OUR ceiling. Empty means no ceiling — their dialling is unlimited." },
@@ -264,7 +290,7 @@ function initialDraft(row: PlanRow | null): Draft {
     monthly_fee_inr: row?.monthly_fee_inr ?? "",
     included_minutes: row?.included_minutes === null || row === null ? "" : String(row.included_minutes),
     overage_rate_inr: row?.overage_rate_inr ?? "",
-    overage_rate_value_inr: row?.overage_rate_value_inr ?? "",
+    overage_rate_second_inr: secondOverageRate(row) ?? "",
     llm_model_surcharge_inr: row?.llm_model_surcharge_inr ?? "",
     hard_cap_minutes: row?.hard_cap_minutes === null || row === null ? "" : String(row.hard_cap_minutes),
     hard_cap_spend_inr: row?.hard_cap_spend_inr ?? "",
@@ -309,7 +335,11 @@ function toPayload(draft: Draft): CommercialTermsIn {
     monthly_fee_inr: text(draft.monthly_fee_inr),
     included_minutes: count(draft.included_minutes),
     overage_rate_inr: text(draft.overage_rate_inr),
-    overage_rate_value_inr: text(draft.overage_rate_value_inr),
+    // WRITTEN UNDER THE NEW NAME ONLY. The server still ACCEPTS the deprecated one so a
+    // console a release behind can record terms, and REFUSES a request that sends both
+    // with different figures — so sending both from here would be this screen inventing a
+    // conflict it then has to keep in step. One name out, two names in.
+    overage_rate_second_inr: text(draft.overage_rate_second_inr),
     llm_model_surcharge_inr: text(draft.llm_model_surcharge_inr),
     hard_cap_minutes: count(draft.hard_cap_minutes),
     hard_cap_spend_inr: text(draft.hard_cap_spend_inr),
@@ -447,7 +477,7 @@ function RecordForm({
             />
           </Field>
           <Field
-            label="Overage rate (₹ / minute)"
+            label="Base overage rate (₹ / minute)"
             id="terms-overage"
             hint="Four decimal places, published unrounded — the invoice multiplies by it."
           >
@@ -462,15 +492,15 @@ function RecordForm({
             />
           </Field>
           <Field
-            label="Value-tier rate (₹ / minute)"
+            label="Second overage rate (₹ / minute)"
             id="terms-value"
-            hint="The cheaper voice, priced separately. Leave EMPTY unless a rate has actually been decided — an unset rate bills everything at the rate above, and no default exists to fall back on."
+            hint="A SECOND AGREED RATE, not a different voice — `plans.overage_rate_second` is a pricing lever independent of which voice speaks. Leave EMPTY unless a rate has actually been decided — an unset rate bills everything at the rate above, and no default exists to fall back on."
           >
             <input
               id="terms-value"
-              value={draft.overage_rate_value_inr}
+              value={draft.overage_rate_second_inr}
               disabled={!write.allowed}
-              onChange={(event) => set("overage_rate_value_inr", event.target.value)}
+              onChange={(event) => set("overage_rate_second_inr", event.target.value)}
               inputMode="decimal"
               className={FIELD}
             />
@@ -615,8 +645,16 @@ function History({ rows, inEffectId }: { rows: PlanRow[]; inEffectId: string | n
                 (`states_pricing` was blind to the same column). Fixing one side and not
                 the other would have left the console contradicting the API it renders.
               */}
-              <th className="py-1 pr-3 font-medium">Premium / min</th>
-              <th className="py-1 pr-3 font-medium">Value / min</th>
+              {/* NAMED FOR THE COLUMNS THEY RENDER — `overage_rate` and
+                  `overage_rate_second` — and not "Premium / min" / "Value / min", which is
+                  the rung vocabulary this product does not use and which also implied a
+                  voice or quality difference these two columns do not carry. The WORDS
+                  stay here rather than moving into `billing/terms.py::PRICING_COLUMNS`:
+                  that constant is the list of COLUMN NAMES the SQL, the INSERT and the
+                  equality test are built from, and putting screen copy in it would give
+                  the money module a second job and this table a second source of truth. */}
+              <th className="py-1 pr-3 font-medium">Base overage / min</th>
+              <th className="py-1 pr-3 font-medium">Second overage / min</th>
               {/*
                 THE MODEL SURCHARGE IS PART OF THE PRICE, SO IT IS PART OF THE RECORD
                 (D-455). It was on the form and on "in effect" and missing here, which is
@@ -649,7 +687,7 @@ function History({ rows, inEffectId }: { rows: PlanRow[]; inEffectId: string | n
                   {row.included_minutes === null ? "—" : row.included_minutes}
                 </td>
                 <td className="py-1.5 pr-3">{rate(row.overage_rate_inr) ?? "—"}</td>
-                <td className="py-1.5 pr-3">{rate(row.overage_rate_value_inr) ?? "—"}</td>
+                <td className="py-1.5 pr-3">{rate(secondOverageRate(row)) ?? "—"}</td>
                 {/* `—` for NULL, exactly as the two rungs beside it: a plan quoting no
                     surcharge charged nothing extra for a model choice, and "₹0.0000" would
                     read as a decided price of zero rather than as a term never agreed. */}

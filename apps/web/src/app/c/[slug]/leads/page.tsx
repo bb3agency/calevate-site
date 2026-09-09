@@ -1211,7 +1211,10 @@ export default function LeadsPage() {
                         key={lead.id}
                         className="rounded-lg border border-line bg-surface p-2.5 shadow-[0_1px_2px_rgba(0,0,0,0.02)]"
                       >
-                        <p className="truncate text-sm font-semibold text-ink">
+                        <p
+                          title={lead.name ?? lead.phone_e164}
+                          className="truncate text-sm font-semibold text-ink"
+                        >
                           {/* The list of leads without a captured name is long; the
                               phone number is the next-best stable identifier. */}
                           <Link

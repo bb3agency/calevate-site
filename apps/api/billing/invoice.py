@@ -36,7 +36,13 @@ from apps.api.core.settings import get_settings
 
 from .charges import one_time_charge_lines
 from .gst import Gstin, parse_gstin, resolve_place_of_supply, split_tax, supplier_identity
-from .service import overage_rungs, to_paise, usage_summary
+from .service import (
+    BASE_OVERAGE_RUNG,
+    SECOND_OVERAGE_RUNG,
+    overage_rungs,
+    to_paise,
+    usage_summary,
+)
 
 # 18% GST on SaaS/telecom services. A constant (greppable by name) until pricing config
 # ships. WHICH HEADS it lands under is no longer "an invoicing detail the accountant
@@ -298,11 +304,43 @@ def _tenant_serial_suffix(tenant_id: UUID) -> str:
     return _base36(int.from_bytes(digest, "big"), width=_TENANT_SUFFIX_B36)
 
 
-#: How each TTS rung is described on a client's statement. The wording lives HERE and
+#: How each overage rung is described on a client's statement. The wording lives HERE and
 #: not in `billing/service.py` because it is a phrase on a legal document; the rung's
 #: identity and its money come from `overage_rungs`, which has no business choosing
 #: words.
-_RUNG_WORDING: dict[str, str] = {"premium": "premium voice", "value": "value voice"}
+#:
+#: **IT SAID "premium voice" / "value voice" UNTIL 9 Sep 2026, AND BOTH HALVES WERE WRONG
+#: ON A DOCUMENT A CLIENT KEEPS.**
+#:
+#: 1. It claimed a VOICE. These rungs are the plan's two overage-rate slots —
+#:    `plans.overage_rate` and `plans.overage_rate_second` — which `OverageRung`'s own
+#:    docstring calls "a founder pricing lever independent of the single voice quality",
+#:    and which `pipeline._meter` stamps without consulting any voice at all (the voice is
+#:    a different fact on a different key, `meta.voice_tier`). Nothing about the voice
+#:    that spoke was ever involved in choosing that word.
+#:    ⚠ WHAT SAVED US, and it is luck rather than design: this map is read ONLY on the
+#:    two-rung branch below, and the plan's second rate is NULL on every plan, so
+#:    every statement built to date took the `value_rate is None` branch — whose
+#:    description carries no rung word at all. No client document has printed either
+#:    phrase. The words were one founder decision (setting a second rate) away from
+#:    appearing on every invoice that quoted one.
+#: 2. It used rung vocabulary this product does not use: `standard`/`premium` are the
+#:    competitor's own rung names and are excluded by name, and "value" is a marketing
+#:    rung we never adopted either.
+#:
+#: What replaces it says what the line IS — which of the agreed rates these minutes were
+#: charged at — and the line beside it prints that rate, so the description and the
+#: arithmetic name the same thing.
+#:
+#: **THE KEYS ARE FROZEN LEDGER TOKENS AND ARE NOT WORDS (D-558).** They are what
+#: `pipeline._meter` stamped on `usage_events.meta`, a table hard rule 4 makes
+#: INSERT-only, so they can never be rewritten and no reader may re-spell them. They are
+#: written here as the constants that name them rather than as literals, so this map
+#: cannot key on a rung `overage_rungs` does not produce.
+_RUNG_WORDING: dict[str, str] = {
+    BASE_OVERAGE_RUNG: "base rate",
+    SECOND_OVERAGE_RUNG: "second rate",
+}
 
 
 async def build_invoice(
@@ -406,7 +444,7 @@ async def build_invoice(
         # `ORDER BY created_at DESC LIMIT 1` — two plan rows sharing a created_at and
         # the invoice could quote a rate it did not bill at. One source, one rate.
         rate: Decimal = usage["overage_rate_inr"]
-        value_rate: Decimal | None = usage["overage_rate_value_inr"]
+        value_rate: Decimal | None = usage["overage_rate_second_inr"]
         # THE SAME FUNCTION THAT PRICED THE PANEL, re-run on the PUBLISHED figures.
         # `usage_summary` summed exactly these rungs into `overage_cost_inr`, so the
         # lines below sum to it with nothing to reconcile — where the previous shape
@@ -415,8 +453,8 @@ async def build_invoice(
         # printed "5.00 min at ₹3.75/min" beside ₹18.69, six paise off the multiplication
         # a client does by hand.
         rungs = overage_rungs(
-            premium_min=usage["overage_minutes_premium"],
-            value_min=usage["overage_minutes_value"],
+            premium_min=usage["overage_minutes_base_rung"],
+            value_min=usage["overage_minutes_second_rung"],
             rate=rate,
             rate_value=value_rate,
         )

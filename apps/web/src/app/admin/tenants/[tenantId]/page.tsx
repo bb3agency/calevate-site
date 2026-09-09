@@ -40,7 +40,6 @@ import {
   RestrictionNote,
   Skeleton,
   StatTile,
-  TermGloss,
   formatCount,
   formatINR,
   formatIST,
@@ -75,6 +74,7 @@ import { viewAsHref } from "@/lib/api/session";
 import { useRecordTenantAlertOptIn, useTenantAlertOptIn } from "@/lib/api/whatsappAlerts";
 
 import { useAdminAccess } from "@/app/admin/access";
+import { Term } from "@/lib/glossary";
 
 /**
  * One client: health, the read-only view-as link, and the KB approval queue.
@@ -889,12 +889,31 @@ function MarginPanel({ tenantId }: { tenantId: string }) {
 }
 
 /**
- * What the margin's cost side is MADE of, by TTS rung (D-36).
+ * What the margin's cost side is MADE of, by the OVERAGE RUNG each call was metered on.
  *
- * A thin margin is not actionable on its own — the operator's next move differs
- * completely depending on whether the cost is premium voice (move the client to the
- * value rung, or reprice) or the value rung already (the plan is underpriced). The
- * server nests these under `tiers` on the same read, so this costs no round trip.
+ * ## WHAT THIS CARD ACTUALLY SPLITS, because it used to say something else
+ *
+ * It was headed "Cost by TTS rung" and labelled its two buckets "Premium (v3)" and
+ * "Value (v2)", which claimed a split by Bulbul model version. It is not that split. The
+ * server reads `usage_events.meta.tts_tier` (`billing/service.py::_ROW_TIER_SQL`), and
+ * that key is stamped by `apps/workers/pipeline.py` with `BASE_OVERAGE_RUNG` — the PLAN'S
+ * OVERAGE-RATE SLOT, `plans.overage_rate` against `plans.overage_rate_second`. The code
+ * says so in three places and one of them in capitals: `billing/service.py:1825-1832`
+ * ("overage-rate slots ... NOT voice-quality tiers"), `pipeline.py` beside the stamp
+ * ("THIS IS THE PLAN'S OVERAGE-RATE SLOT AND NOT A VOICE"), and `agents/voices.py:205-209`
+ * ("`usage_events.meta.tts_tier` is the PLAN'S OVERAGE RUNG"). Which VOICE spoke is a
+ * different fact stamped on a different key (`meta.voice_tier`), and this card does not
+ * report it.
+ *
+ * So the old labels were wrong twice: they used rung vocabulary this product does not use,
+ * and they named an axis the numbers do not come from. `overage_rate_second` is NULL on
+ * every plan today, so in practice every minute lands in the base bucket — which is
+ * exactly the reading an operator needs, and exactly what "Premium (v3)" hid.
+ *
+ * A thin margin is not actionable on its own — the operator's next move differs depending
+ * on whether the minutes are all on the base rate (the plan is underpriced, or the rate
+ * needs to move) or split across a second rate this client was quoted. The server nests
+ * these under `tiers` on the same read, so this costs no round trip.
  *
  * The three costs are a PARTITION of `cost_inr` above and add up to it exactly — both
  * come from `_tier_totals`. Nothing is recomputed here: adding the strings client-side
@@ -906,9 +925,32 @@ function MarginPanel({ tenantId }: { tenantId: string }) {
  * know to ask what it means.
  */
 function TierSplit({ tiers }: { tiers: Margin["tiers"] }) {
+  // THE NEW WIRE NAME FIRST, THE DEPRECATED ONE AS THE FALLBACK — step 1 of a two-step
+  // deprecation (hard rule 8, D-558). `minutes_premium` / `cost_value_inr` and friends
+  // named a voice quality that never chose the rung; `minutes_base_rung` /
+  // `cost_second_rung_inr` name the agreed rate, which is what the card is about.
+  //
+  // THE FALLBACK IS NOT DEAD CODE. This bundle and the API are deployed separately, so a
+  // console that has shipped can be talking to an API that has not (and the reverse), and
+  // the only version of this card that renders in BOTH worlds is one that accepts either
+  // name. `??` and not `||`: the figures are strings and `"0.00"` is truthy, but an
+  // empty-string rung would be a real reading and must not be replaced by the other name.
+  //
+  // STEP 2 deletes every `??` on this line and the server fields behind them, together.
   const rungs = [
-    { label: "Premium (v3)", minutes: tiers.minutes_premium, cost: tiers.cost_premium_inr },
-    { label: "Value (v2)", minutes: tiers.minutes_value, cost: tiers.cost_value_inr },
+    // NAMED FOR THE PLAN COLUMN EACH ONE IS, which is the thing an operator can act on:
+    // `plans.overage_rate` and `plans.overage_rate_second`. Not a voice, not a model
+    // version, and not the excluded rung vocabulary.
+    {
+      label: "Base overage rate",
+      minutes: tiers.minutes_base_rung ?? tiers.minutes_premium,
+      cost: tiers.cost_base_rung_inr ?? tiers.cost_premium_inr,
+    },
+    {
+      label: "Second overage rate",
+      minutes: tiers.minutes_second_rung ?? tiers.minutes_value,
+      cost: tiers.cost_second_rung_inr ?? tiers.cost_value_inr,
+    },
     {
       label: "Unattributed",
       minutes: tiers.minutes_unattributed,
@@ -923,7 +965,7 @@ function TierSplit({ tiers }: { tiers: Margin["tiers"] }) {
           visibility, so it was not evaluating this heading at all. The stub added in
           tests/setup.ts for the marketing page's reduced-motion check made the sweep
           able to see it. Size is carried by the class, so nothing moves on screen. */}
-      <h3 className="text-[13px] font-medium text-ink-muted">Cost by TTS rung</h3>
+      <h3 className="text-[13px] font-medium text-ink-muted">Cost by overage rung</h3>
       <dl className="mt-2 grid gap-3 sm:grid-cols-3">
         {rungs.map((rung) => (
           <div key={rung.label} className="rounded-card border border-line bg-surface px-4 py-3">
@@ -1262,8 +1304,8 @@ function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: Re
     <div className="min-w-0 space-y-3 lg:col-span-2">
       <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
         Entity registration with the{" "}
-        <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> (
-        <TermGloss term="PE">Principal Entity — the client&apos;s own registration</TermGloss>)
+        <Term id="dlt" /> (
+        <Term id="pe" term="PE" audience="operator" />)
       </h3>
       <p className="text-xs text-ink-muted">
         The registrar issues three separate registrations and none implies another: this
@@ -1281,11 +1323,11 @@ function DltRegistrationPanel({ tenantId, write }: { tenantId: string; write: Re
           <p className="text-xs">
             Recorded: entity registration{" "}
             <span className="font-medium">{record.data.status.replace(/_/g, " ")}</span>,{" "}
-            <TermGloss term="TM">Telemarketer — that is us, calling on the client&apos;s behalf</TermGloss>{" "}
+            <Term id="tm" term="TM" audience="operator" />{" "}
             link <span className="font-medium">{record.data.tm_link_status.replace(/_/g, " ")}</span>
             {record.data.pe_id && (
               <>
-                , <TermGloss term="PE">Principal Entity</TermGloss> id{" "}
+                , <Term id="pe" term="PE" audience="operator" /> id{" "}
                 <MonoValue>{record.data.pe_id}</MonoValue>
               </>
             )}
@@ -1544,7 +1586,7 @@ function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
           <h3 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-ink-muted">
             <ScrollText className="h-3.5 w-3.5" />
             <span>
-              <TermGloss term="DLT">India&apos;s telecom message registry</TermGloss> voice
+              <Term id="dlt" /> voice
               templates
             </span>
           </h3>

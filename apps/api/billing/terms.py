@@ -58,7 +58,7 @@ from sqlalchemy import Row, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.caps import lock_tenant_spend_state, recompute_capped
-from apps.api.billing.plans import NOW_SQL, plan_in_effect_sql
+from apps.api.billing.plans import NOW_SQL, OVERAGE_RATE_SECOND_SQL, plan_in_effect_sql
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 
@@ -71,12 +71,17 @@ log = get_logger(__name__)
 # the equality test read, so those three cannot list different ones.
 #
 # THE SPLIT IS NAMED RATHER THAN RETYPED, and that is a fix. `PlanRecord.states_pricing`
-# used to carry its own hand-written list of the price columns; `overage_rate_value` was
-# added to `TERM_COLUMNS` when D-36's second rung landed and never to that list, so a
-# plan quoting ONLY the value-tier rate — the exact row a founder writes the day that
-# price is decided — billed the client and reported to the operator as "No price agreed
-# … they are still invoiced nothing". One list, one classification, and
+# used to carry its own hand-written list of the price columns; the second overage rate
+# was added to `TERM_COLUMNS` when D-36's second rung landed and never to that list, so a
+# plan quoting ONLY that rate — the exact row a founder writes the day that price is
+# decided — billed the client and reported to the operator as "No price agreed … they are
+# still invoiced nothing". One list, one classification, and
 # `tests/plan_term_columns_test.py` fails if a column ever belongs to neither.
+#
+# EVERY NAME HERE IS BOTH A `plans` COLUMN AND A `CommercialTerms` FIELD, which is what
+# lets the SELECT, the INSERT and `states_pricing`'s `getattr` all read one list. The
+# column being deprecated under hard rule 8 is therefore NOT in it — see
+# `_DEPRECATED_SECOND_RATE_COLUMN` below, which is the one place the old name survives.
 #
 # `client_cap_*` is in neither and is deliberately absent from `TERM_COLUMNS` entirely:
 # see the module docstring.
@@ -85,7 +90,7 @@ PRICING_COLUMNS: tuple[str, ...] = (
     "monthly_fee",
     "included_min",
     "overage_rate",
-    "overage_rate_value",
+    "overage_rate_second",
     "llm_model_surcharge",
 )
 
@@ -97,9 +102,41 @@ CEILING_COLUMNS: tuple[str, ...] = (
 
 TERM_COLUMNS: tuple[str, ...] = PRICING_COLUMNS + CEILING_COLUMNS
 
+# ⚠ STEP 1 OF A TWO-STEP DEPRECATION (hard rule 8, migration c72b9e40af15, D-558).
+#
+# `plans.overage_rate_value` is the name `overage_rate_second` replaces — it claimed a
+# voice-quality tier that never chose the rung. The column is NOT dropped and NOT
+# abandoned: `record_terms` writes the operator's one figure into BOTH columns from ONE
+# bind, so a process that has not been redeployed and still reads only the old name prices
+# the same month at the same rate, and the two can never hold different numbers. The READ
+# side of the pair lives in one expression, `plans.OVERAGE_RATE_SECOND_SQL`, so no reader
+# has to know this deprecation exists.
+#
+# STEP 2 deletes these two names, the extra INSERT column, the `COALESCE` in the SELECT,
+# and the column itself.
+#
+# Spelled as two plain string constants rather than as a map the SQL builders iterate:
+# `scripts/check_raw_sql.py` proves every character of a statement was typed in this repo
+# and cannot follow a comprehension variable through a call, so a clever mapping here
+# would have to be excused by an allowance — and an allowance is a promise that a human
+# reads every future caller.
+_SECOND_RATE_COLUMN: str = "overage_rate_second"
+_DEPRECATED_SECOND_RATE_COLUMN: str = "overage_rate_value"
+
+# The canonical name, read as "the new column, or the one it replaces" — aliased BACK to
+# the canonical name so `_record` (which reads `_mapping` by name) sees exactly the names
+# `TERM_COLUMNS` was built from and the deprecation is invisible to it.
+#
+# Substituted into the joined list rather than mapped over it, for the `check_raw_sql`
+# reason above. That is safe because no other `plans` column has `overage_rate_second` as
+# a substring, and it cannot silently become unsafe: `tests/plan_term_columns_test.py`
+# asserts the exact aliased text this produces, and a mangled column name fails the SELECT
+# outright rather than reading the wrong number.
+_SECOND_RATE_READ = f"{OVERAGE_RATE_SECOND_SQL} AS {_SECOND_RATE_COLUMN}"
+
 _ROW_COLUMNS = (
     "id, "
-    + ", ".join(TERM_COLUMNS)
+    + ", ".join(TERM_COLUMNS).replace(_SECOND_RATE_COLUMN, _SECOND_RATE_READ)
     + ", client_cap_min, client_cap_spend, effective_from, effective_to, created_at"
 )
 
@@ -123,8 +160,10 @@ _HISTORY = f"""
 
 _INSERT = f"""
 INSERT INTO plans (id, tenant_id, {", ".join(TERM_COLUMNS)},
+                   {_DEPRECATED_SECOND_RATE_COLUMN},
                    effective_from, effective_to, created_at, updated_at)
 VALUES (:id, :tid, {", ".join(f":{name}" for name in TERM_COLUMNS)},
+        :{_SECOND_RATE_COLUMN},
         :effective_from, :effective_to, clock_timestamp(), clock_timestamp())
 """
 
@@ -136,21 +175,22 @@ class CommercialTerms:
     Every money field is `Decimal | None` and `None` means UNSET, never zero. The
     distinction is load-bearing in both directions: an `overage_rate` of 0 is free
     minutes and an unset one is a plan that quotes no overage at all, and
-    `plans.overage_rate_value` documents the same rule for the value tier.
+    `plans.overage_rate_second` documents the same rule for the second rate.
     """
 
     setup_fee: Decimal | None = None
     monthly_fee: Decimal | None = None
     included_min: int | None = None
     overage_rate: Decimal | None = None
-    # The retail value-tier rate. Left settable and UNSET on purpose: TRD §10.1's cost
-    # bands are unmeasured pilot gates, so any default here would be invention wearing a
-    # citation. What goes in it is a founder decision, and until it is made the column
-    # stays NULL and billing quotes one rate (`billing/models.py::Plan`).
-    overage_rate_value: Decimal | None = None
+    # The plan's SECOND overage rate — a pricing lever, not a voice quality. Left
+    # settable and UNSET on purpose: TRD §10.1's cost bands are unmeasured pilot gates,
+    # so any default here would be invention wearing a citation. What goes in it is a
+    # founder decision, and until it is made the column stays NULL and billing quotes one
+    # rate (`billing/models.py::Plan`).
+    overage_rate_second: Decimal | None = None
     # What a minute costs EXTRA when the client chose a dearer language model (D-455,
     # `billing/models.py::Plan.llm_model_surcharge`). Settable and UNSET for
-    # `overage_rate_value`'s reason: the number is a founder decision, and until it is
+    # `overage_rate_second`'s reason: the number is a founder decision, and until it is
     # made the column stays NULL and a model choice moves the bill by nothing.
     llm_model_surcharge: Decimal | None = None
     hard_cap_min: int | None = None
@@ -183,10 +223,10 @@ class PlanRecord:
         priced when nobody had priced them.
 
         DERIVED FROM `PRICING_COLUMNS`, never from a list retyped here. The retyped list
-        is what made this property lie: it predated `overage_rate_value`, so a plan
-        quoting only the value-tier rate answered False while `usage_summary` charged the
-        client at it, and the console said "No price agreed … they are still invoiced
-        nothing" over a real bill. A ceiling is deliberately still not a price — a plan
+        is what made this property lie: it predated the second overage rate, so a plan
+        quoting only that rate answered False while `usage_summary` charged the client at
+        it, and the console said "No price agreed … they are still invoiced nothing" over
+        a real bill. A ceiling is deliberately still not a price — a plan
         that caps spend and quotes nothing agrees no terms.
         """
         return any(getattr(self.terms, column) is not None for column in PRICING_COLUMNS)
@@ -234,7 +274,7 @@ def _record(values: Row[Any]) -> PlanRecord:
             monthly_fee=_money(row["monthly_fee"]),
             included_min=_count(row["included_min"]),
             overage_rate=_money(row["overage_rate"]),
-            overage_rate_value=_money(row["overage_rate_value"]),
+            overage_rate_second=_money(row["overage_rate_second"]),
             llm_model_surcharge=_money(row["llm_model_surcharge"]),
             hard_cap_min=_count(row["hard_cap_min"]),
             hard_cap_spend=_money(row["hard_cap_spend"]),
@@ -420,7 +460,7 @@ async def record_terms(
             "monthly_fee": terms.monthly_fee,
             "included_min": terms.included_min,
             "overage_rate": terms.overage_rate,
-            "overage_rate_value": terms.overage_rate_value,
+            "overage_rate_second": terms.overage_rate_second,
             "llm_model_surcharge": terms.llm_model_surcharge,
             "hard_cap_min": terms.hard_cap_min,
             "hard_cap_spend": terms.hard_cap_spend,

@@ -23,7 +23,12 @@ from decimal import Decimal
 
 import pytest
 from apps.api.billing.credit_packs import PACK_CATALOGUE
-from apps.api.billing.rates import CARTESIA_EVIDENCE_USD_INR, CARTESIA_VOLUME_LADDER_CALL_MINUTES
+from apps.api.billing.rates import (
+    ASSUMED_SPEAKING_RATE,
+    CARTESIA_EVIDENCE_USD_INR,
+    CARTESIA_VOLUME_LADDER_CALL_MINUTES,
+    sarvam_cost_floor_at,
+)
 from apps.api.billing.spend_routes import _CHARS_PER_KCHAR
 from apps.api.billing.tts_volume import (
     CHARS_PER_KCHAR,
@@ -159,7 +164,15 @@ def test_the_wire_carries_the_volume_the_fx_and_a_breakeven_for_every_studio_run
     a missing column.
     """
     fx = UsdInrRate(rate=CARTESIA_EVIDENCE_USD_INR, source="frankfurter:FBIL", as_of=None)
-    cells = config_routes._cells_out(PACK_CATALOGUE, measured_cost=Decimal("6.9011"), fx=fx)
+    # The Clear column is struck at a speaking-rate BASIS since D-557; the assumed one is
+    # what is in force until twenty calls with a transcript exist, and it is what this case
+    # is about — the Studio assertions below must not move with it either way.
+    cells = config_routes._cells_out(
+        PACK_CATALOGUE,
+        measured_cost=Decimal("6.9011"),
+        fx=fx,
+        clear=sarvam_cost_floor_at(ASSUMED_SPEAKING_RATE),
+    )
     studio = [cell for cell in cells if cell.voice_tier == "cartesia"]
     assert len(studio) == len(PACK_CATALOGUE)
     for cell in studio:
@@ -178,8 +191,13 @@ def test_the_wire_carries_the_volume_the_fx_and_a_breakeven_for_every_studio_run
     # card is still recordable and the at-volume figure is a warning (D-556).
     assert not any(cell.below_floor for cell in studio)
 
-    # Sarvam is priced per character in rupees: its at-volume cost is its floor, the same
-    # number twice, and it has no break-even because its cost does not move with volume.
+    # Sarvam is priced per character in rupees, so its cost does not move with VOLUME and it
+    # has no break-even. ⚠ This block used to conclude "its at-volume cost IS its floor, the
+    # same number twice", which D-557 corrected: a per-character price becomes a
+    # per-call-minute cost only through the SPEAKING RATE, so the two are the same number
+    # exactly while the assumed basis is in force — which is what is asserted here — and
+    # different the day a measurement clears twenty calls
+    # (`tests/tts_speaking_rate_loop_test.py` owns that half).
     clear = [cell for cell in cells if cell.voice_tier == "sarvam"]
     assert all(cell.breakeven_call_minutes is None for cell in clear)
     assert all(cell.cost_inr_per_min_at_volume == cell.cost_floor_inr_per_min for cell in clear)
