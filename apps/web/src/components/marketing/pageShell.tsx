@@ -164,9 +164,9 @@ export function PageIntro({
   children?: ReactNode;
 }) {
   return (
-    <section className="relative overflow-hidden border-b border-line">
+    <section className="relative isolate overflow-hidden border-b border-line">
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
-        <div className="mk-grid-dots absolute inset-0" />
+        <div className="mk-grid-lines absolute inset-0" />
         <div className="mk-blob mk-blob--a mk-float absolute -top-24 -left-24 h-72 w-72" />
       </div>
       <div className={`${SHELL} pt-10 pb-12 sm:pt-14 sm:pb-16`}>

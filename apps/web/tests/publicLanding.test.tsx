@@ -1331,3 +1331,123 @@ describe("the ROI calculator", () => {
     expect(calc(container).textContent).toMatch(/converted-lead value/i);
   });
 });
+
+/**
+ * THE DECORATIVE GROUND — the grid, and the one property it has that a screenshot cannot
+ * hold on to.
+ *
+ * ⚠ **THE TEXTURE THIS REPLACES WAS DEAD FOR ITS ENTIRE LIFE, AND NOTHING NOTICED.**
+ * `.mk-grid-dots` and the hero's two glows lived in a `-z-10` wrapper inside a `relative`
+ * section — and `position: relative` with `z-index: auto` does NOT open a stacking
+ * context, so the whole layer escaped to the root and painted BEHIND the marketing root's
+ * own `bg-app`. It type-checked, it linted, it rendered, it was in the DOM on every scan,
+ * and it was invisible in every browser. That is the exact defect class UX-DOCTRINE calls
+ * half-wired: a feature that looks finished on a screen because the screen is the one
+ * place it does not have to work.
+ *
+ * A screenshot review would have caught it only if somebody happened to compare against a
+ * build where it worked, and there has never been one. So the three properties that make
+ * the grid RENDER, rather than merely exist, are asserted here:
+ *
+ *  1. the hero opens a stacking context (`isolate`), so `-z-10` stays inside it;
+ *  2. the grid element exists, is `aria-hidden`, and is NOT an ancestor of the page's
+ *     text — a background-image on an ancestor is what makes axe report `incomplete`
+ *     instead of a contrast verdict, and what runs a lattice under the words;
+ *  3. its colour comes from a token and never from a literal.
+ *
+ * (3) is the half that has a named failure mode rather than a hypothetical one: the
+ * reference this was adapted from paints the lattice in `#e4e4e7` / `#262626`, which are
+ * hardcodes of the colour `--line` already holds. Pasting them would work, would look
+ * right, and would stop moving on the day the palette does.
+ */
+describe("the marketing pages' decorative grid", () => {
+  const CSS = readFileSync(resolve(process.cwd(), "src", "app", "globals.css"), "utf8");
+
+  /** The body of one CSS rule, by selector. */
+  function ruleBody(selector: string): string {
+    const at = CSS.indexOf(selector + " {");
+    expect(at, `\`${selector}\` is not in globals.css`).toBeGreaterThan(-1);
+    return CSS.slice(at + selector.length, CSS.indexOf("}", at));
+  }
+
+  it("draws its lines from `--line`, never from a literal colour", () => {
+    const grid = ruleBody("[data-marketing-root] .mk-grid-lines");
+    const image = grid.slice(grid.indexOf("background-image"), grid.indexOf(";", grid.indexOf("background-image")));
+    expect(image, "the lattice is not painted from `--mk-grid-line`").toContain(
+      "var(--mk-grid-line)",
+    );
+    // Mask stops are alpha, not palette, and are excluded by reading `background-image`
+    // alone: what this refuses is a colour the reader actually sees being typed in.
+    expect(
+      image,
+      "a literal colour in the grid's background-image. The reference this was adapted " +
+        "from uses #e4e4e7/#262626, which are hardcodes of `--line`; a rebrand or a " +
+        "palette change has to move the grid with everything else it rules.",
+    ).not.toMatch(/#[0-9a-f]{3,8}\b|\brgba?\(|\bhsla?\(/i);
+  });
+
+  it("defines that token off `--line` in BOTH palettes", () => {
+    // Light and dark, because the dormant palette (D-471) is still held to the same
+    // coherence — a token defined in one block only is the drift the `.dark` half exists
+    // to prevent, and `tests/browser/` scans both.
+    for (const block of ["[data-marketing-root]", ".dark [data-marketing-root]"]) {
+      const body = ruleBody(block);
+      const declaration = /--mk-grid-line:\s*([^;]+);/.exec(body)?.[1] ?? "";
+      expect(declaration, `\`${block}\` does not define --mk-grid-line`).not.toEqual("");
+      expect(
+        declaration,
+        `\`${block}\` sets --mk-grid-line to \`${declaration}\` rather than deriving it ` +
+          `from \`--line\`, the token every other hairline on this page is drawn from.`,
+      ).toMatch(/color-mix\([^)]*var\(--line\)/);
+    }
+  });
+
+  it("kept ONE ground texture rather than accumulating a second", () => {
+    // The dotted field it replaces is gone from the stylesheet AND from every call site.
+    // "Migrate rather than accumulate" (CLAUDE.md): two decorative textures doing one job
+    // in one visual system is the drift, and a stylesheet keeps dead classes silently.
+    expect(CSS).not.toContain(".mk-grid-dots {");
+    const users = tsSources(resolve(process.cwd(), "src", "components", "marketing"))
+      .map((file) => relPosix(process.cwd(), file))
+      .filter((file) => /mk-grid-dots/.test(readFileSync(resolve(process.cwd(), file), "utf8")));
+    expect(users, `these still ask for the texture that was removed: ${users.join(", ")}`).toEqual(
+      [],
+    );
+  });
+
+  it("renders behind the hero, inside a stacking context, and never over the words", async () => {
+    const { container } = render(await Home());
+    const hero = container.querySelector("h1")?.closest("section");
+    expect(hero, "the hero section is not where the h1 lives any more").not.toBeNull();
+
+    const grid = hero!.querySelector(".mk-grid-lines");
+    expect(grid, "the hero paints no grid").not.toBeNull();
+    expect(
+      grid!.closest("[aria-hidden='true']"),
+      "the grid is not inside an aria-hidden layer — a decorative lattice must not be " +
+        "announced, and must not be reachable",
+    ).not.toBeNull();
+    expect(
+      grid!.contains(container.querySelector("h1")),
+      "the grid is an ANCESTOR of the hero's text. A background-image over text is what " +
+        "makes axe report `incomplete` instead of a contrast verdict, and it is what puts " +
+        "1px rules through a 72px headline. It is a sibling layer or it is nothing.",
+    ).toBe(false);
+
+    /*
+     * AND THE ONE PROPERTY THAT MADE THE OLD TEXTURE DEAD.
+     *
+     * `-z-10` only stays inside the hero if the hero opens a stacking context. `relative`
+     * alone does not; `isolate` (isolation: isolate) does. Without it the layer paints
+     * behind the marketing root's `bg-app` and the whole backdrop is invisible — which is
+     * precisely what shipped before, and precisely what no other gate in this repository
+     * can see.
+     */
+    expect(
+      hero!.className,
+      "the hero lost `isolate`. Its backdrop sits at `-z-10`, and `relative` alone does " +
+        "not open a stacking context, so the grid and both glows escape to the root and " +
+        "paint behind `bg-app` — invisible, on every browser, with every test green.",
+    ).toMatch(/(^|\s)isolate(\s|$)/);
+  });
+});

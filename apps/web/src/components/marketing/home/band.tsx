@@ -138,6 +138,25 @@ export const HOME = {
   itemGap: "gap-6 sm:gap-8",
   /** A panel, at the scale this page reads at. `CARD` is the console's 20/24px padding. */
   panel: "rounded-2xl border border-line bg-surface p-6 sm:p-8 lg:p-10",
+  /**
+   * A panel that RESPONDS to a pointer. One definition, added 9 Sep 2026, because
+   * `transition-colors hover:border-brand/40` was already typed into two chapters
+   * (`problemAndPromise`, `whatItDoes`) and a third copy would have made it the page's
+   * default by accident — the same one-string-per-module drift `HOME` itself exists for.
+   *
+   * What it adds over the border tint it replaces: 2px of lift and a shadow, so a card
+   * that answers the pointer looks lifted rather than merely outlined. Both are
+   * COMPOSITED properties — `transform` and `box-shadow` on a `will-change`-free element
+   * — so the browser does not re-lay-out the grid to draw them, which is the whole reason
+   * this is a translate and not a `mt-`.
+   *
+   * It is hover-only and idle at rest: nothing on this page moves on its own. A reader
+   * who asked for reduced motion still gets the state change, instantly — the
+   * `prefers-reduced-motion` block in `globals.css` zeroes `transition-duration` across
+   * the marketing root, so the lift snaps rather than being taken away.
+   */
+  panelLift:
+    "transition duration-200 hover:-translate-y-0.5 hover:border-brand/40 hover:shadow-md",
 } as const;
 
 /**

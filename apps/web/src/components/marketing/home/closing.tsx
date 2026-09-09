@@ -40,8 +40,23 @@ export function Closing({ devSlug }: { devSlug?: string }) {
       <div className={`${SHELL} ${SECTION}`}>
         <Reveal
           as="section"
-          className="relative overflow-hidden rounded-2xl border border-line bg-surface p-8 sm:p-12 lg:p-16"
+          className="relative isolate overflow-hidden rounded-2xl border border-line bg-surface p-8 sm:p-12 lg:p-16"
         >
+          {/*
+            THE GRID'S SECOND AND LAST APPEARANCE, and the argument for it is the bookend.
+            The hero and this panel are the page's two POSTER moments — the opening promise
+            and the closing ask; everything between them is a reading surface, and a
+            lattice behind eight chapters of prose is texture turning into noise. Two ends,
+            one texture, nothing in the middle.
+
+            The `--vignette` mask rather than the hero's: this is a bounded panel with a
+            48px heading across the middle of it, so the lattice is cleared out of the
+            centre and left in the corners. Behind, not under.
+          */}
+          <div
+            aria-hidden
+            className="mk-grid-lines mk-grid-lines--vignette pointer-events-none absolute inset-0 -z-10"
+          />
           <div
             aria-hidden
             className="mk-blob mk-blob--b pointer-events-none absolute -top-16 right-0 h-56 w-56"

@@ -126,7 +126,7 @@ export function WhatItDoes() {
               as="section"
               key={title}
               delay={(index % 2) * 0.06}
-              className={`group ${HOME.panel} transition-colors hover:border-brand/40`}
+              className={`group ${HOME.panel} ${HOME.panelLift}`}
             >
               <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-soft text-brand-strong">
                 <Icon aria-hidden className="h-7 w-7" />

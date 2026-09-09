@@ -51,13 +51,24 @@ const HERO_CLAIMS: readonly string[] = [
 
 export function Hero() {
   return (
-    <section className="relative overflow-hidden">
-      {/* Decorative background: a masked dotted grid and two soft brand blobs.
-          All aria-hidden, all pointer-events-none, all frozen under reduced motion. */}
+    <section className="relative isolate overflow-hidden">
+      {/*
+        Decorative background: the masked line grid and two soft brand blobs.
+        All aria-hidden, all pointer-events-none, all frozen under reduced motion.
+
+        The grid is a SIBLING of the content, absolutely positioned at `-z-10` — never an
+        ancestor of it. That is not incidental: a background-image on an ancestor of text
+        is what makes a contrast check unresolvable (axe reports `incomplete` rather than
+        a verdict, and a reader gets a lattice running under the words). Here the words
+        keep `bg-app` behind them and the browser gate can still measure them.
+      */}
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-10">
-        <div className="mk-grid-dots absolute inset-0" />
-        <div className="mk-blob mk-blob--a mk-float absolute -top-24 -left-24 h-80 w-80" />
-        <div className="mk-blob mk-blob--b mk-float--slow absolute -top-16 right-[-6rem] h-96 w-96" />
+        <div className="mk-grid-lines absolute inset-0" />
+        {/* Sized DOWN on a phone. At `h-80 w-80` a 320px blur fills a 390px viewport
+            corner to corner, so the glow stops being a corner and becomes a wash across
+            the copy — which is where the contrast bound in `globals.css` gets spent. */}
+        <div className="mk-blob mk-blob--a mk-float absolute -top-24 -left-24 h-56 w-56 sm:h-80 sm:w-80" />
+        <div className="mk-blob mk-blob--b mk-float--slow absolute -top-16 right-[-6rem] h-64 w-64 sm:h-96 sm:w-96" />
       </div>
 
       <div className={`${SHELL} relative pt-8 pb-16 sm:pt-14 sm:pb-24 lg:pt-12 lg:pb-28`}>
@@ -95,7 +106,16 @@ export function Hero() {
               worth your team’s time, and turns each conversation into a lead they can act
               on.
             </p>
-            <p data-hero-item className="mt-4 max-w-2xl text-base text-pretty text-ink-faint sm:text-lg">
+            {/*
+              `text-ink-muted`, NOT `text-ink-faint`, and the reason is measured: this line
+              sits under the hero's decorative glow, and `--text-faint` is 4.56:1 on flat
+              `--app` before any tint — 3.9:1 under a single blob and 3.3:1 where the two
+              overlap, against WCAG 1.4.3 AA's 4.5:1. It is the one ink level with no
+              headroom, so it does not go on a tinted ground (`globals.css` carries the
+              full arithmetic). The hierarchy under the lede is still there, carried by
+              SIZE — 24px lede, 18px here — which is the channel that survives a tint.
+            */}
+            <p data-hero-item className="mt-4 max-w-2xl text-base text-pretty text-ink-muted sm:text-lg">
               Built Telugu-first for clinics, property offices, insurance advisors and
               coaching centres across Andhra Pradesh and Telangana.
             </p>

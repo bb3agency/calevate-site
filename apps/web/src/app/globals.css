@@ -327,15 +327,57 @@ html:has([data-marketing-root]) body {
  * page is complete and good-looking with every animation frozen at rest.
  */
 [data-marketing-root] {
-  --mk-glow-a: color-mix(in oklab, var(--brand-bright) 26%, transparent);
-  --mk-glow-b: color-mix(in oklab, var(--brand-strong) 20%, transparent);
-  --mk-grid: color-mix(in oklab, var(--brand-strong) 9%, transparent);
+  /*
+   * ⚠ THESE TWO WERE 26% AND 20% AND WERE NEVER ONCE RENDERED, WHICH IS WHY THEY WERE
+   * TOO STRONG. The layer that carries them sat at `-z-10` inside a section that was not
+   * a stacking context, so it escaped to the root and painted BEHIND the marketing
+   * root's own `bg-app` — the hero's whole decorative layer, grid and glows alike, has
+   * been invisible for as long as it has existed. `isolate` on the three call sites
+   * fixes that; these values are what the fix exposed.
+   *
+   * The numbers are a MEASURED bound, not taste. Composited over `--app` at their old
+   * strength, where the two blobs overlap, the ground goes to #9ed2b3 — on which
+   * `--text-muted` is 4.45:1 (below WCAG 1.4.3 AA's 4.5:1) and `--text-faint` is
+   * 2.79:1. At 18%/13% the worst overlap is #badfc9: `--text-muted` 5.23:1 and
+   * `--text` 12.06:1, both clear. `--text-faint` is 3.28:1 there and CANNOT be made to
+   * pass by dimming — it is 4.56:1 on flat `--app` to begin with, so any tint at all
+   * takes it under; the answer is that faint ink does not sit on a tinted ground, which
+   * is why the hero's audience line moved up a level (`hero.tsx`).
+   *
+   * None of this is reachable by the browser axe gate: the glow is a SIBLING layer, not
+   * an ancestor of the text, so axe resolves the background to `--app` and reports a
+   * pass. That is the same blind spot the gate's own header describes from the other
+   * side, and it is why the bound is computed here rather than waited for.
+   */
+  --mk-glow-a: color-mix(in oklab, var(--brand-bright) 18%, transparent);
+  --mk-glow-b: color-mix(in oklab, var(--brand-strong) 13%, transparent);
+  /*
+   * THE GRID'S LINE COLOUR IS THE PAGE'S OWN HAIRLINE, THINNED.
+   *
+   * The reference this was adapted from paints the lattice in a literal `#e4e4e7`
+   * (and `#262626` for a dark palette). Those are hardcodes of exactly the colour
+   * `--line` already holds (#e2e8f0 light, #1e293b dark), so the grid is drawn from
+   * `--line` instead: it is the same rule that draws every border, every divider and
+   * every card edge on this page, and a rebrand or a palette change moves all of them
+   * together. Nothing here may be a literal, and that is enforced rather than asked
+   * for: "the marketing pages' decorative grid" in `publicLanding.test.tsx` reads this
+   * declaration and the rule below back out of this file and fails on a hex.
+   *
+   * 62% rather than the full token because a full-strength `--line` tiled every 40px
+   * over a whole hero stops being a texture and becomes graph paper: it competes with
+   * the real dividers below it, which are the ones that carry meaning.
+   */
+  --mk-grid-line: color-mix(in oklab, var(--line) 62%, transparent);
 }
 
 .dark [data-marketing-root] {
   --mk-glow-a: color-mix(in oklab, var(--brand-bright) 20%, transparent);
   --mk-glow-b: color-mix(in oklab, var(--brand) 16%, transparent);
-  --mk-grid: color-mix(in oklab, var(--brand-bright) 13%, transparent);
+  /* Lifted against the dark ground. `--line` (#1e293b) sits much closer to `--app`
+     (#020617) than it does to #fafafa in light, so the light palette's 62% leaves a
+     lattice that is present in the pixels and not visible on a screen; 88% is what the
+     dark screenshot of the hero actually showed a grid at. */
+  --mk-grid-line: color-mix(in oklab, var(--line) 88%, transparent);
 }
 
 /* A soft out-of-focus colour field. Position and size come from Tailwind utilities at
@@ -355,13 +397,58 @@ html:has([data-marketing-root]) body {
   background: var(--mk-glow-b);
 }
 
-/* The faint dotted grid behind the hero. Masked to a soft top ellipse so it fades into
-   the page rather than tiling to a hard edge. */
-[data-marketing-root] .mk-grid-dots {
-  background-image: radial-gradient(var(--mk-grid) 1px, transparent 1.6px);
-  background-size: 26px 26px;
-  -webkit-mask-image: radial-gradient(120% 90% at 50% 0%, #000 45%, transparent 100%);
-  mask-image: radial-gradient(120% 90% at 50% 0%, #000 45%, transparent 100%);
+/*
+ * THE GRID. One texture primitive for the whole marketing tree.
+ *
+ * ⚠ IT REPLACES `.mk-grid-dots`, WHICH IS GONE, AND THAT IS DELIBERATE. The founder
+ * asked for a ruled grid and supplied an Aceternity demo for it; adding one beside the
+ * dotted field would have left two decorative textures doing one job in one visual
+ * system, which is CLAUDE.md's "one way per problem, and migrate rather than
+ * accumulate". Both call sites moved in the same change — the homepage hero and
+ * `PageIntro`, which every interior page renders — so the site has one ground texture
+ * rather than a homepage that disagrees with the seven pages behind it.
+ *
+ * What was adapted from the reference and what was not:
+ *  - KEPT: two `linear-gradient`s crossing at a 40px cell, and a mask so the lattice
+ *    dissolves instead of tiling to a hard edge.
+ *  - DROPPED: `bg-white dark:bg-black` (the ground is `bg-app`, set by the page, and a
+ *    texture that paints its own ground is a fifth ground); the hardcoded line colours
+ *    (see `--mk-grid-line` above); and the demo's fixed `h-[50rem]` box — this class
+ *    paints whatever element it is given, and the call sites size it with `inset-0`
+ *    against real content.
+ *
+ * `background-size` is a LENGTH, not a palette value, so it is literal here on purpose.
+ * So are the mask stops: a mask reads only the ALPHA channel, `#000` means "keep" and
+ * `transparent` means "drop", and neither is a colour the reader ever sees.
+ *
+ * It paints and does not move. A full-viewport background is one composited layer the
+ * GPU draws once; animating one (a drifting or breathing lattice) repaints it every
+ * frame behind everything else on the page, on the mid-range Android this product is
+ * designed for. The page's motion budget is already spent on the reveals.
+ */
+[data-marketing-root] .mk-grid-lines {
+  background-image:
+    linear-gradient(to right, var(--mk-grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--mk-grid-line) 1px, transparent 1px);
+  background-size: 40px 40px;
+  /* Anchored top-left so the cells stay square and do not slide when the element is
+     re-measured; the mask below is what decides where they are actually visible. */
+  background-position: 0 0;
+  /* Strongest along the top edge, gone well before the bottom — so the grid reads as
+     the page's ground opening up rather than as a panel with an edge. */
+  -webkit-mask-image: radial-gradient(115% 82% at 50% 0%, #000 30%, transparent 78%);
+  mask-image: radial-gradient(115% 82% at 50% 0%, #000 30%, transparent 78%);
+}
+
+/*
+ * The reference's own mask: the lattice is absent in the middle and strongest at the
+ * corners. Used where the grid sits INSIDE a bounded panel with text across the middle
+ * of it, which is the one shape where a top-anchored fade would run the lines straight
+ * under a heading.
+ */
+[data-marketing-root] .mk-grid-lines--vignette {
+  -webkit-mask-image: radial-gradient(ellipse at center, transparent 12%, #000 82%);
+  mask-image: radial-gradient(ellipse at center, transparent 12%, #000 82%);
 }
 
 /* The equaliser bars in the "answering" panel. `currentColor` so the bars take the
