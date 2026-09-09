@@ -17,7 +17,6 @@ import { packRate, VOICE_TIERS } from "@/lib/api/rateCard";
 import { RATE_CARD, RATE_CARD_ROUTES } from "./fixtures/rateCard";
 import { stubApi } from "./harness";
 
-
 /** `"50000.00"` → `"₹50,000"`. The page's own rule: whole rupees drop the paise. */
 function formatRateForTest(rate: string): string {
   const tenThousandths = Math.round(Number(rate) * 10_000);
@@ -53,19 +52,45 @@ function formatAmountForTest(amount: string): string {
 const PAGES: readonly {
   name: string;
   element: () => React.ReactElement | Promise<React.ReactElement>;
+  /** Floor on rendered `<main>` text, ~60% of what this page holds. See its use below. */
+  minChars: number;
 }[] = [
   // NOTE the two async entries are CALLED (`PricingPage()`) rather than elemented
   // (`<PricingPage />`). An element whose type is an async function is not a thenable:
   // awaiting it returns the element unchanged, React renders nothing, and every assertion
   // below fails against an empty container for a reason that has nothing to do with the
   // page. Calling it returns the promise of its tree, which is what `render` needs.
-  { name: "/solutions", element: () => <SolutionsPage /> },
-  { name: "/industries", element: () => <IndustriesPage /> },
-  { name: "/why-calevate", element: () => <WhyCalevatePage /> },
-  { name: "/pricing", element: () => PricingPage() },
-  { name: "/roi", element: () => RoiPage() },
-  { name: "/security", element: () => <SecurityPage /> },
-  { name: "/resources", element: () => <ResourcesPage /> },
+  {
+    name: "/solutions",
+    element: () => <SolutionsPage />,
+    minChars: 5200 /* renders 6989 */,
+  },
+  {
+    name: "/industries",
+    element: () => <IndustriesPage />,
+    minChars: 3300 /* renders 4225 */,
+  },
+  {
+    name: "/why-calevate",
+    element: () => <WhyCalevatePage />,
+    minChars: 3800 /* renders 5042 */,
+  },
+  {
+    name: "/pricing",
+    element: () => PricingPage(),
+    minChars: 3700 /* renders 4897 */,
+  },
+  { name: "/roi", element: () => RoiPage(), minChars: 5600 /* renders 7529 */ },
+  {
+    name: "/security",
+    element: () => <SecurityPage />,
+    minChars: 4300 /* renders 5780 */,
+  },
+  {
+    name: "/resources",
+    element: () => <ResourcesPage />,
+    minChars: 4700 /* renders 6294 */,
+  },
 ];
 
 /** `<main>` only — the shared chrome names pages and legal documents, it claims nothing. */
@@ -96,56 +121,89 @@ function assertedText(container: HTMLElement): string {
 }
 
 describe("every marketing page", () => {
-  it.each(PAGES)("$name is a complete, single-headed document", async ({ element }) => {
-    stubApi(RATE_CARD_ROUTES);
-    const { container } = render(await element());
-    // One `<h1>`: these are documents, and a page with two of them (or none) has no
-    // subject a screen-reader user can land on.
-    expect(container.querySelectorAll("h1")).toHaveLength(1);
-    // The shared chrome: a page rendered without it would have no way back to the rest of
-    // the site, which is the defect that made the interior pages worth building at all.
-    expect(container.querySelector("header")).not.toBeNull();
-    expect(container.querySelector("footer")).not.toBeNull();
-    expect(container.firstElementChild?.hasAttribute("data-marketing-root")).toBe(true);
-    // Enough of a page to be worth serving. A stub that renders three cards and a heading
-    // is the thing the founder ruled out, and it is invisible to every other assertion.
-    expect(bodyText(container).length).toBeGreaterThan(1500);
-  });
+  it.each(PAGES)(
+    "$name is a complete, single-headed document",
+    async ({ element, minChars }) => {
+      stubApi(RATE_CARD_ROUTES);
+      const { container } = render(await element());
+      // One `<h1>`: these are documents, and a page with two of them (or none) has no
+      // subject a screen-reader user can land on.
+      expect(container.querySelectorAll("h1")).toHaveLength(1);
+      // The shared chrome: a page rendered without it would have no way back to the rest of
+      // the site, which is the defect that made the interior pages worth building at all.
+      expect(container.querySelector("header")).not.toBeNull();
+      expect(container.querySelector("footer")).not.toBeNull();
+      expect(
+        container.firstElementChild?.hasAttribute("data-marketing-root"),
+      ).toBe(true);
+      // Enough of a page to be worth serving. A stub that renders three cards and a heading
+      // is the thing the founder ruled out, and it is invisible to every other assertion.
+      //
+      // PER PAGE, NOT ONE GLOBAL 1500 (9 Sep 2026). A revert-and-see-red during the content
+      // cut GUTTED `/industries` to stubs and this assertion STAYED GREEN: that page renders
+      // 4,225 characters and `/solutions` 6,989, so a single 1500 floor carried 2.8x and
+      // 4.7x of headroom and would not have noticed a page cut to a quarter of itself. A
+      // floor that only catches an EMPTY page is not a floor, it is a null check.
+      //
+      // Each figure is ~60% of what the page rendered after that cut: enough room for a
+      // future editor to keep trimming honestly, not enough to hollow a page out by
+      // accident. Raise one ONLY with the measurement that justifies it — the number is a
+      // record of what the page was, so a silent bump is the drift this guard exists to
+      // stop.
+      expect(bodyText(container).length).toBeGreaterThan(minChars);
+    },
+  );
 
-  it.each(PAGES)("$name claims no customer, logo or testimonial", async ({ element }) => {
-    stubApi(RATE_CARD_ROUTES);
-    const { container } = render(await element());
-    const text = assertedText(container);
-    expect(text).not.toMatch(/trusted by|our customers say|case study|success story/i);
-    expect(text).not.toMatch(/\d+\+?\s*(businesses|clients|companies|customers)\b/i);
-    // Every image on the site is our own; a third-party logo is both a claim and a request
-    // to a host we do not control.
-    for (const img of container.querySelectorAll("img")) {
-      expect(img.getAttribute("src") ?? "").toMatch(/^\/brand\//);
-    }
-  });
+  it.each(PAGES)(
+    "$name claims no customer, logo or testimonial",
+    async ({ element }) => {
+      stubApi(RATE_CARD_ROUTES);
+      const { container } = render(await element());
+      const text = assertedText(container);
+      expect(text).not.toMatch(
+        /trusted by|our customers say|case study|success story/i,
+      );
+      expect(text).not.toMatch(
+        /\d+\+?\s*(businesses|clients|companies|customers)\b/i,
+      );
+      // Every image on the site is our own; a third-party logo is both a claim and a request
+      // to a host we do not control.
+      for (const img of container.querySelectorAll("img")) {
+        expect(img.getAttribute("src") ?? "").toMatch(/^\/brand\//);
+      }
+    },
+  );
 
   it.each(PAGES)("$name manufactures no urgency", async ({ element }) => {
     stubApi(RATE_CARD_ROUTES);
     const { container } = render(await element());
     const text = assertedText(container);
-    expect(text).not.toMatch(/limited (time|offer|places?|spots?)|only \d+ (left|spots?)/i);
+    expect(text).not.toMatch(
+      /limited (time|offer|places?|spots?)|only \d+ (left|spots?)/i,
+    );
     // `ends soon` and `ends today`, not a bare `ends in` — "an enquiry that ends in"
     // is ordinary English and a ban that fires on it is a ban somebody deletes.
-    expect(text).not.toMatch(/act now|hurry|last chance|offer ends|ends (soon|today)\b/i);
-    expect(text).not.toMatch(/\bwait ?list\b|early bird|founding (member|client)s?/i);
+    expect(text).not.toMatch(
+      /act now|hurry|last chance|offer ends|ends (soon|today)\b/i,
+    );
+    expect(text).not.toMatch(
+      /\bwait ?list\b|early bird|founding (member|client)s?/i,
+    );
   });
 
-  it.each(PAGES)("$name offers no audio and calls nothing a recorded sample", async ({ element }) => {
-    stubApi(RATE_CARD_ROUTES);
-    const { container } = render(await element());
-    // There is no call audio in this repository. A "hear a sample call" control would be a
-    // button with nothing behind it, which is the same defect as a link to a route nobody
-    // mounted. `/why-calevate` names the phrase in order to REFUSE it, so the ban is on the
-    // offer — an audio element or a play control — rather than on the words.
-    expect(container.querySelector("audio")).toBeNull();
-    expect(container.querySelector("video")).toBeNull();
-  });
+  it.each(PAGES)(
+    "$name offers no audio and calls nothing a recorded sample",
+    async ({ element }) => {
+      stubApi(RATE_CARD_ROUTES);
+      const { container } = render(await element());
+      // There is no call audio in this repository. A "hear a sample call" control would be a
+      // button with nothing behind it, which is the same defect as a link to a route nobody
+      // mounted. `/why-calevate` names the phrase in order to REFUSE it, so the ban is on the
+      // offer — an audio element or a play control — rather than on the words.
+      expect(container.querySelector("audio")).toBeNull();
+      expect(container.querySelector("video")).toBeNull();
+    },
+  );
 });
 
 /**
@@ -169,7 +227,9 @@ describe("the why-calevate page's refusals", () => {
     expect(text).toMatch(/no client in production/i);
     expect(text).toMatch(/not true of every leg of a call/i);
     // The quoted claims are struck through, so a screenshot cannot be read as a boast.
-    expect(refusals?.querySelectorAll(".line-through").length).toBeGreaterThan(0);
+    expect(refusals?.querySelectorAll(".line-through").length).toBeGreaterThan(
+      0,
+    );
   });
 });
 
@@ -228,15 +288,23 @@ describe("the pricing page", () => {
         RATE_CARD.list_rate_inr_per_min,
         RATE_CARD.from_sarvam_inr_per_min,
         RATE_CARD.from_cartesia_inr_per_min,
-        ...RATE_CARD.packs.flatMap((pack) => VOICE_TIERS.map((voice) => packRate(pack, voice))),
+        ...RATE_CARD.packs.flatMap((pack) =>
+          VOICE_TIERS.map((voice) => packRate(pack, voice)),
+        ),
       ]
         .map((rate) => formatRateForTest(rate))
-        .concat(RATE_CARD.packs.map((pack) => formatAmountForTest(pack.amount_inr))),
+        .concat(
+          RATE_CARD.packs.map((pack) => formatAmountForTest(pack.amount_inr)),
+        ),
     );
     const rendered = text.match(/₹[\d,]+(\.\d{2})?/g) ?? [];
-    expect(rendered.length, "the page shows no price at all").toBeGreaterThan(0);
+    expect(rendered.length, "the page shows no price at all").toBeGreaterThan(
+      0,
+    );
     for (const figure of rendered) {
-      expect(fromCard, `₹ figure not in the rate card: ${figure}`).toContain(figure);
+      expect(fromCard, `₹ figure not in the rate card: ${figure}`).toContain(
+        figure,
+      );
     }
 
     // Rupees are not the only way to write money, and a bare "5 per minute" would slip
@@ -257,14 +325,20 @@ describe("the pricing page", () => {
     const text = selfServe?.textContent ?? "";
     // The two headline figures are the card's own per-voice "from" rates, rounded to the
     // paisa by the page.
-    expect(text).toContain(formatRateForTest(RATE_CARD.from_sarvam_inr_per_min));
-    expect(text).toContain(formatRateForTest(RATE_CARD.from_cartesia_inr_per_min));
+    expect(text).toContain(
+      formatRateForTest(RATE_CARD.from_sarvam_inr_per_min),
+    );
+    expect(text).toContain(
+      formatRateForTest(RATE_CARD.from_cartesia_inr_per_min),
+    );
     expect(text).toContain(formatRateForTest(RATE_CARD.list_rate_inr_per_min));
     // Every rung, priced ON BOTH VOICES. A ladder that silently rendered five of six, or a
     // table that dropped the dearer column, would still pass a "contains ₹4.50" assertion —
     // which is why this counts rows against the fixture and then requires every one of the
     // twelve rates to be on screen.
-    expect(selfServe?.querySelectorAll("tbody tr")).toHaveLength(RATE_CARD.packs.length);
+    expect(selfServe?.querySelectorAll("tbody tr")).toHaveLength(
+      RATE_CARD.packs.length,
+    );
     for (const pack of RATE_CARD.packs) {
       expect(text).toContain(formatAmountForTest(pack.amount_inr));
       for (const voice of VOICE_TIERS) {
@@ -294,9 +368,9 @@ describe("the pricing page", () => {
     // The COLUMN HEADINGS first, by position rather than by substring: they are the one
     // place a name and a price sit together, and the place a hand-typed name would be
     // hardest to notice because the rest of the page would still read correctly.
-    const headings = [...container.querySelectorAll("#self-serve thead th")].map(
-      (th) => th.textContent,
-    );
+    const headings = [
+      ...container.querySelectorAll("#self-serve thead th"),
+    ].map((th) => th.textContent);
     expect(headings).toContain("Everyday voice");
     expect(headings).toContain("Concert voice");
     // And in the prose, which quotes the same two names.
@@ -354,14 +428,18 @@ describe("the pricing page", () => {
      */
     stubApi(RATE_CARD_ROUTES);
     const { container } = render(await PricingPage());
-    const table = container.querySelector("#self-serve table")?.textContent ?? "";
+    const table =
+      container.querySelector("#self-serve table")?.textContent ?? "";
     const prose = bodyText(container).replace(table, "");
     const counted = new Map<string, number>();
     for (const figure of prose.match(/₹[\d,]+(\.\d{2})?/g) ?? []) {
       counted.set(figure, (counted.get(figure) ?? 0) + 1);
     }
     for (const [figure, times] of counted) {
-      expect(times, `${figure} is quoted ${times} times outside the table`).toBe(1);
+      expect(
+        times,
+        `${figure} is quoted ${times} times outside the table`,
+      ).toBe(1);
     }
     // And the band is BOTH ends of the everyday voice's ladder, in one sentence: the entry
     // rung a first purchase is actually at, and the floor the largest pack reaches.
@@ -391,7 +469,9 @@ describe("the pricing page", () => {
     expect(text).not.toMatch(/the price is a conversation/i);
     // And no claim about how an ACCOUNT is opened: `self_serve_signup_enabled` decides that
     // at runtime and the homepage door is the one place that reads it.
-    expect(text).not.toMatch(/opened by hand|rather than online|nothing to sign/i);
+    expect(text).not.toMatch(
+      /opened by hand|rather than online|nothing to sign/i,
+    );
   });
 
   it("promises no per-voice overage rate on a managed plan", async () => {
@@ -431,7 +511,9 @@ describe("the pricing page", () => {
     const { container } = render(await PricingPage());
     const text = bodyText(container);
     expect(text).toMatch(/account manager/i);
-    expect(text).not.toMatch(/you choose it|choose it agent by agent|you choose which/i);
+    expect(text).not.toMatch(
+      /you choose it|choose it agent by agent|you choose which/i,
+    );
   });
 
   it("sends the reader to the one place a real figure lives", async () => {
@@ -470,10 +552,14 @@ describe("the security page", () => {
     stubApi({});
     const { container } = render(<SecurityPage />);
     const hrefs = new Set(
-      [...container.querySelectorAll("main a[href]")].map((a) => a.getAttribute("href")),
+      [...container.querySelectorAll("main a[href]")].map((a) =>
+        a.getAttribute("href"),
+      ),
     );
     for (const doc of LEGAL_DOCUMENTS) {
-      expect(hrefs, `no link to /legal/${doc.slug}`).toContain(`/legal/${doc.slug}`);
+      expect(hrefs, `no link to /legal/${doc.slug}`).toContain(
+        `/legal/${doc.slug}`,
+      );
     }
   });
 
@@ -490,7 +576,9 @@ describe("the security page", () => {
     // And it says so, so the omission cannot be read as an oversight.
     expect(text).toMatch(/publish no score/i);
     // No certification, because we hold none.
-    expect(text).not.toMatch(/\b(we are|calevate is)\b[^.]{0,40}\bcertified\b/i);
+    expect(text).not.toMatch(
+      /\b(we are|calevate is)\b[^.]{0,40}\bcertified\b/i,
+    );
   });
 });
 
@@ -511,9 +599,9 @@ describe("the industries page", () => {
     for (const industry of INDUSTRIES) {
       const section = container.querySelector(`#${industry.id}`);
       expect(section, `${industry.name} has no section`).not.toBeNull();
-      const fields = [...(section?.querySelectorAll("[data-seed-fields] li") ?? [])].map(
-        (li) => li.textContent,
-      );
+      const fields = [
+        ...(section?.querySelectorAll("[data-seed-fields] li") ?? []),
+      ].map((li) => li.textContent);
       expect(fields, `${industry.name} does not show its field list`).toEqual([
         ...industry.fields,
       ]);
@@ -521,8 +609,12 @@ describe("the industries page", () => {
     }
     // The suite statement appears on all four, in one direction or the other — two
     // verticals have golden-transcript cases today (`cl_*`, `re_*`) and two do not.
-    expect(text.match(/with its own suite of test calls behind it/g)).toHaveLength(2);
-    expect(text.match(/the test calls for it are still being written/g)).toHaveLength(2);
+    expect(
+      text.match(/with its own suite of test calls behind it/g),
+    ).toHaveLength(2);
+    expect(
+      text.match(/the test calls for it are still being written/g),
+    ).toHaveLength(2);
   });
 });
 
@@ -550,7 +642,10 @@ describe("the resources page", () => {
   function glossary(container: HTMLElement): Map<string, string> {
     const entries = new Map<string, string>();
     for (const item of container.querySelectorAll("#glossary dt")) {
-      entries.set(item.textContent ?? "", item.nextElementSibling?.textContent ?? "");
+      entries.set(
+        item.textContent ?? "",
+        item.nextElementSibling?.textContent ?? "",
+      );
     }
     return entries;
   }
@@ -559,7 +654,9 @@ describe("the resources page", () => {
     stubApi({});
     const { container } = render(<ResourcesPage />);
     const text = bodyText(container);
-    expect(text).not.toMatch(/no (figure|price|rate) is (printed|published|shown)/i);
+    expect(text).not.toMatch(
+      /no (figure|price|rate) is (printed|published|shown)/i,
+    );
     expect(text).not.toMatch(/why there is no price/i);
     // And it still describes the page it links to, rather than dropping the sentence.
     expect(text).toMatch(/two voices/i);
@@ -607,7 +704,9 @@ describe("the ROI page", () => {
     // The methodology the homepage hides is OPEN here — that is the page's reason to exist.
     const text = bodyText(container);
     expect(text).toMatch(/illustrative/i);
-    expect(text).toMatch(/costs?\s+MORE|goes against us|cannot lose is a brochure/i);
+    expect(text).toMatch(
+      /costs?\s+MORE|goes against us|cannot lose is a brochure/i,
+    );
     /*
      * AND THE THREE REFUSALS AS STRUCTURE, because the alternation above cannot see them.
      * Its weakest arm is "goes against us" — which is the SECTION'S OWN EYEBROW — so a
@@ -637,7 +736,8 @@ describe("the ROI page", () => {
     stubApi(RATE_CARD_ROUTES);
     const { container } = render(await RoiPage());
     const main = container.querySelector("main");
-    for (const disclosure of main?.querySelectorAll("details") ?? []) disclosure.remove();
+    for (const disclosure of main?.querySelectorAll("details") ?? [])
+      disclosure.remove();
     expect(main?.textContent).toMatch(/not measurements we have taken/i);
     expect(main?.textContent).toMatch(/slider you can move/i);
   });

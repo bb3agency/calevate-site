@@ -42,11 +42,22 @@ export const SHELL =
   "mx-auto w-full max-w-6xl px-5 sm:px-6 xl:max-w-7xl 2xl:max-w-[90rem]";
 
 /**
- * A band's vertical rhythm. It steps DOWN on a phone (64px, not 80px) — a dozen bands at
- * `py-20` spend over a thousand pixels of a 360px reader's scroll on nothing, and vertical
- * air is the one thing a phone has least of.
+ * A band's vertical rhythm. It still steps DOWN on a phone for the reason it always did —
+ * vertical air is the one thing a 360px reader has least of, and a dozen bands at desktop
+ * spacing spend a thousand pixels of their scroll on nothing.
+ *
+ * RAISED 64/80/96 -> 80/96/128 (9 Sep 2026) BECAUSE THE PAGES GOT SHORTER, not despite it.
+ * The content cut removed ~1,700 words of prose across the eight public pages, and the
+ * measurement afterwards was the argument: `/pricing` lost 29% of its WORDS and only 11%
+ * of its HEIGHT, because once the prose is gone a section is mostly padding. The "dozen
+ * bands" the old value was defending against is also no longer the shape — the cut left
+ * fewer, denser bands, so each one can afford more air than when they were many and long.
+ *
+ * DELIBERATELY NOT the homepage's `HOME.chapter` (96/128/160). That scale is for a page
+ * somebody is SCANNING while deciding; these are pages somebody OPENED, having already
+ * decided to read. One step below the landing page, one step above where they were.
  */
-export const SECTION = "py-16 sm:py-20 lg:py-24";
+export const SECTION = "py-20 sm:py-24 lg:py-32";
 
 /**
  * A card. 20px of padding on a phone rather than 24px, for `tests/responsive.test.ts`'s
@@ -124,8 +135,12 @@ export function Eyebrow({
   const rule = tone === "inverse" ? "bg-white/35" : "bg-brand/50";
   const number = tone === "inverse" ? "text-white/55" : "text-ink-faint";
   return (
-    <p className={`flex items-center gap-3 text-xs font-semibold tracking-[0.18em] uppercase ${label}`}>
-      {index !== undefined && <span className={`font-mono ${number}`}>{index}</span>}
+    <p
+      className={`flex items-center gap-3 text-xs font-semibold tracking-[0.18em] uppercase ${label}`}
+    >
+      {index !== undefined && (
+        <span className={`font-mono ${number}`}>{index}</span>
+      )}
       <span aria-hidden className={`h-px w-6 ${rule}`} />
       {children}
     </p>
@@ -161,7 +176,9 @@ export function PageIntro({
         <h1 className="mt-4 max-w-4xl text-[2.25rem] leading-[1.08] font-semibold tracking-tight text-balance text-ink sm:text-5xl sm:leading-[1.05]">
           {title}
         </h1>
-        <p className="mt-5 max-w-2xl text-lg text-pretty text-ink-muted">{lede}</p>
+        <p className="mt-5 max-w-2xl text-lg text-pretty text-ink-muted">
+          {lede}
+        </p>
         {children}
       </div>
     </section>
@@ -185,9 +202,9 @@ export function ClosingCta({ line }: { line: string }) {
             {line}
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            Tell us what your callers ring about and what you need written down about each
-            one. You approve the agent before it goes live, and nothing calls a customer
-            until you launch it.
+            Tell us what your callers ring about and what you need written down
+            about each one. You approve the agent before it goes live, and
+            nothing calls a customer until you launch it.
           </p>
           <div className="mt-7 flex flex-wrap items-center gap-3">
             <Link href="/signup" className={CTA_PRIMARY}>
