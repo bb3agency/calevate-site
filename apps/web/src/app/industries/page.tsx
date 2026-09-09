@@ -3,6 +3,8 @@ import Link from "next/link";
 
 import { Check } from "lucide-react";
 
+import { publicPageMetadata } from "@/lib/seo/metadata";
+
 import {
   CARD,
   ClosingCta,
@@ -50,12 +52,13 @@ import { INDUSTRIES } from "@/lib/marketing/industries";
  * here rather than hidden: closing it means changing the homepage band, which is not this
  * file's to change.
  */
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
+  path: "/industries",
   title: "Industries — Calevate",
   description:
     "What a Calevate agent asks, and what the owner receives, for clinics, property " +
     "offices, insurance advisors and coaching centres in Andhra Pradesh and Telangana.",
-};
+});
 
 export default function IndustriesPage() {
   return (

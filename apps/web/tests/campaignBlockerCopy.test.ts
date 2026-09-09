@@ -57,7 +57,15 @@ import { describe, expect, it } from "vitest";
 
 const WEB_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_ROOT = resolve(WEB_ROOT, "../..");
-const CAMPAIGNS_PAGE = resolve(WEB_ROOT, "src/app/c/[slug]/campaigns/page.tsx");
+/**
+ * ⚠ THE TABLE MOVED OUT OF `page.tsx` (UX-DOCTRINE §6 split, Sep 2026) and this path
+ * moved with it. Nothing about the assertion below changed — the same AST read of the
+ * same literal, one file along.
+ */
+const BLOCKER_COPY_MODULE = resolve(
+  WEB_ROOT,
+  "src/app/c/[slug]/campaigns/blockerCopy.tsx",
+);
 
 /** The two API packages a launch blocker can be constructed in. */
 const RULE_SOURCES = ["apps/api/campaigns", "apps/api/compliance"];
@@ -89,12 +97,13 @@ function serverRuleVocabulary(): Set<string> {
 }
 
 /**
- * The keys of a top-level `Record` literal in the campaigns page, read from the AST.
+ * The keys of a top-level `Record` literal in the campaigns screen, read from the AST.
  *
- * Not an import: `BLOCKER_COPY` is private to a `page.tsx`, and Next's App Router
- * validates the exports of a page module — exporting a constant to make it testable
- * would change the shape of a route file to suit a test. Not a regex either, because
- * these entries span lines and hold `+`-joined prose with braces in it.
+ * Read from source rather than imported, and that is still the right call after the
+ * table left `page.tsx`: an import would pull the whole component tree (`Term`, the
+ * glossary, lucide) into a test whose subject is a set of strings, and it would fail on
+ * a render error rather than on the fact under test. Not a regex either, because these
+ * entries span lines and hold `+`-joined prose with braces in it.
  */
 function recordKeys(file: string, name: string): string[] {
   const source = ts.createSourceFile(
@@ -151,7 +160,7 @@ describe("the launch panel's blocker copy is keyed to rules that still exist", (
 
   it("has no entry naming a rule the API cannot emit", () => {
     const rules = serverRuleVocabulary();
-    const keys = recordKeys(CAMPAIGNS_PAGE, "BLOCKER_COPY");
+    const keys = recordKeys(BLOCKER_COPY_MODULE, "BLOCKER_COPY");
     expect(keys.length, "BLOCKER_COPY is empty — the AST read is looking at the wrong node")
       .toBeGreaterThan(10);
 

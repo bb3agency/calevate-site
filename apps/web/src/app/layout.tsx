@@ -1,6 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 
+import { StructuredData } from "@/components/structuredData";
+import { SITE_LOCALE, SITE_NAME } from "@/lib/seo/metadata";
+import { SITE_ORIGIN } from "@/lib/site";
+
 import "./globals.css";
 
 const ppMori = localFont({
@@ -62,9 +66,38 @@ const jetbrainsMono = localFont({
   variable: "--font-jetbrains-mono",
 });
 
+/**
+ * The site-wide metadata every route inherits, and the ONE thing here that is load-bearing
+ * beyond the title: `metadataBase`.
+ *
+ * Without it Next resolves `openGraph.url`, `alternates.canonical` and the generated
+ * `opengraph-image` as RELATIVE URLs and logs *"metadataBase property in metadata export
+ * is not set... using default"* at build time. A relative `og:image` is not a defect the
+ * page shows — every link preview simply fails to render an image, which is discovered by
+ * somebody pasting the URL into WhatsApp, not by a gate. It resolves against
+ * `lib/site.SITE_ORIGIN`, the same constant `sitemap.ts`, `robots.ts` and every canonical
+ * tag use, so the four cannot name different sites.
+ *
+ * ⚠ NO `alternates.canonical` HERE, deliberately. Canonical inherits down the segment
+ * tree, so one set at the root would make every page that did not override it declare `/`
+ * as its canonical — which asks a search engine to drop nine pages and keep the homepage.
+ * Each public route states its own through `lib/seo/metadata.publicPageMetadata`, and
+ * `tests/seo.test.ts` fails if one does not.
+ *
+ * The title and description below are the FALLBACK, for the realms that are not public
+ * pages (the two consoles, the auth screens). Every public page overrides both.
+ */
 export const metadata: Metadata = {
+  metadataBase: new URL(SITE_ORIGIN),
   title: "Calevate",
   description: "AI phone agents for Indian businesses",
+  openGraph: {
+    type: "website",
+    siteName: SITE_NAME,
+    locale: SITE_LOCALE,
+    url: SITE_ORIGIN,
+  },
+  twitter: { card: "summary_large_image" },
 };
 
 /**
@@ -141,6 +174,9 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col">
         {children}
+        {/* Organization + WebSite JSON-LD. Last in the body because it renders nothing and
+            reads the per-request CSP nonce; see `components/structuredData.tsx`. */}
+        <StructuredData />
       </body>
     </html>
   );

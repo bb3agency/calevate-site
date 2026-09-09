@@ -9,6 +9,8 @@ import { fileURLToPath } from "node:url";
 
 import { chromium, type Browser, type Page } from "playwright-core";
 
+import { PUBLIC_ROUTES } from "@/lib/site";
+
 import { RATE_CARD } from "../fixtures/rateCard";
 
 /**
@@ -116,14 +118,18 @@ export type Palette = (typeof PALETTES)[number];
 /**
  * Every page this gate scans, with why it is here.
  *
- * The eight public pages are `/` plus the seven in `siteHeader.NAV_ROUTES`. They are
- * listed literally rather than imported from that module, because importing a `.tsx`
- * component into this node-environment harness would drag React, `next/link` and the
- * whole icon set into a process whose job is to spawn a server — and the drift that
- * would guard against is caught instead by `assertNoUnlistedPublicRoutes()` below, which
- * reads the links out of the SERVED home page and fails on one this list does not name.
- * That is a stronger check than an import: it sees the rendered navigation, not a
- * constant.
+ * ⚠ THE EIGHT PUBLIC PAGES ARE NO LONGER SPELLED HERE. They were, and the header above
+ * this list used to argue for it — importing `NAV_ROUTES` would drag React, `next/link`
+ * and the whole icon set into a node process whose job is to spawn a server. That argument
+ * was about importing a `.tsx` COMPONENT and it still holds; what changed on 9 Sep 2026 is
+ * that the site's page list is now a plain data module with no imports at all
+ * (`src/lib/site.ts`), written so this harness and `app/sitemap.ts` and the navigation can
+ * share one table. Deriving from it costs this process nothing and closes the drift the
+ * comment below still guards against from the other end.
+ *
+ * `assertNoUnlistedPublicRoutes()` STAYS, and is not made redundant by the derivation: it
+ * reads the links out of the SERVED home page, so it also catches a route added to the
+ * footer or to a card in the body that nobody put in `PUBLIC_ROUTES` either.
  */
 export interface ScanTarget {
   /** Path to fetch, e.g. `/pricing`. */
@@ -133,16 +139,7 @@ export interface ScanTarget {
 }
 
 export const SCAN_TARGETS: readonly ScanTarget[] = [
-  { path: "/", why: "the landing page" },
-  { path: "/solutions", why: "public: nav route" },
-  { path: "/industries", why: "public: nav route — held one of the seven found failures" },
-  { path: "/why-calevate", why: "public: nav route" },
-  { path: "/pricing", why: "public: nav route, and the only page printing money" },
-  { path: "/roi", why: "public: nav route — the calculator held one of the seven" },
-  { path: "/security", why: "public: nav route" },
-  { path: "/resources", why: "public: nav route" },
-  { path: "/signup", why: "public: the header CTA, and the first form a client meets" },
-  { path: "/legal", why: "public: the legal index, linked from every footer" },
+  ...PUBLIC_ROUTES.map((route) => ({ path: route.path, why: `public: ${route.why}` })),
   {
     path: "/legal/privacy",
     why: "public: a legal DOCUMENT — long-form prose, a different layout from the index",

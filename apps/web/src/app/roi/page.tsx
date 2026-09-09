@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+
+import { publicPageMetadata } from "@/lib/seo/metadata";
+
 import { fetchPublicRateCard } from "@/lib/api/rateCard";
 import Link from "next/link";
 
@@ -54,13 +57,14 @@ import { RoiCalculator } from "@/components/marketing/roiCalculator";
  *   published because it is real, and it is a self-serve rate rather than a quote —
  *   `/pricing` explains why the managed number is a conversation.
  */
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
+  path: "/roi",
   title: "ROI — Calevate",
   description:
     "Compare Calevate against hiring telecallers with your own numbers, with every " +
     "assumption on both sides exposed — including the branches where the comparison " +
     "goes against us.",
-};
+});
 
 /** The three branches in which the tool argues against us. */
 const AGAINST: readonly { term: string; detail: string }[] = [

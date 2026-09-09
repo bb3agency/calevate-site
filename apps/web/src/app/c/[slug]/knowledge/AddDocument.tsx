@@ -143,9 +143,7 @@ export function AddDocument({
           <span className="text-sm font-medium text-ink">
             Choose a file, or drag one here
           </span>
-          <span className="text-xs text-ink-muted">
-            One at a time. We will tell you when your agent has it.
-          </span>
+          <span className="text-xs text-ink-muted">One at a time.</span>
         </label>
 
         {/* THE BAR, and the sentence beside it. `role="progressbar"` with the three ARIA

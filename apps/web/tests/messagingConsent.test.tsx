@@ -289,3 +289,55 @@ describe("recording an answer", () => {
     expect(container.querySelector("h1")).toBeNull();
   });
 });
+
+/**
+ * The sentences that carry the DPDP/TCCCPR position, pinned as words rather than as
+ * behaviour.
+ *
+ * Three of the five rules were already asserted above. These are the four that were not,
+ * and each one is a claim a client would repeat to a regulator or act on when a follow-up
+ * does not send: the year-long validity, that no staff member may assert an opt-in on a
+ * customer's behalf, and the two verdicts that must never read as a green light.
+ */
+describe("messaging consent — the position printed on the screen", () => {
+  it("says an opt-in cannot be asserted on the customer's behalf", async () => {
+    const { container } = await renderClientPage(<MessagingConsentPage />, { "/v1/me": ME });
+    await screen.findByText("Record what a customer said");
+
+    expect(container.textContent).toContain("an opt-in has to come from the customer");
+    // The validity period is stated where the answer is given, not only in the rules.
+    expect(container.textContent).toContain("it stops being current after a year");
+  });
+
+  it("renders an expired opt-in as NOT messageable, with the date it lapsed", async () => {
+    const { container } = await lookUp(
+      consent({
+        messageable: false,
+        status: "granted",
+        source: "inbound_call_verbal",
+        captured_at: "2025-07-01T10:00:00Z",
+        expires_at: "2026-07-01T10:00:00Z",
+      }),
+    );
+
+    await screen.findByText(/Not messageable — their opt-in has expired/);
+    expect(container.textContent).toContain("Ask again before messaging them");
+  });
+
+  it("renders a withdrawal as a stop, in the person's own terms", async () => {
+    const { container } = await lookUp(
+      consent({ status: "withdrawn", captured_at: "2026-07-01T10:00:00Z" }),
+    );
+
+    await screen.findByText(/Not messageable — they asked us to stop/);
+    expect(container.textContent).not.toContain("You may send this person");
+  });
+
+  it("says a number nobody has asked is skipped, not assumed", async () => {
+    const { container } = await lookUp(consent({ status: "none" }));
+
+    await screen.findByText(/nobody has asked them yet/);
+    expect(container.textContent).toContain("Campaign follow-ups will skip this number");
+    expect(container.textContent).toContain("not an assumption");
+  });
+});

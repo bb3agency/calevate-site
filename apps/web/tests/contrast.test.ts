@@ -1,4 +1,4 @@
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import { relPosix } from "./repoPaths";
@@ -417,10 +417,41 @@ describe("the design tokens meet WCAG 1.4.3 AA", () => {
    * text between them, which is where a JSX className sits — plus, where that className
    * interpolates `${SOME_CONSTANT}`, the constant's own text from the same file. Most of
    * these cards share a `CHOICE_CARD` string, so a scan that only read the opening tag
-   * would report every one of them as broken however it was fixed. It does NOT follow a
-   * constant IMPORTED from another module: chasing identifiers across files is a
-   * type-checker, and no call site in this tree does that today.
+   * would report every one of them as broken however it was fixed.
+   *
+   * ⚠ IT NOW FOLLOWS ONE HOP OF A RELATIVE IMPORT, AND THIS COMMENT USED TO SAY IT DID
+   * NOT. The campaigns screen was split by subject (UX-DOCTRINE §6) and `CHOICE_CARD`
+   * moved to `campaigns/choices.tsx`, leaving both of its call sites reported as broken
+   * markup that was in fact untouched. The alternative was to exempt them, which would
+   * have deleted the rule for the two cards it was written for. One hop is deliberately
+   * where it stops — chasing identifiers arbitrarily far is a type-checker — and the
+   * resolution is STRICTLY WIDER than before: a ring-less constant imported from a
+   * sibling now fails where it used to pass in silence.
    */
+  /**
+   * ONE HOP. Where `${IDENT}` is not declared in this file, find the relative import that
+   * brought it in, read THAT file, and return the constant's text — so a class string
+   * that moved to a sibling module is still resolved rather than reported as missing.
+   * Returns "" when it cannot be found, which fails closed: an unresolvable constant is
+   * an offender, exactly as an absent one always was.
+   */
+  function importedConst(file: string, text: string, name: string): string {
+    const from = text.match(
+      new RegExp(`import\\s*\\{[^}]*\\b${name}\\b[^}]*\\}\\s*from\\s*"(\\.[^"]+)"`),
+    );
+    if (!from) return "";
+    for (const ext of [".ts", ".tsx"]) {
+      const candidate = resolve(dirname(file), `${from[1]}${ext}`);
+      if (!existsSync(candidate)) continue;
+      const sibling = readFileSync(candidate, "utf8");
+      const declared = sibling.match(
+        new RegExp(`\\bconst\\s+${name}\\s*=\\s*([\\s\\S]*?);`),
+      );
+      if (declared) return declared[1];
+    }
+    return "";
+  }
+
   it("draws a focus ring on every label that hides its own input", () => {
     const files = sourceFiles();
     const found: string[] = [];
@@ -450,7 +481,7 @@ describe("the design tokens meet WCAG 1.4.3 AA", () => {
         }
         const opening = text.slice(labelAt, at);
         const viaConstant = [...opening.matchAll(/\$\{(\w+)/g)].some((ref) =>
-          HAS_RING.test(consts.get(ref[1]) ?? ""),
+          HAS_RING.test(consts.get(ref[1]) ?? importedConst(file, text, ref[1])),
         );
         if (HAS_RING.test(opening) || viaConstant) continue;
         if (Object.hasOwn(SR_ONLY_FOCUS_EXEMPT, relativeToWeb(file))) continue;

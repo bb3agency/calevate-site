@@ -4,6 +4,7 @@ import { use } from "react";
 
 import { LEGAL_DOCUMENTS, legalDocument } from "@/lib/legal";
 import { LegalDocumentPage } from "@/lib/legal/document";
+import { publicPageMetadata } from "@/lib/seo/metadata";
 
 /**
  * One route for all eight documents, statically generated from the content module.
@@ -30,6 +31,14 @@ export function generateStaticParams(): { slug: string }[] {
   return LEGAL_DOCUMENTS.map((doc) => ({ slug: doc.slug }));
 }
 
+/**
+ * ⚠ THE NOT-FOUND BRANCH IS `noindex`, AND THAT IS THE POINT OF IT BEING SEPARATE.
+ *
+ * `/legal/gdpr` renders the 404 screen (`notFound()` below) but Next has already resolved
+ * this function, and a soft-404 that carries a canonical URL is how a nonexistent page
+ * gets indexed. `robots: { index: false }` says what the page is. It gets no canonical
+ * either: there is no URL for it to be canonical to.
+ */
 export async function generateMetadata({
   params,
 }: {
@@ -37,8 +46,12 @@ export async function generateMetadata({
 }): Promise<Metadata> {
   const { slug } = await params;
   const doc = legalDocument(slug);
-  if (!doc) return { title: "Not found — Calevate" };
-  return { title: `${doc.title} — Calevate`, description: doc.summary };
+  if (!doc) return { title: "Not found — Calevate", robots: { index: false } };
+  return publicPageMetadata({
+    path: `/legal/${doc.slug}`,
+    title: `${doc.title} — Calevate`,
+    description: doc.summary,
+  });
 }
 
 export default function LegalDocumentRoute({ params }: { params: Promise<{ slug: string }> }) {

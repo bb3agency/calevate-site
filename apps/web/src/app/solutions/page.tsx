@@ -12,6 +12,8 @@ import {
   X,
 } from "lucide-react";
 
+import { publicPageMetadata } from "@/lib/seo/metadata";
+
 import {
   CARD,
   ClosingCta,
@@ -67,13 +69,14 @@ import {
  * the 9pm dialling window, the DNC scrub and the AI-disclosure sentence, and UX-DOCTRINE §3
  * forbids putting a compliance sentence behind a disclosure.
  */
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
+  path: "/solutions",
   title: "Solutions — Calevate",
   description:
     "The six jobs a Calevate agent does for an Indian SMB: answering, follow-up, " +
     "qualification, appointments, delivery to your own tools, and answering from facts " +
     "you approved — with what each one does not do.",
-};
+});
 
 interface Solution {
   readonly id: string;

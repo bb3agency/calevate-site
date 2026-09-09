@@ -99,13 +99,42 @@ def _parse_nav() -> tuple[NavEntry, ...]:
     return tuple(entries)
 
 
+def _route_dir(route: str) -> Path:
+    suffix = route.removeprefix("/c/{slug}").strip("/")
+    return (CLIENT_APP / suffix) if suffix else CLIENT_APP
+
+
 def _page_source(route: str) -> str:
     """The `page.tsx` behind a route template. Raises if the file is not where the route
     says it is — which is itself a finding: a nav entry pointing at nothing is the
     frontend's half-wired feature."""
-    suffix = route.removeprefix("/c/{slug}").strip("/")
-    page = (CLIENT_APP / suffix / "page.tsx") if suffix else (CLIENT_APP / "page.tsx")
-    return page.read_text(encoding="utf-8")
+    return (_route_dir(route) / "page.tsx").read_text(encoding="utf-8")
+
+
+def _screen_source(route: str) -> str:
+    """The WHOLE screen: `page.tsx` and the modules beside it, concatenated.
+
+    Not `page.tsx` alone, and the difference is the reason this helper exists. When the
+    console was split by subject (UX-DOCTRINE §6, Sep 2026) a route module became a
+    sixteen-line mount and the screen's own whole-screen refusal moved to a sibling —
+    `performance/PerformanceScreen.tsx` still refuses `calls:read`, but a reader that
+    stopped at `page.tsx` saw a screen enforcing NOTHING and would have concluded the
+    inventory was over-declaring. The failure this guard exists to catch (the copilot
+    sending a staff member to a screen that will refuse them) is unchanged by where the
+    refusal is spelled, so the guard reads where the screen actually lives.
+
+    Non-recursive on purpose: a nested directory is a DIFFERENT route with its own row in
+    the inventory, and folding its refusal in here would attribute it to the parent.
+    """
+    directory = _route_dir(route)
+    # `page.tsx` first so it raises the same way when a route points at nothing.
+    sources = [(directory / "page.tsx").read_text(encoding="utf-8")]
+    sources.extend(
+        module.read_text(encoding="utf-8")
+        for module in sorted(directory.glob("*.ts*"))
+        if module.name != "page.tsx"
+    )
+    return "\n".join(sources)
 
 
 # --- the parser itself ------------------------------------------------------------------
@@ -159,12 +188,14 @@ def test_every_screen_has_a_page_behind_it() -> None:
 def test_a_screen_that_refuses_a_role_says_so_in_the_inventory() -> None:
     """The declared permission is the one the SCREEN ITSELF enforces — both directions.
 
-    A screen whose page carries a whole-screen refusal must declare that permission here,
-    so the copilot never sends a staff member to Invoice; a screen with no such refusal
-    must declare NONE, so it never tells them a screen they can open is the owner's.
+    A screen that carries a whole-screen refusal must declare that permission here, so the
+    copilot never sends a staff member to Invoice; a screen with no such refusal must
+    declare NONE, so it never tells them a screen they can open is the owner's. "The
+    screen" is `_screen_source`, not `page.tsx`: see the argument there for why reading
+    only the route module made this assert the opposite of what it means.
     """
     for screen in screens_module.CLIENT_SCREENS:
-        found = _WHOLE_SCREEN_REFUSAL.search(_page_source(screen.route))
+        found = _WHOLE_SCREEN_REFUSAL.search(_screen_source(screen.route))
         enforced = None if found is None else found.group("permission")
         assert screen.permission == enforced, (
             f"{screen.name}: the screen enforces {enforced!r}, the inventory says "

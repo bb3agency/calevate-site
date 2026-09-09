@@ -3,6 +3,8 @@ import Link from "next/link";
 
 import { ArrowRight, Check, Globe, Lock } from "lucide-react";
 
+import { publicPageMetadata } from "@/lib/seo/metadata";
+
 import {
   CARD,
   ClosingCta,
@@ -54,12 +56,13 @@ import { LEGAL_DOCUMENTS } from "@/lib/legal";
  * honest position: nothing publishes a per-scenario result a client-facing page could read.
  * See `TESTED_SCENARIOS` for what was checked before the list was written.
  */
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
+  path: "/security",
   title: "Security & compliance — Calevate",
   description:
     "What Calevate enforces on every dial, where each part of a call runs, who can see " +
     "your customers' data, and the published legal documents behind all of it.",
-};
+});
 
 export default function SecurityPage() {
   return (

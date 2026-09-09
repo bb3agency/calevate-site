@@ -314,6 +314,16 @@ export const UNSWEPT_SCREENS: Record<string, string> = {
       "a server redirect into c/[slug]/billing (D-525) — it renders no markup to scan",
     ]),
   ),
+  "signup/layout.tsx": (
+    "a METADATA-ONLY layout: it exists because `signup/page.tsx` is a client component " +
+    "and a client component cannot export `metadata`, so `/signup` would otherwise " +
+    "inherit the root layout's title and description (see the file's own header). It " +
+    "returns `{children}` and renders no element of its own, so there is no subtree for " +
+    "axe to scan and nothing it could contribute to one. The page it wraps IS swept, " +
+    "both here (`signup/page.tsx`) and in a real browser by `tests/browser/gate.ts`. " +
+    "CLOSED BY: nothing — this entry is correct for as long as the file renders no " +
+    "markup, and the day it renders any it must move into SCREENS instead."
+  ),
   "layout.tsx": (
     "the ROOT layout renders `<html lang=\"en\">` and `<body>`, which React Testing " +
     "Library cannot mount into a container div — there is no subtree for axe to scan. " +

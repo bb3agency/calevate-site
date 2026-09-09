@@ -156,13 +156,32 @@ describe("every screen that uses a term explains it", () => {
       "A copy table, not a screen. Its sentences render on /admin/ops, which glosses the " +
       "term itself; a second box on the same screen would be the noise this mechanism is " +
       "supposed to prevent.",
-    "src/app/admin/tenants/[tenantId]/page.tsx:kyc":
+    "src/app/admin/ops/OpsSurface.tsx:tm":
+      "Not screen copy: it is the LABEL of a fact this screen declares to the assistant, " +
+      "and the screen itself glosses the term where a person reads it — " +
+      "`TmRegistrationPanel.tsx`, the panel this fact is about.",
+    "src/app/c/[slug]/verification/page.tsx:tm":
+      "Not screen copy: it is the LABEL of a fact this screen declares to the assistant, " +
+      "and the screen glosses the term where a person reads it — " +
+      "`verification/DltRegistration.tsx`, the section this fact is about. Same case as " +
+      "`admin/ops/OpsSurface.tsx:tm` above.",
+    "src/app/c/[slug]/campaigns/campaignsCopilotSurface.ts:dlt":
+      "Not screen copy: it is the LABEL of a control this screen declares to the " +
+      "assistant, and the screen glosses the term where a person reads it — " +
+      "`campaigns/NewCampaignForm.tsx` and `campaigns/blockerCopy.tsx`. Same case as " +
+      "`admin/ops/OpsSurface.tsx:tm` above, and a `.ts` data module producing plain " +
+      "strings for a model cannot hold an element anyway.",
+    "src/app/c/[slug]/campaigns/campaignsCopilotSurface.ts:series140":
+      "Same entry, same reason: the string is the assistant's `help` for the " +
+      "classification control, and `campaigns/choices.tsx` glosses the series where the " +
+      "client reads it.",
+    "src/app/admin/tenants/[tenantId]/TenantNav.tsx:kyc":
       "Operator realm, and the string is the section label `Identity (KYC)` — the " +
       "parenthesis IS the gloss, and a label is not prose a box can sit in.",
-    "src/app/admin/tenants/[tenantId]/page.tsx:series140":
+    "src/app/admin/tenants/[tenantId]/CampaignSetup.tsx:series140":
       "The option label is `140 — promotional`: it explains itself in the two words " +
       "beside it, and an <option> cannot hold an element.",
-    "src/app/admin/tenants/[tenantId]/page.tsx:series160":
+    "src/app/admin/tenants/[tenantId]/CampaignSetup.tsx:series160":
       "The option label is `160 — service`, for the reason above.",
     "src/app/resources/page.tsx:dlt":
       "This page IS a glossary — `Registration (DLT)` is a term whose own `detail` " +

@@ -192,10 +192,25 @@ def test_the_silenced_agent_row_says_what_stopped_and_what_undoes_it() -> None:
 #: arm, which is a different condition and whose copy is still true.
 WEB_CREDIT_REGIONS: tuple[tuple[str, str, str | None], ...] = (
     ("apps/web/src/app/c/[slug]/billing/WalletHero.tsx", "export function WalletHero", None),
-    ("apps/web/src/app/c/[slug]/page.tsx", "calling_credit", None),
+    # ⚠ RE-AIMED, not dropped, for the reason the note below gives: the client home was
+    # split by subject too, so the tile's own copy and the fact the assistant is told about
+    # it now live in two files and BOTH are guarded.
+    (
+        "apps/web/src/app/c/[slug]/CallingCreditTile.tsx",
+        "export function CallingCreditTile",
+        None,
+    ),
+    ("apps/web/src/app/c/[slug]/DashboardScreen.tsx", "calling_credit", None),
     ("apps/web/src/app/c/[slug]/billing/page.tsx", '"outbound_stopped"', None),
-    ("apps/web/src/app/c/[slug]/leads/page.tsx", 'rule === "no_credits"', 'rule === "spend_cap"'),
-    ("apps/web/src/app/c/[slug]/campaigns/page.tsx", "  no_credits: {", "  spend_cap: {"),
+    # ⚠ BOTH SCREENS WERE SPLIT BY SUBJECT (UX-DOCTRINE §6, Sep 2026) and these two
+    # anchors moved out of their `page.tsx` with the copy they name. The guard is re-aimed
+    # rather than dropped, exactly as its own failure message instructs.
+    (
+        "apps/web/src/app/c/[slug]/leads/CallControl.tsx",
+        'rule === "no_credits"',
+        'rule === "spend_cap"',
+    ),
+    ("apps/web/src/app/c/[slug]/campaigns/blockerCopy.tsx", "  no_credits: {", "  spend_cap: {"),
     ("apps/web/src/app/admin/tenants/[tenantId]/credits/page.tsx", "result.stops_dialling", None),
     ("apps/web/src/app/pricing/page.tsx", "Prepaid credit", "Two ceilings"),
 )
@@ -251,7 +266,9 @@ UNCHANGED_CONDITIONS: tuple[tuple[str, str, str], ...] = (
         "a platform maintenance window",
     ),
     (
-        "apps/web/src/app/admin/ops/page.tsx",
+        # The panel moved out of the route module when /admin/ops was split by subject
+        # (UX-DOCTRINE §6). Same sentence, same switch, one file down.
+        "apps/web/src/app/admin/ops/OutboundHaltPanel.tsx",
         "Inbound calls are unaffected",
         "the big red switch",
     ),

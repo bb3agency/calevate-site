@@ -1,4 +1,7 @@
 import type { Metadata } from "next";
+
+import { publicPageMetadata } from "@/lib/seo/metadata";
+
 import {
   cardFromRate,
   fetchPublicRateCard,
@@ -73,12 +76,13 @@ import {
  *
  * Every claim below cites the code that makes it true, at the point of use.
  */
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
+  path: "/pricing",
   title: "Pricing — Calevate",
   description:
     "How Calevate is billed: what is metered, how a plan is shaped, prepaid credit, " +
     "spend caps and the monthly invoice. Commercial terms are agreed per client.",
-};
+});
 
 /** What you are billed FOR. Each is a real meter, not a package name. */
 const METERED: readonly { title: string; body: string }[] = [

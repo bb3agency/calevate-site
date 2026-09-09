@@ -13,6 +13,8 @@ import {
   X,
 } from "lucide-react";
 
+import { publicPageMetadata } from "@/lib/seo/metadata";
+
 import {
   CARD,
   ClosingCta,
@@ -49,12 +51,13 @@ import {
  * If any of those stops being true, this section changes in the same commit — a page that
  * boasts about a discipline it has quietly dropped is worse than one that never claimed it.
  */
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
+  path: "/why-calevate",
   title: "Why Calevate — Calevate",
   description:
     "What a headcount comparison cannot price, why an AI layer does not replace your " +
     "sales team, and the claims this company will not make.",
-};
+});
 
 /** The five properties a headcount cannot have. Each is a behaviour, not an adjective. */
 const BEYOND: readonly { icon: typeof Clock3; title: string; body: string }[] = [

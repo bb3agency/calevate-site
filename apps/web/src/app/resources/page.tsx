@@ -3,6 +3,8 @@ import Link from "next/link";
 
 import { ArrowRight } from "lucide-react";
 
+import { publicPageMetadata } from "@/lib/seo/metadata";
+
 import {
   CARD,
   ClosingCta,
@@ -41,12 +43,13 @@ import { LEGAL_DOCUMENTS } from "@/lib/legal";
  * unverified claim hard rule 11 exists to stop, and it would be the first thing a
  * regulator's reader found.
  */
-export const metadata: Metadata = {
+export const metadata: Metadata = publicPageMetadata({
+  path: "/resources",
   title: "Resources — Calevate",
   description:
     "Where to start on this site, the published legal documents, and a plain-language " +
     "glossary of the words Calevate uses.",
-};
+});
 
 /** The reading order that actually helps somebody deciding. */
 const READING: readonly { href: string; title: string; body: string }[] = [

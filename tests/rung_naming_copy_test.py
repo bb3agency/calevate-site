@@ -143,7 +143,10 @@ def test_an_invoice_line_still_says_which_agreed_rate_it_was_charged_at() -> Non
 #: The admin screens that report the overage rungs. The client console is deliberately not
 #: on this list: it never names a rung, and `tests` below sweeps the whole tree anyway.
 ADMIN_RUNG_SCREENS = (
-    "apps/web/src/app/admin/tenants/[tenantId]/page.tsx",
+    # ⚠ `MarginPanel.tsx`, not the client screen's `page.tsx`: that route module was split
+    # by subject (UX-DOCTRINE §6, Sep 2026) and the rung labels went with the panel. Aimed
+    # at the route it left behind, this guard would be scanning a nineteen-line file.
+    "apps/web/src/app/admin/tenants/[tenantId]/MarginPanel.tsx",
     "apps/web/src/app/admin/tenants/[tenantId]/commercials/page.tsx",
 )
 
@@ -183,9 +186,11 @@ def test_the_dlt_number_class_still_says_standard() -> None:
     campaign path reads; an over-correcting sweep would break the control and the wire
     together.
     """
-    numbers = (REPO / "apps/web/src/app/admin/tenants/[tenantId]/page.tsx").read_text(
-        encoding="utf-8"
-    )
+    # The panel moved out of the route module when that screen was split by subject
+    # (UX-DOCTRINE §6); the control and the assertion about it are unchanged.
+    numbers = (
+        REPO / "apps/web/src/app/admin/tenants/[tenantId]/CampaignSetup.tsx"
+    ).read_text(encoding="utf-8")
     assert '<option value="standard">standard</option>' in numbers, (
         "the DLT number class lost its `standard` option — that word is the TRAI series "
         "name (CLAUDE.md's domain vocabulary), not one of the excluded rung names"

@@ -28,7 +28,11 @@ from pathlib import Path
 from apps.api.legal.readiness import ROW_COPY
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-VERIFICATION_PAGE = REPO_ROOT / "apps/web/src/app/c/[slug]/verification/page.tsx"
+#: The WHOLE verification route, not just `page.tsx`. The screen is three modules — the
+#: route, `SubscriberVerification.tsx` and `DltRegistration.tsx` — and a guard that read
+#: only the route module would have gone on passing while a form landed in a sibling,
+#: which is the failure mode this file exists to make impossible.
+VERIFICATION_ROUTE = REPO_ROOT / "apps/web/src/app/c/[slug]/verification"
 
 #: Verbs that promise the reader can ENTER something where they are being sent. "Shows",
 #: "says" and "displays" are fine on a read-only screen; these are not.
@@ -47,10 +51,19 @@ def test_the_verification_screen_is_still_read_only() -> None:
     If somebody gives that screen a form, this fails and the guard below should be
     re-aimed rather than deleted — the copy would then be free to point at it again.
     """
-    source = VERIFICATION_PAGE.read_text(encoding="utf-8")
-    assert "useMutation" not in source and "<form" not in source, (
+    modules = sorted(VERIFICATION_ROUTE.glob("*.ts*"))
+    assert modules, f"no verification screen modules under {VERIFICATION_ROUTE}"
+    offenders = [
+        module.name
+        for module in modules
+        if any(
+            token in module.read_text(encoding="utf-8")
+            for token in ("useMutation", "<form")
+        )
+    ]
+    assert not offenders, (
         "the Verification screen now takes input; re-check `readiness.ROW_COPY`, whose "
-        "wording was corrected precisely because that screen could not take any"
+        f"wording was corrected precisely because that screen could not take any: {offenders}"
     )
 
 

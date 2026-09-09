@@ -457,3 +457,69 @@ describe("data rights — permissions", () => {
     ).toBe(true);
   });
 });
+
+/**
+ * The sentences on this screen that are not product copy but the discharge of a DPDP
+ * obligation, pinned so a later tidy-up cannot quietly take one away.
+ *
+ * WHY THIS EXISTS. Every assertion above tests a BEHAVIOUR — a POST body, a §52 branch,
+ * a permission. None of them held the words, so a content pass could have deleted the
+ * consequences printed above the erasure button, or folded the limitation register back
+ * behind a `<details>`, and this file would still have gone green. That is the failure
+ * mode the register itself exists to prevent, applied to the register.
+ *
+ * Substrings, deliberately: pinning a whole paragraph makes a comma a build break and
+ * teaches the next person that the table is decorative. What each entry pins is the
+ * CLAIM — irreversibility, what survives, the target check, and the qualification on the
+ * right — not its phrasing.
+ */
+describe("data rights — the obligations printed on the screen", () => {
+  it("states the consequences of an erasure above the control that files one", async () => {
+    const view = await render({});
+    await screen.findByRole("button", { name: /Erase this person's data/ });
+    const text = view.container.textContent ?? "";
+
+    // Irreversibility, and that it reaches the client's OWN record of the person.
+    expect(text).toContain("This cannot be undone");
+    expect(text).toContain("Nothing restores them");
+    expect(text).toContain("you are erasing your own record of them too");
+    // What survives, and that the certificate names the rule for each.
+    expect(text).toContain("Some things are kept");
+    expect(text).toContain("the certificate names each one with the rule that required it");
+    // The target check: a transposed digit erases a different real person.
+    expect(text).toContain("Check it twice");
+    expect(text).toContain("there is no undo");
+  });
+
+  it("keeps what an erasure cannot do in the open, never behind a disclosure", async () => {
+    // UX-DOCTRINE §3/§8: a compliance sentence may never be folded behind a click, and
+    // this list is the qualification on the right the client is exercising. It WAS a
+    // hand-rolled `<details>`, so this pins both halves — the words, and their visibility.
+    const view = await render({
+      [LIST_PATH]: [summary()],
+      [STATUS_PATH]: pendingRequest(),
+    });
+
+    await open(/Show details/);
+    expect(await screen.findByText(/What an erasure cannot do/)).toBeTruthy();
+    for (const limitation of LIMITATIONS) {
+      expect(screen.getByText(limitation)).toBeTruthy();
+    }
+    expect(view.container.querySelector("details")).toBeNull();
+  });
+
+  it("refuses to let a completed erasure with no proof be reported as finished", async () => {
+    await render({
+      [LIST_PATH]: [summary({ status: "completed", completed_at: "2026-08-14T06:04:00Z" })],
+      [STATUS_PATH]: { ...completedRequest(), proof: null },
+    });
+
+    await open(/Show the certificate/);
+    expect(
+      await screen.findByText("Completed, but no certificate was recorded"),
+    ).toBeTruthy();
+    expect(
+      screen.getByText(/do not tell them it is done on the strength of this panel alone/),
+    ).toBeTruthy();
+  });
+});

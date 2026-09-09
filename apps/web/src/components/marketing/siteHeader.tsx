@@ -42,9 +42,10 @@ import { Menu } from "lucide-react";
 
 import { MarketingAccountNav } from "@/components/authn/marketingAccountNav";
 import { BrandHeaderMark } from "@/components/brand";
+import { PUBLIC_ROUTES } from "@/lib/site";
 
 /**
- * The site, in reading order.
+ * The site, in reading order — DERIVED, since 9 Sep 2026, from `lib/site.PUBLIC_ROUTES`.
  *
  * ⚠ THESE WERE ANCHORS INTO THE HOMEPAGE UNTIL THE SEVEN PAGES EXISTED, and that was
  * correct while they did not: a nav item pointing at a route nobody has built is the
@@ -53,19 +54,19 @@ import { BrandHeaderMark } from "@/components/brand";
  * once its page renders**, and `publicLanding.test.tsx` proves every href against the
  * `page.tsx` files actually on disk rather than against a list somebody kept in their head.
  *
+ * ⚠ AND IT USED TO BE A LITERAL LIST HERE, which made it the site's SECOND page list — the
+ * browser accessibility gate kept a third and `sitemap.xml` would have been a fourth. They
+ * are one table now (`lib/site.ts`), and the entries that carry a `navLabel` are the ones
+ * a visitor is offered. Adding a public page therefore adds it to the navigation, the
+ * sitemap and the axe gate together, or to none of them.
+ *
  * Seven is a lot for one row, which is why the horizontal nav waits for `xl` (1280px) and
  * the disclosure menu covers everything below it. Both render the SAME seven, never two
  * site maps.
  */
-export const NAV_ROUTES: readonly { href: string; label: string }[] = [
-  { href: "/solutions", label: "Solutions" },
-  { href: "/industries", label: "Industries" },
-  { href: "/why-calevate", label: "Why Calevate" },
-  { href: "/pricing", label: "Pricing" },
-  { href: "/roi", label: "ROI" },
-  { href: "/security", label: "Security" },
-  { href: "/resources", label: "Resources" },
-];
+export const NAV_ROUTES: readonly { href: string; label: string }[] = PUBLIC_ROUTES.flatMap(
+  (route) => (route.navLabel ? [{ href: route.path, label: route.navLabel }] : []),
+);
 
 /**
  * The header's call to action.

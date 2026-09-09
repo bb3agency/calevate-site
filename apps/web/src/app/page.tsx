@@ -1,3 +1,5 @@
+import type { Metadata } from "next";
+
 import { MarketingPage } from "@/components/marketing/pageShell";
 import { Closing } from "@/components/marketing/home/closing";
 import { Cost } from "@/components/marketing/home/cost";
@@ -10,6 +12,27 @@ import { TeamReceives } from "@/components/marketing/home/teamReceives";
 import { Trust } from "@/components/marketing/home/trust";
 import { WhatItDoes } from "@/components/marketing/home/whatItDoes";
 import { fetchPublicRateCard } from "@/lib/api/rateCard";
+import { publicPageMetadata } from "@/lib/seo/metadata";
+import { SITE_DESCRIPTION } from "@/lib/seo/structuredData";
+
+/**
+ * ⚠ THE HOMEPAGE HAD NO `metadata` EXPORT AT ALL until 9 Sep 2026, which meant it
+ * inherited the root layout's fallback — so `/` and `/signup` both went to search engines
+ * titled "Calevate" with the description "AI phone agents for Indian businesses". Two
+ * public pages sharing a title and a description is a duplicate-content signal on the two
+ * pages that matter most, and it was invisible because nothing renders a `<title>` where a
+ * person doing the work would see it.
+ *
+ * The description is `SITE_DESCRIPTION`, which is the hero's own sentence — not a second
+ * description of the product written for robots. `publicLanding.test.tsx` already holds
+ * that sentence to this company's claim rules; a separate one would be a claim nothing
+ * checks.
+ */
+export const metadata: Metadata = publicPageMetadata({
+  path: "/",
+  title: "Calevate — AI phone agents for Indian businesses",
+  description: SITE_DESCRIPTION,
+});
 
 /**
  * Root of `app.calevate.tech` — one of exactly two screens a stranger can reach.

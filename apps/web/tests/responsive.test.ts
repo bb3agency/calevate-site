@@ -356,7 +356,7 @@ describe("every scroll container can be reached from a keyboard", () => {
    */
   const NOT_A_SCROLL_REGION: Record<string, string> = {
     "components/ui.tsx": "`ScrollRegion` itself — this is the definition.",
-    "app/c/[slug]/integrations/page.tsx":
+    "app/c/[slug]/integrations/DeliveryLog.tsx":
       "The delivered-payload `<pre>` scrolls VERTICALLY (`max-h-80`), which `ScrollRegion` " +
       "does not model — it hardcodes `overflow-x-auto`. It carries the same `role=region` " +
       "+ `aria-label` + `tabIndex={0}` inline, and the assertion checks that rather than " +

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 
+import { MarketingPage } from "@/components/marketing/pageShell";
 import { ScrollRegion } from "@/components/ui";
 
 import { LEGAL_DOCUMENTS } from "./index";
@@ -94,7 +95,9 @@ function Block({ block }: { block: LegalBlock }) {
   switch (block.kind) {
     case "para":
       return (
-        <p className={`mt-4 text-[15px] leading-7 text-ink-muted ${PROSE_MEASURE}`}>
+        <p
+          className={`mt-4 text-[15px] leading-7 text-ink-muted ${PROSE_MEASURE}`}
+        >
           <Prose text={block.text} />
         </p>
       );
@@ -142,7 +145,10 @@ function Block({ block }: { block: LegalBlock }) {
         // lint waiver) now live in `ScrollRegion`, which the other seventeen containers
         // were moved onto in the same change. This site moved too rather than keeping a
         // second copy of the shape.
-        <ScrollRegion label={block.caption} className="mt-4 -mx-4 px-4 sm:mx-0 sm:px-0">
+        <ScrollRegion
+          label={block.caption}
+          className="mt-4 -mx-4 px-4 sm:mx-0 sm:px-0"
+        >
           <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
             <caption className="pb-3 text-left text-sm font-semibold text-ink">
               {block.caption}
@@ -162,7 +168,10 @@ function Block({ block }: { block: LegalBlock }) {
             </thead>
             <tbody>
               {block.rows.map((row) => (
-                <tr key={row.join("|").slice(0, 80)} className="border-b border-line align-top">
+                <tr
+                  key={row.join("|").slice(0, 80)}
+                  className="border-b border-line align-top"
+                >
                   {row.map((cell, index) => (
                     <td
                       key={`${index}-${cell.slice(0, 40)}`}
@@ -222,8 +231,14 @@ function Block({ block }: { block: LegalBlock }) {
 
 function Section({ section }: { section: LegalSection }) {
   return (
-    <section aria-labelledby={section.id} className="mt-12 scroll-mt-20 first:mt-8">
-      <h2 id={section.id} className="text-xl font-semibold tracking-tight text-ink sm:text-2xl">
+    <section
+      aria-labelledby={section.id}
+      className="mt-12 scroll-mt-20 first:mt-8"
+    >
+      <h2
+        id={section.id}
+        className="text-xl font-semibold tracking-tight text-ink sm:text-2xl"
+      >
         {section.heading}
       </h2>
       {(section.blocks ?? []).map((block, index) => (
@@ -302,12 +317,13 @@ export function PendingReviewBanner() {
         {PENDING_LEGAL_REVIEW_MARKER}
       </p>
       <p className="mt-1 text-[15px] leading-7 text-ink-muted">
-        These documents were drafted against what the Calevate codebase actually does and
-        against Indian law as researched, and they have not been reviewed by a lawyer
-        qualified in India. Highlighted tokens are facts about the business that have not
-        been decided or established yet. Do not rely on this page, and do not present it
-        to a client, a regulator or a payment gateway until an advocate has reviewed it
-        and this banner has been deliberately removed.
+        These documents were drafted against what the Calevate codebase actually
+        does and against Indian law as researched, and they have not been
+        reviewed by a lawyer qualified in India. Highlighted tokens are facts
+        about the business that have not been decided or established yet. Do not
+        rely on this page, and do not present it to a client, a regulator or a
+        payment gateway until an advocate has reviewed it and this banner has
+        been deliberately removed.
       </p>
     </aside>
   );
@@ -322,21 +338,18 @@ export function LegalDocumentPage({ doc }: { doc: LegalDocument }) {
   assertLegalSetPublishable();
   const others = LEGAL_DOCUMENTS.filter((other) => other.slug !== doc.slug);
   return (
-    <div className="bg-app">
-      <header className="border-b border-line bg-surface/85">
-        <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 lg:max-w-5xl xl:max-w-6xl 2xl:max-w-[88rem] flex items-center justify-between gap-4 py-4">
-          <Link href="/" className="text-sm font-semibold text-ink">
-            Calevate
-          </Link>
-          <Link
-            href="/legal"
-            className="text-sm text-ink-muted underline decoration-line underline-offset-4 hover:decoration-brand"
-          >
-            All legal documents
-          </Link>
-        </div>
-      </header>
-
+    // THE REAL SITE HEADER, NOT A SECOND ONE (founder, 9 Sep 2026). These pages carried
+    // their own two-link chrome — a wordmark and "All legal documents" — so a reader who
+    // followed a footer link to the terms lost the navigation, the sign-in and the whole
+    // rest of the site, and had only the browser's back button. There was no argument
+    // recorded for the difference; it was simply built before `MarketingPage` existed.
+    // A legal document is a PUBLIC page like any other and gets the public chrome.
+    //
+    // `MarketingPage` supplies `SiteHeader`, `<main>` and `MarketingFooter`, so the
+    // bespoke header and footer are deleted rather than kept alongside. "All legal
+    // documents" is not lost: the cross-links to every other document are already at the
+    // foot of this page, and `MarketingFooter` carries the set too.
+    <MarketingPage>
       {/* THE SHELL WIDENS; THE READING MEASURE DOES NOT. `max-w-3xl` everywhere left a
           768px column centred in a 2000px window with 600px of nothing on each side —
           on the one set of pages a reader is most likely to open maximised, because
@@ -348,13 +361,21 @@ export function LegalDocumentPage({ doc }: { doc: LegalDocument }) {
           screen and each paragraph keeps `PROSE_MEASURE` (~68ch); what actually uses
           the new room is the metadata row, the tables and the cross-links — the
           elements that were being squeezed, not the ones that were comfortable. */}
-      <main className="mx-auto w-full max-w-3xl px-4 sm:px-6 lg:max-w-5xl xl:max-w-6xl 2xl:max-w-[88rem] py-10">
+      {/* A DIV, NOT A `<main>`: `MarketingPage` renders the one landmark for this page, and
+          two would leave a screen-reader user choosing between them. The reading measure is
+          unchanged and is NOT `SHELL` — see the note above; prose wants a narrower column
+          than a marketing grid does. */}
+      <div className="mx-auto w-full max-w-3xl px-4 sm:px-6 lg:max-w-5xl xl:max-w-6xl 2xl:max-w-[88rem] py-10">
         <PendingReviewBanner />
 
         <h1 className="mt-8 text-2xl font-semibold tracking-tight text-ink sm:text-3xl">
           {doc.title}
         </h1>
-        <p className={`mt-3 text-[15px] leading-7 text-ink-muted ${PROSE_MEASURE}`}>{doc.summary}</p>
+        <p
+          className={`mt-3 text-[15px] leading-7 text-ink-muted ${PROSE_MEASURE}`}
+        >
+          {doc.summary}
+        </p>
 
         <dl className="mt-5 grid gap-3 text-sm sm:grid-cols-3">
           <div className="rounded-card border border-line bg-surface p-4">
@@ -395,7 +416,10 @@ export function LegalDocumentPage({ doc }: { doc: LegalDocument }) {
           <Section key={section.id} section={section} />
         ))}
 
-        <nav aria-label="Other legal documents" className="mt-14 border-t border-line pt-6">
+        <nav
+          aria-label="Other legal documents"
+          className="mt-14 border-t border-line pt-6"
+        >
           <h2 className="text-[13px] font-semibold uppercase tracking-wider text-ink-faint">
             Other legal documents
           </h2>
@@ -412,13 +436,7 @@ export function LegalDocumentPage({ doc }: { doc: LegalDocument }) {
             ))}
           </ul>
         </nav>
-      </main>
-
-      <footer className="border-t border-line px-4 py-8 sm:px-6">
-        <p className="mx-auto w-full max-w-3xl px-4 sm:px-6 lg:max-w-5xl xl:max-w-6xl 2xl:max-w-[88rem] text-xs text-ink-faint">
-          Calevate — AI phone agents for Indian businesses.
-        </p>
-      </footer>
-    </div>
+      </div>
+    </MarketingPage>
   );
 }

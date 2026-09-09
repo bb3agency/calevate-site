@@ -515,3 +515,71 @@ describe("un-suppressing is confirmed before it happens", () => {
     );
   });
 });
+
+/**
+ * The sentences on this screen that ARE the compliance notice, pinned so a content pass
+ * cannot take one away and leave the suite green.
+ *
+ * The assertions above test behaviour — a POST body, a dialog that sends nothing, a
+ * `removable` verdict rendered rather than re-derived. None of them held the words. But
+ * on a TCCCPR surface the words are the interface: "no agent will call it" is the promise
+ * the client repeats to a complaining caller, "other checks still apply" is what stops a
+ * green tick being read as clearance to dial, and the per-reason note is the only place
+ * the form says which choices cannot be taken back.
+ */
+describe("do not call — the compliance notice printed on the screen", () => {
+  it("says the list binds a running campaign, not just the next one", async () => {
+    const { container } = await renderList([]);
+    await screen.findByText(/Nobody is suppressed yet/);
+
+    expect(container.textContent).toContain(
+      "checked live before every single call",
+    );
+    expect(container.textContent).toContain("including for a campaign that is already running");
+  });
+
+  it("never lets a clean check read as clearance to dial", async () => {
+    const { container } = await renderClientPage(<DoNotCallPage />, {
+      "/v1/me": ME,
+      [LIST_PATH]: [],
+      "/v1/dnc/check": { valid: true, suppressed: false, scope: null },
+    });
+    fireEvent.change(await screen.findByLabelText("Phone number to check"), {
+      target: { value: PHONE },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Check" }));
+
+    await screen.findByText(/not on the do-not-call list/);
+    // The qualification is the point of the sentence: this card answers ONE gate.
+    expect(container.textContent).toContain("calling hours");
+    expect(container.textContent).toContain("still apply to any actual call");
+  });
+
+  it("says outright that a suppressed number will not be dialled", async () => {
+    const { container } = await renderClientPage(<DoNotCallPage />, {
+      "/v1/me": ME,
+      [LIST_PATH]: [],
+      "/v1/dnc/check": { valid: true, suppressed: true, scope: "tenant" },
+    });
+    fireEvent.change(await screen.findByLabelText("Phone number to check"), {
+      target: { value: PHONE },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Check" }));
+
+    await screen.findByText(/This number is suppressed/);
+    expect(container.textContent).toContain("no agent will call it");
+  });
+
+  it("warns which reasons cannot be undone, before the reason is chosen", async () => {
+    // Three of the four are permanent, and the note is `aria-describedby` the select, so
+    // it is read WITH the control rather than sitting beside it (WCAG 3.3.2).
+    const { container } = await renderList([]);
+    const select = await screen.findByLabelText("Reason");
+
+    expect(select.getAttribute("aria-describedby")).toBe("dnc-source-note");
+    fireEvent.change(select, { target: { value: "customer_request" } });
+    expect(container.textContent).toContain(
+      "Permanent — a person's request cannot be undone from here.",
+    );
+  });
+});

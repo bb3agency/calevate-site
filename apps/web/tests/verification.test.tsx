@@ -183,3 +183,78 @@ describe("the verification gate under failure", () => {
     expect(text).not.toContain("We buy and register numbers");
   });
 });
+
+/**
+ * The refusals this screen states as facts about the product, pinned as words.
+ *
+ * Each one is load-bearing outside this file. "There is nothing to upload" and "never
+ * send an Aadhaar" are the sentences that keep an identity document off a business
+ * field the schema has a CHECK against. "Verification is ours to do" is why
+ * `readiness.ROW_COPY` tells a client to SEND us something rather than to type it here
+ * (`tests/readiness_copy_actionability_test.py`). And "calls coming IN are unaffected" is
+ * the one piece of good news on a page somebody opened because their calls stopped —
+ * losing it turns an outbound block into a client believing their receptionist is down.
+ */
+describe("verification — the refusals stated on the screen", () => {
+  async function unverified() {
+    const rendered = await renderClientPage(<VerificationPage />, {
+      [KYC_PATH]: NOTHING_ON_FILE,
+      [PE_REGISTRATION_PATH]: PE_ACTIVE,
+    });
+    await screen.findByText(SCREEN);
+    return rendered;
+  }
+
+  it("tells a blocked client their inbound line is still answering", async () => {
+    const { container } = await unverified();
+    expect(container.textContent).toContain(
+      "Calls coming IN are unaffected — your agent keeps answering the phone.",
+    );
+    expect(container.textContent).toContain("Incoming calls: unaffected, on every plan.");
+  });
+
+  it("refuses identity documents in words, not only in the schema", async () => {
+    const { container } = await unverified();
+    expect(container.textContent).toContain("There is nothing to upload here, on purpose.");
+    expect(container.textContent).toContain("Never send an Aadhaar or an individual's PAN.");
+    expect(container.textContent).toContain("No scan, no photograph and no copy of any document is stored");
+  });
+
+  it("says verification is ours to do, which is why the copy sends them to us", async () => {
+    const { container } = await unverified();
+    expect(container.textContent).toContain("Verification is ours to do, not yours to declare.");
+    expect(container.textContent).toContain("Send these to your account manager");
+  });
+
+  it("puts the action above the explanation while it is outstanding", async () => {
+    // UX-DOCTRINE §1/§5: this screen's job is "what do I do now", so the thing the client
+    // CAN do outranks the list of what they cannot. Position, not merely presence.
+    const { container } = await unverified();
+    const text = container.textContent ?? "";
+    const action = text.indexOf("What to send us");
+    const consequences = text.indexOf("What this affects while it is outstanding");
+    expect(action).toBeGreaterThan(-1);
+    expect(consequences).toBeGreaterThan(-1);
+    expect(action).toBeLessThan(consequences);
+  });
+
+  it("says we do not supply numbers, and what the client does instead", async () => {
+    const { container } = await unverified();
+    expect(container.textContent).toContain(
+      "Calevate does not sell, rent or supply telephone numbers.",
+    );
+    expect(container.textContent).toContain("You stay the subscriber of record");
+    expect(container.textContent).toContain("you can withdraw them at any time");
+  });
+
+  it("says the record shown is the whole record", async () => {
+    const { container } = await renderClientPage(<VerificationPage />, {
+      [KYC_PATH]: record({ is_verified: true, status: "verified", verified_at: "2026-02-02T06:00:00Z" }),
+      [PE_REGISTRATION_PATH]: PE_ACTIVE,
+    });
+    await screen.findByText("What we hold about your business");
+    expect(container.textContent).toContain(
+      "That is the whole record — there is nothing else stored about your identity.",
+    );
+  });
+});
