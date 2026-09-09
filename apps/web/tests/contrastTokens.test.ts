@@ -13,8 +13,23 @@ import { describe, expect, it } from "vitest";
  * "incomplete". The consequence is that the ONE accessibility failure that is purely
  * arithmetic — two hex values and a formula — was the one the whole 1148-test gate could
  * not see, while it shipped on every route in the product. Driving Chromium found it;
- * this file is what keeps it found, because a browser is not in `make web-check` and the
- * next person to pick a lighter grey will not be running one.
+ * this file is what keeps it found.
+ *
+ * ⚠ **A BROWSER IS NOW IN `make web-check`, AND THIS PARAGRAPH USED TO SAY IT WAS NOT.**
+ * `tests/browser/gate.ts` serves the app and runs axe in real Chromium over every public
+ * page. That does NOT retire this file, and the division of labour is worth stating
+ * because it is the reason both exist:
+ *
+ * - This file checks the PALETTE — every declared token against every surface it is
+ *   painted on, in both themes, as arithmetic. It needs no browser, runs in
+ *   milliseconds, and covers pairings no page happens to render today.
+ * - The browser gate checks the COMPOSED PAGE — including the colours that exist in no
+ *   token at all, because a translucent utility (`bg-brand-soft/30`) composites its
+ *   ground against whatever is behind it. Every one of the seven live failures the
+ *   browser found was of that kind, which is why this file was green throughout.
+ *
+ * Neither subsumes the other: a palette regression would be caught here on a page nobody
+ * scans, and a compositing failure can only be caught there.
  *
  * The ratio is computed from the SOURCE OF TRUTH — the custom properties in
  * `globals.css`, parsed here — rather than from a list of hexes copied into a test. A

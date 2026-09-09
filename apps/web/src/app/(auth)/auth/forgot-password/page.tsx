@@ -24,7 +24,7 @@ export default function ClientForgotPasswordPage() {
           </h1>
           <ResetRequestForm authn={clientAuthn} />
           <p className="text-sm text-ink-muted">
-            <Link href={CLIENT_SIGN_IN_PATH} className="text-brand-strong underline underline-offset-2">
+            <Link href={CLIENT_SIGN_IN_PATH} className="text-brand-strong underline underline-offset-2 dark:text-brand-bright">
               Back to sign-in
             </Link>
           </p>

@@ -1,4 +1,4 @@
-import { screen, within } from "@testing-library/react";
+import { cleanup, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import DashboardPage from "@/app/c/[slug]/page";
@@ -250,6 +250,19 @@ describe("the home screen ranks the day's work (ux-audit D2)", () => {
     expect(container.textContent).not.toContain("needs your attention");
     expect(container.textContent).not.toContain("could not check");
 
+    // UNMOUNT BEFORE RENDERING THE SECOND CASE. Testing-library cleans up BETWEEN tests,
+    // not within one, so without this the zero-case app stays mounted while the failure
+    // case renders beside it — one test holding two whole dashboards. It cost this test
+    // four intermittent failures in a single day, in TWO different disguises: a
+    // "Found multiple elements with the text: Calls today" when a document-wide query
+    // matched both trees, and a `waitFor` TIMEOUT when the second render had to settle
+    // against twice the DOM under a loaded CPU. Both read as flakiness, both passed
+    // standalone every time, and both were called contention — by three separate readers,
+    // me included — before anyone noticed the test was simply doing twice the work it
+    // needed to. The assertions above have already read `container`; nothing below wants
+    // it.
+    cleanup();
+
     // Failed: NOT an all-clear. Dropping the banner silently would offer the client
     // neither the action nor a reason for its absence, which is the defect BUILD-LOG
     // §52 exists for (and `surfaceStatesGuard` enforces): failure is a refusal, never
@@ -260,13 +273,19 @@ describe("the home screen ranks the day's work (ux-audit D2)", () => {
         "/v1/attention": problem(503, { title: "Service unavailable" }),
       }),
     );
-    await screen.findByText("Calls today");
+    // SCOPED, like the `Try again` assertion below and for its stated reason: the
+    // zero-case render above is still mounted, so `screen.findByText` matches BOTH and
+    // throws "Found multiple elements". It did — intermittently, four times in one day,
+    // once per full-suite run and never standalone, which reads exactly like CPU
+    // contention and was misdiagnosed as such three times before somebody read the two
+    // queries side by side. The comment six lines down already knew the rule; it just
+    // was not applied one line up.
+    await within(failed.container).findByText("Calls today");
     expect(failed.container.textContent).toContain(
       "We could not check whether anything needs your attention",
     );
-    // Scoped to THIS render: the zero-case render above is still mounted, so a
-    // document-wide query would match both. findByRole throws if it is absent,
-    // so this IS the assertion.
+    // Scoped to THIS render, same reason. findByRole throws if it is absent, so this IS
+    // the assertion.
     await within(failed.container).findByRole("button", { name: "Try again" });
   });
 });
@@ -567,7 +586,10 @@ describe("the calling credit tile", () => {
           balance_inr: "0.00",
           is_low: true,
           outbound_stopped: true,
-          minutes_left: [{ provider: "sarvam", label: "Clear", minutes: 0 }, { provider: "cartesia", label: "Studio", minutes: 1 }],
+          minutes_left: [
+            { provider: "sarvam", label: "Clear", minutes: 0 },
+            { provider: "cartesia", label: "Studio", minutes: 1 },
+          ],
         }),
       }),
     );
@@ -576,14 +598,18 @@ describe("the calling credit tile", () => {
     // NEVER THE FIGURE ALONE. "₹0.00" on a dashboard is a number a skimming owner reads
     // past; "calls have stopped" is not — and since D-551 the INCOMING half travels with
     // it, because a client who does not know their phone has gone quiet loses a day.
-    expect(tile?.textContent).toContain("Calls have stopped, outgoing and incoming");
+    expect(tile?.textContent).toContain(
+      "Calls have stopped, outgoing and incoming",
+    );
     expect(tile?.textContent).not.toContain("still get through");
   });
 
   it("shows an invoiced account no balance at all", async () => {
     const { container } = await renderClientPage(
       page,
-      routes({ "/v1/billing/wallet": wallet({ prepaid: false, minutes_left: null }) }),
+      routes({
+        "/v1/billing/wallet": wallet({ prepaid: false, minutes_left: null }),
+      }),
     );
 
     await screen.findByText("Calls today");

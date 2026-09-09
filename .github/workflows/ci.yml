@@ -478,6 +478,25 @@ jobs:
       # to the half of the repo that had no executable rules at all).
       - name: Tests
         run: pnpm -C apps/web test
+      # THE BROWSER THE ACCESSIBILITY GATE BELOW DRIVES. Pinned by construction: the
+      # revision is a property of the `playwright-core` version in the lockfile, so this
+      # step downloads whatever THAT release asks for and nothing else — no floating tag.
+      # `--with-deps` installs the system libraries Chromium needs on a bare runner.
+      #
+      # It is a SEPARATE step on purpose. If the download fails, this step goes red and
+      # names the reason; folding it into the gate's own command would make a network
+      # failure look like an accessibility failure. And the gate itself refuses to run
+      # without a browser (it does not skip), so a silently missing install cannot turn
+      # into a green tick either way.
+      - name: Install Chromium for the accessibility gate
+        run: pnpm -C apps/web exec playwright-core install --with-deps chromium
+      # The rules jsdom structurally cannot run — `color-contrast` above all, which
+      # `apps/web/tests/a11y.ts` disables under jsdom because there is no layout and no
+      # computed background to measure. Serves the app, drives Chromium, runs axe over
+      # every public page at two viewports in both palettes. See apps/web/tests/browser/
+      # gate.ts for why it fails rather than skips on a missing browser or a dead server.
+      - name: "Accessibility gate: axe in a real browser (WCAG 2.2 A/AA)"
+        run: pnpm -C apps/web test:a11y-browser
       - name: Build
         run: pnpm -C apps/web build
 

@@ -215,7 +215,12 @@ uv run mypy apps packages        # strict; must pass. NOT `mypy .` — see below
                                  # observability.py type-checks in a shape production does
                                  # not run (`.github/workflows/ci.yml:404`).
 uv run alembic upgrade head      # migrations (autogenerate + hand-review diff)
-pnpm -C apps/web dev|build|typecheck|test   # or `make web-check` (typecheck+lint+test)
+pnpm -C apps/web dev|build|typecheck|test   # or `make web-check` (typecheck+lint+test+
+                                 # test:a11y-browser — axe in real Chromium over every
+                                 # public page, both palettes. It NEVER skips: no browser,
+                                 # dead server or empty page list all FAIL. CI installs the
+                                 # browser with `playwright-core install --with-deps
+                                 # chromium`; never run a bare `playwright install` here.)
 docker compose up -d             # local pg16+pgvector, redis, minio
 uv run python -m scripts.seed    # reserved slugs, vertical templates, retention defaults
 ```

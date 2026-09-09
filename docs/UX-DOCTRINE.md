@@ -328,6 +328,20 @@ These are not aspirations; `apps/web/tests/a11y.test.tsx` (axe over every swept 
 axe cannot see under jsdom) and `tests/responsive.test.ts` (tap targets, scroll
 containers, phone widths) fail the build on them.
 
+**And, since 9 September 2026, a REAL BROWSER does too.** `apps/web/tests/browser/` serves
+the app, drives Chromium and runs axe over every public page at two viewports in both
+palettes, in `make web-check` and in CI. It exists because the three gates above are
+structurally blind to one thing: jsdom computes no colour, so `color-contrast` is disabled
+there, and the token tests check a token against a token — never a token against a
+TRANSLUCENT ground, where the ground is a composite that exists in no token at all. Seven
+live WCAG 1.4.3 AA failures were sitting on the public site behind a green suite, the worst
+at 1.04:1; two more turned up on the sign-in screens the moment the gate was wired in. The
+gate FAILS rather than skips on a missing browser, a dead server, a 404, an empty page list
+or a scan that did not evaluate the contrast rule — a browser gate whose absence reads as a
+pass would be worse than no gate. What it cannot reach is the authenticated realm (the
+session cookie is minted only by `apps/api/authn/`), and that limit is stated in the
+harness rather than left for a green tick to paper over.
+
 1. **Every control has a real name.** Wrap the control in its own `<label>` (implicit
    association) rather than inventing ids — two editors of two records on one screen
    collide on any id scheme. A `placeholder` is **not** a label: it satisfies axe and fails

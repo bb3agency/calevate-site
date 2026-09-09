@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 
-import { defineConfig } from "vitest/config";
+import { configDefaults, defineConfig } from "vitest/config";
 
 /**
  * The frontend's test harness — the gate `tsc` cannot be.
@@ -63,6 +63,12 @@ export default defineConfig({
     // `src/app/` is a file Next's router walks and `next build` type-checks as route
     // code; keeping the suite out of the route tree removes the question entirely.
     include: ["tests/**/*.test.ts", "tests/**/*.test.tsx"],
+    // `tests/browser/` is the browser accessibility gate: it boots a Next server and
+    // drives a real Chromium, and runs under `vitest.browser.config.mts` instead. Its
+    // file is named `*.browsertest.ts`, which the `include` above already misses — this
+    // says so out loud rather than resting on a glob near-miss, because a two-minute
+    // browser run appearing in the unit suite would be diagnosed as "vitest got slow".
+    exclude: [...configDefaults.exclude, "tests/browser/**"],
     // Every test that stubs `fetch` or a clock gets it undone for the next one, from
     // here rather than from a hand-written `afterEach` each file could forget.
     restoreMocks: true,

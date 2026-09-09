@@ -23,7 +23,7 @@ export default function AdminForgotPasswordPage() {
           </h1>
           <ResetRequestForm authn={adminAuthn} />
           <p className="text-sm text-ink-muted">
-            <Link href={ADMIN_SIGN_IN_PATH} className="text-brand-strong underline underline-offset-2">
+            <Link href={ADMIN_SIGN_IN_PATH} className="text-brand-strong underline underline-offset-2 dark:text-brand-bright">
               Back to sign-in
             </Link>
           </p>

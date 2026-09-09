@@ -99,7 +99,12 @@ uv run mypy apps packages     # strict. NOT `mypy .` — two conftest.py files c
                               # against Any (Makefile `types:`, ci.yml:404).
 uv run pytest                 # includes RLS + engine-conformance suites
 make guardrails               # executable governance (ENGINEERING-PRACTICES §2)
-make web-check                # frontend: typecheck + lint + vitest (D-53)
+make web-check                # frontend: typecheck + lint + vitest + browser axe gate (D-53).
+                              # The last one serves the app and runs axe in real Chromium
+                              # over every public page in both palettes — the contrast
+                              # rules jsdom cannot run. It FAILS on a missing browser
+                              # rather than skipping; CI installs it with
+                              # `playwright-core install --with-deps chromium`.
 ```
 
 ## Structure

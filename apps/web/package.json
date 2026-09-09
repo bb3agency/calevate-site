@@ -9,6 +9,7 @@
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:a11y-browser": "vitest run --config vitest.browser.config.mts",
     "legal:hashes": "vitest run tests/legalContentHash.test.ts --reporter=verbose",
     "test:watch": "vitest",
     "gen:api": "openapi-typescript src/lib/api/openapi.json -o src/lib/api/schema.d.ts"

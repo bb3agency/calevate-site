@@ -177,7 +177,7 @@ function AdminSessionBody() {
       <p className="text-sm text-ink-muted">
         <Link
           href={adminConsoleUrl(ADMIN_CONSOLE_PATH)}
-          className="text-brand-strong underline underline-offset-2"
+          className="text-brand-strong underline underline-offset-2 dark:text-brand-bright"
         >
           Open the operator console
         </Link>

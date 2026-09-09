@@ -96,7 +96,7 @@ function Joined({ result }: { result: AcceptedInvitation }) {
         </Link>
         <p className="text-xs text-ink-faint">
           Signed out later?{" "}
-          <Link href={CLIENT_SIGN_IN_PATH} className="text-brand-strong underline underline-offset-2">
+          <Link href={CLIENT_SIGN_IN_PATH} className="text-brand-strong underline underline-offset-2 dark:text-brand-bright">
             Sign in here
           </Link>{" "}
           with the address the invitation was sent to.

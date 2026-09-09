@@ -74,9 +74,19 @@ import { expect } from "vitest";
  *   when a page sits INSIDE its shell — a duplicated landmark, a heading level that only
  *   skips once composed — is not visible here.
  *
- * All three close the same way: a browser-mode run (`@axe-core/playwright`) against the
- * real composed document. That is a bigger change than this slice, and pretending
- * otherwise in a comment is how a gate comes to be trusted for more than it does.
+ * All three close the same way: a run against the real composed document in a real
+ * browser. ⚠ **THAT NOW EXISTS AND THIS PARAGRAPH USED TO SAY IT DID NOT** —
+ * `tests/browser/gate.ts` + `tests/browser/publicPages.browsertest.ts`, run by
+ * `pnpm -C apps/web test:a11y-browser` in `make web-check` and in CI. It is NOT
+ * `@axe-core/playwright` (this file's own dependency argument applies: that package
+ * wraps a `page.evaluate` in a dependency, and the wrapper is what `scanTarget` writes
+ * in ten lines); it drives `playwright-core`, which was already in this lockfile.
+ *
+ * It closes the three limits above ONLY FOR THE PAGES IT REACHES — the public site and
+ * the two realm sign-in screens. Authenticated screens need a session cookie only
+ * `apps/api/authn/` can mint, so for those this sweep is still the whole story and
+ * `color-contrast` is still dark to it. A green run here remains a claim about markup,
+ * not about colour.
  */
 
 /**
@@ -95,9 +105,10 @@ export const JSDOM_BLIND_RULES: Record<string, string> = {
     "Deque documents jsdom as unsupported for this rule (dequelabs/axe-core#595) and " +
     "jest-axe disables it for the same reason. CLOSED BY: contrast is a property of the " +
     "Tailwind token palette in `src/app/globals.css`, not of any one screen, so it is " +
-    "checked once against the palette rather than per render — either in a browser-mode " +
-    "run (`@axe-core/playwright`) if this suite ever gains one, or by hand against the " +
-    "tokens. Not closeable inside jsdom at all."
+    "checked once against the palette rather than per render (`contrastTokens.test.ts`) " +
+    "— AND, since the browser gate landed, against the COMPOSED page in real Chromium " +
+    "(`tests/browser/gate.ts`, `make web-check`), which is the only thing that can see a " +
+    "token on a translucent ground. Not closeable inside jsdom at all."
   ),
 };
 
@@ -308,9 +319,11 @@ export const UNSWEPT_SCREENS: Record<string, string> = {
     "Library cannot mount into a container div — there is no subtree for axe to scan. " +
     "What it carries that matters (`lang`, and the document title from Next metadata) " +
     "are DOCUMENT-level properties that jsdom cannot see from a detached render either. " +
-    "CLOSED BY: a browser-mode or Playwright run, which would evaluate `html-has-lang`, " +
-    "`document-title`, `bypass` and `region` against a real document. Until then the " +
-    "`lang` attribute is held by src/app/layout.tsx and reviewed by eye."
+    "CLOSED, for every page the browser gate reaches: `tests/browser/gate.ts` scans real " +
+    "documents, so `html-has-lang`, `document-title`, `bypass` and `region` are " +
+    "evaluated there on the public site and the two sign-in screens. Inside the " +
+    "authenticated realm they remain unevaluated, and the `lang` attribute is still held " +
+    "by src/app/layout.tsx and reviewed by eye."
   ),
 };
 

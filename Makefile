@@ -22,7 +22,7 @@ help:  ## List targets
 	@echo '  make dev         - run all four services'
 	@echo '  make lint        - ruff check --fix + format; rewrites files'
 	@echo '  make check       - lint-check, mypy, pytest+ratchet, guardrails, eval, web [CI gate]'
-	@echo '  make web-check   - frontend typecheck + vitest suite'
+	@echo '  make web-check   - frontend typecheck + vitest + browser axe gate'
 	@echo '  make legal-hashes - print each legal document'"'"'s operative-text hash (paste into versions.ts)'
 	@echo '  make db-reset    - drop, migrate, seed'
 	@echo '  make redis-reset - flush the suite'"'"'s Redis db AND its snapshot'
@@ -141,7 +141,7 @@ smoke:  ## tenant -> agent -> signed webhook -> lead with extraction
 # twice for one gate.
 check: lint-check types coverage-ratchet guardrails eval-ci web-check  ## Full CI gate (mirrors .github/workflows/ci.yml)
 
-web-check:  ## Frontend gate: typecheck, lint, vitest (CI adds `next build` on top)
+web-check:  ## Frontend gate: typecheck, lint, vitest, browser axe (CI adds `next build`)
 	# Cheapest answer first, same order as the backend half of this gate. The SUITE is
 	# the part `tsc` cannot give: the frontend carries fail-closed defaults,
 	# server-authoritative verdicts (`is_verified`/`messageable`/`held`) and
@@ -149,9 +149,30 @@ web-check:  ## Frontend gate: typecheck, lint, vitest (CI adds `next build` on t
 	# wrong. `next build` is left to CI — it is the slowest check here and it catches a
 	# different class of thing (route/bundle validity), so paying for it in the dev loop
 	# buys nothing this target does not already have.
+	#
+	# THE FOURTH LINE IS THE ONE THE OTHER THREE STRUCTURALLY CANNOT BE: colour. The
+	# vitest suite runs under jsdom, which implements no layout and resolves no computed
+	# background, so `tests/a11y.ts` DISABLES axe's `color-contrast` rule — correctly, and
+	# it says so. `tests/contrastTokens.test.ts` covers the palette token-on-token, and a
+	# token on a TRANSLUCENT ground (`bg-brand-soft/30`) composites to a colour that is in
+	# no token at all. A real browser found SEVEN live WCAG 1.4.3 AA failures on the public
+	# site that every gate above reported green on, the worst at 1.04:1 — and two more on
+	# the sign-in screens the day this line was added. `test:a11y-browser` serves the app,
+	# drives Chromium and runs axe over 13 pages x 2 viewports x 2 palettes.
+	#
+	# It costs ~93s on top of this target's ~180s, and it does NOT pay `next build`'s price
+	# to do it: it serves with `next dev`, having MEASURED that the two produce identical
+	# axe verdicts (same violations, same nodes, same ratios) for 22s less. Build mode is
+	# one env var away — `CALEVATE_A11Y_SERVER=build` — for whoever wants to re-check that.
+	#
+	# It never skips. A missing browser, a dead server, a 404, an empty page list or a scan
+	# that did not actually run the contrast rule all FAIL, loudly and by name; a browser
+	# gate whose absence reads as a pass is worse than no gate at all. `tests/browser/
+	# gate.ts` argues that at length.
 	pnpm -C apps/web typecheck
 	pnpm -C apps/web lint
 	pnpm -C apps/web test
+	pnpm -C apps/web test:a11y-browser
 
 ## THE HASH A NEW LEGAL REVISION HAS TO CARRY, printed for a person to paste.
 ##

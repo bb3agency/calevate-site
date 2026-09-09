@@ -334,7 +334,7 @@ export function SignInForm({ authn, onSignedIn, forgotPath, footer }: SignInForm
         </button>
 
         <div className="flex flex-wrap items-center gap-3 text-sm">
-          <Link href={forgotPath} className="text-brand-strong underline underline-offset-2">
+          <Link href={forgotPath} className="text-brand-strong underline underline-offset-2 dark:text-brand-bright">
             I have forgotten my password
           </Link>
         </div>
