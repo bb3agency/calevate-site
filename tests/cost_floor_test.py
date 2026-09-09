@@ -561,3 +561,62 @@ def test_only_the_dollar_legs_move_with_the_rate() -> None:
     assert at_100 == Decimal("2.7411")
     # The Sarvam floor is rupee-priced end to end and is NOT a function of the rate at all.
     assert Decimal("4.1211") == SELF_SERVE_COST_FLOOR_INR_PER_MIN
+
+
+# ============================================================================
+# The zero and negative arms of the plan cost model
+# ============================================================================
+#
+# `ledgers-and-money` is a zero-tolerance ratchet surface (hard rules 4 and 7), and
+# these three guards were the only untested branches on it. They are not decoration:
+# each one answers a question that has a WRONG answer somebody would otherwise put on
+# a screen — "what did a month with no calls cost?" and "what does a minute cost in a
+# month with no minutes?" are different questions, and only one of them has an answer.
+
+
+def test_a_month_in_which_nothing_was_spoken_still_costs_the_subscription() -> None:
+    """Zero characters is the bare fee, not zero.
+
+    The subscription is paid whether or not the allotment is spoken — that is what makes
+    it a fixed cost and the whole reason these functions take a volume. Returning zero
+    here would report a free month to an operator and understate the platform's cost in
+    exactly the direction D-556 exists to stop.
+    """
+    for plan in CARTESIA_PLANS:
+        fee = plan.fee_inr(CARTESIA_EVIDENCE_USD_INR)
+        assert (
+            plan.monthly_inr_for_characters(Decimal("0"), usd_inr=CARTESIA_EVIDENCE_USD_INR) == fee
+        )
+        assert plan.monthly_inr(Decimal("0"), usd_inr=CARTESIA_EVIDENCE_USD_INR) == fee
+
+
+def test_a_negative_count_is_the_bare_fee_and_never_a_credit() -> None:
+    """A negative volume must not subtract overage from the fee.
+
+    Without the guard, `max(0, chars - allotment)` would still floor at zero, but
+    `monthly_inr` would multiply a negative minute count by the speaking rate and hand
+    the primitive a negative character count — so this pins the whole path, not just the
+    branch. A plan that appeared to cost LESS than its fee is a number no screen should
+    ever be able to show.
+    """
+    for plan in CARTESIA_PLANS:
+        fee = plan.fee_inr(CARTESIA_EVIDENCE_USD_INR)
+        assert (
+            plan.monthly_inr_for_characters(Decimal("-1"), usd_inr=CARTESIA_EVIDENCE_USD_INR) == fee
+        )
+        assert plan.monthly_inr(Decimal("-10"), usd_inr=CARTESIA_EVIDENCE_USD_INR) == fee
+        assert fee > 0
+
+
+@pytest.mark.parametrize("volume", [Decimal("0"), Decimal("-1")])
+def test_a_per_minute_cost_refuses_a_month_with_no_minutes(volume: Decimal) -> None:
+    """RAISES rather than returning the fee or a zero, and the asymmetry is the point.
+
+    `monthly_inr(0)` has a true answer — the subscription. `cost per minute` at zero
+    minutes does not: the fee would read as a per-minute price a hundred times the real
+    one, and zero would read as free. Both are numbers an operator would act on, so the
+    function refuses and the message says what it needs.
+    """
+    for plan in CARTESIA_PLANS:
+        with pytest.raises(ValueError, match="positive monthly volume"):
+            plan.tts_inr_per_call_minute(volume, usd_inr=CARTESIA_EVIDENCE_USD_INR)

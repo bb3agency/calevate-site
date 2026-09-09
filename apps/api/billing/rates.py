@@ -1238,10 +1238,14 @@ class CartesiaPlan:
         this door and skip the assumption entirely.
 
         Negative or zero counts return the bare fee rather than raising: a month in which
-        nothing was spoken still costs the subscription, and that is a true answer.
+        nothing was spoken still costs the subscription, and that is a true answer. NO
+        EARLY RETURN FOR THEM — `max(0, chars - allotment)` already yields exactly the fee,
+        so the guard that used to sit here was a branch that could not change an answer.
+        It was found by the ratchet and then by a revert-and-see-red that stayed GREEN:
+        deleting the guard broke nothing, which is the proof that it was doing nothing.
+        `test_a_month_in_which_nothing_was_spoken_still_costs_the_subscription` pins the
+        behaviour that the arithmetic now provides on its own.
         """
-        if characters <= 0:
-            return self.fee_inr(usd_inr)
         overage_characters = max(Decimal("0"), characters - self.included_credits)
         return self.fee_inr(usd_inr) + overage_characters * self.overage_inr_per_character(usd_inr)
 
@@ -1256,9 +1260,11 @@ class CartesiaPlan:
         (`TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]`, 540 — pilot gate 12). That is right for
         MODELLING a volume nobody has run and wrong for reporting a month somebody has:
         `monthly_inr_for_characters` is the door for a measured month.
+
+        No zero/negative guard here either, for the reason given on the primitive: a
+        non-positive minute count multiplies to a non-positive character count, which that
+        function already answers with the bare fee.
         """
-        if call_minutes <= 0:
-            return self.fee_inr(usd_inr)
         return self.monthly_inr_for_characters(
             call_minutes * TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1], usd_inr=usd_inr
         )
@@ -1501,9 +1507,14 @@ def cartesia_plan_crossover_call_minutes(
     while cheaper.monthly_inr(high, usd_inr=usd_inr) < dearer.monthly_inr(high, usd_inr=usd_inr):
         low, high = high, high * 2
     while high - low > 1:
+        # No `mid <= low or mid >= high` guard: the loop condition already forbids it.
+        # `high - low >= 2` makes mid >= low+1 and mid <= high-1 for every integer pair,
+        # ROUND_HALF_UP included (checked exhaustively over 23,000 states). The guard was
+        # here and suppressed from coverage; a defensive arm that cannot be reached is not
+        # a safety net, it is a line that makes the next reader look for a case that does
+        # not exist — and on a hard-rule surface the ratchet counts a suppression exactly
+        # like an untested branch, which is what surfaced it.
         mid = ((low + high) / 2).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
-        if mid <= low or mid >= high:  # pragma: no cover - guards a non-terminating bisect
-            break
         if cheaper.monthly_inr(mid, usd_inr=usd_inr) < dearer.monthly_inr(mid, usd_inr=usd_inr):
             low = mid
         else:
@@ -1526,8 +1537,12 @@ def cartesia_envelope_stable_call_minutes(*, usd_inr: Decimal) -> Decimal:
     for ever.
     """
     last = CARTESIA_PLANS[-1]
-    if len(CARTESIA_PLANS) == 1:  # pragma: no cover - one plan has no crossover to find
-        return last.included_call_minutes
+    # No single-plan special case: with one plan `cartesia_plan_crossover_call_minutes`
+    # compares it against ITSELF, the bracketing loop's strict `<` is never true, and it
+    # returns 1 — so the `max` below already answers `included_call_minutes`, which is
+    # exactly what the special case returned. Verified by evaluating both paths rather
+    # than reasoned about. It too was suppressed from coverage; the same argument as the
+    # bisect guard above applies.
     return max(
         cartesia_plan_crossover_call_minutes(CARTESIA_PLANS[0], last, usd_inr=usd_inr),
         last.included_call_minutes,
