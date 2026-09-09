@@ -72,7 +72,17 @@ function StatusPill({ status }: { status: Status }) {
   );
 }
 
-export function LeadInbox() {
+/**
+ * `tone` colours the FIGCAPTION and nothing else.
+ *
+ * Every panel in this figure carries its own `bg-surface`, so the illustration is already
+ * legible on any ground — the caption is the one line of text painted directly on the band
+ * behind it, and `text-ink-faint` (#64748b) on the dark chapter's `--brand-deep` is 1.77:1.
+ * That is not a dim caption, it is an invisible one. Passed as a prop rather than solved
+ * with a `dark:` variant because the dark chapter is a LAYOUT choice, not the dormant dark
+ * theme (D-471): the same page in the same palette has one band inverted.
+ */
+export function LeadInbox({ tone = "light" }: { tone?: "light" | "dark" }) {
   return (
     <figure className="mt-10 sm:mt-12">
       <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr] lg:items-start">
@@ -168,7 +178,9 @@ export function LeadInbox() {
         </div>
       </div>
 
-      <figcaption className="mt-4 text-xs text-ink-faint">
+      <figcaption
+        className={`mt-4 text-xs ${tone === "dark" ? "text-white/70" : "text-ink-faint"}`}
+      >
         An illustration of the leads screen, drawn with example enquiries. Nobody in it is a
         real customer, and no figure here is a measurement.
       </figcaption>

@@ -81,8 +81,35 @@ const COPY_KEYS = new Set([
   "a",
 ]);
 
-/** JSX attributes that are read out loud or shown to the eye. */
-const COPY_ATTRS = new Set(["aria-label", "aria-description", "title", "placeholder", "alt"]);
+/**
+ * JSX attributes that are read out loud or shown to the eye.
+ *
+ * The first five are DOM attributes. The last three are OUR OWN component props that
+ * render as visible prose, and they were a hole in this walk until 9 Sep 2026: the shared
+ * marketing primitives take their copy as props (`PageIntro`'s `eyebrow`/`title`/`lede`,
+ * `ClosingCta`'s `line`, and the homepage's `Band`), so on eight public pages the LEDE —
+ * the second-biggest run of words on the screen — was invisible to every guard built on
+ * this module. `title` was already covered only by coincidence, because it is also a DOM
+ * attribute.
+ *
+ * It was found by driving it: a rupee figure was typed into a `lede` on the homepage to
+ * prove the new source-side price ban caught it, and the ban stayed GREEN. A test that
+ * passes when you break the thing it guards is not a weak test, it is not a test — and the
+ * repo's own rule for that outcome is to fix it rather than note it.
+ *
+ * The list stays a closed allowlist of names that are unambiguously prose. A prop called
+ * `value` or `id` is not copy and must never appear here.
+ */
+const COPY_ATTRS = new Set([
+  "aria-label",
+  "aria-description",
+  "title",
+  "placeholder",
+  "alt",
+  "lede",
+  "eyebrow",
+  "line",
+]);
 
 /** One rendered string, and where to go and look at it. */
 export interface CopyString {

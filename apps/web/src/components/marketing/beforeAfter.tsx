@@ -68,7 +68,11 @@ function Chain({
         (good ? "border-brand/40 bg-brand-soft/30 dark:bg-brand-strong/10" : "border-line bg-surface")
       }
     >
-      <h3 className="text-lg font-semibold text-ink">{title}</h3>
+      {/* `<h4>`, not `<h3>`: this pair now sits under the "Same leads. Completely different
+          workflow." heading inside the how-it-works band, so h3 here would skip nothing but
+          would flatten two real levels into one. A heading level is structure, not a size
+          (UX-DOCTRINE §2), and `tests/a11y.test.tsx` runs axe's `heading-order` over it. */}
+      <h4 className="text-lg font-semibold text-ink">{title}</h4>
       <p className="mt-1 text-sm text-ink-muted">{caption}</p>
       <ol className="mt-6 space-y-0">
         {steps.map((step, index) => (

@@ -130,10 +130,30 @@ export function HeroCallSim() {
                 }`}
               >
                 <div
+                  /*
+                   * ⚠ THREE CONTRAST FIXES HERE, ALL FOUND BY AXE IN A REAL CHROMIUM ON
+                   * 9 SEP 2026 AND NONE OF THEM VISIBLE TO THE SUITE (jsdom has no layout,
+                   * so `tests/a11y.ts` disables `color-contrast` and says the palette is
+                   * where it is settled — which is true of a token on a token and not of a
+                   * token on a TRANSLUCENT ground, which is what these bubbles are):
+                   *
+                   * 1. the agent bubble kept `bg-brand-soft` (a light token, the same value
+                   *    in both palettes) while its text went to `text-ink` under `dark:` —
+                   *    white on pale green, 1.04:1. The ground now moves with the text.
+                   * 2. the agent gloss was `text-brand-strong/80` on `bg-brand-soft`, 3.97:1.
+                   *    At full strength it is 6.01:1, which is the pairing every other
+                   *    `bg-brand-soft` site in this repo already uses.
+                   * 3. the caller gloss was `text-ink-faint` on `bg-black/5`: that token is
+                   *    4.56:1 on `--surface` and the 5% wash takes it to 4.25:1. `-muted` is
+                   *    7.2:1 there, and 5.29:1 on the dark bubble.
+                   *
+                   * All three are WCAG 2.2 SC 1.4.3 AA (4.5:1) on 11-12px type, on the one
+                   * figure at the top of the most public page we have.
+                   */
                   className={[
                     "max-w-[88%] rounded-2xl px-3.5 py-2",
                     turn.who === "agent"
-                      ? "rounded-bl-sm bg-brand-soft text-brand-strong dark:text-ink"
+                      ? "rounded-bl-sm bg-brand-soft text-brand-strong dark:bg-brand-strong/25 dark:text-white"
                       : "rounded-br-sm bg-black/5 text-ink dark:bg-white/10",
                   ].join(" ")}
                 >
@@ -147,8 +167,8 @@ export function HeroCallSim() {
                     className={
                       "mt-1 text-xs leading-snug " +
                       (turn.who === "agent"
-                        ? "text-brand-strong/80 dark:text-ink-muted"
-                        : "text-ink-faint")
+                        ? "text-brand-strong dark:text-white/80"
+                        : "text-ink-muted")
                     }
                   >
                     {turn.gloss}

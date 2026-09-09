@@ -642,7 +642,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
             <h3 className="text-sm font-semibold text-ink">
               Adjust assumptions — how you pay, hours covered, working days, and the rest of the model
             </h3>
-            <span className="shrink-0 text-xs font-medium text-brand-strong group-open:hidden">
+            <span className="shrink-0 text-xs font-medium text-brand-strong group-open:hidden dark:text-brand-bright">
               Adjust
             </span>
             <span className="hidden shrink-0 text-xs font-medium text-ink-muted group-open:inline">
@@ -900,7 +900,10 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 carry between the busy months.
               </p>
               {cheapest && !selectedPack && (
-                <p className="mt-2 text-xs text-ink-faint">
+                // `-muted`: this panel has its own brand tint, and `--text-faint` is only
+                // held to 4.5:1 against `--surface` and `--app`. Measured 4.47:1 here by
+                // axe in a real Chromium, 9 Sep 2026.
+                <p className="mt-2 text-xs text-ink-muted">
                   From {formatRateINR(cardFromRate(card, voice))}/min with the{" "}
                   {formatAmountINR(cheapest.amount_inr)} pack — pick one under “Adjust
                   assumptions”, or see the{" "}

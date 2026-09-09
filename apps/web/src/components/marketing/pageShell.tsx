@@ -82,12 +82,44 @@ export const CTA_SECONDARY =
 export const INLINE_LINK =
   "font-semibold text-brand-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong dark:text-brand-bright";
 
-/** The small editorial label above a band: an index, a hairline, a word. */
-export function Eyebrow({ index, children }: { index: string; children: ReactNode }) {
+/**
+ * The small editorial label above a band: an optional index, a hairline, a word.
+ *
+ * ⚠ **`index` BECAME OPTIONAL ON 9 SEP 2026, AND THE HOMEPAGE IS WHY.** A running number
+ * on every band tells the reader the page is a DOCUMENT to be read in order. That is true
+ * of the interior pages — `/roi` really is an argument in four steps, `/why-calevate`
+ * really does answer three objections in sequence — and it was false of the landing page,
+ * which is scanned. Thirteen numbered chapters of identical weight is the same "everything
+ * equal means nothing primary" defect UX-DOCTRINE §1 names, expressed in typography.
+ *
+ * So the four interior callers keep their indices and the homepage passes none. The
+ * primitive stays ONE primitive (§7): a variant is a prop, never a second component.
+ */
+export function Eyebrow({
+  index,
+  tone = "default",
+  children,
+}: {
+  index?: string;
+  /**
+   * `inverse` is for the one band that sits on a dark ground (`brand-deep`). The default
+   * `text-brand-strong` is 1.24:1 there — invisible, not merely dim — so the inverted
+   * treatment is part of the primitive rather than a second eyebrow written at the call
+   * site. `text-white/80` on `--brand-deep` is 6.03:1 (WCAG 1.4.3 AA is 4.5:1 for 12px).
+   */
+  tone?: "default" | "inverse";
+  children: ReactNode;
+}) {
+  const label =
+    tone === "inverse"
+      ? "text-white/80"
+      : "text-brand-strong dark:text-brand-bright";
+  const rule = tone === "inverse" ? "bg-white/35" : "bg-brand/50";
+  const number = tone === "inverse" ? "text-white/55" : "text-ink-faint";
   return (
-    <p className="flex items-center gap-3 text-xs font-semibold tracking-[0.18em] text-brand-strong uppercase dark:text-brand-bright">
-      <span className="font-mono text-ink-faint">{index}</span>
-      <span aria-hidden className="h-px w-6 bg-brand/50" />
+    <p className={`flex items-center gap-3 text-xs font-semibold tracking-[0.18em] uppercase ${label}`}>
+      {index !== undefined && <span className={`font-mono ${number}`}>{index}</span>}
+      <span aria-hidden className={`h-px w-6 ${rule}`} />
       {children}
     </p>
   );

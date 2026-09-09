@@ -8,6 +8,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import Home from "@/app/page";
 import { LEGAL_DOCUMENTS } from "@/lib/legal";
 
+import { copyUnder, tsSources } from "./copyScan";
+import { relPosix } from "./repoPaths";
 import { RATE_CARD_ROUTES } from "./fixtures/rateCard";
 import { stubApi } from "./harness";
 
@@ -691,34 +693,103 @@ describe("the page's structure asks for one thing, once", () => {
   });
 
   /**
-   * THE BANDS ARE NUMBERED, AND THE NUMBERS ARE THE READING ORDER.
+   * THE BANDS ARE RANKED, AND THE RANKING IS THE READING ORDER.
    *
-   * The eyebrow index is decoration until it disagrees with the order of the sections,
-   * at which point it is a small visible defect that says nobody checked. It also pins
-   * the objection order itself: fit ("is it for me, in my language, for my trade") ahead
-   * of value ahead of the sceptic's objections. See `app/page.tsx`'s header for why that
-   * order and not the one it replaced.
+   * ⚠ **THIS REPLACED "numbers its bands in the order they are read" ON 9 SEP 2026, AND
+   * THE REPLACEMENT IS STRICTLY STRONGER — READ WHY BEFORE WEAKENING IT.**
+   *
+   * That assertion read the running index out of thirteen `<Eyebrow index="01".."13">`s and
+   * required it to ascend. Its own comment said the index "is decoration until it disagrees
+   * with the order of the sections", which was true, and it was also the whole defect: a
+   * running number tells the reader the page is a DOCUMENT to be read in order, and a
+   * landing page is SCANNED. The numbering came off with the redesign, so an assertion over
+   * it would now be `[] === []` — a guard that passes on an empty page, which is the shape
+   * every premise check in this suite exists to refuse.
+   *
+   * What replaced the numbering is a real hierarchy, and that is what is asserted here
+   * instead: the ORDER of the bands (which the index was standing in for) and the RANKING
+   * between them (which nothing checked, because there was none). UX-DOCTRINE §10 asks for
+   * exactly this — "a test that fails if the hierarchy regresses, not only that the content
+   * renders" — and the regression it has to catch is the one that already happened once:
+   * thirteen bands at one size, arrived at one reasonable-looking band at a time.
    */
-  it("numbers its bands in the order they are read", async () => {
+  it("makes its argument in one order, and that order is the DOM order", async () => {
     const { container } = render(await Home());
-    const eyebrows = [...container.querySelectorAll("main p > span.font-mono")]
-      .map((s) => s.textContent ?? "")
-      .filter((t) => /^\d\d$/.test(t));
-    expect(eyebrows).toEqual([
-      "01",
-      "02",
-      "03",
-      "04",
-      "05",
-      "06",
-      "07",
-      "08",
-      "09",
-      "10",
-      "11",
-      "12",
-      "13",
+    const bands = [...container.querySelectorAll("main section[data-band-weight]")].map(
+      (band) => band.id,
+    );
+    expect(bands).toEqual([
+      // The problem, and its answer, on one ground.
+      "problem",
+      "outcomes",
+      // How it happens, and the workflow it replaces.
+      "how",
+      // The feature list, which a buyer reads AFTER the promise.
+      "capabilities",
+      // Fit: the language, then the trade.
+      "languages",
+      "industries",
+      // The product itself, and what it does to a sales day.
+      "leads",
+      "sales",
+      // The decision.
+      "cost",
+      // The objections, in the order they are raised.
+      "trust",
+      "faq",
     ]);
+  });
+
+  it("does not shout every band at the same volume", async () => {
+    const { container } = render(await Home());
+    const bands = [...container.querySelectorAll("main section[data-band-weight]")];
+    const weights = bands.map((band) => band.getAttribute("data-band-weight"));
+
+    // Three ranks, all used. Two would be a hierarchy with nothing quiet in it; one is the
+    // defect this page had.
+    expect(new Set(weights).size, `only these weights are in use: ${[...new Set(weights)].join(", ")}`)
+      .toBe(3);
+
+    // The three the argument rests on, named. A redesign may re-rank the page — but it has
+    // to say so here, rather than promoting bands until every one is an anchor again.
+    const anchors = bands.filter((b) => b.getAttribute("data-band-weight") === "anchor");
+    expect(anchors.map((b) => b.id)).toEqual(["outcomes", "leads", "cost"]);
+
+    /*
+     * AND THE RANK IS VISIBLE, not merely recorded in an attribute.
+     *
+     * A `data-` attribute is a claim about the design; the `<h2>`'s own class list is the
+     * design. If a later edit normalises the heading classes back to one size, the
+     * attribute would still say "anchor" and this suite would still pass — which is
+     * precisely how the previous version of this page ended up with thirteen identical
+     * headings while every test was green. So the classes are read back, and the three
+     * ranks must be three genuinely different treatments.
+     */
+    // SIZE tokens only. The dark chapter's headings are `text-white` where the rest are
+    // `text-ink`, which is a legitimate difference in COLOUR on an inverted ground and is
+    // not what this assertion is about — comparing whole class strings would fail on it and
+    // teach the next reader to delete the check rather than fix the size.
+    const SIZE = /^(?:sm:|md:|lg:|xl:)?(?:text-(?:\[[^\]]+\]|xs|sm|base|lg|[2-9]?xl)|leading-)/;
+    const sizeOf = (heading: Element): string =>
+      heading.className.split(/\s+/).filter((token) => SIZE.test(token)).sort().join(" ");
+
+    const classForWeight = new Map<string, Set<string>>();
+    for (const band of bands) {
+      const heading = band.querySelector("h2");
+      expect(heading, `band #${band.id} has no <h2>`).not.toBeNull();
+      const weight = band.getAttribute("data-band-weight") ?? "";
+      const seen = classForWeight.get(weight) ?? new Set<string>();
+      seen.add(sizeOf(heading!));
+      classForWeight.set(weight, seen);
+    }
+    // One treatment per rank — a rank spelled two ways is the drift that starts a second.
+    for (const [weight, classes] of classForWeight) {
+      expect([...classes], `weight "${weight}" is spelled ${classes.size} different ways`)
+        .toHaveLength(1);
+    }
+    // And the three treatments differ from each other.
+    const treatments = new Set([...classForWeight.values()].map((set) => [...set][0]));
+    expect(treatments.size, "the three band weights render the same heading class").toBe(3);
   });
 
   /**
@@ -825,26 +896,34 @@ describe("the page's structure asks for one thing, once", () => {
  * "Business hours" / "Into the evening" / "Around the clock" with a caption under each.
  */
 describe("nothing on this page lays out in columns a phone cannot hold", () => {
+  /**
+   * EVERY MARKETING SOURCE, WALKED — not a hand-written list of eight files.
+   *
+   * ⚠ It WAS that list until 9 Sep 2026, and the homepage split is why it could not stay
+   * one. `app/page.tsx` was 1,258 lines and is now a route module plus eleven chapter
+   * components under `components/marketing/home/`; a hand-maintained array would have gone
+   * from covering the whole page to covering a fetch and ten imports, silently, on the day
+   * the file it named stopped holding any layout. A second enumeration of what to scan is
+   * the drift `routePaths` and the footer's `LEGAL_DOCUMENTS` derivation exist to refuse,
+   * and this is the same defect one directory along.
+   *
+   * `tsSources` is the shared walk (`tests/copyScan.ts`). It takes a directory or a file,
+   * so the homepage's route module is named directly and everything the marketing tree
+   * holds is covered on the day it is written.
+   */
   const MARKETING_SOURCES = [
-    "app/page.tsx",
-    "components/marketing/roiCalculator.tsx",
-    // `callDemo.tsx` is gone — the hero figure is `heroCallSim.tsx` now, and the old file
-    // was deleted rather than left beside it (CLAUDE.md: migrate, do not accumulate).
-    "components/marketing/heroCallSim.tsx",
-    "components/marketing/faq.tsx",
-    "components/marketing/siteHeader.tsx",
-    "components/marketing/beforeAfter.tsx",
-    "components/marketing/leadInbox.tsx",
-    "components/marketing/industryTabs.tsx",
-  ];
+    ...tsSources(resolve(process.cwd(), "src", "components", "marketing")),
+    resolve(process.cwd(), "src", "app", "page.tsx"),
+  ].map((file) => relPosix(process.cwd(), file));
 
   it("every multi-column grid waits for a breakpoint", () => {
     const offenders: string[] = [];
+    expect(
+      MARKETING_SOURCES.length,
+      "the marketing source walk found nothing — has the directory moved?",
+    ).toBeGreaterThan(8);
     for (const file of MARKETING_SOURCES) {
-      const lines = readFileSync(
-        resolve(process.cwd(), "src", ...file.split("/")),
-        "utf8",
-      ).split("\n");
+      const lines = readFileSync(resolve(process.cwd(), file), "utf8").split("\n");
       lines.forEach((line, i) => {
         // Comments talk about these utilities; only a class string applies one.
         if (/^\s*(\*|\/\/)/.test(line)) return;
@@ -852,7 +931,7 @@ describe("nothing on this page lays out in columns a phone cannot hold", () => {
           const before = line.slice(0, match.index! + match[1].length);
           // `sm:grid-cols-3` and friends read as a `:` immediately before the utility.
           if (/[a-z0-9\]]:$/.test(before)) continue;
-          offenders.push(`src/${file}:${i + 1} — ${match[2]}`);
+          offenders.push(`${file}:${i + 1} — ${match[2]}`);
         }
       });
     }
@@ -861,6 +940,106 @@ describe("nothing on this page lays out in columns a phone cannot hold", () => {
       `these grids split a 320px content box into columns at every width:\n  ` +
         `${offenders.join("\n  ")}\n` +
         `Prefix the utility (e.g. \`grid-cols-1 sm:grid-cols-3\`) so a phone gets rows.`,
+    ).toEqual([]);
+  });
+});
+
+/**
+ * THE PAGE IS A DOCUMENT BEFORE IT IS A DESIGN.
+ *
+ * These four properties are what the 9 Sep 2026 redesign INTRODUCED, and they are asserted
+ * here because a redesign is exactly when they are lost: a page split across eleven modules
+ * can grow a second `<h1>`, skip a heading level at a seam between two files, or acquire a
+ * typed price in the one chapter whose whole subject is money — and none of those shows up
+ * in a screenshot.
+ */
+describe("the landing page's document structure", () => {
+  it("has exactly one h1, and it is the page's subject", async () => {
+    const { container } = render(await Home());
+    const h1s = [...container.querySelectorAll("h1")];
+    // A page with two has no subject a screen-reader user can land on; a page with none has
+    // no name at all. `marketingPages.test.tsx` holds the seven interior pages to the same
+    // rule — this is the homepage's half of it, which nothing asserted before.
+    expect(h1s).toHaveLength(1);
+    expect(h1s[0]?.textContent).toContain("Never miss a lead");
+  });
+
+  it("skips no heading level, anywhere down the page", async () => {
+    const { container } = render(await Home());
+    const levels = [...container.querySelectorAll("h1, h2, h3, h4, h5, h6")].map((h) => ({
+      level: Number(h.tagName[1]),
+      text: (h.textContent ?? "").trim().slice(0, 60),
+    }));
+    expect(levels.length).toBeGreaterThan(20);
+
+    /*
+     * WCAG 2.2 1.3.1 Info and Relationships, and UX-DOCTRINE §2: "never skip a level, and
+     * never express a heading with a styled `<span>`". axe's `heading-order` runs over this
+     * page in `tests/a11y.test.tsx` and would also catch it — this assertion is here as
+     * well because it names the OFFENDING PAIR in the failure, and because the seam it has
+     * to guard is now a seam between FILES: `beforeAfter.tsx` dropped from `h3` to `h4` in
+     * the same change that put a real `h3` above it, and that relationship is invisible
+     * from either file alone.
+     */
+    const skips: string[] = [];
+    levels.forEach((heading, index) => {
+      if (index === 0) return;
+      const previous = levels[index - 1];
+      if (heading.level > previous.level + 1) {
+        skips.push(`h${previous.level} “${previous.text}” → h${heading.level} “${heading.text}”`);
+      }
+    });
+    expect(skips, `these pairs skip a heading level:\n  ${skips.join("\n  ")}`).toEqual([]);
+  });
+
+  it("asks for the one thing before it asks for anything else", async () => {
+    const { container } = render(await Home());
+    const main = container.querySelector("main");
+    const links = [...(main?.querySelectorAll("a") ?? [])];
+    const first = links.find((a) => a.getAttribute("href") === "/signup");
+    expect(first, "nothing in <main> links to /signup").toBeDefined();
+
+    // The hero's is the FIRST call to action in the page's own content, and it is the only
+    // one in the hero. A second button beside it — a demo, a sample call, a pricing link
+    // dressed as a primary — is the "multiple default buttons" defect GOV.UK names, and it
+    // is the one thing this page's repeated-CTA structure could not distinguish from itself.
+    const hero = container.querySelector("h1")?.closest("section");
+    expect(hero?.querySelectorAll('a[href="/signup"]')).toHaveLength(1);
+    expect(hero?.contains(first!)).toBe(true);
+  });
+
+  /**
+   * NO RUPEE FIGURE IS TYPED INTO ANY SOURCE FILE THIS PAGE IS BUILT FROM.
+   *
+   * The rendered ban already exists above ("names no price, plan or fee outside the ROI
+   * calculator") and runs over the DOM. This is the source half, and it catches what the
+   * DOM one cannot: a price written into a branch no fixture reaches — a `null`-rate
+   * fallback, an "example" figure behind a flag, a placeholder in a component that is not
+   * mounted in the state the test renders. D-545's whole point is that every rupee on this
+   * site arrives in `GET /v1/public/rate-card`; a typed one is a quote nobody can honour
+   * the day an operator changes the live rate.
+   *
+   * Literals in copy positions only, through the shared AST walk — not a grep — because
+   * half these files carry a comment that DISCUSSES the rule, and a text scan would force
+   * the next author to delete the reasoning to make the guard pass (`tests/sourceScan.ts`
+   * records the three times that lesson was paid for).
+   *
+   * `roiCalculator.tsx` and `lib/api/rateCard.ts` are deliberately NOT in scope: they are
+   * the formatter and the fetcher, they are where a ₹ sign legitimately lives, and their
+   * own guards (`marketingPages.test.tsx`) prove every figure they print came off the wire.
+   */
+  it("types no rupee figure into the homepage's own source", () => {
+    const MONEY = /₹|\bRs\.?\s*\d|\brupees?\b|\bper minute\b|\bper month\b/i;
+    const offenders = copyUnder(["src/app/page.tsx", "src/components/marketing/home"])
+      .filter((entry) => MONEY.test(entry.text))
+      .map((entry) => `${entry.file}:${entry.line} — ${entry.text.trim().slice(0, 100)}`);
+    expect(
+      offenders,
+      "every price on this site is SERVED (D-545): it arrives in GET /v1/public/rate-card " +
+        "and is formatted from its digits. A figure typed here is a claim that goes stale " +
+        "the moment an operator changes the live rate, on the one surface a buyer relies " +
+        "on before they have met anybody.\n  " +
+        offenders.join("\n  "),
     ).toEqual([]);
   });
 });
