@@ -92,8 +92,16 @@ export type RateCardPack = Schemas["CreditPackOut"];
  */
 export type VoiceTier = "sarvam" | "cartesia";
 
-/** Both voices, in the order the card leads with them (the cheaper first). */
-export const VOICE_TIERS: readonly VoiceTier[] = ["sarvam", "cartesia"];
+/**
+ * Both voices, in the order the card leads with them (the cheaper first).
+ *
+ * A TUPLE rather than `readonly VoiceTier[]`, so `.length` is the literal `2` and a
+ * renderer can pin its own arity against it at compile time. `components/marketing/
+ * rateCard.tsx` does: its voice switch writes out two Tailwind `peer` names because
+ * Tailwind scans source text and cannot generate a class it has not read, and a third
+ * voice arriving would otherwise be priced in the document with no way to select it.
+ */
+export const VOICE_TIERS = ["sarvam", "cartesia"] as const satisfies readonly VoiceTier[];
 
 /** One pack's ₹/min on one voice, as the 4dp string the API sent. THE ONE DOOR. */
 export function packRate(pack: RateCardPack, voice: VoiceTier): string {

@@ -334,11 +334,23 @@ describe("the pricing page", () => {
     expect(text).toContain(formatRateForTest(RATE_CARD.list_rate_inr_per_min));
     // Every rung, priced ON BOTH VOICES. A ladder that silently rendered five of six, or a
     // table that dropped the dearer column, would still pass a "contains ₹4.50" assertion —
-    // which is why this counts rows against the fixture and then requires every one of the
-    // twelve rates to be on screen.
-    expect(selfServe?.querySelectorAll("tbody tr")).toHaveLength(
-      RATE_CARD.packs.length,
+    // which is why this counts the ladder against the fixture and then requires every one
+    // of the twelve rates to be on screen.
+    //
+    // ⚠ THIS USED TO COUNT `tbody tr` AND EQUATE IT TO THE PACK COUNT, WHICH THE
+    // TRANSPOSED CARD MAKES MEANINGLESS (D-559): a pack is a COLUMN from `md` up and a row
+    // only on the phone layout, so the count is now taken per layout and per voice — six
+    // column headings in each of the two comparison tables, six rows in each of the two
+    // stacked ones. A weaker assertion (">= 6 rows somewhere") would pass a card that
+    // rendered one voice twice.
+    const columnHeadings = selfServe?.querySelectorAll(
+      "[data-rate-layout='columns'] thead th[scope='col']",
     );
+    const stackedRows = selfServe?.querySelectorAll("[data-rate-layout='rows'] tbody tr");
+    expect(columnHeadings).toHaveLength(
+      RATE_CARD.packs.length * VOICE_TIERS.length,
+    );
+    expect(stackedRows).toHaveLength(RATE_CARD.packs.length * VOICE_TIERS.length);
     for (const pack of RATE_CARD.packs) {
       expect(text).toContain(formatAmountForTest(pack.amount_inr));
       for (const voice of VOICE_TIERS) {
@@ -365,14 +377,21 @@ describe("the pricing page", () => {
     });
     const { container } = render(await PricingPage());
     const text = bodyText(container);
-    // The COLUMN HEADINGS first, by position rather than by substring: they are the one
-    // place a name and a price sit together, and the place a hand-typed name would be
-    // hardest to notice because the rest of the page would still read correctly.
-    const headings = [
-      ...container.querySelectorAll("#self-serve thead th"),
-    ].map((th) => th.textContent);
-    expect(headings).toContain("Everyday voice");
-    expect(headings).toContain("Concert voice");
+    // THE SWITCH AND THE CAPTIONS, by position rather than by substring. This used to read
+    // the column headings, which is where the two names sat when a voice WAS a column; the
+    // voice is now the thing the whole table is about (D-559), so its name is on the
+    // control that selects it and in each table's caption — and both are checked, because
+    // a caption naming one voice over the other voice's figures is the failure a substring
+    // match on the page text could never see.
+    const positions = [
+      ...container.querySelectorAll("#self-serve fieldset label"),
+    ].map((label) => label.textContent);
+    expect(positions).toEqual(["Everyday voice", "Concert voice"]);
+    const captions = [
+      ...container.querySelectorAll("#self-serve caption"),
+    ].map((caption) => caption.textContent);
+    expect(captions.filter((text) => text?.includes("Everyday"))).toHaveLength(2);
+    expect(captions.filter((text) => text?.includes("Concert"))).toHaveLength(2);
     // And in the prose, which quotes the same two names.
     expect(text).toContain("Everyday");
     expect(text).toContain("Concert");
@@ -428,9 +447,13 @@ describe("the pricing page", () => {
      */
     stubApi(RATE_CARD_ROUTES);
     const { container } = render(await PricingPage());
-    const table =
-      container.querySelector("#self-serve table")?.textContent ?? "";
-    const prose = bodyText(container).replace(table, "");
+    // EVERY table, not the first one: the card is four tables now (two layouts x two
+    // voices, D-559), and `replace` with a single string would have left three ladders in
+    // the "prose" and failed on rungs that are meant to repeat.
+    let prose = bodyText(container);
+    for (const table of container.querySelectorAll("#self-serve table")) {
+      prose = prose.replace(table.textContent ?? "", "");
+    }
     const counted = new Map<string, number>();
     for (const figure of prose.match(/₹[\d,]+(\.\d{2})?/g) ?? []) {
       counted.set(figure, (counted.get(figure) ?? 0) + 1);
@@ -514,6 +537,99 @@ describe("the pricing page", () => {
     expect(text).not.toMatch(
       /you choose it|choose it agent by agent|you choose which/i,
     );
+  });
+
+  /**
+   * THE VOICE SWITCH (D-559), and the four properties that make it worth having.
+   *
+   * The founder asked for the packs as COLUMNS and one voice at a time, so the card
+   * carries a control now — the first one on any marketing page. It is two radios and two
+   * labels styled through Tailwind's `peer` variant, with NO JavaScript, and every
+   * assertion below is about a property that would be silently lost by "improving" it into
+   * a `useState` toggle:
+   *
+   *  1. it is a real radio GROUP, so the platform announces the change and the arrow keys
+   *     move within it;
+   *  2. each input has a real name, from the card rather than from this file;
+   *  3. one position is selected in the SERVED HTML, so the page is complete before any
+   *     bundle runs;
+   *  4. both voices' figures are in the document, so the other ladder is a keypress away
+   *     and nothing has to be fetched to see it.
+   */
+  describe("the voice switch", () => {
+    it("is a labelled radio group with one position already selected", async () => {
+      stubApi({
+        "/v1/public/rate-card": {
+          ...RATE_CARD,
+          sarvam_tier_label: "Everyday",
+          cartesia_tier_label: "Concert",
+        },
+      });
+      const { container } = render(await PricingPage());
+      const fieldset = container.querySelector("#self-serve fieldset");
+      expect(fieldset, "the rate card renders no group").not.toBeNull();
+      // The group is NAMED for a screen reader, and named by us — the legend is the only
+      // string here that is ours to write, because it is about the control rather than
+      // about a voice.
+      expect(fieldset?.querySelector("legend")?.textContent).toBe("Show rates for");
+
+      const radios = [
+        ...container.querySelectorAll<HTMLInputElement>("#self-serve input"),
+      ];
+      expect(radios).toHaveLength(VOICE_TIERS.length);
+      // ONE group, so the two are mutually exclusive and the arrow keys move between them.
+      // Two different `name`s would render two independent checkboxes-in-radio-clothing,
+      // which looks identical and behaves nothing like it.
+      expect(new Set(radios.map((input) => input.name)).size).toBe(1);
+      for (const input of radios) expect(input.type).toBe("radio");
+      // Exactly one is checked IN THE MARKUP. A switch whose default state arrives with the
+      // JavaScript would render a rate card with no rates on it for the first paint, and
+      // none at all if the bundle never came.
+      expect(radios.filter((input) => input.defaultChecked)).toHaveLength(1);
+      expect(radios[0]?.defaultChecked).toBe(true);
+
+      // Every control has a real name (UX-DOCTRINE §8.1), and the name is the card's,
+      // never this page's — the relabelled fixture is what proves the second half.
+      for (const input of radios) {
+        const label = container.querySelector(`label[for="${input.id}"]`);
+        expect(label, `no label points at ${input.id}`).not.toBeNull();
+        expect(label?.textContent).toMatch(/^(Everyday|Concert) voice$/);
+      }
+    });
+
+    it("holds both voices' ladders in the document, one of them displayed", async () => {
+      // The switch shows one ladder and the other is a keypress away — which is only true
+      // if the second is already SERVED. This is the assertion that fails if somebody
+      // "optimises" the hidden panel away and reaches for a client fetch to bring it back.
+      stubApi(RATE_CARD_ROUTES);
+      const { container } = render(await PricingPage());
+      const text = container.querySelector("#self-serve")?.textContent ?? "";
+      for (const pack of RATE_CARD.packs) {
+        for (const voice of VOICE_TIERS) {
+          expect(text).toContain(formatRateForTest(packRate(pack, voice)));
+        }
+      }
+      // The second voice's panel is hidden by the FIRST radio being checked, not by a
+      // class that would also hide it when the second is selected. jsdom applies no
+      // stylesheet, so this is asserted on the mechanism: the panel carries the
+      // `peer-checked` variant that reveals it, and the panels follow both inputs in
+      // document order — which is the whole of why the sibling combinator can reach them.
+      const panels = [
+        ...(container
+          .querySelector("#self-serve fieldset")
+          ?.querySelectorAll(":scope > div") ?? []),
+      ];
+      expect(panels).toHaveLength(VOICE_TIERS.length);
+      expect(panels[0]?.className).toContain("peer-checked/voice2:hidden");
+      expect(panels[1]?.className).toContain("peer-checked/voice2:block");
+      const children = [
+        ...(container.querySelector("#self-serve fieldset")?.children ?? []),
+      ];
+      expect(
+        children.indexOf(panels[0] as Element),
+        "a panel that precedes its radio can never be revealed by it",
+      ).toBeGreaterThan(children.findIndex((node) => node.tagName === "INPUT"));
+    });
   });
 
   it("sends the reader to the one place a real figure lives", async () => {

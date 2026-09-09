@@ -1,21 +1,19 @@
 import type { Metadata } from "next";
-import { ScrollRegion } from "@/components/ui";
 import {
   cardFromRate,
   fetchPublicRateCard,
-  formatAmountINR,
   formatRateINR,
-  packMinutes,
   packRate,
   rateToTenThousandths,
   tierLabel,
-  VOICE_TIERS,
   type PublicRateCard,
   type VoiceTier,
 } from "@/lib/api/rateCard";
 import Link from "next/link";
 
 import { Check, Info, Receipt, ShieldCheck, Wallet } from "lucide-react";
+
+import { RateCard } from "@/components/marketing/rateCard";
 
 import {
   CARD,
@@ -55,12 +53,17 @@ import {
  *   they have met anybody. That caveat is one paragraph, below the card, where the reader
  *   who needs it will look.
  *
- * ## Two voices, two rates, one per agent (D-547)
+ * ## Two voices, two rates, one per agent (D-547), ONE OF THEM ON SCREEN (D-559)
  *
  * A pack no longer buys "minutes" at one rate. It carries a ₹/min for each of the two
  * voices an agent can speak with, and which one prices a call is a property of the AGENT
- * that took it — so the table has two rate columns rather than one, and the talk time in
- * each is what the same credits buy on that voice.
+ * that took it.
+ *
+ * ⚠ **THIS USED TO SAY "the table has two rate columns rather than one", AND THE TABLE
+ * NOW HAS NEITHER SHAPE.** Six pack ROWS x (rate + talk time) x two voices was twelve
+ * dense cells; the packs are COLUMNS now and a switch above the table picks the voice, so
+ * one ladder is on screen at a time. `components/marketing/rateCard.tsx` is the whole of
+ * it and carries the argument; this page keeps the prose and the two band sentences.
  *
  * **The columns are named by the API, not here.** No client-facing surface names a vendor
  * as a product tier (founder, 7 Sep 2026): the names live once in
@@ -256,10 +259,17 @@ export default async function PricingPage() {
                     about how an ACCOUNT is opened: `self_serve_signup_enabled` is a live
                     switch and the door that reads it is the homepage's, so a second
                     sentence about it here would be a second place to get it wrong (the
-                    argument `components/marketing/faq.tsx` already makes). */}
-                This is a published price, not a quote, and there is no minimum. Buy credit
-                in advance and the rate comes down: credit does not expire, and the rates you
-                bought at stay with that credit until it is spent.
+                    argument `components/marketing/faq.tsx` already makes).
+
+                    ⚠ TWO CLAUSES WERE CUT ON 9 SEP 2026 AND NEITHER WAS REPLACED. "Buy
+                    credit in advance and the rate comes down" is what the heading above
+                    already says and what the table below now SHOWS as a falling row;
+                    "credit does not expire" is in the lede, at the top of this page, in
+                    those words. Two spellings of one fact is a defect even when both are
+                    true (UX-DOCTRINE §5), and on a page the founder is asking to make
+                    shorter the duplicate is the first thing to go. */}
+                This is a published price, not a quote, and there is no minimum. The rates
+                you bought at stay with that credit until it is spent.
               </p>
               <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
                 {/* "YOU CHOOSE IT AGENT BY AGENT" WAS FALSE IN THE CLIENT REALM, and this
@@ -268,62 +278,19 @@ export default async function PricingPage() {
                     only, and the client's own agent screen says so in these words
                     ("Your account manager can confirm it",
                     `app/c/[slug]/agents/panels/publishing.tsx`). A page that told a buyer
-                    they would have the control would be selling one that is not there. */}
-                Each agent speaks with one of two voices, set per agent rather than for the
-                whole account — tell your account manager which voice each agent should
-                speak with.
+                    they would have the control would be selling one that is not there.
+
+                    ⚠ "EACH AGENT SPEAKS WITH ONE OF TWO VOICES" WAS CUT because the
+                    control immediately below is now two named voices with one selected —
+                    the sentence described what the reader is looking at. */}
+                A voice is set per agent rather than for the whole account — tell your
+                account manager which voice each agent should speak with.
               </p>
-              {/* `ScrollRegion`, not a bare `overflow-x-auto` div: a scroll container
-                  that no keyboard can reach is unusable without a mouse, and
-                  `tests/responsive.test.ts` enforces it. */}
-              <ScrollRegion label="Prepaid credit packs" className="mt-10 sm:mt-12">
-                {/* TWO RATE COLUMNS, ONE PER VOICE (D-547). The "Extra credit" column is
-                    GONE rather than emptied: packs stopped granting bonus credits, the
-                    discount is the falling rate itself, and a column of em-dashes would
-                    have been a promise of something that no longer exists. The column
-                    HEADINGS are `tierLabel(...)` — a name the API sent — because no
-                    client-facing surface may name a vendor as a tier and a name typed here
-                    would be a second definition of one. */}
-                <table className="w-full min-w-[34rem] border-collapse text-left text-sm">
-                  <caption className="sr-only">
-                    Prepaid credit packs: what you put on, and the per-minute rate and talk
-                    time it buys on each of the two voices
-                  </caption>
-                  <thead>
-                    <tr className="border-b border-line text-ink-muted">
-                      <th scope="col" className="py-3 pr-4 font-medium">You put on</th>
-                      {VOICE_TIERS.map((voice) => (
-                        <th key={voice} scope="col" className="py-3 pr-4 font-medium">
-                          {tierLabel(rateCard, voice)} voice
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {rateCard.packs.map((pack) => (
-                      <tr key={pack.pack_id} className="border-b border-line/60">
-                        <th scope="row" className="py-3 pr-4 font-medium text-ink">
-                          {formatAmountINR(pack.amount_inr)}
-                          {pack.best_value ? (
-                            <span className="ml-2 rounded-full bg-brand-soft/60 px-2 py-0.5 text-xs font-medium text-brand-strong dark:bg-brand-strong/20 dark:text-brand-bright">
-                              Best value
-                            </span>
-                          ) : null}
-                        </th>
-                        {VOICE_TIERS.map((voice) => (
-                          <td key={voice} className="py-3 pr-4 text-ink">
-                            {formatRateINR(packRate(pack, voice))}/min
-                            <span className="block text-ink-muted">
-                              {packMinutes(pack, voice).toLocaleString("en-IN")} min of talk
-                              time
-                            </span>
-                          </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </ScrollRegion>
+              {/* The rate card itself: the switch, and one voice's ladder at a time.
+                  Extracted to `components/marketing/rateCard.tsx` (UX-DOCTRINE §6 —
+                  extract by SUBJECT) because the table is now two layouts and a control,
+                  and this route module is already four times its budget. */}
+              <RateCard card={rateCard} />
               <p className="mt-6 max-w-2xl text-sm text-pretty text-ink-muted">
                 Talk time is the minutes your agents actually speak for, not connected
                 time. Credit is spent oldest purchase first, at the rates that purchase was
