@@ -72,11 +72,18 @@ export const GRID = "mt-10 grid gap-4 sm:mt-12";
  */
 export const CTA_LABEL = "Get started";
 
+/*
+ * 16px, not 14px, since the 9 Sep 2026 density pass. The button was set at the console's
+ * control size on a page whose body copy is now 18–20px, which made the one thing the page
+ * is asking for the smallest type in the block it sits in. The padding grew with it so the
+ * shape is unchanged; every marketing page shares this constant, and that is the point.
+ */
+
 export const CTA_PRIMARY =
-  "group inline-flex items-center gap-2 rounded-full bg-brand-strong px-6 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-brand-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app";
+  "group inline-flex items-center gap-2 rounded-full bg-brand-strong px-7 py-3.5 text-base font-semibold text-white shadow-sm transition-colors hover:bg-brand-deep focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app";
 
 export const CTA_SECONDARY =
-  "inline-flex items-center gap-2 rounded-full border border-line bg-surface px-6 py-3 text-sm font-semibold text-ink transition-colors hover:border-brand/50 hover:bg-brand-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app";
+  "inline-flex items-center gap-2 rounded-full border border-line bg-surface px-7 py-3.5 text-base font-semibold text-ink transition-colors hover:border-brand/50 hover:bg-brand-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app";
 
 /** An inline link in body copy, in one place so eight pages cannot spell it eight ways. */
 export const INLINE_LINK =

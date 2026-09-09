@@ -3,7 +3,7 @@ import { Filter, Handshake, PhoneOutgoing } from "lucide-react";
 import { LeadInbox } from "@/components/marketing/leadInbox";
 import { Reveal } from "@/components/marketing/motion";
 
-import { Band, Chapter } from "./band";
+import { Band, Chapter, HOME } from "./band";
 
 /**
  * CHAPTER 5 — THE DARK ONE. What your team receives, and what that does to their day.
@@ -48,9 +48,8 @@ import { Band, Chapter } from "./band";
  *  - the funnel the owner reads it back on: `apps/api/crm/performance.py:42,46`.
  */
 
-/** A card on the inverted ground. White at 6% is a lift, not a second surface colour. */
-const DARK_CARD =
-  "rounded-2xl border border-white/15 bg-white/[0.06] p-5 sm:p-6";
+/** A panel on the inverted ground. White at 6% is a lift, not a second surface colour. */
+const DARK_PANEL = "rounded-2xl border border-white/15 bg-white/[0.06]";
 
 const QUALIFICATION: readonly { icon: typeof Filter; title: string; body: string }[] = [
   {
@@ -96,23 +95,35 @@ export function TeamReceives() {
         eyebrow="Your sales team"
         weight="quiet"
         tone="dark"
-        className="mt-16 sm:mt-20"
+        className={HOME.bandGap}
         title="Your salespeople should be closing, not finding out who is interested"
         lede="Calevate is not your salesperson. It is the layer that makes your salesperson more productive: it takes the first call to every enquiry and every name on your list, works out who is worth a conversation, and hands your people the shortlist."
       >
-        <div className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-3">
-          {QUALIFICATION.map(({ icon: Icon, title, body }, index) => (
-            <Reveal as="section" key={title} delay={index * 0.08} className={DARK_CARD}>
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/10 text-white">
-                <Icon aria-hidden className="h-5 w-5" />
+        {/* ONE PANEL, THREE ROWS — NOT THREE PANELS.
+            `cost.tsx` already carries the argument and the precedent (§1: one item in a
+            homogeneous list is a ROW inside ONE card, `Roster.tsx` is the worked example).
+            These three are a sequence — everyone is called, they come back sorted, your
+            people open on the shortlist — and a sequence read left-to-right across three
+            equal boxes reads as three claims instead of one consequence. On the dark
+            ground it also stops three panels competing with the lead inbox above, which is
+            the only real product on this chapter and the reason the chapter inverts. */}
+        <Reveal as="ul" delay={0.08} className={`${HOME.contentGap} ${DARK_PANEL} divide-y divide-white/15`}>
+          {QUALIFICATION.map(({ icon: Icon, title, body }) => (
+            <li key={title} className="flex flex-col gap-4 p-6 sm:flex-row sm:gap-7 sm:p-8">
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-white/10 text-white">
+                <Icon aria-hidden className="h-6 w-6" />
               </span>
-              <h3 className="mt-5 text-[17px] font-semibold text-white">{title}</h3>
-              <p className="mt-1.5 text-sm text-pretty text-white/80">{body}</p>
-            </Reveal>
+              <div>
+                <h3 className={`${HOME.itemTitle} font-semibold text-balance text-white`}>
+                  {title}
+                </h3>
+                <p className={`mt-2 max-w-2xl text-pretty text-white/80 ${HOME.bodySm}`}>{body}</p>
+              </div>
+            </li>
           ))}
-        </div>
+        </Reveal>
         <Reveal delay={0.2}>
-          <p className="mt-8 max-w-2xl text-sm text-white/70">
+          <p className={`mt-10 max-w-2xl text-white/75 ${HOME.bodySm}`}>
             This is not your team replaced. It is the part of their day that was never
             selling. The goal is not to automate your business — it is to automate the parts
             of the phone workflow your team should not be spending their day on.

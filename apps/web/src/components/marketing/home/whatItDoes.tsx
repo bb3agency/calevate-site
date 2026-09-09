@@ -9,9 +9,8 @@ import {
 } from "lucide-react";
 
 import { Reveal } from "@/components/marketing/motion";
-import { CARD, GRID } from "@/components/marketing/pageShell";
 
-import { Band, Chapter } from "./band";
+import { Band, Chapter, HOME } from "./band";
 
 /**
  * CHAPTER 3 — what it does. Six jobs, benefit first, mechanism behind a disclosure.
@@ -114,33 +113,40 @@ export function WhatItDoes() {
         title="One AI receptionist. Several jobs."
         lede="Each of these is one thing off your team’s plate. Open a card if you want to know exactly how it works."
       >
-        <div className={`${GRID} sm:grid-cols-2 lg:grid-cols-3`}>
+        {/* SIX CARDS, TWO-UP — NOT THREE-UP.
+            Three columns of six put six benefit lines and six disclosures on one screenful,
+            in 360px boxes at 17px/14px: a wall, and the reader's eye picks none of them.
+            Two-up is three rows of two, each card wide enough for its benefit line to set
+            on one or two lines at the page's own scale. It is not one column, because these
+            six ARE panels — each is a distinct job with its own control (the disclosure)
+            and its own outcome, which is exactly the §1 test a card has to pass. */}
+        <div className={`${HOME.contentGap} grid ${HOME.itemGap} sm:grid-cols-2`}>
           {CAPABILITIES.map(({ icon: Icon, title, benefit, detail }, index) => (
             <Reveal
               as="section"
               key={title}
-              delay={(index % 3) * 0.06}
-              className={`group ${CARD} transition-colors hover:border-brand/40`}
+              delay={(index % 2) * 0.06}
+              className={`group ${HOME.panel} transition-colors hover:border-brand/40`}
             >
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
-                <Icon aria-hidden className="h-5 w-5" />
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-soft text-brand-strong">
+                <Icon aria-hidden className="h-7 w-7" />
               </span>
-              <p className="mt-5 text-xs font-semibold tracking-[0.14em] text-ink-faint uppercase">
+              <p className="mt-6 text-sm font-semibold tracking-[0.14em] text-ink-faint uppercase">
                 {title}
               </p>
-              <h3 className="mt-1.5 text-[17px] font-semibold text-balance text-ink">
+              <h3 className={`mt-2 ${HOME.itemTitle} font-semibold text-balance text-ink`}>
                 {benefit}
               </h3>
               {/* The mechanism, one keystroke away. `<details>` rather than a built
                   accordion for the reason the FAQ records: it is the platform's own
                   disclosure widget, keyboard-operable and announced with no script at all —
                   and this page's rule is that it is finished without its bundle. */}
-              <details className="mt-3">
-                <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-sm font-semibold text-brand-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong [&::-webkit-details-marker]:hidden dark:text-brand-bright">
+              <details className="mt-5">
+                <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 text-base font-semibold text-brand-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong [&::-webkit-details-marker]:hidden dark:text-brand-bright">
                   Learn more
-                  <ArrowRight aria-hidden className="h-3.5 w-3.5" />
+                  <ArrowRight aria-hidden className="h-4 w-4" />
                 </summary>
-                <p className="mt-2 text-sm text-pretty text-ink-muted">{detail}</p>
+                <p className={`mt-3 text-pretty text-ink-muted ${HOME.bodySm}`}>{detail}</p>
               </details>
             </Reveal>
           ))}

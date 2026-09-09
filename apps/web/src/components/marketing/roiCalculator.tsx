@@ -145,7 +145,7 @@ function Control({
   return (
     <div>
       <div className="flex items-end justify-between gap-3">
-        <label htmlFor={id} className="text-sm font-medium text-ink">
+        <label htmlFor={id} className="text-base font-medium text-ink">
           {label}
         </label>
         <div className="flex items-center gap-1.5">
@@ -158,9 +158,9 @@ function Control({
             step={bounds.step}
             value={Number.isFinite(value) ? value : 0}
             onChange={(e) => set(e.target.value)}
-            className="w-24 rounded-md border border-line bg-app px-2.5 py-1.5 text-right text-sm font-semibold tabular-nums text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong touch:min-h-11"
+            className="w-28 rounded-md border border-line bg-app px-3 py-2 text-right text-base font-semibold tabular-nums text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong touch:min-h-11"
           />
-          {unit && <span className="w-10 text-xs text-ink-faint">{unit}</span>}
+          {unit && <span className="w-12 text-sm text-ink-faint">{unit}</span>}
         </div>
       </div>
       <input
@@ -190,7 +190,7 @@ function Control({
          */
         className="mt-3 w-full cursor-pointer appearance-none bg-transparent [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-brand-strong [&::-moz-range-track]:h-1.5 [&::-moz-range-track]:rounded-full [&::-moz-range-track]:bg-line [&::-webkit-slider-runnable-track]:h-1.5 [&::-webkit-slider-runnable-track]:rounded-full [&::-webkit-slider-runnable-track]:bg-line [&::-webkit-slider-thumb]:-mt-[5px] [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-brand-strong focus-visible:outline-none touch:[&::-moz-range-thumb]:h-6 touch:[&::-moz-range-thumb]:w-6 touch:[&::-webkit-slider-thumb]:-mt-[9px] touch:[&::-webkit-slider-thumb]:h-6 touch:[&::-webkit-slider-thumb]:w-6 dark:[&::-moz-range-thumb]:bg-brand-bright dark:[&::-webkit-slider-thumb]:bg-brand-bright"
       />
-      {hint && <p className="mt-1.5 text-xs text-ink-faint">{hint}</p>}
+      {hint && <p className="mt-2 text-sm text-ink-faint">{hint}</p>}
     </div>
   );
 }
@@ -216,7 +216,7 @@ function RadioCards<T extends string | number>({
 }) {
   return (
     <fieldset className="border-0 p-0">
-      <legend className="text-sm font-medium text-ink">{legend}</legend>
+      <legend className="text-base font-medium text-ink">{legend}</legend>
       <div
         role="radiogroup"
         aria-label={legend}
@@ -247,8 +247,8 @@ function RadioCards<T extends string | number>({
                   : "border-line bg-app text-ink-muted hover:border-brand/50")
               }
             >
-              <span className="block text-sm font-semibold text-ink">{option.label}</span>
-              <span className="mt-0.5 block text-xs text-ink-faint">{option.caption}</span>
+              <span className="block text-base font-semibold text-ink">{option.label}</span>
+              <span className="mt-1 block text-sm text-ink-faint">{option.caption}</span>
             </button>
           );
         })}
@@ -274,10 +274,10 @@ function CostLine({
         (strong ? "border-t border-line pt-3 text-ink" : "text-ink-muted")
       }
     >
-      <span className={strong ? "text-sm font-semibold" : "text-sm"}>{label}</span>
+      <span className={strong ? "text-base font-semibold" : "text-base"}>{label}</span>
       <span
         className={
-          "tabular-nums " + (strong ? "text-base font-bold text-ink" : "text-sm font-medium text-ink")
+          "tabular-nums " + (strong ? "text-lg font-bold text-ink" : "text-base font-medium text-ink")
         }
       >
         {value}
@@ -414,8 +414,8 @@ export function RoiCalculator({ rateCard }: { rateCard: PublicRateCard | null })
         role="status"
         className="mt-10 rounded-2xl border border-line bg-surface p-5 sm:mt-12 sm:p-8"
       >
-        <h3 className="text-lg font-semibold text-ink">The comparison cannot run right now</h3>
-        <p className="mt-2 max-w-2xl text-sm text-pretty text-ink-muted">
+        <h3 className="text-xl font-semibold text-ink sm:text-2xl">The comparison cannot run right now</h3>
+        <p className="mt-3 max-w-2xl text-base text-pretty text-ink-muted">
           Our live rate card could not be loaded, so there is no honest per-minute figure to
           price Calevate at — and we would rather show nothing than a figure that may be out
           of date. Reload in a moment, or{" "}
@@ -554,12 +554,12 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
     // over the rest of the page.
     <div
       data-roi-calculator
-      className="mt-10 grid gap-6 sm:mt-12 lg:grid-cols-[1fr_1.05fr] lg:items-start"
+      className="mt-12 grid gap-8 sm:mt-16 lg:grid-cols-[1fr_1.15fr] lg:items-start lg:gap-12"
     >
       {/* --- Inputs -------------------------------------------------------------- */}
       <div className="rounded-2xl border border-line bg-surface p-5 sm:p-8">
-        <h3 className="text-lg font-semibold text-ink">Your numbers</h3>
-        <p className="mt-1.5 text-sm text-ink-muted">
+        <h3 className="text-xl font-semibold text-ink sm:text-2xl">Your numbers</h3>
+        <p className="mt-2 text-base text-ink-muted">
           Three numbers you already know. Every other assumption is pre-filled and sitting
           under “Adjust assumptions” below — the same model either way, just not in your
           face until you ask for it.
@@ -638,18 +638,18 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
           {/* The summary carries an <h3>, matching the FAQ and the "How we calculate"
               disclosure below — every disclosure on the page shares that shape, which the
               landing tests assert across all of them. */}
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-semibold text-ink">
-            <h3 className="text-sm font-semibold text-ink">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 text-base font-semibold text-ink">
+            <h3 className="text-base font-semibold text-ink sm:text-lg">
               Adjust assumptions — how you pay, hours covered, working days, and the rest of the model
             </h3>
-            <span className="shrink-0 text-xs font-medium text-brand-strong group-open:hidden dark:text-brand-bright">
+            <span className="shrink-0 text-sm font-medium text-brand-strong group-open:hidden dark:text-brand-bright">
               Adjust
             </span>
-            <span className="hidden shrink-0 text-xs font-medium text-ink-muted group-open:inline">
+            <span className="hidden shrink-0 text-sm font-medium text-ink-muted group-open:inline">
               Hide
             </span>
           </summary>
-          <p className="mt-2 text-sm text-ink-muted">
+          <p className="mt-3 text-base text-ink-muted">
             Pre-filled with illustrative benchmarks for the role in Andhra Pradesh and
             Telangana. You don&apos;t need to touch these — open them only to run the
             comparison on your own numbers.
@@ -741,21 +741,21 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
           <>
             {/* Option A — the whole list, by people, at the full conversation length. */}
             <div className="rounded-2xl border border-line bg-surface p-5 sm:p-8">
-              <p className="text-sm text-ink-muted">
+              <p className="text-base text-ink-muted">
                 If your people work the whole list — all{" "}
                 <span className="font-semibold text-ink tabular-nums">{monthlyCalls}</span>{" "}
                 conversations a month — you&apos;d hire
               </p>
-              <p className="mt-1 flex items-center gap-2.5 text-3xl font-bold tracking-tight text-ink">
+              <p className="mt-2 flex items-center gap-2.5 text-4xl font-bold tracking-tight text-ink sm:text-5xl">
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
                   <UserRound aria-hidden className="h-5 w-5" />
                 </span>
                 <span className="tabular-nums">{twoStage.allHuman.headcount}</span>
-                <span className="text-lg font-semibold text-ink-muted">
+                <span className="text-xl font-semibold text-ink-muted sm:text-2xl">
                   {twoStage.allHuman.headcount === 1 ? "salesperson" : "salespeople"}
                 </span>
               </p>
-              <p className="mt-1.5 text-sm text-ink-muted">
+              <p className="mt-2 text-base text-ink-muted">
                 At {avgMinutes}-min conversations one person manages about{" "}
                 <span className="font-semibold text-ink tabular-nums">
                   {twoStage.allHuman.effectiveCallsPerAgentPerDay}
@@ -764,7 +764,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 to be interested.
               </p>
               {!singleShift && (
-                <p className="mt-1.5 text-sm text-ink-muted">
+                <p className="mt-2 text-base text-ink-muted">
                   Answering {coverage.label.toLowerCase()} means staffing{" "}
                   <span className="font-semibold text-ink tabular-nums">
                     {twoStage.allHuman.shifts}
@@ -789,16 +789,16 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
 
             {/* Option B — triage by Calevate, closing by people. */}
             <div className="rounded-2xl border border-brand/40 bg-brand-soft/40 p-5 sm:p-8 dark:bg-brand-strong/10">
-              <p className="flex items-center gap-2.5 text-sm font-medium text-brand-strong dark:text-brand-bright">
+              <p className="flex items-center gap-2.5 text-base font-medium text-brand-strong dark:text-brand-bright">
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-strong text-white">
                   <Filter aria-hidden className="h-5 w-5" />
                 </span>
                 Calevate calls first, your team closes
               </p>
-              <p className="mt-3 text-3xl font-bold tracking-tight tabular-nums text-ink">
+              <p className="mt-3 text-4xl font-bold tracking-tight tabular-nums text-ink sm:text-5xl">
                 {formatPaiseINR(twoStage.blendedTotalPaise)}
               </p>
-              <p className="mt-1.5 text-sm text-ink-muted">
+              <p className="mt-2 text-base text-ink-muted">
                 Calevate holds a {qualifyMinutes}-min first call with every one of the{" "}
                 <span className="font-semibold text-ink tabular-nums">{monthlyCalls}</span>, sorts
                 them, and writes each one down. Your{" "}
@@ -832,21 +832,21 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
         ) : (
           <>
             <div className="rounded-2xl border border-line bg-surface p-5 sm:p-8">
-              <p className="text-sm text-ink-muted">
+              <p className="text-base text-ink-muted">
                 To take{" "}
                 <span className="font-semibold text-ink tabular-nums">{monthlyCalls}</span>{" "}
                 calls a month you&apos;d hire
               </p>
-              <p className="mt-1 flex items-center gap-2.5 text-3xl font-bold tracking-tight text-ink">
+              <p className="mt-2 flex items-center gap-2.5 text-4xl font-bold tracking-tight text-ink sm:text-5xl">
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
                   <UserRound aria-hidden className="h-5 w-5" />
                 </span>
                 <span className="tabular-nums">{result.headcount}</span>
-                <span className="text-lg font-semibold text-ink-muted">
+                <span className="text-xl font-semibold text-ink-muted sm:text-2xl">
                   telecaller{result.headcount === 1 ? "" : "s"}
                 </span>
               </p>
-              <p className="mt-1.5 text-sm text-ink-muted">
+              <p className="mt-2 text-base text-ink-muted">
                 At {avgMinutes}-min calls, one agent handles about{" "}
                 <span className="font-semibold text-ink tabular-nums">
                   {result.effectiveCallsPerAgentPerDay}
@@ -854,7 +854,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 a day — talk-time, not dialling, is the limit once calls run long.
               </p>
               {!singleShift && (
-                <p className="mt-1.5 text-sm text-ink-muted">
+                <p className="mt-2 text-base text-ink-muted">
                   To answer {coverage.label.toLowerCase()} you staff{" "}
                   <span className="font-semibold text-ink tabular-nums">{result.shifts}</span>{" "}
                   shifts — every shift needs someone on the phone even when it is quiet. Calevate
@@ -881,16 +881,16 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
             </div>
 
             <div className="rounded-2xl border border-brand/40 bg-brand-soft/40 p-5 sm:p-8 dark:bg-brand-strong/10">
-              <p className="flex items-center gap-2.5 text-sm font-medium text-brand-strong dark:text-brand-bright">
+              <p className="flex items-center gap-2.5 text-base font-medium text-brand-strong dark:text-brand-bright">
                 <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-strong text-white">
                   <Bot aria-hidden className="h-5 w-5" />
                 </span>
                 Calevate, a month
               </p>
-              <p className="mt-3 text-3xl font-bold tracking-tight tabular-nums text-ink">
+              <p className="mt-3 text-4xl font-bold tracking-tight tabular-nums text-ink sm:text-5xl">
                 {formatPaiseINR(result.calevatePaise)}
               </p>
-              <p className="mt-1.5 text-sm text-ink-muted">
+              <p className="mt-2 text-base text-ink-muted">
                 Variable and pay-as-you-go at {formatRateINR(selectedRate)}/min on the{" "}
                 {tierLabel(card, voice)} voice
                 {selectedPack
@@ -903,7 +903,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 // `-muted`: this panel has its own brand tint, and `--text-faint` is only
                 // held to 4.5:1 against `--surface` and `--app`. Measured 4.47:1 here by
                 // axe in a real Chromium, 9 Sep 2026.
-                <p className="mt-2 text-xs text-ink-muted">
+                <p className="mt-3 text-sm text-ink-muted">
                   From {formatRateINR(cardFromRate(card, voice))}/min with the{" "}
                   {formatAmountINR(cheapest.amount_inr)} pack — pick one under “Adjust
                   assumptions”, or see the{" "}
@@ -929,11 +929,11 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
           }
         >
           {baseline === 0 ? (
-            <p className="text-sm text-ink-muted">
+            <p className="text-base text-ink-muted">
               Set a call volume above to compare the two.
             </p>
           ) : cheaper && !close ? (
-            <p className="flex flex-wrap items-baseline gap-x-2 text-base text-ink">
+            <p className="flex flex-wrap items-baseline gap-x-2 text-lg text-ink">
               <TrendingDown aria-hidden className="h-5 w-5 text-brand-strong dark:text-brand-bright" />
               <span className="font-semibold">
                 About {formatPaiseINR(delta)} less a month
@@ -945,7 +945,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
               </span>
             </p>
           ) : cheaper ? (
-            <p className="text-sm text-ink-muted">
+            <p className="text-base text-ink-muted">
               At this volume the running costs come out close (about{" "}
               <span className="font-semibold text-ink">{formatPaiseINR(delta)}</span>{" "}
               a month apart).{" "}
@@ -954,7 +954,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 : "The difference that matters is the row below — the things a headcount cannot do at any price."}
             </p>
           ) : twoStageMode ? (
-            <p className="text-sm text-ink-muted">
+            <p className="text-base text-ink-muted">
               On these assumptions the two-stage funnel costs{" "}
               <span className="font-semibold text-ink">{formatPaiseINR(-delta)}</span> more a
               month, not less — at this share of qualified leads there is little for a first
@@ -962,7 +962,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
               than hidden: if that is really your list, your team should keep calling it.
             </p>
           ) : (
-            <p className="text-sm text-ink-muted">
+            <p className="text-base text-ink-muted">
               At this volume a small team can match the running cost. What it cannot match is
               the row below — so the comparison is honestly about capability here, not price.
             </p>
@@ -973,7 +973,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
               buyer's own inputs — no borrowed conversion statistic, because none of the
               ones in circulation could be verified to a primary source. */}
           {twoStageMode && baseline > 0 && twoStage.triagedAwayPerMonth > 0 && (
-            <p className="mt-3 flex flex-wrap items-baseline gap-x-2 border-t border-line pt-3 text-sm text-ink-muted">
+            <p className="mt-4 flex flex-wrap items-baseline gap-x-2 border-t border-line pt-4 text-base text-ink-muted">
               <Handshake aria-hidden className="h-5 w-5 text-brand-strong dark:text-brand-bright" />
               <span>
                 <span className="font-semibold text-ink tabular-nums">
@@ -991,7 +991,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
 
           {/* The nudge out of a comparison that stopped being like-for-like. See `longCall`. */}
           {longCall && (
-            <p className="mt-3 border-t border-line pt-3 text-sm text-ink-muted">
+            <p className="mt-4 border-t border-line pt-4 text-base text-ink-muted">
               A {avgMinutes}-minute call is a{" "}
               <span className="font-medium text-ink">sales conversation</span>, not an enquiry
               being written down — and the answer to an expensive conversation is not a
@@ -1007,7 +1007,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
               a human team is priced per shift, Calevate is not. This nudges without faking
               a gap; extend the hours above and the numbers move on their own. */}
           {!twoStageMode && result.humanTotalPaise > 0 && singleShift && !(cheaper && !close) && (
-            <p className="mt-3 border-t border-line pt-3 text-sm text-ink-muted">
+            <p className="mt-4 border-t border-line pt-4 text-base text-ink-muted">
               This is a{" "}
               <span className="font-medium text-ink">business-hours</span> comparison — one
               human shift. If your line should be answered into the evening or overnight,
@@ -1017,7 +1017,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
           )}
 
           {leadOpen && result.pipelineValuePaise !== null && (
-            <p className="mt-3 border-t border-line pt-3 text-xs text-ink-faint">
+            <p className="mt-4 border-t border-line pt-4 text-sm text-ink-faint">
               For context, at your conversion assumptions these calls carry about{" "}
               <span className="font-semibold text-ink">
                 {formatPaiseINR(result.pipelineValuePaise)}
@@ -1032,7 +1032,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
 
       {/* --- Advanced: missed-lead value ---------------------------------------- */}
       <div className="lg:col-span-2">
-        <label className="inline-flex cursor-pointer items-center gap-2.5 text-sm font-medium text-ink">
+        <label className="inline-flex cursor-pointer items-center gap-2.5 text-base font-medium text-ink">
           <input
             type="checkbox"
             checked={leadOpen}
@@ -1042,7 +1042,7 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
           Also weigh the value of the leads at stake (optional)
         </label>
         {leadOpen && (
-          <div className="mt-4 grid gap-6 rounded-2xl border border-line bg-surface p-5 sm:grid-cols-2 sm:p-8">
+          <div className="mt-5 grid gap-8 rounded-2xl border border-line bg-surface p-6 sm:grid-cols-2 sm:p-8">
             <Control
               label="Value of a converted lead"
               bounds={LEAD_VALUE.convertedLeadInr}
@@ -1076,12 +1076,12 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
             </h3>
             <span
               aria-hidden
-              className="text-xs font-medium text-ink-faint transition-transform group-open:rotate-180"
+              className="text-sm font-medium text-ink-faint transition-transform group-open:rotate-180"
             >
               ▾
             </span>
           </summary>
-          <div className="mt-4 space-y-3 text-sm text-ink-muted">
+          <div className="mt-5 space-y-3.5 text-base text-ink-muted">
             <p>
               These figures are <span className="font-semibold text-ink">illustrative and
               fully adjustable</span> — the defaults are relayed industry benchmarks for the

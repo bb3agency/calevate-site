@@ -118,7 +118,7 @@ export function HeroCallSim() {
                 <i />
                 <i />
               </span>
-              <span className="text-[11px] font-medium text-ink-faint">Telugu</span>
+              <span className="text-xs font-medium text-ink-faint">Telugu</span>
             </span>
           </div>
           <ol className="mt-4 space-y-2.5">
@@ -151,7 +151,7 @@ export function HeroCallSim() {
                    * figure at the top of the most public page we have.
                    */
                   className={[
-                    "max-w-[88%] rounded-2xl px-3.5 py-2",
+                    "max-w-[88%] rounded-2xl px-4 py-2.5",
                     turn.who === "agent"
                       ? "rounded-bl-sm bg-brand-soft text-brand-strong dark:bg-brand-strong/25 dark:text-white"
                       : "rounded-br-sm bg-black/5 text-ink dark:bg-white/10",
@@ -160,12 +160,12 @@ export function HeroCallSim() {
                   <span className="sr-only">
                     {turn.who === "agent" ? "Agent said: " : "Caller said: "}
                   </span>
-                  <p lang="te" className="text-sm leading-snug">
+                  <p lang="te" className="text-base leading-snug">
                     {turn.te}
                   </p>
                   <p
                     className={
-                      "mt-1 text-xs leading-snug " +
+                      "mt-1 text-sm leading-snug " +
                       (turn.who === "agent"
                         ? "text-brand-strong dark:text-white/80"
                         : "text-ink-muted")
@@ -198,7 +198,7 @@ export function HeroCallSim() {
             <p className="text-xs font-semibold tracking-wide text-ink-muted uppercase">
               New lead
             </p>
-            <span className="mk-sim-field mk-d9 rounded-full bg-brand-soft px-2.5 py-1 text-[11px] font-semibold text-brand-strong">
+            <span className="mk-sim-field mk-d9 rounded-full bg-brand-soft px-3 py-1 text-xs font-semibold text-brand-strong">
               Interested
             </span>
           </div>
@@ -208,14 +208,14 @@ export function HeroCallSim() {
                 key={field.label}
                 className={`mk-sim-field ${field.delay} rounded-lg border border-line/70 bg-app/60 px-3 py-2`}
               >
-                <dt className="text-[11px] tracking-wide text-ink-faint uppercase">
+                <dt className="text-xs tracking-wide text-ink-faint uppercase">
                   {field.label}
                 </dt>
-                <dd className="mt-0.5 text-sm font-semibold text-ink">{field.value}</dd>
+                <dd className="mt-1 text-base font-semibold text-ink">{field.value}</dd>
               </div>
             ))}
           </dl>
-          <p className="mk-sim-field mk-d10 mt-3 flex items-center gap-2 border-t border-line pt-3 text-sm text-ink-muted">
+          <p className="mk-sim-field mk-d10 mt-4 flex items-center gap-2 border-t border-line pt-4 text-base text-ink-muted">
             <CalendarCheck
               aria-hidden
               className="h-4 w-4 shrink-0 text-brand-strong dark:text-brand-bright"
@@ -225,7 +225,7 @@ export function HeroCallSim() {
         </div>
       </div>
 
-      <figcaption className="mt-3 text-xs text-ink-faint">
+      <figcaption className="mt-4 text-sm text-ink-faint">
         An illustration of how a call becomes a lead. Not a recording, not a real customer,
         and not a measurement of how well it does it.
       </figcaption>

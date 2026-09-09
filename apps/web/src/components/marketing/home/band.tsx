@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import { Eyebrow, SECTION, SHELL } from "@/components/marketing/pageShell";
+import { Eyebrow, SHELL } from "@/components/marketing/pageShell";
 import { Reveal } from "@/components/marketing/motion";
 
 /**
@@ -29,10 +29,11 @@ import { Reveal } from "@/components/marketing/motion";
  * names for a screen's primary surface — SIZE and COLOUR — applied to a page rather than to
  * a panel:
  *
- * - **`weight`** sizes the `<h2>`: `anchor` (48px) for the three bands the argument rests
- *   on, `standard` (32px) for the supporting ones, `quiet` (24px) for material a buyer
- *   reads only if they are already interested. Three sizes over eleven bands, where there
- *   used to be one size over thirteen.
+ * - **`weight`** sizes the `<h2>`: `anchor` (56px on a desktop) for the three bands the
+ *   argument rests on, `standard` (40px) for the supporting ones, `quiet` (32px) for
+ *   material a buyer reads only if they are already interested. Three sizes over eleven
+ *   bands, where there used to be one size over thirteen. The three grew again on 9 Sep
+ *   2026 — see `HOME` below for the measurement that prompted it.
  * - **`tone`** grounds the chapter: `app`, `raised`, `brand` and one `dark`. Four
  *   treatments, non-alternating, so scroll position is legible from the colour alone.
  *
@@ -76,10 +77,68 @@ const GROUND: Record<ChapterTone, string> = {
 };
 
 const HEADING: Record<BandWeight, string> = {
-  anchor: "text-[2.125rem] leading-[1.06] sm:text-[2.75rem] lg:text-5xl sm:leading-[1.04]",
-  standard: "text-[1.75rem] leading-[1.15] sm:text-[2rem]",
-  quiet: "text-2xl leading-[1.2] sm:text-[1.625rem]",
+  anchor:
+    "text-[2.25rem] leading-[1.05] sm:text-[3rem] lg:text-[3.5rem] sm:leading-[1.03]",
+  standard: "text-[1.875rem] leading-[1.14] sm:text-[2.5rem] sm:leading-[1.1]",
+  quiet: "text-[1.625rem] leading-[1.2] sm:text-[2rem]",
 };
+
+/**
+ * THE HOMEPAGE'S TYPE AND SPACE SCALE — ONE DEFINITION, READ BY EVERY CHAPTER.
+ *
+ * ## The defect this replaces
+ *
+ * The 9 Sep 2026 redesign RANKED the bands against each other and changed almost nothing
+ * INSIDE one. Measured on the result, at 1440×900: the page ran 12,263px over 13.6
+ * screenfuls, and its body copy was **14px in 58 paragraphs and 12px in 51** — against 23
+ * at 16px. 14px is the console's density, chosen for an operator reading a table of
+ * fifty rows; this page is read once, at arm's length, by a stranger deciding whether to
+ * ring us. The founder's call on 9 Sep 2026, after comparing it against a competitor's
+ * landing page, was: **fewer elements per screen, larger type, more air, product at real
+ * scale — and the page is allowed to get longer.**
+ *
+ * ## Why the values are named here and not typed per section
+ *
+ * Same reason `weight` and `tone` are props (above): the SCALE is the thing under test and
+ * the thing that drifts. `py-16 sm:py-20 lg:py-24` written into eleven modules is eleven
+ * places for the next reasonable-looking edit to shave 8px, and the page walks back to
+ * 14px body copy one section at a time — which is exactly how it got there. A grep for
+ * `HOME` finds every consumer; a grep for a Tailwind class finds a coincidence.
+ *
+ * `SECTION` (`pageShell`) is deliberately NOT changed: it is the rhythm the seven INTERIOR
+ * pages share, and those are documents a reader arrives at already interested. Widening
+ * the landing page is not a reason to re-space `/security`.
+ *
+ * The steps are a scale, not a set of one-offs: each token is either the next Tailwind
+ * step up from what it replaced or a named rem value where Tailwind has no step there.
+ */
+export const HOME = {
+  /**
+   * A chapter's vertical rhythm. 96/128/160px against `SECTION`'s 64/80/96 — the air
+   * between two subjects is what makes a scan land on one of them, and this page has
+   * eight subjects, not thirteen, so it can afford it.
+   */
+  chapter: "py-24 sm:py-32 lg:py-40",
+  /** The gap when a chapter carries a SECOND band. Larger than the old `mt-16 sm:mt-20`. */
+  bandGap: "mt-24 sm:mt-32",
+  /** Heading → lede. */
+  ledeGap: "mt-6",
+  /** The heading block → the band's content. Was `mt-10 sm:mt-12`. */
+  contentGap: "mt-12 sm:mt-16",
+  /**
+   * BODY COPY. 18px on a phone, 20px from `sm` — the size this page's sentences are meant
+   * to be read at, and markedly larger than the 14px console text they were set in.
+   */
+  body: "text-lg sm:text-xl",
+  /** Supporting copy: a caption, an aside, the sentence under a list. 16 → 18. */
+  bodySm: "text-base sm:text-lg",
+  /** The title of one item in a broken-out grid or row list. Was 17px. */
+  itemTitle: "text-xl sm:text-2xl",
+  /** Gap between items, once a dense grid has been broken. Was `gap-4`. */
+  itemGap: "gap-6 sm:gap-8",
+  /** A panel, at the scale this page reads at. `CARD` is the console's 20/24px padding. */
+  panel: "rounded-2xl border border-line bg-surface p-6 sm:p-8 lg:p-10",
+} as const;
 
 /**
  * A chapter: one ground, one subject, one shell.
@@ -98,7 +157,7 @@ export function Chapter({
 }) {
   return (
     <div className={GROUND[tone]}>
-      <div className={`${SHELL} ${SECTION}`}>{children}</div>
+      <div className={`${SHELL} ${HOME.chapter}`}>{children}</div>
     </div>
   );
 }
@@ -143,7 +202,7 @@ export function Band({
       <Reveal>
         <Eyebrow tone={dark ? "inverse" : "default"}>{eyebrow}</Eyebrow>
         <h2
-          className={`mt-4 max-w-3xl font-semibold tracking-tight text-balance ${
+          className={`mt-5 max-w-4xl font-semibold tracking-tight text-balance ${
             dark ? "text-white" : "text-ink"
           } ${HEADING[weight]}`}
         >
@@ -151,8 +210,8 @@ export function Band({
         </h2>
         {lede && (
           <p
-            className={`mt-4 max-w-2xl text-pretty ${
-              weight === "anchor" ? "text-lg" : "text-base"
+            className={`${HOME.ledeGap} max-w-3xl text-pretty ${
+              weight === "anchor" ? "text-xl sm:text-2xl" : HOME.body
             } ${dark ? "text-white/80" : "text-ink-muted"}`}
           >
             {lede}

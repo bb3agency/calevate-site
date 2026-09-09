@@ -72,14 +72,14 @@ function Chain({
           workflow." heading inside the how-it-works band, so h3 here would skip nothing but
           would flatten two real levels into one. A heading level is structure, not a size
           (UX-DOCTRINE §2), and `tests/a11y.test.tsx` runs axe's `heading-order` over it. */}
-      <h4 className="text-lg font-semibold text-ink">{title}</h4>
-      <p className="mt-1 text-sm text-ink-muted">{caption}</p>
+      <h4 className="text-xl font-semibold text-ink sm:text-2xl">{title}</h4>
+      <p className="mt-2 text-base text-ink-muted sm:text-lg">{caption}</p>
       <ol className="mt-6 space-y-0">
         {steps.map((step, index) => (
           <li key={step}>
             <div
               className={
-                "rounded-xl border px-4 py-3 text-sm text-pretty " +
+                "rounded-xl border px-5 py-3.5 text-base text-pretty " +
                 (good
                   ? "border-brand/30 bg-surface text-ink"
                   : "border-line bg-app/60 text-ink-muted")
@@ -103,7 +103,7 @@ function Chain({
       </ol>
       <p
         className={
-          "mt-6 border-t pt-4 text-base font-semibold text-pretty " +
+          "mt-7 border-t pt-5 text-lg font-semibold text-pretty " +
           (good ? "border-brand/30 text-brand-strong dark:text-brand-bright" : "border-line text-ink")
         }
       >
@@ -115,7 +115,7 @@ function Chain({
 
 export function BeforeAfter() {
   return (
-    <div className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-2">
+    <div className="mt-12 grid gap-6 sm:mt-16 lg:grid-cols-2 lg:gap-8">
       <Chain
         tone="without"
         title="Without Calevate"

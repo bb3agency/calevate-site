@@ -109,7 +109,7 @@ export function IndustryTabs() {
               onClick={() => setActive(index)}
               onKeyDown={(event) => onKeyDown(event, index)}
               className={
-                "flex shrink-0 items-center gap-2 rounded-full border px-4 py-2.5 text-sm font-semibold whitespace-nowrap transition-colors touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app " +
+                "flex shrink-0 items-center gap-2 rounded-full border px-5 py-3 text-base font-semibold whitespace-nowrap transition-colors touch:min-h-11 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-app " +
                 (selected
                   ? "border-brand-strong bg-brand-strong text-white"
                   : "border-line bg-surface text-ink-muted hover:border-brand/50 hover:text-ink")
@@ -132,27 +132,27 @@ export function IndustryTabs() {
           hidden={index !== active}
           className="mt-5 rounded-2xl border border-line bg-surface p-5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong sm:p-8"
         >
-          <div className="grid gap-8 lg:grid-cols-2">
+          <div className="grid gap-10 lg:grid-cols-2 lg:gap-14">
             <div>
-              <h3 className="text-lg font-semibold text-ink">{industry.name}</h3>
-              <p className="mt-3 text-xs font-semibold tracking-[0.14em] text-ink-faint uppercase">
+              <h3 className="text-xl font-semibold text-ink sm:text-2xl">{industry.name}</h3>
+              <p className="mt-4 text-sm font-semibold tracking-[0.14em] text-ink-faint uppercase">
                 What it asks the caller
               </p>
-              <p className="mt-2 text-base text-pretty text-ink-muted">“{industry.asks}”</p>
-              <p className="mt-6 text-xs font-semibold tracking-[0.14em] text-ink-faint uppercase">
+              <p className="mt-2.5 text-lg text-pretty text-ink-muted sm:text-xl">“{industry.asks}”</p>
+              <p className="mt-8 text-sm font-semibold tracking-[0.14em] text-ink-faint uppercase">
                 The questions a new agent starts with
               </p>
               <ul data-seed-fields className="mt-2 flex flex-wrap gap-2">
                 {industry.fields.map((field) => (
                   <li
                     key={field}
-                    className="rounded-full border border-line bg-app/60 px-3 py-1 text-xs font-medium text-ink-muted"
+                    className="rounded-full border border-line bg-app/60 px-3.5 py-1.5 text-sm font-medium text-ink-muted"
                   >
                     {field}
                   </li>
                 ))}
               </ul>
-              <p className="mt-4 flex items-start gap-2 text-xs text-ink-faint">
+              <p className="mt-5 flex items-start gap-2 text-sm text-ink-faint">
                 <span
                   aria-hidden
                   className={
@@ -167,27 +167,27 @@ export function IndustryTabs() {
             </div>
 
             <div className="rounded-xl border border-line bg-app/50 p-5">
-              <p className="text-xs font-semibold tracking-[0.14em] text-ink-faint uppercase">
+              <p className="text-sm font-semibold tracking-[0.14em] text-ink-faint uppercase">
                 What you receive
               </p>
               <ul className="mt-3 flex flex-wrap gap-2">
                 {industry.result.map((chip) => (
                   <li
                     key={chip}
-                    className="rounded-lg bg-brand-soft px-3 py-1.5 text-sm font-semibold text-brand-strong"
+                    className="rounded-lg bg-brand-soft px-3.5 py-2 text-base font-semibold text-brand-strong"
                   >
                     {chip}
                   </li>
                 ))}
               </ul>
-              <p className="mt-5 border-t border-line pt-4 text-base text-pretty text-ink">
+              <p className="mt-6 border-t border-line pt-5 text-lg text-pretty text-ink">
                 {industry.advantage}
               </p>
               {/* `-muted` since 9 Sep 2026: this panel sits on `bg-app/60` over the
                   homepage's brand-tinted chapter, where `--text-faint` measures 4.47:1
                   (axe, real Chromium). The token is held to 4.5:1 against `--surface` and
                   `--app`, and a tint under it is outside what that guarantees. */}
-              <p className="mt-3 text-xs text-ink-muted">
+              <p className="mt-4 text-sm text-ink-muted">
                 An illustration of one lead, not a customer of ours.
               </p>
             </div>

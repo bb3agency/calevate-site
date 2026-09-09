@@ -18,7 +18,9 @@ import { fetchPublicRateCard } from "@/lib/api/rateCard";
  *
  * This rule predates every redesign and survives this one unchanged: name a behaviour that
  * is enforced in code today, or leave it out. The 9 Sep 2026 redesign re-RANKED the page
- * and re-GROUPED it; it did not add a single claim, and it did not delete one. Each chapter
+ * and re-GROUPED it, and the density pass that followed the same day re-SCALED it; between
+ * them they did not add a single claim, and they did not delete one — the rendered text of
+ * `<main>` is byte-identical across both. Each chapter
  * component below carries, in its own header, the shipped surface behind every sentence in
  * it. What is still deliberately ABSENT, because the absences are the load-bearing part and
  * a rewrite is exactly when they get quietly reinstated:
@@ -63,6 +65,20 @@ import { fetchPublicRateCard } from "@/lib/api/rateCard";
  *   the problem → what changes · how it works · what it does ·
  *   your language and your trade · what your team receives · what it costs ·
  *   trust · questions
+ *
+ * ## AND THEN THE DENSITY PASS, WHICH IS THE HALF THE RANKING DID NOT FIX
+ *
+ * Ranking the bands did not change what a reader meets INSIDE one, and the founder said so
+ * after comparing the result against a competitor's landing page. Measured on the ranked
+ * page at 1440×900: 12,263px over 13.6 screenfuls, with body copy at 14px in 58 paragraphs
+ * and 12px in 51 — the console's density, on the page a stranger reads once. So: a named
+ * type and space scale in `home/band.tsx` (`HOME`), body copy at 18–20px, chapter padding
+ * at 96/128/160px, and every dense grid decided one at a time — the three problems and the
+ * three steps became full-width rows, the six capabilities went three-up to two-up, the
+ * three qualification cards became one panel of three rows, the trust cards stacked, and
+ * the lead inbox stopped being 1.35fr of a shell so the product is drawn at the size it is
+ * meant to be read at. The page is 18,526px now and that is the intended direction: length
+ * is not the defect, a screenful you cannot parse is.
  *
  * NOTHING TRUE WAS DROPPED. Six bands became three chapters by joining pairs that were
  * always one argument — the problem and its answer; the three steps and the before/after

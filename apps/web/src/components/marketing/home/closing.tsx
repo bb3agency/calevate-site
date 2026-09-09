@@ -40,22 +40,22 @@ export function Closing({ devSlug }: { devSlug?: string }) {
       <div className={`${SHELL} ${SECTION}`}>
         <Reveal
           as="section"
-          className="relative overflow-hidden rounded-2xl border border-line bg-surface p-6 sm:p-10 lg:p-12"
+          className="relative overflow-hidden rounded-2xl border border-line bg-surface p-8 sm:p-12 lg:p-16"
         >
           <div
             aria-hidden
             className="mk-blob mk-blob--b pointer-events-none absolute -top-16 right-0 h-56 w-56"
           />
-          <h2 className="max-w-3xl text-[1.75rem] font-semibold tracking-tight text-balance text-ink sm:text-4xl">
+          <h2 className="max-w-4xl text-[2rem] leading-[1.1] font-semibold tracking-tight text-balance text-ink sm:text-5xl">
             Your next customer could already be trying to reach you
           </h2>
-          <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
+          <p className="mt-6 max-w-2xl text-lg text-pretty text-ink-muted sm:text-xl">
             Tell us what your callers ring about and what you need written down about each
             one. We build the agent with you, in your language, on your own price list and
             timings. You approve the agent before it goes live, and nothing calls a customer
             until you launch it.
           </p>
-          <div className="mt-8 flex flex-wrap items-center gap-3">
+          <div className="mt-10 flex flex-wrap items-center gap-3">
             <Link href="/signup" className={CTA_PRIMARY}>
               {CTA_LABEL}
               <ArrowRight
@@ -73,10 +73,10 @@ export function Closing({ devSlug }: { devSlug?: string }) {
           </div>
         </Reveal>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <Reveal as="section" className={CARD}>
-            <h2 className="text-[17px] font-semibold text-ink">Already a client</h2>
-            <p className="mt-1.5 text-sm text-pretty text-ink-muted">
+        <div className="mt-6 grid gap-6 sm:grid-cols-2">
+          <Reveal as="section" className={`${CARD} sm:p-8`}>
+            <h2 className="text-xl font-semibold text-ink sm:text-2xl">Already a client</h2>
+            <p className="mt-3 text-base text-pretty text-ink-muted sm:text-lg">
               Your workspace is at{" "}
               <code className="rounded bg-black/5 px-1 font-mono text-[13px] text-ink dark:bg-white/10">
                 /c/your-slug
@@ -85,7 +85,7 @@ export function Closing({ devSlug }: { devSlug?: string }) {
             </p>
             <Link
               href={CLIENT_SIGN_IN_PATH}
-              className="mt-4 inline-flex items-center gap-1.5 text-sm font-semibold text-brand-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface dark:text-brand-bright"
+              className="mt-5 inline-flex items-center gap-1.5 text-base font-semibold text-brand-strong underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface dark:text-brand-bright"
             >
               Sign in
               <ArrowRight aria-hidden className="h-3.5 w-3.5" />
@@ -103,25 +103,25 @@ export function Closing({ devSlug }: { devSlug?: string }) {
             )}
           </Reveal>
 
-          <Reveal as="section" delay={0.06} className={CARD}>
-            <h2 className="text-[17px] font-semibold text-ink">
+          <Reveal as="section" delay={0.06} className={`${CARD} sm:p-8`}>
+            <h2 className="text-xl font-semibold text-ink sm:text-2xl">
               {SIGNUP_OPEN ? "New here" : "Not a client yet"}
             </h2>
-            <p className="mt-1.5 text-sm text-pretty text-ink-muted">
+            <p className="mt-3 text-base text-pretty text-ink-muted sm:text-lg">
               {SIGNUP_OPEN
                 ? "Set up your first agent. Nothing calls anyone until you say so."
                 : "Calevate does not open accounts online. Every workspace is set up by hand with you."}
             </p>
             <Link
               href="/signup"
-              className="mt-4 inline-flex items-center gap-2 rounded-full border border-line px-4 py-2 text-sm font-semibold text-ink transition-colors hover:border-brand/50 hover:bg-brand-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              className="mt-5 inline-flex items-center gap-2 rounded-full border border-line px-5 py-2.5 text-base font-semibold text-ink transition-colors hover:border-brand/50 hover:bg-brand-soft/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-strong focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
             >
               How to get one
               <ArrowRight aria-hidden className="h-4 w-4" />
             </Link>
             {/* Only when there is an address to give. An invented one bounces. */}
             {!SIGNUP_OPEN && SIGNUP_CONTACT_EMAIL && (
-              <p className="mt-3 text-sm text-ink-muted">
+              <p className="mt-4 text-base text-ink-muted">
                 Or write to{" "}
                 <a
                   className="font-semibold text-brand-strong underline underline-offset-2 dark:text-brand-bright"

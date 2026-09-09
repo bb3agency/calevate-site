@@ -11,11 +11,11 @@ import {
 } from "lucide-react";
 
 import { Reveal } from "@/components/marketing/motion";
-import { CARD, CTA_LABEL, CTA_PRIMARY } from "@/components/marketing/pageShell";
+import { CTA_LABEL, CTA_PRIMARY } from "@/components/marketing/pageShell";
 import { RoiCalculator } from "@/components/marketing/roiCalculator";
 import type { PublicRateCard } from "@/lib/api/rateCard";
 
-import { Band, Chapter } from "./band";
+import { Band, Chapter, HOME } from "./band";
 
 /**
  * CHAPTER 6 — what it costs, and what the maths misses. BANDS 10 AND 11, IN ONE ARGUMENT.
@@ -115,38 +115,38 @@ export function Cost({ rateCard }: { rateCard: PublicRateCard | null }) {
         <RoiCalculator rateCard={rateCard} />
 
         <Reveal delay={0.08}>
-          <h3 className="mt-14 text-xl font-semibold tracking-tight text-balance text-ink sm:mt-16 sm:text-2xl">
+          <h3 className="mt-24 text-2xl font-semibold tracking-tight text-balance text-ink sm:mt-32 sm:text-3xl">
             The part a headcount comparison cannot see
           </h3>
         </Reveal>
         {/* ONE card, five rows — not five cards. See this file's header. */}
-        <Reveal as="section" delay={0.12} className="mt-6 overflow-hidden rounded-2xl border border-line bg-surface">
+        <Reveal as="section" delay={0.12} className="mt-8 overflow-hidden rounded-2xl border border-line bg-surface sm:mt-10">
           <ul className="divide-y divide-line">
             {BEYOND.map(({ icon: Icon, title, body }) => (
-              <li key={title} className="flex gap-4 p-5 sm:gap-5 sm:p-6">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
-                  <Icon aria-hidden className="h-5 w-5" />
+              <li key={title} className="flex flex-col gap-4 p-6 sm:flex-row sm:gap-7 sm:p-8">
+                <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand-soft text-brand-strong">
+                  <Icon aria-hidden className="h-6 w-6" />
                 </span>
                 <div>
-                  <h4 className="text-[17px] font-semibold text-balance text-ink">{title}</h4>
-                  <p className="mt-1 text-sm text-pretty text-ink-muted">{body}</p>
+                  <h4 className={`${HOME.itemTitle} font-semibold text-balance text-ink`}>{title}</h4>
+                  <p className={`mt-2 max-w-2xl text-pretty text-ink-muted ${HOME.bodySm}`}>{body}</p>
                 </div>
               </li>
             ))}
           </ul>
         </Reveal>
 
-        <Reveal as="section" delay={0.1} className={`mt-10 ${CARD} sm:mt-12`}>
-          <h3 className="text-xl font-semibold tracking-tight text-balance text-ink sm:text-2xl">
+        <Reveal as="section" delay={0.1} className={`mt-14 ${HOME.panel} sm:mt-20`}>
+          <h3 className="text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
             Worth a conversation?
           </h3>
-          <p className="mt-3 max-w-2xl text-base text-pretty text-ink-muted">
+          <p className={`mt-4 max-w-2xl text-pretty text-ink-muted ${HOME.body}`}>
             Those figures came out of what you typed, not out of a claim we made. If the
             shape of it works for your business, the next step is a short conversation — we
             build the agent with you, and you hear exactly what it will say before it ever
             picks up.
           </p>
-          <div className="mt-6 flex flex-wrap items-center gap-3">
+          <div className="mt-8 flex flex-wrap items-center gap-3">
             <Link href="/signup" className={CTA_PRIMARY}>
               {CTA_LABEL}
               <ArrowRight
@@ -155,14 +155,20 @@ export function Cost({ rateCard }: { rateCard: PublicRateCard | null }) {
               />
             </Link>
           </div>
-          <ul className="mt-6 grid gap-2.5 border-t border-line pt-5 sm:grid-cols-3">
+          {/* THIS ONE STAYS THREE-UP, and the reason is worth writing down because the
+              rest of the page went the other way: it is a CHECKLIST, not a card grid —
+              three ticked half-sentences with no heading, no control and no outcome of
+              their own, which read as one reassurance under one button. Stacking them
+              would spend a third of a screenful restating what the paragraph above just
+              said. They grow with the scale instead. */}
+          <ul className="mt-8 grid gap-3.5 border-t border-line pt-6 sm:grid-cols-3">
             {RISK_REVERSAL.map((promise) => (
-              <li key={promise} className="flex items-start gap-2 text-sm text-ink-muted">
+              <li key={promise} className={`flex items-start gap-2.5 text-ink-muted ${HOME.bodySm}`}>
                 <span
                   aria-hidden
-                  className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong"
+                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-brand-soft text-brand-strong"
                 >
-                  <Check className="h-3 w-3" />
+                  <Check className="h-3.5 w-3.5" />
                 </span>
                 {promise}
               </li>

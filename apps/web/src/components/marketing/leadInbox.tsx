@@ -66,7 +66,7 @@ function StatusPill({ status }: { status: Status }) {
         ? "bg-brand-soft text-brand-strong"
         : "bg-black/5 text-ink-muted dark:bg-white/10";
   return (
-    <span className={`inline-block rounded-full px-2.5 py-1 text-xs font-semibold ${tone}`}>
+    <span className={`inline-block rounded-full px-3 py-1.5 text-sm font-semibold ${tone}`}>
       {status}
     </span>
   );
@@ -84,13 +84,24 @@ function StatusPill({ status }: { status: Status }) {
  */
 export function LeadInbox({ tone = "light" }: { tone?: "light" | "dark" }) {
   return (
-    <figure className="mt-10 sm:mt-12">
-      <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr] lg:items-start">
+    <figure className="mt-12 sm:mt-16">
+      {/*
+       * STACKED, NOT SIDE BY SIDE, SINCE 9 SEP 2026.
+       *
+       * This is one of the four places the PRODUCT is on this page rather than an argument
+       * about it, and it was drawn at 1.35fr of a 1152px shell — a 650px box for a
+       * four-column table whose own `min-w-[34rem]` is 544px, so the illustration of the
+       * leads screen was permanently one notch from scrolling sideways, at 14px, beside a
+       * second panel competing for the same screenful. Stacked, the table gets the whole
+       * column and can be read at the page's own size; the opened lead sits under it and
+       * splits its own two lists two-up instead. Nothing was removed to do it.
+       */}
+      <div className="grid gap-6">
         {/* --- The list ------------------------------------------------------- */}
         <div className="overflow-hidden rounded-2xl border border-line bg-surface">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3.5 sm:px-5">
-            <h3 className="text-sm font-semibold text-ink">Your leads</h3>
-            <p className="text-xs text-ink-faint">Today · 4 new enquiries</p>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4 sm:px-7 sm:py-5">
+            <h3 className="text-base font-semibold text-ink sm:text-lg">Your leads</h3>
+            <p className="text-sm text-ink-faint">Today · 4 new enquiries</p>
           </div>
           {/* The table scrolls itself (see this file's header), and `ScrollRegion` is what
               makes that scroll reachable from a keyboard — role=region + tabIndex=0 + an
@@ -104,82 +115,86 @@ export function LeadInbox({ tone = "light" }: { tone?: "light" | "dark" }) {
                 caller wanted, how interested they were, and what happens next.
               </caption>
               <thead>
-                <tr className="border-b border-line text-[11px] tracking-wide text-ink-faint uppercase">
-                  <th scope="col" className="px-4 py-2.5 font-semibold sm:px-5">Lead</th>
-                  <th scope="col" className="px-4 py-2.5 font-semibold">What they want</th>
-                  <th scope="col" className="px-4 py-2.5 font-semibold">Interest</th>
-                  <th scope="col" className="px-4 py-2.5 font-semibold sm:px-5">Next step</th>
+                <tr className="border-b border-line text-xs tracking-wide text-ink-faint uppercase">
+                  <th scope="col" className="px-5 py-3.5 font-semibold sm:px-7">Lead</th>
+                  <th scope="col" className="px-5 py-3.5 font-semibold">What they want</th>
+                  <th scope="col" className="px-5 py-3.5 font-semibold">Interest</th>
+                  <th scope="col" className="px-5 py-3.5 font-semibold sm:px-7">Next step</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
                 {ROWS.map((row) => (
                   <tr key={row.name}>
-                    <th scope="row" className="px-4 py-3.5 text-sm font-semibold text-ink sm:px-5">
+                    <th scope="row" className="px-5 py-5 text-base font-semibold text-ink sm:px-7 sm:text-lg">
                       {row.name}
                     </th>
-                    <td className="px-4 py-3.5 text-sm text-ink-muted">{row.requirement}</td>
-                    <td className="px-4 py-3.5">
+                    <td className="px-5 py-5 text-base text-ink-muted sm:text-lg">{row.requirement}</td>
+                    <td className="px-5 py-5">
                       <StatusPill status={row.status} />
                     </td>
-                    <td className="px-4 py-3.5 text-sm text-ink-muted sm:px-5">{row.next}</td>
+                    <td className="px-5 py-5 text-base text-ink-muted sm:px-7 sm:text-lg">{row.next}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </ScrollRegion>
-          <p className="border-t border-line px-4 py-3 text-xs text-ink-faint sm:px-5">
+          <p className="border-t border-line px-5 py-4 text-sm text-ink-faint sm:px-7">
             You choose the columns. They are the questions you said you needed answered.
           </p>
         </div>
 
         {/* --- One lead, opened ----------------------------------------------- */}
-        <div className="rounded-2xl border border-line bg-surface p-5">
+        <div className="rounded-2xl border border-line bg-surface p-6 sm:p-8">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="text-base font-semibold text-ink">Priya</h3>
+            <h3 className="text-lg font-semibold text-ink sm:text-xl">Priya</h3>
             <StatusPill status="Interested" />
           </div>
-          <dl className="mt-4 space-y-2.5 border-t border-line pt-4">
-            {[
-              ["Requirement", "Root canal"],
-              ["Preferred time", "Tuesday, 6:00pm"],
-              ["Language", "Telugu"],
-              ["Came from", "Inbound call, 8:42pm"],
-            ].map(([term, detail]) => (
-              <div key={term} className="flex items-baseline justify-between gap-4">
-                <dt className="text-xs tracking-wide text-ink-faint uppercase">{term}</dt>
-                <dd className="text-sm font-medium text-ink">{detail}</dd>
-              </div>
-            ))}
-          </dl>
-          <ul className="mt-5 space-y-2.5 border-t border-line pt-4">
-            {[
-              {
-                icon: FileAudio,
-                text: "Jump to 1:12 — where the slot was agreed. Recordings kept at least 90 days.",
-              },
-              {
-                icon: CalendarCheck,
-                text: "Appointment written into your calendar, once your Google account is connected.",
-              },
-              {
-                icon: Share2,
-                text: "Sent on to your CRM, or to a Google Sheet.",
-              },
-            ].map(({ icon: Icon, text }) => (
-              <li key={text} className="flex items-start gap-2.5 text-sm text-ink-muted">
-                <Icon
-                  aria-hidden
-                  className="mt-0.5 h-4 w-4 shrink-0 text-brand-strong dark:text-brand-bright"
-                />
-                {text}
-              </li>
-            ))}
-          </ul>
+          {/* The lead's facts and what can be done with it, side by side once there is
+              room — which there is, now that the whole shell is this figure's. */}
+          <div className="mt-6 grid gap-7 border-t border-line pt-6 sm:grid-cols-2 sm:gap-10">
+            <dl className="space-y-4">
+              {[
+                ["Requirement", "Root canal"],
+                ["Preferred time", "Tuesday, 6:00pm"],
+                ["Language", "Telugu"],
+                ["Came from", "Inbound call, 8:42pm"],
+              ].map(([term, detail]) => (
+                <div key={term} className="flex items-baseline justify-between gap-4">
+                  <dt className="text-sm tracking-wide text-ink-faint uppercase">{term}</dt>
+                  <dd className="text-base font-medium text-ink sm:text-lg">{detail}</dd>
+                </div>
+              ))}
+            </dl>
+            <ul className="space-y-4 sm:border-l sm:border-line sm:pl-10">
+              {[
+                {
+                  icon: FileAudio,
+                  text: "Jump to 1:12 — where the slot was agreed. Recordings kept at least 90 days.",
+                },
+                {
+                  icon: CalendarCheck,
+                  text: "Appointment written into your calendar, once your Google account is connected.",
+                },
+                {
+                  icon: Share2,
+                  text: "Sent on to your CRM, or to a Google Sheet.",
+                },
+              ].map(({ icon: Icon, text }) => (
+                <li key={text} className="flex items-start gap-3 text-base text-ink-muted">
+                  <Icon
+                    aria-hidden
+                    className="mt-1 h-5 w-5 shrink-0 text-brand-strong dark:text-brand-bright"
+                  />
+                  {text}
+                </li>
+              ))}
+            </ul>
+          </div>
         </div>
       </div>
 
       <figcaption
-        className={`mt-4 text-xs ${tone === "dark" ? "text-white/70" : "text-ink-faint"}`}
+        className={`mt-5 text-sm ${tone === "dark" ? "text-white/75" : "text-ink-faint"}`}
       >
         An illustration of the leads screen, drawn with example enquiries. Nobody in it is a
         real customer, and no figure here is a measurement.

@@ -2,9 +2,8 @@ import { ArrowRight, ListChecks, PhoneCall, Rows3 } from "lucide-react";
 
 import { BeforeAfter } from "@/components/marketing/beforeAfter";
 import { Reveal } from "@/components/marketing/motion";
-import { CARD, GRID } from "@/components/marketing/pageShell";
 
-import { Band, Chapter } from "./band";
+import { Band, Chapter, HOME } from "./band";
 
 /**
  * CHAPTER 2 — how it works, and what it replaces. BANDS 03 AND 04, JOINED.
@@ -23,7 +22,9 @@ import { Band, Chapter } from "./band";
  * ## The step numerals are the page's one large numeric moment
  *
  * A landing page wants big numbers to anchor a scan, and the honest supply here is exactly
- * one: 01/02/03 are an ORDER, not a measurement, so enlarging them claims nothing. Every
+ * one: 01/02/03 are an ORDER, not a measurement, so enlarging them claims nothing — and on
+ * 9 Sep 2026 they were enlarged, from 30px in a card corner to 60px in a gutter of their
+ * own, when the three cards became three rows. Every
  * other number a page like this would enlarge — a percentage, an uptime, an accuracy, a
  * turnaround, a customer count — is one this repository cannot source, and hard rule 11 is
  * why none appears.
@@ -83,31 +84,44 @@ export function HowItWorks() {
         weight="standard"
         title="Three things happen, and you only set up the first one"
       >
-        <ol className={`${GRID} sm:grid-cols-3`}>
+        {/* THREE ROWS, NOT THREE COLUMNS.
+            Three steps in three 380px columns is the shape that makes a reader compare
+            them instead of following them, and it is the wrong shape for a sequence: an
+            order is read DOWN. Broken out, the numeral can be the large numeric moment the
+            header describes (it was 30px in a card corner; it is 60px in its own gutter),
+            and each step's sentence gets the page's body size instead of the console's. */}
+        <ol className={`${HOME.contentGap} divide-y divide-line border-y border-line`}>
           {STEPS.map(({ icon: Icon, step, title, body }, index) => (
-            <Reveal as="li" key={step} delay={index * 0.08} className={`relative ${CARD}`}>
-              <div className="flex items-baseline justify-between gap-4">
-                {/*
-                 * The one enlarged number on the page. An order, not a measurement.
-                 *
-                 * AT FULL STRENGTH, and that is not a style choice. It was
-                 * `text-brand-strong/25` — a watermark — until axe in a real Chromium
-                 * reported it at 1.47:1 on white and 1.78:1 on the dark palette. A numeral
-                 * is TEXT: it is in the accessible name of the step, a screen reader reads
-                 * it, and a person with low vision has to be able to. The 3:1 large-text
-                 * allowance is not reached for either (and UX-DOCTRINE §8.4 declines to
-                 * offer it in any case), so the colour goes to the full token: 6.58:1 here
-                 * and 7.78:1 on `--brand-bright` in the dormant dark palette.
-                 */}
-                <span className="font-mono text-3xl leading-none font-semibold text-brand-strong dark:text-brand-bright">
-                  {step}
-                </span>
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
-                  <Icon aria-hidden className="h-5 w-5" />
-                </span>
+            <Reveal
+              as="li"
+              key={step}
+              delay={index * 0.08}
+              className="flex flex-col gap-5 py-10 sm:flex-row sm:items-start sm:gap-10 sm:py-12"
+            >
+              {/*
+               * The one enlarged number on the page. An order, not a measurement.
+               *
+               * AT FULL STRENGTH, and that is not a style choice. It was
+               * `text-brand-strong/25` — a watermark — until axe in a real Chromium
+               * reported it at 1.47:1 on white and 1.78:1 on the dark palette. A numeral
+               * is TEXT: it is in the accessible name of the step, a screen reader reads
+               * it, and a person with low vision has to be able to. The 3:1 large-text
+               * allowance is not reached for either (and UX-DOCTRINE §8.4 declines to
+               * offer it in any case), so the colour goes to the full token: 6.58:1 here
+               * and 7.78:1 on `--brand-bright` in the dormant dark palette.
+               */}
+              <span className="font-mono text-4xl leading-none font-semibold text-brand-strong sm:w-24 sm:shrink-0 sm:text-6xl dark:text-brand-bright">
+                {step}
+              </span>
+              <div className="sm:flex-1">
+                <h3 className={`${HOME.itemTitle} font-semibold text-balance text-ink`}>
+                  {title}
+                </h3>
+                <p className={`mt-3 max-w-2xl text-pretty text-ink-muted ${HOME.body}`}>{body}</p>
               </div>
-              <h3 className="mt-5 text-lg font-semibold text-ink">{title}</h3>
-              <p className="mt-2 text-sm text-ink-muted">{body}</p>
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-brand-soft text-brand-strong">
+                <Icon aria-hidden className="h-6 w-6" />
+              </span>
             </Reveal>
           ))}
         </ol>
@@ -116,14 +130,14 @@ export function HowItWorks() {
             the sequence is carried by the markup and not only by the chevrons — which are
             decorative for that reason. */}
         <Reveal delay={0.24}>
-          <ol className="mt-8 flex flex-wrap items-center gap-x-2 gap-y-2">
+          <ol className="mt-10 flex flex-wrap items-center gap-x-2.5 gap-y-3">
             {FLOW.map((stage, index) => (
               <li key={stage} className="flex items-center gap-2">
-                <span className="rounded-full border border-line bg-surface px-3.5 py-1.5 text-xs font-semibold text-ink sm:text-sm">
+                <span className="rounded-full border border-line bg-surface px-4 py-2 text-sm font-semibold text-ink sm:text-base">
                   {stage}
                 </span>
                 {index < FLOW.length - 1 && (
-                  <ArrowRight aria-hidden className="h-3.5 w-3.5 text-ink-faint" />
+                  <ArrowRight aria-hidden className="h-4 w-4 text-ink-faint" />
                 )}
               </li>
             ))}
@@ -131,10 +145,10 @@ export function HowItWorks() {
         </Reveal>
 
         <Reveal delay={0.1}>
-          <h3 className="mt-14 text-xl font-semibold tracking-tight text-balance text-ink sm:mt-16 sm:text-2xl">
+          <h3 className="mt-24 text-2xl font-semibold tracking-tight text-balance text-ink sm:mt-32 sm:text-3xl">
             Same leads. Completely different workflow.
           </h3>
-          <p className="mt-3 max-w-2xl text-base text-pretty text-ink-muted">
+          <p className={`mt-4 max-w-2xl text-pretty text-ink-muted ${HOME.body}`}>
             Nothing about your enquiries changes. What changes is how many hands they pass
             through before anybody sells anything.
           </p>

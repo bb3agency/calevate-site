@@ -173,7 +173,10 @@ export function Reveal({
   children: ReactNode;
   className?: string;
   delay?: number;
-  as?: "div" | "section" | "li" | "header" | "footer";
+  // `ul`/`ol` because a list that IS the revealed block must stay a list: wrapping it
+  // in a revealed `div` would put a non-`li` between the list and its items, which is
+  // the `list`/`listitem` relationship axe checks and a screen reader announces.
+  as?: "div" | "section" | "li" | "ul" | "ol" | "header" | "footer";
 }) {
   const { reduced } = useMotion();
   const scope = useRef<HTMLElement>(null);

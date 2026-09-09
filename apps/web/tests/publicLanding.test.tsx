@@ -6,6 +6,7 @@ import { ScrollTrigger } from "gsap/ScrollTrigger";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import Home from "@/app/page";
+import { HOME } from "@/components/marketing/home/band";
 import { LEGAL_DOCUMENTS } from "@/lib/legal";
 
 import { copyUnder, tsSources } from "./copyScan";
@@ -940,6 +941,77 @@ describe("nothing on this page lays out in columns a phone cannot hold", () => {
       `these grids split a 320px content box into columns at every width:\n  ` +
         `${offenders.join("\n  ")}\n` +
         `Prefix the utility (e.g. \`grid-cols-1 sm:grid-cols-3\`) so a phone gets rows.`,
+    ).toEqual([]);
+  });
+});
+
+/**
+ * THE PAGE IS SET AT READING SIZE, NOT AT CONSOLE SIZE.
+ *
+ * ⚠ **THE 9 SEP 2026 REDESIGN LEFT THIS UNGUARDED AND THE FOUNDER CAUGHT IT.** That change
+ * ranked the bands against each other — `data-band-weight`, asserted above — and barely
+ * touched what happens INSIDE one, so the page still measured 14px in 58 paragraphs and
+ * 12px in 51 against 23 at 16px, and it still read as dense beside a competitor's landing
+ * page. Every test in this file was green through all of it, because none of them could
+ * see type size below the `<h2>`.
+ *
+ * The band ranking has a guard and the body scale did not, which is why the ranking held
+ * and the density came back. So these two assert the OTHER half of UX-DOCTRINE §10's "a
+ * test that fails if the hierarchy regresses": the scale exists as named values, and no
+ * chapter quietly sets its prose back to the console's density one section at a time —
+ * which is precisely how thirteen equal bands accumulated the first time.
+ */
+describe("the landing page is set at reading size", () => {
+  it("keeps its body copy on the named scale, well clear of console density", () => {
+    // The tokens are asserted by NAME as well as by value: a rename that leaves the page
+    // reading at 14px would otherwise pass by deleting the thing under test.
+    for (const key of ["chapter", "bandGap", "ledeGap", "contentGap", "body", "bodySm", "itemTitle", "itemGap", "panel"]) {
+      expect(Object.keys(HOME), `the scale lost its \`${key}\` step`).toContain(key);
+    }
+    // `text-lg` is 18px and `text-base` is 16px. The console's density is `text-sm` (14px),
+    // and this page may not be set in it — a scale that starts below these two is not a
+    // smaller design, it is the defect this describe exists for.
+    expect(HOME.body, "body copy dropped below 18px").toMatch(/(^|\s)text-lg(\s|$)/);
+    expect(HOME.bodySm, "supporting copy dropped below 16px").toMatch(/(^|\s)text-base(\s|$)/);
+    expect(HOME.itemTitle, "an item title dropped below 20px").toMatch(/(^|\s)text-xl(\s|$)/);
+    for (const token of [HOME.body, HOME.bodySm, HOME.itemTitle]) {
+      expect(token, `\`${token}\` sets marketing prose at the console's size`).not.toMatch(
+        /(^|\s)text-(sm|xs)(\s|$)/,
+      );
+    }
+  });
+
+  /**
+   * AND NO CHAPTER OPTS OUT OF IT.
+   *
+   * A source scan rather than a render, for the same reason the grid guard above is one:
+   * the size is a class string, jsdom computes no styles, and the failure this catches is
+   * one reasonable-looking `text-sm` typed into one module — never the whole page at once.
+   *
+   * `uppercase` is the one exemption and it is narrow: the small tracked kicker over a card
+   * ("ANSWERING", "తెలుగు") is a LABEL, not prose. It is deliberately small, it is exempt
+   * in the console too, and enlarging it would make it compete with the heading it labels.
+   */
+  it("sets no chapter's prose at the console's size", () => {
+    const dir = resolve(process.cwd(), "src", "components", "marketing", "home");
+    const files = tsSources(dir).map((file) => relPosix(process.cwd(), file));
+    expect(files.length, "the chapter walk found nothing — has the directory moved?")
+      .toBeGreaterThan(8);
+    const offenders: string[] = [];
+    for (const file of files) {
+      readFileSync(resolve(process.cwd(), file), "utf8")
+        .split("\n")
+        .forEach((line, i) => {
+          if (/^\s*(\*|\/\/)/.test(line)) return;
+          if (!/<(p|li|dd|h3|h4)\b/.test(line)) return;
+          if (/uppercase/.test(line)) return;
+          if (/text-(sm|xs)\b/.test(line)) offenders.push(`${file}:${i + 1} — ${line.trim()}`);
+        });
+    }
+    expect(
+      offenders,
+      `these lines set landing-page prose at console density:\n  ${offenders.join("\n  ")}\n` +
+        `Use the \`HOME\` scale in components/marketing/home/band.tsx.`,
     ).toEqual([]);
   });
 });

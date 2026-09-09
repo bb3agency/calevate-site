@@ -8,9 +8,8 @@ import {
 } from "lucide-react";
 
 import { Reveal } from "@/components/marketing/motion";
-import { CARD, GRID } from "@/components/marketing/pageShell";
 
-import { Band, Chapter } from "./band";
+import { Band, Chapter, HOME } from "./band";
 
 /**
  * CHAPTER 1 — the problem, then the promise. TWO BANDS THAT USED TO BE TWO CHAPTERS.
@@ -115,45 +114,63 @@ export function ProblemAndPromise() {
         weight="standard"
         title="The calls you missed today are not on any report"
       >
-        {/* Rows, not cards. The hairline is the only chrome, and it appears only where
-            there are columns to separate. */}
-        <div className="mt-10 grid gap-8 sm:mt-12 sm:grid-cols-3 sm:gap-0 sm:divide-x sm:divide-line">
+        {/* THREE ROWS, NOT THREE COLUMNS — and this is the second time this grid has been
+            broken. The 9 Sep 2026 pass took it out of three `Card`s (§1: prose is not a
+            panel) and left it as three columns divided by a hairline, which kept the
+            defect that matters here: three observations arriving at once, each in a 380px
+            column at 14px, so the reader parses a layout before they read a sentence. One
+            column, one observation at a time, at the page's own body size. */}
+        <ul className={`${HOME.contentGap} divide-y divide-line border-y border-line`}>
           {PROBLEMS.map(({ icon: Icon, title, body }, index) => (
             <Reveal
-              as="section"
+              as="li"
               key={title}
               delay={index * 0.08}
-              className="sm:px-6 sm:first:pl-0 sm:last:pr-0"
+              className="flex flex-col gap-4 py-8 sm:flex-row sm:gap-8 sm:py-10"
             >
-              <Icon aria-hidden className="h-5 w-5 text-brand-strong dark:text-brand-bright" />
-              <h3 className="mt-4 text-[17px] font-semibold text-ink">{title}</h3>
-              <p className="mt-1.5 text-sm text-pretty text-ink-muted">{body}</p>
+              <Icon
+                aria-hidden
+                className="h-7 w-7 shrink-0 text-brand-strong sm:mt-1 dark:text-brand-bright"
+              />
+              <div>
+                <h3 className={`${HOME.itemTitle} font-semibold text-balance text-ink`}>
+                  {title}
+                </h3>
+                <p className={`mt-3 max-w-2xl text-pretty text-ink-muted ${HOME.body}`}>{body}</p>
+              </div>
             </Reveal>
           ))}
-        </div>
+        </ul>
       </Band>
 
       <Band
         id="outcomes"
         eyebrow="What changes"
         weight="anchor"
-        className="mt-16 sm:mt-20"
+        className={HOME.bandGap}
         title="What is different in your business by next week"
         lede="Calevate handles the first layer of phone work so your team can spend the day on the conversations that matter."
       >
-        <div className={`${GRID} sm:grid-cols-2`}>
+        {/* TWO-UP, and it stays two-up: these four ARE panels — one outcome each, four
+            parallel answers to the three observations above — and a four-row column would
+            spend a screenful and a half saying so. What changed is the scale: the card
+            padding, the title and the body all move onto the page's own scale, so two
+            cards fill a screenful instead of four competing inside one. */}
+        <div className={`${HOME.contentGap} grid ${HOME.itemGap} sm:grid-cols-2`}>
           {OUTCOMES.map(({ icon: Icon, title, body }, index) => (
             <Reveal
               as="section"
               key={title}
               delay={(index % 2) * 0.06}
-              className={`${CARD} transition-colors hover:border-brand/40`}
+              className={`${HOME.panel} transition-colors hover:border-brand/40`}
             >
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
-                <Icon aria-hidden className="h-5 w-5" />
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-brand-soft text-brand-strong">
+                <Icon aria-hidden className="h-7 w-7" />
               </span>
-              <h3 className="mt-5 text-xl font-semibold text-balance text-ink">{title}</h3>
-              <p className="mt-2 text-base text-pretty text-ink-muted">{body}</p>
+              <h3 className={`mt-6 ${HOME.itemTitle} font-semibold text-balance text-ink`}>
+                {title}
+              </h3>
+              <p className={`mt-3 text-pretty text-ink-muted ${HOME.bodySm}`}>{body}</p>
             </Reveal>
           ))}
         </div>

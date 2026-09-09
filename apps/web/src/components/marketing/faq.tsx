@@ -187,13 +187,13 @@ export function Faq() {
           <summary
             className="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 py-4 [&::-webkit-details-marker]:hidden"
           >
-            <h3 className="text-[17px] font-medium text-ink">{q}</h3>
+            <h3 className="text-lg font-medium text-ink sm:text-xl">{q}</h3>
             <ChevronDown
               aria-hidden
               className="h-4 w-4 shrink-0 text-ink-faint transition-transform duration-200 group-open:rotate-180 motion-reduce:transition-none"
             />
           </summary>
-          <p className="max-w-2xl pb-5 text-sm text-ink-muted">{a}</p>
+          <p className="max-w-3xl pb-6 text-base text-pretty text-ink-muted sm:text-lg">{a}</p>
         </details>
       ))}
     </div>
