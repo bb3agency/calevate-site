@@ -11,11 +11,14 @@ could disagree with the voice, so there is not one; invariant 7 is Phase C's tes
 * **`sarvam`** — Bulbul v3, a PER-CHARACTER list price (`TTS_INR_PER_10K_CHARS`). Its
   worst-case per-call-minute cost is the top of TRD §10.1's assumed speaking band, and
   it is one of the four legs summed into `SELF_SERVE_COST_FLOOR_INR_PER_MIN`.
-* **`cartesia`** — Sonic 3.5, a MONTHLY PLAN with a character allotment, no
-  pay-as-you-go option (`docs/evidence/cartesia-tts-verification-2026-09-06.md`). A plan
-  has no per-character price until it is spread over the minutes it served, so its floor
-  is the ex-plan legs PLUS the plan fee per minute at the count where the allotment is
-  exactly consumed (`CARTESIA_COST_FLOOR_INR_PER_MIN`, and the arithmetic beside it).
+* **`cartesia`** — Sonic 3.5, a MONTHLY SUBSCRIPTION with an included allotment and an
+  OVERAGE past it, with no pay-as-you-go option (Tinmaz correspondence, 9 Sep 2026, in
+  `docs/evidence/cartesia-tts-verification-2026-09-06.md` ADDENDUM 3). A subscription has
+  no per-minute price until a VOLUME is named, so `cartesia_cost_inr_per_call_minute(v)` is
+  the honest cost figure and `CARTESIA_COST_FLOOR_INR_PER_MIN` is the worst MARGINAL cost —
+  what one more minute costs on the dearest plan we can be on. ⚠ The floor was ₹4.3639
+  until 9 Sep 2026, which was the plan's BEST per-minute price at a volume this platform
+  has never run; the block beside the constant records what was wrong with it and why.
 
 `cost_floor_inr_per_min(voice)` is the one door to either floor. The credit-pack card
 (`billing/credit_packs.py`) carries a Sarvam AND a Cartesia rate on every pack, and each
@@ -72,6 +75,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
+from functools import lru_cache
 from types import MappingProxyType
 from typing import Final, Literal
 
@@ -88,9 +92,10 @@ from apps.api.billing.models import MONEY
 #
 # **THE SARVAM RUNG, and deliberately a scalar and not a mapping.** The second voice tier
 # (Cartesia Sonic 3.5, D-547) is NOT a second entry here, because it is not a
-# per-character list price: it is a monthly plan whose marginal per-character figure
-# (`CARTESIA_TTS_INR_PER_10K_CHARS`, below the LLM section) is DERIVED from the plan fee
-# and its allotment and is true only when the allotment is consumed. Putting the two side
+# per-character list price: it is a monthly SUBSCRIPTION whose marginal per-character
+# figure (`CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`, below the LLM section) is the vendor's
+# OVERAGE rate past the included allotment, and inside the allotment there is no
+# per-character price at all — only a fee divided by a volume. Putting the two side
 # by side in one mapping would let a reader price a Cartesia character as if it were
 # metered, which is the misreading the Cartesia evidence file exists to correct. The
 # earlier `Mapping[TtsTier, Decimal]` (a ₹30 premium and a ₹15 value rung of the SAME
@@ -807,8 +812,9 @@ def tts_rate_inr_per_char() -> Decimal:
     if it is done twice. Callers multiply by a character count and quantize once.
 
     No tier argument, on purpose: this is the SARVAM per-character rate. The Cartesia
-    tier has no per-character list price to return — its leg is a plan, spread over
-    minutes by `cartesia_plan_inr_per_call_minute` — and a `voice` argument here would
+    tier has no per-character list price to return — its leg is a subscription, priced per
+    minute only at a named volume by `cartesia_cost_inr_per_call_minute` — and a `voice`
+    argument here would
     invite a caller to meter a Cartesia character as if Sarvam's card applied to it."""
     return TTS_INR_PER_10K_CHARS / _CHARS_UNIT
 
@@ -1034,116 +1040,631 @@ SELF_SERVE_COST_FLOOR_INR_PER_MIN: Final[Decimal] = (
 ).quantize(MONEY_Q, rounding=ROUNDING)
 
 
-# --- THE CARTESIA TIER: a PLAN, spread over minutes ---------------------------------------
+# --- THE CARTESIA TIER: a SUBSCRIPTION + an ALLOTMENT + an OVERAGE -------------------------
 #
-# Cartesia sells Sonic as a monthly subscription with a character allotment and NO
-# pay-as-you-go option, so there is no per-character price to put beside Sarvam's until
-# the fee is spread over the characters it bought. The figures below are the STARTUP plan,
-# which is the plan we would buy: its 5 TTS concurrency units cover ten concurrent lines by
-# the vendor's own "~4 conversations per unit" rule of thumb, where Pro's 3 is
-# "borderline-adequate" by that same rule (evidence file §A2) — and the file is explicit
-# that the rule of thumb must be LOAD-TESTED, which is OPERATIONS gate 53.
+# ⚠ **THIS BLOCK WAS REWRITTEN ON 9 SEP 2026 AND THE MODEL IT REPLACED WAS WRONG IN THE
+# DIRECTION THAT FLATTERS US.** It priced ONE plan ($49 Startup), spread its fee over the
+# minute count at which the allotment is exactly consumed, and called the result a cost
+# FLOOR — ₹4.3639/min. That is the plan's BEST per-minute price and it is reachable only at
+# ~2,315 Cartesia call-minutes a month, platform-wide. Below that count the fee does not
+# shrink and the real cost is dearer (₹45.62/min at 100 min/mo); above it the model had
+# nothing to say at all, because the overage rate was UNKNOWN. The founder read ₹4.3639
+# under a column headed "COSTS US" and said it could not be right. It was not.
 #
-# **EVERY FIGURE HERE IS REPORTED.** `docs/evidence/cartesia-tts-verification-2026-09-06.md`
-# is a Comet research run relayed by the founder and its own header stamps the whole file
-# REPORTED; `cartesia.ai` and `docs.cartesia.ai` are egress-blocked from this container
-# (re-measured 6 Sep 2026), so nothing below was read from the vendor by this repository and
-# the labels the file itself writes as VERIFIED are Comet's reading, not ours.
+# WHAT CLOSED IT — EVIDENCE CLASS: VENDOR-PUBLISHED, direct correspondence. An email reply
+# from **Ege Tinmaz, Product Support Engineer, Cartesia (ege.tinmaz@cartesia.ai)** to a
+# pricing enquiry the founder sent, relayed by the founder on 9 Sep 2026. It outranks
+# `docs/evidence/cartesia-tts-verification-2026-09-06.md`, which is a third-party research
+# run whose own header stamps it REPORTED, and it is recorded in that file's ADDENDUM 3.
+# **`cartesia.ai` was NOT fetched from this container** (still egress-blocked, re-measured
+# 6 Sep 2026); nothing here was read from a web page by this repository.
 #
-# The conversion is the one that file states at every line (₹88 = US$1.00), kept as its own
-# constant rather than `LIST_PRICE_USD_INR` (₹95.66, the LLM card's strike) so the number in
-# code is the number in the evidence it cites. The choice is not free and is bounded rather
-# than waved at: at ₹95.66 the fee would be ₹4,687.34, the plan leg ₹2.0249/min and the
-# floor ₹4.5260 — still under the ₹6.00 cheapest Cartesia rate, so the card clears either
-# conversion. `tests/cost_floor_test.py` computes that alternative and asserts it, so the
-# claim is scored rather than believed.
+# THE FIVE FACTS THE VENDOR STATED, and what each one changed:
 #
-# HARD RULE 7: none of this reaches `unit_cost_paid`. What a Cartesia minute actually
-# costs this account is Phase D's operator-attested `TtsPriceAttestation`; these constants
-# price the DECISION (the card's Cartesia column) and the margin model only.
+# 1. **There is no usage-only workspace.** Every plan is a monthly subscription with an
+#    included credit allotment; the closest thing to pay-as-you-go is enabling OVERAGES on
+#    a paid plan, billed only beyond the allotment. (Unchanged — the research run had this.)
+# 2. **The smallest paid path is Pro at $5/month with 100,000 credits**, overages switched
+#    on from the subscription page once a card is on file. THIS IS THE FACT THAT MATTERS
+#    MOST: the whole cost model assumed $49 Startup was the entry point, and it is not.
+# 3. **The overage rates are $65 / $45 / $38 per 1M credits on Pro / Startup / Scale.** The
+#    biggest UNKNOWN in this file is closed. The research run had those exact three figures
+#    and DOWNGRADED them ("do not use ... floats around blogs; Cartesia's own FAQ did not
+#    yield one"); the vendor has now stated them directly, so they are usable.
+# 4. **TTS is 1 credit per character**, and the vendor puts a minute of AUDIO at ~750-800
+#    credits. See `CARTESIA_VENDOR_CREDITS_PER_AUDIO_MINUTE` below — it is a CROSS-CHECK on
+#    our chars-per-CALL-minute band, not a replacement for it.
+# 5. **No platform fee and no annual minimum on self-serve**; the subscription is the only
+#    fixed cost and can be paused or cancelled at any time.
+#
+# TWO LEGS THE VENDOR PRICED THAT ARE NOT OURS, said here because a reader meeting the mail
+# will wonder: **Ink STT** (1-3 credits/second) and **Managed Agents** ($0.06/min, plus
+# $0.014/min for a Cartesia-provided number). We use Bolna with BYOK Cartesia TTS, so the
+# only Cartesia leg on our bill is TTS credits. Neither is added below, and neither may be.
+#
+# **OPERATIONAL CONSTRAINT, not a price** (it answers the founder's India/GST question in
+# the same mail): self-serve billing is USD, card only, and needs international + recurring
+# payments enabled on the card. Enterprise/custom terms were referred to their business
+# team and are OPEN — nobody has an answer and none is invented here.
+#
+# WHAT IS STILL GENUINELY UNKNOWN AFTER THIS MAIL: (a) the **Scale** plan's fee and
+# allotment — the vendor gave only its overage rate, so Scale is NOT modelled below; the
+# research run's "$299 / 8M" is REPORTED and is CORROBORATED to rounding by the vendor's own
+# effective-rate figure (~$37/1M against $299/8M = $37.375/1M), which raises its confidence
+# without making it a vendor statement of the fee. (b) Enterprise/custom terms.
+#
+# HARD RULE 7: none of this reaches `unit_cost_paid`. What a Cartesia minute actually costs
+# this account is Phase D's operator-attested `TtsPriceAttestation` and
+# `TtsPlanFeeAttestation`; these constants price the DECISION (the card's Cartesia column)
+# and the margin model only.
+#
+# ⚠ **CHEAPEST BY COST IS NOT "THE PLAN TO BUY".** `cartesia_cheapest_plan` answers a money
+# question and nothing else. Pro carries **3** TTS concurrency units against Startup's 5 and
+# Scale's 15, and the evidence file's §A2 arithmetic (file tail: 4.8-7.2 contexts at steady
+# state on ten lines, ~19-29 at the peak our sizing assumes) concludes that a self-serve
+# plan below Scale is "a dead-air incident waiting for a busy morning". A 429 has no queue.
+# So the plan actually bought is settled by OPERATIONS §2 gate 53's load test, not by this
+# module, and every surface that renders the ladder says so.
 
-#: Cartesia Startup plan, monthly fee, USD. REPORTED (evidence file §A1, "Startup | $49/mo").
-CARTESIA_STARTUP_PLAN_FEE_USD: Final[Decimal] = Decimal("49")
-#: The USD→INR conversion the Cartesia evidence file uses throughout ("₹88 = US$1.00") —
-#: which is `COST_MODEL_USD_INR`, the same rate the engine fee leg above is struck at, so
-#: the two legs of one floor are not converted at two rates. Aliased rather than re-typed,
-#: and kept as its own name because the EVIDENCE differs: this one is the research file's
-#: stated assumption, that one is TRD §10.4's. If they ever have to diverge, this is the
-#: line that moves.
+#: The USD→INR conversion the whole Cartesia leg is struck at — which is `COST_MODEL_USD_INR`,
+#: the same rate the engine fee leg above uses, so the two legs of one floor are not
+#: converted at two rates. Aliased rather than re-typed, and kept as its own name because the
+#: EVIDENCE differs: this one is the Cartesia reading's stated assumption, that one is TRD
+#: §10.4's. If they ever have to diverge, this is the line that moves.
 CARTESIA_EVIDENCE_USD_INR: Final[Decimal] = COST_MODEL_USD_INR
-#: ₹4,312 — the plan fee in rupees, DERIVED from the two above so the file's own
-#: arithmetic ("$49 = Rs 4,312") is reproduced rather than restated.
-CARTESIA_STARTUP_PLAN_FEE_INR: Final[Decimal] = (
-    CARTESIA_STARTUP_PLAN_FEE_USD * CARTESIA_EVIDENCE_USD_INR
-)
-#: The Startup plan's monthly allotment, in characters. REPORTED (evidence file §A1,
-#: "1,250,000 credits"; 1 credit = 1 character on every Sonic model, same file).
-CARTESIA_STARTUP_PLAN_CHARS: Final[Decimal] = Decimal("1250000")
 
-#: The plan's MARGINAL rate per 10,000 characters — fee / allotment, in the Sarvam rung's
-#: unit so TRD §10.1 can state the two side by side and `check_docs_drift` §4b can diff
-#: them on both rungs. ₹34.496, EXACT. True only when the whole allotment is consumed:
-#: below that the real per-character cost is higher (the fee does not shrink), and above
-#: it the OVERAGE RATE IS UNKNOWN — see `CARTESIA_COST_FLOOR_INR_PER_MIN`. This is the
-#: figure plan §3.5 says an operator attests as the Cartesia TTS price
-#: (₹3.4496 / 1,000 chars).
-CARTESIA_TTS_INR_PER_10K_CHARS: Final[Decimal] = (
-    CARTESIA_STARTUP_PLAN_FEE_INR / CARTESIA_STARTUP_PLAN_CHARS * _CHARS_UNIT
-)
+#: One million credits — the unit the vendor quotes an overage rate in. Named because the
+#: per-character conversion below divides by it and a bare `1000000` in that expression is
+#: the kind of literal that gets mistaken for a character count.
+_CREDITS_UNIT: Final[Decimal] = Decimal("1000000")
+
+#: **1 credit = 1 character** on every Sonic model and every endpoint. VENDOR-PUBLISHED
+#: (Tinmaz correspondence, 9 Sep 2026: "TTS is 1 credit per character"), which re-confirms
+#: the research run's own VERIFIED reading. Written as a constant rather than assumed,
+#: because every allotment below is quoted in credits and every consumption figure this
+#: platform has is in characters, and that identity is the only thing joining them.
+CARTESIA_CREDITS_PER_CHARACTER: Final[Decimal] = Decimal("1")
+
+#: The vendor's own "~750-800 credits per minute of AUDIO" (same correspondence), as the
+#: worst end of the range they gave. **THIS IS A CROSS-CHECK, NEVER A SUBSTITUTE FOR
+#: `TTS_ASSUMED_CHARS_PER_CALL_MINUTE`, AND THE DENOMINATORS ARE DIFFERENT NUMBERS.** Theirs
+#: is characters per minute of SYNTHESIZED AUDIO — the agent's mouth open, continuously.
+#: Ours is characters per CALL-minute, wall-clock on a two-party phone call in which the
+#: caller also speaks and both sides pause. The two are related by the agent's talk ratio:
+#: our 540 chars/call-min against 750 chars/audio-min implies a talk ratio of 0.72, and the
+#: 360 end implies 0.48. Both sit inside the plausible band for a receptionist agent, so the
+#: vendor's figure RECONCILES with ours and neither replaces the other. Swapping 750 in for
+#: 540 would silently re-state a call-minute as an audio-minute and inflate every cost on
+#: this page by 39%. The band itself is still unmeasured (pilot gate 12); the admin spend
+#: board's measured speaking rate is what retires it.
+CARTESIA_VENDOR_CREDITS_PER_AUDIO_MINUTE: Final[Decimal] = Decimal("750")
 
 
-def cartesia_plan_breakeven_call_minutes() -> Decimal:
-    """The platform-wide monthly Cartesia call-minute count at which the Startup allotment
-    is EXACTLY consumed, at the worst-case speaking rate: `allotment / 540` ≈ 2,314.8.
+@dataclass(frozen=True, slots=True)
+class CartesiaPlan:
+    """One Cartesia self-serve subscription: a monthly fee, an included allotment, an overage.
 
-    This is the "break-even count" the Cartesia floor is struck at (plan §4.A.3): at this
-    count the plan fee per minute is at its lowest honest value, because every character
-    bought was spoken. Fewer Cartesia minutes in a month than this and the fee per minute
-    is HIGHER — the floor then UNDERSTATES our cost, in the direction a floor must never
-    err silently, which is why Phase D's margin panel shows plan spend beside attributed
-    cost. More minutes and the overage rate (UNKNOWN) applies. Exact, unquantized: it is
-    a count for a comparison, not money.
+    THE SHAPE IS THE POINT. The model this replaced was `fee / allotment` — one number,
+    true at exactly one volume. A subscription with an overage is a piecewise-linear cost
+    curve, and every honest figure about it names the volume it was struck at. So nothing
+    here is a per-minute constant: `monthly_inr` takes a volume and everything else is
+    derived from it.
+
+    EVIDENCE CLASS IS PER FIELD AND IS NOT UNIFORM. **Every OVERAGE rate is
+    VENDOR-PUBLISHED** (Tinmaz correspondence, 9 Sep 2026) and so are **Pro's fee and
+    allotment**. **Startup's fee and allotment are REPORTED** — the Comet research run in
+    the same evidence file — CORROBORATED to rounding by the vendor's own effective
+    included-credit figure (~$39/1M against $49/1.25M = $39.20/1M). Corroboration is not a
+    vendor statement (hard rule 11), and it matters little here because Startup only becomes
+    the cheapest plan above ~1,439 call-minutes a month, which this platform does not run.
+
+    Money is Decimal throughout (hard rule 7); nothing is quantized inside the arithmetic,
+    only at the per-minute boundaries a human reads.
     """
-    return CARTESIA_STARTUP_PLAN_CHARS / TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]
+
+    #: The vendor's own name for the plan, lowercased. Crosses the wire to the ops console.
+    plan_id: str
+    #: The monthly subscription fee, USD. The ONLY fixed cost — the vendor states there is
+    #: no platform fee and no annual minimum on self-serve.
+    fee_usd: Decimal
+    #: Credits included in the fee each month. 1 credit = 1 character.
+    included_credits: Decimal
+    #: What a credit costs PAST the allotment, USD per 1,000,000 credits.
+    overage_usd_per_million_credits: Decimal
+    #: TTS concurrency units this plan carries — NOT money, and published beside the price
+    #: because the cheapest plan is not automatically the plan to buy (see the block header
+    #: and evidence file §A2). **EVIDENCE CLASS: REPORTED** — the research run's concurrency
+    #: table, which that file's own header stamps REPORTED whatever it labels a row; the
+    #: Tinmaz correspondence does not mention concurrency. What it decides is settled by
+    #: OPERATIONS §2 gate 53's load test, not by this number.
+    tts_concurrency: int
+
+    def fee_inr(self, usd_inr: Decimal) -> Decimal:
+        """The subscription fee in rupees at a NAMED USD→INR rate, EXACT.
+
+        **THE RATE IS AN ARGUMENT AND HAS NO DEFAULT, WHICH IS THE POINT** (founder,
+        9 Sep 2026). Cartesia bills in dollars, so what this leg costs us moves with the
+        rupee, and a hidden default is how a frozen number ends up on a screen headed
+        "COSTS US" — the exact defect this file was rewritten for. Callers name the rate
+        and therefore name its provenance: `CARTESIA_EVIDENCE_USD_INR` to reproduce the
+        evidence file's own arithmetic, or the live published quote
+        (`core/fx.usd_inr_rate_now`) for anything an operator reads as today's cost.
+        """
+        return self.fee_usd * usd_inr
+
+    def overage_inr_per_character(self, usd_inr: Decimal) -> Decimal:
+        """What one character past the allotment costs, in rupees, EXACT and unquantized.
+
+        Quantizing here would round a figure with four significant digits below the paisa
+        (₹0.00572 at ₹88) to zero at `MONEY_Q` and make every overage free. It is a rate
+        that gets multiplied by hundreds of thousands, so it stays exact until the product
+        is taken.
+        """
+        return (
+            self.overage_usd_per_million_credits
+            * usd_inr
+            / _CREDITS_UNIT
+            / CARTESIA_CREDITS_PER_CHARACTER
+        )
+
+    @property
+    def included_call_minutes(self) -> Decimal:
+        """How many call-minutes the allotment covers at the worst-case speaking rate, EXACT.
+
+        NO FX ARGUMENT, because an allotment is credits and not money: it is the one figure
+        about a plan that a currency move cannot touch. The TOP of
+        `TTS_ASSUMED_CHARS_PER_CALL_MINUTE`, for the same reason every other cost figure
+        here takes it — a floor takes the worst case, and a chattier agent than assumed is
+        the expensive direction. Pro's 100,000 credits cover ~185 call-minutes.
+        """
+        return self.included_credits / TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]
+
+    def marginal_inr_per_call_minute(self, usd_inr: Decimal) -> Decimal:
+        """What ONE MORE call-minute costs on this plan once the allotment is gone, EXACT.
+
+        `overage x 540`. This is the figure a per-minute RETAIL RATE has to clear for the
+        sale to make money on the margin, and — because the overage rate is now known — it
+        is bounded, which the old model's "UNKNOWN past the allotment" was not.
+        """
+        return self.overage_inr_per_character(usd_inr) * TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]
+
+    def monthly_inr_for_characters(self, characters: Decimal, *, usd_inr: Decimal) -> Decimal:
+        """What this plan costs for a month in which `characters` were spoken, EXACT.
+
+        `fee + overage x max(0, chars - allotment)`. **THE PRIMITIVE, because credits ARE
+        characters** — every other cost function here reaches this one, and the ones that
+        take call-minutes get there by multiplying by an ASSUMED speaking rate. A caller
+        holding a real character count (`billing/tts_volume.fleet_cartesia_volume`) must use
+        this door and skip the assumption entirely.
+
+        Negative or zero counts return the bare fee rather than raising: a month in which
+        nothing was spoken still costs the subscription, and that is a true answer.
+        """
+        if characters <= 0:
+            return self.fee_inr(usd_inr)
+        overage_characters = max(Decimal("0"), characters - self.included_credits)
+        return self.fee_inr(usd_inr) + overage_characters * self.overage_inr_per_character(usd_inr)
+
+    def monthly_inr(self, call_minutes: Decimal, *, usd_inr: Decimal) -> Decimal:
+        """What this plan costs for a whole month of `call_minutes`, rupees, EXACT.
+
+        The fee is paid whether or not the allotment is spoken, which is the whole reason
+        this takes a volume: at 100 call-minutes a month Pro's ₹440 is ₹4.40 a minute and
+        Startup's ₹4,312 is ₹43.12.
+
+        ⚠ **THIS CONVERTS MINUTES TO CHARACTERS AT THE UNMEASURED WORST-CASE SPEAKING RATE**
+        (`TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]`, 540 — pilot gate 12). That is right for
+        MODELLING a volume nobody has run and wrong for reporting a month somebody has:
+        `monthly_inr_for_characters` is the door for a measured month.
+        """
+        if call_minutes <= 0:
+            return self.fee_inr(usd_inr)
+        return self.monthly_inr_for_characters(
+            call_minutes * TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1], usd_inr=usd_inr
+        )
+
+    def tts_inr_per_call_minute(self, call_minutes: Decimal, *, usd_inr: Decimal) -> Decimal:
+        """This plan's TTS cost for ONE call-minute at that monthly volume, at `MONEY_Q`.
+
+        `monthly_inr(v) / v`. Raises on a non-positive volume: "what does a minute cost in a
+        month with no minutes" has no answer, and returning the whole fee (or a zero) would
+        put a number on a screen that means neither.
+        """
+        if call_minutes <= 0:
+            raise ValueError(
+                "a per-minute cost needs a positive monthly volume to divide by; "
+                f"got {call_minutes}"
+            )
+        return (self.monthly_inr(call_minutes, usd_inr=usd_inr) / call_minutes).quantize(
+            MONEY_Q, rounding=ROUNDING
+        )
 
 
-def cartesia_plan_inr_per_call_minute() -> Decimal:
-    """The plan fee per call-minute at the break-even count, at `MONEY_Q`: ₹1.8628.
+#: Cartesia **Pro**: $5/month, 100,000 credits, $65 per 1M credits past it, 3 TTS
+#: concurrency units. VENDOR-PUBLISHED (Tinmaz, 9 Sep 2026) — "the smallest paid path".
+#: The mail also mentions $5 of prepaid AGENT usage bundled with the plan; that is the
+#: Managed Agents leg, which we do not buy, so it is not netted off anything here.
+CARTESIA_PRO_PLAN: Final[CartesiaPlan] = CartesiaPlan(
+    plan_id="pro",
+    fee_usd=Decimal("5"),
+    included_credits=Decimal("100000"),
+    overage_usd_per_million_credits=Decimal("65"),
+    tts_concurrency=3,
+)
 
-    `fee / breakeven_minutes` — which is also `CARTESIA_TTS_INR_PER_10K_CHARS / 10,000 x
-    540`, the marginal rate at the worst-case speaking band, and the two are the same
-    formula rearranged. Computed from the fee and the count so a reader can check it
-    against the evidence file's own table (1,000 min on Startup = ₹4.31/call-min ALL-IN
-    for the plan fee, which at 2,315 min spreads to ₹1.86).
+#: Cartesia **Startup**: $49/month, 1,250,000 credits, $45 per 1M past it, 5 TTS
+#: concurrency units. The fee and allotment are the research run's (REPORTED), CORROBORATED
+#: to rounding by the vendor's own effective included-credit rate (~$39/1M against
+#: $49/1.25M = $39.20/1M); the overage rate is the vendor's directly.
+CARTESIA_STARTUP_PLAN: Final[CartesiaPlan] = CartesiaPlan(
+    plan_id="startup",
+    fee_usd=Decimal("49"),
+    included_credits=Decimal("1250000"),
+    overage_usd_per_million_credits=Decimal("45"),
+    tts_concurrency=5,
+)
+
+#: **SCALE IS NOT HERE, AND ITS ABSENCE IS A DECISION.** The vendor gave its OVERAGE rate
+#: ($38 per 1M) and neither its fee nor its allotment; a plan cannot be modelled from one
+#: of the three. The research run says $299 / 8M and the vendor's effective-rate figure
+#: (~$37/1M) corroborates it to rounding — but corroboration of a REPORTED number is not a
+#: vendor statement of it (hard rule 11), and Scale can only ever be the cheapest plan above
+#: ~2,315 Cartesia call-minutes a month, which is a volume this platform is nowhere near.
+#: The rate is kept so the day somebody learns the fee, the plan is one line.
+CARTESIA_SCALE_OVERAGE_USD_PER_MILLION_CREDITS: Final[Decimal] = Decimal("38")
+
+#: The plans we can actually be on, cheapest fee first. Iterated by every function below, so
+#: adding Scale (or a grant tier) is one entry and no other edit.
+CARTESIA_PLANS: Final[tuple[CartesiaPlan, ...]] = (CARTESIA_PRO_PLAN, CARTESIA_STARTUP_PLAN)
+
+
+def ex_tts_cost_inr_per_min_at(usd_inr: Decimal) -> Decimal:
+    """The three legs both voices share, at a NAMED USD→INR rate. EXACT, unquantized.
+
+    ⚠ **ONLY THE ENGINE FEE MOVES WITH THE RATE, AND THE OTHER TWO ARE NOT AN OVERSIGHT.**
+    The engine's platform fee is published in dollars ($0.02/min) and is genuinely
+    FX-sensitive. Sarvam STT is priced in rupees, so there is nothing to convert. The LLM
+    leg is dollars — and it is struck at `LIST_PRICE_USD_INR`, a DIFFERENT card with its own
+    frozen conversion, deliberately frozen because `BASE_RATE_LLM_MODEL` is the model our
+    plan rate is struck against and re-striking it would move fifteen cost points in
+    TRD §10 and reprice accounts. Moving it here to make one screen tidier would be a
+    pricing change smuggled in as a display fix. It is ₹0.2411 of a ₹5.59 floor; the
+    exposure is named rather than silently absorbed, and closing it is a pricing decision
+    with its own decision-log row, not this one.
     """
-    return (CARTESIA_STARTUP_PLAN_FEE_INR / cartesia_plan_breakeven_call_minutes()).quantize(
+    return (
+        ENGINE_PLATFORM_FEE_USD_PER_MIN * usd_inr
+        + stt_rate_inr_per_minute()
+        + llm_cost_inr_per_minute(
+            COST_FLOOR_REFERENCE_CALL_MINUTES, model=AZURE_OPENAI_DEFAULT_MODEL
+        )
+    )
+
+
+def cartesia_cheapest_plan(call_minutes: Decimal, *, usd_inr: Decimal) -> CartesiaPlan:
+    """The plan with the LOWEST TOTAL MONTHLY COST at this volume. A money answer only.
+
+    Ties go to the earlier plan in `CARTESIA_PLANS` (the cheaper fee), which is the safer
+    tie: a tie means the volume is exactly the crossover, and committing the smaller fee at
+    that point costs nothing and can be left at any time.
+
+    ⚠ NOT a recommendation, and the founder has in fact DECIDED the plan: **Pro** (9 Sep
+    2026). What this answers is whether that decision is still the cheapest one at today's
+    volume, which is the question the console asks it. Pro also carries 3 TTS concurrency
+    units, which the evidence file's §A2 arithmetic says is not enough for ten lines at
+    peak — so a move UP is settled by OPERATIONS §2 gate 53's load test, not by price.
+    """
+    return min(CARTESIA_PLANS, key=lambda plan: plan.monthly_inr(call_minutes, usd_inr=usd_inr))
+
+
+def cartesia_cheapest_plan_for_characters(characters: Decimal, *, usd_inr: Decimal) -> CartesiaPlan:
+    """The plan with the lowest total monthly cost for a MEASURED character count.
+
+    `cartesia_cheapest_plan`'s twin on the measured side, and separate for
+    `monthly_inr_for_characters`' reason: one takes a volume somebody is modelling, the
+    other a count somebody took.
+    """
+    return min(
+        CARTESIA_PLANS,
+        key=lambda plan: plan.monthly_inr_for_characters(characters, usd_inr=usd_inr),
+    )
+
+
+def cartesia_tts_inr_per_call_minute(call_minutes: Decimal, *, usd_inr: Decimal) -> Decimal:
+    """The TTS leg of one Cartesia call-minute at this monthly volume, on the cheapest plan."""
+    return cartesia_cheapest_plan(call_minutes, usd_inr=usd_inr).tts_inr_per_call_minute(
+        call_minutes, usd_inr=usd_inr
+    )
+
+
+def cartesia_cost_inr_per_call_minute(call_minutes: Decimal, *, usd_inr: Decimal) -> Decimal:
+    """**WHAT A CARTESIA CALL-MINUTE COSTS US AT THIS MONTHLY VOLUME**, all-in, at `MONEY_Q`.
+
+    The three shared legs plus the TTS leg at that volume on the cheapest plan. This is the
+    number the ops console must print under a heading that says "costs us", and it is a
+    CURVE: at ₹88 it is ₹6.90 at 100 call-minutes a month, ₹4.93 at 200 and ₹5.46 at 1,000.
+    It is not monotonic, because the cheapest plan changes underneath it.
+
+    Quantized ONCE, here, after the legs are summed exactly.
+    """
+    return (
+        ex_tts_cost_inr_per_min_at(usd_inr)
+        + cartesia_tts_inr_per_call_minute(call_minutes, usd_inr=usd_inr)
+    ).quantize(MONEY_Q, rounding=ROUNDING)
+
+
+def cartesia_plan_marginal_cost_inr_per_min(plan: CartesiaPlan, *, usd_inr: Decimal) -> Decimal:
+    """What ONE MORE call-minute costs us ALL-IN on `plan` once its allotment is gone.
+
+    The plan's own overage per call-minute plus the three shared legs, at `MONEY_Q`. The
+    dearest of these across `CARTESIA_PLANS` is the cost floor at that rate and the
+    cheapest is `cartesia_best_marginal_cost_inr_per_min`, so a console can publish the
+    band and both ends without re-deriving either.
+    """
+    return (
+        ex_tts_cost_inr_per_min_at(usd_inr) + plan.marginal_inr_per_call_minute(usd_inr)
+    ).quantize(MONEY_Q, rounding=ROUNDING)
+
+
+def cartesia_cost_floor_inr_per_min_at(usd_inr: Decimal) -> Decimal:
+    """**THE CARTESIA COST FLOOR AT A NAMED USD→INR RATE** — the worst marginal cost.
+
+    ₹5.5899 at ₹88, ₹6.0120 at ₹95.66, ₹6.2511 at ₹100. The founder's second decision of
+    9 Sep 2026 lives here: Cartesia bills in dollars, this repository already pulls and
+    publishes USD→INR every five minutes (`ops/fx_rates.py` → `core/fx.usd_inr_rate_now`),
+    and a cost we actually pay in dollars must move with the rupee.
+
+    ⚠ **AT ₹95.66 THE ₹6.00 MAX RUNG IS UNDER WATER (-0.2%), AND AT ₹100 IT IS -4.2%.** Do
+    not quote that without its qualifier: it is the pure OVERAGE marginal rate and applies
+    only ABOVE the included allotment. At 200 call-minutes a month on Pro the BLENDED cost
+    is ~₹5.30 and the same rung earns ~12%. The exposed case is a high-volume client on the
+    ₹50,000 pack, and both figures belong on the console —
+    `cartesia_cost_inr_per_call_minute` is the blended one.
+
+    **THIS IS NOT THE REFUSAL THRESHOLD** — see `CARTESIA_COST_FLOOR_INR_PER_MIN`.
+    """
+    return (ex_tts_cost_inr_per_min_at(usd_inr) + _worst_marginal_tts(usd_inr)).quantize(
         MONEY_Q, rounding=ROUNDING
     )
 
 
-#: THE CARTESIA-VOICE COST FLOOR: the shared legs (fee + STT + LLM = ₹2.5011) plus the plan
-#: fee per minute at the break-even count (₹1.8628) = ₹4.3639/min. Every pack's
-#: `cartesia_inr_per_min` is judged against this. EVIDENCE CLASS: REPORTED — the fee leg is
-#: VERIFIED-VENDOR-DOCS, but the plan fee and allotment come from the Cartesia evidence file,
-#: which is a relayed research run, and a sum is only as good as its weakest input. Reaches
-#: no bill.
+def cartesia_best_marginal_cost_inr_per_min(usd_inr: Decimal) -> Decimal:
+    """The CHEAPEST marginal cost any volume can reach, at a named rate — ₹4.6395 at ₹88.
+
+    A retail rate at or below this loses money on every additional minute at every volume,
+    which is why `cartesia_rung_breakeven_call_minutes` returns a stated absence for it
+    rather than a break-even that does not exist.
+    """
+    return (
+        ex_tts_cost_inr_per_min_at(usd_inr)
+        + min(plan.marginal_inr_per_call_minute(usd_inr) for plan in CARTESIA_PLANS)
+    ).quantize(MONEY_Q, rounding=ROUNDING)
+
+
+def _worst_marginal_tts(usd_inr: Decimal) -> Decimal:
+    """The dearest plan's overage per call-minute — the TTS half of the floor. EXACT."""
+    return max(plan.marginal_inr_per_call_minute(usd_inr) for plan in CARTESIA_PLANS)
+
+
+def cartesia_measured_cost_inr_per_call_minute(
+    *, characters: Decimal, call_minutes: Decimal, usd_inr: Decimal
+) -> Decimal | None:
+    """**WHAT A CARTESIA CALL-MINUTE ACTUALLY COST US THIS MONTH**, at `MONEY_Q`, from two
+    counts our own meter took — or `None` when the month has no minutes to divide by.
+
+    The founder's complaint of 9 Sep 2026 answered with a measurement instead of a model:
+    the cheapest plan for the CHARACTERS actually spoken, plus the three shared legs, over
+    the call-minutes actually billed, converted at the rate named by the caller.
+    **No speaking-rate assumption enters it** — that band is unmeasured (pilot gate 12) and
+    is exactly what the two independent counts avoid needing.
+    `billing/tts_volume.fleet_cartesia_volume` is where both counts come from.
+
+    `None` rather than a zero or a raise when `call_minutes` is zero: a month in which
+    nobody spoke a Studio minute has no cost PER MINUTE, and printing the whole
+    subscription fee (or ₹0.00) against that heading would be a number that means neither.
+    """
+    if call_minutes <= 0:
+        return None
+    plan = cartesia_cheapest_plan_for_characters(characters, usd_inr=usd_inr)
+    per_minute = plan.monthly_inr_for_characters(characters, usd_inr=usd_inr) / call_minutes
+    return (ex_tts_cost_inr_per_min_at(usd_inr) + per_minute).quantize(MONEY_Q, rounding=ROUNDING)
+
+
+def cartesia_plan_crossover_call_minutes(
+    cheaper: CartesiaPlan = CARTESIA_PRO_PLAN,
+    dearer: CartesiaPlan = CARTESIA_STARTUP_PLAN,
+    *,
+    usd_inr: Decimal,
+) -> Decimal:
+    """The monthly volume at which `dearer` stops costing more than `cheaper` — 1,439 min.
+
+    FX-INVARIANT IN PRACTICE AND STILL AN ARGUMENT: both plans' costs scale by the same
+    rate, so the crossover does not move with the rupee — but passing the rate keeps every
+    money function in this block on one contract, and a future plan quoted in rupees would
+    break that invariance silently if the rate were assumed here.
+
+    DERIVED BY SEARCH, NOT TYPED, and not solved algebraically either: `monthly_inr` is
+    piecewise-linear with a kink at each plan's allotment, so a closed form would have to
+    case-split on which side of both kinks the answer falls and would be wrong the day a
+    third plan or a grant tier is added. What IS guaranteed is that
+    `cheaper.monthly_inr(v) - dearer.monthly_inr(v)` is non-decreasing in `v` (the cheaper
+    plan's marginal rate is never below the dearer plan's — the whole reason it is cheaper
+    at the bottom and dearer at the top), so bisection is exact for a monotone predicate.
+    `tests/cost_floor_test.py` asserts that monotonicity rather than assuming it.
+
+    Resolved to the whole minute, because the answer is read as "about 1,439 minutes a
+    month" and a fractional call-minute is not a volume anyone acts on.
+    """
+    low, high = Decimal("0"), Decimal("1")
+    # Bracket first: double until the dearer plan has caught up, so the search does not
+    # depend on a hard-coded ceiling that a future plan's allotment could exceed.
+    while cheaper.monthly_inr(high, usd_inr=usd_inr) < dearer.monthly_inr(high, usd_inr=usd_inr):
+        low, high = high, high * 2
+    while high - low > 1:
+        mid = ((low + high) / 2).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+        if mid <= low or mid >= high:  # pragma: no cover - guards a non-terminating bisect
+            break
+        if cheaper.monthly_inr(mid, usd_inr=usd_inr) < dearer.monthly_inr(mid, usd_inr=usd_inr):
+            low = mid
+        else:
+            high = mid
+    return high
+
+
+def cartesia_envelope_stable_call_minutes(*, usd_inr: Decimal) -> Decimal:
+    """The volume past which the cheapest-plan cost curve only ever RISES, towards its
+    asymptote — 2,315 call-minutes a month today. The bound every break-even search needs.
+
+    Two facts make it computable rather than guessed. (1) Past the crossover the cheapest
+    plan is the LAST entry in `CARTESIA_PLANS` and stays there, because the difference
+    between two plans' monthly totals is non-decreasing in volume. (2) A single plan's cost
+    per minute FALLS while the allotment is unspent (the fee is amortising) and RISES
+    afterwards towards `shared + marginal` (the leftover `fee - overage x allotment` is
+    negative on both plans, so the curve approaches its asymptote from below and never
+    exceeds it). So above the greater of the crossover and the last plan's included
+    minutes, cost per minute is bounded above by `cartesia_best_marginal_cost_inr_per_min`
+    for ever.
+    """
+    last = CARTESIA_PLANS[-1]
+    if len(CARTESIA_PLANS) == 1:  # pragma: no cover - one plan has no crossover to find
+        return last.included_call_minutes
+    return max(
+        cartesia_plan_crossover_call_minutes(CARTESIA_PLANS[0], last, usd_inr=usd_inr),
+        last.included_call_minutes,
+    )
+
+
+@lru_cache(maxsize=256)
+def cartesia_rung_breakeven_call_minutes(
+    rate_inr_per_min: Decimal, *, usd_inr: Decimal
+) -> Decimal | None:
+    """**HOW MANY CARTESIA CALL-MINUTES A MONTH THIS RETAIL RATE NEEDS BEFORE IT STOPS
+    LOSING MONEY AND STAYS THAT WAY**, platform-wide — or `None` when no volume is enough.
+
+    The founder's decision of 9 Sep 2026 in one function: a margin is judged at ACTUAL
+    volume, so every rung on the card has a volume below which it is underwater, and the
+    console has to print it. At ₹88 and ₹6.00/min that volume is 126 call-minutes a month;
+    at ₹8.00 it is 81.
+
+    **"AND STAYS THAT WAY" IS LOAD-BEARING, NOT A FLOURISH.** The cost curve is not
+    monotonic — it falls while a plan's allotment amortises and rises once the plan is into
+    overage — so a rate can clear cost at 200 minutes, go underwater at 1,000 and clear it
+    again at 1,800. Reporting the FIRST crossing would tell an operator a rung was safe at a
+    volume it is not safe just above, which is the same class of half-truth as the ₹4.3639
+    this whole model replaced. So the answer is the smallest whole volume from which the
+    rate clears cost at that volume AND at every larger one.
+
+    `None` when the rate does not clear `cartesia_best_marginal_cost_inr_per_min` — the
+    cheapest per-minute cost any volume can reach. That rate loses money at every large
+    volume however many minutes are sold, which is a different and worse fact than a high
+    break-even and must not be rendered as a big number.
+
+    SEARCHED, NOT SOLVED, and searched EXHAUSTIVELY over the only range where the answer can
+    live: `cartesia_envelope_stable_call_minutes` proves cost is under the rate for ever
+    above it, so the last underwater volume is a whole minute at or below that bound. A
+    bisection would be wrong here for the same non-monotonicity the paragraph above
+    describes; one upward pass over ~2,300 whole minutes is exact, and the bound is derived
+    rather than typed so a third plan moves it automatically.
+
+    **MEMOIZED, and that is what makes an exhaustive scan affordable on a route.** The pass
+    costs ~18ms and the ops console renders SIX of them per card — plus six more for every
+    scheduled card on the same response — which is a tenth of a second of Decimal arithmetic
+    to answer a question whose inputs are six committed rates and one exchange rate. Safe to
+    cache because the function is PURE over its two arguments: `CARTESIA_PLANS` and the
+    speaking band are module constants, so nothing else can move the answer within a
+    process. The cache is bounded and keyed by both arguments, so a live FX tick is a new
+    key rather than a stale hit — the one property that would make this wrong if it did not
+    hold.
+    """
+    if rate_inr_per_min <= cartesia_best_marginal_cost_inr_per_min(usd_inr):
+        return None
+    ceiling = cartesia_envelope_stable_call_minutes(usd_inr=usd_inr).quantize(
+        Decimal("1"), rounding=ROUND_HALF_UP
+    )
+    last_underwater = Decimal("0")
+    volume = Decimal("1")
+    while volume <= ceiling:
+        if cartesia_cost_inr_per_call_minute(volume, usd_inr=usd_inr) > rate_inr_per_min:
+            last_underwater = volume
+        volume += 1
+    return last_underwater + 1
+
+
+#: **THE FROZEN STRUCTURAL BOUND `credit_packs.card_refusals` REFUSES BELOW**, struck at the
+#: evidence file's ₹88 = $1: the shared legs (₹2.5011) plus the worst marginal TTS cost
+#: (₹3.0888) = **₹5.5899/min**.
 #:
-#: ⚠ **THE TRUE WORST CASE IS DEARER THAN THIS, AND BY AN UNKNOWN AMOUNT.** A floor is
-#: supposed to be the worst case, and this one is not: it is struck at the plan's BEST
-#: per-minute price, the instant the allotment is exactly consumed. Past that point
-#: Cartesia bills an OVERAGE per credit whose rate is **UNKNOWN — not published on the
-#: docs page** (`docs/evidence/cartesia-tts-verification-2026-09-06.md` §A1 "Overage/
-#: running out of credits", and the summary at its head; plan ADDENDUM 1, unknown #3,
-#: which closes at `cartesia.ai/pricing`'s FAQ or by mailing support@cartesia.ai). Below
-#: the break-even count the fee per minute is HIGHER too, because the fee does not shrink.
-#: So this constant understates our cost at both ends of the volume range, and it is used
-#: anyway because it is the only figure the evidence supports — the ₹6.00 cheapest
-#: Cartesia rate clears it by 27%, which is the headroom that UNKNOWN is being carried on.
-#: Phase D's margin panel (plan spend beside attributed cost) is what makes the gap
-#: visible on a real month; do not narrow that headroom until the overage rate is a fact.
-CARTESIA_COST_FLOOR_INR_PER_MIN: Final[Decimal] = (
-    _ex_tts_cost_inr_per_min() + cartesia_plan_inr_per_call_minute()
-).quantize(MONEY_Q, rounding=ROUNDING)
+#: ⚠ **THIS USED TO BE ₹4.3639 AND THAT NUMBER WAS A BEST CASE WEARING A FLOOR'S NAME.** It
+#: was the $49 Startup fee spread over the 2,315 call-minutes at which its allotment is
+#: exactly consumed — the cheapest a Cartesia minute can ever be on that plan, at a volume
+#: this platform has never run, printed on the ops console under a column headed "COSTS US".
+#: The founder read it on 9 Sep 2026 and said the Cartesia leg could not cost us that
+#: little. He was right; the docstring it replaced said so itself ("THE TRUE WORST CASE IS
+#: DEARER THAN THIS, AND BY AN UNKNOWN AMOUNT") and nothing acted on it.
+#:
+#: **WHY THE MARGINAL COST AND NOT THE AVERAGE.** A refusal threshold answers one question:
+#: does selling one more minute at this rate make money? That is the MARGINAL cost, and it
+#: is the only per-minute figure about a subscription that does not depend on a volume
+#: nobody has measured. Taking the WORST of the plans' marginal rates makes it the figure
+#: that holds on Pro, the plan the founder chose and the dearer of the two at the margin.
+#:
+#: **WHY IT IS FROZEN AT ₹88 WHEN THE FOUNDER DECIDED THE FLOOR CONVERTS AT THE LIVE RATE.**
+#: Both decisions of 9 Sep 2026 are honoured, in the two places they belong. This constant
+#: is the REFUSAL, and a refusal that moves with a currency feed would make a card
+#: recordable today and refused tomorrow on an FX tick alone — at ₹95.66 the live floor is
+#: ₹6.0120 and the founder's own ₹6.00 max rung is under it, so an operator re-recording
+#: today's live card would be told the card that is currently on sale may not be sold. That
+#: is the outcome the founder ruled out ("the rate card does not change"), so the hard veto
+#: stays on this fixed bound and the LIVE figure —
+#: `cartesia_cost_floor_inr_per_min_at(<published quote>)` — is published loudly beside the
+#: card with the rate and the instant it was struck at. A frozen refusal plus a live warning
+#: is deliberate; a live refusal is a pricing decision made by a currency feed.
+#:
+#: **IT IS NOT A LOWER BOUND ON COST AT EVERY VOLUME, AND MUST NOT BE DESCRIBED AS ONE.**
+#: Below ~150 call-minutes a month the real cost is HIGHER (₹6.90 at 100), because the
+#: subscription is paid whether or not it is spoken; above Startup's crossover the real
+#: marginal cost is lower (₹4.6395 all-in).
+#:
+#: EVIDENCE CLASS: VENDOR-PUBLISHED for the plan inputs (Tinmaz correspondence, 9 Sep 2026)
+#: over VERIFIED-VENDOR-DOCS for the engine fee, with the SPEAKING RATE (540 chars per
+#: call-minute, unmeasured — pilot gate 12) still the weakest input in the sum. Reaches no
+#: bill (hard rule 7).
+CARTESIA_COST_FLOOR_INR_PER_MIN: Final[Decimal] = cartesia_cost_floor_inr_per_min_at(
+    CARTESIA_EVIDENCE_USD_INR
+)
+
+#: The BEST marginal cost at the frozen rate: ₹4.6395/min all-in (Startup's $45/1M).
+#: `cartesia_best_marginal_cost_inr_per_min` is the same quantity at a live rate.
+CARTESIA_BEST_MARGINAL_COST_INR_PER_MIN: Final[Decimal] = cartesia_best_marginal_cost_inr_per_min(
+    CARTESIA_EVIDENCE_USD_INR
+)
+
+#: The WORST marginal TTS price per 10,000 characters at the frozen rate — Pro's $65/1M at
+#: ₹88, ₹57.20. In the Sarvam rung's own unit (`TTS_INR_PER_10K_CHARS`) so TRD §10.1 can
+#: state the two side by side and `check_docs_drift` §4b can diff them on both rungs, and it
+#: is the MARGINAL rate rather than the old fee-over-allotment average for the floor's
+#: reason: a per-character average is true at exactly one volume, a marginal rate is true at
+#: every volume past the allotment. It is what `ops/model_pricing.reference_tts_price`
+#: pre-fills the attestation form with, GREYED and never billable (hard rule 7).
+CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS: Final[Decimal] = (
+    _worst_marginal_tts(CARTESIA_EVIDENCE_USD_INR)
+    / TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]
+    * _CHARS_UNIT
+)
+
+#: The volumes the ops console prints the cost curve at, in call-minutes a month,
+#: platform-wide. Spelled once here rather than in the route, so the screen, the tests and
+#: any doc that quotes the ladder are reading one list. The bottom rung is deliberately
+#: below every pack rung's break-even, so the table always contains at least one row where
+#: the card is underwater — a ladder that started above it would show a screen on which
+#: everything is fine at every volume, which is the defect this whole change exists for.
+CARTESIA_VOLUME_LADDER_CALL_MINUTES: Final[tuple[Decimal, ...]] = (
+    Decimal("100"),
+    Decimal("200"),
+    Decimal("500"),
+    Decimal("1000"),
+    Decimal("2500"),
+)
 
 #: A voice tier — the property of an AGENT that decides which of a lot's two rates prices
 #: its minutes (plan §2.1). Spelled here, in the lowest money module, because the two cost
@@ -1267,7 +1788,8 @@ class RateMargin:
     `cost` is CARRIED rather than left to the caller because there are two floors now
     (D-547) and a verdict that does not say which one it was struck against is a verdict a
     reader has to guess at — the ops console's card preview renders twelve of these side by
-    side, six against ₹4.1211 and six against ₹4.3639.
+    side, six against ₹4.1211 and six against ₹5.5899 (⚠ the second read ₹4.3639 until
+    D-556 replaced a best case with the worst marginal cost).
     """
 
     rate: Decimal
@@ -1584,12 +2106,17 @@ def llm_surcharge_billed_inr(*, minutes: Decimal, surcharge: Decimal | None) -> 
 
 __all__ = [
     "BASE_RATE_LLM_MODEL",
+    "CARTESIA_BEST_MARGINAL_COST_INR_PER_MIN",
     "CARTESIA_COST_FLOOR_INR_PER_MIN",
+    "CARTESIA_CREDITS_PER_CHARACTER",
     "CARTESIA_EVIDENCE_USD_INR",
-    "CARTESIA_STARTUP_PLAN_CHARS",
-    "CARTESIA_STARTUP_PLAN_FEE_INR",
-    "CARTESIA_STARTUP_PLAN_FEE_USD",
-    "CARTESIA_TTS_INR_PER_10K_CHARS",
+    "CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS",
+    "CARTESIA_PLANS",
+    "CARTESIA_PRO_PLAN",
+    "CARTESIA_SCALE_OVERAGE_USD_PER_MILLION_CREDITS",
+    "CARTESIA_STARTUP_PLAN",
+    "CARTESIA_VENDOR_CREDITS_PER_AUDIO_MINUTE",
+    "CARTESIA_VOLUME_LADDER_CALL_MINUTES",
     "CLIENT_CHOSEN_LLM_SOURCES",
     "COST_FLOOR_REFERENCE_CALL_MINUTES",
     "COST_MODEL_USD_INR",
@@ -1612,16 +2139,27 @@ __all__ = [
     "TTS_INR_PER_10K_CHARS",
     "VOICE_TIERS",
     "VOICE_TIER_LABELS",
+    "CartesiaPlan",
     "CommittedPlanMargin",
     "LlmPriceAttestation",
     "LlmPriceAttestationReader",
     "RateMargin",
     "VoiceTier",
     "attested_llm_prices",
-    "cartesia_plan_breakeven_call_minutes",
-    "cartesia_plan_inr_per_call_minute",
+    "cartesia_best_marginal_cost_inr_per_min",
+    "cartesia_cheapest_plan",
+    "cartesia_cheapest_plan_for_characters",
+    "cartesia_cost_floor_inr_per_min_at",
+    "cartesia_cost_inr_per_call_minute",
+    "cartesia_envelope_stable_call_minutes",
+    "cartesia_measured_cost_inr_per_call_minute",
+    "cartesia_plan_crossover_call_minutes",
+    "cartesia_plan_marginal_cost_inr_per_min",
+    "cartesia_rung_breakeven_call_minutes",
+    "cartesia_tts_inr_per_call_minute",
     "committed_plan_margin",
     "cost_floor_inr_per_min",
+    "ex_tts_cost_inr_per_min_at",
     "gross_margin_ratio",
     "install_llm_price_attestations",
     "is_surchargeable_llm_model",

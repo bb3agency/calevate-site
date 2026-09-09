@@ -171,9 +171,13 @@ class CreditPack:
 #: ₹50,000, each with a Sarvam and a Cartesia ₹/min. Two properties are deliberate:
 #:
 #: * **The Cartesia column falls FASTER than the Sarvam one** (8.00 → 6.00, a 25% fall,
-#:   against 5.00 → 4.50, a 10% fall). Cartesia's cost is a monthly PLAN, so the marginal
-#:   cost of a Cartesia minute drops as volume fills the allotment
-#:   (`rates.cartesia_plan_breakeven_call_minutes`), and the card passes that shape on.
+#:   against 5.00 → 4.50, a 10% fall). Cartesia's cost is a monthly SUBSCRIPTION with an
+#:   included allotment, so the per-minute cost of a Cartesia minute falls as volume
+#:   amortises the fee (`rates.cartesia_cost_inr_per_call_minute`), and the card passes that
+#:   shape on. ⚠ It does not fall for ever: past the allotment the vendor's overage rate
+#:   applies and the curve turns back up towards `rates.CARTESIA_COST_FLOOR_INR_PER_MIN`,
+#:   which is why every rung carries a break-even volume
+#:   (`rates.cartesia_rung_breakeven_call_minutes`) and the ops console prints it.
 #: * **`starter` keeps ₹5.00 on the Sarvam column** — the rate every existing client was
 #:   sold at (`Settings.self_serve_inr_per_min`), so this card raises nobody's price. It is
 #:   also what `CreditPacksOut.list_rate_inr_per_min` publishes.

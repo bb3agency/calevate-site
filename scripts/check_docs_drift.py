@@ -1390,15 +1390,21 @@ def code_tts_rates() -> dict[str, Decimal]:
     module never uses.
 
     TWO ENTRIES since D-547, and the second is DERIVED rather than typed:
-    `CARTESIA_TTS_INR_PER_10K_CHARS` is the Startup plan's fee over its allotment, so this
-    check is what makes TRD §10.1 restate the plan's marginal rate and not a rate somebody
-    rounded — if the plan fee or the allotment moves in code, the doc row fails here.
+    `CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS` is the vendor's OVERAGE rate on the dearest
+    plan we can be on, so this check is what makes TRD §10.1 restate the rate the code
+    holds and not a rate somebody rounded — if the overage rate or the conversion moves in
+    code, the doc row fails here. ⚠ It was the Startup fee over its allotment (₹34.496)
+    until 9 Sep 2026, an AVERAGE true at one volume only; the vendor's own overage rate
+    closed that UNKNOWN and `billing/rates.py`'s Cartesia block records the change.
     """
-    from apps.api.billing.rates import CARTESIA_TTS_INR_PER_10K_CHARS, TTS_INR_PER_10K_CHARS
+    from apps.api.billing.rates import (
+        CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS,
+        TTS_INR_PER_10K_CHARS,
+    )
 
     return {
         "bulbul-v3": TTS_INR_PER_10K_CHARS,
-        "sonic-3.5": CARTESIA_TTS_INR_PER_10K_CHARS,
+        "sonic-3.5": CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS,
     }
 
 

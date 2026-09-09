@@ -137,8 +137,14 @@ async def test_the_approved_card_is_written_and_every_margin_is_previewed(
 ) -> None:
     """The happy path, and the preview that goes with it: twelve log lines, one per cell,
     each carrying the rate, the floor it was judged against and whether it is thin. The
-    Sarvam rows are thin by design, so they are the ones logged at WARNING — an operator
-    reading only warnings still sees the whole column that is under target."""
+    ⚠ **THIS USED TO ASSERT THAT ONLY THE SARVAM COLUMN WAS THIN, AND SINCE D-556 IT IS
+    NOT.** The Cartesia floor was ₹4.3639 — the $49 Startup plan fee spread over the volume
+    at which its allotment is exactly consumed, i.e. the plan's best possible minute — so
+    every Cartesia rung read as comfortably above target. Against the honest floor
+    (₹5.5899, the worst MARGINAL cost) four of the six are thin as well. Nothing was
+    repriced; the yardstick stopped flattering us. So the assertion is on the SET of thin
+    rows rather than on a column, and an operator reading only warnings still sees every
+    rung that is under target."""
     admin = await _admin()
     with caplog.at_level(logging.INFO, logger=config_routes.log.name):
         async with untenanted_session() as session:
@@ -149,7 +155,20 @@ async def test_the_approved_card_is_written_and_every_margin_is_previewed(
     assert len(previews) == len(PACK_CATALOGUE) * 2
     thin = [r for r in previews if r.levelno == logging.WARNING]
     assert {r.pack_id for r in thin} == {pack.pack_id for pack in PACK_CATALOGUE}
-    assert {r.voice_tier for r in thin} == {"sarvam"}
+    assert {(r.pack_id, r.voice_tier) for r in thin} == {
+        ("starter", "sarvam"),
+        ("growth", "sarvam"),
+        ("scale", "sarvam"),
+        ("plus", "sarvam"),
+        ("pro", "sarvam"),
+        ("max", "sarvam"),
+        # The four cheapest Studio rungs, against the honest floor (D-556). `starter`
+        # (₹8.00, 30.1%) and `growth` (₹7.00, 20.1%) still clear the 20% target.
+        ("scale", "cartesia"),
+        ("plus", "cartesia"),
+        ("pro", "cartesia"),
+        ("max", "cartesia"),
+    }
     # Money in a log line is a STRING (hard rule 7): a float here is a float somebody
     # quotes back.
     assert all(isinstance(r.inr_per_min, str) for r in previews)

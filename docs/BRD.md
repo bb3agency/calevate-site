@@ -212,24 +212,50 @@ took is TWO VOICES × SIX PACKS, not three voice tiers (D-547):** Sarvam ₹5.00
 ₹4.50, Cartesia ₹8.00 falling to ₹6.00, across ₹2,000 / 5,000 / 10,000 / 15,000 / 25,000 /
 50,000. The Sarvam floor is the ₹4.12 worst-case minute (engine fee 1.76 + STT 0.50 + LLM
 0.24 + Bulbul v3 1.62, telephony excluded because the client pays their own carrier,
-D-474). ⚠ **THE CARTESIA LEG HAS A FLOOR NOW, AND THIS PASSAGE USED TO SAY IT HAD "no
-per-minute cost floor at all".** That was true of the plan and is not true of the code: it
-is **₹4.3639/min** (`billing/rates.py::CARTESIA_COST_FLOOR_INR_PER_MIN`), the same three
-shared legs as the Sarvam floor plus **₹1.8628** of monthly plan spread over the
-platform-wide break-even minute count — about **2,315 Cartesia call-minutes a month**, the
-Startup allotment of 1,250,000 characters at the top of the assumed speaking band. Both
-floors are DERIVED from their legs in code, not typed, and the pack guard refuses any rate
-below its own voice's floor. **What is still true is the reason the old sentence existed:
-that floor is struck at the plan's BEST per-minute price and therefore understates our cost
-at both ends of the volume range** — below the break-even count the fee does not shrink, and
-above it the overage rate past the allotment is **UNKNOWN** (VENDOR-PUBLISHED, relayed
-research over `cartesia.ai/pricing`, 7 Sep 2026;
-`docs/evidence/cartesia-tts-verification-2026-09-06.md` §A1 — the host is egress-blocked
-from this repository, so nothing here was read at source). So Cartesia remains a decision
-about VOLUME and not only about price, and the 27.3% margin on the cheapest Cartesia rate
-(₹6.00) is the headroom that UNKNOWN is being carried on. **Do not publish a headline
-per-minute rate without the monthly fee beside it** — that is the trick we called out in their marketing, and the
-effective-₹/min rule in TRD §10.2 applies to our own copy too.
+D-474). ⚠ **THE CARTESIA LEG HAS A FLOOR, AND THIS PASSAGE HAS NOW BEEN WRONG TWICE.** It first
+said the leg had "no per-minute cost floor at all"; it was then corrected to **₹4.3639/min**,
+and on 9 Sep 2026 the founder read that figure on the ops console under a column headed
+"COSTS US" and said the Studio leg could not cost us that little. He was right. ₹4.3639 was
+the $49 Startup plan fee spread over the ~2,315 Cartesia call-minutes a month at which its
+allotment is exactly consumed — **the cheapest a Cartesia minute can ever be, at a volume
+this platform has never run**. A best case had been given a floor's name.
+
+**THE FLOOR IS ₹5.5899/min** (`billing/rates.py::CARTESIA_COST_FLOOR_INR_PER_MIN`): the same
+three shared legs as the Sarvam floor plus **₹3.0888**, the vendor's own overage rate on the
+plan we are actually on. Two things changed underneath it, both from direct vendor
+correspondence (Ege Tinmaz, Product Support Engineer, Cartesia, relayed by the founder,
+9 Sep 2026; `docs/evidence/cartesia-tts-verification-2026-09-06.md` ADDENDUM 3):
+
+* **The plan is Pro at $5/month with 100,000 credits, not Startup at $49.** The vendor
+  states Pro is the smallest paid path; this repository had assumed $49 was the entry point,
+  which made every low-volume figure roughly ten times too dear and the break-even roughly
+  ten times too far away.
+* **The overage rate is no longer UNKNOWN**: $65 / $45 / $38 per 1,000,000 credits on
+  Pro / Startup / Scale. It appears on no public page — third-party sources say to contact
+  sales — so this correspondence is the only source for it and is therefore authoritative.
+  The floor is consequently bounded ABOVE as well as below, which it never was before.
+
+**WHAT COSTS US WHAT IS A CURVE AND NOT A NUMBER, AND THE CONSOLE NOW SAYS SO.** A
+subscription has no per-minute price until a volume is named: at ₹88 to the dollar a
+Cartesia call-minute costs **₹6.90 at 100 platform call-minutes a month, ₹4.93 at 200,
+₹5.46 at 1,000**. Every Studio rung therefore has a volume below which it loses money —
+₹8.00 needs 81 platform min/mo, ₹6.00 needs 126 — and the admin rate-card screen prints
+that break-even beside each rung, the measured volume for the month, and what a minute
+actually cost at it. **No rung moved**: the founder's decision of 9 Sep 2026 is to make the
+truth visible now and reprice later against real Cartesia invoices rather than an assumed
+speaking rate (D-556).
+
+**THE FLOOR CONVERTS AT THE LIVE USD→INR RATE** (founder, same day), because Cartesia bills
+in dollars and this platform already pulls and publishes the rate every five minutes. At
+₹95.66 the floor is ₹6.0120 and the cheapest Studio rung (₹6.00) is **-0.2%** — under water
+at the margin. That is why the hard REFUSAL stays frozen at ₹88: a currency tick must never
+make the card that is on sale un-recordable. The live figure is shown loudly beside it, with
+the rate, its source and its publication date on the face of the screen. ⚠ The scary number
+is the MARGINAL one and applies only above the included allotment; at 200 call-minutes a
+month the blended cost at the same ₹95.66 is ₹5.2945 and the ₹6.00 rung earns ~11.8%. The
+exposed case is a high-volume client on the ₹50,000 pack. **Do not publish a headline
+per-minute rate without the monthly fee beside it** — that is the trick we called out in
+their marketing, and the effective-₹/min rule in TRD §10.2 applies to our own copy too.
 
 **WHAT A CLIENT CALLS THE TWO VOICES: "Clear" AND "Studio" — NO CLIENT-FACING SURFACE
 NAMES A VENDOR AS A PRODUCT TIER (founder, 7 Sep 2026).** A client buys **Clear** (spoken

@@ -2983,6 +2983,183 @@
         "title": "CapsOut",
         "type": "object"
       },
+      "CartesiaLadderPointOut": {
+        "additionalProperties": false,
+        "description": "The Cartesia cost curve at one monthly volume: which plan is cheapest, and what a\nminute costs there. The table that makes \"COSTS US\" an answerable question.",
+        "properties": {
+          "call_minutes": {
+            "title": "Call Minutes",
+            "type": "string"
+          },
+          "cost_inr_per_min": {
+            "title": "Cost Inr Per Min",
+            "type": "string"
+          },
+          "plan_id": {
+            "title": "Plan Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "call_minutes",
+          "plan_id",
+          "cost_inr_per_min"
+        ],
+        "title": "CartesiaLadderPointOut",
+        "type": "object"
+      },
+      "CartesiaPlanOut": {
+        "additionalProperties": false,
+        "description": "One Cartesia subscription an operator could be on, as the console renders it.\n\nEVERY FIGURE IS THE SERVER'S DECIMAL STRING (hard rule 7) and every one of them is\nderived from the vendor's three inputs \u2014 fee, allotment, overage \u2014 rather than typed.\n`tts_concurrency` is NOT money and is published anyway, because the cheapest plan is not\nautomatically the plan to buy: Pro carries 3 TTS contexts and the evidence file's \u00a7A2\narithmetic says that is not enough for ten lines at peak. A console that ranked plans by\nprice alone would be recommending a dead-air incident.",
+        "properties": {
+          "fee_inr": {
+            "title": "Fee Inr",
+            "type": "string"
+          },
+          "included_call_minutes": {
+            "title": "Included Call Minutes",
+            "type": "string"
+          },
+          "included_credits": {
+            "title": "Included Credits",
+            "type": "string"
+          },
+          "marginal_cost_inr_per_min": {
+            "title": "Marginal Cost Inr Per Min",
+            "type": "string"
+          },
+          "plan_id": {
+            "title": "Plan Id",
+            "type": "string"
+          },
+          "tts_concurrency": {
+            "title": "Tts Concurrency",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "plan_id",
+          "fee_inr",
+          "included_credits",
+          "included_call_minutes",
+          "marginal_cost_inr_per_min",
+          "tts_concurrency"
+        ],
+        "title": "CartesiaPlanOut",
+        "type": "object"
+      },
+      "CartesiaVolumeOut": {
+        "additionalProperties": false,
+        "description": "**THE VOLUME EVERY CARTESIA COST FIGURE ON THIS SCREEN IS STRUCK AT.**\n\nTHE DEFECT THIS EXISTS FOR (founder, 9 Sep 2026). The console printed \u20b94.3639 under a\ncolumn headed \"COSTS US\" for every Studio rung. That figure was the $49 Startup plan fee\nspread over the 2,315 call-minutes at which its allotment is exactly consumed \u2014 the\ncheapest a Cartesia minute can ever be, at a volume this platform has never run \u2014 and\nnothing on the screen said so. The arithmetic was right and the SCREEN was lying.\n\nCartesia is a monthly subscription with an included allotment and an overage past it\n(`billing/rates.CartesiaPlan`), so a per-minute cost is a function of volume and a\nscreen that shows one without its volume is showing a guess. This block carries the\nmeasurement, the assumption, the plan set and the curve, so no figure on the page is\nunqualified.",
+        "properties": {
+          "assumed_chars_per_call_minute": {
+            "title": "Assumed Chars Per Call Minute",
+            "type": "string"
+          },
+          "best_marginal_cost_inr_per_min": {
+            "title": "Best Marginal Cost Inr Per Min",
+            "type": "string"
+          },
+          "cost_inr_per_min": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Inr Per Min"
+          },
+          "floor_inr_per_min": {
+            "title": "Floor Inr Per Min",
+            "type": "string"
+          },
+          "fx_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fx As Of"
+          },
+          "fx_source": {
+            "title": "Fx Source",
+            "type": "string"
+          },
+          "fx_usd_inr": {
+            "title": "Fx Usd Inr",
+            "type": "string"
+          },
+          "ladder": {
+            "items": {
+              "$ref": "#/components/schemas/CartesiaLadderPointOut"
+            },
+            "title": "Ladder",
+            "type": "array"
+          },
+          "measured_call_minutes": {
+            "title": "Measured Call Minutes",
+            "type": "string"
+          },
+          "measured_characters": {
+            "title": "Measured Characters",
+            "type": "string"
+          },
+          "month": {
+            "title": "Month",
+            "type": "string"
+          },
+          "plan_crossover_call_minutes": {
+            "title": "Plan Crossover Call Minutes",
+            "type": "string"
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Id"
+          },
+          "plans": {
+            "items": {
+              "$ref": "#/components/schemas/CartesiaPlanOut"
+            },
+            "title": "Plans",
+            "type": "array"
+          },
+          "refusal_floor_inr_per_min": {
+            "title": "Refusal Floor Inr Per Min",
+            "type": "string"
+          }
+        },
+        "required": [
+          "month",
+          "measured_call_minutes",
+          "measured_characters",
+          "cost_inr_per_min",
+          "plan_id",
+          "assumed_chars_per_call_minute",
+          "fx_usd_inr",
+          "fx_source",
+          "fx_as_of",
+          "floor_inr_per_min",
+          "best_marginal_cost_inr_per_min",
+          "refusal_floor_inr_per_min",
+          "plan_crossover_call_minutes",
+          "plans",
+          "ladder"
+        ],
+        "title": "CartesiaVolumeOut",
+        "type": "object"
+      },
       "ChainBreakOut": {
         "additionalProperties": false,
         "description": "One broken link, dated, and told apart from the other kind.\n\n`content` = the entry no longer hashes to its own recorded hash, i.e. its fields\nwere edited. `link` = the entry is intact but names the wrong predecessor, i.e.\nsomething was deleted or reordered. The operator's next move is different for each,\nso the verdict carries which one it is rather than making them go and look.",
@@ -15808,13 +15985,43 @@
             "title": "Below Floor",
             "type": "boolean"
           },
+          "below_floor_at_volume": {
+            "title": "Below Floor At Volume",
+            "type": "boolean"
+          },
           "below_target": {
             "title": "Below Target",
             "type": "boolean"
           },
+          "below_target_at_volume": {
+            "title": "Below Target At Volume",
+            "type": "boolean"
+          },
+          "breakeven_call_minutes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Breakeven Call Minutes"
+          },
           "cost_floor_inr_per_min": {
             "title": "Cost Floor Inr Per Min",
             "type": "string"
+          },
+          "cost_inr_per_min_at_volume": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Inr Per Min At Volume"
           },
           "gross_margin_pct": {
             "anyOf": [
@@ -15826,6 +16033,17 @@
               }
             ],
             "title": "Gross Margin Pct"
+          },
+          "gross_margin_pct_at_volume": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Margin Pct At Volume"
           },
           "inr_per_min": {
             "title": "Inr Per Min",
@@ -15853,7 +16071,12 @@
           "cost_floor_inr_per_min",
           "gross_margin_pct",
           "below_target",
-          "below_floor"
+          "below_floor",
+          "breakeven_call_minutes",
+          "cost_inr_per_min_at_volume",
+          "gross_margin_pct_at_volume",
+          "below_target_at_volume",
+          "below_floor_at_volume"
         ],
         "title": "RateCardCellOut",
         "type": "object"
@@ -15917,6 +16140,9 @@
       "RateCardOut": {
         "additionalProperties": false,
         "properties": {
+          "cartesia_volume": {
+            "$ref": "#/components/schemas/CartesiaVolumeOut"
+          },
           "cells": {
             "items": {
               "$ref": "#/components/schemas/RateCardCellOut"
@@ -15966,6 +16192,7 @@
           "pending",
           "notice_days",
           "earliest_effective_from",
+          "cartesia_volume",
           "notice_recipients"
         ],
         "title": "RateCardOut",
@@ -21609,7 +21836,7 @@
       },
       "TtsPlanSpendOut": {
         "additionalProperties": false,
-        "description": "ONE voice vendor's month: what the plan cost us, against what our meter attributed.\n\nTHE TWO FIGURES ARE INDEPENDENT MEASUREMENTS AND THE CARD EXISTS TO KEEP THEM APART.\n`plan_inr` is what the VENDOR billed \u2014 a committed monthly spend for a character\nallotment, paid whether or not the allotment is spoken, read off the invoice by an\noperator (`ops/model_pricing.TtsPlanFeeAttestation`). `attributed_inr` is what OUR\nmeter charged to calls: the attested per-character rate times the characters our own\ntranscripts say the agents spoke. A board showing only the first could not say which\nclient caused it; one showing only the second under-states what we pay.\n\n\u26a0 **UNKNOWN: whether the vendor's own character count agrees with ours** (OPERATIONS \u00a72\ngate 51). `chars` is counted from our transcripts and from nothing the vendor says.\nThis card publishes both sides and reconciles neither.\n\n\u26a0 **UNKNOWN: the vendor's OVERAGE rate past the allotment** (plan ADDENDUM 1, unknown\n#3). `inr_per_1k_chars` prices characters INSIDE the allotment, so a month that ran\npast it cost more per character than that figure says. `plan_inr` is unaffected \u2014 it is\nwhat the invoice states, overage included.\n\nA MONTH NOBODY HAS ATTESTED HAS NO ROW HERE AT ALL. `plan_inr` is required precisely so\nthat absence cannot be spelled as \u20b90, which would read as \"the vendor billed us\nnothing\" \u2014 the one misreading of a missing invoice that flatters us.",
+        "description": "ONE voice vendor's month: what the plan cost us, against what our meter attributed.\n\nTHE TWO FIGURES ARE INDEPENDENT MEASUREMENTS AND THE CARD EXISTS TO KEEP THEM APART.\n`plan_inr` is what the VENDOR billed \u2014 a committed monthly spend for a character\nallotment, paid whether or not the allotment is spoken, read off the invoice by an\noperator (`ops/model_pricing.TtsPlanFeeAttestation`). `attributed_inr` is what OUR\nmeter charged to calls: the attested per-character rate times the characters our own\ntranscripts say the agents spoke. A board showing only the first could not say which\nclient caused it; one showing only the second under-states what we pay.\n\n\u26a0 **UNKNOWN: whether the vendor's own character count agrees with ours** (OPERATIONS \u00a72\ngate 51). `chars` is counted from our transcripts and from nothing the vendor says.\nThis card publishes both sides and reconciles neither.\n\n\u26a0 **THE OVERAGE RATE IS NO LONGER UNKNOWN, AND THIS PARAGRAPH USED TO SAY IT WAS.**\nD-556 (9 Sep 2026) closed it from direct vendor correspondence: $65 / $45 / $38 per\n1,000,000 credits on Pro / Startup / Scale (evidence file ADDENDUM 3). What still holds\nis the CAVEAT that followed from it \u2014 `inr_per_1k_chars` is an ATTESTED price for\ncharacters, and if it was attested from an included-allotment figure it under-prices a\nmonth that ran into overage. `plan_inr` is unaffected either way: it is what the invoice\nstates, overage included, which is exactly why the two are published side by side.\n`billing/rates.CartesiaPlan` is where the overage now lives, and\n`cartesia_cost_inr_per_call_minute` prices a volume with it.\n\nA MONTH NOBODY HAS ATTESTED HAS NO ROW HERE AT ALL. `plan_inr` is required precisely so\nthat absence cannot be spelled as \u20b90, which would read as \"the vendor billed us\nnothing\" \u2014 the one misreading of a missing invoice that flatters us.",
         "properties": {
           "attributed_inr": {
             "title": "Attributed Inr",

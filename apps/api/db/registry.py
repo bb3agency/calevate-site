@@ -532,6 +532,19 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "the equivalence with platform_settings that this registry did not honour until "
         "now. Holds a month key and NUMERIC totals: no prompt, no answer text, no PII."
     ),
+    "platform_tts_volume": (
+        "platform-scoped, admin realm only. How many Studio (Cartesia) call-minutes and "
+        "characters the WHOLE fleet spoke in one IST month (D-556) — the volume every "
+        "Cartesia cost figure on the ops rate-card screen is struck at, because that "
+        "vendor bills a monthly subscription and a subscription has no per-minute price "
+        "until a volume is named. The allotment is bought once for the deployment, so "
+        "there is no tenant whose row this could be and it carries no tenant_id: it is "
+        "`platform_ai_spend`'s shape and `platform_ai_spend`'s reason, one vendor further "
+        "down the call. Holds a month, a vendor name and two NUMERIC counts: no call id, "
+        "no transcript, no PII. NOT append-only (see APPEND_ONLY_TABLES) because it is a "
+        "counter and not a ledger — every figure is re-derivable from the `usage_events` "
+        "rows that produced it, which is how migration f7c2a94e18b3 backfills it."
+    ),
     "webhook_deliveries": (
         "THE ONE THAT WAS MISSING AND MATTERED (P4.6). Forensic trail for every webhook "
         "in and out (SEC-COMP §4). No tenant_id and no policy, and both are deliberate: "

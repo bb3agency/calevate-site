@@ -399,10 +399,15 @@ class TtsPlanSpendOut(Strict):
     gate 51). `chars` is counted from our transcripts and from nothing the vendor says.
     This card publishes both sides and reconciles neither.
 
-    ⚠ **UNKNOWN: the vendor's OVERAGE rate past the allotment** (plan ADDENDUM 1, unknown
-    #3). `inr_per_1k_chars` prices characters INSIDE the allotment, so a month that ran
-    past it cost more per character than that figure says. `plan_inr` is unaffected — it is
-    what the invoice states, overage included.
+    ⚠ **THE OVERAGE RATE IS NO LONGER UNKNOWN, AND THIS PARAGRAPH USED TO SAY IT WAS.**
+    D-556 (9 Sep 2026) closed it from direct vendor correspondence: $65 / $45 / $38 per
+    1,000,000 credits on Pro / Startup / Scale (evidence file ADDENDUM 3). What still holds
+    is the CAVEAT that followed from it — `inr_per_1k_chars` is an ATTESTED price for
+    characters, and if it was attested from an included-allotment figure it under-prices a
+    month that ran into overage. `plan_inr` is unaffected either way: it is what the invoice
+    states, overage included, which is exactly why the two are published side by side.
+    `billing/rates.CartesiaPlan` is where the overage now lives, and
+    `cartesia_cost_inr_per_call_minute` prices a volume with it.
 
     A MONTH NOBODY HAS ATTESTED HAS NO ROW HERE AT ALL. `plan_inr` is required precisely so
     that absence cannot be spelled as ₹0, which would read as "the vendor billed us

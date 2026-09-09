@@ -73,20 +73,38 @@ from apps.api.billing.list_rates import (
     pending_cards,
     record_card,
 )
+from apps.api.billing.plans import ist_billing_month
 from apps.api.billing.rates import (
+    CARTESIA_COST_FLOOR_INR_PER_MIN,
+    CARTESIA_PLANS,
+    CARTESIA_VOLUME_LADDER_CALL_MINUTES,
     MIN_GROSS_MARGIN,
     MONEY_Q,
     PREPAID_TIERS,
     ROUNDING,
+    TTS_ASSUMED_CHARS_PER_CALL_MINUTE,
     VOICE_TIERS,
+    CartesiaPlan,
     VoiceTier,
+    cartesia_best_marginal_cost_inr_per_min,
+    cartesia_cheapest_plan,
+    cartesia_cost_floor_inr_per_min_at,
+    cartesia_cost_inr_per_call_minute,
+    cartesia_measured_cost_inr_per_call_minute,
+    cartesia_plan_crossover_call_minutes,
+    cartesia_plan_marginal_cost_inr_per_min,
+    cartesia_rung_breakeven_call_minutes,
+    cost_floor_inr_per_min,
+    rate_margin,
     voice_tier_label,
 )
+from apps.api.billing.tts_volume import CartesiaVolume, fleet_cartesia_volume
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, global_db
 from apps.api.core.errors import ProblemError
+from apps.api.core.fx import UsdInrRate, usd_inr_rate_now
 from apps.api.core.logging import get_logger
 from apps.api.core.platform_config import (
     ConfigField,
@@ -955,6 +973,131 @@ class RateCardCellOut(BaseModel):
     below_target: bool
     #: Below cost. `card_refusals` refuses the write; nothing may be sold here.
     below_floor: bool
+    #: **HOW MANY CARTESIA CALL-MINUTES A MONTH THE WHOLE PLATFORM MUST SPEAK BEFORE THIS
+    #: RUNG STOPS LOSING MONEY AND STAYS THAT WAY** (`rates
+    #: .cartesia_rung_breakeven_call_minutes`). `null` on every Sarvam cell, whose cost is a
+    #: per-character list price and does not move with volume, and `null` on a Cartesia rate
+    #: no volume can rescue — two different absences, both a stated absence and never a 0.
+    breakeven_call_minutes: str | None
+    #: What this minute costs us AT THE VOLUME THE PLATFORM ACTUALLY RAN THIS MONTH, and the
+    #: margin and verdicts that follow from it. `cost_floor_inr_per_min` above is a
+    #: STRUCTURAL bound — the worst marginal cost, which is what the write path refuses
+    #: below — and on a subscription-billed voice it is not what a month cost. These four
+    #: are the founder's second decision of 9 Sep 2026: judge the margin at actual volume.
+    #:
+    #: All four are `null`/`false` when no month volume could be measured (nobody has spoken
+    #: a Studio minute yet), which the console renders as a stated absence. On a Sarvam cell
+    #: they equal the structural figures beside them, because that voice's cost genuinely
+    #: does not depend on volume — the same number twice is the honest answer, not a gap.
+    cost_inr_per_min_at_volume: str | None
+    gross_margin_pct_at_volume: str | None
+    below_target_at_volume: bool
+    below_floor_at_volume: bool
+
+
+class CartesiaPlanOut(BaseModel):
+    """One Cartesia subscription an operator could be on, as the console renders it.
+
+    EVERY FIGURE IS THE SERVER'S DECIMAL STRING (hard rule 7) and every one of them is
+    derived from the vendor's three inputs — fee, allotment, overage — rather than typed.
+    `tts_concurrency` is NOT money and is published anyway, because the cheapest plan is not
+    automatically the plan to buy: Pro carries 3 TTS contexts and the evidence file's §A2
+    arithmetic says that is not enough for ten lines at peak. A console that ranked plans by
+    price alone would be recommending a dead-air incident.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    plan_id: str
+    fee_inr: str
+    included_credits: str
+    #: Call-minutes the allotment covers at the ASSUMED worst-case speaking rate — a model
+    #: figure, which is why the assumption travels beside it on `CartesiaVolumeOut`.
+    included_call_minutes: str
+    #: What ONE MORE call-minute costs on this plan once the allotment is gone, all-in.
+    marginal_cost_inr_per_min: str
+    tts_concurrency: int
+
+
+class CartesiaLadderPointOut(BaseModel):
+    """The Cartesia cost curve at one monthly volume: which plan is cheapest, and what a
+    minute costs there. The table that makes "COSTS US" an answerable question."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    call_minutes: str
+    plan_id: str
+    cost_inr_per_min: str
+
+
+class CartesiaVolumeOut(BaseModel):
+    """**THE VOLUME EVERY CARTESIA COST FIGURE ON THIS SCREEN IS STRUCK AT.**
+
+    THE DEFECT THIS EXISTS FOR (founder, 9 Sep 2026). The console printed ₹4.3639 under a
+    column headed "COSTS US" for every Studio rung. That figure was the $49 Startup plan fee
+    spread over the 2,315 call-minutes at which its allotment is exactly consumed — the
+    cheapest a Cartesia minute can ever be, at a volume this platform has never run — and
+    nothing on the screen said so. The arithmetic was right and the SCREEN was lying.
+
+    Cartesia is a monthly subscription with an included allotment and an overage past it
+    (`billing/rates.CartesiaPlan`), so a per-minute cost is a function of volume and a
+    screen that shows one without its volume is showing a guess. This block carries the
+    measurement, the assumption, the plan set and the curve, so no figure on the page is
+    unqualified.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: The IST billing month the measurement covers, `YYYY-MM`.
+    month: str
+    #: Cartesia call-minutes the WHOLE PLATFORM spoke this month, read from the fleet
+    #: counter the post-call meter moves (`billing/tts_volume.py`). `"0"` is a measurement
+    #: (nobody has run a Studio call this month), not an absence.
+    measured_call_minutes: str
+    #: Characters those calls synthesized — an INDEPENDENT count of the same calls, so the
+    #: measured cost below needs no speaking-rate assumption at all.
+    measured_characters: str
+    #: What a Cartesia minute ACTUALLY cost us this month, all-in, and the plan that price
+    #: assumes. `null` when the month has no minutes to divide by — printing the whole
+    #: subscription fee against a per-minute heading would mean neither thing.
+    cost_inr_per_min: str | None
+    plan_id: str | None
+    #: The chars-per-call-minute the MODEL assumes wherever no measurement exists (the top
+    #: of TRD §10.1's unmeasured 360-540 band — pilot gate 12). Published because every
+    #: ladder row below is struck at it.
+    assumed_chars_per_call_minute: str
+    #: **THE USD→INR RATE EVERY RUPEE ON THIS BLOCK WAS STRUCK AT, AND WHERE IT CAME FROM.**
+    #: The founder's decision of 9 Sep 2026: Cartesia bills in dollars, so a cost we pay in
+    #: dollars moves with the rupee, and this deployment already pulls and publishes the
+    #: rate every five minutes. `fx_source` is `"frankfurter:FBIL"`-shaped for a published
+    #: quote and `"configured:usd_inr_rate"` when the feed is silent or its rate has aged
+    #: past `core/fx.MAX_QUOTE_AGE` — the fallback is NAMED rather than hidden, because a
+    #: floor quietly struck at an operator's typed number is the same "best case presented
+    #: as fact" defect this whole block exists to remove. `fx_as_of` is the SOURCE's own
+    #: publication date and is `null` exactly when the configured rate was used: a typed
+    #: number has no publication date and inventing today's would make a stale fallback
+    #: look fresh.
+    fx_usd_inr: str
+    fx_source: str
+    fx_as_of: str | None
+    #: The structural refusal threshold and the best any volume can reach at the LIVE rate,
+    #: so a reader can see the band the curve moves inside.
+    floor_inr_per_min: str
+    best_marginal_cost_inr_per_min: str
+    #: **THE FROZEN BOUND THE WRITE PATH ACTUALLY REFUSES BELOW** (`rates
+    #: .CARTESIA_COST_FLOOR_INR_PER_MIN`, struck at the evidence file's ₹88), published
+    #: beside the live one because the two differ and an operator must know which number
+    #: blocks a save. A refusal that moved with a currency feed would make a card
+    #: recordable today and refused tomorrow on an FX tick alone — at ₹95.66 the live floor
+    #: is above the founder's own ₹6.00 rung — so the veto is frozen and the live figure is
+    #: a warning. When `floor_inr_per_min` exceeds this, some rung may be under water at
+    #: today's rate and still recordable, which is exactly the state the console must show.
+    refusal_floor_inr_per_min: str
+    #: The volume at which the dearer plan stops costing more — DERIVED by search
+    #: (`rates.cartesia_plan_crossover_call_minutes`), never typed.
+    plan_crossover_call_minutes: str
+    plans: list[CartesiaPlanOut]
+    ladder: list[CartesiaLadderPointOut]
 
 
 class PendingCardOut(BaseModel):
@@ -989,6 +1132,11 @@ class RateCardOut(BaseModel):
     #: server-side from the same function that refuses (`list_rates.notice_refusal`), so the
     #: picker's floor and the write's floor cannot be two answers.
     earliest_effective_from: str
+    #: **THE VOLUME EVERY CARTESIA COST FIGURE ABOVE IS STRUCK AT**, measured and modelled.
+    #: Required, never optional: a console that could render this card with the volume block
+    #: missing is a console that can print a best case as a fact again, which is the whole
+    #: defect (`CartesiaVolumeOut`).
+    cartesia_volume: CartesiaVolumeOut
     #: How many clients would be emailed if a card were recorded now — the prepaid book,
     #: counted with the fan-out's own predicate (`_NOTICE_RECIPIENTS`). Published on the
     #: READ rather than only echoed on the write because the number an operator needs is
@@ -1031,9 +1179,34 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
     signature changed: `notice_recipients` counts `organizations`, which FORCEs RLS with a
     policy that matches on `app.tenant_id`, so an untenanted session answers 0 for every
     deployment. The rate rows this route also reads (`platform_list_rates`) carry no RLS
-    at all, so one session serves both questions — and it has to be one, because
-    `db/session.py` runs `max_overflow=0` and no request path may hold two."""
+    at all, so one session serves both questions.
+
+    ⚠ **THIS DOCSTRING USED TO END "and it has to be one, because `db/session.py` runs
+    `max_overflow=0` and no request path may hold two", AND BOTH HALVES ARE WRONG.** D-182
+    moved the overflow to **1**, and `scripts/check_session_nesting.py` enforces a ceiling
+    of `max_overflow + 1` = **2**. This route still uses exactly ONE, and the reason is
+    worth recording: the Cartesia fleet volume this read publishes was first built as a
+    per-tenant WALK (the shape `fleet_spend` uses, holding the directory open across a
+    second session per client) and that turned one rate-card read into one session checkout
+    per account — 8,480 of them on this repository's own development database. It is a
+    counter now (`billing/tts_volume`), which is one indexed row on the session already
+    open."""
     now = datetime.now(UTC)
+    # WHAT THE PLATFORM ACTUALLY SPOKE THIS MONTH, before anything is rendered. It is a
+    # per-tenant walk (`billing/tts_volume`) because `usage_events` is FORCE RLS'd and this
+    # session's `app.admin` widens `organizations` alone — the same shape and the same cost
+    # the fleet spend board already pays, with the same over-budget warning. It runs on the
+    # READ and not on the write for the reason `notice_recipients` does: the figure an
+    # operator needs is the one they read BEFORE pressing Record.
+    # ONE RATE FOR THE WHOLE RESPONSE, resolved here. `usd_inr_rate_now` is the ONE
+    # spelling of "the published rate while it is fresh, else the operator's typed one"
+    # (`core/fx.py`); `billing/number_rental.py` calls it the same way. Resolving it per
+    # figure would let a five-minute tick land between two rows of one table.
+    fx = usd_inr_rate_now(get_settings().usd_inr_rate)
+    volume = await fleet_cartesia_volume(session, month=ist_billing_month(now))
+    measured_cost = cartesia_measured_cost_inr_per_call_minute(
+        characters=volume.characters, call_minutes=volume.call_minutes, usd_inr=fx.rate
+    )
     dated = (
         await session.execute(text(_CARD_EFFECTIVE_FROM), {"prefix": f"{PACK_RATE_KEY_PREFIX}:%"})
     ).scalar()
@@ -1050,44 +1223,156 @@ async def read_rate_card(session: AdminSession, _: ConfigOperator) -> RateCardOu
     return RateCardOut(
         effective_from=dated.isoformat() if dated is not None else None,
         target_gross_margin_pct=_pct(MIN_GROSS_MARGIN) or "0",
-        cells=_cells_out(in_force),
+        cells=_cells_out(in_force, measured_cost=measured_cost, fx=fx),
         pending=[
             PendingCardOut(
                 effective_from=card.effective_from.isoformat(),
-                cells=_cells_out(card_with_rates(card.cells)),
+                cells=_cells_out(card_with_rates(card.cells), measured_cost=measured_cost, fx=fx),
             )
             for card in scheduled
         ],
+        cartesia_volume=_cartesia_volume_out(volume, fx=fx),
         notice_days=CARD_NOTICE_DAYS,
         earliest_effective_from=(now + timedelta(days=CARD_NOTICE_DAYS)).isoformat(),
         notice_recipients=recipients,
     )
 
 
-def _cells_out(card: tuple[CreditPack, ...]) -> list[RateCardCellOut]:
-    """One card as twelve rendered cells, verdicts included.
+def _volume_cost(voice: VoiceTier, measured: Decimal | None) -> Decimal | None:
+    """What one minute of `voice` cost at this month's MEASURED Cartesia volume.
+
+    Sarvam's cost is a per-character list price in RUPEES and moves with neither volume nor
+    the dollar, so its at-volume cost IS its structural floor — the same number twice, which
+    is the honest answer and not a gap. Cartesia's is the measurement at the live rate, or
+    `None` when there was none.
+    """
+    if voice == "sarvam":
+        return cost_floor_inr_per_min(voice)
+    return measured
+
+
+def _cells_out(
+    card: tuple[CreditPack, ...], *, measured_cost: Decimal | None, fx: UsdInrRate
+) -> list[RateCardCellOut]:
+    """One card as twelve rendered cells, verdicts included — TWICE OVER since 9 Sep 2026.
 
     THE PREVIEW'S OWN OUTPUT, in the preview's own order (card order, then voice order):
     `_log_margins` logs these verdicts and `_refuse_bad_card` vetoes on the same ones, so
     every screen shows what the gate scored. Shared by the card in force and by each pending
     card, because an operator comparing "now" against "from the 12th" must be reading two
     renderings of one function.
+
+    **EVERY CELL NOW CARRIES TWO VERDICTS AND THE SECOND IS THE HONEST ONE.** The first is
+    struck against the STRUCTURAL floor (`card_margins`, unchanged, and still the only thing
+    the write path refuses on — see `_refuse_bad_card`). The second is struck against what
+    the minute cost at the volume the platform actually ran, which on a subscription-billed
+    voice is a different and usually worse number. Both are the SERVER's, computed from
+    `rates.rate_margin` and `rates.gross_margin_ratio` so a browser never divides one
+    rounded rupee figure by another.
+
+    Why the refusal stays on the structural figure and the volume-real one is a warning:
+    at today's volume several Studio rungs are under water, so refusing on it would refuse
+    the card that is currently live and no card could be recorded at all. That is the
+    founder's own resolution of the tension between his two decisions of 9 Sep 2026 (the
+    rate card does not change; the margin is judged at actual volume), recorded at D-556.
     """
     amounts = {pack.pack_id: pack.amount_inr for pack in card}
-    return [
-        RateCardCellOut(
-            pack_id=pack_id,
-            amount_inr=str(amounts[pack_id]),
-            voice_tier=voice,
-            tier_label=voice_tier_label(voice),
-            inr_per_min=str(verdict.rate),
-            cost_floor_inr_per_min=str(verdict.cost),
-            gross_margin_pct=_pct(verdict.margin),
-            below_target=verdict.below_target,
-            below_floor=verdict.below_cost,
+    cells: list[RateCardCellOut] = []
+    for pack_id, voice, verdict in card_margins(card):
+        at_volume_cost = _volume_cost(voice, measured_cost)
+        at_volume = (
+            None if at_volume_cost is None else rate_margin(verdict.rate, cost=at_volume_cost)
         )
-        for pack_id, voice, verdict in card_margins(card)
-    ]
+        cells.append(
+            RateCardCellOut(
+                pack_id=pack_id,
+                amount_inr=str(amounts[pack_id]),
+                voice_tier=voice,
+                tier_label=voice_tier_label(voice),
+                inr_per_min=str(verdict.rate),
+                cost_floor_inr_per_min=str(verdict.cost),
+                gross_margin_pct=_pct(verdict.margin),
+                below_target=verdict.below_target,
+                below_floor=verdict.below_cost,
+                breakeven_call_minutes=(
+                    None
+                    if voice != "cartesia"
+                    else _opt_str(
+                        cartesia_rung_breakeven_call_minutes(verdict.rate, usd_inr=fx.rate)
+                    )
+                ),
+                cost_inr_per_min_at_volume=_opt_str(at_volume_cost),
+                gross_margin_pct_at_volume=(None if at_volume is None else _pct(at_volume.margin)),
+                below_target_at_volume=at_volume is not None and at_volume.below_target,
+                below_floor_at_volume=at_volume is not None and at_volume.below_cost,
+            )
+        )
+    return cells
+
+
+def _opt_str(value: Decimal | None) -> str | None:
+    """A Decimal as its exact string, or `None` — so an absence cannot render as `"0"`."""
+    return None if value is None else str(value)
+
+
+def _cartesia_volume_out(volume: CartesiaVolume, *, fx: UsdInrRate) -> CartesiaVolumeOut:
+    """The measured month and the modelled curve, both struck at ONE named USD→INR rate.
+
+    `fx` is resolved ONCE by the route and threaded through every figure here, rather than
+    each function reaching for the quote itself: a block in which the ladder, the floor and
+    the measurement could each have caught a different tick of a five-minute feed is a block
+    whose rows do not add up, and "the numbers on one screen came from one rate" is the
+    property that makes it readable at all. It is the same gesture `core/fx.fx_scope` makes
+    for a unit of work.
+    """
+    measured = cartesia_measured_cost_inr_per_call_minute(
+        characters=volume.characters, call_minutes=volume.call_minutes, usd_inr=fx.rate
+    )
+    plan = (
+        None
+        if volume.call_minutes <= 0
+        else cartesia_cheapest_plan(volume.call_minutes, usd_inr=fx.rate).plan_id
+    )
+    return CartesiaVolumeOut(
+        month=volume.month,
+        measured_call_minutes=str(volume.call_minutes),
+        measured_characters=str(volume.characters),
+        cost_inr_per_min=_opt_str(measured),
+        plan_id=plan,
+        assumed_chars_per_call_minute=str(TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1]),
+        fx_usd_inr=str(fx.rate),
+        fx_source=fx.source,
+        fx_as_of=fx.as_of.isoformat() if fx.as_of is not None else None,
+        floor_inr_per_min=str(cartesia_cost_floor_inr_per_min_at(fx.rate)),
+        best_marginal_cost_inr_per_min=str(cartesia_best_marginal_cost_inr_per_min(fx.rate)),
+        refusal_floor_inr_per_min=str(CARTESIA_COST_FLOOR_INR_PER_MIN),
+        plan_crossover_call_minutes=str(cartesia_plan_crossover_call_minutes(usd_inr=fx.rate)),
+        plans=[_cartesia_plan_out(plan_row, fx=fx) for plan_row in CARTESIA_PLANS],
+        ladder=[
+            CartesiaLadderPointOut(
+                call_minutes=str(minutes),
+                plan_id=cartesia_cheapest_plan(minutes, usd_inr=fx.rate).plan_id,
+                cost_inr_per_min=str(cartesia_cost_inr_per_call_minute(minutes, usd_inr=fx.rate)),
+            )
+            for minutes in CARTESIA_VOLUME_LADDER_CALL_MINUTES
+        ],
+    )
+
+
+def _cartesia_plan_out(plan: CartesiaPlan, *, fx: UsdInrRate) -> CartesiaPlanOut:
+    """One plan, every figure derived from the vendor's three inputs and the live rate."""
+    return CartesiaPlanOut(
+        plan_id=plan.plan_id,
+        fee_inr=str(plan.fee_inr(fx.rate)),
+        included_credits=str(plan.included_credits),
+        included_call_minutes=str(
+            plan.included_call_minutes.quantize(Decimal("1"), rounding=ROUNDING)
+        ),
+        marginal_cost_inr_per_min=str(
+            cartesia_plan_marginal_cost_inr_per_min(plan, usd_inr=fx.rate)
+        ),
+        tts_concurrency=plan.tts_concurrency,
+    )
 
 
 # --- the card, as a WRITER (D-550) --------------------------------------------------
@@ -1392,7 +1677,15 @@ async def record_rate_card(
     )
     return RateCardWriteOut(
         effective_from=at.isoformat(),
-        cells=_cells_out(card),
+        # NO VOLUME WALK ON THE WRITE, and the at-volume verdicts are therefore absent
+        # rather than wrong. This is an echo of what was just recorded; the panel re-reads
+        # the card immediately afterwards and that read carries the measurement. Paying for
+        # a fleet walk inside a write that already holds a step-up confirmation would put a
+        # per-tenant loop between an operator and their save for a number the next request
+        # brings anyway.
+        cells=_cells_out(
+            card, measured_cost=None, fx=usd_inr_rate_now(get_settings().usd_inr_rate)
+        ),
         clients_notified=notified is not None,
     )
 

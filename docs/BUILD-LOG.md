@@ -4054,10 +4054,14 @@ clock read.
 
 **Evidence moved in both directions.** The Bolna platform fee went REPORTED →
 VERIFIED-VENDOR-DOCS on the vendor's own FAQ line (\$0.02/min,
-`bolna-findings/mirror/pages/frequently-asked-questions.md:39`), and the unreconciled
-\$0.06/min bundled figure (`pricing/preferred-models.md:11`) is recorded beside it rather
-than resolved — **no Bolna page reconciles the two**, and the BYOK fee's billing
-GRANULARITY is **UNKNOWN**. The Cartesia leg's whole plan arithmetic is REPORTED (a relayed
+`bolna-findings/mirror/pages/frequently-asked-questions.md:39`), and the
+\$0.06/min bundled figure (`pricing/preferred-models.md:11`) was recorded beside it as
+unreconciled. ⚠ **IT IS RECONCILED AS OF 9 Sep 2026 and this entry's "no Bolna page
+reconciles the two" is superseded**: \$0.06 is a FLAT RATE BUNDLING ASR/LLM/TTS, and the
+same page says a BYOK component bills at variable rates *"instead of the flat rate"*, while
+`pricing/call-pricing.md:75` says BYOK means paying providers directly *"plus Bolna's
+platform fee"* — the FAQ's \$0.02. Two billing modes, and we are BYOK on all three legs.
+The BYOK fee's billing GRANULARITY is still **UNKNOWN**. The Cartesia leg's whole plan arithmetic is REPORTED (a relayed
 research run; `cartesia.ai` is egress-blocked here) and its **overage rate past the
 allotment is UNKNOWN**, which is why the floor understates our cost at both ends of the
 volume range — stated at the constant, and the 27.3% headroom at ₹6.00 is what that UNKNOWN

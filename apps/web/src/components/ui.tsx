@@ -1271,6 +1271,37 @@ export function formatRupeeRate(value: string): string {
 }
 
 /**
+ * A WHOLE COUNT as the server sent it, grouped for reading — not `formatINR`.
+ *
+ * Two callers, both money's shadow: a monthly call-minute VOLUME and the CHARACTER count
+ * behind it. `billing/rates.py` multiplies each by a rupee figure to price a subscription,
+ * so both cross the wire as exact decimal strings and neither is parsed here (hard rule 7).
+ * The name is deliberately not `formatMinutes`: it is one rule about counts, and a
+ * minute-shaped name on the function printing characters is how the next reader is misled
+ * about a unit.
+ *
+ * What a count needs that a rupee figure does not is a DROPPED fraction: "2314.814814…" is
+ * a real answer from an exact division and "2,314 min/mo" is what an operator acts on,
+ * while `formatINR`'s two forced decimals would print "₹2,314.81" of minutes — a unit error
+ * on the face of a screen.
+ *
+ * The digits are the server's: split on the point, discard the fraction, group the integer
+ * part Indian-style exactly as `formatINR` does. No `Number()`, no rounding decision —
+ * truncation is stated rather than implied, because a volume is a threshold an operator
+ * compares against and rounding 2,314.8 up to 2,315 would make the screen disagree with the
+ * break-even the server computed.
+ */
+export function formatWholeCount(value: string | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const negative = value.startsWith("-");
+  const [whole = "0"] = value.replace(/^[-+]/, "").split(".");
+  const head = whole.length > 3 ? whole.slice(0, -3) : "";
+  const tail = whole.slice(-3);
+  const grouped = head ? `${head.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${tail}` : tail;
+  return `${negative ? "-" : ""}${grouped}`;
+}
+
+/**
  * Does this decimal STRING carry a value above zero?
  *
  * The question `Number(value) > 0` used to answer, without the parse. "0", "0.00" and

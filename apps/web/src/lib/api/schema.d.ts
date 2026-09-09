@@ -7605,6 +7605,92 @@ export interface components {
             spend_used_inr: string;
         };
         /**
+         * CartesiaLadderPointOut
+         * @description The Cartesia cost curve at one monthly volume: which plan is cheapest, and what a
+         *     minute costs there. The table that makes "COSTS US" an answerable question.
+         */
+        CartesiaLadderPointOut: {
+            /** Call Minutes */
+            call_minutes: string;
+            /** Cost Inr Per Min */
+            cost_inr_per_min: string;
+            /** Plan Id */
+            plan_id: string;
+        };
+        /**
+         * CartesiaPlanOut
+         * @description One Cartesia subscription an operator could be on, as the console renders it.
+         *
+         *     EVERY FIGURE IS THE SERVER'S DECIMAL STRING (hard rule 7) and every one of them is
+         *     derived from the vendor's three inputs — fee, allotment, overage — rather than typed.
+         *     `tts_concurrency` is NOT money and is published anyway, because the cheapest plan is not
+         *     automatically the plan to buy: Pro carries 3 TTS contexts and the evidence file's §A2
+         *     arithmetic says that is not enough for ten lines at peak. A console that ranked plans by
+         *     price alone would be recommending a dead-air incident.
+         */
+        CartesiaPlanOut: {
+            /** Fee Inr */
+            fee_inr: string;
+            /** Included Call Minutes */
+            included_call_minutes: string;
+            /** Included Credits */
+            included_credits: string;
+            /** Marginal Cost Inr Per Min */
+            marginal_cost_inr_per_min: string;
+            /** Plan Id */
+            plan_id: string;
+            /** Tts Concurrency */
+            tts_concurrency: number;
+        };
+        /**
+         * CartesiaVolumeOut
+         * @description **THE VOLUME EVERY CARTESIA COST FIGURE ON THIS SCREEN IS STRUCK AT.**
+         *
+         *     THE DEFECT THIS EXISTS FOR (founder, 9 Sep 2026). The console printed ₹4.3639 under a
+         *     column headed "COSTS US" for every Studio rung. That figure was the $49 Startup plan fee
+         *     spread over the 2,315 call-minutes at which its allotment is exactly consumed — the
+         *     cheapest a Cartesia minute can ever be, at a volume this platform has never run — and
+         *     nothing on the screen said so. The arithmetic was right and the SCREEN was lying.
+         *
+         *     Cartesia is a monthly subscription with an included allotment and an overage past it
+         *     (`billing/rates.CartesiaPlan`), so a per-minute cost is a function of volume and a
+         *     screen that shows one without its volume is showing a guess. This block carries the
+         *     measurement, the assumption, the plan set and the curve, so no figure on the page is
+         *     unqualified.
+         */
+        CartesiaVolumeOut: {
+            /** Assumed Chars Per Call Minute */
+            assumed_chars_per_call_minute: string;
+            /** Best Marginal Cost Inr Per Min */
+            best_marginal_cost_inr_per_min: string;
+            /** Cost Inr Per Min */
+            cost_inr_per_min: string | null;
+            /** Floor Inr Per Min */
+            floor_inr_per_min: string;
+            /** Fx As Of */
+            fx_as_of: string | null;
+            /** Fx Source */
+            fx_source: string;
+            /** Fx Usd Inr */
+            fx_usd_inr: string;
+            /** Ladder */
+            ladder: components["schemas"]["CartesiaLadderPointOut"][];
+            /** Measured Call Minutes */
+            measured_call_minutes: string;
+            /** Measured Characters */
+            measured_characters: string;
+            /** Month */
+            month: string;
+            /** Plan Crossover Call Minutes */
+            plan_crossover_call_minutes: string;
+            /** Plan Id */
+            plan_id: string | null;
+            /** Plans */
+            plans: components["schemas"]["CartesiaPlanOut"][];
+            /** Refusal Floor Inr Per Min */
+            refusal_floor_inr_per_min: string;
+        };
+        /**
          * ChainBreakOut
          * @description One broken link, dated, and told apart from the other kind.
          *
@@ -13223,12 +13309,22 @@ export interface components {
             amount_inr: string;
             /** Below Floor */
             below_floor: boolean;
+            /** Below Floor At Volume */
+            below_floor_at_volume: boolean;
             /** Below Target */
             below_target: boolean;
+            /** Below Target At Volume */
+            below_target_at_volume: boolean;
+            /** Breakeven Call Minutes */
+            breakeven_call_minutes: string | null;
             /** Cost Floor Inr Per Min */
             cost_floor_inr_per_min: string;
+            /** Cost Inr Per Min At Volume */
+            cost_inr_per_min_at_volume: string | null;
             /** Gross Margin Pct */
             gross_margin_pct: string | null;
+            /** Gross Margin Pct At Volume */
+            gross_margin_pct_at_volume: string | null;
             /** Inr Per Min */
             inr_per_min: string;
             /** Pack Id */
@@ -13277,6 +13373,7 @@ export interface components {
         };
         /** RateCardOut */
         RateCardOut: {
+            cartesia_volume: components["schemas"]["CartesiaVolumeOut"];
             /** Cells */
             cells: components["schemas"]["RateCardCellOut"][];
             /** Earliest Effective From */
@@ -15698,10 +15795,15 @@ export interface components {
          *     gate 51). `chars` is counted from our transcripts and from nothing the vendor says.
          *     This card publishes both sides and reconciles neither.
          *
-         *     ⚠ **UNKNOWN: the vendor's OVERAGE rate past the allotment** (plan ADDENDUM 1, unknown
-         *     #3). `inr_per_1k_chars` prices characters INSIDE the allotment, so a month that ran
-         *     past it cost more per character than that figure says. `plan_inr` is unaffected — it is
-         *     what the invoice states, overage included.
+         *     ⚠ **THE OVERAGE RATE IS NO LONGER UNKNOWN, AND THIS PARAGRAPH USED TO SAY IT WAS.**
+         *     D-556 (9 Sep 2026) closed it from direct vendor correspondence: $65 / $45 / $38 per
+         *     1,000,000 credits on Pro / Startup / Scale (evidence file ADDENDUM 3). What still holds
+         *     is the CAVEAT that followed from it — `inr_per_1k_chars` is an ATTESTED price for
+         *     characters, and if it was attested from an included-allotment figure it under-prices a
+         *     month that ran into overage. `plan_inr` is unaffected either way: it is what the invoice
+         *     states, overage included, which is exactly why the two are published side by side.
+         *     `billing/rates.CartesiaPlan` is where the overage now lives, and
+         *     `cartesia_cost_inr_per_call_minute` prices a volume with it.
          *
          *     A MONTH NOBODY HAS ATTESTED HAS NO ROW HERE AT ALL. `plan_inr` is required precisely so
          *     that absence cannot be spelled as ₹0, which would read as "the vendor billed us

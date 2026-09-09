@@ -512,6 +512,7 @@ class TestRlsCoverage:
             # `unit_cost_paid`: it is published beside the metered total, and their
             # difference is the allotment nobody spoke into.
             "platform_tts_plan_fees",
+            "platform_tts_volume",
             # D-492: the self-serve list price per calling minute, effective-dated so a
             # CLOSED month renders at the rate it was struck at rather than at today's.
             # Platform-global for `platform_model_prices`' reason on the other side of the

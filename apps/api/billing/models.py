@@ -709,6 +709,62 @@ class PlatformAiSpend(Base):
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 
+class PlatformTtsVolume(Base):
+    """**HOW MANY STUDIO MINUTES THE WHOLE PLATFORM SPOKE THIS MONTH**, and the characters
+    behind them — the volume every Cartesia cost figure on the ops console is struck at.
+
+    WHY IT EXISTS AT ALL (D-556, 9 Sep 2026). Cartesia is not billed per minute: it is a
+    monthly subscription with an included credit allotment and an overage past it
+    (`billing/rates.CartesiaPlan`). A subscription has no per-minute price until a VOLUME is
+    named, so "what does a Studio minute cost us" is a question about this row. The ops
+    console used to answer it with the plan's cheapest possible minute — ₹4.3639, reachable
+    only at ~2,315 call-minutes a month — printed under a column headed "COSTS US" with no
+    volume anywhere near it. The founder read it and said the leg could not cost that
+    little. He was right.
+
+    WHY A COUNTER AND NOT A SUM OVER `usage_events` — `PlatformAiSpend`'s argument above,
+    verbatim and for the identical reason. The allotment is bought once for the whole
+    deployment, so the figure is a CROSS-TENANT sum; `usage_events` FORCEs RLS,
+    `admin_session` widens the policy on `organizations` alone, and hard rule 1 forbids
+    reaching for the admin DB role. ⚠ **AND THE FIRST BUILD OF THIS FEATURE DID IT THE
+    OTHER WAY**: it walked the client book, one session and two aggregates per account, the
+    shape `billing/spend_routes.fleet_spend` uses. That is correct and it does not scale on
+    a READ a console refreshes — measured on this repository's own development database,
+    8,480 organizations, it turned one rate-card read into 8,480 session checkouts. A board
+    an operator opens deliberately can afford that shape; a screen that polls cannot.
+
+    **TWO INDEPENDENT COUNTS, AND THAT IS THE WHOLE VALUE OF THE ROW.** `characters` is what
+    the BYOK synthesizer actually spoke; `call_minutes` is what those same calls actually
+    billed. Cartesia sells CREDITS, which are characters, so the plan is priced off the
+    first and divided by the second — and `rates.TTS_ASSUMED_CHARS_PER_CALL_MINUTE`
+    (360-540, unmeasured, pilot gate 12) never enters the number an operator reads as
+    today's cost. Deriving either from the other would put the assumption back inside the
+    measurement built to replace it.
+
+    NOT append-only, and it must not be: it is a counter, not a ledger. The LEDGER is
+    `usage_events`, every figure here is re-derivable from the rows that produced it, and
+    migration `f7c2a94e18b3` backfills exactly that way — which is also why its downgrade
+    can simply drop the table.
+    """
+
+    __tablename__ = "platform_tts_volume"
+
+    # IST billing month, 'YYYY-MM' — `billing/plans.ist_billing_month`'s own cut, so this
+    # total and the per-tenant totals close on one instant.
+    month: Mapped[str] = mapped_column(Text, primary_key=True)
+    # The VENDOR's own name. A second plan-billed vendor is a row here, never a column —
+    # though `ops/model_pricing.PLAN_BILLED_TTS_PROVIDERS` is pinned at one member until a
+    # `usage_events` row can say which vendor spoke it.
+    provider: Mapped[str] = mapped_column(Text, primary_key=True)
+    # NUMERIC and not an integer: `usage_events.qty` on a `tts_kchars` row is NUMERIC(14,4)
+    # and carries a fraction, so rounding on the way in would lose characters we paid for.
+    characters: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, server_default="0")
+    call_minutes: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, server_default="0"
+    )
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
 class PlatformAiUsage(PKMixin, Base):
     """One metered unit of AI spend the PLATFORM paid for, with no tenant behind it (D-499).
 

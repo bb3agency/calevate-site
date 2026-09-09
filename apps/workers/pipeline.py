@@ -75,6 +75,7 @@ from apps.api.billing.service import (
     rate_card_at,
 )
 from apps.api.billing.trials import trial_covers
+from apps.api.billing.tts_volume import CHARS_PER_KCHAR, PLAN_BILLED_VOICE, bump_cartesia_volume
 from apps.api.compliance.consent import record_recording_notice
 from apps.api.compliance.deletion import refile_erasure_for_late_records
 from apps.api.compliance.disclosure import disclosure_spoken
@@ -2582,6 +2583,32 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                     "at": snapshot.ended_at or datetime.now(UTC),
                     "meta": meta,
                 },
+            )
+
+        # THE FLEET'S STUDIO VOLUME FOR THE MONTH (D-556). Cartesia bills a monthly
+        # subscription with an included allotment, so what a Studio minute COSTS us is a
+        # function of how many the whole PLATFORM spoke — a cross-tenant sum, which
+        # `usage_events` being FORCE RLS'd makes unaskable in app code (hard rule 1). So the
+        # meter that writes the per-tenant rows also moves a platform counter, exactly as
+        # the dashboard-AI meter moves `platform_ai_spend` and for the identical reason.
+        #
+        # IN THIS TRANSACTION, so the counter and the rows it summarises cannot be half
+        # written, and EXACTLY ONCE per call because the `already` guard at the top of this
+        # function returns before reaching here on a replay. Two INDEPENDENT counts, never
+        # one derived from the other: characters off the `tts_kchars` row the BYOK branch
+        # wrote, minutes off this call's own billed duration — deriving minutes from
+        # characters would put the unmeasured 360-540 speaking band back inside the
+        # measurement that exists to replace it.
+        if voice == PLAN_BILLED_VOICE:
+            await bump_cartesia_volume(
+                session,
+                month=ist_billing_month(snapshot.ended_at or datetime.now(UTC)),
+                characters=sum(
+                    (qty for unit_type, qty, _ in rows if unit_type == "tts_kchars"),
+                    Decimal("0"),
+                )
+                * CHARS_PER_KCHAR,
+                call_minutes=minutes,
             )
 
         # WHAT THE CLIENT OWES FOR THIS CALL, which is not what it cost us (P1.1/P1.3).

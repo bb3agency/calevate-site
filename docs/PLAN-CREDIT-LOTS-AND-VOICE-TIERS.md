@@ -143,7 +143,7 @@ One-shot data migration in the same revision: for every tenant with `balance_aft
 
 ### 3.5 TTS price attestation (hard rule 7)
 Today `tts_chars` usage rows write `qty = 1` and `unit_cost_paid = CostBreakdown.tts_inr`, the ENGINE's reported synthesizer leg cost (`workers/pipeline.py:2500-2520`, `engine/bolna.py:5487`). Under a BYOK Cartesia plan the engine's synthesizer figure is expected to be zero (we pay Cartesia, not Bolna) — **UNKNOWN until gate 51 (§9)**. So the Cartesia leg needs its own attested cost seam:
-- `TtsPriceAttestation` ⚠ **THIS ADDRESS IS STALE AS BUILT: it lives at `ops/model_pricing.py:655`, NOT in `billing/rates.py`** — the attestation types sit with the ops panel that writes them. Operator-attested, value = the plan's marginal rate per 1,000 characters (Startup: ₹4,312 / 1.25M = ₹3.4496/1k, recorded as such with its evidence class).
+- `TtsPriceAttestation` ⚠ **THIS ADDRESS IS STALE AS BUILT: it lives at `ops/model_pricing.py:655`, NOT in `billing/rates.py`** — the attestation types sit with the ops panel that writes them. Operator-attested, value = the plan's marginal rate per 1,000 characters. ⚠ **THIS READ "Startup: ₹4,312 / 1.25M = ₹3.4496/1k" UNTIL 9 SEP 2026 (D-556)** — a fee-over-allotment AVERAGE on a plan we are not on. It is now the vendor's **Pro overage rate, ₹5.72/1,000 characters** ($65 per 1M credits at ₹88; VENDOR-PUBLISHED, Tinmaz correspondence — evidence file ADDENDUM 3), recorded as such with its evidence class.
 - `qty` = agent characters spoken, counted from OUR transcript turns (the same measurement `billing/tts_speaking_rate.py` already makes), NOT from the vendor. ⚠ **AS BUILT THE UNIT IS `tts_kchars`, A NEW ONE, AND NOT `tts_chars`** — `unit_cost_paid` is `NUMERIC(12,4)`, so a per-CHARACTER rate stores as `0.0034` and our own cost would meter 1.4% light on every Cartesia call. `qty` is therefore characters ÷ 1,000, which is what the attested ₹/1k figure is denominated in (`billing/models.py:157`, `apps/workers/pipeline.py:2959-3028`).
 - `unit_cost_paid` = attested rate × qty. The plan fee itself is recorded once a month as a platform cost row (the `platform_ai_usage` shape) so the margin panel shows both the attributed cost and the true plan spend, and their difference is the plan's unused allotment. ⚠ **THAT SECOND SENTENCE IS PHASE D.3 AND IS NOT BUILT** (§12.1): no committed migration creates the table, so the board publishes the attributed cost with nothing beside it and the unused allotment is computed nowhere.
 - Until a Cartesia price is attested, `offerable_voices()` (§4.3) refuses the Cartesia tier with `NO_ATTESTED_PRICE_REASON` — the exact rule `offerable_models()` applies to an LLM (`agents/llm_models.py:452-476`).
@@ -156,7 +156,7 @@ Order is by dependency. Each phase ends with its tests green standalone and the 
 
 ### Phase A — LANDED `2e16152` (7 Sep 2026)
 
-The catalogue is six packs x two rates with `plus` (₹15,000) in the ladder, the margin guard judges each rate against its own re-derived, telephony-free cost floor (Sarvam ₹4.1211 / Cartesia ₹4.3639 — the whole Sarvam column clears cost and sits under the 20% target, deliberately), `platform_list_rates` takes twelve `pack:*:*` rows per card under one `effective_from` written from the ops console behind a margin preview and a refusal, and every deprecated wire field stays at zero for one release.
+The catalogue is six packs x two rates with `plus` (₹15,000) in the ladder, the margin guard judges each rate against its own re-derived, telephony-free cost floor (Sarvam ₹4.1211 / Cartesia **₹5.5899** — ⚠ the Cartesia figure was ₹4.3639 until D-556 corrected it from a best case to the worst MARGINAL cost; the whole Sarvam column and four of the six Cartesia rungs clear cost and sit under the 20% target, deliberately), `platform_list_rates` takes twelve `pack:*:*` rows per card under one `effective_from` written from the ops console behind a margin preview and a refusal, and every deprecated wire field stays at zero for one release.
 Files: `billing/credit_packs.py`, `billing/rates.py`, `billing/payment_routes.py`, `billing/list_rates.py`, `ops/config_routes.py`, tests.
 1. `CreditPack` gains `sarvam_inr_per_min`, `cartesia_inr_per_min`; loses `bonus_pct`/`bonus_credits` (kept on the wire as deprecated zero fields for one release — §10). `PACK_CATALOGUE` becomes the §2.2 table; `plus` (₹15,000) added.
 2. `CreditPackOut` gains the two rates and `talk_time_minutes` becomes a pair (`sarvam_minutes`, `cartesia_minutes`); `CreditPacksOut.list_rate_inr_per_min` stays (= `starter.sarvam`), `from_inr_per_min` becomes `from_sarvam_inr_per_min` + `from_cartesia_inr_per_min`. The OpenAPI snapshot is regenerated (`check_openapi_fresh --write`, then `pnpm -C apps/web gen:api`).
@@ -257,7 +257,7 @@ rate, and does NOT take the lot splits' sum. §12 carries it as an open money-pa
 Files: `billing/rates.py`, `ops/model_pricing.py`, `workers/pipeline.py`, `billing/service.py` (margin SQL), `billing/attribution.py`, `billing/cost_unit.py`, `crm/schemas.py` (`UsagePanelOut`), tests.
 1. §3.5's `TtsPriceAttestation`, ops attestation panel entry, and `tts_price_is_billable("cartesia")`.
 2. Pipeline: for a Cartesia call, `tts_chars` row `qty` = agent characters from transcript, `unit_cost_paid` = attested rate × qty; for a Sarvam call the existing engine-leg figure stays (its own attestation question is gate 7, `docs/OPERATIONS.md:88`, unchanged).
-3. Monthly `cartesia_plan` platform cost row (operator-attested amount, once per IST month) so the spend board shows plan spend vs attributed.
+3. Monthly `cartesia_plan` platform cost row (operator-attested amount, once per IST month) so the spend board shows plan spend vs attributed. ⚠ **A SECOND PLATFORM ROW LANDED WITH D-556 (9 Sep 2026) AND IS A DIFFERENT FACT**: `platform_tts_volume` (migration `f7c2a94e18b3`) is a COUNTER the post-call meter moves, holding the fleet's monthly Studio characters and call-minutes. The attested fee says what the vendor BILLED; this says how much of the allotment was SPOKEN, which is what turns a subscription into a per-minute cost. Two independent counts, no speaking-rate assumption, `platform_ai_spend`'s shape and reason.
 4. `calling_revenue_inr` (`service.py:2194-2231`) takes the lot splits' sum instead of `(minutes × one rate)`; `_ROW_TIER_SQL` (`:1233`) reads the new tier spellings; `UsagePanelOut` gains `sarvam_minutes`, `cartesia_minutes`, and their charges, still with NO total computed in the browser (D-458).
 
 ### Phase E — LANDED `2e16152`, `2952c90`, `be5a5ec` (7–8 Sep 2026)
@@ -598,7 +598,8 @@ Phase C's fail-loud design (C.3) stands unchanged. What follows is only what it 
 |---|---|---|---|
 | 1 | Cartesia `provider_config` field names on Bolna's `POST /v2/agent` | any Cartesia publish (C.3 refuses by name) | OPERATIONS gate 52 — one CREATE, record the 200 or the 422 |
 | 2 | Telugu voice ids, names, genders | the catalogue's Cartesia entries (C.1 ships the loader EMPTY) | log in to `play.cartesia.ai/voices`, filter Telugu; or the voices API once its shape is known |
-| 3 | Overage rate per credit past the allotment | the margin floor's worst case (A.3 uses the plan rate; overage would be dearer) | `cartesia.ai/pricing` FAQ or support@cartesia.ai |
+| ~~3~~ | ~~Overage rate per credit past the allotment~~ **CLOSED 9 Sep 2026 (D-556)** — **$65 / $45 / $38 per 1,000,000 credits** on Pro / Startup / Scale, VENDOR-PUBLISHED by direct correspondence (Ege Tinmaz, Product Support Engineer, Cartesia; relayed by the founder; evidence file **ADDENDUM 3**). It appears on no public page, so that email is the only source and is authoritative. The margin floor is rebuilt on it: `CARTESIA_COST_FLOOR_INR_PER_MIN` is now **₹5.5899**, the worst MARGINAL cost, not the ₹4.3639 fee-over-allotment best case. The plan also changed — the entry point is **Pro at $5/mo with 100K credits**, not Startup at $49. | — | closed |
+| 3b | **Scale's fee and allotment**, and Enterprise/custom terms | nothing today — Scale can only be the cheapest plan above ~12,500 call-min/month, so `rates.CARTESIA_PLANS` deliberately models Pro and Startup only | the same vendor thread; Enterprise was referred to their business team and is OPEN |
 | 4 | Whether a BYOK Cartesia call reports `synthesizer` cost 0 on Bolna | Phase D's `qty`/`unit_cost_paid` seam | OPERATIONS gate 51 |
 | 5 | Whether the DPA is self-serve signable on Startup | Phase F's sub-processor entry wording | `play.cartesia.ai/settings` |
 
@@ -662,7 +663,7 @@ directions, and the CHECK-violating case as a regression test, are Phase B tests
   during an incident.
 - TRD §10.1's Cartesia TTS rung must land in the SAME commit as `billing/rates.py`
   (`check_docs_drift` §4b compares them); the attested figure is the Startup plan's
-  **₹3.4496 / 1,000 chars**. Phase A owns both halves.
+  **₹5.7200 / 1,000 chars** (the vendor's Pro overage rate — ⚠ this said ₹3.4496, the retired fee-over-allotment average; D-556). Phase A owns both halves.
 
 ---
 
@@ -791,9 +792,13 @@ whether `synthesizer_characters` is still POPULATED when unbilled.
 
 **The platform fee is now VENDOR-PUBLISHED, not REPORTED**: Bolna's FAQ states
 **$0.02/min** for the platform fee, matching the dashboard observation the rate card was
-built on (₹1.76 at ₹88). ⚠ Their Preferred Models page states $0.06/min all-in for bundled
-models — a different line item, and no Bolna page reconciles the two. Phase A's floor
-comment cites the FAQ and records the ambiguity. **Billing granularity for the BYOK fee
+built on (₹1.76 at ₹88). ⚠ **THIS PARAGRAPH USED TO SAY "no Bolna page reconciles the two". THEY DO (9 Sep 2026).**
+The $0.06/min on their Preferred Models page is a FLAT RATE THAT BUNDLES ASR/LLM/TTS, and
+that same page says a BYOK component is billed at variable rates *"instead of the flat
+rate"* (`pricing/preferred-models.md:11`); `pricing/call-pricing.md:75` says BYOK means
+paying providers directly *"plus Bolna's platform fee"*, which the FAQ puts at $0.02/min.
+Two billing modes, not two answers — and we are BYOK on all three legs, so $0.02 is the
+only rate the documented scheme can charge us. **Billing granularity for the BYOK fee
 remains UNKNOWN** (the 30-second pulse is documented for the Pilot plan only).
 
 ## 3.6 Telugu-English code-mixing — now answered as far as it can be

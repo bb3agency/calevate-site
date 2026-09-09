@@ -1387,19 +1387,33 @@ true only when the allotment is exactly consumed.
 
 | Cartesia API | Published rate | Marginal rate |
 |---|---|---|
-| Text-to-Speech **Sonic 3.5**, Startup plan | $49 / month, 1,250,000 credits (1 credit = 1 character) | ₹34.496 / 10,000 chars |
+| Text-to-Speech **Sonic 3.5**, Pro plan (the plan we are on) | $5 / month, 100,000 credits (1 credit = 1 character), then **$65 / 1,000,000 credits** | ₹57.20 / 10,000 chars |
 
-> ⚠ **EVIDENCE CLASS: REPORTED, and dearer than it looks at both ends.**
-> `docs/evidence/cartesia-tts-verification-2026-09-06.md` is a Comet research run relayed by
-> the founder; `cartesia.ai` and `docs.cartesia.ai` are egress-blocked from this container
-> (re-measured 6 Sep 2026), so nothing here was read from the vendor by this repository, and
-> the labels that file writes as VERIFIED are Comet's reading. Conversion ₹88 = US$1.00, the
-> file's own assumption. **Below the allotment the real per-character cost is higher** (the
-> fee does not shrink); **above it the overage rate is UNKNOWN** — not published on the docs
-> page, and it closes at `cartesia.ai/pricing`'s FAQ or by mailing support@cartesia.ai. The
-> constants live at `billing/rates.py::CARTESIA_TTS_INR_PER_10K_CHARS` (derived from the fee
-> and the allotment, never typed) and `scripts/check_docs_drift.py` §4b diffs this row
-> against them in both directions, as it does the Bulbul row above.
+> ⚠ **THE ROW ABOVE CHANGED ON 9 SEP 2026 AND USED TO READ "Startup plan | $49 / month,
+> 1,250,000 credits | ₹34.496 / 10,000 chars".** Two things were wrong with it. The plan was
+> wrong — the vendor states the smallest paid path is **Pro at $5/month**, not $49 — and the
+> rate was an AVERAGE (fee over allotment) that is true at exactly one volume and was silent
+> about the overage, which was then UNKNOWN. **THE OVERAGE UNKNOWN IS CLOSED**: $65 / $45 /
+> $38 per 1,000,000 credits on Pro / Startup / Scale.
+>
+> **EVIDENCE CLASS: VENDOR-PUBLISHED.** Direct correspondence — an email reply from **Ege
+> Tinmaz, Product Support Engineer, Cartesia (ege.tinmaz@cartesia.ai)** to a pricing enquiry
+> the founder sent, relayed by the founder on 9 Sep 2026 and recorded at
+> `docs/evidence/cartesia-tts-verification-2026-09-06.md` ADDENDUM 3. It outranks the Comet
+> research run in the rest of that file, which is REPORTED. ⚠ **`cartesia.ai` and
+> `docs.cartesia.ai` REMAIN EGRESS-BLOCKED FROM THIS CONTAINER** (re-measured 9 Sep 2026):
+> nothing here was read from the vendor's site by this repository. The overage rates appear
+> on no public page — third-party sources say to contact sales — so this correspondence is
+> the ONLY source for them, which is what makes it authoritative rather than corroborative.
+>
+> **Conversion: this row is struck at ₹88 = US$1.00, the evidence file's own assumption; the
+> COST FLOOR is not.** Since 9 Sep 2026 the floor converts at the LIVE published USD→INR rate
+> (`core/fx.usd_inr_rate_now`), because Cartesia bills in dollars — see §10.3. **Below the
+> allotment the real per-minute cost is higher** (the fee does not shrink and is paid
+> whether or not it is spoken). The constants live at
+> `billing/rates.py::CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS` (derived from the vendor's
+> overage rate, never typed) and `scripts/check_docs_drift.py` §4b diffs this row against
+> them in both directions, as it does the Bulbul row above.
 
 > ⚠ **SUPERSEDED IN TWO OF ITS THREE CLAIMS BY D-547 (7 Sep 2026). THIS NOTE USED TO READ
 > "There is one voice quality now — Sarvam Bulbul v3 — so there is one TTS rate
@@ -1432,7 +1446,7 @@ paragraph opening this section: the band is the fallback until the admin spend b
 |---|---|---|
 | STT — Saaras (STT+Translate) | ₹30/hr | **₹0.50** |
 | TTS — Bulbul **v3** | ₹3.00 / 1,000 chars | **₹1.08–1.62** |
-| TTS — Cartesia **Sonic 3.5** *(the second voice tier; the Startup plan's marginal rate, REPORTED — see the card above)* | ₹3.4496 / 1,000 chars | **₹1.24–1.86** |
+| TTS — Cartesia **Sonic 3.5** *(the second voice tier; the vendor's **Pro overage rate**, VENDOR-PUBLISHED — see the card above. ⚠ This row read ₹3.4496 / 1,000 chars and ₹1.24–1.86 until 9 Sep 2026, from the retired fee-over-allotment average on a plan we are not on)* | ₹5.7200 / 1,000 chars | **₹2.06–3.09** |
 | LLM — `gpt-4o-mini` on Azure OpenAI `eastus2` *(D-410's default and still the **base-rate** model `billing/rates.BASE_RATE_LLM_MODEL` freezes the plan rate against — no longer the platform default; region per D-449)* | $0.15/$0.60 per 1M tok | **₹0.10 (1 min) / ₹0.16 (5 min) / ₹0.24 (10 min)** |
 | LLM — `gpt-4.1-mini` on Azure OpenAI `eastus2` *(the live switch, `azure_openai_model`; both allow-listed models are on the Regional-Standard matrix for this region — gate 20b reads the quota)* | $0.40/$1.60 per 1M tok | **₹0.27 (1 min) / ₹0.44 (5 min) / ₹0.65 (10 min)** |
 | LLM — **`gemini-2.5-flash-lite` on Google Gemini Developer API** *(the cheapest leg we offer, and since 4 Sep 2026 the **platform default** — `Settings.platform_llm_model`. Cheaper than the base-rate model, so it carries **no** model surcharge)* | $0.10/$0.40 per 1M tok | **₹0.07 (1 min) / ₹0.11 (5 min) / ₹0.16 (10 min)** |
@@ -1502,7 +1516,7 @@ Paid-LLM rows are quoted at the **five-minute** figure — **₹0.16/min on `gpt
 |---|---|---|
 | Telephony (Exotel/Vobiz class) | ₹0.35–0.50 *(estimate)* | **UNVERIFIED** |
 | Engine platform fee (Bolna BYOK) | target ≤₹1.50 | **UNVERIFIED — pilot gate 12** |
-| **All-in, rented engine** | **₹3.43–4.28** | v3+Sarvam-LLM floor → v3+`gpt-4o-mini` ceiling at five minutes; **₹4.36 at ten**. The floor rose from the retired v2 combination (₹2.89) because the single-tier voice decision made Bulbul v3 the CHEAPEST voice we offer — there is no cheaper rung to floor against any more, and **D-547's second voice does not restore one**: Cartesia Sonic 3.5 is DEARER, so it raises the ceiling and leaves the floor exactly where it is. Swapping the TTS leg on any row above costs **+₹0.24 to +₹0.78/min** (₹1.8628 at the plan's break-even count against Bulbul v3's ₹1.08–1.62), which is why the two cost floors in `billing/rates.py` differ by ₹0.2428 — ₹4.1211 Sarvam against ₹4.3639 Cartesia, the same swap taken at the worst case of the character band. On the `gpt-4.1-mini` switch the ceiling is **₹4.56 at five minutes and ₹4.77 at ten** |
+| **All-in, rented engine** | **₹3.43–4.28** | v3+Sarvam-LLM floor → v3+`gpt-4o-mini` ceiling at five minutes; **₹4.36 at ten**. The floor rose from the retired v2 combination (₹2.89) because the single-tier voice decision made Bulbul v3 the CHEAPEST voice we offer — there is no cheaper rung to floor against any more, and **D-547's second voice does not restore one**: Cartesia Sonic 3.5 is DEARER, so it raises the ceiling and leaves the floor exactly where it is. Swapping the TTS leg on any row above costs **+₹1.47 to +₹2.01/min** at the MARGIN (₹3.0888, the vendor's Pro overage rate over one call-minute of characters, against Bulbul v3's ₹1.08–1.62), which is why the two cost floors in `billing/rates.py` differ by ₹1.4688 — ₹4.1211 Sarvam against **₹5.5899** Cartesia. ⚠ **THIS SENTENCE READ "+₹0.24 to +₹0.78" AND "₹4.3639 Cartesia" UNTIL 9 SEP 2026**, from the retired model that spread the $49 Startup fee over the volume at which its allotment is exactly consumed; that was the plan's best case, not a floor (D-556). At a real volume the swap is dearer still: at 100 platform Cartesia call-minutes a month the whole minute costs ₹6.90. On the `gpt-4.1-mini` switch the ceiling is **₹4.56 at five minutes and ₹4.77 at ten** |
 
 > ⚠ **BOTH ENDS ADD THE SAME THREE THINGS:** a BYOK model subtotal from the table above, a
 > telephony estimate from the row above, and the engine platform fee. Written out:
@@ -1540,10 +1554,29 @@ every figure below was read from that code, not restated from the plan:
 
 **The two floors those margins are struck against are DERIVED, never typed:** ₹4.1211/min
 for the Sarvam voice (`SELF_SERVE_COST_FLOOR_INR_PER_MIN` = engine fee 1.76 + STT 0.50 +
-LLM 0.2411 + TTS 1.62) and ₹4.3639 for the Cartesia voice
-(`CARTESIA_COST_FLOOR_INR_PER_MIN` — the same three shared legs plus ₹1.8628 of monthly
-plan at the break-even minute count). Telephony is in neither, because the client pays
-their own carrier (D-474). Two properties of this card matter more than any single cell:
+LLM 0.2411 + TTS 1.62) and **₹5.5899** for the Cartesia voice
+(`CARTESIA_COST_FLOOR_INR_PER_MIN` — the same three shared legs plus **₹3.0888**, the
+vendor's Pro overage rate over one call-minute of characters). Telephony is in neither,
+because the client pays their own carrier (D-474).
+
+⚠ **THE CARTESIA FIGURE WAS ₹4.3639 UNTIL 9 SEP 2026 AND THE MARGINS IN THE TABLE ABOVE
+MOVED WITH IT** — the Cartesia column now runs 30.1% at ₹8.00 down to **6.8%** at ₹6.00,
+where it used to read 45.5% down to 27.3%. Nothing was repriced: the old floor was the $49
+Startup plan fee spread over the ~2,315 call-minutes at which its allotment is exactly
+consumed, i.e. the cheapest a Cartesia minute can EVER be, at a volume this platform has
+never run. It was a best case wearing a floor's name, and the ops console printed it under
+a column headed "COSTS US". The floor is now the **worst MARGINAL** cost — what one more
+minute costs on the plan we are actually on (Pro) — which is the only per-minute figure
+about a subscription that does not depend on an unmeasured volume (D-556).
+
+⚠ **AND IT IS ONLY THE REFUSAL BOUND. THE HONEST COST IS A CURVE, NOT A CONSTANT.** At ₹88
+a Cartesia call-minute costs **₹6.90 at 100** platform call-minutes a month, **₹4.93 at
+200**, **₹5.46 at 1,000** and ₹4.36 at 2,315 — the fee amortises, then the overage takes
+over. `billing/rates.cartesia_cost_inr_per_call_minute(v)` is that curve and the ops
+console prints it with the volume named. The refusal stays frozen at ₹88 so a currency tick
+cannot make a live card un-recordable; the LIVE-rate floor
+(`cartesia_cost_floor_inr_per_min_at`) is published beside it as a warning, and at ₹95.66 it
+is **₹6.0120**, above the ₹6.00 `max` rung. Two properties of this card matter more than any single cell:
 
 1. **The whole Sarvam column is BELOW the 20% `MIN_GROSS_MARGIN` target and ABOVE cost,
    and that is a decision rather than an omission.** The guard REFUSES a rate below its

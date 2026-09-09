@@ -92,6 +92,21 @@ export type RateCardCell = Schemas["RateCardCellOut"];
 /** The whole card: when it was dated, the margin target, and its twelve cells. */
 export type RateCard = Schemas["RateCardOut"];
 
+/**
+ * **THE VOLUME EVERY CARTESIA COST FIGURE ON THE CARD IS STRUCK AT** — `CartesiaVolumeOut`.
+ *
+ * Aliased here beside `RateCardCell` so the panel names one thing rather than reaching
+ * through `RateCard["cartesia_volume"]` at four call sites. Every field is the server's
+ * decimal STRING or a stated `null`; nothing on this block is computed in the browser,
+ * including the FX conversion, the cost ladder and the per-rung break-even.
+ *
+ * WHY IT EXISTS AT ALL: Studio is a monthly subscription with an included allotment and an
+ * overage, so a per-minute cost is a function of volume. The console used to print the
+ * cheapest such minute — reachable only at ~2,315 platform min/mo — under a column headed
+ * "COSTS US", with no volume anywhere near it (founder, 9 Sep 2026).
+ */
+export type CartesiaVolume = Schemas["CartesiaVolumeOut"];
+
 /** The vendor, named — this is the one surface where that is required rather than avoided. */
 export const TIER_VENDOR: Record<VoiceTier, string> = {
   sarvam: "Sarvam",
@@ -138,6 +153,27 @@ export interface CellVerdict {
 }
 
 export function cellVerdict(cell: RateCardCell, targetPct: string): CellVerdict {
+  // AT-VOLUME FIRST, because it is the worse and truer fact. A rung that clears the
+  // structural floor and still sold a minute below what the month cost us is the state the
+  // founder found the console hiding on 9 Sep 2026; a badge reading "at or above target"
+  // over it would be the same lie in smaller type. Still `thin` and never `stop`: the
+  // server records the card, and the remedy is usually volume rather than price.
+  if (cell.below_floor_at_volume) {
+    return {
+      tone: "thin",
+      label: "Under water at this volume",
+      sentence:
+        `This rung sells a ${tierVendor(cell.voice_tier)} minute at ${cell.inr_per_min} ` +
+        `against ${cell.cost_inr_per_min_at_volume ?? "an unstated cost"}/min of real cost at ` +
+        "the volume the platform actually ran this month. It clears the structural floor " +
+        `(${cell.cost_floor_inr_per_min}/min, the next minute at the margin), so the card ` +
+        "can still be recorded" +
+        (cell.breakeven_call_minutes === null
+          ? ", but no volume makes this rung profitable."
+          : `. It needs ${cell.breakeven_call_minutes} platform minutes a month to stop ` +
+            "losing money.") ,
+    };
+  }
   if (cell.below_target) {
     return {
       tone: "thin",
@@ -187,12 +223,23 @@ export function cardRefusalSentences(error: unknown): string[] | null {
  * Not polled tightly: a rate card moves when a person decides it does, and a poll that
  * clobbers a half-read table buys nothing. The panel re-reads after a config write, which
  * is the only act that dates a new one.
+ *
+ * ⚠ **THE INTERVAL WENT FROM ONE MINUTE TO FIVE ON 9 SEP 2026, AND THE REASON IS ON THE
+ * SERVER.** This read now also measures how many Studio call-minutes the whole platform
+ * spoke this month, and `usage_events` is FORCE RLS'd — so the figure can only be had by
+ * walking the client book one tenant session at a time (`billing/tts_volume.py`, the shape
+ * the fleet spend board already uses). At sixty seconds an ops console left open on a desk
+ * was a per-minute fleet walk for a number that moves with phone calls, not with the clock.
+ * Five minutes costs an operator nothing — the card itself changes when somebody records
+ * one, and that path invalidates this query directly — and takes a fifth of the database
+ * time. The real fix if the client book outgrows this is the materialized monthly rollup
+ * the walk's own over-budget log line names.
  */
 export function useOpsRateCard(): UseQueryResult<RateCard> {
   return useQuery({
     queryKey: OPS_RATE_CARD_QUERY_KEY,
     queryFn: () => apiRequest<RateCard>(adminSession(), OPS_RATE_CARD_PATH),
-    refetchInterval: 60_000,
+    refetchInterval: 300_000,
   });
 }
 

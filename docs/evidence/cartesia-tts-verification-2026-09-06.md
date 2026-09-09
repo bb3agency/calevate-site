@@ -7,6 +7,13 @@
 
 ## What this run settled, and the one thing it did not compute
 
+> ⚠ **SUPERSEDED IN PART BY ADDENDUM 3 (9 Sep 2026), AT THE END OF THIS FILE.** Direct
+> correspondence from the vendor closes the overage UNKNOWN this section leans on ($65/$45/
+> $38 per 1M credits) and moves the entry plan from Startup ($49) to **Pro ($5/mo, 100K
+> credits)**. Every "cheapest covering plan" figure below is computed on the assumption that
+> $49 was the floor of the paid ladder, and it was not. Read ADDENDUM 3 before quoting the
+> table beneath this line.
+
 **Read the plan table as a BUNDLE, not a rate card.** The report converts each plan's fee
 over its full allotment into Rs/1,000 chars (Startup Rs 3.45, Scale Rs 3.29). That figure is
 only true when the whole allotment is consumed; the overage rate is UNKNOWN, so the real cost
@@ -114,7 +121,9 @@ A **June 2026 self-serve signup promotion** gives new Pro/Startup/Scale monthly 
 
 **Streaming vs. batch:** No price difference — same "~1 credit per character" rate applies to `/tts/bytes` (batch), `/tts/sse`, and `/tts/websocket` (VERIFIED).[^2]
 
-**Overage/running out of credits:** Cartesia's docs describe two states, toggle-controlled per workspace: with overages enabled, requests continue and the extra usage is billed as an overage (exact overage ₹/credit rate is **UNKNOWN — not published on the docs page**; it says to check `cartesia.ai/pricing` FAQ or email support@cartesia.ai); with overages disabled, requests fail past the allotment until renewal or upgrade (VERIFIED).[^2]
+**Overage/running out of credits:** ⚠ **THE RATE IS NO LONGER UNKNOWN — see ADDENDUM 3**
+($65/$45/$38 per 1M credits on Pro/Startup/Scale, from direct vendor correspondence,
+9 Sep 2026). The rest of this paragraph stands. Cartesia's docs describe two states, toggle-controlled per workspace: with overages enabled, requests continue and the extra usage is billed as an overage (exact overage ₹/credit rate is **UNKNOWN — not published on the docs page**; it says to check `cartesia.ai/pricing` FAQ or email support@cartesia.ai); with overages disabled, requests fail past the allotment until renewal or upgrade (VERIFIED).[^2]
 
 ### A2. Concurrency and rate limits
 
@@ -516,3 +525,116 @@ UNKNOWN); "2× credit rollover" is confirmed for the Startups Grant ONLY, not st
 the annual-billing prices ($4/$39/$239) are not on Cartesia's own page as fetched.
 Everything else in the report (sonic-3 sunset 20 Oct 2026, native 8 kHz μ-law, TTS-vs-Line
 concurrency split, the 1-unit-≈-4-conversations rule of thumb, grant terms) re-confirmed.
+
+---
+
+# ADDENDUM 3 — DIRECT VENDOR CORRESPONDENCE (relayed by the founder, 9 Sep 2026)
+
+<!-- EVIDENCE CLASS: VENDOR-PUBLISHED. This addendum OUTRANKS everything above it, which is
+     a third-party research run stamped REPORTED by its own header. It is an email reply
+     from a named employee of the vendor to a pricing enquiry the founder sent, relayed by
+     the founder on 9 Sep 2026. cartesia.ai and docs.cartesia.ai remain EGRESS-BLOCKED from
+     this container (re-measured 9 Sep 2026): nothing here was read from a web page by this
+     repository, and no sentence in this file may claim otherwise. -->
+
+**Source:** email reply from **Ege Tinmaz, Product Support Engineer, Cartesia**
+(`ege.tinmaz@cartesia.ai`), to a pricing enquiry sent by the founder. Relayed to this
+repository by the founder on 9 Sep 2026.
+
+## Why this addendum exists
+
+The ops console's platform-configuration screen printed **₹4.3639** for every Studio rung
+under a column headed **"COSTS US"**. The founder read it and said the Cartesia leg could
+not cost us that little. He was right, and the code's own docstring already admitted it
+("THE TRUE WORST CASE IS DEARER THAN THIS, AND BY AN UNKNOWN AMOUNT"). That figure was the
+$49 Startup plan fee spread over the ~2,315 Cartesia call-minutes a month at which its
+allotment is exactly consumed — the cheapest a Cartesia minute can ever be, at a volume this
+platform has never run. The enquiry that produced this reply was sent to close the two
+UNKNOWNs that made it impossible to do better.
+
+## What the vendor stated
+
+1. **There is no usage-only / pay-as-you-go workspace.** Every plan is a monthly
+   subscription with an included credit allotment. The closest equivalent is enabling
+   **overages** on a paid plan, billed only beyond the allotment. *(Confirms §A1 above.)*
+2. **The smallest paid path is Pro at $5/month** — 100,000 credits, plus $5 of prepaid
+   *agent* usage — with overages switched on from the subscription page once a card is on
+   file. ⚠ **THIS IS THE FACT THAT MATTERS MOST.** This repository's whole cost model
+   assumed the $49 Startup plan was the entry point. It is not.
+3. **Overage rates: $65 / $45 / $38 per 1,000,000 credits on Pro / Startup / Scale.**
+   Effective included-credit rates roughly $50 / $39 / $37 per 1M.
+   ⚠ **THIS CLOSES THE BIGGEST UNKNOWN IN THIS FILE.** The tail of PART B above lists those
+   exact three figures under "**Three figures downgraded to third-party, do not use**"
+   because "Cartesia's own FAQ did not yield one on direct fetch". The vendor has now stated
+   them directly. **They appear on no public page** — a web search on 9 Sep 2026 found
+   multiple third-party sources saying to contact sales and none quoting a rate — so this
+   correspondence is the *only* source for them, which is what makes it authoritative rather
+   than merely corroborative.
+4. **TTS is 1 credit per character**, and a minute of **audio** is ~750–800 credits.
+5. **No platform fee and no annual minimum on self-serve.** The monthly subscription is the
+   only fixed cost; it can be paused or cancelled at any time.
+6. **Ink STT** is 1–3 credits/second and **Managed Agents** bill separately at $0.06/min
+   (plus $0.014/min for a Cartesia-provided number). ⚠ **NEITHER APPLIES TO US** — we run
+   Bolna with BYOK Cartesia TTS, so the only Cartesia leg on our bill is TTS credits.
+   `billing/rates.py` adds neither, and says so where a reader might wonder.
+7. **Self-serve billing is USD, card only**, and needs international + recurring payments
+   enabled on the card. An operational constraint rather than a price, and the answer to the
+   founder's India/GST question in the same enquiry. **Enterprise/custom terms were referred
+   to their business team and are OPEN** — nobody has an answer and none is invented here.
+
+## Independent corroboration by web search (9 Sep 2026) — REPORTED
+
+Class **REPORTED** (third-party summaries), *corroborating* the VENDOR-PUBLISHED email
+above. It does not upgrade anything to verified.
+
+- Pro **$5/mo with 100K credits** and Startup **$49 with 1.25M credits** are both restated by
+  third-party sources.
+- **1 credit = 1 character**, and Startup's 1.25M credits are described as ≈1,667 minutes of
+  generated speech — i.e. exactly **750 characters per minute of audio**, matching the
+  email's "750–800".
+- **Scale ≈ $299/mo with 8M credits** and a **free tier at 20,000 credits/mo** are REPORTED
+  ONLY, from a search-result title, and are NOT vendor-confirmed. The email gave only Scale's
+  *overage* rate. `billing/rates.py` therefore models **Pro and Startup and not Scale**: a
+  plan cannot be modelled from one of its three inputs, and Scale could only ever be the
+  cheapest plan above ~12,500 call-min/month, which is far beyond this platform. The vendor's
+  effective-rate figure (~$37/1M) is consistent with $299/8M ($37.375/1M) to rounding, which
+  raises that number's confidence without making it a vendor statement of the fee.
+- ⚠ **`cartesia.ai` IS EGRESS-BLOCKED FROM THIS CONTAINER** and its pricing page could not be
+  read here on 9 Sep 2026. Several review sites (smallest.ai, cloudtalk.io) are blocked too.
+
+## The speaking-rate reconciliation — a CROSS-CHECK, never a substitution
+
+The vendor's ~750 credits per minute of **AUDIO** and our
+`rates.TTS_ASSUMED_CHARS_PER_CALL_MINUTE` of **360–540 per CALL-minute** are different
+denominators: theirs is the agent's mouth open continuously, ours is wall-clock on a
+two-party phone call in which the caller also speaks and both sides pause. The two are
+related by the agent's talk ratio, and 360–540 against 750 implies **0.48–0.72**, which is a
+plausible receptionist. **Our band therefore OVERSTATES characters per call-minute and so
+OVERSTATES cost, which is the correct direction for a floor.**
+
+Do **not** swap 750 in for 540: that would silently restate a call-minute as an audio-minute
+and inflate every cost figure by ~39%. Pilot gate 12 still wants a real measurement, and the
+admin spend board's "TTS speaking rate — measured" card is what retires the band.
+`rates.CARTESIA_VENDOR_CREDITS_PER_AUDIO_MINUTE` carries the vendor's figure so the
+cross-check is in code, and `tests/cost_floor_test.py` asserts the ratio lands in (0, 1).
+
+## What this changed in the code (D-556)
+
+| Was | Is |
+|---|---|
+| One plan modelled ($49 Startup), fee ÷ allotment | `CartesiaPlan` = fee + included allotment + overage, for **Pro** and **Startup** |
+| Overage past the allotment **UNKNOWN**, cost unbounded above | Overage known; cost bounded at both ends |
+| `CARTESIA_COST_FLOOR_INR_PER_MIN` = **₹4.3639**, the plan's BEST per-minute price | **₹5.5899**, the WORST **marginal** cost (Pro's overage over one call-minute) |
+| `CARTESIA_TTS_INR_PER_10K_CHARS` = ₹34.496 (an average, true at one volume) | `CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS` = **₹57.20** (the vendor's overage rate) |
+| Attestation form pre-filled ₹4,312 | ₹440 — the entry plan's fee |
+| The console showed one cost, at an unstated volume | The measured platform volume, the cost at it, a ladder, and a per-rung break-even |
+
+## What is still UNKNOWN after this
+
+- **Scale's fee and allotment.** Only its overage rate was given. (Above.)
+- **Enterprise / custom terms.** Referred to their business team; no answer.
+- **Whether the vendor's character count agrees with ours** — OPERATIONS §2 gate 51,
+  untouched by this correspondence. Our `chars` figure is counted from our own transcripts.
+- **The real speaking rate.** Pilot gate 12. The band is now externally sanity-checked and
+  still unmeasured.
+- **Where Sarvam's content-retention setting is changed** — unrelated, and still open.

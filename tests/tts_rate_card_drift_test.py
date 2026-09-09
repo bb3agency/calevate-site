@@ -29,12 +29,15 @@ EVIDENCE FOR THE RATE ITSELF (billing/payments.py's three-rung ladder). **REPORT
 NOT READ**: `sarvam.ai` and `docs.sarvam.ai` are refused by this environment's egress
 proxy and no request has ever been made to them from this repository. ₹30 per 10,000 chars
 (Bulbul v3) is TRD §10.1's record of a live read on 11 Aug 2026, corroborated Aug 2026 by
-independent search summaries of that same pricing page. **The second rung is Cartesia Sonic
-3.5 (D-547) and it is REPORTED too**: ₹34.496 / 10,000 chars, DERIVED in code from the
-Startup plan's $49 fee over its 1.25M-character allotment
-(`docs/evidence/cartesia-tts-verification-2026-09-06.md`, a Comet run relayed by the
-founder; `cartesia.ai` is egress-blocked here). This file does not assert what either vendor
-charges — it asserts that this repository says one thing about each.
+independent search summaries of that same pricing page. **The second rung is Cartesia Sonic 3.5
+(D-547), and since D-556 (9 Sep 2026) it is VENDOR-PUBLISHED**: ₹57.20 / 10,000 chars,
+DERIVED in code from the vendor's own **Pro overage rate** of $65 per 1,000,000 credits
+(direct correspondence — Ege Tinmaz, Product Support Engineer, Cartesia — relayed by the
+founder, `docs/evidence/cartesia-tts-verification-2026-09-06.md` ADDENDUM 3; `cartesia.ai`
+is still egress-blocked here and was not read by this repository). ⚠ It was **₹34.496**,
+the Startup plan's $49 fee over its 1.25M-character allotment — an AVERAGE true at one
+volume, on a plan we are not on. This file does not assert what either vendor charges — it
+asserts that this repository says one thing about each.
 """
 
 from __future__ import annotations
@@ -121,13 +124,14 @@ def test_the_rung_deleted_from_the_rate_card_is_named() -> None:
 
 
 def test_the_cartesia_rung_moving_in_the_doc_alone_is_named() -> None:
-    """THE SECOND RUNG (D-547). §10.1 states the Cartesia marginal rate twice — ₹34.496 per
-    10,000 in the Cartesia card and ₹3.4496 per 1,000 in the per-call-minute table — and the
+    """THE SECOND RUNG (D-547, re-struck by D-556). §10.1 states the Cartesia marginal rate
+    twice — ₹57.20 per 10,000 in the Cartesia card and ₹5.7200 per 1,000 in the
+    per-call-minute table (⚠ both read ₹34.496 / ₹3.4496 until 9 Sep 2026) — and the
     code DERIVES it from the plan fee over the allotment. So there are three ways for it to
     drift and this asserts each is named: the doc disagreeing with the code, and the doc
     disagreeing with itself.
     """
-    moved = _mutated("₹34.496 / 10,000 chars", "₹40.00 / 10,000 chars")
+    moved = _mutated("₹57.20 / 10,000 chars", "₹40.00 / 10,000 chars")
     offenders = guard.tts_rate_card_drift(moved)
     # One spelling moved, so BOTH directions fire: the doc contradicts itself, and the
     # figure it now leads with contradicts the code.
@@ -138,7 +142,7 @@ def test_the_cartesia_rung_moving_in_the_doc_alone_is_named() -> None:
 
     # BOTH spellings moved together — the doc is self-consistent and still wrong, which is
     # the failure that reads as fine in review because the two tables line up.
-    both = moved.replace("₹3.4496 / 1,000 chars", "₹4.00 / 1,000 chars", 1)
+    both = moved.replace("₹5.7200 / 1,000 chars", "₹4.00 / 1,000 chars", 1)
     offenders = guard.tts_rate_card_drift(both)
     assert not any("stated twice, disagreeing" in line for line in offenders), offenders
     assert any("sonic-3.5" in line and "cost model is the code" in line for line in offenders), (
@@ -151,7 +155,9 @@ def test_the_cartesia_rung_deleted_from_both_tables_is_named() -> None:
     same direction `test_the_rung_deleted_from_the_rate_card_is_named` protects for Sarvam,
     asserted for the rung that was ADDED, because a new rung is where a doc gets forgotten.
     """
-    dropped = TRD_TEXT.replace("| Text-to-Speech **Sonic 3.5**, Startup plan |", "| ~~x~~ |", 1)
+    dropped = TRD_TEXT.replace(
+        "| Text-to-Speech **Sonic 3.5**, Pro plan (the plan we are on) |", "| ~~x~~ |", 1
+    )
     dropped = dropped.replace("| TTS — Cartesia **Sonic 3.5**", "| ~~x~~", 1)
     offenders = guard.tts_rate_card_drift(dropped)
     assert any("does not state it" in line and "sonic-3.5" in line for line in offenders), offenders

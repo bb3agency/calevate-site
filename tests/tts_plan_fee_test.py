@@ -22,11 +22,13 @@ ones that make that difference trustworthy rather than merely present:
    database; the reader proves the newest belief wins and the older one survives.
 4. **Every figure is the SERVER's** — the subtraction included (D-458).
 
-⚠ **TWO UNKNOWNS ARE CARRIED, NOT CLOSED.** Cartesia's OVERAGE rate past the allotment is
-UNKNOWN (plan ADDENDUM 1, unknown #3): the attested per-character price prices characters
-INSIDE the allotment only. And whether the vendor's own character count agrees with ours is
-UNKNOWN (OPERATIONS §2 gate 51): `usage_events.qty` is counted from OUR transcript and from
-nothing the vendor says. Nothing here reconciles either, and no test below pretends to.
+⚠ **ONE UNKNOWN IS CARRIED, AND THIS PARAGRAPH USED TO CARRY TWO.** Cartesia's OVERAGE rate
+past the allotment is **CLOSED** (D-556, 9 Sep 2026): $65 / $45 / $38 per 1,000,000 credits
+on Pro / Startup / Scale, VENDOR-PUBLISHED by direct correspondence (Ege Tinmaz, Product
+Support Engineer, Cartesia; relayed by the founder; evidence file ADDENDUM 3). What is still
+UNKNOWN is whether the vendor's own character count agrees with ours (OPERATIONS §2 gate 51):
+`usage_events.qty` is counted from OUR transcript and from nothing the vendor says. Nothing
+here reconciles it, and no test below pretends to.
 """
 
 from __future__ import annotations
@@ -41,7 +43,11 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import spend_routes
 from apps.api.billing.plans import ist_month_window
-from apps.api.billing.rates import CARTESIA_STARTUP_PLAN_FEE_INR, VOICE_TIERS
+from apps.api.billing.rates import (
+    CARTESIA_EVIDENCE_USD_INR,
+    CARTESIA_PRO_PLAN,
+    VOICE_TIERS,
+)
 from apps.api.billing.spend_routes import (
     _NO_TTS_ATTRIBUTION,
     _tts_plan_rows,
@@ -122,11 +128,18 @@ def test_the_table_is_registered_as_append_only_and_platform_scoped() -> None:
 
 
 def test_the_reference_fee_is_the_form_prefill_and_nothing_else() -> None:
-    """`rates.CARTESIA_STARTUP_PLAN_FEE_INR` is REPORTED — $49 at a relayed conversion, for
-    a plan nobody has bought — so it pre-fills the form and never reaches a stored figure.
-    Pinned as an equality so a future edit that made the reference authoritative shows up
-    here rather than on an invoice."""
-    assert reference_tts_plan_fee("cartesia") == CARTESIA_STARTUP_PLAN_FEE_INR
+    """`rates.CARTESIA_PRO_PLAN.fee_inr` is ₹440 — the ENTRY plan's fee at the relayed ₹88
+    conversion, for a plan nobody has bought — so it pre-fills the form and never reaches a
+    stored figure. Pinned as an equality so a future edit that made the reference
+    authoritative shows up here rather than on an invoice.
+
+    ⚠ It was Startup's ₹4,312 until 9 Sep 2026, when the vendor stated that the smallest
+    paid path is Pro at $5/month (Tinmaz correspondence). A pre-fill an order of magnitude
+    out is a pre-fill an operator confirms without reading."""
+    assert CARTESIA_PRO_PLAN.fee_inr(CARTESIA_EVIDENCE_USD_INR) == Decimal("440")
+    assert reference_tts_plan_fee("cartesia") == CARTESIA_PRO_PLAN.fee_inr(
+        CARTESIA_EVIDENCE_USD_INR
+    )
 
 
 def test_a_reference_fee_is_refused_for_a_vendor_with_no_plan() -> None:
@@ -448,7 +461,7 @@ async def test_the_route_records_the_fee_and_writes_an_audit_row() -> None:
     assert body["month"] == month
     # The pre-fill travels back so the console can render it greyed beside the form; it is
     # never the stored value (hard rule 7).
-    assert body["reference_plan_inr"] == str(CARTESIA_STARTUP_PLAN_FEE_INR)
+    assert body["reference_plan_inr"] == str(CARTESIA_PRO_PLAN.fee_inr(CARTESIA_EVIDENCE_USD_INR))
 
     async with untenanted_session() as session:
         row = (

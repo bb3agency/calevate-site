@@ -3,6 +3,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
+import { formatWholeCount } from "@/components/ui";
 import OpsConfigPage from "@/app/admin/ops/config/page";
 import {
   OPS_RATE_CARD_PATH,
@@ -11,6 +12,7 @@ import {
   earliestPickableDate,
   rateDelta,
   type PendingCard,
+  type CartesiaVolume,
   type RateCard,
   type RateCardCell,
 } from "@/lib/api/opsRateCard";
@@ -103,6 +105,68 @@ function cell(over: Partial<RateCardCell> = {}): RateCardCell {
     // around this row being sellable.
     below_target: true,
     below_floor: false,
+    // THE AT-VOLUME HALF (9 Sep 2026). On a Sarvam cell it is the same number twice —
+    // that voice is priced per character in rupees and its cost does not move with volume
+    // or with the dollar — which is the honest answer and not a fixture shortcut.
+    breakeven_call_minutes: null,
+    cost_inr_per_min_at_volume: "4.1211",
+    gross_margin_pct_at_volume: "17.60",
+    below_target_at_volume: true,
+    below_floor_at_volume: false,
+    ...over,
+  };
+}
+
+/**
+ * The volume block, as `GET /v1/ops/rate-card` publishes it — a month in which the platform
+ * ran 200 Studio call-minutes on the `pro` plan.
+ *
+ * WHY THE FIXTURE HAS A REAL VOLUME RATHER THAN ZEROES: the panel's whole job since 9 Sep
+ * 2026 is to say what a Studio minute COST at a named volume, and a fixture at zero would
+ * exercise only the "nothing was spoken" arm and never the arithmetic the founder asked to
+ * see. The figures are the server's own for 200 min/mo at ₹88
+ * (`tests/cost_floor_test.py::test_the_cartesia_cost_curve_at_real_volumes...`).
+ */
+function cartesiaVolume(over: Partial<CartesiaVolume> = {}): CartesiaVolume {
+  return {
+    month: "2026-09",
+    measured_call_minutes: "200",
+    measured_characters: "108000",
+    cost_inr_per_min: "4.9299",
+    plan_id: "pro",
+    assumed_chars_per_call_minute: "540",
+    fx_usd_inr: "88",
+    fx_source: "frankfurter:FBIL",
+    fx_as_of: "2026-09-08",
+    floor_inr_per_min: "5.5899",
+    best_marginal_cost_inr_per_min: "4.6395",
+    refusal_floor_inr_per_min: "5.5899",
+    plan_crossover_call_minutes: "1439",
+    plans: [
+      {
+        plan_id: "pro",
+        fee_inr: "440",
+        included_credits: "100000",
+        included_call_minutes: "185",
+        marginal_cost_inr_per_min: "5.5899",
+        tts_concurrency: 3,
+      },
+      {
+        plan_id: "startup",
+        fee_inr: "4312",
+        included_credits: "1250000",
+        included_call_minutes: "2315",
+        marginal_cost_inr_per_min: "4.6395",
+        tts_concurrency: 5,
+      },
+    ],
+    ladder: [
+      { call_minutes: "100", plan_id: "pro", cost_inr_per_min: "6.9011" },
+      { call_minutes: "200", plan_id: "pro", cost_inr_per_min: "4.9299" },
+      { call_minutes: "500", plan_id: "pro", cost_inr_per_min: "5.3259" },
+      { call_minutes: "1000", plan_id: "pro", cost_inr_per_min: "5.4579" },
+      { call_minutes: "2500", plan_id: "startup", cost_inr_per_min: "4.3843" },
+    ],
     ...over,
   };
 }
@@ -113,9 +177,14 @@ const HEALTHY = cell({
   voice_tier: "cartesia",
   tier_label: "Studio",
   inr_per_min: "6.0000",
-  cost_floor_inr_per_min: "4.3639",
-  gross_margin_pct: "27.27",
-  below_target: false,
+  cost_floor_inr_per_min: "5.5899",
+  gross_margin_pct: "6.84",
+  below_target: true,
+  breakeven_call_minutes: "126",
+  cost_inr_per_min_at_volume: "4.9299",
+  gross_margin_pct_at_volume: "17.84",
+  below_target_at_volume: true,
+  below_floor_at_volume: false,
 });
 
 function card(cells: RateCardCell[] = [cell(), HEALTHY], over: Partial<RateCard> = {}): RateCard {
@@ -123,6 +192,7 @@ function card(cells: RateCardCell[] = [cell(), HEALTHY], over: Partial<RateCard>
     effective_from: "2026-09-07T04:30:00Z",
     target_gross_margin_pct: "20",
     cells,
+    cartesia_volume: cartesiaVolume(),
     // THE WRITE HALF OF THE READ (D-550). `earliest_effective_from` is an INSTANT and the
     // picker's floor is a DAY: 09:44 UTC is 15:14 IST, so midnight on the 8th is already
     // past and the earliest day this fixture can offer is the 9th. Every assertion about
@@ -305,10 +375,68 @@ describe("the rate card an operator is about to date", () => {
     // The server's percentage, printed — never a division done in the browser from two
     // rounded figures.
     expect(container.textContent).toContain("17.60%");
-    expect(container.textContent).toContain("27.27%");
+    // ⚠ THIS READ "27.27%" UNTIL D-556. Nothing was repriced — the Studio floor stopped
+    // being the plan's best possible minute (₹4.3639) and became the honest worst marginal
+    // cost (₹5.5899), so the same ₹6.00 rung now earns 6.84%.
+    expect(container.textContent).toContain("6.84%");
     // The rate and the cost it was struck against, both as exact strings.
     expect(container.textContent).toContain("₹5.0000");
     expect(container.textContent).toContain("₹4.1211");
+    expect(container.textContent).toContain("₹5.5899");
+  });
+
+  it("leads the thin count with the honest one at this month's volume", async () => {
+    // ⚠ THE COUNT USED TO BE STRUCK AT THE STRUCTURAL FLOOR ALONE AND SO UNDERSTATED THE
+    // PROBLEM (founder, 9 Sep 2026). At a low monthly volume the subscription has not
+    // amortised, so more rungs are thin than the structural count admits. Both numbers are
+    // shown, the honest one first — the structural figure is still what the write refuses
+    // on, so dropping it would leave an operator unable to tell what blocks a save.
+    const { container } = renderOps(
+      routes({
+        // TWO STUDIO RUNGS, chosen so the two counts DIVERGE — which is the whole point.
+        // `growth` at ₹7.00 clears the structural floor's 20% target (20.14%) and is thin
+        // at this month's volume; `max` at ₹6.00 is thin on both and under water at volume.
+        // So the structural count says 1 and the honest count says 2.
+        [OPS_RATE_CARD_PATH]: card([
+          cell({
+            pack_id: "growth",
+            voice_tier: "cartesia",
+            tier_label: "Studio",
+            inr_per_min: "7.0000",
+            cost_floor_inr_per_min: "5.5899",
+            gross_margin_pct: "20.14",
+            below_target: false,
+            below_target_at_volume: true,
+            below_floor_at_volume: false,
+            cost_inr_per_min_at_volume: "6.9011",
+            gross_margin_pct_at_volume: "1.41",
+            breakeven_call_minutes: "98",
+          }),
+          cell({
+            pack_id: "max",
+            voice_tier: "cartesia",
+            tier_label: "Studio",
+            inr_per_min: "6.0000",
+            cost_floor_inr_per_min: "5.5899",
+            gross_margin_pct: "6.84",
+            below_target: true,
+            below_target_at_volume: true,
+            below_floor_at_volume: true,
+            cost_inr_per_min_at_volume: "6.9011",
+            gross_margin_pct_at_volume: "-15.02",
+            breakeven_call_minutes: "126",
+          }),
+        ]),
+      }),
+    );
+    await screen.findByText(/2 of 2 rungs earn less than 20% at this month's volume/);
+    expect(container.textContent).toContain("(1 against the structural floor)");
+    // ...and the rung that is actually under water at this volume is called out by name,
+    // with the volume it needs. Amber, not red: the card is still recordable.
+    await screen.findByText(/1 rung sold a minute for less than it cost at this month's volume/);
+    expect(container.textContent).toContain("₹6.9011/min of real cost");
+    expect(container.textContent).toContain("break-even 126 platform min/mo");
+    expect(screen.queryByText("Some rungs sell a minute for less than it costs")).toBeNull();
   });
 
   /**
@@ -321,8 +449,12 @@ describe("the rate card an operator is about to date", () => {
   it("shows a thin margin as a warning, never as a refusal, and leaves the write armed", async () => {
     const { container } = renderOps(routes());
 
-    await screen.findByText(/1 of 2 rungs earn less than 20%/);
-    expect(container.textContent).toContain("above what the minute costs us");
+    // ⚠ THIS EXPECTED "1 of 2" UNTIL D-556. Both fixture rungs are thin now: the Studio
+    // cell is ₹6.00 against the honest ₹5.5899 floor (6.84%), where the retired ₹4.3639
+    // best case made it read 27.27%. Nothing was repriced — the yardstick stopped
+    // flattering us, which is precisely what the founder asked for.
+    await screen.findByText(/2 of 2 rungs earn less than 20%/);
+    expect(container.textContent).toContain("above the structural floor");
     expect(container.textContent).toContain("a decision, not a fault");
 
     // NOT A REFUSAL. None of the refusal sentences may appear anywhere on the screen for a
@@ -488,8 +620,115 @@ describe("what a margin verdict may say", () => {
     const thin = cellVerdict(card().cells[0], "20");
     expect(thin.tone).toBe("thin");
     expect(thin.sentence).toContain("deliberately");
-    const healthy = cellVerdict(card().cells[1], "20");
+    // ⚠ THE SECOND FIXTURE CELL USED TO BE THE "healthy" ONE AT 27.27%, and it is not any
+    // more (D-556): ₹6.00 against the honest ₹5.5899 floor is 6.84%, thin. A cell that is
+    // genuinely at or above target is built explicitly rather than borrowed, so this
+    // assertion keeps testing the tone rather than the fixture.
+    const healthy = cellVerdict(
+      cell({ voice_tier: "cartesia", below_target: false, below_target_at_volume: false }),
+      "20",
+    );
     expect(healthy.tone).toBe("ok");
+  });
+
+  it("says a rung is under water at this volume before it says anything about the target", () => {
+    // THE FOUNDER'S ACTUAL COMPLAINT, in one verdict. A rung can clear the structural floor
+    // — so the server records the card — and still have sold a minute for less than the
+    // month cost us. A badge reading "at or above target" over that state is the same lie
+    // the ₹4.3639 column was telling, in smaller type.
+    const drowning = cellVerdict(
+      cell({
+        voice_tier: "cartesia",
+        inr_per_min: "6.0000",
+        below_target: false,
+        below_floor: false,
+        below_floor_at_volume: true,
+        cost_inr_per_min_at_volume: "6.9011",
+        breakeven_call_minutes: "126",
+      }),
+      "20",
+    );
+    expect(drowning.label).toBe("Under water at this volume");
+    expect(drowning.sentence).toContain("6.9011");
+    expect(drowning.sentence).toContain("126 platform minutes a month");
+    // Still a warning and never a refusal: the card IS recordable, and the remedy is
+    // usually more minutes rather than a higher price.
+    expect(drowning.tone).toBe("thin");
+  });
+});
+
+describe("the volume every Studio cost figure is struck at", () => {
+  it("prints the volume, the plan, the FX rate and a break-even beside the cost", async () => {
+    const { container } = renderOps(routes());
+    await screen.findByText(/Rate card — six packs, two voices/);
+    await screen.findByText("17.60%");
+
+    // ⚠ THE REGRESSION THIS GUARDS. The column headed "COSTS US" carried ₹4.3639 for every
+    // Studio rung with no volume anywhere near it. Every one of these assertions is a piece
+    // of the caveat that was missing, and dropping any of them puts the old screen back.
+    expect(container.textContent).toContain("Studio (Cartesia) is a monthly subscription");
+    expect(container.textContent).toContain("200"); // the measured platform call-minutes
+    expect(container.textContent).toContain("₹4.9299"); // what a minute ACTUALLY cost
+    expect(container.textContent).toContain("pro"); // ...and on which plan
+    expect(container.textContent).toContain("₹88"); // the rate it was converted at
+    expect(container.textContent).toContain("frankfurter:FBIL"); // ...and whose rate it is
+    expect(container.textContent).toContain("2026-09-08"); // ...and when it was published
+    expect(container.textContent).toContain("126"); // the max rung's break-even volume
+    expect(container.textContent).toContain("₹6.9011"); // the ladder's underwater point
+  });
+
+  it("names the configured fallback in words when no published rate is current", async () => {
+    // A floor quietly struck at an operator's typed number is the same "best case as fact"
+    // defect one layer down, so the fallback is said rather than implied.
+    const { container } = renderOps(
+      routes({
+        [OPS_RATE_CARD_PATH]: card(undefined, {
+          cartesia_volume: cartesiaVolume({
+            fx_source: "configured:usd_inr_rate",
+            fx_as_of: null,
+          }),
+        }),
+      }),
+    );
+    await screen.findByText("17.60%");
+    expect(container.textContent).toContain("configured:usd_inr_rate");
+    expect(container.textContent).toContain("because no published rate is current");
+  });
+
+  it("refuses to print a cost column at all when the deployment sent no volume", async () => {
+    // The one thing this panel must never do is show a "costs us" figure with no volume
+    // beside it. An API older than 9 Sep 2026 sends none, and the answer is a sentence.
+    const { container } = renderOps(
+      routes({
+        [OPS_RATE_CARD_PATH]: card(undefined, {
+          // OFF-CONTRACT ON PURPOSE — an API older than this field. Asserting a type onto
+          // it would be a claim about a wire shape that does not exist; the route map takes
+          // `unknown`, which is exactly what an unrecognised payload IS to us.
+          cartesia_volume: undefined,
+        }),
+      }),
+    );
+    await screen.findByText(/did not send the Studio volume/);
+    expect(container.textContent).not.toContain("₹4.9299");
+  });
+});
+
+describe("a whole count — call-minutes, characters — printed", () => {
+  it("truncates the fraction and groups Indian-style, never rounding a threshold up", () => {
+    // A volume is money's SHADOW: the server multiplies it by a rupee rate, so the digits
+    // are the server's and are never parsed here. What it needs that a rupee figure does
+    // not is a DROPPED fraction — `formatINR` would print "₹2,314.81" of minutes, a unit
+    // error on the face of a screen — and TRUNCATION rather than rounding, because a
+    // volume is a threshold an operator compares against and 2,314.8 rounded up to 2,315
+    // would make the screen disagree with the break-even the server computed.
+    expect(formatWholeCount("2314.814814")).toBe("2,314");
+    expect(formatWholeCount("126")).toBe("126");
+    expect(formatWholeCount("1439")).toBe("1,439");
+    expect(formatWholeCount("100000")).toBe("1,00,000");
+    expect(formatWholeCount("0")).toBe("0");
+    // A stated absence, never a zero: "we could not read the volume" is not "nobody spoke".
+    expect(formatWholeCount(null)).toBe("—");
+    expect(formatWholeCount("")).toBe("—");
   });
 });
 

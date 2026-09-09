@@ -662,12 +662,14 @@ class TtsPriceAttestation:
     than a constant — `engine.CostBreakdown.tts_inr` reports ₹0 for a BYOK leg (plan
     ADDENDUM 3 §3.5), so without an attested figure a Cartesia minute would meter as free.
 
-    ⚠ **IT IS THE MARGINAL RATE INSIDE THE PLAN'S ALLOTMENT.** Characters past the
-    allotment cost whatever the vendor's overage rate is, and Cartesia's is **UNKNOWN**
-    (plan ADDENDUM 1, unknown #3) — not published where anyone here has read it. A
-    deployment running past its allotment is paying more per character than this says, and
-    the honest response is that `source_note` names the plan and the period so a reader
-    can tell which regime the figure belongs to. No overage number is invented.
+    ⚠ **WHICH REGIME AN ATTESTED FIGURE BELONGS TO IS THE OPERATOR'S TO STATE.** Characters
+    past the allotment cost the vendor's OVERAGE rate, which is no longer unknown — D-556
+    (9 Sep 2026) closed it from direct correspondence at $65 / $45 / $38 per 1,000,000
+    credits on Pro / Startup / Scale, and `rates.CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`
+    is the Pro figure the form pre-fills. But an operator reading an invoice may be
+    attesting an INCLUDED-allotment average instead, and the two are different numbers for
+    the same month; `source_note` names the plan and the period so a reader can tell which.
+    ⚠ This paragraph read "**UNKNOWN** ... No overage number is invented" until D-556.
 
     Every field but the price is PROVENANCE, exactly as on `LlmPriceAttestation`: a figure
     in a table is indistinguishable from one somebody guessed, and `attested_at` is what
@@ -778,11 +780,16 @@ def reference_tts_price(provider: str) -> Decimal:
 
     NEITHER FIGURE IS A PRICE SOMEBODY READ OFF AN INVOICE, which is why there is no
     `verified` flag to return: Sarvam's is the published list rate for Bulbul v3
-    (`rates.TTS_INR_PER_10K_CHARS`, evidence class VENDOR-PUBLISHED) and Cartesia's is
-    ARITHMETIC — the Startup plan fee divided by the characters it buys
-    (`rates.CARTESIA_TTS_INR_PER_10K_CHARS`), true only when the whole allotment is spoken
-    and silent about the overage rate, which is UNKNOWN. That is precisely why hard rule 7
-    keeps both out of `unit_cost_paid` and why the attestation exists.
+    (`rates.TTS_INR_PER_10K_CHARS`, evidence class VENDOR-PUBLISHED) and Cartesia's is the
+    vendor's OVERAGE rate on the dearest plan we can be on, ₹57.20/10,000 characters
+    (`rates.CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`, VENDOR-PUBLISHED — Tinmaz
+    correspondence, 9 Sep 2026). ⚠ **IT USED TO BE THE STARTUP FEE DIVIDED BY THE
+    CHARACTERS IT BUYS** (₹34.496/10,000), which is true only when the whole allotment is
+    spoken and was silent about the overage rate, then UNKNOWN. A per-character AVERAGE is
+    true at exactly one volume; a MARGINAL rate is true at every volume past the allotment,
+    and it is the one an operator can sanity-check a line on an invoice against. That is
+    still not a price anybody read off ours, which is why hard rule 7 keeps both out of
+    `unit_cost_paid` and why the attestation exists.
 
     Raises for an unknown provider, like every other reader here.
     """
@@ -790,7 +797,7 @@ def reference_tts_price(provider: str) -> Decimal:
     per_10k = (
         rates.TTS_INR_PER_10K_CHARS
         if provider == "sarvam"
-        else rates.CARTESIA_TTS_INR_PER_10K_CHARS
+        else rates.CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS
     )
     return per_10k / Decimal("10")
 
@@ -948,8 +955,9 @@ class TtsPlanFeeAttestation:
         disagreeing with both. It may be NEGATIVE, and that is a real and useful state
         rather than an error to clamp: it means the month attributed more than the plan
         charged, which is what running into an overage looks like from our side of the
-        meter — and the vendor's overage RATE is UNKNOWN, so the honest report is the
-        signed difference and not a floor at zero.
+        meter. The signed difference is the honest report either way: the attested
+        per-character price may have been struck inside the allotment, so the excess is a
+        real fact about the month even now that the vendor's overage rate is known (D-556).
         """
         return self.plan_inr - attributed_inr
 
@@ -1042,16 +1050,28 @@ def reference_tts_plan_fee(provider: str) -> Decimal:
 
     `reference_tts_price`'s job for a whole month, and it carries that function's warning
     unchanged: hard rule 7 gives a catalogue figure NO path to a cost we report as paid.
-    ₹4,312 is `rates.CARTESIA_STARTUP_PLAN_FEE_INR`, which is $49 at the ₹88 conversion the
-    Cartesia evidence file states throughout — and that file is REPORTED (a relayed research
-    run; `cartesia.ai` is egress-blocked from this container), for a plan nobody has yet
-    bought at a fee no invoice of ours has yet stated. It is rendered GREYED beside the form
-    and labelled "confirm against your vendor invoice".
+
+    ⚠ **THE PRE-FILL IS THE ENTRY PLAN'S FEE AND IT USED TO BE STARTUP'S ₹4,312.** The
+    vendor states that the smallest paid path is **Pro at $5/month** (Tinmaz correspondence,
+    9 Sep 2026), not the $49 Startup plan this tree assumed was the entry point — so ₹440 is
+    what a first invoice most plausibly says, and pre-filling ₹4,312 would have had an
+    operator confirming a figure an order of magnitude out. Which plan we are ACTUALLY on is
+    a fact no code in this repository holds: it is on a card statement, which is exactly
+    what the attestation captures. Rendered GREYED beside the form and labelled "confirm
+    against your vendor invoice".
+
+    **THE PRE-FILL CONVERTS AT THE FROZEN ₹88, NOT AT THE LIVE RATE, AND THAT IS DELIBERATE
+    EVEN THOUGH THE COST FLOOR NOW DOES THE OPPOSITE** (founder, 9 Sep 2026). The floor is a
+    number we reason about; this is a number an operator is about to overwrite from a card
+    statement. A pre-fill that changed every five minutes would make two operators
+    confirming the same invoice see two different greyed figures, which is a worse form of
+    the same confusion. `rates.CARTESIA_EVIDENCE_USD_INR` is named at the call so the
+    conversion is visible rather than defaulted.
 
     Raises for a provider that is not billed as a monthly plan, like the writer does.
     """
     _require_plan_billed_provider(provider)
-    return rates.CARTESIA_STARTUP_PLAN_FEE_INR
+    return rates.CARTESIA_PRO_PLAN.fee_inr(rates.CARTESIA_EVIDENCE_USD_INR)
 
 
 async def attest_tts_plan_fee(
