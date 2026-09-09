@@ -54,6 +54,18 @@ import {
  *    what it does, and it is the sentence that stops a buyer arriving at a console looking
  *    for an upload button that does not exist (`apps/api/kb/routes.py:44` refuses `url`
  *    and `file`; there is no file input anywhere in this console).
+ *
+ * ## DEPTH IS NOT VOLUME — the 9 Sep 2026 cut
+ *
+ * "Where the detail lives" was read as "where the prose lives", and each bullet had grown a
+ * second sentence explaining why the first one was worth saying. A reader scanning does not
+ * read the justification, and a reader with a pen does not need it — the code citation
+ * beside the bullet is what the claim rests on, not the paragraph. So every justifying
+ * clause was DELETED and no bullet was rewritten upward: each surviving sentence is a
+ * subset of the sentence it replaced, which is the only edit hard rule 11 permits on a
+ * public page. The six `never` lists were exempt from any structural demotion — they carry
+ * the 9pm dialling window, the DNC scrub and the AI-disclosure sentence, and UX-DOCTRINE §3
+ * forbids putting a compliance sentence behind a disclosure.
  */
 export const metadata: Metadata = {
   title: "Solutions — Calevate",
@@ -85,24 +97,24 @@ const SOLUTIONS: readonly Solution[] = [
     title: "Nobody rings out, whatever time it is",
     lede:
       "The call your staff could not reach is the one that goes to the next business on " +
-      "the list. This is the job that stops that happening.",
+      "the list.",
     does: [
       // `AgentDirection` (apps/api/agents/models.py:43) and FLOWS §3's 24/7 default,
       // read by apps/api/agents/business_hours.py.
-      "It picks up while your staff is with somebody else, after you close, on a Sunday and on a festival day. An agent runs at every hour unless you tell it otherwise.",
+      "It picks up after you close, on a Sunday and on a festival day — unless you tell it otherwise.",
       // ai_disclosure_enabled DEFAULT true (D-163); the line itself is NOT NULL and
       // non-blank (apps/api/agents/models.py:192,304).
       "It opens by saying it is an AI — that announcement is a switch you own, and the honest ANSWER when a caller asks is not.",
       // apps/api/agents/models.py:215 server_default 'te-IN'.
-      "It holds the call in Telugu, Hindi or English. Telugu is where a new agent starts, because that is the database's own default rather than a note in a guide.",
+      "It holds the call in Telugu, Hindi or English. Telugu is where a new agent starts.",
       // apps/api/crm/service.py:27 count_after_hours_calls -> after_hours_captured_7d.
-      "Your dashboard counts how many enquiries arrived outside your own opening hours, so the thing you could not see before is now a number you can read.",
+      "Your dashboard counts how many enquiries arrived outside your own opening hours.",
       // D-533. apps/api/agents/handoff.py::on_duty walks the roster in order and returns
       // the first member active and inside their own hours; publishing.py:841 fixes that
       // number at publish; bolna.py:1028 emits the tool. Outside everyone's hours
       // `handoff=None` and the adapter emits no transfer tool at all, so the agent does
       // not know the number — which is why the sentence can be this absolute.
-      "It puts a caller through to one of your team when you have set up a handover list, and never outside the hours that person gave you. Nobody’s personal mobile can ring at 11pm, because at 11pm the agent has no number to ring.",
+      "It puts a caller through to one of your team when you have set up a handover list, and never outside the hours that person gave you.",
     ],
     yours: [
       "Your opening hours, so the after-hours count means something.",
@@ -111,7 +123,7 @@ const SOLUTIONS: readonly Solution[] = [
       "Who takes a call it hands over, in the order you want them tried, and the hours each of them is available.",
     ],
     never: [
-      "It does not look anything up mid-call. What it can say is compiled into the agent before the call — see “Your answers” below.",
+      "It does not look anything up mid-call. What it can say is compiled into the agent before the call.",
       // NOT "it cannot transfer a caller" — that WAS true and stopped being true. D-533
       // built the escalation path (`apps/api/agents/handoff.py`), the router is mounted
       // (`apps/api/main.py:218`), `publish_agent` resolves the on-duty member
@@ -120,10 +132,10 @@ const SOLUTIONS: readonly Solution[] = [
       // reads like proof of the opposite and is not: its own file records that the alarm
       // it fed "is now a feature" (`bolna.py:1390-1396`). What is genuinely unavailable is
       // narrower and is what these two lines say.
-      "It does not whisper the background to your colleague before joining you up. Playing a message into their ear first needs control of the caller’s phone line, which sits with the voice platform and not with us — so the reason for the call reaches them as a message on their phone as it rings.",
+      "It does not whisper the background to your colleague before joining you up — the reason for the call reaches them as a message on their phone as it rings.",
       // handoff.py:22-26, VERIFIED-OSS bolna-ai/bolna@cd2e192
       // task_manager.py:3116-3126 — the engine latches after the first handover.
-      "It does not ring your team one after another during the call. The first person on duty is chosen before the call and is the only number it can reach; if they miss it the caller becomes a call-back rather than a call that keeps hunting.",
+      "It does not ring your team one after another during the call. The first person on duty is chosen before the call and is the only number it can reach; if they miss it, the caller becomes a call-back.",
     ],
   },
   {
@@ -133,20 +145,20 @@ const SOLUTIONS: readonly Solution[] = [
     title: "Every enquiry gets a first attempt",
     lede:
       "The enquiry that arrives at 11am and gets noticed at 2pm has usually already " +
-      "spoken to somebody else. Follow-up stops depending on a person remembering.",
+      "spoken to somebody else.",
     does: [
       // apps/api/ingest/service.py:1 — webhook-in -> lead -> compliance gate -> outbound.
       "A web enquiry can become a call without waiting for anybody to notice it: the lead lands, the compliance gate runs, and the dial follows.",
       // apps/api/core/alerting.py:632::record_speed_to_lead.
-      "The gap between the form arriving and the dial going out is timed on every one, so “we call back quickly” becomes something you can check.",
+      "The gap between the form arriving and the dial going out is timed on every one.",
       // apps/api/campaigns/service.py; contacts are pasted — there is no file input in
       // this console (`grep 'type="file"' apps/web/src` returns nothing).
       // Two dispatch ticks cannot double-dial a person: the claim commits before the
       // first dial and stamps `last_attempt_at` (`apps/workers/campaign_dispatch.py:39,222,
       // 352`). So this is a property of the design rather than a promise about care.
-      "For a list, you paste the numbers in — CSV or one per line — and it works through them in the order they came. Nobody is rung twice by the same run, whatever else goes wrong.",
+      "For a list, you paste the numbers in — CSV or one per line — and it works through them in the order they came. Nobody is rung twice by the same run.",
       // apps/workers/campaign_dispatch.py:1147 retry ladder.
-      "A no-answer goes back on a retry ladder rather than being lost, and it exhausts rather than retrying for ever.",
+      "A no-answer goes back on a retry ladder, and the ladder exhausts rather than retrying for ever.",
       // apps/api/campaigns/routes.py:731 POST /{campaign_id}/pause.
       "Pause stops it starting calls at the next tick. A repeat you scheduled can be stopped the same way before its next run.",
     ],
@@ -167,15 +179,14 @@ const SOLUTIONS: readonly Solution[] = [
     title: "Your team talks to qualified prospects first",
     lede:
       "Most of a telecalling day is spent finding out who was never going to buy, and " +
-      "you only learn which ones those were afterwards. This is the half of the job that " +
-      "should not have been a person's.",
+      "you only learn which ones those were afterwards.",
     does: [
       // apps/api/crm/schemas.py:29 — a fixed Literal, not free text.
-      "Every caller comes back marked: new, contacted, interested, hot, won or lost. A fixed set of stages, so two people reading the same list read the same thing.",
+      "Every caller comes back marked: new, contacted, interested, hot, won or lost. A fixed set of stages.",
       // apps/workers/pipeline.py:179 HOT_LEAD_FIELD_TRIGGERS.
       "A hot lead alerts you off what was actually said, while the person is still thinking about it.",
       // apps/api/crm/columns.py — one registry, shared by the table and the CSV export.
-      "The answers land in the columns you chose, so the list is sortable and filterable rather than a pile of recordings.",
+      "The answers land in the columns you chose, so the list is sortable and filterable.",
       // apps/api/crm/performance.py:42,46.
       "You can read the whole thing back as a funnel — calls, the ones that became a conversation, and the ones that moved past new.",
     ],
@@ -184,7 +195,7 @@ const SOLUTIONS: readonly Solution[] = [
       "Who on your team sees the list at all, which is a role rather than a password shared around.",
     ],
     never: [
-      "It does not score a person out of ten, and it does not rank your leads by a confidence number. Nothing in the product measures one, so nothing publishes one.",
+      "It does not score a person out of ten, and it does not rank your leads by a confidence number.",
       "It does not decide who to drop. Everybody it spoke to is on your list with what they said.",
     ],
   },
@@ -206,7 +217,7 @@ const SOLUTIONS: readonly Solution[] = [
       "It can check your calendar and put the appointment straight into it, once your Google account is connected.",
       // apps/api/callbacks/service.py — GRACE settles a callback rather than retrying
       // for ever.
-      "A callback that cannot be placed settles with a visible reason instead of retrying quietly for the life of the campaign.",
+      "A callback that cannot be placed settles with a visible reason instead of retrying quietly.",
     ],
     yours: [
       "Which calendar, and the Google account it lives in.",
@@ -218,8 +229,8 @@ const SOLUTIONS: readonly Solution[] = [
       // free/busy query and an event insert (`apps/api/actions/calendar.py:43,168,180`).
       // The full `calendar` scope was refused deliberately, in that file's own words,
       // because it "would let us delete anything".
-      "It does not move or cancel an appointment somebody else made. It asks your calendar what is free and adds an event; that is the whole of what it is allowed to do there.",
-      "Nothing about your calendar is available until you connect it — the routes refuse cleanly rather than half-working.",
+      "It does not move or cancel an appointment somebody else made. It asks your calendar what is free and adds an event.",
+      "Nothing about your calendar is available until you connect it.",
     ],
   },
   {
@@ -233,20 +244,20 @@ const SOLUTIONS: readonly Solution[] = [
     does: [
       // apps/api/integrations/service.py:176 SIGNATURE_HEADER, :250 sign_payload —
       // HMAC-SHA256 over `{timestamp}.{body}`.
-      "Push each lead to your own CRM over a signed webhook, so your system can prove the request came from us and is not a replay of an old one.",
+      "Push each lead to your own CRM over a signed webhook, so your system can prove the request came from us.",
       // apps/workers/sheets_sync.py + apps/workers/google_sheets.py (D-23).
       "Or send them into a Google Sheet, once your Google account is connected.",
       // apps/api/crm/routes.py:1017 media_type="text/csv"; columns resolved by the same
       // registry as the screen (apps/api/crm/columns.py).
-      "Or download the lot as a spreadsheet, with the same columns you chose on screen — the table and the file cannot disagree about what a column is.",
-      "Every delivery is logged and failures are retried, so “it went to the CRM” is a thing you can check rather than assume.",
+      "Or download the lot as a spreadsheet, with the same columns you chose on screen.",
+      "Every delivery is logged and failures are retried.",
     ],
     yours: [
       "The endpoint, and the secret we sign with.",
       "Which columns leave the building — downloading the whole contact list is its own permission and writes an audit entry naming who took it.",
     ],
     never: [
-      "There is no certified integration with any named CRM, and this site shows no integration logos, because that would imply one.",
+      "There is no certified integration with any named CRM, and this site shows no integration logos.",
       "Nothing is delivered anywhere you have not configured.",
     ],
   },
@@ -256,12 +267,11 @@ const SOLUTIONS: readonly Solution[] = [
     kicker: "Your answers",
     title: "It answers from what you approved, and nothing else",
     lede:
-      "The question every owner asks second is “what if it says the wrong thing”. The " +
-      "answer is structural rather than reassuring.",
+      "The question every owner asks second is “what if it says the wrong thing”.",
     does: [
       // T0 and nothing else (docs/TRD.md:948) — the approved facts are compiled into the
       // agent's own prompt at publish time (apps/api/agents/t0.py).
-      "Your prices, timings and the questions you get asked every day are built INTO the agent before it takes a call, so the answer comes back straight away with nothing to wait for.",
+      "Your prices, timings and the questions you get asked every day are built INTO the agent before it takes a call, so the answer comes back straight away.",
       // apps/api/kb/service.py:348 'pending_approval', :437 the CAS approve.
       "A fact somebody submits is pending until a person approves it. Nothing reaches a caller until that has happened.",
       // apps/api/agents/service.py:1193 publish_agent; compose_engine_prompt appends the
@@ -273,7 +283,7 @@ const SOLUTIONS: readonly Solution[] = [
       "Who is allowed to approve them.",
     ],
     never: [
-      "It does not read a PDF, a brochure or a price list. There is no document upload, because there is nothing behind one — the endpoint takes text and refuses a file outright.",
+      "It does not read a PDF, a brochure or a price list. There is no document upload.",
       "It does not search the open internet, and it does not answer from anything you have not approved.",
     ],
   },
@@ -304,7 +314,7 @@ function SolutionSection({ solution, index }: { solution: Solution; index: numbe
           </div>
         </div>
 
-        <div className="mt-10 grid gap-4 lg:grid-cols-3">
+        <div className="mt-10 grid items-start gap-4 lg:grid-cols-3">
           <div className={`${CARD} lg:col-span-2`}>
             <h3 className="text-sm font-semibold tracking-[0.14em] text-ink-faint uppercase">
               What happens
@@ -363,7 +373,7 @@ export default function SolutionsPage() {
       <PageIntro
         eyebrow="Solutions"
         title="One AI receptionist. Six jobs off your team’s plate."
-        lede="Each of these is a piece of phone work your staff is doing today. Here is what each one actually does, what you set up, and — the part most pages leave out — what it deliberately does not do."
+        lede="Each of these is a piece of phone work your staff is doing today: what it does, what you set up, and what it deliberately does not do."
       >
         <nav aria-label="On this page" className="mt-8">
           <ul className="flex flex-wrap gap-2">
@@ -391,11 +401,9 @@ export default function SolutionsPage() {
             The goal is not to automate your business
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            It is to automate the parts of the phone workflow your team should not be
-            spending their day on. Everything above is the first layer of a call — the
-            picking up, the asking, the writing down, the chasing. The conversation where
-            somebody decides is still your salesperson&apos;s, and it goes better because
-            they are having it with somebody who already said yes.
+            It is to automate the first layer of a call — the picking up, the asking, the
+            writing down, the chasing. The conversation where somebody decides is still
+            your salesperson&apos;s.
           </p>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
             See{" "}

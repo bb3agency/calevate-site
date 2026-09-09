@@ -608,5 +608,37 @@ describe("the ROI page", () => {
     const text = bodyText(container);
     expect(text).toMatch(/illustrative/i);
     expect(text).toMatch(/costs?\s+MORE|goes against us|cannot lose is a brochure/i);
+    /*
+     * AND THE THREE REFUSALS AS STRUCTURE, because the alternation above cannot see them.
+     * Its weakest arm is "goes against us" — which is the SECTION'S OWN EYEBROW — so a
+     * page that deleted every honest branch and kept the label left it green (proved by
+     * reverting exactly that, 9 Sep 2026). The count is against the section, and the
+     * verdict a buyer is owed is the one that says we cost more.
+     */
+    const against = container.querySelector("#against");
+    expect(against?.querySelectorAll("dt")).toHaveLength(3);
+    expect(against?.textContent).toMatch(/costs?\s+MORE/);
+  });
+
+  it("labels the defaults where a reader meets the label without opening anything", async () => {
+    /*
+     * THE CAVEAT OUTLIVED THE SECTION IT LIVED IN (9 Sep 2026). "The working" was a
+     * seven-row `<dl>` restating the model that `RoiCalculator`'s own "How we calculate
+     * this" disclosure already states at greater length, one screen above it — two
+     * spellings of one fact on a public page — and it was deleted. The one thing it
+     * carried that the disclosure does not carry IN THE OPEN is the label on the
+     * benchmarks: the calculator says "illustrative" only inside two closed `<details>`.
+     *
+     * So the sentence moved, verbatim, into the calculator section's intro, and this is
+     * the assertion that deletion needs. The `/illustrative/i` check above cannot stand in
+     * for it: `textContent` reads the inside of a closed `<details>` just as happily as an
+     * open one, so it passes on a page where every word of the caveat is hidden.
+     */
+    stubApi(RATE_CARD_ROUTES);
+    const { container } = render(await RoiPage());
+    const main = container.querySelector("main");
+    for (const disclosure of main?.querySelectorAll("details") ?? []) disclosure.remove();
+    expect(main?.textContent).toMatch(/not measurements we have taken/i);
+    expect(main?.textContent).toMatch(/slider you can move/i);
   });
 });

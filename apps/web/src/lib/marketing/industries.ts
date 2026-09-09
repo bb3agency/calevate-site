@@ -41,7 +41,15 @@ export interface Industry {
   readonly fields: readonly string[];
   /** Whether a golden-transcript suite exists for this vertical today. */
   readonly suite: boolean;
-  /** The problem this trade actually has, in the owner's words. */
+  /**
+   * The problem this trade actually has, in the owner's words, in ONE sentence.
+   *
+   * `/industries` renders it as the section's `<h2>`, and until 9 Sep 2026 each of these
+   * was a two- or three-sentence paragraph set at heading size — a heading nobody scanning
+   * can use, and the "explains in prose where a landing page shows" defect the founder
+   * named. The cut kept the sharpest clause of each verbatim and deleted the rest; nothing
+   * was rewritten, so no claim widened.
+   */
   readonly problem: string;
   /** What the caller is asked. */
   readonly asks: string;
@@ -61,8 +69,7 @@ export const INDUSTRIES: readonly Industry[] = [
     fields: ["Symptom / reason", "Preferred doctor", "Urgency", "Preferred slot", "Insurance"],
     suite: true,
     problem:
-      "The phone rings hardest at exactly the hour your front desk is busiest, and an " +
-      "unanswered call from somebody in pain is a patient who rings the clinic down the road.",
+      "An unanswered call from somebody in pain is a patient who rings the clinic down the road.",
     asks: "What is troubling you, how soon do you need to be seen, and who would you like to see?",
     result: ["Root canal", "Dr Rao", "This week", "Tuesday 6pm", "Cash"],
     advantage:
@@ -81,9 +88,7 @@ export const INDUSTRIES: readonly Industry[] = [
     fields: ["Budget (lakhs)", "Location", "BHK", "Timeline", "Site visit"],
     suite: true,
     problem:
-      "Portal leads arrive in bulk and most of them are not buying this year. Your " +
-      "salespeople find that out one call at a time, which is a day spent sorting rather " +
-      "than selling.",
+      "Portal leads arrive in bulk, and most of them are not buying this year.",
     asks: "What budget are you working with, which area, how many bedrooms, and when do you want to move?",
     result: ["80 lakh budget", "Gachibowli", "3BHK", "This month", "Site visit: Sat"],
     advantage:
@@ -103,8 +108,7 @@ export const INDUSTRIES: readonly Industry[] = [
     suite: false,
     problem:
       "A renewal is won or lost in the weeks before it falls due, and the advisor who " +
-      "rings first usually keeps it. Knowing which of your enquiries is close is the " +
-      "whole job.",
+      "rings first usually keeps it.",
     asks: "Which cover are you looking at, for how much, and when is your current policy due?",
     result: ["Health cover", "10 lakh sum assured", "Renewal in 3 weeks", "Existing: other insurer"],
     advantage:
@@ -124,8 +128,7 @@ export const INDUSTRIES: readonly Industry[] = [
     suite: false,
     problem:
       "Admission season is a month of calls in which the same four questions are asked " +
-      "several hundred times, by counsellors who should be talking to the parents who " +
-      "are close to deciding.",
+      "several hundred times.",
     asks: "Which course, which year is the student in, and would you like to sit in on a class?",
     result: ["NEET repeater", "Class 12", "Asked about fees", "Demo: Friday"],
     advantage:

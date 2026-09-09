@@ -82,27 +82,25 @@ const METERED: readonly { title: string; body: string }[] = [
   {
     title: "Talk time",
     body:
-      "The minutes your agents actually spend on calls. Not seats, not agents, not " +
-      "numbers configured — a quiet month costs less than a busy one because there is " +
-      "nothing to carry between them.",
+      "The minutes your agents actually spend on calls — not seats, not agents, not " +
+      "numbers configured. A quiet month costs less than a busy one.",
   },
   {
     title: "The voice each agent uses",
     body:
-      "Each agent speaks with one of two voices, and the two are priced differently — the " +
-      "better one costs us more, so it costs you more. The voice is set per agent rather " +
-      "than for the whole account — tell your account manager which voice each agent " +
-      "should speak with — so the agent that only reads back an appointment time need not " +
-      "be paid for like the one that sells. Every call is stamped with the voice it " +
-      "actually used, so a month is priced from what happened rather than from what was " +
-      "configured at the end of it.",
+      // The per-agent fact and the "tell your account manager" register live once, in the
+      // self-serve paragraph above (§5: two spellings of one fact is a defect). What only
+      // this card says is that the METER reads the voice a call actually used.
+      "Each agent speaks with one of two voices, and the two are priced differently. " +
+      "Every call is stamped with the voice it actually used, so a month is priced from " +
+      "what happened rather than from what was configured at the end of it.",
   },
   {
     title: "The language model you chose",
     body:
       "If you pick a dearer model than the one your plan's rate is struck against, the " +
       "difference is a per-minute surcharge on the minutes that actually used it. Stay on " +
-      "the standard model and there is no surcharge at all.",
+      "the standard model and there is no surcharge.",
   },
 ];
 
@@ -116,13 +114,12 @@ const PLAN_SHAPE: readonly { term: string; detail: string }[] = [
   {
     term: "A monthly fee",
     detail:
-      "The standing part of the arrangement, agreed with you before anything is signed.",
+      "The standing part of the arrangement, agreed before anything is signed.",
   },
   {
     term: "Talk time included in it",
     detail:
-      "A bundle of minutes that comes with the monthly fee, so ordinary months are " +
-      "covered by the standing charge.",
+      "A bundle of minutes that comes with the monthly fee.",
   },
   {
     term: "A rate for anything past the bundle",
@@ -141,8 +138,7 @@ const PLAN_SHAPE: readonly { term: string; detail: string }[] = [
     term: "A start date the plan is priced from",
     detail:
       "A plan carries the period it is in effect for, so a price change agreed today " +
-      "does not silently re-price last month. Re-open an old invoice and it says the same " +
-      "thing it said the first time.",
+      "does not silently re-price last month.",
   },
 ];
 
@@ -226,7 +222,7 @@ export default async function PricingPage() {
         lede={
           rateCard === null
             ? "Not per seat, not per agent, not per number — you pay for the minutes your agents actually talk. Our live rate card could not be loaded just now, so there is no figure on this page we can stand behind; reload in a moment."
-            : `That is the everyday voice; the ${tierLabel(rateCard, "cartesia")} voice, which costs us more to run, is ${bandSentence(rateCard, "cartesia")}. No monthly fee, no per-seat charge, no charge per agent and no charge per number — you are billed for the minutes your agents actually talk, and credit does not expire.`
+            : `The ${tierLabel(rateCard, "cartesia")} voice, which costs us more to run, is ${bandSentence(rateCard, "cartesia")}. No monthly fee, no per-seat charge — you are billed for the minutes your agents actually talk, and credit does not expire.`
         }
       />
 
@@ -261,12 +257,9 @@ export default async function PricingPage() {
                     switch and the door that reads it is the homepage's, so a second
                     sentence about it here would be a second place to get it wrong (the
                     argument `components/marketing/faq.tsx` already makes). */}
-                This is a published price, not a quote — you do not have to ask what a
-                minute costs, and there is no monthly fee and no minimum. Buy credit in
-                advance and the rate comes down: the same minutes, priced lower per minute
-                the more you put on the account at once. Credit does not expire, and the
-                rates you bought at stay with that credit until it is spent, whatever we
-                publish later.
+                This is a published price, not a quote, and there is no minimum. Buy credit
+                in advance and the rate comes down: credit does not expire, and the rates you
+                bought at stay with that credit until it is spent.
               </p>
               <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
                 {/* "YOU CHOOSE IT AGENT BY AGENT" WAS FALSE IN THE CLIENT REALM, and this
@@ -276,11 +269,9 @@ export default async function PricingPage() {
                     ("Your account manager can confirm it",
                     `app/c/[slug]/agents/panels/publishing.tsx`). A page that told a buyer
                     they would have the control would be selling one that is not there. */}
-                Each agent speaks with one of two voices. The {tierLabel(rateCard, "sarvam")}{" "}
-                voice is the everyday one; the {tierLabel(rateCard, "cartesia")} voice costs
-                more per minute because it costs us more. It is set per agent rather than
-                for the whole account — tell your account manager which voice each agent
-                should speak with. Both columns are below.
+                Each agent speaks with one of two voices, set per agent rather than for the
+                whole account — tell your account manager which voice each agent should
+                speak with.
               </p>
               {/* `ScrollRegion`, not a bare `overflow-x-auto` div: a scroll container
                   that no keyboard can reach is unusable without a mouse, and
@@ -334,12 +325,9 @@ export default async function PricingPage() {
                 </table>
               </ScrollRegion>
               <p className="mt-6 max-w-2xl text-sm text-pretty text-ink-muted">
-                Talk time is what the credits buy at that pack&apos;s rate for that voice —
-                the minutes your agents actually speak for, not connected time. Credit is
-                spent oldest purchase first, at the rates that purchase was made at.
-                Everything on this page about what is metered, what a plan carries and how an
-                invoice is assembled applies to self-serve too; the only difference is that
-                this price is published and a managed plan is agreed with you.
+                Talk time is the minutes your agents actually speak for, not connected
+                time. Credit is spent oldest purchase first, at the rates that purchase was
+                made at.
               </p>
             </>
           )}
@@ -359,18 +347,14 @@ export default async function PricingPage() {
               className="mt-0.5 h-5 w-5 shrink-0 text-brand-strong dark:text-brand-bright"
             />
             <p className="max-w-2xl text-base text-pretty text-ink-muted">
-              <span className="font-medium text-ink">Calling a lot, or need it shaped
-              differently?</span>{" "}
+              <span className="font-medium text-ink">Calling a lot?</span>{" "}
               Above a certain volume a monthly plan with minutes included usually costs less
-              than paying by the minute, and those are agreed with you rather than published
-              — what they should say depends on your call pattern, which voice you use and
-              which language model you run on. Everything above still applies to them. Put
-              your own numbers into the{" "}
+              than paying by the minute. Those are agreed with you rather than published —
+              put your own numbers into the{" "}
               <Link href="/roi" className={INLINE_LINK}>
                 cost comparison
               </Link>{" "}
-              first; it shows every assumption on both sides, including the ones that argue
-              against us.
+              first.
             </p>
           </div>
         </div>
@@ -386,9 +370,9 @@ export default async function PricingPage() {
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
             {/* Every call writes a usage_event carrying our own unit cost (hard rule 7,
                 `apps/api/db/registry.py:89` — the table is append-only). */}
-            Every call writes a usage record of its own, with the rate that applied to it,
-            at the moment it happened. Those records are append-only: a correction is a new
-            entry rather than an edit, so a bill can be explained line by line months later.
+            Every call writes a usage record of its own, with the rate that applied to it.
+            A correction is a new entry rather than an edit, so a bill can be explained line
+            by line months later.
           </p>
           <div className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-3">
             {METERED.map(({ title, body }) => (
@@ -450,10 +434,8 @@ export default async function PricingPage() {
                     line the product does not keep answering. The warning email on the
                     way down is `apps/workers/wallet_alerts.py`, published on the ledger
                     entry that crosses `low_balance_threshold_inr`. */}
-                An account can run on credit you top up in advance. You can see the balance,
-                the ledger it came out of, and the payment that failed last night — and when
-                the credit is exhausted, calling stops rather than continuing on to a bill
-                you did not agree to: nothing goes out, and your agents stop answering
+                When the credit is exhausted, calling stops rather than continuing on to a
+                bill you did not agree to: nothing goes out, and your agents stop answering
                 incoming calls until you top up. We email the account owner before it
                 happens.
               </p>
@@ -485,17 +467,12 @@ export default async function PricingPage() {
                 {/* apps/api/billing/invoice.py — an invoice is DERIVED from the usage
                     ledger at the plan in effect for that period (billing/plans.py), so it
                     does not change when you look at it twice. GST: billing/gst.py. */}
-                A month&apos;s invoice is assembled from those usage records at the plan that
-                was in effect for that month, with GST worked out on it. It reads the same
-                today as it will next year, because it is derived from what happened rather
-                than stored as a summary.
+                A month&apos;s invoice is assembled from those usage records at the plan in
+                effect for that month, with GST worked out on it. It reads the same next year
+                as it does today.
               </p>
             </section>
           </div>
-          <p className="mt-8 max-w-2xl text-sm text-ink-faint">
-            All amounts are held as exact decimal rupees end to end — never as floating-point
-            numbers, which is how a bill ends up a paisa out and nobody can say why.
-          </p>
         </div>
       </section>
 
@@ -524,12 +501,10 @@ export default async function PricingPage() {
                 plan that is negotiated. It also asserted a deployment fact — that accounts
                 are opened by hand — which `self_serve_signup_enabled` decides at runtime
                 and the homepage door already reads. */}
-            The card above is published, so what a minute costs is not something you have
-            to ask for. What is a conversation is a managed plan — the monthly fee, the
-            talk time in it and the rate past it are agreed with you, because what they
-            should say depends on your call pattern. It is a short conversation:{" "}
+            A managed plan is the part that is a conversation — the monthly fee, the talk
+            time in it and the rate past it are agreed with you.{" "}
             <Link href="/roi" className={INLINE_LINK}>
-              bring your own numbers
+              Bring your own numbers
             </Link>{" "}
             and we will tell you where we land against them.
           </p>

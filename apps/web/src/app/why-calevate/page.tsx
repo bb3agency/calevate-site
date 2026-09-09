@@ -202,8 +202,7 @@ export default function WhyCalevatePage() {
               the ROI page
             </Link>
             , and it is built to be believed rather than to win — at low volume it will tell
-            you the running costs come out close. These five are the reason the comparison
-            is not the whole argument.
+            you the running costs come out close.
           </p>
           <div className="mt-10 grid gap-4 sm:mt-12 sm:grid-cols-2 lg:grid-cols-3">
             {BEYOND.map(({ icon: Icon, title, body }) => (
@@ -231,9 +230,7 @@ export default function WhyCalevatePage() {
             Sales organisations that can afford it already split this job in two: one person
             works out who is worth talking to, another has the conversation. Calevate is the
             first half of that split, which is the half nobody enjoys and the half that
-            scales badly with people. It takes the first call to every enquiry and every
-            name on your list, works out who is worth a conversation, and hands your people
-            the shortlist.
+            scales badly with people.
           </p>
           <div className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-3">
             {QUALIFICATION.map(({ icon: Icon, title, body }) => (
@@ -248,13 +245,10 @@ export default function WhyCalevatePage() {
           </div>
           <p className="mt-8 max-w-2xl text-base text-pretty text-ink">
             This is not your team replaced. It is the part of their day that was never
-            selling. The goal is not to automate your business — it is to automate the parts
-            of the phone workflow your team should not be spending their day on.
+            selling.
           </p>
           <p className="mt-4 max-w-2xl text-sm text-ink-faint">
-            No conversion statistic appears anywhere on this site. The figures this play is
-            usually sold with trace back to sources we could not read, and repeating one
-            because it is widely repeated is not the same as knowing it.
+            No conversion statistic appears anywhere on this site.
           </p>
         </div>
       </section>
@@ -269,8 +263,7 @@ export default function WhyCalevatePage() {
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
             Every one of them is standard in this category, and every one of them is
             something we cannot stand behind today. They are absent by rule rather than by
-            oversight: the site is tested for their absence, which is a strange thing to
-            build unless you mean it.
+            oversight: the site is tested for their absence.
           </p>
           <dl className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-2">
             {REFUSALS.map(({ claim, why }) => (

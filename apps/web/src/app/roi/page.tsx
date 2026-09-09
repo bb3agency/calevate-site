@@ -14,7 +14,7 @@ import {
 import { RoiCalculator } from "@/components/marketing/roiCalculator";
 
 /**
- * `/roi` — the same calculator, and the methodology the homepage now hides.
+ * `/roi` — the calculator, with the working one click away and nothing said twice.
  *
  * ## ONE CALCULATOR, NOT TWO
  *
@@ -24,13 +24,20 @@ import { RoiCalculator } from "@/components/marketing/roiCalculator";
  * disagreement would be about money on a public page. `lib/roi.ts` holds the model; both
  * pages render the same component over it, and `tests/roi.test.ts` scores the model itself.
  *
- * ## What this page adds that the homepage deliberately does not
+ * ## THE METHODOLOGY IS THE CALCULATOR'S OWN DISCLOSURE, NOT A SECOND COPY ON THE PAGE
  *
- * The homepage asks three questions and puts everything else behind "Adjust assumptions",
- * because a visitor who has not yet agreed they have a problem will not do a spreadsheet
- * exercise. This page is for the reader who has, and it is where the assumptions belong AT
- * FULL LENGTH: where each benchmark came from, what each one does to the answer, and the
- * three branches in which the tool says we lose.
+ * This page used to restate the whole model in a seven-row `<dl>` under "The working" —
+ * the Calevate side, headcount, loaded cost, what is left out, hours covered, the
+ * two-stage mode and rounding. Every one of those is already written, at greater length
+ * and with the live figures in it, inside `RoiCalculator`'s own "How we calculate this,
+ * and where the numbers come from" disclosure, one screen above it. That is UX-DOCTRINE
+ * §5's "two spellings of one fact is a defect" on a public page, and the duplicate was
+ * ~490 words of the ~1,190 this page rendered. It is deleted rather than trimmed: the
+ * disclosure is on this page, closed, one click away, and nothing was lost.
+ *
+ * The one sentence that did NOT survive as a duplicate is the benchmark caveat — the
+ * calculator carries it inside two closed disclosures, so it moved UP, verbatim, into the
+ * calculator section's own intro where a reader meets it without opening anything.
  *
  * ## The honesty rules this page inherits
  *
@@ -55,95 +62,26 @@ export const metadata: Metadata = {
     "goes against us.",
 };
 
-/** The methodology, at the length the homepage moves behind a disclosure. */
-const METHOD: readonly { term: string; detail: string }[] = [
-  {
-    term: "The Calevate side",
-    detail:
-      // "the voice you picked, on the pack you picked" READ AS A PRODUCT CONTROL. Both are
-      // inputs to the CALCULATOR; which voice an agent actually speaks with is ours to set
-      // (D-21), which is the register `/pricing` and the console both use now. Naming the
-      // tool is one word and removes the reading.
-      "Calls a day × average call length × working days × our published rate for the voice " +
-      "and pack you chose in the calculator. That is the whole of it: usage, at a rate " +
-      "you can read. It does not change when you widen the hours the line must be " +
-      "answered, because an agent costs the same at 2am as at 2pm.",
-  },
-  {
-    term: "How many telecallers the same work needs",
-    detail:
-      "Calls a day ÷ the calls one agent handles a day, rounded up — and once calls run " +
-      "long, talk-time rather than dial count becomes the real limit, so the tool switches " +
-      "to whichever of the two binds first. Both are sliders, because a business that runs " +
-      "four-minute calls and one that runs ninety-second calls do not staff alike.",
-  },
-  {
-    term: "What a telecaller actually costs",
-    detail:
-      "The advertised base is what a job ad shows. The loaded figure adds PF/ESI, " +
-      "on-target incentives, a share of a supervisor, desk, power, phone and software, and " +
-      "the ramp before somebody is productive. The whole reason the comparison is worth " +
-      "doing is that the base hides most of the cost.",
-  },
-  {
-    term: "What is deliberately left out",
-    detail:
-      "Turnover, and what it costs to replace somebody. Both are real; neither is what a " +
-      "business owner here is actually weighing, so pricing them would be arguing a case " +
-      "you are not making. Leaving them out makes the people side of this comparison " +
-      "smaller, not larger.",
-  },
-  {
-    term: "Hours covered",
-    detail:
-      "A person works one shift of about nine hours. Answering into the evening or around " +
-      "the clock means staffing two or three, and every staffed shift needs at least one " +
-      "person on the phone even on a quiet night. The tool spreads your call volume evenly " +
-      "across the shifts you choose, which is the assumption kindest to the human side.",
-  },
-  {
-    term: "The two-stage comparison",
-    detail:
-      "The other mode, and the honest one once a call is a sales conversation rather than " +
-      "an enquiry being written down. One side is your people working the whole list at the " +
-      "full conversation length; the other is Calevate holding a short first call with " +
-      "everyone and your people holding the real conversation only with the share that came " +
-      "back interested. The two numbers it needs — how much of your list is worth a real " +
-      "conversation, and how long the first call runs — are facts about YOUR list that " +
-      "nobody can tell you from outside, which is exactly why they are sliders.",
-  },
-  {
-    term: "Rounding",
-    detail:
-      "Everything is computed in whole paise and rounded once at the end, so the rupee " +
-      "figures add up exactly rather than drifting by a paisa per line.",
-  },
-];
-
 /** The three branches in which the tool argues against us. */
 const AGAINST: readonly { term: string; detail: string }[] = [
   {
     term: "When the running costs come out close",
     detail:
-      "At low volume a small team can match the running cost, and the verdict says so in " +
-      "those words rather than rounding in our favour. The argument then is about " +
-      "capability — hours, concurrency, consistency — and the page says that too.",
+      "At low volume a small team can match the running cost, and the verdict says so " +
+      "rather than rounding in our favour.",
   },
   {
     term: "When the call is a sales conversation",
     detail:
-      "Past about four minutes, comparing Calevate head-to-head with a telecaller compares " +
-      "two things nobody was choosing between: the alternative to a closer is not a cheaper " +
-      "closer. The tool names that rather than quietly showing a losing number, and points " +
-      "at the comparison that is like-for-like.",
+      "Past about four minutes, the alternative to a closer is not a cheaper closer. The " +
+      "tool names that rather than quietly showing a losing number, and points at the " +
+      "comparison that is like-for-like.",
   },
   {
     term: "When the two-stage funnel costs more",
     detail:
-      "Set the qualified share to everyone and there is nothing for a first call to filter " +
-      "out, so it is an extra call on top of the same team. The tool prints that it costs " +
-      "MORE a month, not less, and says that if that is really your list, your team should " +
-      "keep calling it.",
+      "Set the qualified share to everyone and a first call has nothing to filter out. " +
+      "The tool prints that it costs MORE a month, not less.",
   },
 ];
 
@@ -158,7 +96,7 @@ export default async function RoiPage() {
       <PageIntro
         eyebrow="ROI"
         title="Do the maths against hiring, with your own numbers"
-        lede="Three numbers you already know, and every other assumption open to inspection. This is the same tool the homepage carries, with the working shown rather than folded away."
+        lede="Three numbers you already know, and every other assumption open to inspection."
       />
 
       {/* --- The calculator ------------------------------------------------------ */}
@@ -170,47 +108,24 @@ export default async function RoiPage() {
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
             Nothing here is submitted anywhere — the page makes no request and stores
-            nothing. Change any input and every figure recomputes in front of you.
+            nothing. The defaults are relayed industry benchmarks for the role in Andhra
+            Pradesh and Telangana — not measurements we have taken, and not promises — and
+            every one of them is a slider you can move to your own figures.
           </p>
           <RoiCalculator rateCard={rateCard} />
-        </div>
-      </section>
-
-      {/* --- Methodology --------------------------------------------------------- */}
-      <section id="method" className="scroll-mt-20 border-t border-line bg-surface/40">
-        <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="02">The working</Eyebrow>
-          <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
-            Every line of the arithmetic, and where each number comes from
-          </h2>
-          <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            The telecaller side is built to be believed rather than to win. The defaults are
-            relayed industry benchmarks for the role in Andhra Pradesh and Telangana — not
-            measurements we have taken, and not promises — and every one of them is a slider
-            you can move to your own figures.
-          </p>
-          <dl className="mt-10 divide-y divide-line border-y border-line sm:mt-12">
-            {METHOD.map(({ term, detail }) => (
-              <div key={term} className="grid gap-2 py-5 sm:grid-cols-[16rem_1fr] sm:gap-8">
-                <dt className="text-[15px] font-semibold text-ink">{term}</dt>
-                <dd className="max-w-2xl text-[15px] text-pretty text-ink-muted">{detail}</dd>
-              </div>
-            ))}
-          </dl>
         </div>
       </section>
 
       {/* --- Where it argues against us ------------------------------------------ */}
       <section id="against" className="scroll-mt-20 border-t border-line">
         <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="03">Where it goes against us</Eyebrow>
+          <Eyebrow index="02">Where it goes against us</Eyebrow>
           <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
             A calculator that cannot lose is a brochure
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            Three branches in this tool say plainly that we are not the answer. They are
-            reachable with ordinary inputs, they are not hidden behind an advanced toggle,
-            and they are covered by tests so that a later edit cannot quietly remove them.
+            Three branches in this tool say plainly that we are not the answer, on ordinary
+            inputs.
           </p>
           <dl className="mt-10 grid gap-4 sm:mt-12 lg:grid-cols-3">
             {AGAINST.map(({ term, detail }) => (
@@ -229,14 +144,13 @@ export default async function RoiPage() {
       {/* --- What it cannot price ------------------------------------------------ */}
       <section className="border-t border-line bg-surface/40">
         <div className={`${SHELL} ${SECTION}`}>
-          <Eyebrow index="04">What no calculator can price</Eyebrow>
+          <Eyebrow index="03">What no calculator can price</Eyebrow>
           <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
             The rupees are the smaller half of the answer
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            What this tool cannot put a number on is the call nobody answered, because
-            nobody recorded it — and the hours your salespeople spend finding out who was
-            never going to buy. The first is the reason this product exists; the second is{" "}
+            What this tool cannot put a number on is the call nobody answered, and the
+            hours your salespeople spend finding out who was never going to buy —{" "}
             <Link href="/why-calevate" className={INLINE_LINK}>
               the part a headcount comparison cannot see
             </Link>
@@ -244,11 +158,11 @@ export default async function RoiPage() {
           </p>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
             The figure this tool uses for Calevate is our published self-serve rate. What a
-            managed account pays is agreed with you —{" "}
+            managed account pays is agreed with you — see{" "}
             <Link href="/pricing" className={INLINE_LINK}>
               the pricing page
-            </Link>{" "}
-            explains the shape of that and why no number is printed on it.
+            </Link>
+            .
           </p>
         </div>
       </section>

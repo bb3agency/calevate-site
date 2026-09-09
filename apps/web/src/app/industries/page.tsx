@@ -35,6 +35,20 @@ import { INDUSTRIES } from "@/lib/marketing/industries";
  * is the seed's own labels in the seed's own order, diffed against `scripts/seed.py` by
  * `publicLanding.test.tsx`, because this list's whole value to a buyer is that it is the
  * actual first screen of their agent.
+ *
+ * ## WHAT THIS PAGE MAY NOT REPEAT (9 Sep 2026)
+ *
+ * The intro's lede was WORD FOR WORD the homepage's `industries` band lede
+ * (`components/marketing/home/languageAndTrade.tsx`), and the "you change these" paragraph
+ * under the field chips then said the same thing a third time on this page alone. Two
+ * spellings of one fact is a defect even when both are true (UX-DOCTRINE §5), so the lede
+ * keeps only the half this page needs and the paragraph is gone.
+ *
+ * What is left that the homepage tab strip does not already render is `problem`, `typical`
+ * and the suite statement — `asks`, `fields`, `result` and `advantage` are shown in both
+ * places from the one module. That overlap is the page's remaining weakness and is recorded
+ * here rather than hidden: closing it means changing the homepage band, which is not this
+ * file's to change.
  */
 export const metadata: Metadata = {
   title: "Industries — Calevate",
@@ -49,7 +63,7 @@ export default function IndustriesPage() {
       <PageIntro
         eyebrow="Industries"
         title="It asks the questions your trade actually asks"
-        lede="A clinic needs to know what hurts and how soon. A property office needs a budget and an area. These are the field lists a new agent starts from — and then you change them, because the columns are yours rather than ours."
+        lede="These are the field lists a new agent starts from. Then you change them — the columns are yours rather than ours."
       >
         <nav aria-label="On this page" className="mt-8">
           <ul className="flex flex-wrap gap-2">
@@ -89,7 +103,7 @@ export default function IndustriesPage() {
               </div>
             </div>
 
-            <div className="mt-10 grid gap-4 lg:grid-cols-2">
+            <div className="mt-10 grid items-start gap-4 lg:grid-cols-2">
               <div className={CARD}>
                 <h3 className="text-sm font-semibold tracking-[0.14em] text-ink-faint uppercase">
                   What it asks the caller
@@ -109,16 +123,19 @@ export default function IndustriesPage() {
                     </li>
                   ))}
                 </ul>
-                <p className="mt-4 text-sm text-ink-faint">
-                  You change these. They are a starting point, not a schema you are stuck
-                  with — the columns in your leads list are whatever you said you needed to
-                  know.
-                </p>
               </div>
 
               <div className="grid gap-4">
+                {/* `-muted`, not `-faint`, on THIS panel only, and the ground is why:
+                    `--text-faint` is held to 4.5:1 against `--surface` and `--app` only
+                    (`tests/contrastTokens.test.ts` computes exactly those two), and on this
+                    brand tint axe in a real Chromium reports it as a serious 1.4.3 failure
+                    on four nodes (9 Sep 2026). The homepage's brand chapter took the same
+                    remedy for the same reason — the tier moves up rather than the tint
+                    being washed out until the panel has no ground left. jsdom cannot see
+                    this, which is why `a11y.test.tsx` was green through it. */}
                 <div className="rounded-2xl border border-brand/40 bg-brand-soft/30 p-5 sm:p-6 dark:bg-brand-strong/10">
-                  <h3 className="text-sm font-semibold tracking-[0.14em] text-ink-faint uppercase">
+                  <h3 className="text-sm font-semibold tracking-[0.14em] text-ink-muted uppercase">
                     What you receive
                   </h3>
                   <ul className="mt-3 flex flex-wrap gap-2">
@@ -134,7 +151,7 @@ export default function IndustriesPage() {
                   <p className="mt-5 border-t border-brand/30 pt-4 text-base text-pretty text-ink">
                     {industry.advantage}
                   </p>
-                  <p className="mt-3 text-xs text-ink-faint">
+                  <p className="mt-3 text-xs text-ink-muted">
                     An illustration of one lead. Nobody in it is a customer of ours.
                   </p>
                 </div>
@@ -189,10 +206,8 @@ export default function IndustriesPage() {
             Not one of these four?
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            Nothing is locked to a line of work. The four above have a starting list because
-            somebody wrote one; for any other trade you write the list of things the agent
-            has to find out, and that is the whole difference. A salon, a car dealership, a
-            gym and a chartered accountant all set up the same way.
+            Nothing is locked to a line of work. For any other trade you write the list of
+            things the agent has to find out, and that is the whole difference.
           </p>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
             What the agent can do with those answers is the same in every trade —{" "}

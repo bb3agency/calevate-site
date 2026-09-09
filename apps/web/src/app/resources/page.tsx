@@ -7,7 +7,6 @@ import {
   CARD,
   ClosingCta,
   Eyebrow,
-  INLINE_LINK,
   MarketingPage,
   PageIntro,
   SECTION,
@@ -90,8 +89,7 @@ const READING: readonly { href: string; title: string; body: string }[] = [
     // `lib/api/rateCard.ts` exists to prevent.
     body:
       "What is metered, how a plan is shaped, the two spending ceilings, and the published " +
-      "prepaid card — a per-minute rate on each of the two voices, coming down the more " +
-      "credit you buy at once.",
+      "prepaid card — a per-minute rate on each of the two voices.",
   },
   {
     href: "/security",
@@ -121,15 +119,14 @@ const GLOSSARY: readonly { term: string; detail: string }[] = [
     detail:
       "The list of things you said you needed to know from every caller. It is the single " +
       "most important thing you set up: it becomes the columns of your leads list, the " +
-      "headings of the spreadsheet you download, and the fields sent to your CRM. One " +
-      "definition, so the screen and the file can never disagree.",
+      "headings of the spreadsheet you download, and the fields sent to your CRM.",
   },
   {
     term: "Lead status",
     detail:
       "How interested somebody turned out to be: new, contacted, interested, hot, won or " +
       "lost. A fixed set rather than free text, so two people reading the same list read " +
-      "the same thing and the funnel means something.",
+      "the same thing.",
   },
   {
     term: "Campaign",
@@ -167,7 +164,7 @@ const GLOSSARY: readonly { term: string; detail: string }[] = [
     detail:
       "A time a caller asked to be rung back at, booked by the agent during the call. It " +
       "is dialled at that time. If it cannot be placed it settles with a visible reason " +
-      "instead of retrying quietly for ever, because somebody is sitting by a phone.",
+      "instead of retrying quietly for ever.",
   },
   {
     term: "Key moments",
@@ -262,7 +259,7 @@ export default function ResourcesPage() {
       <PageIntro
         eyebrow="Resources"
         title="Where to start, and what the words mean"
-        lede="No case studies and no whitepapers — there is no client in production to write one about, and we would rather say that than invent one. What is here is a map of the site and a glossary, because this product sits between three vocabularies and you should not need any of them."
+        lede="No case studies and no whitepapers — there is no client in production to write one about, and we would rather say that than invent one. What is here instead is a map of the site and a glossary."
       />
 
       {/* --- 01 Where to start --------------------------------------------------- */}
@@ -303,12 +300,7 @@ export default function ResourcesPage() {
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
             Which of these applies to you depends on whether you buy Calevate, work for a
-            business that does, or received a call from one — each page says so at the top.{" "}
-            <Link href="/security" className={INLINE_LINK}>
-              The security page
-            </Link>{" "}
-            summarises the behaviour behind them without paraphrasing the documents
-            themselves.
+            business that does, or received a call from one — each page says so at the top.
           </p>
           <ul className="mt-8 flex flex-wrap gap-2">
             {LEGAL_DOCUMENTS.map((doc) => (
@@ -334,9 +326,7 @@ export default function ResourcesPage() {
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
             Every entry is a thing in the product — something you set up, a state a record
-            can be in, or a control you operate. Where a word is really a regulator’s, the
-            entry says what the product does about it and points at the document, because
-            that is the instrument and this is not.
+            can be in, or a control you operate.
           </p>
           <dl className="mt-10 grid gap-4 sm:mt-12 sm:grid-cols-2">
             {GLOSSARY.map(({ term, detail }) => (

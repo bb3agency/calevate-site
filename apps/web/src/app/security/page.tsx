@@ -77,11 +77,6 @@ export default function SecurityPage() {
           <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
             Four rules that live in the code rather than in a policy page
           </h2>
-          <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            None of these is a checkbox in your settings. They run on the dispatch path,
-            which means a campaign cannot be configured around them and a busy Monday cannot
-            forget them.
-          </p>
           <dl className="mt-10 grid gap-4 sm:mt-12 sm:grid-cols-2">
             {/* The icon lives INSIDE the <dt>. A <div> grouping inside a <dl> may contain
                 only <dt> and <dd> children (axe `definition-list`), and a decorative span
@@ -119,12 +114,6 @@ export default function SecurityPage() {
           <h2 className="mt-4 max-w-3xl text-2xl font-semibold tracking-tight text-balance text-ink sm:text-3xl">
             Know where your customer data goes
           </h2>
-          <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            This is the question a serious buyer asks first, and the one a marketing page is
-            most tempted to answer loosely. Here it is in full, in the same words the
-            homepage carries and the sub-processor page expands on. A sophisticated customer
-            would find the rest of it anyway; we would rather they found it here.
-          </p>
           <div className="mt-10 max-w-3xl rounded-2xl border border-line bg-surface p-5 sm:mt-12 sm:p-8">
             <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-soft text-brand-strong">
               <Globe aria-hidden className="h-5 w-5" />
@@ -204,10 +193,8 @@ export default function SecurityPage() {
             The awkward calls an agent is run against
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            An agent that sounds good on the demo call and loses a detail on the fortieth one
-            is the ordinary failure of this whole category. These are the calls it is put
-            through — a scripted transcript for each, scored on whether the details reached
-            the leads list correctly.
+            The calls an agent is put through — a scripted transcript for each, scored on
+            whether the details reached the leads list correctly.
           </p>
           <ul className="mt-10 grid gap-3 sm:mt-12 sm:grid-cols-2 lg:grid-cols-3">
             {TESTED_SCENARIOS.map((scenario) => (
@@ -228,16 +215,8 @@ export default function SecurityPage() {
               the tick above is a list bullet rather than a verdict. */}
           <p className="mt-8 max-w-2xl text-base text-pretty text-ink-muted">
             We publish no score against that list, and no accuracy figure for any language.
-            A number we cannot show you the working for is worth nothing, and the honest
-            position today is that how well the agent understands Telugu has not been
-            measured properly enough to publish. When it has been, the figure will arrive
-            with its method attached.
-          </p>
-          <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            What you get instead is a report in your own dashboard, beside the calls it was
-            scored on, which is allowed to say bad news: where too few calls were scored to
-            support a figure it prints the count and says so, and the fields your agent
-            struggles with are listed by name.
+            How well the agent understands Telugu has not been measured properly enough to
+            publish.
           </p>
         </div>
       </section>
@@ -250,11 +229,9 @@ export default function SecurityPage() {
             The whole of it, in the documents themselves
           </h2>
           <p className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
-            Everything above is a summary of behaviour. These are the instruments — and this
-            page deliberately does not paraphrase them, because a paraphrase of a data
-            processing clause is a new claim rather than a shorter one. Which of them applies
-            to you depends on whether you buy Calevate, work for a business that does, or
-            received a call from one; each page says so at the top.
+            Everything above is a summary of behaviour; these are the instruments. Which of
+            them applies to you depends on whether you buy Calevate, work for a business that
+            does, or received a call from one — each page says so at the top.
           </p>
           <ul className="mt-10 grid gap-3 sm:mt-12 sm:grid-cols-2">
             {LEGAL_DOCUMENTS.map((doc) => (
