@@ -62,7 +62,9 @@ from calevate_shared.events import (
     TranscriptTurn,
 )
 
+from apps.api.agents.models import series_for_e164
 from apps.api.billing.rates import ROUNDING
+from apps.api.campaigns.provisioning import PURCHASABLE_SERIES
 from apps.api.core.errors import ProblemError
 from apps.api.engine.capabilities import (
     require_call_compliance_floor,
@@ -889,6 +891,19 @@ class FakeEngine:
             digits = self._stable_id("avail", query.country, query.pattern or "", str(index))
             e164 = prefix + "".join(c for c in digits if c.isdigit()).ljust(10, "0")[:10]
             if e164 in held:
+                continue
+            # NEVER OFFER A REGULATED SERIES. The digits come from a hash of the caller's
+            # pattern, so roughly one search in fifty used to mint a `+91 140…` or
+            # `+91 160…` — a number `number_supply.buy_number` correctly REFUSES, because
+            # those series are taken on an Indian operator's own account and cannot be
+            # bought through a voice platform. A fake that sells stock the real rule
+            # forbids is not a cheaper telco, it is a WRONG one: it made
+            # `tests/number_supply_test` fail roughly one run in fifty on a number the
+            # caller never chose, which reads as a tenancy defect and is not one. Asked of
+            # the real classifier rather than by testing the prefix here, so the fake
+            # cannot drift from the rule it is imitating (hard rule 2: the adapter owns
+            # the vendor shape, never a second copy of our own domain logic).
+            if series_for_e164(e164) not in (None, PURCHASABLE_SERIES):
                 continue
             offers.append(
                 AvailableNumber(
