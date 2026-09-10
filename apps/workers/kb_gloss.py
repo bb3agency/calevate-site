@@ -91,10 +91,11 @@ from apps.workers.extraction import AZURE_PROVIDER, azure_credentials
 log = get_logger(__name__)
 
 #: The minutes this sweep fires. Twice an hour, on minutes no other fleet-wide fan-out
-#: uses: `settings.CRON_JOBS` holds :05/:35 (stalled pipeline), :15/:45 (outstanding
-#: calls), :23 (KB drift), :25 (distillation and overdue erasures), plus :10, :17, :20 and
-#: :40. Twelve and forty-two are clear of all of them, so three O(tenants) sweeps never
-#: share a minute. Twice an hour rather than hourly because this is INGESTION latency a
+#: uses — a property this comment used to argue by enumerating the register, which is how
+#: it came to be wrong about `send_agent_knowledge_digests` (Monday 07:12). It is checked
+#: instead now: `settings.WALK_SHAPES` declares each cron's fan-out beside its schedule and
+#: `tests/job_registration_test.py` derives the collision check from it.
+#: Twice an hour rather than hourly because this is INGESTION latency a
 #: client can perceive at the review screen; the per-tick ceiling below is what bounds the
 #: spend, so the cadence only decides how fast a backlog drains.
 GLOSS_MINUTES: Final[frozenset[int]] = frozenset({12, 42})

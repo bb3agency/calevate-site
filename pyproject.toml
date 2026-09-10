@@ -188,6 +188,13 @@ select = ["E", "F", "I", "N", "UP", "B", "A", "C4", "SIM", "RUF", "ASYNC", "W"]
 "apps/api/**/routes.py" = ["B008"]
 "apps/api/core/deps.py" = ["B008"]
 "apps/api/core/auth.py" = ["B008"]
+# RUF001 flags an EN DASH as an ambiguous character. In this one file the en dashes are
+# the SUBJECT, not typography: the fixtures are verbatim spans of `docs/TRD.md` (a price
+# band `1.08–1.62`, a table row `| TTS — Cartesia`), and the guard's whole job is to read
+# the document as it is actually written. Normalising them to hyphens would make the test
+# assert against text the TRD does not contain, i.e. it would pass while measuring
+# nothing — the failure mode the guard exists to prevent, reintroduced in its own fixture.
+"tests/trd_summary_drift_guard_test.py" = ["RUF001"]
 
 # --- mypy (strict; CI gate) ---------------------------------------------------
 [tool.mypy]

@@ -642,6 +642,30 @@ server {
     # by this — voice-runtime still serves the route on the loopback interface.
     location ^~ /healthz { return 404; }
 
+    # IN-CALL TOOLS GET THEIR OWN BUCKET. `/tools/v1/*` is the engine's custom functions,
+    # invoked mid-conversation on a LIVE call; `/hooks/v1/*` below is post-call delivery.
+    # Both arrive from the engine's egress addresses, so with only `location /` here they
+    # shared one `limit_req` zone keyed on that one address — and a campaign hanging up 250
+    # calls in a second spends the whole allowance, after which a tool call from a call
+    # still in progress is answered 429 BY NGINX. The handler is never entered, so the
+    # 500ms ack budget and every deadline inside it decide nothing: the model gets a failed
+    # tool call and the caller hears silence. `zone=in_call_tools` is sized for concurrent
+    # calls rather than completed ones; `rate-zones.conf.template` carries the derivation.
+    #
+    # `^~` IS LOAD-BEARING. nginx picks the longest matching prefix and then, only for a
+    # `^~` match, stops without trying the regex locations — but the ordinary-prefix rule
+    # is what matters here: `/tools/` is longer than `/`, so it wins either way, and `^~`
+    # states the intent so a regex location added later cannot take this traffic back into
+    # a different zone. Order in the file does not select a prefix location; length does.
+    location ^~ /tools/ {
+        limit_req zone=in_call_tools burst=250 nodelay;
+        proxy_pass http://calevate_hooks;
+        include /etc/nginx/snippets/calevate-proxy.conf;
+        # Same reason as `location /`: `proxy_request_buffering off` streams the body to
+        # the app so the ack is measured from the first byte the app sees.
+        proxy_request_buffering off;
+    }
+
     location / {
         # `burst=200 nodelay` on top of 600r/m: the average is a campaign's worth of
         # traffic, the burst is 250 calls hanging up in the same second (D-32). Without

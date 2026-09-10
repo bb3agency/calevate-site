@@ -292,7 +292,11 @@ async def test_an_arm_that_lost_the_truthful_answer_rule_is_caught_by_the_sweep(
         await _run_agent_sweep()
 
     assert await _drift_verdict(engine, agent_ref) == "applied"
-    assert await _drift_verdict(engine, arm_ref) == "not_applied", (
+    # `truthful_answer_missing` since D-562: a strict REFINEMENT of `not_applied` that
+    # names WHICH property failed, because that is the one divergence the dial gate
+    # refuses on (`compliance.service.truthful_answer_drift_blocker`). An arm is exactly
+    # the case that makes it matter — it has its own script and its own live callers.
+    assert await _drift_verdict(engine, arm_ref) == "truthful_answer_missing", (
         "an arm answering callers without the truthful-answer rule must be a PROVEN "
         "divergence, not a verdict inherited from the agent nobody was dialling"
     )

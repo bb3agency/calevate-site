@@ -38,9 +38,15 @@ export function RawTranscriptControl({
   const Icon = showRaw ? EyeOff : Eye;
   return (
     <div className="flex items-center gap-3">
-      {!access.allowed && access.reason && (
-        <span className="hidden text-xs text-ink-faint sm:inline">{access.reason}</span>
-      )}
+      {/* THE REASON IS NOT HERE ANY MORE, and its absence is the fix rather than a
+          regression. It was a `hidden … sm:inline` span in this row, so the ONE reader
+          the doctrine designs for — a small-business owner on a mid-range Android phone
+          (§8.6) — met a greyed control with nothing beside it and no way to reach the
+          `title` either: a disabled button takes no focus and a touch screen has no
+          hover. It now renders in the card body as a `RestrictionNote`
+          (`TranscriptCard`), at every width, which is §4's "on the control AND on the
+          screen". Two spellings of one sentence in one card would be the §5 defect, so
+          there is one, and this row keeps only the `title`. */}
       <button
         type="button"
         // Enabled while `pending`: someone who pressed this and changed their mind must

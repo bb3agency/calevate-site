@@ -28,6 +28,8 @@ from pathlib import Path
 import pytest
 from apps.api.core.settings import get_settings
 from apps.api.db.session import (
+    _CONNECT_ARGS,
+    _MIGRATION_SOCKET_ARGS,
     LONG_RUNNING_STATEMENT_TIMEOUT_MS,
     MIGRATION_LOCK_TIMEOUT_MS,
     MIGRATION_STATEMENT_TIMEOUT_MS,
@@ -227,6 +229,56 @@ def test_the_migration_connection_carries_both_gucs() -> None:
             assert conn.exec_driver_sql("SHOW statement_timeout").scalar() == "5min"
     finally:
         engine.dispose()
+
+
+def test_the_migration_engine_carries_socket_bounds_libpq_actually_accepted() -> None:
+    """The DEPLOY path must not be the one connect nothing bounds.
+
+    `alembic/env.py` builds its own `create_engine` and inherited none of the app engine's
+    `_CONNECT_ARGS`, so a connect to an accepting-but-blackholed socket waited on the
+    kernel with nothing under it. A deploy that never returns reads like a deploy that is
+    still working, which is why this path is worth a test of its own.
+
+    READ BACK OFF THE LIVE CONNECTION rather than compared to the dict we just built: a
+    dict-vs-dict assertion would pass for a misspelled libpq key, and the whole risk here
+    is a name that looks right. `PGconn.info.get_parameters()` reports what libpq parsed,
+    so a bad name fails at connect and a silently-ignored one shows up absent.
+    """
+    from sqlalchemy import create_engine
+
+    url = get_settings().database_url.replace("+asyncpg", "+psycopg")
+    engine = create_engine(url, connect_args=migration_connect_args())
+    try:
+        with engine.connect() as conn:
+            applied = conn.connection.dbapi_connection.info.get_parameters()  # type: ignore[union-attr]
+    finally:
+        engine.dispose()
+
+    assert applied.get("connect_timeout") == "5", applied
+    assert applied.get("tcp_user_timeout") == "30000", applied
+    assert applied.get("keepalives_idle") == "30", applied
+
+
+def test_the_migration_socket_bounds_cannot_preempt_a_long_index_build() -> None:
+    """The bound that would be a REGRESSION if it were tight, stated as arithmetic.
+
+    A migration legitimately holds a connection for minutes (24 revisions run `CREATE INDEX
+    CONCURRENTLY`). The failure to avoid is a socket bound firing on a HEALTHY long build
+    and abandoning a chain half-applied — strictly worse than the hang this fix removes. So
+    every socket bound here must outlast the statement budget's own unit of patience, and
+    the keepalive ladder must exceed the app engine's, which is derived against a 500ms ack
+    budget this path does not have.
+    """
+    ladder_s = int(_MIGRATION_SOCKET_ARGS["keepalives_idle"]) + (
+        int(_MIGRATION_SOCKET_ARGS["keepalives_interval"])
+        * int(_MIGRATION_SOCKET_ARGS["keepalives_count"])
+    )
+    assert ladder_s >= 60, "a migration connection sits idle for minutes; 2s probes are noise"
+    assert int(_MIGRATION_SOCKET_ARGS["connect_timeout"]) > _CONNECT_ARGS["connect_timeout"], (
+        "the deploy path connects to a Postgres that may still be warming; the app "
+        "engine's value is justified by an already-running, co-located server"
+    )
+    assert int(_MIGRATION_SOCKET_ARGS["tcp_user_timeout"]) > _CONNECT_ARGS["tcp_user_timeout"]
 
 
 def test_the_migration_lock_wait_is_shorter_than_the_migration_statement_budget() -> None:

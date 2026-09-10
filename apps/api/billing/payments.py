@@ -186,6 +186,7 @@ from apps.api.billing.credit_packs import (
     CreditPack,
     pack_by_id,
 )
+from apps.api.billing.lots import split_meta
 from apps.api.billing.rates import MONEY_Q, ROUNDING
 from apps.api.billing.service import (
     Balance,
@@ -196,6 +197,7 @@ from apps.api.billing.service import (
     lock_tenant_credits,
     rate_card_at,
     record_entry,
+    remove_credit_from_lots,
     to_paise,
 )
 from apps.api.compliance.audit import write_audit
@@ -1632,22 +1634,42 @@ async def _claw_back_pack_bonus(
     if delta <= 0:
         return Decimal("0")
 
+    # THE BONUS'S OWN LOT, taken back in the same transaction and BEFORE the ledger row,
+    # because the row carries the answer in `meta.lots` — `credit_routes`' adjustment
+    # ordering, for the same reason (D-561). `_grant_pack_bonus` opened a `bonus_legacy`
+    # lot named by `grant.entry_id`; without this the clawback debited the wallet and left
+    # that lot standing, and the runway kept quoting minutes the bonus no longer funded.
+    #
+    # ⚠ UNREACHABLE TODAY, AND FIXED ANYWAY: every pack in `credit_packs.PACK_CATALOGUE`
+    # carries `bonus_pct = 0` (D-547 made the bigger pack a CHEAPER MINUTE rather than
+    # bonus credits), so `_grant_pack_bonus` writes nothing and the early return above
+    # fires on `grant is None` for every purchase this build can make. The day a non-zero
+    # bonus returns, the defect returns with it — and it would return silently.
+    removal = await remove_credit_from_lots(
+        session,
+        tenant_id=refund.tenant_id,
+        corrected_entry_id=grant.entry_id,
+        amount_inr=delta,
+    )
+    clawback_meta: dict[str, Any] = {
+        "kind": PACK_BONUS_CLAWBACK_META_KIND,
+        "source": PROVIDER,
+        "payment_ref": refund.payment_id,
+        "refund_ref": refund.refund_id,
+        # Digit STRINGS (hard rule 7): a rupee amount that goes into JSON as a number
+        # comes back a float in some reader.
+        "granted_inr": str(grant.amount_inr),
+        "clawed_back_inr": str(delta),
+    }
+    if removal.splits:
+        clawback_meta["lots"] = split_meta(removal.splits)
     balance = await record_entry(
         session,
         tenant_id=refund.tenant_id,
         delta=-delta,
         reason="bonus",
         ref=refund.refund_id,
-        meta={
-            "kind": PACK_BONUS_CLAWBACK_META_KIND,
-            "source": PROVIDER,
-            "payment_ref": refund.payment_id,
-            "refund_ref": refund.refund_id,
-            # Digit STRINGS (hard rule 7): a rupee amount that goes into JSON as a number
-            # comes back a float in some reader.
-            "granted_inr": str(grant.amount_inr),
-            "clawed_back_inr": str(delta),
-        },
+        meta=clawback_meta,
         allow_negative=True,
     )
     await write_audit(
@@ -1664,6 +1686,10 @@ async def _claw_back_pack_bonus(
             "refund_ref": refund.refund_id,
             "amount_inr": str(delta),
             "balance_after_inr": str(balance.amount_inr),
+            # What the lots could NOT absorb, because the bonus was already spoken. It
+            # becomes wallet overdraft, and an operator reading this audit row is the only
+            # person who can tell the client why their dialling stopped.
+            "lot_overdraft_inr": str(removal.overdraft_inr),
         },
     )
     log.info(
@@ -1694,6 +1720,28 @@ async def credit_refund(
     Refusing to record a refund that already happened at the provider would hide a real
     money movement — the same argument `record_entry` makes for usage recorded after a
     call. `TopUpResult.recorded` is False on a replay; `balance` is the wallet after.
+
+    **AND IT TAKES THE CREDIT OFF THE LOTS, WHICH IT DID NOT UNTIL D-561.** The debit
+    landed on `credit_ledger` alone and the purchase's lot stood untouched, which is not a
+    cosmetic gap: the lots are what price a minute and what the runway is summed from, so a
+    refunded client kept a phantom lot at the head of the FIFO queue and their NEXT top-up
+    was drawn down at the refunded purchase's rate (`lots.read_open_lots` orders on
+    `opened_at` and selects on `closed_at IS NULL` alone — a lot nobody emptied stays
+    first), while `wallet.read_runway` and the low-balance email quoted minutes nobody had
+    paid for. Plan invariant §2.3.1 — the balance equals `SUM(credits_remaining)` — was
+    false from the moment the refund landed.
+
+    `remove_credit_from_lots` is the one door and it is called BEFORE the ledger row, under
+    the lock already held and in the same transaction, exactly as the operator adjustment
+    calls it (`credit_routes`), because the row carries the answer in `meta.lots`. It needs
+    no partial/full branch of its own: a refund SMALLER than the lot restates it downwards
+    at its own frozen rates (which is what the client was sold, and a refund does not
+    re-price what is left), and one that takes the whole purchase spends the lot off the
+    queue at face value — `credits_total > 0` is a CHECK and a lot of nothing cannot be
+    expressed as a restatement. An OVERDRAWN wallet needs no branch either: the credit is
+    already spoken, the restatement floors the lot at zero and hands back the shortfall,
+    the rest of the queue absorbs what it can, and what reaches no lot is overdraft — which
+    is precisely the state the negative balance this method already allows is recording.
     """
     await lock_tenant_credits(session, refund.tenant_id)
 
@@ -1718,13 +1766,31 @@ async def credit_refund(
             recorded=False,
         )
 
+    # The lot this refund reverses is the one THIS PAYMENT opened, found through its paid
+    # ledger row. `None` when the wallet has no such row — a refund of a payment recorded
+    # before lots existed, or one that reached us without its top-up — and that is a real
+    # state rather than an error: the credit then comes off the FIFO queue at face value.
+    paid = await find_topup(session, tenant_id=refund.tenant_id, ref=refund.payment_id)
+    removal = await remove_credit_from_lots(
+        session,
+        tenant_id=refund.tenant_id,
+        corrected_entry_id=None if paid is None else paid.entry_id,
+        amount_inr=refund.amount_inr,
+    )
+    refund_meta: dict[str, Any] = {
+        "source": PROVIDER,
+        "currency": refund.currency,
+        "payment_ref": refund.payment_id,
+    }
+    if removal.splits:
+        refund_meta["lots"] = split_meta(removal.splits)
     balance = await record_entry(
         session,
         tenant_id=refund.tenant_id,
         delta=-refund.amount_inr,
         reason="refund",
         ref=refund.refund_id,
-        meta={"source": PROVIDER, "currency": refund.currency, "payment_ref": refund.payment_id},
+        meta=refund_meta,
         allow_negative=True,
     )
     written = await find_entry_by_ref(
@@ -1746,6 +1812,10 @@ async def credit_refund(
             "payment_ref": refund.payment_id,
             "amount_inr": str(refund.amount_inr),
             "balance_after_inr": str(balance.amount_inr),
+            # What no lot could absorb, because the credit was already spent. It is the
+            # wallet overdraft this refund created, and nothing else tells an operator that
+            # the client's dialling is about to stop.
+            "lot_overdraft_inr": str(removal.overdraft_inr),
         },
     )
     log.info(

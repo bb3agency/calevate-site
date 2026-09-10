@@ -100,8 +100,20 @@ def test_the_estimate_is_decimal_inr_and_bounds_the_run() -> None:
     assert isinstance(estimate.low_inr, Decimal)
     # 12 minutes at the TRD §10 all-in target.
     assert estimate.low_inr == Decimal("36.00")
-    # 12 minutes at 6.00c/min x 88 + Rs 1.90 BYOK = Rs 7.18/min.
-    assert estimate.high_inr == Decimal("86.16")
+    # 12 minutes at 6.00c/min x 88 + Rs 4.83 BYOK = Rs 10.11/min.
+    #
+    # The BYOK leg is the SUM of three separately-named legs, each struck at the TOP of its
+    # TRD §10.1 row (STT 0.50 + the dearer voice tier 3.09 + the dearest LLM leg 1.24). It
+    # was one Rs 1.90 literal whose LLM leg was Rs 0.00 citing the §10.1 correction that
+    # withdrew exactly that figure, and whose TTS leg imputed 467 chars/min inside a band
+    # the cost model refuses to collapse. Asserted as the SUM and again leg by leg, so a
+    # future edit cannot restore the ceiling's total while quietly moving what it is made
+    # of — which is how the Rs 0.00 leg survived review in the first place.
+    assert Decimal("4.83") == safety.BYOK_INR_PER_MIN
+    assert Decimal("0.50") == safety.PILOT_STT_INR_PER_MIN
+    assert Decimal("3.09") == safety.PILOT_TTS_INR_PER_MIN
+    assert Decimal("1.24") == safety.PILOT_LLM_INR_PER_MIN
+    assert estimate.high_inr == Decimal("121.32")
     assert estimate.high_inr > estimate.low_inr
     # Money serializes as a STRING: an estimate that round-trips through a JSON float
     # has already been rounded by someone who was not asked (hard rule 7).

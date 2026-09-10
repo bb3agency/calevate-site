@@ -1439,6 +1439,227 @@ def tts_rate_card_drift(text: str | None = None) -> list[str]:
     return failures
 
 
+# --- 4f. TRD §10's SUMMARY against §10.1's card, on the TTS leg ---------------------
+#
+# WHY THIS EXISTS, and it is not a second copy of 4b. 4b diffs §10.1's TABLE against the
+# constants the biller holds, and it passed for a full day while §10's own SUMMARY
+# PARAGRAPH — the first per-minute figure any reader meets, eleven lines under the section
+# heading — priced the Cartesia voice at **₹1.8628/min** on a basis §10.1 had already
+# retired (the Startup fee-over-allotment average; D-556 replaced it with the vendor's
+# overage rate, ₹5.7200/1,000 chars → ₹2.06-3.09). The summary is PROSE, so 4b never read
+# it, and §10.1's own line "this paragraph is a summary and §10.1 is the rate card" is a
+# precedence rule with nothing enforcing it.
+#
+# HOW THIS STAYS ROBUST AGAINST ORDINARY PROSE EDITS, which matters more than the check:
+#
+#   * **The leg is located structurally, not by matching a sentence.** The summary is a
+#     `·`-separated list of legs; this splits on that separator and takes the segment that
+#     names TTS. Rewording the leg, reordering the legs, or adding a leg changes nothing.
+#   * **Inline code spans are stripped before any number is read**, so a symbol like
+#     `cartesia_cost_inr_per_call_minute` or a file path with digits can never be read as
+#     a price. (Symbol names are 4g's job, not this one's.)
+#   * **The product names §10.1 uses are stripped too**, so `Sonic 3.5` cannot be read as
+#     ₹3.50, and only figures with TWO OR MORE decimal places count — a rupee figure in
+#     this document always has them, a version number never does. Both guards are belt and
+#     braces on purpose: either alone would let one spelling through.
+#   * **It compares SETS of band endpoints, not a rendered string.** "1.08-1.62 on the
+#     Sarvam voice or 2.06-3.09 on the Cartesia voice" and any rewrite of it that quotes
+#     the same four figures both pass. What fails is a figure the card does not contain
+#     (a stale price) or a card figure the summary omits (a rung quietly dropped).
+#
+# So the failure mode it catches is exactly "somebody corrected the card and not the
+# paragraph above it", and the false-positive mode is "somebody quoted a price the card
+# does not state", which is the thing being forbidden.
+
+SUMMARY_HEADING = "## 10. Cost Model"
+
+#: The leg separator §10's per-minute summary is written with.
+_LEG_SEPARATOR = "·"
+
+#: A rupee figure in this document: two or more decimal places. `Sonic 3.5`, `v3`, `D-547`
+#: and `§10.1` all have fewer or none, which is what keeps them out without a stoplist.
+_SUMMARY_MONEY = re.compile(r"(?<![0-9.])([0-9][0-9,]*\.[0-9]{2,})")
+
+#: The THIRD cell of a §10.1 TTS row, which is the per-call-minute column: a row reads
+#: `| TTS - Cartesia **Sonic 3.5** *(..)* | Rs 5.7200 / 1,000 chars | **Rs 2.06-3.09** |`.
+#: The en dash is spelled `\u2013` for the same reason `_DOC_TTS_BAND` spells it that way.
+#: Read cell-wise rather than by one big
+#: regex because cell ONE of that row quotes the RETIRED band inside its correction note,
+#: and a pattern that scanned the whole line would read the retired figures as current.
+_PER_MINUTE_BAND = re.compile(
+    r"₹?\s*([0-9][0-9,]*\.[0-9]{2,})\s*[\u2013-]\s*₹?\s*([0-9][0-9,]*\.[0-9]{2,})"
+)
+
+
+def _strip_code_spans(text: str) -> str:
+    return re.sub(r"`[^`]*`", " ", text)
+
+
+def doc_tts_per_minute_bands(text: str | None = None) -> dict[str, tuple[Decimal, Decimal]]:
+    """§10.1's PER-CALL-MINUTE column for each TTS rung, as `{tier: (low, high)}`.
+
+    The third cell only. See `_PER_MINUTE_BAND` for why the whole row is not scanned.
+    """
+    document = text if text is not None else TRD.read_text(encoding="utf-8")
+    body = _section(document, TTS_RATE_HEADING, "\n### ")
+    if body is None:
+        return {}
+    bands: dict[str, tuple[Decimal, Decimal]] = {}
+    for line in body.splitlines():
+        if not line.lstrip().startswith("|"):
+            continue
+        cells = line.split("|")
+        if len(cells) < 4:
+            continue
+        key = _tts_row_key(re.sub(r"\*\(.*", "", cells[1]).replace("TTS", "").replace("—", ""))
+        for row_key, tier in TTS_DOC_ROW_TO_TIER.items():
+            if row_key not in key:
+                continue
+            found = _PER_MINUTE_BAND.search(cells[3])
+            if found:
+                bands[tier] = (_decimal(found.group(1)), _decimal(found.group(2)))
+    return bands
+
+
+def doc_summary_tts_segment(text: str | None = None) -> str | None:
+    """§10's per-minute summary, narrowed to the TTS leg. `None` if it cannot be found.
+
+    `None` is a FAILURE upstream, never a pass: `tts_summary_drift` says so, and
+    `blind_spots` floors it as well, because a summary this cannot see is a summary that
+    can say anything.
+    """
+    document = text if text is not None else TRD.read_text(encoding="utf-8")
+    body = _section(document, SUMMARY_HEADING, "\n### ")
+    if body is None:
+        return None
+    for paragraph in body.split("\n\n"):
+        if "Per-minute variable" not in paragraph:
+            continue
+        for segment in paragraph.split(_LEG_SEPARATOR):
+            if "TTS" in segment:
+                return segment
+    return None
+
+
+def tts_summary_drift(text: str | None = None) -> list[str]:
+    """§10's summary paragraph against §10.1's per-call-minute column. Both directions."""
+    card = doc_tts_per_minute_bands(text)
+    segment = doc_summary_tts_segment(text)
+    if segment is None:
+        return [
+            f"{_rel(TRD)} §10's per-minute summary has no TTS leg this check can find — "
+            "either the 'Per-minute variable' paragraph moved or the leg separator "
+            f"({_LEG_SEPARATOR!r}) changed. A summary this check cannot read is a summary "
+            "that can price the TTS leg at anything, which is the defect it exists for"
+        ]
+    if not card:
+        return [
+            f"{_rel(TRD)} §10.1's per-call-minute column yielded no TTS band — the rate "
+            "card's table shape moved, so this check has nothing to compare the summary "
+            "against and would pass on any figure"
+        ]
+    prose = _strip_code_spans(segment)
+    for row_key in TTS_DOC_ROW_TO_TIER:
+        # `Sonic 3.5` out, so `3.5` cannot be mistaken for a price. The row keys are
+        # whitespace- and bold-stripped, so the doc spelling is rebuilt loosely.
+        prose = re.sub(
+            r"\**".join(re.escape(character) for character in row_key),
+            " ",
+            prose,
+            flags=re.IGNORECASE,
+        )
+    quoted = {_decimal(figure) for figure in _SUMMARY_MONEY.findall(prose)}
+    expected = {endpoint for band in card.values() for endpoint in band}
+    card_rendered = ", ".join(
+        f"{tier} Rs {low} to Rs {high}" for tier, (low, high) in sorted(card.items())
+    )
+    failures: list[str] = []
+    for figure in sorted(quoted - expected):
+        failures.append(
+            f"{_rel(TRD)} §10's per-minute summary prices the TTS leg at Rs {figure}/min, "
+            f"which is not an endpoint of any band on §10.1's rate card ({card_rendered}). "
+            "§10.1 is the rate card and says so in its own words - the summary is what "
+            "moved, or failed to"
+        )
+    for tier, (low, high) in sorted(card.items()):
+        missing = sorted({low, high} - quoted)
+        if missing:
+            failures.append(
+                f"{_rel(TRD)} §10.1 prices the {tier} TTS rung at Rs {low} to Rs {high} "
+                "per call-minute and §10's summary does not quote "
+                f"{' or '.join(f'Rs {figure}' for figure in missing)} - a rung the card "
+                "carries has been dropped from, or never reached, the paragraph most "
+                "readers stop at"
+            )
+    return failures
+
+
+# --- 4g. `billing/rates.py::<name>` citations in the TRD resolve to real names ---------
+#
+# WHY THIS EXISTS. The same paragraph 4f now guards cited TWO symbols that have never
+# existed under those names — `cartesia_plan_inr_per_call_minute` and
+# `CARTESIA_TTS_INR_PER_10K_CHARS` — and a reader following either lands nowhere, on the
+# money document, next to a figure. A citation that resolves to nothing is worse than no
+# citation: it reads as evidence.
+#
+# WHY IT IS SCOPED TO THE TRD AND TO ONE MODULE, deliberately and not from timidity. The
+# same defect exists today in `docs/BUILD-LOG.md` (`client_billed_inr`, a symbol
+# `billing/rates.py` no longer defines), which is a historical narrative this session did
+# not own and could not correct; widening this check now would turn CI red on a file
+# nobody in this change is able to fix, which is how a gate gets waived instead of obeyed.
+# The TRD is where a dead symbol reaches money, so that is where the gate goes. Widening it
+# to the rest of `docs/` is a one-line change once BUILD-LOG's citation is corrected.
+#
+# AST, NOT IMPORT: the question is "does this module DEFINE this name", and an import would
+# also answer yes for everything `rates.py` imports (`Decimal`, `Final`), which is not the
+# same question and would let a real dead citation through.
+#
+# WHAT THIS DELIBERATELY DOES NOT CATCH, said plainly so the next reader does not assume
+# more cover than there is: a BARE backticked constant with no module qualifier. The second
+# dead symbol in the defect that produced this section, `CARTESIA_TTS_INR_PER_10K_CHARS`,
+# was written that way, and this check does not see it. Resolving every bare SCREAMING_CASE
+# token in the TRD against one module would be wrong in both directions - the doc names
+# constants from a dozen modules, and `rates.py` is not the namespace for any of them. The
+# answer available here is to make the QUALIFIED spelling the one the doc uses, which is
+# what the §10 summary now does; the bare spelling stays a human-review surface.
+
+#: `` `billing/rates.py::name` ``, with or without the `apps/api/` prefix and with or
+#: without the `.py`, which are the three spellings this repo's docs actually use.
+_RATES_CITATION = re.compile(r"`(?:apps/api/)?billing/rates(?:\.py)?::([A-Za-z_][A-Za-z0-9_]*)")
+
+RATES_MODULE = REPO_ROOT / "apps" / "api" / "billing" / "rates.py"
+
+
+def rates_module_names(path: Path | None = None) -> set[str]:
+    """Every name `billing/rates.py` defines at module level."""
+    source = (path or RATES_MODULE).read_text(encoding="utf-8")
+    names: set[str] = set()
+    for node in ast.parse(source).body:
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            names.add(node.name)
+        elif isinstance(node, ast.Assign):
+            names.update(target.id for target in node.targets if isinstance(target, ast.Name))
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
+    return names
+
+
+def rates_citation_drift(text: str | None = None) -> list[str]:
+    """TRD citations of `billing/rates.py::<name>` against what that module defines."""
+    document = text if text is not None else TRD.read_text(encoding="utf-8")
+    defined = rates_module_names()
+    if not defined:
+        return [
+            f"{_rel(RATES_MODULE)} parsed to no module-level names — this check has no "
+            "registry to compare against and would accept any citation at all"
+        ]
+    return [
+        f"{_rel(TRD)} cites `billing/rates.py::{name}`, which that module does not "
+        "define. A citation that resolves to nothing reads as evidence and is not"
+        for name in sorted(set(_RATES_CITATION.findall(document)) - defined)
+    ]
+
+
 # --- 4e. the TTS speaking-rate band the cost floor rests on ------------------------
 #
 # WHY THIS EXISTS. 4b guards the PRICE of a character. Nothing guarded HOW MANY of them a
@@ -2133,6 +2354,29 @@ def blind_spots() -> list[str]:
             f"the {sorted(code_tts_rates())} rungs `billing/rates.py` bills — the table's "
             "shape moved, so section 4b is comparing against a partial reading"
         )
+    # 4f's own subject, floored for the reason 4b's is: the summary paragraph is PROSE, so
+    # a reword that moves the leg separator or the "Per-minute variable" opener leaves
+    # `doc_summary_tts_segment` returning None and 4f reporting OK on any price. It already
+    # reports that as a failure itself; this is the second reading, against the card, so a
+    # summary that parses but has lost a rung cannot pass either.
+    summary_bands = doc_tts_per_minute_bands()
+    if set(summary_bands) != set(code_tts_rates()):
+        failures.append(
+            f"{_rel(TRD)} §10.1's per-call-minute column parsed to {sorted(summary_bands)} "
+            f"against the {sorted(code_tts_rates())} rungs `billing/rates.py` bills — "
+            "section 4f is comparing §10's summary against a partial card"
+        )
+    if doc_summary_tts_segment() is None:
+        failures.append(
+            f"{_rel(TRD)} §10's per-minute summary yielded no TTS leg — section 4f cannot "
+            "see the paragraph it guards"
+        )
+    if len(rates_module_names()) < 20:
+        failures.append(
+            f"only {len(rates_module_names())} module-level name(s) parsed out of "
+            f"{_rel(RATES_MODULE)} — section 4g's registry has collapsed and every "
+            "citation of it would read as resolving"
+        )
     constants = capability_constants()
     if len(constants) < 3:
         failures.append(
@@ -2510,6 +2754,14 @@ def main() -> int:
         ("a compliance rule name the code no longer has", unknown_rule_names()),
         ("the rate-zone table and the nginx template disagree", rate_zone_drift()),
         ("the cost model and the biller price a TTS rung differently", tts_rate_card_drift()),
+        (
+            "TRD §10's summary and §10.1's rate card price the TTS leg differently",
+            tts_summary_drift(),
+        ),
+        (
+            "the TRD cites a `billing/rates.py` name the module does not define",
+            rates_citation_drift(),
+        ),
         ("the cost model and the code disagree on the in-call LLM leg", llm_cost_curve_drift()),
         ("the cost model and the biller price the STT leg differently", stt_rate_card_drift()),
         (
@@ -2543,6 +2795,7 @@ def main() -> int:
         f"{len(compliance_section_tokens())} names in SEC-COMP §3 still in the code, "
         f"{len(doc_rate_zones())} rate zones declared, "
         f"{len(doc_tts_rates())} TTS rungs priced identically by TRD §10.1 and the biller, "
+        f"{len(doc_tts_per_minute_bands())} of them quoted identically by §10's summary, "
         f"{len(doc_stt_rates_per_hour()) + len(doc_stt_rates_per_minute())} STT rate "
         f"statements in TRD §10.1 agreeing with `STT_INR_PER_HOUR`, "
         f"{len(doc_tts_speaking_rate_bands())} statements of the assumed TTS speaking-rate "

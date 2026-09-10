@@ -635,7 +635,13 @@ describe("the counts come from the server or are not shown", () => {
         true,
       );
     });
-    await screen.findByText(/matching your search/);
+    // WAS `/matching your search/`. The header count and the stage tally now name the
+    // FILTERS rather than the search alone, and that is the fix rather than a reword:
+    // both sentences were derived from `search` while the screen sends five filters, so
+    // a count narrowed by the owner chip or a facet value printed as a bare "12 leads"
+    // and the tally above it claimed to be about the whole account
+    // (`leads/leadFilters.ts`, `tests/leadsFilterScope.test.tsx`).
+    await screen.findByText(/matching your filters/);
 
     // Awaited rather than read off `container` synchronously: the searched page is a
     // second request, and the sentence is about ITS total.
@@ -643,7 +649,7 @@ describe("the counts come from the server or are not shown", () => {
     expect(container.textContent).not.toContain("every lead in the account");
     // The searched population is still stated — as the search's own count, where it is
     // true — so dropping the account figure does not leave the client with nothing.
-    expect(container.textContent).toContain("Matching your search, by stage:");
+    expect(container.textContent).toContain("Matching these filters, by stage:");
   });
 
   it("does not count the assignee filter off the page either", async () => {

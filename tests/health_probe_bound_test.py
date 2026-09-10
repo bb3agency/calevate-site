@@ -77,7 +77,7 @@ async def test_a_blackholed_database_is_answered_not_waited_for(
     path: str, blackholed_database: None, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """THE DEFECT, as the one fact that decides it: the probe returns."""
-    monkeypatch.setattr(health_module, "runtime_config_missing_keys", lambda _settings: [])
+    monkeypatch.setattr(health_module, "readiness_missing_keys", lambda _service, _settings: [])
     monkeypatch.setattr(health_module, "_queue_stats", _no_queue)
 
     started = time.monotonic()
@@ -100,7 +100,7 @@ async def test_a_slow_queue_read_is_reported_as_redis_down(
     """`_queue_stats` is the third unbounded wait on this surface. A Redis that accepts
     the connection and then stops talking must read as `redis_down`, not as a readiness
     probe that never resolves."""
-    monkeypatch.setattr(health_module, "runtime_config_missing_keys", lambda _settings: [])
+    monkeypatch.setattr(health_module, "readiness_missing_keys", lambda _service, _settings: [])
 
     async def hanging_queue() -> tuple[int, float | None]:
         await _hang()
@@ -128,7 +128,7 @@ async def test_the_probe_budget_stays_under_the_pool_wait() -> None:
 async def test_a_healthy_deployment_still_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
     """The positive half: a bound that fires when it should not would report a healthy
     fleet as down, which is a worse outage than the one it prevents."""
-    monkeypatch.setattr(health_module, "runtime_config_missing_keys", lambda _settings: [])
+    monkeypatch.setattr(health_module, "readiness_missing_keys", lambda _service, _settings: [])
     monkeypatch.setattr(health_module, "_queue_stats", _no_queue)
 
     response = await _get("/healthz")

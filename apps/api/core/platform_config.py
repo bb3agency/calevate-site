@@ -813,6 +813,19 @@ _snapshot = ConfigSnapshot(version=_UNKNOWN_VERSION, overrides={}, loaded_at=Non
 # work and could install the OLDER of two reads last.
 _refresh_lock = asyncio.Lock()
 _refresher: asyncio.Task[None] | None = None
+#: Does THIS process decrypt the stored credentials on every refresh?
+#:
+#: Set by `start_config_refresher(with_secrets=...)`, which is the only adoption door
+#: this module has. It is a process-wide fact rather than an argument to `refresh`
+#: because it is a property of the DEPLOYABLE — api and the worker hold vendor
+#: credentials and use them, voice-runtime holds none and calls no vendor — and a
+#: per-call argument would let one write-through caller in a process re-open a door its
+#: service closed at boot.
+#:
+#: Default True: every consumer that existed before this flag decrypts, so adopting the
+#: poller stays the one line `start_config_refresher`'s docstring promises, and a service
+#: that genuinely needs credentials cannot lose them by forgetting a keyword.
+_secrets_adopted = True
 
 
 def snapshot() -> ConfigSnapshot:
@@ -1113,7 +1126,16 @@ async def refresh(*, force: bool = False) -> ConfigSnapshot:
                     _snapshot = replace(_snapshot, degraded=False)
                 return _snapshot
             rows = await _read_rows()
-            secrets = await _read_secrets()
+            # NOT UNCONDITIONAL, AND IT USED TO BE — which put `ops.secret_service`, the
+            # AES-GCM unseal and a `platform_secrets` SELECT into voice-runtime, a service
+            # whose own FORBIDDEN list says "the engine holds our keys, not this service"
+            # (`tests/voice_runtime_import_surface_test.py`). `_read_secrets` imports that
+            # module lazily, so the boot graph never saw it and the guard never fired: the
+            # poll opened the door three seconds after the guard finished looking.
+            # `None` rather than an empty `ResolvedSecrets`: that class lives in the
+            # module this branch exists to avoid importing, so the empty value could only
+            # be built by doing the thing we are declining to do.
+            secrets = await _read_secrets() if _secrets_adopted else None
 
             overrides = _resolve(rows, effective_env())
             # SECRETS RIDE THE SAME SENTINEL AND THE SAME LAYER. §6 proposed resolving them
@@ -1126,22 +1148,23 @@ async def refresh(*, force: bool = False) -> ConfigSnapshot:
             # `overrides` now holds live credentials. It is applied to `Settings` and dropped;
             # nothing logs it, nothing serializes it, and `ConfigFieldOut` cannot carry one
             # because `managed_fields()` excludes every credential-shaped key by name.
-            overrides.update(secrets.values)
-            if secrets.unreadable:
-                # A row exists and no configured KEK opens it. The platform keeps running on
-                # whatever the environment or the previous snapshot gave it — but an operator
-                # has to know, because the symptom otherwise presents as "the vendor is
-                # rejecting our key" and sends them to the wrong system entirely.
-                alert(
-                    "CORE_LOGIC",
-                    "platform_secret_unreadable",
-                    detail=(
-                        "Stored credentials could not be decrypted with this deployment's "
-                        "PLATFORM_KEK. Put the outgoing key in PLATFORM_KEK_RETIRED if this "
-                        "follows a rotation."
-                    ),
-                    keys=",".join(secrets.unreadable),
-                )
+            if secrets is not None:
+                overrides.update(secrets.values)
+                if secrets.unreadable:
+                    # A row exists and no configured KEK opens it. The platform keeps running on
+                    # whatever the environment or the previous snapshot gave it — but an operator
+                    # has to know, because the symptom otherwise presents as "the vendor is
+                    # rejecting our key" and sends them to the wrong system entirely.
+                    alert(
+                        "CORE_LOGIC",
+                        "platform_secret_unreadable",
+                        detail=(
+                            "Stored credentials could not be decrypted with this deployment's "
+                            "PLATFORM_KEK. Put the outgoing key in PLATFORM_KEK_RETIRED if this "
+                            "follows a rotation."
+                        ),
+                        keys=",".join(secrets.unreadable),
+                    )
             apply_platform_overrides(overrides)
             _snapshot = ConfigSnapshot(
                 version=version,
@@ -1195,9 +1218,23 @@ async def _poll_forever() -> None:
         await asyncio.sleep(_POLL_INTERVAL_S)
 
 
-def start_config_refresher() -> None:
+def start_config_refresher(*, with_secrets: bool = True) -> None:
     """Begin polling in this process. Idempotent — call it from any lifespan, once or ten
     times.
+
+    `with_secrets=False` adopts CONFIGURATION ONLY: the poll reads `platform_config_version`
+    and `platform_settings` and stops there. It is the shape voice-runtime needs and the
+    one it now uses, and the reason is hard rule 3 rather than taste — with secrets on, the
+    poll imports `ops.secret_service` (a FORBIDDEN prefix for that service), SELECTs
+    `platform_secrets` and AES-GCM-unseals every stored vendor credential into a process
+    that calls no vendor and whose own guard says "the engine holds our keys, not this
+    service". A latency-critical webhook receiver holding decrypted copies of the whole
+    credential store is blast radius bought for nothing.
+
+    It is a keyword on the ADOPTION call rather than an argument to `refresh` because it is
+    a property of the deployable, not of a moment: a write-through refresh inside `api`
+    must not be able to re-open a door voice-runtime shut at boot, and there is exactly one
+    line per service where the question is asked.
 
     THIS IS THE WHOLE ADOPTION SURFACE. A deployable that calls it picks up console
     changes within `_POLL_INTERVAL_S`; one that does not runs on env + defaults, exactly
@@ -1210,7 +1247,10 @@ def start_config_refresher() -> None:
     a database read is the opposite of the fail-safe direction chosen above. The task
     reference is held in a module global, so it cannot be garbage-collected mid-flight.
     """
-    global _refresher
+    global _refresher, _secrets_adopted
+    # Recorded BEFORE the idempotence check, so the answer is the last one a service gave
+    # rather than whichever call happened to be first.
+    _secrets_adopted = with_secrets
     if _refresher is not None and not _refresher.done():
         return
     # `get_running_loop`, not `get_event_loop`: the latter is deprecated in 3.12 when no
@@ -1221,7 +1261,14 @@ def start_config_refresher() -> None:
 
 
 async def stop_config_refresher() -> None:
-    """Cancel the poll. For shutdown and for tests that must not leak a task."""
+    """Cancel the poll. For shutdown and for tests that must not leak a task.
+
+    Called from every lifespan that starts one (`apps/api/main.py`,
+    `apps/voice-runtime/main.py`), for the reason `apps/workers/settings.shutdown` gives
+    about its own polls: a poll still running while the session pool it borrows from is
+    torn down logs a failure that reads like a real one, and under `--reload` and in tests
+    each restart otherwise leaks another task against the same stores.
+    """
     global _refresher
     if _refresher is None:
         return
@@ -1232,8 +1279,14 @@ async def stop_config_refresher() -> None:
 
 
 def reset_for_test() -> None:
-    """Drop the snapshot and the override layer. Test seam, named as one."""
-    global _snapshot
+    """Drop the snapshot, the override layer and the credential adoption. Test seam.
+
+    The adoption goes back to its default too: it is a process-global set by
+    `start_config_refresher`, so a test that adopted config-only would otherwise leave
+    every later test in the same interpreter reading a store it never asked to skip.
+    """
+    global _snapshot, _secrets_adopted
+    _secrets_adopted = True
     _snapshot = ConfigSnapshot(
         version=_UNKNOWN_VERSION, overrides={}, loaded_at=None, degraded=False
     )

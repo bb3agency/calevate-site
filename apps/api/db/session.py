@@ -50,6 +50,64 @@ _sessionmaker: async_sessionmaker[AsyncSession] | None = None
 # be the same outage as an unhandled 500 with no alert of its own.
 _POOL_TIMEOUT_S = 5.0
 
+#: SOCKET-LEVEL BOUNDS, because none of the deadlines above survive a cancellation.
+#:
+#: THE HOLE. `asyncio.timeout` cancels a task ONCE. Awaits that run in a `finally` or an
+#: `__aexit__` AFTER that cancellation has been delivered are not bounded by it — proved
+#: rather than assumed (`tests/db_socket_bounds_test.py` executes it): a 0.2s
+#: `asyncio.timeout` around a body whose context manager awaits 5s on exit returns after
+#: 5.21s. `apps/voice-runtime/webhook_routes` wraps `_claim_and_enqueue` in
+#: `asyncio.timeout(_DURABLE_DEADLINE_S)` and its body is `async with untenanted_session()`,
+#: whose exit issues a ROLLBACK over this connection. So the durable deadline bounds the
+#: WORK and not the unwind.
+#:
+#: The SLOW-database case is already bounded and tested (`tests/voice_runtime_ack_budget_
+#: test.py`): psycopg's cancel travels a live socket, and `statement_timeout` and
+#: `pool_timeout` cover the rest. The case with nothing under it is a socket ACCEPTED AND
+#: THEN BLACKHOLED — a dropped NAT mapping, a firewall change, a host that stops answering
+#: without an RST, the shape `core/health.py` already names. There the connect, or the
+#: ROLLBACK, waits on the kernel: with no `connect_args` a connect to an accepting,
+#: never-answering socket hung for the whole 30s of an outer bound, and with
+#: `connect_timeout=2` it failed in 2.01s. Measured 10 Sep 2026 against psycopg 3.3.4
+#: through this same `create_async_engine`.
+#:
+#: ONE SET FOR ALL THREE DEPLOYABLES, and that was the open question. `api`, `workers` and
+#: `voice-runtime` share this engine and have different tolerances for a slow connect —
+#: but a bound is only wrong for a caller if it fires on a HEALTHY one, and no deployable
+#: has a healthy connect anywhere near two seconds (Postgres is co-located; the receiver
+#: holds a connection for ~10ms uncontended). What differs between them is what they do
+#: AFTER the failure, and that is already per-service: the receiver answers 503 and leaves
+#: the key claimable for the reconciliation poller, arq retries the job three times and
+#: DLQs it, a request returns problem+json. A per-service value would be a second
+#: mechanism deciding the same thing, plumbed through a module none of the three
+#: configures. So: one set, tightest tolerance wins.
+#:
+#: THE VALUES, each derived against a bound this repo already has:
+#:  * `connect_timeout` 2 — libpq's minimum meaningful value (it clamps anything under 2)
+#:    and equal to the receiver's `_DURABLE_DEADLINE_S` and to `health._PROBE_BUDGET_S`. It
+#:    must be UNDER `_POOL_TIMEOUT_S` (5s): SQLAlchemy's `pool_timeout` bounds the wait for
+#:    a free slot and NOT the connect that happens inside the checkout, so an unbounded
+#:    connect is the one wait on this path that outlives every other bound. Seconds, an
+#:    integer — libpq takes no finer unit.
+#:  * `tcp_user_timeout` 5000ms — the knob for the ROLLBACK case, and not the keepalives.
+#:    Keepalives probe an IDLE socket; a ROLLBACK has unacknowledged data in flight, so it
+#:    is TCP retransmission that governs, and `TCP_USER_TIMEOUT` is what bounds that
+#:    (Linux, PG12+). Five seconds = `_POOL_TIMEOUT_S`: a blackholed connection can never
+#:    outlive the wait a fresh caller would already accept for a new one.
+#:  * keepalives at 2s idle + 3 probes 1s apart ≈ 5s — the same ceiling for the OTHER half,
+#:    a connection sitting IDLE in the pool behind a NAT that has forgotten it. That is the
+#:    failure `pool_pre_ping` catches one round trip late and at the cost of a round trip;
+#:    this catches it before the checkout, so the two are complementary rather than a
+#:    second mechanism for one job.
+_CONNECT_ARGS: dict[str, int] = {
+    "connect_timeout": 2,
+    "tcp_user_timeout": 5000,
+    "keepalives": 1,
+    "keepalives_idle": 2,
+    "keepalives_interval": 1,
+    "keepalives_count": 3,
+}
+
 #: The most pooled connections ONE task may hold at the same time (D-182).
 #:
 #: Two, and every one of the two is a deliberate design: a request's session plus the
@@ -237,20 +295,61 @@ MIGRATION_LOCK_TIMEOUT_MS = 3_000
 MIGRATION_STATEMENT_TIMEOUT_MS = 300_000
 
 
+#: Socket bounds for the MIGRATION engine, deliberately looser than `_CONNECT_ARGS`.
+#:
+#: `alembic/env.py` builds its own `create_engine` and inherited none of the app engine's
+#: bounds, so a connect to an accepting-but-blackholed socket hung the DEPLOY with nothing
+#: under it — the same shape `_CONNECT_ARGS` fixes for the request path, on the one path
+#: where a hang is hardest to notice, because a deploy that never returns looks like a
+#: deploy that is still working.
+#:
+#: WHY NOT JUST REUSE `_CONNECT_ARGS`. Those values are derived against a 500ms ack budget;
+#: this path has none. What a migration needs is "never waits forever", not "fails fast",
+#: and the two failure costs are opposite: a request that gives up too early is retried by
+#: the caller, while a MIGRATION abandoned mid-run leaves a half-applied chain a human has
+#: to reason about at 3am. So each value is the loosest one that still bounds the wait:
+#:  * `connect_timeout` 5 rather than 2 — a deploy legitimately runs while Postgres is
+#:    still warming (compose brings it up in the same sequence), and the app engine's 2s is
+#:    justified by a co-located, already-running server, which is not what this connects to.
+#:  * `tcp_user_timeout` 30_000 rather than 5_000 — it bounds UNACKNOWLEDGED data, which on
+#:    this path means the statement being sent, not the long wait for its result. Thirty
+#:    seconds cannot preempt `MIGRATION_STATEMENT_TIMEOUT_MS` (300s) for a slow `CREATE
+#:    INDEX`, because a client waiting on a result has nothing unacknowledged in flight.
+#:  * keepalives at 30s idle + 3 probes 10s apart ≈ 60s — a migration connection sits idle
+#:    for legitimately long stretches (a 5-minute index build is idle from TCP's point of
+#:    view), so the app engine's 2s idle probe would be noise. The kernel answers a
+#:    keepalive whether or not Postgres is busy, so this cannot kill a healthy long
+#:    migration; it only catches a peer that has genuinely gone away.
+_MIGRATION_SOCKET_ARGS: dict[str, str] = {
+    "connect_timeout": "5",
+    "tcp_user_timeout": "30000",
+    "keepalives": "1",
+    "keepalives_idle": "30",
+    "keepalives_interval": "10",
+    "keepalives_count": "3",
+}
+
+
 def migration_connect_args() -> dict[str, str]:
-    """libpq `options` carrying both GUCs, for the engine `alembic/env.py` builds.
+    """libpq `options` carrying both GUCs, plus socket bounds, for `alembic/env.py`.
 
     A CONNECT-TIME option rather than two `SET` statements after connecting, because a
     `SET` is transactional: `transaction_per_migration=True` gives each revision its own
     transaction, and a revision that rolls back would roll the GUCs back with it, leaving
     the rest of the run unprotected in exactly the situation where protection matters.
     Options passed in the connection string cannot be undone by a rollback.
+
+    The socket bounds ride the same dict because they are the same kind of thing — a
+    property of the connection, not of a statement — and because one function returning
+    everything `env.py` needs is the only way this stays true the next time somebody adds
+    a bound. See `_MIGRATION_SOCKET_ARGS` for why they are not `_CONNECT_ARGS`.
     """
     return {
         "options": (
             f"-c lock_timeout={MIGRATION_LOCK_TIMEOUT_MS} "
             f"-c statement_timeout={MIGRATION_STATEMENT_TIMEOUT_MS}"
-        )
+        ),
+        **_MIGRATION_SOCKET_ARGS,
     }
 
 
@@ -352,6 +451,8 @@ def get_engine(settings: Settings | None = None) -> AsyncEngine:
             pool_timeout=_POOL_TIMEOUT_S,
             pool_pre_ping=True,
             hide_parameters=True,
+            # The only wait on this path with nothing above it — see `_CONNECT_ARGS`.
+            connect_args=dict(_CONNECT_ARGS),
         )
         _sessionmaker = async_sessionmaker(_engine, expire_on_commit=False)
     return _engine

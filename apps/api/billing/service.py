@@ -1324,9 +1324,21 @@ def _overdraft_of(splits: Sequence[credit_lots.LotSplit]) -> Decimal:
 
 
 async def remove_credit_from_lots(
-    session: AsyncSession, *, tenant_id: UUID, corrected_entry_id: UUID, amount_inr: Decimal
+    session: AsyncSession, *, tenant_id: UUID, corrected_entry_id: UUID | None, amount_inr: Decimal
 ) -> CreditRemoval:
-    """Take credit back off the lots when an operator corrects an entry that ADDED it.
+    """Take credit back off the lots when an entry that ADDED it is reversed.
+
+    Every negative-delta writer that reverses a credit comes through here — the operator
+    adjustment (`credit_routes`), the provider refund and the pack-bonus clawback
+    (`billing/payments.py`). It is the ONE door, because the alternative is what D-561
+    found: a debit on `credit_ledger` with no matching movement on `credit_lots`, leaving a
+    lot that holds credit nobody owns.
+
+    `corrected_entry_id` is the credit-adding row being reversed, or `None` when the
+    reversal names no such row on this wallet (a refund of a payment recorded before lots
+    existed, or one this wallet never recorded). `None` takes the second shape below, which
+    is the honest answer: there is no lot to restate, so the credit comes off the queue at
+    face value and whatever no lot can cover becomes overdraft.
 
     Two shapes, and the branch is which of them the corrected row is:
 
@@ -1357,7 +1369,11 @@ async def remove_credit_from_lots(
     Returns the splits, which the caller writes onto the adjustment row exactly as a debit
     does, and — in BOTH shapes — how much of the correction reached no lot.
     """
-    lot = await lot_of_entry(session, ledger_entry_id=corrected_entry_id)
+    lot = (
+        None
+        if corrected_entry_id is None
+        else await lot_of_entry(session, ledger_entry_id=corrected_entry_id)
+    )
     if lot is not None and amount_inr < lot.credits_total:
         restated = await credit_lots.adjust_lot_for_restatement(
             session, lot_id=lot.lot_id, delta=-amount_inr
@@ -1448,6 +1464,9 @@ async def reprice_lot(
     that column, so a replacement stamped now would move re-priced credit to the back of
     the queue and change the spend order the client was promised.
 
+    **IT ONLY EVER GOES DOWN (D-561).** A re-price that RAISES either tier's rate is
+    refused, naming both figures — the guard below carries the Terms sentence it enforces.
+
     **NO MONEY MOVES.** `SUM(credits_remaining)` is unchanged across the pair (invariant
     §2.3.1): what leaves the closed lot arrives on the replacement in the same transaction.
     The ledger nonetheless gets a row, because `credit_lots.ledger_entry_id` is NOT NULL
@@ -1499,6 +1518,47 @@ async def reprice_lot(
                 f"and ₹{rate_to_display(rates.cartesia_inr_per_min)} a minute."
             ),
             remediation="Choose a different pack, or a different lot.",
+        )
+
+    # A RE-PRICE MAY ONLY EVER MAKE A MINUTE CHEAPER (D-561). Until this guard the only
+    # refusal was "these are the rates it already has", so an operator picking the wrong
+    # pack could sell credit a client is HOLDING at a dearer minute — and the replacement
+    # inherits `opened_at`, so the dearer lot goes to the FRONT of the queue and is spent
+    # first. Our published Terms make no room for it: "Each purchase of credit is priced at
+    # the per-minute rates shown for that purchase when you made it... Those rates apply to
+    # that purchase's credit until it is spent" (`apps/web/src/lib/legal/terms.ts:316-320`,
+    # the founder's approved words, 7 Sep 2026) — unqualified, with no operator exception.
+    # The feature was specified as a FOUNDING-CLIENT PROMOTION (plan §0 Q6: "first pack of
+    # any size at ₹25,000-pack rates"), which is cheaper by construction.
+    #
+    # Refused, never clamped: an operator who meant the cheaper pack has picked the wrong
+    # one, and a silent half-application would leave nobody able to say what was agreed.
+    # BOTH tiers are checked and both are named — a pack that lowers Clear while raising
+    # Studio is still a rate rise for every agent on the Studio voice.
+    tiers: tuple[tuple[VoiceTier, Decimal, Decimal], ...] = (
+        ("sarvam", previous.sarvam_inr_per_min, rates.sarvam_inr_per_min),
+        ("cartesia", previous.cartesia_inr_per_min, rates.cartesia_inr_per_min),
+    )
+    raised = [
+        f"{VOICE_TIER_LABELS[tier]} ₹{rate_to_display(was)} to ₹{rate_to_display(now)}"
+        for tier, was, now in tiers
+        if now > was
+    ]
+    if raised:
+        raise ProblemError.business_rule(
+            "lot_reprice_raises_rate",
+            (
+                "That pack would make this credit DEARER than the client bought it at: "
+                + ", and ".join(raised)
+                + " a minute."
+            ),
+            remediation=(
+                "Nothing was changed. Re-pricing can only lower what a client's remaining "
+                "credit costs per minute — our Terms promise that the rates shown when they "
+                "paid apply to that purchase until it is spent. Choose a pack at or below "
+                "those rates. If this client genuinely owes more, charge it as usage or "
+                "record a correction against the purchase; do not re-price the lot."
+            ),
         )
 
     balance = await record_entry(

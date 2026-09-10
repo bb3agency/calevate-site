@@ -33,6 +33,11 @@ Checks, in the order that fails cheapest-first:
 4. **DNC** — global + tenant entries, read LIVE. Additions must take effect before the
    next dispatch tick (hard rule 5), so this must never be cached.
 5. **Disclosure line** — an agent without one may not dial at all.
+5b. **Truthful-answer drift** — an agent the half-hourly sweep has PROVEN, within the
+   last day, to be running a prompt with no truthful-answer directive in it may not
+   dial (D-562, `truthful_answer_drift_blocker`). It is the one check here fed by a
+   measurement of the voice platform rather than by a row somebody set, and it is
+   scoped to that verdict alone: ordinary drift does not stop a client's calling.
 6. **India-only destination** — a non-`+91` number is out of scope for the freeze
    (LEGAL-OPS-PLAYBOOK §14/§18) and refused before a line is seized (`destination_not_india`).
 7. **The DLT regulatory layer** — Calevate's TM registration and the client's PE-TM
@@ -64,6 +69,10 @@ from calevate_shared.calling_window import IST as _IST
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.reconciliation import (
+    TRUTHFUL_ANSWER_MISSING,
+    TRUTHFUL_ANSWER_VERDICT_TTL_S,
+)
 from apps.api.agents.service import agent_outbound_number_blocker
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.billing.service import current_billing_month, get_balance, plan_tier_of
@@ -549,6 +558,121 @@ def dial_refusal_for_agent_status(status: str) -> tuple[str, str] | None:
     return None
 
 
+#: The rule and the wording of the one refusal that comes from a MEASUREMENT of the voice
+#: platform rather than from a row somebody set (D-562).
+TRUTHFUL_ANSWER_DRIFT_RULE = "truthful_answer_drift"
+#: Client-facing, and it has to be: this refusal appears on a blocked lead and on the
+#: launch gate like every other. It says WHAT is wrong in the client's own terms (the
+#: agent has stopped carrying the rule that makes it answer honestly), what we did about
+#: it (stopped its outgoing calls), and the ONE action that fixes it (publish it again).
+#: It names no prompt text (hard rule 6) and blames nobody: the usual cause is an edit
+#: made on the voice platform's own dashboard, and the client may not have made it.
+TRUTHFUL_ANSWER_DRIFT_REASON = (
+    "This agent is no longer carrying the rule that makes it tell a caller it is an AI, "
+    "so we have stopped it placing calls. Publishing the agent again restores the rule "
+    "and the calling; if it was edited directly on the voice platform, undo that first."
+)
+
+
+async def truthful_answer_drift_blocker(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
+) -> tuple[str, str] | None:
+    """DETECTION BECAME ENFORCEMENT HERE (D-562). Has the drift sweep PROVEN, recently,
+    that this agent is running a prompt with no truthful-answer directive in it?
+
+    ═══ WHAT WAS WRONG ═══
+
+    Hard rule 5 says an agent always answers truthfully when a caller asks whether it is
+    an AI or whether the call is recorded, and that it is "verified against the engine on
+    every publish and every drift sweep". Both verifications existed and only one of them
+    did anything. The publish read-back REFUSES (`agents/service.publish_agent` rolls the
+    transaction back on `not_applied`), but the half-hourly sweep — the only instrument
+    that can ever see a vendor-dashboard edit or a prompt-length truncation, because
+    nothing of ours runs in either case — wrote a verdict to a column, emailed a count,
+    and stopped. Every call path went on dialling. The window between the sweep proving an
+    agent could no longer answer that question honestly and a human reading the email was
+    unbounded, and during it a client's line went on placing regulated outbound calls.
+
+    ═══ WHY IT IS THIS VERDICT ONLY, AND NOT DRIFT ═══
+
+    `not_applied` covers every provable divergence there is, whitespace in a client's
+    script included. Halting a paying client's calling on a cosmetic difference would be a
+    worse failure than the one being fixed here, and an outage that arrives twice an hour
+    is one an operator disarms. So the sweep records WHICH property failed
+    (`agents/reconciliation.recorded_drift_state`) and exactly one value reaches this
+    function. An agent that has merely drifted keeps calling and keeps its alert.
+
+    ═══ THE STALE VERDICT FAILS OPEN, AND THAT IS A DECISION ═══
+
+    A verdict is evidence about the instant it was taken, and the ONLY thing that can
+    restate or clear one is the sweep itself: `record_drift` is its sole writer, and a
+    publish that fixes the agent does not touch the column. So a refusal that never expired
+    would be, precisely, a refusal that the sweep's own death makes permanent — the
+    operator republishes the agent, the engine is correct, and the calling stays stopped
+    until a cron nobody has noticed is dead comes back. That is not a compliance posture;
+    it converts a worker outage into an unrecoverable client outage, and it does it while
+    every agent that drifted AFTER the cron died dials freely, because no verdict was ever
+    written for them. Enforcing the last frozen snapshot is arbitrary rather than strict.
+
+    So the refusal lives exactly as long as the measurement behind it
+    (`TRUTHFUL_ANSWER_VERDICT_TTL_S`, a day — an order of magnitude more than the sweep
+    needs to come round to every live object, asserted at import in
+    `workers/engine_reconciliation.py`). Past it the system degrades to what it did before
+    this function existed, WITH the alarms for the real fault already ringing: the sweep
+    alerts `WORKER_TERMINAL`/`engine_drift_sweep_abandoned` when it cannot run, and the ops
+    console reads `EngineDriftSummary.oldest_checked_at`, which exists for exactly this —
+    "a number that stops moving means the cron is not running". The expiry is logged at
+    WARNING with the agent id so the transition is visible in its own right; it raises no
+    NEW alarm on purpose, because the cause is the sweep and the sweep alarms for itself.
+
+    ONE INDEXED READ on `ix_engine_agent_routes_tenant (tenant_id, agent_id)`. The table is
+    the RLS-exempt routing bridge, so a tenant session may read it; `tenant_id` is in the
+    predicate anyway rather than being trusted to the exemption.
+
+    ALL ACTIVE ROUTES FOR THE AGENT, not just its own vendor object: an experiment arm is
+    a separate row with its own script and its own live callers (D-380), and an arm that
+    has lost the directive is answering real people. The freshest such verdict decides —
+    if that one has expired then every one of them has.
+    """
+    row = (
+        await session.execute(
+            text(
+                "SELECT drift_checked_at, "
+                "drift_checked_at > now() - make_interval(secs => :ttl) AS fresh "
+                "FROM engine_agent_routes "
+                "WHERE tenant_id = :tid AND agent_id = :aid AND active "
+                "AND drift_state = :missing "
+                "ORDER BY drift_checked_at DESC NULLS LAST LIMIT 1"
+            ),
+            {
+                "tid": tenant_id,
+                "aid": agent_id,
+                "missing": TRUTHFUL_ANSWER_MISSING,
+                "ttl": TRUTHFUL_ANSWER_VERDICT_TTL_S,
+            },
+        )
+    ).first()
+    if row is None:
+        return None
+    # `fresh` is NULL exactly when `drift_checked_at` is — a state `record_drift` cannot
+    # produce, since it writes both in one statement. Treated as stale rather than as
+    # fresh: a verdict we cannot date is a verdict we cannot say is current, and the
+    # direction the rest of this function argues for is the one to be consistent about.
+    if not bool(row[1]):
+        log.warning(
+            "truthful_answer_drift_verdict_expired",
+            extra={
+                "tenant_id": str(tenant_id),
+                "agent_id": str(agent_id),
+                # An age, not a timestamp: what an operator needs is how long ago the
+                # sweep last confirmed this, and the console shows the same shape.
+                "verdict_ttl_s": TRUTHFUL_ANSWER_VERDICT_TTL_S,
+            },
+        )
+        return None
+    return (TRUTHFUL_ANSWER_DRIFT_RULE, TRUTHFUL_ANSWER_DRIFT_REASON)
+
+
 async def check_dispatch(
     session: AsyncSession,
     *,
@@ -642,6 +766,17 @@ async def check_dispatch(
             rule="agent_inbound_only",
             reason="This agent only answers calls; it cannot place them.",
         )
+
+    # THE LAST AGENT-SHAPED CHECK, and the only one in this gate that comes from a
+    # measurement of the voice platform rather than from a row (D-562). Here because it is
+    # about THIS AGENT and costs one indexed read, and after the cheap column checks above
+    # for the reason they are ordered as they are; before the account's paperwork and money
+    # because "your agent has stopped telling callers it is an AI" outranks "your wallet is
+    # empty" — an operator who tops up must not then discover the real refusal.
+    truthful = await truthful_answer_drift_blocker(session, tenant_id=tenant_id, agent_id=agent_id)
+    if truthful is not None:
+        rule, reason = truthful
+        return DispatchDecision(allowed=False, rule=rule, reason=reason)
 
     # Before the money questions on purpose: "we do not know who you are" outranks "you
     # have run out of credit", and answering in the other order would tell an unverified
@@ -911,6 +1046,8 @@ __all__ = [
     "PERSON_LEVEL_REFUSALS",
     "SELF_SERVE_TIERS",
     "SPEND_CAP_REASON",
+    "TRUTHFUL_ANSWER_DRIFT_REASON",
+    "TRUTHFUL_ANSWER_DRIFT_RULE",
     "DispatchDecision",
     "account_stopped_blocker",
     "add_to_dnc",
@@ -921,5 +1058,6 @@ __all__ = [
     "ist_now",
     "kyc_blocker",
     "spend_capped",
+    "truthful_answer_drift_blocker",
     "within_calling_hours",
 ]

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import signal
 from collections.abc import AsyncIterator, Callable
-from contextlib import asynccontextmanager, suppress
+from contextlib import AsyncExitStack, asynccontextmanager, suppress
 from types import FrameType
 from typing import Any, Final
 
@@ -311,6 +311,45 @@ def create_app(
     # is still captured. Config-gated and scrubbed (hard rule 6).
     observability = init_observability(service)
 
+    async def _shutdown() -> None:
+        """The shared half of the drain. Registered FIRST on the lifespan's exit stack
+        below, which is what makes it unwind LAST — after whatever teardown the service
+        itself registered.
+        """
+        log.info("service_stop", extra={"service": service})
+        # EVERY connection this process opened, not just the one. `close_redis` was
+        # the whole teardown, so the ARQ enqueue pool (`core/queue._pool`, built on
+        # the first `enqueue` a request makes) and the alert-admission client
+        # (`core/alert_admission._client`, built on the first alert) survived the
+        # drain and were left to the OS at exit — while `close_admission`'s own
+        # docstring said it was "called from the same shutdown path as `close_redis`",
+        # which nothing had ever made true. Under `--reload` and in tests each
+        # restart leaked another pool against the same Redis.
+        #
+        # Independently, in this order, and none may stop the next: a drain that
+        # abandoned the tracing flush because a socket was already gone would lose
+        # exactly the spans somebody is shutting the service down to read. `suppress`
+        # rather than a log line for the same reason `close_admission` uses one —
+        # a closed socket is the commonest way any of these is reached.
+        with suppress(Exception):
+            await close_redis()
+        with suppress(Exception):
+            await close_queue()
+        with suppress(Exception):
+            # IMPORTED HERE, not at module scope, and that is the one thing in this
+            # block that is not stylistic. `core.bootstrap` is on voice-runtime's
+            # PINNED import surface (hard rule 3,
+            # `tests/voice_runtime_import_surface_test.py`), and a module-level import
+            # grew it by `apps.api.core.alert_admission` — a module whose next change
+            # would then be able to break a live-call service at boot. `core.alerting`
+            # reaches this same module the same way and for the same reason.
+            from apps.api.core.alert_admission import close_admission
+
+            close_admission()
+        # Flush before the process goes: an un-exported span is a span that never
+        # happened, and a drain is exactly when the interesting ones are in flight.
+        shutdown_tracing()
+
     @asynccontextmanager
     async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
         _install_signal_handlers()
@@ -324,45 +363,30 @@ def create_app(
                 "release": settings.release_version,
             },
         )
-        if on_startup is not None:
-            async for _ in on_startup():
-                break
-        try:
+        # THE HOOK IS A CONTEXT, NOT A PREAMBLE — and it used to be driven as one:
+        # `async for _ in on_startup(): break` ran the generator to its first `yield` and
+        # abandoned it there, so anything a service wrote AFTER that `yield` never ran and
+        # the generator was closed by the garbage collector at some later moment of its
+        # choosing. A service could not express teardown at all, which is why three
+        # background polls in `api` and one in voice-runtime were started and stopped by
+        # nobody. Fixing the call sites alone would not have held: the next service would
+        # write the same `finally` and watch it never execute.
+        #
+        # `AsyncExitStack` rather than a nested `async with` because the ORDER is the
+        # point, and it is the worker's order (`apps/workers/settings.shutdown`): the
+        # shared teardown is registered FIRST so it unwinds LAST, and the service's own
+        # teardown therefore runs while the Redis client, the ARQ pool and the database
+        # session pool it may be using are all still open. A poll cancelled after its pool
+        # is torn down logs a failure that reads like a real one.
+        async with AsyncExitStack() as stack:
+            stack.push_async_callback(_shutdown)
+            if on_startup is not None:
+                # `asynccontextmanager` over the service's async generator: it enters to
+                # the first `yield` here and resumes it on unwind, and a hook that raises
+                # during teardown still cannot skip the shared one — the stack unwinds
+                # every remaining callback either way.
+                await stack.enter_async_context(asynccontextmanager(on_startup)())
             yield
-        finally:
-            log.info("service_stop", extra={"service": service})
-            # EVERY connection this process opened, not just the one. `close_redis` was
-            # the whole teardown, so the ARQ enqueue pool (`core/queue._pool`, built on
-            # the first `enqueue` a request makes) and the alert-admission client
-            # (`core/alert_admission._client`, built on the first alert) survived the
-            # drain and were left to the OS at exit — while `close_admission`'s own
-            # docstring said it was "called from the same shutdown path as `close_redis`",
-            # which nothing had ever made true. Under `--reload` and in tests each
-            # restart leaked another pool against the same Redis.
-            #
-            # Independently, in this order, and none may stop the next: a drain that
-            # abandoned the tracing flush because a socket was already gone would lose
-            # exactly the spans somebody is shutting the service down to read. `suppress`
-            # rather than a log line for the same reason `close_admission` uses one —
-            # a closed socket is the commonest way any of these is reached.
-            with suppress(Exception):
-                await close_redis()
-            with suppress(Exception):
-                await close_queue()
-            with suppress(Exception):
-                # IMPORTED HERE, not at module scope, and that is the one thing in this
-                # block that is not stylistic. `core.bootstrap` is on voice-runtime's
-                # PINNED import surface (hard rule 3,
-                # `tests/voice_runtime_import_surface_test.py`), and a module-level import
-                # grew it by `apps.api.core.alert_admission` — a module whose next change
-                # would then be able to break a live-call service at boot. `core.alerting`
-                # reaches this same module the same way and for the same reason.
-                from apps.api.core.alert_admission import close_admission
-
-                close_admission()
-            # Flush before the process goes: an un-exported span is a span that never
-            # happened, and a drain is exactly when the interesting ones are in flight.
-            shutdown_tracing()
 
     # ═══ THE API DOCUMENTATION IS NOT A PRODUCTION SURFACE. ═══
     #

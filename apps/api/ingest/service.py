@@ -73,6 +73,10 @@ def normalize_phone(raw: str) -> str | None:
     wrong-country number because we assumed a prefix is worse than dropping the lead
     into the needs-attention queue.
 
+    WHAT IT ACCEPTS: an explicit `+` (the sender named a country, we take their word for
+    it but not their typos); a bare ten-digit Indian mobile; the same ten digits behind
+    India's `0` trunk prefix; and `91` + ten. Everything else is None.
+
     The other half of that promise is that what we DO return is dialable. Keeping every
     `+` in the string and then length-checking the result accepted `++91…` and
     `+91+98…` as phone numbers and wrote them to `phone_e164`, so the final `_E164`
@@ -90,6 +94,27 @@ def normalize_phone(raw: str) -> str | None:
         candidate = "+" + digits if 10 <= len(digits) <= 15 else None
     elif len(digits) == 10 and digits[0] in "6789":
         candidate = _INDIA_PREFIX + digits
+    elif len(digits) == 11 and digits[0] == "0" and digits[1] in "6789":
+        # `0` + a ten-digit mobile is the STANDARD INDIAN NATIONAL-DIALLING form and one
+        # of the two ways an Indian actually writes their number down — the trunk prefix
+        # you dial from a landline, printed on business cards and typed into web forms.
+        # It matched nothing here and returned None, which is not a harmless drop: the
+        # DNC path counts an unreadable number as `malformed` and does NOT suppress it
+        # (`compliance/dnc.py`), so a client who pasted `09876543210` to stop us calling
+        # a customer got a "1 malformed" count and a number that stayed dialable.
+        #
+        # THE TRUNK PREFIX IS NOT PART OF THE NUMBER, which is why it is dropped rather
+        # than kept: E.164 is the international form and `0` has no place in it.
+        #
+        # AND THIS IS THE ONLY COUNTRY-SPECIFIC WIDENING, deliberately. It rests on the
+        # same premise the ten-digit arm above already rests on — that a number with no
+        # country code, in an Indian domestic shape, is Indian — and that premise is
+        # explicit product scope rather than an assumption: `compliance/service.py`'s
+        # `INDIA_E164_PREFIX` freeze refuses every non-`+91` destination at the dial gate
+        # (LEGAL-OPS-PLAYBOOK §14/§18: no foreign clients, no US/EU/UK outbound). Nothing
+        # else loosens: a shape this function does not recognise still returns None,
+        # because refusing beats guessing a country.
+        candidate = _INDIA_PREFIX + digits[1:]
     elif len(digits) == 12 and digits.startswith("91"):
         candidate = "+" + digits
     else:

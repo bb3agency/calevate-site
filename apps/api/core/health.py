@@ -5,8 +5,9 @@ BACKEND-PATTERNS §6:
                       the container killed by the orchestrator).
 - `/healthz`        — DB SELECT 1 + Redis PING. 503 problem+json when degraded.
 - `/healthz/ready`  — adds the SCHEMA REVISION, queue depth + oldest-waiting age
-                      (stale-worker detection) and `runtime_config_missing_keys`. This is
-                      the GO-LIVE GATE that tolerant worker boot defers to.
+                      (stale-worker detection) and the service's readiness config probe
+                      (`settings.READINESS_CONFIG_PROBES`). This is the GO-LIVE GATE
+                      that tolerant worker boot defers to.
 
 `degradation_mode` is priority-ordered so a dashboard shows one word:
 db_down > schema_behind > redis_down > queue_stale > config_missing > none.
@@ -55,7 +56,7 @@ from sqlalchemy import text
 from apps.api.core.errors import PROBLEM_CONTENT_TYPE
 from apps.api.core.logging import get_logger
 from apps.api.core.redis import get_redis
-from apps.api.core.settings import get_settings, runtime_config_missing_keys
+from apps.api.core.settings import get_settings, readiness_missing_keys
 from apps.api.db.session import untenanted_session
 
 log = get_logger(__name__)
@@ -201,7 +202,15 @@ async def _check_schema_current() -> bool:
     rather than accusing, and logs. An empty `alembic_version` table is the exception: a
     database nothing has ever migrated cannot serve, and that is not ambiguous.
     """
-    graph = _image_migration_graph()
+    # OFF THE EVENT LOOP. The first call walks the whole revision tree — 142 revisions,
+    # measured at 306ms — and it is a synchronous, CPU- and filesystem-bound walk, so on
+    # voice-runtime it blocked the loop carrying live calls for most of an ack budget on
+    # whichever request faulted it in. `to_thread` costs a thread hop (tens of
+    # microseconds) on the cached path, which is every call after the first. Two concurrent
+    # polls can both walk it once; the walk is pure and the assignment atomic, so the
+    # cost is a duplicated first walk and never a wrong answer — a lock to save that
+    # would be a second concurrency mechanism for a once-per-process event.
+    graph = await asyncio.to_thread(_image_migration_graph)
     if graph is None:
         return True
     known, heads = graph
@@ -317,7 +326,17 @@ def build_health_router(service: str, *, detail_gate: HealthDetailGate | None = 
                 # `TimeoutError` included, and folded in on purpose: a queue read that
                 # does not finish and one that errors are the same readiness answer.
                 redis_ok = False
-        missing = runtime_config_missing_keys(get_settings())
+        # PER SERVICE, and the selector is the whole of the fix. This read used to be
+        # `runtime_config_missing_keys`, whose body asks the engine layer which vendor
+        # credentials are missing — and the only way to ask is to BUILD the adapter, which
+        # imports `apps.api.engine.bolna` and `httpx`. Both are forbidden in voice-runtime
+        # (hard rule 3, `tests/voice_runtime_import_surface_test.FORBIDDEN`), and the
+        # import was measured at 381-435ms on a first call: 76-87% of the 500ms ack budget,
+        # spent on the event loop that is carrying live calls, because an operator curled
+        # a health route during an incident. `settings.READINESS_CONFIG_PROBES` gives that
+        # service a probe that constructs nothing and asks what readiness actually means
+        # there; every other service is unchanged and still gets the full check.
+        missing = readiness_missing_keys(service, get_settings())
         queue_stale = oldest is not None and oldest > QUEUE_STALE_AFTER_S
 
         mode: DegradationMode = (

@@ -39,7 +39,8 @@ import { LeadsFooter } from "./LeadsFooter";
 import { LeadsToolbar } from "./LeadsToolbar";
 import { SavedViewBar } from "./SavedViewBar";
 import { STATUSES } from "./StatusSelect";
-import { PAGE_SIZE, scopeLabel, type ViewMode } from "./leadsTable";
+import { anyFilterInForce, type LeadFilterKey } from "./leadFilters";
+import { PAGE_SIZE, exportRefusal, scopeLabel, type ViewMode } from "./leadsTable";
 import { useLeadRowKit } from "./useLeadRowKit";
 import { useLeadsCopilotSurface } from "./leadsCopilotSurface";
 
@@ -145,6 +146,47 @@ export function LeadsScreen() {
     columns: chosenColumns,
   };
 
+  /**
+   * HOW EACH FILTER IS PUT BACK, one entry per narrowing key of the lens.
+   *
+   * "Clear the filters" cleared two of five — `setStatus(undefined); setSearch("")` — so
+   * the button under the empty state left the question, the facets and the owner chip
+   * exactly where they were and the table stayed empty under a control that claimed to
+   * have emptied it. A `Record<LeadFilterKey, …>` is the shape that cannot regress: the
+   * key set is computed from `LeadLens` itself, so a sixth filter makes THIS object miss
+   * a property and `tsc` refuses the build until somebody writes how it is cleared.
+   *
+   * `search` and `ask` each reset their box AND the term the lens reads: the box is what
+   * the person sees, the term is what the server was told, and clearing only one of them
+   * is how a cleared-looking screen keeps a filter on.
+   */
+  const clearFilter: Record<LeadFilterKey, () => void> = {
+    status: () => setStatus(undefined),
+    search: () => {
+      setSearch("");
+      setSearchTerm("");
+    },
+    ask: () => {
+      setAsk("");
+      setAskTerm("");
+    },
+    assigned_to: () => setAssignedTo(undefined),
+    // Never set by this screen — the lens carries it for the agent-scoped reads — but it
+    // is a filter, so it is answered here rather than silently skipped.
+    agent_id: () => {},
+    fields: () => setFacetValues({}),
+  };
+  const clearFilters = () => {
+    for (const clear of Object.values(clearFilter)) clear();
+  };
+
+  /**
+   * IS ANYTHING NARROWING THE ROWS — the one question every sentence on this screen that
+   * talks about the account has to ask, answered off the lens the server was given. See
+   * `leadFilters.ts` for what was wrong with asking it three times in three chains.
+   */
+  const filtered = anyFilterInForce(lens);
+
   // WHICH page of the lens. Row 101 used to be unreachable through the UI — the footer
   // printed an honest "Showing 100 of 1,240" and then stopped, leaving the majority of
   // an established account's CRM permanently invisible (ux-audit L1, its top blocker).
@@ -210,6 +252,17 @@ export function LeadsScreen() {
   const mayApplyView = useWriteAccess(session, "leads:write", "save a view");
   const exportAccess = useWriteAccess(session, "calls:read_raw", "export leads");
   const mayExport = exportAccess.allowed;
+  /**
+   * WHY THE EXPORT IS REFUSED — derived ONCE, rendered twice (UX-DOCTRINE §4): on the
+   * button as its `title`, and on the screen as a `RestrictionNote` below the toolbar.
+   *
+   * The reason lived only in the `title` of a DISABLED button, which is the one place a
+   * client cannot reach it: a disabled `<button>` takes no focus, so a keyboard never
+   * meets the tooltip, and a touch screen has no hover at all. The commonest of the three
+   * refusals is not the permission — it is a question in force, which every owner can
+   * hit — so the shape was "press Export, nothing happens, no sentence anywhere".
+   */
+  const exportRefused = exportRefusal(askTerm, mayExport, exportAccess.reason);
   const agents = useAgents(session);
   const callLead = useCallLead(session);
   const [agentId, setAgentId] = useState("");
@@ -374,13 +427,9 @@ export function LeadsScreen() {
     selectedAgentId,
     selection,
     setSelection,
-    status,
-    searchTerm,
+    filtered,
     askTerm,
-    onClearFilters: () => {
-      setStatus(undefined);
-      setSearch("");
-    },
+    onClearFilters: clearFilters,
     stageCount,
   });
 
@@ -414,7 +463,7 @@ export function LeadsScreen() {
             <span className="font-semibold tabular-nums text-ink">
               {formatCount(leads.data.total)}
             </span>{" "}
-            {scopeLabel(status, searchTerm, leads.data.total)}
+            {scopeLabel(lens, leads.data.total)}
           </p>
         )}
         {/* WHAT THE ROWS ARE, said in words, because a ranked table looks exactly like a
@@ -456,7 +505,7 @@ export function LeadsScreen() {
         lens={lens}
         exportLeads={exportLeads}
         mayExport={mayExport}
-        exportReason={exportAccess.reason}
+        exportRefusal={exportRefused}
         onExported={() =>
           toast({
             tone: "success",
@@ -465,6 +514,12 @@ export function LeadsScreen() {
           })
         }
       />
+
+      {/* THE EXPORT REFUSAL, ON THE SCREEN — the other half of §4's "on the control AND
+          on the screen". Same sentence as the button's `title`, from the same derivation,
+          so the two cannot drift; nothing at all while the permission answer is still in
+          flight, which is why this is a `RestrictionNote` and not a paragraph. */}
+      <RestrictionNote reason={exportRefused} />
 
       {/* Status filter chips replace the old dropdown: one click per status, and the
           active choice stays visible instead of hiding inside a closed select. They
@@ -671,8 +726,7 @@ export function LeadsScreen() {
         leads={leads}
         items={items}
         offset={offset}
-        status={status}
-        searchTerm={searchTerm}
+        lens={lens}
         stageCount={stageCount}
         onOffsetChange={setOffset}
       />

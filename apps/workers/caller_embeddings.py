@@ -132,15 +132,21 @@ _PROJECTION_TABLE: Final = "caller_chunks"
 #: be able to open the thing that wrote it.
 SYSTEM_ACTOR: Final = "workers.caller_embeddings"
 
-#: The minutes this sweep fires. `settings.CRON_JOBS` already uses
-#: :00/:05/:08/:10/:12/:15/:17/:20/:23/:25/:30/:35/:38/:40/:42/:45/:50, so :13 and :43 are
-#: clear of every other fleet-wide fan-out — no two O(tenants) sweeps share a minute, which
-#: is the property `EMBED_MINUTES` was chosen for one job over.
+#: The minutes this sweep fires. :18 and :48, and the pair it replaces is the point:
+#: this comment used to enumerate the registered minutes by hand and conclude that :13
+#: and :43 were "clear of every other fleet-wide fan-out". `sweep_topup_settlement` was
+#: ALREADY registered on :13/:43 when that was written, under a `WalkBudget` over the full
+#: organization directory — so both walks spent their wall clock on each other's pooled
+#: connections twice an hour and `topup_settlement_truncated` fired on a healthy fleet.
+#: The clearance is no longer argued in prose anywhere: `settings.WALK_SHAPES` declares
+#: which crons fan out across the fleet and
+#: `tests/job_registration_test.py::test_no_two_fleet_wide_walks_share_a_firing_minute`
+#: derives the check from it.
 #:
 #: Twice an hour because this is INGESTION latency a person can perceive on a search screen,
 #: and because the per-tick ceiling is what bounds the spend — the cadence only decides how
 #: fast a backlog drains.
-CALLER_EMBED_MINUTES: Final[frozenset[int]] = frozenset({13, 43})
+CALLER_EMBED_MINUTES: Final[frozenset[int]] = frozenset({18, 48})
 
 #: THE FLEET-WIDE CEILING ON CHUNKS EMBEDDED PER TICK. Lower than `kb_embeddings`' 256, and
 #: the difference is the corpus rather than a preference: a knowledge base is uploaded once

@@ -17,6 +17,16 @@ This module is the two halves a periodic sweep needs and the one an operator nee
 `read_engine_drift` (how bad is it, platform-wide). The sweep itself is
 `apps/workers/engine_reconciliation.py`.
 
+**AND SINCE D-562 ONE OF ITS VERDICTS IS ALSO ENFORCED.** Recording a divergence and
+emailing an operator left the agent answering and dialling until a human acted, which for
+the ONE property with a legal consequence — the truthful-answer directive, hard rule 5 —
+is detection without enforcement. `TRUTHFUL_ANSWER_MISSING` is that verdict, kept strictly
+apart from every other divergence so that `compliance.service.check_dispatch` can refuse
+on it alone: an agent whose prompt merely differs from what we published goes on calling,
+because halting a paying client over a cosmetic drift is a worse failure than the one
+being fixed. Nothing here re-publishes even so — the enforcement is a refusal at the dial,
+not a repair of the vendor's object.
+
 **RECONCILIATION IS A READ, AND NOTHING HERE RE-PUBLISHES.** That is D-121's argument and
 it is preserved deliberately rather than inherited: re-publishing over a drift overwrites
 whatever the vendor's dashboard was used to change, which may have been the correct
@@ -53,7 +63,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.agents.verification import VerifyState
 from apps.api.db.result import rowcount_of
 
-#: The five values `engine_agent_routes.drift_state` may hold, as the CHECK in migration
+#: **THE ONE DIVERGENCE WITH A LEGAL CONSEQUENCE** (D-562, hard rule 5). A strict
+#: refinement of `not_applied`: the engine was read back, it is running something other
+#: than what we published, and the property that provably did not survive is the
+#: truthful-answer directive — the rule that makes an agent answer honestly when a caller
+#: asks whether it is an AI or whether the call is recorded.
+#:
+#: It is a SEPARATE VERDICT because it is the only one that stops a client's calling.
+#: `not_applied` covers a reordered whitespace in a script as readily as a missing legal
+#: floor, and halting a paying client's campaign over the former would be a worse failure
+#: than the one this value exists to fix. `recorded_drift_state` below is the only writer.
+TRUTHFUL_ANSWER_MISSING: str = "truthful_answer_missing"
+
+#: The values `engine_agent_routes.drift_state` may hold, as the CHECK in migration
 #: `d4b8e1c73f05` spells them. Derived from `VerifyState` rather than retyped, so a fifth
 #: verdict added to the verification vocabulary cannot silently fail a DB constraint at
 #: 03:00 — `tests/engine_drift_reconciliation_test.py` asserts this set equals the CHECK's.
@@ -61,13 +83,61 @@ from apps.api.db.result import rowcount_of
 #: `not_applied` IS storable here, unlike in `agents.live_verify_state`. There it is a
 #: refusal with a transaction to roll back; here recording the divergence is the entire
 #: output, because there is nothing to refuse — the drift already happened.
-DRIFT_STATES: frozenset[str] = frozenset(get_args(VerifyState)) | {"not_published"}
+#: ⚠ AND ONE VALUE THAT IS NOT A `VerifyState` AT ALL — see below.
+DRIFT_STATES: frozenset[str] = (
+    frozenset(get_args(VerifyState)) | {"not_published"} | {TRUTHFUL_ANSWER_MISSING}
+)
 
 #: The verdicts an operator has to act on. `unreadable` and `unreachable` are NOT among
 #: them and that is the `AgentSnapshot` doctrine held all the way to the alert: we could
 #: not tell is not a mismatch, and an alarm that fires when a vendor is briefly slow is an
 #: alarm somebody mutes before it ever catches a real dashboard edit.
-DRIFT_STATES_OUT_OF_SYNC: frozenset[str] = frozenset({"not_applied"})
+DRIFT_STATES_OUT_OF_SYNC: frozenset[str] = frozenset({"not_applied", TRUTHFUL_ANSWER_MISSING})
+
+#: HOW LONG A `truthful_answer_missing` VERDICT MAY REFUSE A DIAL (D-562).
+#:
+#: The gate acts on a MEASUREMENT, and a measurement is evidence about the instant it was
+#: taken. This is the age past which `compliance.service.truthful_answer_drift_blocker`
+#: stops refusing — and the direction is deliberately OPEN, argued at that function.
+#:
+#: The number has one hard requirement: it must comfortably exceed the time the sweep
+#: takes to come round to every live object, or a verdict would routinely expire under
+#: NORMAL operation and the gate would quietly stop enforcing. At `SWEEP_BATCH_SIZE = 25`
+#: every half hour the sweep re-reads 1,200 objects a day, so 24h is ~1,200 objects of
+#: headroom against a platform whose horizon is client #1. `engine_reconciliation.py`
+#: asserts that relationship AT IMPORT rather than leaving it in this comment, so lowering
+#: the TTL or the batch size fails a build instead of silently disarming a compliance gate.
+TRUTHFUL_ANSWER_VERDICT_TTL_S: int = 24 * 60 * 60
+
+
+def recorded_drift_state(state: str, *, truthful_answer_applied: bool | None) -> str:
+    """The verdict to STORE, given what the read-back concluded and which property failed.
+
+    THE ONE PLACE THE REFINEMENT IS MADE, so the sweep and any future caller cannot
+    disagree about which divergences are the compliance one. `verification.judge` already
+    scores the truthful-answer rule separately from the script (a vendor prompt-length
+    ceiling truncates the END of the prompt, which is exactly where
+    `TRUTHFUL_ANSWER_DIRECTIVE` sits), and `EngineDrift` carries that field — but
+    `record_drift` only ever stored `state`, so the one divergence with a legal
+    consequence arrived in the same word as a whitespace difference in a client's script.
+
+    A REFINEMENT OF `not_applied`, NEVER A NEW AXIS. `judge` returns `not_applied` the
+    moment any checked property is provably False, so `truthful_answer_applied is False`
+    implies the state is already `not_applied`; this partitions that value rather than
+    widening it, which is why `DRIFT_STATES_OUT_OF_SYNC` holds both and every count, alert
+    and console aggregate keeps meaning what it meant.
+
+    WHY A DISTINCT STATE RATHER THAN A SECOND COLUMN BESIDE IT. A boolean column leaves
+    every reader of `drift_state` seeing the familiar `not_applied` and free to not look
+    at the flag — including the ops console, the alert body and any future gate. A value
+    they have never seen forces the question. It also keeps the RLS-exempt table's
+    contents to the same shape its exemption is argued for (a verdict from a fixed
+    vocabulary and two timestamps; migration `d4b8e1c73f05`), adds no column to
+    `reliability/models.py`, and needs nothing of `check_metadata_columns`.
+    """
+    if state == "not_applied" and truthful_answer_applied is False:
+        return TRUTHFUL_ANSWER_MISSING
+    return state
 
 
 @dataclass(frozen=True, slots=True)
@@ -268,9 +338,12 @@ async def read_engine_drift(session: AsyncSession, *, engine: str) -> EngineDrif
 __all__ = [
     "DRIFT_STATES",
     "DRIFT_STATES_OUT_OF_SYNC",
+    "TRUTHFUL_ANSWER_MISSING",
+    "TRUTHFUL_ANSWER_VERDICT_TTL_S",
     "DriftCandidate",
     "EngineDriftSummary",
     "claim_drift_batch",
     "read_engine_drift",
     "record_drift",
+    "recorded_drift_state",
 ]

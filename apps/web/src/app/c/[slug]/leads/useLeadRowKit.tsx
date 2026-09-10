@@ -49,8 +49,7 @@ export function useLeadRowKit({
   selectedAgentId,
   selection,
   setSelection,
-  status,
-  searchTerm,
+  filtered,
   askTerm,
   onClearFilters,
   stageCount,
@@ -68,8 +67,8 @@ export function useLeadRowKit({
   selectedAgentId: string;
   selection: BulkSelection;
   setSelection: (update: (prev: BulkSelection) => BulkSelection) => void;
-  status: string | undefined;
-  searchTerm: string;
+  /** Is ANY filter narrowing the rows — one answer off the lens; see `leadRowKit.ts`. */
+  filtered: boolean;
   askTerm: string;
   onClearFilters: () => void;
   /** The SERVER's count for a stage, or `undefined` when it did not say. */
@@ -249,8 +248,7 @@ export function useLeadRowKit({
     ),
     hrefFor: (lead) => href(`/c/${session.orgSlug}/leads/${lead.id}`),
     stageCount,
-    status,
-    searchTerm,
+    filtered,
     askTerm,
     onClearFilters,
   };

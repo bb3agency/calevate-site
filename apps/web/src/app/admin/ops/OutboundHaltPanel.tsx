@@ -5,7 +5,6 @@ import { Lock, PhoneCall, PhoneOff, TriangleAlert } from "lucide-react";
 
 import { WriteFailure } from "@/app/admin/writeFailure";
 import {
-  Card,
   DANGER_BUTTON,
   FIELD,
   FIELD_HINT,
@@ -16,6 +15,7 @@ import {
 import { useFormValidation } from "@/components/formValidation";
 import { useSetPlatformState, type PlatformState } from "@/lib/api/admin";
 
+import { DangerZone } from "./opsLanguage";
 import type { OpsAccess } from "./opsAccess";
 
 /**
@@ -26,6 +26,21 @@ import type { OpsAccess } from "./opsAccess";
  * The reason is trimmed before it is measured, because the server strips it and refuses
  * anything under three characters — a form that enables its button on `"   "` teaches the
  * operator the API is flaky.
+ *
+ * ## Why `DangerZone` and not `Card`
+ *
+ * `opsLanguage.DangerZone` was written for exactly this lever — "the wrapper for a lever
+ * that changes platform state for every customer at once" — and then nothing used it: it
+ * was an exported component with no importer, while the one control it describes sat in
+ * the same plain `Card` as the everyday settings around it. Adopting it beats deleting it
+ * because the separation is the point (UX-DOCTRINE §4: a destructive control is never
+ * dressed like an ordinary one, and GitHub's "Danger zone" is the convention every
+ * operator already reads), and because the zone is a fact about the LEVER, not about its
+ * current position — a resume is as platform-wide as a halt, which is why the rose
+ * section stays put while the button inside it changes class.
+ *
+ * The heading level is unchanged by the swap: `Card`'s title is an `<h2>` and so is the
+ * zone's, under the `<h1>` the admin shell prints (`admin/layout.tsx`).
  */
 export function OutboundHaltPanel({ state, access }: { state: PlatformState; access: OpsAccess }) {
   const setState = useSetPlatformState();
@@ -41,7 +56,7 @@ export function OutboundHaltPanel({ state, access }: { state: PlatformState; acc
   const ready = confirm === confirmWord;
 
   return (
-    <Card>
+    <DangerZone title="Outbound calling — every client at once">
       <div className="space-y-4">
         <NoticeBox
           tone={halted ? "stop" : "ok"}
@@ -189,6 +204,6 @@ export function OutboundHaltPanel({ state, access }: { state: PlatformState; acc
           )}
         </form>
       </div>
-    </Card>
+    </DangerZone>
   );
 }

@@ -903,14 +903,26 @@ Calevate adaptations:
    logs see real caller IPs, not CF edge IPs. (Their config lacks this; the survey
    flagged it.)
 4. **Rate zones** (ours): `auth` 20r/m · `admin_api` 180r/m · `client_api` 120r/m ·
-   `webhooks` 600r/m (engine events burst on campaign completion) · `health` 60r/m ·
+   `webhooks` 600r/m (engine events burst on campaign completion) ·
+   `in_call_tools` 2500r/m (the engine's mid-call custom functions) · `health` 60r/m ·
    `browser` 600r/m. App-layer limits stay authoritative; nginx is edge defense.
 
    `browser` was `default` at 90r/m, and it was refusing honest traffic: the origin's
    error log shows one operator loading one console screen filling the burst and queueing
    30 deep, on hashed `_next/static` chunks and on the `?_rsc=` prefetch every sidebar
    `<Link>` fires. A Next App Router console is dozens of requests per screen; 1.5r/s
-   could not serve one. Renamed as well as retuned because it is applied in exactly four
+   could not serve one.
+
+   `in_call_tools` exists because `hooks.` had ONE proxying location, so `/tools/v1/*`
+   and `/hooks/v1/*` shared the `webhooks` bucket — keyed on the one engine egress
+   address both arrive from. A campaign hanging up 250 calls therefore spent the
+   allowance, and a tool call from a call still in progress was answered 429 by nginx:
+   the handler never runs, the model gets a failed tool call, the caller hears silence.
+   Raising `webhooks` would not have fixed it — it lets the hangup burst consume a bigger
+   in-call allowance, which IS the defect. The rate is derived from concurrency rather
+   than completions: 250+ concurrent calls (D-32) × at most ~10 tool calls per call per
+   minute (one per conversational turn) = 2,500r/m, with `burst=250 nodelay` for the
+   lockstep round a campaign's simultaneous dials produce. Renamed as well as retuned because it is applied in exactly four
    places — the `location /` of the marketing, client and admin vhosts, and the api
    vhost's `location ^~ /v1/public/` (D-545: the public rate card, whose one caller is
    the marketing server and whose body has no database behind it) — and never was the

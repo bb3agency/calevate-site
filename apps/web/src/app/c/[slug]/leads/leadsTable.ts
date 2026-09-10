@@ -1,5 +1,7 @@
 import { lookup } from "@/lib/lookup";
-import { type Lead, type LeadColumn } from "@/lib/api/leads";
+import { type Lead, type LeadColumn, type LeadLens } from "@/lib/api/leads";
+
+import { narrowedBeyondStatus } from "./leadFilters";
 
 /**
  * THE TABLE'S ARITHMETIC AND ITS METRICS — the React-free half of the leads screen.
@@ -52,11 +54,53 @@ export const INLINE_EDIT =
  */
 export const PAGE_SIZE = 100;
 
-/** What the header count is a count OF, with both filters that narrow it named. */
-export function scopeLabel(status: string | undefined, search: string, total: number): string {
-  const stage = status ? `${status} ` : "";
+/**
+ * What the header count is a count OF — read off the LENS, so it names every filter that
+ * narrowed it.
+ *
+ * It used to take `status` and `search` and say "matching your search" for the second one
+ * only, which meant a count narrowed by the owner chip or by a facet value was printed as
+ * a bare "12 leads" beside a screen full of them: a statement about the account made from
+ * a filtered subset (UX-DOCTRINE §52). The stage stays NAMED because the chip is the one
+ * filter whose value is a word a client would recognise in this sentence; everything else
+ * is "your filters", because listing five of them here would out-shout the number.
+ *
+ * `narrowedBeyondStatus` rather than a second boolean chain — one derivation, exhaustive
+ * over `LeadLens` by type, shared with the empty state and the stage tally.
+ */
+export function scopeLabel(lens: LeadLens, total: number): string {
+  const stage = lens.status ? `${lens.status} ` : "";
   const noun = total === 1 ? "lead" : "leads";
-  return search ? `${stage}${noun} matching your search` : `${stage}${noun}`;
+  return narrowedBeyondStatus(lens) ? `${stage}${noun} matching your filters` : `${stage}${noun}`;
+}
+
+/**
+ * WHY THE CSV EXPORT IS REFUSED, in one sentence, or `null` when it is not.
+ *
+ * One derivation for two renderings, which is what UX-DOCTRINE §4 asks for: the reason
+ * goes on the control (`title`) *and* on the screen (`RestrictionNote`). It used to exist
+ * only as a `title` on a DISABLED button — and a disabled `<button>` is not focusable and
+ * fires no hover on touch, so the commonest refusal of the three (a question is in force)
+ * reached a client as a button that did nothing, with no sentence anywhere on the screen.
+ *
+ * Order matters and is the order the button was already disabled in: a question refuses
+ * the export even for an owner who holds the permission, so it is named first. `null` for
+ * a permission answer that has NOT ARRIVED — "we do not know yet" is not a refusal, and a
+ * note that flashed and retracted itself would be worse than the wait (§52).
+ */
+export function exportRefusal(
+  askTerm: string,
+  mayExport: boolean,
+  exportReason: string | null,
+): string | null {
+  if (askTerm) {
+    return (
+      "A question ranks the best matches rather than selecting a complete set, " +
+      "so it cannot be exported. Clear it to export by the filters instead."
+    );
+  }
+  if (!mayExport) return exportReason;
+  return null;
 }
 
 export function cellValue(lead: Lead, key: string): string {

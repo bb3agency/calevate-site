@@ -48,6 +48,7 @@ to stay under — the one outcome a deadline may not have.
 from __future__ import annotations
 
 import time
+from dataclasses import dataclass
 from datetime import timedelta
 
 #: The default budget for one fleet-wide walk.
@@ -87,4 +88,74 @@ class WalkBudget:
         return self.exhausted
 
 
-__all__ = ["FLEET_WALK_DEADLINE", "WalkBudget"]
+# --- what shape of fan-out a cron is ------------------------------------------------
+#
+# WHY A DECLARATION AND NOT A DERIVATION. `tests/job_registration_test.py` needs the set
+# of crons that fan out across the whole client directory, because two of them in one
+# minute compete for the worker and the connection pool — and a walk under a `WalkBudget`
+# that loses that race latches `exhausted` and starves its own tail. That set used to be
+# a dict of names hand-written in the test file, checked in ONE direction: a listed name
+# had to still exist, but a NEW fan-out was never required to appear. Four collisions
+# accumulated behind that hole.
+#
+# Three derivable signals were measured against this tree before the declaration below
+# was chosen, and each one is recorded here so the next reader does not re-run them:
+#
+#   * `WalkBudget` construction in the job's module — 6 of the 13 fan-outs. It is the
+#     wrong way round by construction: the guard exists to catch a fan-out that has NOT
+#     adopted the instrument yet, and `apply_retention` — the walk `WalkBudget` was
+#     measured from — was invisible to it until this change.
+#   * A `_due_tenants`-shaped directory query — there is no shared seam to key on. Six
+#     modules write their own (`_ERASURE_DIRECTORY`, three separate `_DIRECTORY`s,
+#     `_ALL_TENANTS`, a `UNION` in `retention`), and three more fan out over a worklist
+#     table instead of the directory.
+#   * An AST call-graph scan for `tenant_session` opened inside a loop — measured at 22
+#     of 31 crons, including per-ROW jobs bounded by an explicit `limit` (`sweep_kb_uploads`,
+#     `issue_one_time_charges`), and still missing `sweep_engine_violations`. A signal
+#     with that error rate buys a hand-maintained EXEMPTION list, which is the same defect
+#     with the sign flipped.
+#
+# So the shape is declared where the schedule is chosen, and `settings.py` cannot register
+# a cron without one — omission is a `TypeError` at import rather than a hole in a test.
+# The classification is a human judgement; that it EXISTS is not.
+
+
+@dataclass(frozen=True, slots=True)
+class WalkShape:
+    """How much of the fleet one tick of a cron touches, and whether it can be spaced."""
+
+    #: True when the tick opens roughly one database session per TENANT, so its cost grows
+    #: with the client list. These may not share a firing minute with each other.
+    fleet_wide: bool
+    #: True when the job runs on every tick by design (arq's `minute=None` wildcard), so
+    #: there is no minute to move it to. Recorded rather than silently excluded.
+    every_tick: bool
+    #: What one tick costs, in one line. The fact that makes sharing a minute a problem.
+    cost: str
+
+
+def fleet_wide(cost: str) -> WalkShape:
+    """One session per tenant, on a schedule that can be moved."""
+    return WalkShape(fleet_wide=True, every_tick=False, cost=cost)
+
+
+def every_tick(cost: str) -> WalkShape:
+    """O(tenants), but running continuously — spacing it against a neighbour is
+    meaningless, so it carries its own `WalkBudget` instead."""
+    return WalkShape(fleet_wide=False, every_tick=True, cost=cost)
+
+
+def bounded(cost: str) -> WalkShape:
+    """Not O(tenants): one untenanted session, a vendor listing, or a fan-out over a
+    worklist with an explicit per-tick `limit`. The `cost` says which."""
+    return WalkShape(fleet_wide=False, every_tick=False, cost=cost)
+
+
+__all__ = [
+    "FLEET_WALK_DEADLINE",
+    "WalkBudget",
+    "WalkShape",
+    "bounded",
+    "every_tick",
+    "fleet_wide",
+]

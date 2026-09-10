@@ -2,9 +2,10 @@
 
 import { StatusBadge, formatCount } from "@/components/ui";
 import { Pagination } from "@/components/interior/pagination";
-import { type LeadList, type LeadStatus } from "@/lib/api/leads";
+import { type LeadLens, type LeadList, type LeadStatus } from "@/lib/api/leads";
 
 import { STATUSES } from "./StatusSelect";
+import { narrowedBeyondStatus } from "./leadFilters";
 import { PAGE_SIZE } from "./leadsTable";
 
 /**
@@ -17,16 +18,16 @@ export function LeadsFooter({
   leads,
   items,
   offset,
-  status,
-  searchTerm,
+  lens,
   stageCount,
   onOffsetChange,
 }: {
   leads: { data: LeadList | undefined };
   items: unknown[];
   offset: number;
-  status: string | undefined;
-  searchTerm: string;
+  /** The filters the server was given — the tally's sentence is read off THIS, not off
+   *  the two of them this component used to be handed. */
+  lens: LeadLens;
   stageCount: (stage: LeadStatus) => number | undefined;
   onOffsetChange: (offset: number) => void;
 }) {
@@ -47,9 +48,17 @@ export function LeadsFooter({
                 : formatCount(items.length)}
             </span>{" "}
             of {formatCount(leads.data.total)}
-            {status ? ` ${status}` : ""} {leads.data.total === 1 ? "lead" : "leads"}.
+            {lens.status ? ` ${lens.status}` : ""} {leads.data.total === 1 ? "lead" : "leads"}.
           </span>
-          <span>{searchTerm ? "Matching your search" : "In this account"}, by stage:</span>
+          {/* WHAT THESE SIX NUMBERS ARE ABOUT. The server computes them over the whole
+              scope MINUS the status chip (`crm/service.py`), so "In this account" is true
+              only when NOTHING else is narrowing them. It used to ask about the search
+              alone, which printed "In this account, by stage:" over numbers the owner
+              chip and the facet rail had already cut down — a claim about the business
+              made from a subset of it (§52). One derivation, over the whole lens. */}
+          <span>
+            {narrowedBeyondStatus(lens) ? "Matching these filters" : "In this account"}, by stage:
+          </span>
           {STATUSES.map((s) => (
             <span key={s} className="flex items-center gap-1">
               <StatusBadge value={s} />

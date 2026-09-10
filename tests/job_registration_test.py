@@ -25,7 +25,7 @@ THE THREE SHAPES, each reconstructed from a state that actually shipped here:
 from __future__ import annotations
 
 import pytest
-from apps.workers.settings import CRON_JOBS
+from apps.workers.settings import CRON_JOBS, WALK_SHAPES
 from scripts import check_job_wiring
 from scripts.check_job_wiring import EnqueueSite, JobDefinition
 
@@ -337,35 +337,63 @@ def test_every_cron_has_a_retry_ladder_or_says_why_it_does_not() -> None:
 
 #: The crons that walk the CLIENT DIRECTORY — one `tenant_session` (or one vendor request)
 #: per tenant, per tick — and therefore compete for the same pool and the same worker when
-#: they fire together. An entry says what the walk costs, because that is the fact that
-#: makes sharing a minute a problem rather than a coincidence.
+#: they fire together. DERIVED from `settings.WALK_SHAPES`, which every registration writes
+#: through `settings._cron`; the value is what one tick costs, because that is the fact
+#: that makes sharing a minute a problem rather than a coincidence.
 #:
-#: WHY THIS IS A TEST AND NOT A COMMENT. `copilot_memory.DISTILL_MINUTE`'s own comment
-#: argued that :25 was "clear of the poller, `report_stalled_pipeline` and
-#: `reconcile_outstanding_calls`, so no two O(tenants) fan-outs share a minute". It was
-#: true when written. `report_overdue_erasures` was then registered on `minute={25}` and
-#: the sentence became false without a line of it changing — the exact defect class
-#: `NO_LADDER_NEEDED` above exists for, one property over. Two fleet walks in one minute
-#: is not a style point: `report_overdue_erasures` has a wall-clock budget
-#: (`fleet_walk.WalkBudget`) it must finish inside, so a neighbour holding pooled
-#: connections in the same minute is spent out of the fleet it reaches — an alarm on a
-#: statutory right going quiet because an unrelated feature picked the same number.
+#: WHY THIS IS DERIVED AND NOT A LIST. It WAS a list here, and the list was checked in one
+#: direction only — `test_the_fleet_walk_list_still_names_crons_that_exist` asserted that a
+#: listed name was still registered, and nothing ever asserted that a new fan-out appeared.
+#: So `sweep_due_erasures`, `sweep_trials`, `embed_caller_chunks`, `sweep_topup_settlement`
+#: and `sweep_engine_violations` were all registered after the list was written and none of
+#: them entered the collision check: four minutes ended up carrying two fan-outs each,
+#: including :13/:43 where two walks under a `WalkBudget` spent each other's wall clock and
+#: `topup_settlement_truncated` fired nightly on a healthy fleet. `fleet_walk.WalkShape`
+#: records why the CLASSIFICATION is declared beside each schedule rather than inferred
+#: from the code, and which three derivable signals were measured and rejected.
 FLEET_WIDE_WALKS: dict[str, str] = {
-    "cron:report_stalled_pipeline": "one tenant_session per callable tenant",
-    "cron:reconcile_outstanding_calls": "one tenant_session per callable tenant, plus vendor reads",
-    "cron:distil_copilot_memories": "one tenant_session per tenant with a worklist row",
-    "cron:report_overdue_erasures": "one tenant_session per ORGANIZATION, under a time budget",
-    "cron:draw_qa_samples": "one tenant_session per organization, under a time budget",
-    "cron:send_agent_knowledge_digests": "one tenant_session and one SMTP send per live agent",
-    "cron:apply_retention": "one tenant_session per tenant that can hold call data",
+    name: shape.cost for name, shape in WALK_SHAPES.items() if shape.fleet_wide
 }
 
 
-def test_the_fleet_walk_list_still_names_crons_that_exist() -> None:
-    """A stale name here silently drops a walk out of the collision check below."""
-    registered = {job.name for job in CRON_JOBS}
-    stale = sorted(set(FLEET_WIDE_WALKS) - registered)
-    assert not stale, f"FLEET_WIDE_WALKS names crons that are no longer registered: {stale}"
+def test_every_registered_cron_declares_what_one_tick_costs() -> None:
+    """The property that makes the derivation above trustworthy.
+
+    `settings._cron` takes `walk` as a keyword-only argument with no default, so this can
+    only fail one way: somebody called `arq.cron` directly. That is exactly how a new
+    fan-out used to skip the collision check, and it is now a failing test rather than a
+    silent omission.
+    """
+    undeclared = sorted({job.name for job in CRON_JOBS} - set(WALK_SHAPES))
+    assert not undeclared, (
+        "these crons are registered without declaring their fan-out shape, so the "
+        f"collision guard below cannot see them: {undeclared}. Register them through "
+        "`settings._cron(..., walk=fleet_wide(...)/bounded(...)/every_tick(...))` rather "
+        "than calling `arq.cron` directly."
+    )
+
+
+def test_no_walk_shape_is_declared_for_a_cron_that_is_gone() -> None:
+    """The mirror of the test above. `WALK_SHAPES` is written by `_cron` at import, so a
+    stale key means a registration was deleted while its shape was left behind — and the
+    collision guard would then be reasoning about a schedule nothing runs."""
+    stale = sorted(set(WALK_SHAPES) - {job.name for job in CRON_JOBS})
+    assert not stale, f"WALK_SHAPES names crons that are no longer registered: {stale}"
+
+
+def test_a_fleet_wide_walk_is_not_also_declared_as_running_every_tick() -> None:
+    """The two flags answer different questions and only one of them can be acted on: a
+    job with no minute to move has no slot to be spaced into, so declaring it both would
+    put an unsatisfiable constraint into the guard."""
+    both = sorted(n for n, shape in WALK_SHAPES.items() if shape.fleet_wide and shape.every_tick)
+    assert not both, both
+
+
+def test_every_declared_cost_says_something() -> None:
+    """An empty or one-word cost is a declaration that satisfies the type and tells the
+    next reader nothing — the failure mode the hand-written list had, one level down."""
+    thin = sorted(n for n, shape in WALK_SHAPES.items() if len(shape.cost.split()) < 4)
+    assert not thin, f"these crons declare a fan-out cost that says nothing: {thin}"
 
 
 def test_no_two_fleet_wide_walks_share_a_firing_minute() -> None:
@@ -397,8 +425,8 @@ def test_no_two_fleet_wide_walks_share_a_firing_minute() -> None:
     assert not clashes, (
         "these fleet-wide walks fire in the same minute, so they compete for the worker "
         f"and the connection pool every time they run: {clashes}. Move one to a free "
-        "slot and record the reason where its schedule is chosen — the walks are listed "
-        "with what each costs in FLEET_WIDE_WALKS."
+        "slot and record the reason where its schedule is chosen — each walk declares "
+        "what it costs at its `_cron(..., walk=...)` registration."
     )
 
 

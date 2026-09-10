@@ -163,7 +163,12 @@ async def test_a_number_we_cannot_canonicalise_is_kept_rather_than_dropped() -> 
     can only ever improve a row, never empty one, and the odd value stays visible in the
     CRM where a human can correct it."""
     tenant_id, agent_id = await _seed_tenant(f"odd_{uuid.uuid4().hex[:10]}")
-    unreadable = "0" + f"98{uuid.uuid4().int % 100000000:08d}"  # 11 digits, no country
+    # ⚠ THIS USED TO BE `"0" + 10 DIGITS STARTING 9`, WHICH IS NO LONGER UNREADABLE:
+    # D-562 taught `normalize_phone` India's `0` trunk prefix, because a DNC paste in that
+    # spelling was being counted `malformed` and left dialable. The shape this test needs
+    # is one where a country genuinely cannot be inferred — eleven digits behind a `1`,
+    # with no `+` to take anybody's word for.
+    unreadable = "1" + f"55{uuid.uuid4().int % 100000000:08d}"  # 11 digits, no country
     assert normalize_phone(unreadable) is None
 
     lead_id = await pipeline._upsert_lead(

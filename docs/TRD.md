@@ -1219,9 +1219,11 @@ Razorpay for collection (phase 1 can invoice manually; ledger from day 1 is non-
 ## 10. Cost Model (verified July 2026; re-verify quarterly)
 
 Per-minute variable (₹): platform 1.5–2.0 (A-1) · STT 0.50 · **TTS 1.08–1.62 on the Sarvam
-voice (Bulbul v3, billed per character) or 1.8628 on the Cartesia voice (Sonic 3.5 — a
-MONTHLY PLAN spread over the platform-wide break-even minute count,
-`billing/rates.py::cartesia_plan_inr_per_call_minute`; D-547 made the voice a per-agent
+voice (Bulbul v3, billed per character) or 2.06–3.09 on the Cartesia voice (Sonic 3.5 — a
+MONTHLY PLAN whose MARGINAL per-character rate past the included allotment is what this
+band is struck at, `billing/rates.py::CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`, priced per
+call-minute by `billing/rates.py::cartesia_tts_inr_per_call_minute` and all-in by
+`billing/rates.py::cartesia_cost_inr_per_call_minute`; D-547 made the voice a per-agent
 choice, so this leg now has two values and the call decides which)**
 · **LLM 0.10–0.24 (`gpt-4o-mini` on Azure OpenAI East US 2 — the band is the one- to
 ten-minute curve, not a rate; supersedes D-400's 0.23–0.51 Gemini band and D-36's ₹0.00.
@@ -1279,9 +1281,21 @@ is §10.1's **₹2.89–4.28**.
 > decision has since WITHDRAWN the v2 rung entirely — `billing/rates.py::TTS_INR_PER_10K_CHARS`
 > is one scalar for the SARVAM rung and stays one; ⚠ this clause used to read "is now one
 > scalar" full stop, and since **D-547** the card has a SECOND rung —
-> `CARTESIA_TTS_INR_PER_10K_CHARS`, the Cartesia Startup plan's fee over its allotment,
-> DERIVED rather than typed. Two rungs, two vendors, and NOT a return of v2: what D-547
-> added is a dearer voice, not the cheaper one this note records as withdrawn.
+> `CARTESIA_MARGINAL_TTS_INR_PER_10K_CHARS`, the vendor's OVERAGE rate past the included
+> allotment on the dearest plan we can be on, DERIVED rather than typed. Two rungs, two
+> vendors, and NOT a return of v2: what D-547 added is a dearer voice, not the cheaper one
+> this note records as withdrawn.
+> ⚠ **THIS CLAUSE NAMED `CARTESIA_TTS_INR_PER_10K_CHARS` — A SYMBOL THAT HAS NEVER EXISTED
+> UNDER THAT NAME — AND CALLED IT "the Cartesia Startup plan's fee over its allotment",
+> WHICH IS THE BASIS D-556 RETIRED (10 Sep 2026).** The per-minute summary above priced the
+> Cartesia leg at **₹1.8628**, the top of the retired ₹1.24–1.86 band, and pointed at a
+> second symbol that does not exist either (`cartesia_plan_inr_per_call_minute`). §10.1 is
+> the rate card and had already carried ₹5.7200 / 1,000 chars → **₹2.06–3.09** since 9 Sep
+> 2026; the summary had not moved with it. `scripts/check_docs_drift.py` §4f now diffs this
+> paragraph's TTS band against §10.1's per-call-minute column in both directions, so a
+> summary cannot contradict the card again unwatched, and §4g refuses a
+> `billing/rates.py::<name>` citation anywhere in this document that names nothing the
+> module defines.
 > `plans.overage_rate_second` still exists as a dormant founder pricing lever), and "LLM 0.04–0.10" — which is stale in the OTHER direction now. D-36 replaced it
 > with ₹0.00 (Sarvam 105B, free per token), D-400 replaced that with a real,
 > duration-dependent leg, and **D-410 has repriced that leg onto `gpt-4o-mini`** — same

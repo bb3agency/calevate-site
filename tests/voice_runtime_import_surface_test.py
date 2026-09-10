@@ -713,6 +713,165 @@ def test_the_alert_delivery_thread_acquires_only_the_recorded_exception() -> Non
     )
 
 
+# --- 5. and what the BACKGROUND CONFIG POLL acquires, three seconds after boot ---
+#
+# THE FOURTH DOOR, and it was open. The sections above measure three of them — the boot
+# graph, the request path and the alert thread; none can see the poll task, because it does
+# not exist until the LIFESPAN runs and it does its work on a timer after that. Every
+# guard in this file booted the module, read `sys.modules` and finished looking before the
+# task had done anything.
+#
+# What it did: `_startup` calls `start_config_refresher()`, whose loop refreshes FIRST and
+# sleeps after, and `platform_config.refresh` called `_read_secrets()` unconditionally —
+# a LAZY import of `apps.api.ops.secret_service` (invisible to the boot graph by
+# construction), a SELECT of `platform_secrets`, and an AES-GCM unseal of every stored
+# vendor credential into this process's `Settings`. Measured, not argued: the poll added
+# `apps.api.ops`, `apps.api.ops.config_service` and `apps.api.ops.secret_service`, three
+# of which the first section of this file names FORBIDDEN by prefix. `compose.prod.yml`
+# gives all three services the same `env_file`, so `PLATFORM_KEK` was present and the
+# unseal succeeded.
+#
+# The fix is `start_config_refresher(with_secrets=False)` in `apps/voice-runtime/main.py`:
+# this service reads the source-IP allowlist, the selected engine and `app_env`, and no
+# credential at any point. This section is the measurement that keeps it that way — and it
+# is deliberately a MEASUREMENT of the running task rather than an assertion about the
+# keyword, because the keyword is one refactor away from meaning something else.
+
+
+#: What the poll may add to this process. EMPTY, and that is the assertion: a config
+#: refresh reads two rows through machinery the boot graph already holds, so acquiring
+#: anything at all means a new door — the credential path returning, a driver faulted in
+#: late, or a module reached from inside `refresh`.
+INTENDED_POLL_IMPORTS: dict[str, str] = {}
+
+#: The tables the poll is allowed to read. `platform_config_version` is the sentinel and
+#: `platform_settings` is the payload; `platform_secrets` is the one that must never
+#: appear. This is also the correction to `voice_runtime_deploy_independence_test.py`,
+#: whose SCHEMA_SURFACE covers the REQUEST path only — the poll's two reads are this
+#: deployable's other schema surface, and they were unmeasured and undeclared.
+POLL_TABLES: frozenset[str] = frozenset({"platform_config_version", "platform_settings"})
+
+_POLL_PROBE = """
+import asyncio, json, re, sys
+sys.path.insert(0, "apps/voice-runtime")
+sys.path.insert(1, ".")
+import main  # noqa: F401  — boot exactly as the ASGI server does
+from apps.api.core import platform_config
+from apps.api.db.session import get_engine
+from sqlalchemy import event
+
+statements = []
+
+
+def _on_execute(_conn, _cursor, statement, *_rest):
+    statements.append(" ".join(statement.split()))
+
+
+async def go():
+    event.listen(get_engine().sync_engine, "before_cursor_execute", _on_execute)
+    # AFTER the probe's own imports and after the engine exists, so the delta is the
+    # POLL's and nothing else's.
+    before = sorted(sys.modules)
+    async with main.app.router.lifespan_context(main.app):
+        # Wait for the first refresh to actually land rather than sleeping a fixed
+        # interval: a probe that measured a poll which had not run yet would report a
+        # clean process and prove nothing.
+        for _ in range(200):
+            if platform_config.snapshot().loaded_at is not None:
+                break
+            await asyncio.sleep(0.05)
+        after = sorted(sys.modules)
+        snapshot = platform_config.snapshot()
+        loaded = snapshot.loaded_at is not None and not snapshot.degraded
+    named = set()
+    for statement in statements:
+        named.update(re.findall(r"(?:into|from|update)\\s+(\\w+)", statement.lower()))
+    tables = sorted(named)
+    with open(sys.argv[1], "w") as handle:
+        json.dump({"before": before, "after": after, "loaded": loaded, "tables": tables}, handle)
+
+
+asyncio.run(go())
+"""
+
+
+def _poll_measurement() -> dict[str, Any]:
+    out = Path(tempfile.gettempdir()) / f"calevate-poll-surface-{uuid.uuid4().hex}.json"
+    try:
+        proc = subprocess.run(
+            [sys.executable, "-c", _POLL_PROBE, str(out)],
+            cwd=REPO_ROOT,
+            env={**os.environ, "PYTHONPATH": ""},
+            capture_output=True,
+            text=True,
+            timeout=180,
+            check=False,
+        )
+        assert proc.returncode == 0, f"the poll probe failed:\n{proc.stderr[-3000:]}"
+        measured: dict[str, Any] = json.loads(out.read_text(encoding="utf-8"))
+    finally:
+        out.unlink(missing_ok=True)
+    assert measured["loaded"], (
+        "the config poll never completed a refresh, so this measured nothing — the probe "
+        "needs a reachable database and Redis, exactly as the rest of the suite does"
+    )
+    return measured
+
+
+@pytest.fixture(scope="module")
+def poll_measurement() -> dict[str, Any]:
+    return _poll_measurement()
+
+
+def test_the_config_poll_acquires_nothing_this_service_is_not_allowed_to_hold(
+    poll_measurement: dict[str, Any],
+) -> None:
+    """The door the other three sections cannot see, measured with the same instrument."""
+    acquired = {
+        module
+        for module in set(poll_measurement["after"]) - set(poll_measurement["before"])
+        if module.split(".")[0] not in sys.stdlib_module_names and not module.startswith("_")
+    }
+    banned = sorted(
+        f"{module} ({reason})"
+        for module in acquired
+        for prefix, reason in FORBIDDEN.items()
+        if module == prefix or module.startswith(f"{prefix}.")
+    )
+    assert not banned, (
+        "the background config poll pulled FORBIDDEN modules into this latency-critical "
+        "process:\n" + "\n".join(f"  - {entry}" for entry in banned) + "\n\nA lazy import "
+        "inside the refresh is invisible to the boot graph and to the request-path guard: "
+        "the poll runs seconds after both have finished looking."
+    )
+    assert acquired == set(INTENDED_POLL_IMPORTS), (
+        "the config poll changed what this process holds:\n"
+        + "\n".join(f"  - {module}" for module in sorted(acquired))
+        + "\n\nDeclare it in INTENDED_POLL_IMPORTS with what it costs, or make the refresh "
+        "stop reaching for it."
+    )
+
+
+def test_the_config_poll_reads_no_credential_row(poll_measurement: dict[str, Any]) -> None:
+    """The blast radius half of the same finding, in SQL rather than in imports.
+
+    `platform_secrets` here would mean this process had decrypted every stored vendor
+    credential into its own `Settings` — a service that calls no vendor, holding the whole
+    credential store, on the box that answers live-call webhooks.
+    """
+    tables = set(poll_measurement["tables"])
+    assert "platform_secrets" not in tables, (
+        "the config poll read `platform_secrets`: voice-runtime is decrypting credentials "
+        "it never uses. `apps/voice-runtime/main.py` must call "
+        "`start_config_refresher(with_secrets=False)`."
+    )
+    assert tables <= POLL_TABLES, (
+        f"the config poll now reads {sorted(tables - POLL_TABLES)}. Every table beyond the "
+        "sentinel and its payload is a release schedule this deployable does not control "
+        "(hard rule 3's last clause)."
+    )
+
+
 def test_the_docstring_that_promises_this_file_names_this_file() -> None:
     """`main.py` cites its import guard by name. It cited a file that did not exist for
     long enough that nobody noticed — which is exactly how a guardrail rots. If the name

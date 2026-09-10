@@ -124,6 +124,7 @@ from apps.api.agents.models import (
     AgentDirection,
     series_for_e164,
 )
+from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
 from apps.api.agents.verification import verify_publish
 from apps.api.agents.voices import speech_for_voice_id, voice_id_of
 from apps.api.agents.write_guard import archived_refusal, assert_agent_writable
@@ -1371,7 +1372,9 @@ def credit_stop_prompt() -> str:
 #: engine to say. Outbound-only agents are excluded: nobody ever rings them, so overriding
 #: their script would change nothing a caller can hear and would spend a vendor round trip
 #: saying so. The shape is `workers/maintenance._ANSWERING_AGENTS_SQL`'s, one column wider.
-#: The nine columns `_posture_of_row` reads positionally, plus the stamp. Named because
+#: The six columns `_posture_of_row` reads positionally, plus the id, the vendor handle,
+#: the silence pair (`inbound_silenced_at`, `inbound_silence_reason`) and the direction —
+#: eleven, in this order and only in this order. Named because
 #: TWO queries need them in the SAME ORDER — the sweep below and the single-agent read —
 #: and two hand-written SELECTs that must agree is how a positional constructor silently
 #: starts reading the wrong field. Written as a literal and concatenated: `check_raw_sql`
@@ -1380,7 +1383,8 @@ def credit_stop_prompt() -> str:
 _ANSWERING_AGENT_COLUMNS = (
     "SELECT id, engine_agent_ref, ai_disclosure_line, ai_disclosure_enabled, "
     "recording_notice_line, recording_notice_enabled, caller_memory_notice_line, "
-    "caller_memory_enabled, inbound_silenced_at FROM agents"
+    "caller_memory_enabled, inbound_silenced_at, inbound_silence_reason, direction "
+    "FROM agents"
 )
 
 _ANSWERING_AGENTS_SQL = (
@@ -1413,6 +1417,13 @@ class InboundCutover:
     failed: int
     #: True when this engine cannot override a script at all, so nothing was attempted.
     unsupported: bool = False
+    #: Agents this pass deliberately did not touch because a STRONGER silence holds them
+    #: (D-564): the drift sweep proved they cannot tell a caller they are an AI, and a
+    #: wallet top-up does not end that. Counted apart from `unchanged` because they are
+    #: the one case where the client has paid and their phone still does not answer, and
+    #: an operator asked "why is this line dead after a top-up" needs the number that
+    #: answers it rather than one that hides inside "nothing to do".
+    withheld: int = 0
 
 
 def _posture_of_row(row: Any) -> DisclosurePosture:
@@ -1431,21 +1442,60 @@ def _posture_of_row(row: Any) -> DisclosurePosture:
     )
 
 
-async def _stamp_inbound_silence(session: AsyncSession, *, agent_id: UUID, silenced: bool) -> None:
+#: WHY an agent's inbound answering is not its own (D-564). The vocabulary
+#: `agents.inbound_silence_reason` holds, and the CHECK in migration `f4a2c7e19d63`
+#: spells the same two words.
+#:
+#: TWO MECHANISMS, NOT TWO LABELS ON ONE. `credits` means the engine is holding the
+#: credit-stop SCRIPT and the call is still answered; `truthful_answer_missing` means the
+#: agent's numbers are UNBOUND and nothing answers them at all. They differ in what a
+#: caller experiences, in what ends them, and in which one wins when both apply — see
+#: `INBOUND_SILENCE_PRECEDENCE`.
+INBOUND_SILENCE_CREDITS: Final = "credits"
+#: Spelled as the VERDICT it mirrors rather than as a word of its own: this reason exists
+#: exactly when `engine_agent_routes.drift_state` is that value, and one fact with two
+#: spellings is where drift starts.
+INBOUND_SILENCE_TRUTHFUL_ANSWER: Final = TRUTHFUL_ANSWER_MISSING
+
+#: STRONGEST FIRST. An agent can be both broke and non-compliant, and the engine can hold
+#: only one state, so the order is a decision rather than an accident: a compliance
+#: silence outranks a credit one because they fail in different currencies. Coming out of
+#: a credit silence wrongly costs the client one metered call; coming out of a compliance
+#: silence wrongly puts a caller in front of an agent that has been PROVEN unable to tell
+#: them it is a machine, which is hard rule 5's floor and not a cost at all.
+INBOUND_SILENCE_PRECEDENCE: Final = (INBOUND_SILENCE_TRUTHFUL_ANSWER, INBOUND_SILENCE_CREDITS)
+
+#: The whole vocabulary, derived from the precedence order rather than retyped beside it —
+#: `tests/inbound_compliance_silence_test.py` asserts this set equals the CHECK's, so a
+#: third reason added here cannot silently fail a constraint at 03:00.
+INBOUND_SILENCE_REASONS: Final[frozenset[str]] = frozenset(INBOUND_SILENCE_PRECEDENCE)
+
+
+async def _stamp_inbound_silence(
+    session: AsyncSession, *, agent_id: UUID, reason: str | None
+) -> None:
     """Record what the ENGINE now holds for this agent, not what we wish it held.
 
     Written only AFTER the vendor call returned, for the reason `live_tts_voice` is: a
     column that claims a script the engine was never observed to take is worse than no
     column, because the reconciler reads it to decide whether to act and would then decide
     to do nothing for ever.
+
+    ONE STATEMENT WRITES BOTH COLUMNS (D-564), which is what lets the table CHECK them as
+    an equivalence: `reason=None` clears the pair, a reason sets it. No caller can produce
+    a stamp with no reason, and the database refuses one anyway.
     """
     await session.execute(
         text(
+            # CAST because both uses of `:reason` are in positions PostgreSQL cannot
+            # infer a type for (a CASE predicate and, on the NULL path, a bare parameter),
+            # and it answers `AmbiguousParameter` rather than guessing.
             "UPDATE agents SET inbound_silenced_at = "
-            "CASE WHEN :on THEN now() ELSE NULL END, updated_at = now() "
+            "CASE WHEN CAST(:reason AS text) IS NULL THEN NULL ELSE now() END, "
+            "inbound_silence_reason = CAST(:reason AS text), updated_at = now() "
             "WHERE id = :aid AND deleted_at IS NULL"
         ),
-        {"aid": agent_id, "on": silenced},
+        {"aid": agent_id, "reason": reason},
     )
 
 
@@ -1486,7 +1536,7 @@ async def reconcile_inbound_answering(
     restore: `publish_agent` refuses while a window is draining or active (D-544), so the
     restore is counted as a failure, alarmed and retried — and the window's own
     `_restore_scripts` republishes every live answering agent at the end, which runs
-    `_settle_inbound_credit_state` and lands the agent on whichever script its wallet now
+    `_settle_inbound_silence` and lands the agent on whichever script its wallet now
     earns. The client's phone therefore comes back when the platform does, and not before,
     which is the same promise every other client gets.
     """
@@ -1497,10 +1547,22 @@ async def reconcile_inbound_answering(
         return InboundCutover(silenced=0, restored=0, unchanged=0, failed=0, unsupported=True)
 
     rows = (await session.execute(text(_ANSWERING_AGENTS_SQL))).all()
-    silenced = restored = unchanged = failed = 0
+    silenced = restored = unchanged = failed = withheld = 0
     for row in rows:
-        agent_id, ref, already = row[0], str(row[1]), row[8] is not None
-        if already == exhausted:
+        agent_id, ref, reason = row[0], str(row[1]), row[9]
+        if reason == INBOUND_SILENCE_TRUTHFUL_ANSWER:
+            # THE WALLET DOES NOT GET TO END A COMPLIANCE SILENCE (D-564), in either
+            # direction. Restoring here would put a caller in front of an agent the sweep
+            # has PROVEN cannot tell them it is a machine, decided by a money question
+            # that knows nothing about it; and silencing an agent whose numbers are
+            # already unbound would spend a vendor round trip overwriting the script of
+            # something nobody can ring. `INBOUND_SILENCE_PRECEDENCE` is the order, and
+            # `reconcile_inbound_truthful_answer` is the only thing that lifts this one.
+            withheld += 1
+            continue
+        # `reason` is now `credits` or NULL, so the stamp and the predicate compare
+        # directly — the shape this loop always had, with the third state taken out above.
+        if (reason is not None) == exhausted:
             unchanged += 1
             continue
         try:
@@ -1510,11 +1572,13 @@ async def reconcile_inbound_answering(
                     opening_line=credit_stop_greeting(_posture_of_row(row)),
                     system_prompt=credit_stop_prompt(),
                 )
-                await _stamp_inbound_silence(session, agent_id=agent_id, silenced=True)
+                await _stamp_inbound_silence(
+                    session, agent_id=agent_id, reason=INBOUND_SILENCE_CREDITS
+                )
                 silenced += 1
             else:
-                # `publish_agent` clears the stamp itself through `_settle_inbound_credit_
-                # state` below, so there is no second writer of the column here.
+                # `publish_agent` clears the stamp itself through `_settle_inbound_silence`
+                # below, so there is no second writer of the column here.
                 await publish_agent(session, tenant_id=tenant_id, agent_id=agent_id)
                 restored += 1
         except Exception as exc:
@@ -1545,12 +1609,165 @@ async def reconcile_inbound_answering(
             "restored": restored,
             "unchanged": unchanged,
             "failed": failed,
+            "withheld": withheld,
         },
     )
-    return InboundCutover(silenced=silenced, restored=restored, unchanged=unchanged, failed=failed)
+    return InboundCutover(
+        silenced=silenced,
+        restored=restored,
+        unchanged=unchanged,
+        failed=failed,
+        withheld=withheld,
+    )
 
 
-async def _settle_inbound_credit_state(
+async def reconcile_inbound_truthful_answer(
+    session: AsyncSession,
+    engine: VoiceEngine,
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    truthful_answer_applied: bool | None,
+) -> str:
+    """THE INBOUND HALF OF D-562 (D-564). An agent PROVEN to be running a prompt with no
+    truthful-answer directive in it stops answering incoming calls, and answers again when
+    it is proven to be carrying one.
+
+    ═══ WHAT WAS OPEN ═══
+
+    D-562 made the drift sweep's `truthful_answer_missing` verdict a DIAL refusal
+    (`compliance.service.truthful_answer_drift_blocker`). Outbound stopped; inbound did
+    not. The same agent, on the same vendor object, went on picking up its number and
+    telling anyone who asked whether they were talking to a machine whatever the vendor's
+    own console was last used to write. Hard rule 5's floor — the ANSWER, §2.0's
+    unconditional one — is not an outbound rule; it is louder on inbound, where the caller
+    is our client's customer and did not choose to be in the conversation.
+
+    ═══ WHY IT CANNOT BE A GATE, AND WHY IT IS THIS INSTRUMENT ═══
+
+    An inbound call reaches nothing of ours before it is answered — the vendor's
+    orchestrator picks up on the number bound by `POST /inbound/setup` and the first we
+    hear is a webhook after the fact — so the enforcement has to be durable state AT the
+    engine. That is D-551's pattern and it is followed rather than re-invented. Where this
+    departs from D-551 is WHICH of the two instruments is used, and the departure is the
+    whole decision:
+
+      * D-551 (no credit) overrides the SCRIPT and the call is answered with a neutral
+        line, because the founder refused a dead line for an account problem: the agent is
+        sound, the wallet is not, and a caller deserves a sentence.
+      * HERE THE AGENT ITSELF IS THE THING THAT IS UNSOUND, so the numbers are UNBOUND and
+        nothing answers at all (`route_inbound_numbers(answers=False)`).
+
+    Three reasons, and the first is decisive. (1) `override_call_script` is a partial write
+    that is DELIBERATELY NOT READ BACK (`reconcile_inbound_answering` says so), and what
+    the sweep just proved is that this vendor object is NOT holding the text we published.
+    Answering a failure-to-hold-our-text by writing more text down the same unverified
+    channel, and then stamping the agent as handled, would be manufacturing compliance out
+    of a write nobody confirmed — hard rule 11's shape, applied to a wire value. (2) Even a
+    PATCH that lands leaves every other attribute of that object as the editor left it
+    (`patch_update.md:19-31` writes exactly two), so the message would be spoken by an
+    agent we know somebody else has been editing. (3) A neutral apology is a sentence
+    delivered BY the agent; a caller who then asks "am I talking to a person?" is asking
+    the very prompt that has been proven not to answer that honestly. There is no message
+    we can compose that does not have to be spoken through the fault.
+
+    A dead line is a real cost to the client and it is the smaller one. It is bounded and
+    self-healing: one republish rebinds the numbers, and the client is told exactly that
+    (`compliance.service.TRUTHFUL_ANSWER_DRIFT_REASON`, the launch gate's blocker row and
+    the alert the sweep already raises).
+
+    ═══ THE ARGUMENT IS TRI-STATE ON PURPOSE ═══
+
+    `truthful_answer_applied` is the verdict's own field, and `None` — "we could not tell"
+    — does NOTHING here. That is the `AgentSnapshot` doctrine held to the end of the line:
+    an unreadable answer is not evidence of a missing directive, and a phone that goes
+    dead because a vendor was briefly slow is the failure that gets an enforcement disarmed.
+    Passed in rather than re-read, for `reconcile_inbound_answering`'s reason: this
+    function must not be able to act on a different measurement than its caller recorded.
+
+    IDEMPOTENT, and free when there is nothing to do — `agents.inbound_silence_reason` is
+    the mirror, so an agent already in the right state costs no vendor round trip. A
+    failure to reach the engine leaves the mirror UNSTAMPED and is retried by the next
+    sweep tick, which is what stops a failed unbind from being recorded as a silence.
+    """
+    if truthful_answer_applied is None:
+        return "indeterminate"
+    row = (await session.execute(text(_ONE_ANSWERING_AGENT_SQL), {"aid": agent_id})).first()
+    if row is None:
+        # Deleted between the sweep's read and this write. Not an error — the same
+        # non-outcome `record_drift` reports when a route vanishes under it.
+        return "gone"
+    ref, reason = str(row[1]), row[9]
+    silenced_for_compliance = reason == INBOUND_SILENCE_TRUTHFUL_ANSWER
+    if not agent_answers_inbound(cast(AgentDirection, str(row[10]))):
+        # Nobody can ring it, so there is nothing to take away. Its outbound is already
+        # refused per dial by `check_dispatch`, which is the whole of the rule for an
+        # agent that only places calls.
+        return "unchanged"
+    if not truthful_answer_applied:
+        if silenced_for_compliance:
+            return "unchanged"
+        if not engine.capabilities.has("inbound_binding"):
+            # NOT a silent no-op and NOT a fallback to the script override — see the
+            # docstring for why that fallback would be worse than doing nothing loudly.
+            alert(
+                "CORE_LOGIC",
+                "inbound_truthful_answer_silence_unsupported",
+                detail=(
+                    f"the {engine.name} adapter cannot unbind a number, so an agent proven "
+                    "to be running a prompt without the truthful-answer rule is still "
+                    "answering incoming calls. Its outgoing calls are already refused."
+                ),
+                tenant_id=str(tenant_id),
+                agent_id=str(agent_id),
+            )
+            return "unsupported"
+        routing = await route_inbound_numbers(
+            session, engine, agent_id=agent_id, ref=ref, answers=False
+        )
+        if routing.failed:
+            # `route_inbound_numbers` has already alarmed per number. NOT STAMPED: the
+            # engine was not observed to stop answering, and a mirror that claims it did
+            # is a mirror that stops this function ever retrying.
+            return "failed"
+        await _stamp_inbound_silence(
+            session, agent_id=agent_id, reason=INBOUND_SILENCE_TRUTHFUL_ANSWER
+        )
+        log.warning(
+            "inbound_truthful_answer_silenced",
+            extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id)},
+        )
+        return "silenced"
+    if not silenced_for_compliance:
+        return "unchanged"
+    # THE RESTORE, and it goes through the NUMBERS rather than through `publish_agent` —
+    # the one place this departs from D-551's restore asymmetry, and it departs because
+    # the reason for that asymmetry is absent here. There, the engine was holding a script
+    # this module composed and never read back, so only a verified publish could be
+    # trusted to end it. Here the engine has just been READ, by the sweep, and found to be
+    # carrying the directive: the prompt needs no repair, only the numbers need giving
+    # back. Republishing from a sweep would also overwrite whatever the vendor console
+    # holds, which is precisely what D-121 refuses to do on a schedule.
+    routing = await route_inbound_numbers(session, engine, agent_id=agent_id, ref=ref, answers=True)
+    if routing.failed:
+        return "failed"
+    await _settle_inbound_silence(
+        session,
+        engine,
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        ref=ref,
+        answers=True,
+        truthful_answer_proven=True,
+    )
+    log.info(
+        "inbound_truthful_answer_restored",
+        extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id)},
+    )
+    return "restored"
+
+
+async def _settle_inbound_silence(
     session: AsyncSession,
     engine: VoiceEngine,
     *,
@@ -1558,24 +1775,52 @@ async def _settle_inbound_credit_state(
     agent_id: UUID,
     ref: str,
     answers: bool,
+    truthful_answer_proven: bool,
 ) -> None:
     """The last act of every publish: leave this agent saying the right thing for the
-    account it belongs to.
+    account it belongs to, and SILENT if it has been proven unable to say the one thing it
+    must always be able to say.
 
-    ═══ WHY IT IS HERE, IN `publish_agent`, AND NOT ONLY IN THE RECONCILER ═══
+    ═══ WHY IT IS HERE, IN `publish_agent`, AND NOT ONLY IN THE RECONCILERS ═══
 
-    Eleven call sites republish an agent — a voice change, a cap change, a prompt rollback,
-    a script apply, the maintenance window's own restore — and every one of them writes the
-    agent's REAL script to the engine. Each is therefore an undo of the cutover, performed
-    by an author who could not see it: a client with no credit whose agent is republished
-    for any reason at all would quietly go back to taking bookings we are not being paid
-    for, and nothing would look wrong on any screen. Putting the re-application at the one
-    statement that ends a publish makes "an agent without credit does not do business" a
-    property of publishing rather than a rule eleven callers have to remember. It is
-    exactly the argument `publish_agent`'s maintenance guard makes one page up, and this is
-    the same class of defect on the way out.
+    THIRTEEN call sites republish an agent — a voice change, a cap change, a prompt
+    rollback, a script apply, an LLM default write, the ops intake flow, the maintenance
+    window's own restore — and every one of them writes the agent's REAL script to the
+    engine and rebinds its numbers. Each is therefore an undo of a cutover, performed by an
+    author who could not see it: a client with no credit whose agent is republished for any
+    reason at all would quietly go back to taking bookings we are not being paid for, and —
+    since D-564 — an agent proven unable to tell a caller it is an AI would quietly go back
+    to answering the phone. Putting the re-application at the one statement that ends a
+    publish makes both a property of publishing rather than a rule thirteen callers have to
+    remember. (The count was ELEVEN when this function was written and is not any more,
+    which is the argument for the placement rather than against it.)
 
-    ═══ IT PRESERVES A CUTOVER; IT NEVER STARTS ONE, AND THAT LINE IS THE DESIGN ═══
+    ═══ THE ONE THING THAT MAY END A COMPLIANCE SILENCE, AND IT IS EVIDENCE ═══
+
+    `truthful_answer_proven` is `verdict.truthful_answer_applied is True` from the publish's
+    OWN read-back, and nothing else in this codebase may pass True. A publish that proved
+    the directive is present has, as a side effect, fixed the exact fault the silence
+    exists for — the agent demonstrably carries the floor again — and keeping the phone
+    dead after it would be the failure D-551 spends its restore argument on, with the
+    client having done precisely what we told them to do
+    (`TRUTHFUL_ANSWER_DRIFT_REASON`: "Publishing the agent again restores the rule").
+
+    Every OTHER publish preserves it, and the distinction is not a technicality: a publish
+    whose read-back came back `unreadable` or `unreachable` has proven nothing, and an
+    engine with no read-back at all proves nothing on every publish it ever does. Those all
+    take the preserve branch, which RE-UNBINDS the numbers `route_inbound_numbers` rebound
+    a few lines earlier in `publish_agent`. Leaving them bound would be a publish that
+    silently ended a compliance silence while our own column still claimed it — the worst
+    of the three outcomes, because it looks handled.
+
+    ⚠ The outbound refusal is NOT ended here and cannot be: `record_drift` is the sole
+    writer of the verdict the dial gate reads, and it is the sweep's. So a republished
+    agent answers its phone again immediately and resumes DIALLING when the sweep next
+    reaches it (`TRUTHFUL_ANSWER_VERDICT_TTL_S` bounds the wait). The asymmetry is in the
+    safe direction and is deliberate: inbound is restored on evidence we hold in our hand,
+    outbound on evidence only the sweep can produce.
+
+    ═══ IT PRESERVES A CREDIT CUTOVER; IT NEVER STARTS ONE, AND THAT LINE IS THE DESIGN ═══
 
     An agent that is NOT already silenced is left alone here even when the wallet is empty.
     Starting a cutover is an EDGE — `reconcile_inbound_answering`, reached from the ledger's
@@ -1587,6 +1832,11 @@ async def _settle_inbound_credit_state(
     been at zero all along keeps answering until the next edge — at most one metered call,
     which enqueues a reconciliation itself (`workers/pipeline.py`) — and no rupee is at risk
     meanwhile, because the meter refuses the debit either way.
+
+    An agent coming OUT of a compliance silence into an empty wallet is not an exception to
+    that: it WAS silenced on the way in, so landing it on the credit-stop script is
+    preserving a silence rather than starting one, and the alternative would hand a client
+    with no credit a fully working phone as a reward for republishing.
 
     A VENDOR FAILURE HERE DOES NOT FAIL THE PUBLISH, for `route_inbound_numbers`' reason:
     the agent itself is already published and verified, this is a separate engine fact, and
@@ -1602,7 +1852,7 @@ async def _settle_inbound_credit_state(
         # An outbound-only agent has no caller to hear anything. Clear any stamp it is
         # carrying — it answered inbound when it was silenced and does not now — so the
         # column never claims something about an agent nobody can ring.
-        await _stamp_inbound_silence(session, agent_id=agent_id, silenced=False)
+        await _stamp_inbound_silence(session, agent_id=agent_id, reason=None)
         return
     # ONE READ, IN `_ANSWERING_AGENTS_SQL`'s OWN SHAPE. It used to be two — this scalar for
     # the stamp, and `_disclosure_posture_of` fetching the same row again further down —
@@ -1614,12 +1864,25 @@ async def _settle_inbound_credit_state(
     # case to handle, and SQLAlchemy says so more clearly than a raise of ours would.
     row = (await session.execute(text(_ONE_ANSWERING_AGENT_SQL), {"aid": agent_id})).one()
     was_silenced = row[8] is not None
+    reason = row[9]
+    if reason == INBOUND_SILENCE_TRUTHFUL_ANSWER and not truthful_answer_proven:
+        # PRESERVED — see the docstring. `publish_agent` has just rebound this agent's
+        # numbers, so preserving means putting them back down rather than doing nothing.
+        # If the vendor refuses, the numbers may be answering and the mirror must not go
+        # on claiming otherwise: the stamp is cleared, `route_inbound_numbers` has already
+        # alarmed per number, and the next sweep tick re-silences from a fresh verdict.
+        routing = await route_inbound_numbers(
+            session, engine, agent_id=agent_id, ref=ref, answers=False
+        )
+        if routing.failed:
+            await _stamp_inbound_silence(session, agent_id=agent_id, reason=None)
+        return
     if not await credits_exhausted(session, tenant_id=tenant_id):
         # THE RESTORE, and it lands here rather than in the reconciler because THIS is the
         # publish that put the agent's own words back. Unconditional: clearing a stamp that
         # was already clear costs one indexed UPDATE and removes the branch where a
         # forgotten arm leaves a paid-up client's agent recorded as silent for ever.
-        await _stamp_inbound_silence(session, agent_id=agent_id, silenced=False)
+        await _stamp_inbound_silence(session, agent_id=agent_id, reason=None)
         return
     if not was_silenced:
         return
@@ -1645,7 +1908,7 @@ async def _settle_inbound_credit_state(
             agent_id=str(agent_id),
         )
         return
-    await _stamp_inbound_silence(session, agent_id=agent_id, silenced=True)
+    await _stamp_inbound_silence(session, agent_id=agent_id, reason=INBOUND_SILENCE_CREDITS)
 
 
 async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) -> str:
@@ -1965,19 +2228,27 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     await route_inbound_numbers(
         session, engine, agent_id=agent_id, ref=ref, answers=answers_inbound
     )
-    # AND THE LAST WORD ON WHAT IT SAYS (8 Sep 2026). A publish writes the agent's REAL
-    # script, which for a client whose calling credit has run out is an undo of the
-    # cutover performed by whichever of this function's eleven callers happened to run.
-    # See `_settle_inbound_credit_state` for why the re-application belongs here and not
-    # in the reconciler alone. AFTER `route_inbound_numbers`, because an agent that is not
-    # bound to a number has nothing to be silent on.
-    await _settle_inbound_credit_state(
+    # AND THE LAST WORD ON WHAT IT SAYS, AND ON WHETHER IT SAYS ANYTHING AT ALL (8 Sep
+    # 2026; D-564). A publish writes the agent's REAL script and rebinds its numbers,
+    # which for a client whose calling credit has run out — or for an agent the drift
+    # sweep has proven cannot tell a caller it is an AI — is an undo of a cutover
+    # performed by whichever of this function's thirteen callers happened to run. See
+    # `_settle_inbound_silence` for why the re-application belongs here and not in the
+    # reconcilers alone. AFTER `route_inbound_numbers`, because an agent that is not bound
+    # to a number has nothing to be silent on.
+    await _settle_inbound_silence(
         session,
         engine,
         tenant_id=tenant_id,
         agent_id=agent_id,
         ref=ref,
         answers=answers_inbound,
+        # THE ONLY TRUE THIS ARGUMENT EVER TAKES (D-564), and it is the read-back's own
+        # word rather than an inference from "the publish did not raise". `publish_agent`
+        # refuses only `not_applied`; `unreadable` and `unreachable` reach this line
+        # having proven nothing, and a compliance silence must outlive a publish that
+        # proved nothing.
+        truthful_answer_proven=verdict.truthful_answer_applied is True,
     )
     await republish_running_variants(session, tenant_id=tenant_id, agent_id=agent_id)
     log.info(
@@ -2933,6 +3204,10 @@ async def set_number_engine_ref(
 __all__ = [
     "CREDIT_STOP_MESSAGE",
     "DIAL_NOT_PLACED_CODES",
+    "INBOUND_SILENCE_CREDITS",
+    "INBOUND_SILENCE_PRECEDENCE",
+    "INBOUND_SILENCE_REASONS",
+    "INBOUND_SILENCE_TRUTHFUL_ANSWER",
     "UNCONFIRMED_ENGINE_CALL_PREFIX",
     "ArmToPublish",
     "DialUnconfirmedError",
@@ -2949,6 +3224,7 @@ __all__ = [
     "publish_variant",
     "publish_variants",
     "reconcile_inbound_answering",
+    "reconcile_inbound_truthful_answer",
     "republish_running_variants",
     "resolve_caller_id",
     "route_inbound_numbers",

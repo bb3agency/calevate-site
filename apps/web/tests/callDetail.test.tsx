@@ -172,6 +172,28 @@ describe("the call detail screen", () => {
     expect(calls.some((c) => c.path === RAW_PATH)).toBe(false);
   });
 
+  it("prints the raw-transcript refusal at PHONE WIDTH, not only in a tooltip", async () => {
+    // UX-DOCTRINE §8.6: the phone IS the design target. The sentence lived in a
+    // `hidden … sm:inline` span, so the reader this console is built for — a
+    // small-business owner on a mid-range Android — met a greyed control with nothing
+    // beside it, and could not reach the `title` either: a disabled `<button>` takes no
+    // focus, and a touch screen fires no hover. The assertion above this one pinned the
+    // `title` attribute, which is exactly why the visible half went unnoticed for so
+    // long, so this one is deliberately about TEXT IN THE DOCUMENT and about the classes
+    // that decide whether a human sees it.
+    const { container } = await renderClientPage(page, routes(detail(), { "/v1/me": STAFF }));
+
+    const reason = "Only an account owner can open the full transcript.";
+    const shown = await screen.findByText(reason);
+    expect(shown).toBeTruthy();
+    // Nothing on the path from the sentence to the card may hide it below a breakpoint.
+    for (let node: HTMLElement | null = shown; node !== null; node = node.parentElement) {
+      expect(node.className.toString()).not.toMatch(/(^|\s)(hidden|sm:inline|sm:block)(\s|$)/);
+    }
+    // Exactly once: two spellings of one sentence in one card is the §5 defect.
+    expect((container.textContent ?? "").split(reason).length - 1).toBe(1);
+  });
+
   it("keeps the redacted turns on screen when the raw transcript is refused", async () => {
     const { container } = await renderClientPage(
       page,

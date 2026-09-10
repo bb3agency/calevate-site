@@ -38,6 +38,7 @@ import pytest
 from apps.api.admin import service as admin_service
 from apps.api.db.session import get_engine, tenant_session, untenanted_session
 from apps.workers import retention
+from apps.workers.fleet_walk import WalkBudget
 from apps.workers.retention import REDACTED_MARK, sweep_tenant, sweep_tenants
 from sqlalchemy import event, text
 from tests.conftest import FakeS3, accept_agreements
@@ -478,3 +479,94 @@ async def test_a_longer_transcript_ttl_keeps_the_summary_for_exactly_as_long() -
     await sweep_tenant(tenant_id)
     row = await _row(tenant_id, "SELECT summary FROM calls WHERE id = :c", {"c": call_id})
     assert row is not None and row[0] == SUMMARY, "a 730-day policy erased a 400-day-old call"
+
+
+# --------------------------------------------------- the fleet-wide wall clock
+
+
+class _Alerts:
+    """The shape `tests/worker_fleet_walk_test.py` uses, for the same reason: what matters
+    is which alert code reached an operator, not how it was formatted."""
+
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str]] = []
+
+    def __call__(self, kind: str, code: str, *, detail: str = "", **kw: Any) -> None:
+        self.calls.append((kind, code, detail))
+
+
+def _spent_budget() -> WalkBudget:
+    """A budget with nothing left. Monkeypatched rather than the clock wound forward: the
+    property under test is that the walk NOTICES and says so, not that 180 seconds is the
+    right number, which is a fact about a machine."""
+    return WalkBudget(timedelta(seconds=0))
+
+
+async def test_the_sweep_is_bounded_by_a_wall_clock_and_not_only_by_rows() -> None:
+    """`TENANT_ROW_BUDGET` bounds ONE TENANT. Nothing bounded the fleet: the loop was
+    `for tenant_id in tenant_ids` with no deadline, so at 03:45 arq's `asyncio.wait_for`
+    cancelled the tick with `TimeoutError` — not one of the three exceptions `retry_jobs`
+    honours, so the job finished on its first attempt whatever `max_tries` said. The tail
+    of an ORDERED tenant list was therefore never swept, the same tenants every night.
+
+    A spent budget must stop the walk BEFORE the first tenant session: this asserts on
+    tenants that do not exist, so a walk that opened one would fail rather than pass.
+    """
+    ghosts = [uuid.uuid4() for _ in range(3)]
+
+    totals = await sweep_tenants(ghosts, budget=_spent_budget())
+
+    assert totals["tenants_scanned"] == 0, totals
+    assert totals["tenants_unreached"] == 3, (
+        "the tick must count the tenants it never asked — every other number it "
+        f"reports is a floor without it: {totals}"
+    )
+    assert totals["tenants_failed"] == 0, "unreached is not failed, and the fixes differ"
+
+
+async def test_a_truncated_sweep_reaches_an_operator(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The silence this closes. `apply_retention`'s only alarm counted FAILURES and sits
+    after the sweep returns, so a tick killed by arq never ran it at all — a legal
+    obligation going undischarged with nothing red anywhere.
+    """
+    alerts = _Alerts()
+    monkeypatch.setattr(retention, "alert", alerts)
+    monkeypatch.setattr(retention, "WalkBudget", lambda *a, **k: _spent_budget())
+    tenants = [uuid.uuid4(), uuid.uuid4()]
+
+    async def _tenants() -> list[uuid.UUID]:
+        return tenants
+
+    monkeypatch.setattr(retention, "_due_tenants", _tenants)
+
+    await retention.apply_retention({})
+
+    fired = [call[1] for call in alerts.calls]
+    assert "retention_sweep_truncated" in fired, (
+        f"the sweep stopped part-way through the fleet and said nothing: {fired}"
+    )
+    # NOT the failure alarm: nothing failed, the walk never got there, and the two have
+    # different answers (retry vs. the fleet has outgrown one night's window).
+    assert "retention_sweep_incomplete" not in fired, fired
+    detail = next(call[2] for call in alerts.calls if call[1] == "retention_sweep_truncated")
+    assert "2 tenant(s)" in detail and "never swept" in detail, detail
+
+
+async def test_a_complete_sweep_does_not_alarm(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The other half, and the one that keeps the alarm worth reading: a walk that
+    finished the fleet inside its budget must be silent. An alarm that fires on a healthy
+    night is an alarm nobody opens on the night it matters."""
+    alerts = _Alerts()
+    monkeypatch.setattr(retention, "alert", alerts)
+    tenant_id, agent_id = await _org()
+    await _call(tenant_id, agent_id, days_ago=400)
+
+    async def _tenants() -> list[uuid.UUID]:
+        return [tenant_id]
+
+    monkeypatch.setattr(retention, "_due_tenants", _tenants)
+    await retention.apply_retention({})
+
+    assert [call[1] for call in alerts.calls] == []

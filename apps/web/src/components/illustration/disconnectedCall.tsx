@@ -13,20 +13,22 @@
  * no text nodes. The 404 copy stands alone with the SVG removed, which is the rule for any
  * illustration that is not itself the content.
  *
- * ## The technique, borrowed deliberately from `components/marketing/isometric.tsx`
+ * ## The technique
  *
- * Same 2:1 isometric TOP-FACE transform — `matrix(0.866 0.5 -0.866 0.5 tx ty)` — so a rect
- * becomes a diamond; thickness is the same trick of drawing a face twice with the lower copy
- * pushed straight down in screen space; cubes get explicit side-wall parallelograms.
+ * A 2:1 isometric TOP-FACE transform — `matrix(0.866 0.5 -0.866 0.5 tx ty)` — so a rect
+ * becomes a diamond; thickness is a face drawn twice with the lower copy pushed straight
+ * down in screen space; cubes get explicit side-wall parallelograms.
  *
- * The two geometry helpers are RE-DERIVED here rather than imported, and that is the one
- * duplication in this file that is deliberate: they are module-private in `isometric.tsx`,
- * and a 404 must not import from `components/marketing/` at all. That directory's figures
- * animate through the `mk-iso-*` classes, which globals.css scopes to `[data-marketing-root]`
- * — a marker this page does not and should not render. Importing one would have shipped a
- * figure whose motion silently depends on a page it is not on. This file is STATIC: no
- * animation, no JS, nothing to freeze for a `prefers-reduced-motion` reader, and nothing
- * that can rest on a wrong frame.
+ * It came from `components/marketing/isometric.tsx`, WHICH NO LONGER EXISTS: that module
+ * was five exported figures orphaned when the homepage was rebuilt, imported by nothing,
+ * and it was deleted rather than left as a second, unrendered way to draw one of these.
+ * The geometry helpers below were always re-derived here rather than imported — they were
+ * module-private there, and a 404 must not import from `components/marketing/` at all,
+ * because that directory's figures animate through the `mk-iso-*` classes globals.css
+ * scopes to `[data-marketing-root]`, a marker this page does not and should not render.
+ * So the deletion took nothing away from this file. It is STATIC: no animation, no JS,
+ * nothing to freeze for a `prefers-reduced-motion` reader, and nothing that can rest on a
+ * wrong frame.
  *
  * ## Colour is theme-safe by construction
  *

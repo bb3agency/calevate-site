@@ -323,6 +323,47 @@ self-serve wallet is debited a further ~8% below true cost.
 **FIX:** one home. Best: `ai_quota.py` derives its INR price from
 `settings.usd_inr_rate × USD list price` instead of storing a pre-multiplied literal.
 
+**WITHDRAWN — DO NOT IMPLEMENT. The two rates are ONE FACT ABOUT THE WORLD STRUCK AT TWO
+DIFFERENT INSTANTS FOR TWO DIFFERENT PURPOSES, and the code says so in as many words; the
+FIX above would delete a deliberate decision and hand a client-facing price estimate to an
+ops-console field.** Verified against the working tree on 10 Sep 2026:
+
+- **The half of the FIX that was right is already done.** `ai_quota.py` stores no
+  pre-multiplied literal: the module states *"there is ONE statement of the vendor's dollar
+  price (`LLM_MODELS[model].price`), ONE exchange rate (`rates.LIST_PRICE_USD_INR`), and ONE
+  rupee table derived from them for every reader"* (`apps/api/billing/ai_quota.py:248-262`),
+  and `ASSIST_LIST_PRICE_INR_PER_KTOK` is gone. No `95.66` literal remains anywhere in
+  `ai_quota.py`.
+- **The half that is left is refused on purpose, at the constant.**
+  `apps/api/billing/rates.py:311-318`: *"NOT `Settings.usd_inr_rate`, and the distinction is
+  why this is a named constant. That field is the rate a CALL's engine cost is converted at
+  … This is the rate a LIST PRICE was quoted at — an input to a cost model and to an
+  estimate on a screen, never to a charge. Reading the live field here would make every
+  'about N assists' figure and every §10 margin move with an ops console, which is the
+  opposite of a number a person can plan around."* → `LIST_PRICE_USD_INR = 95.66`.
+  `apps/api/billing/rates.py:993-999` states the mirror image for the cost model:
+  `COST_MODEL_USD_INR = 88`, *"kept as one constant here rather than two so a floor
+  comparison is not secretly a comparison of two exchange rates"*. Two constants, each with
+  its scope written on it, is the ONE-HOME property this entry asked for — it is one home
+  **per fact**, not one home for two facts.
+- **The premise about `usd_inr_rate` is also stale.** It is no longer *"the rate that
+  converts every engine leg"*: `apps/api/core/fx.py` resolves a published rate
+  (`usd_inr_rate_now`, age-bounded) and the setting is the documented FALLBACK
+  (`packages/shared/src/calevate_shared/config.py:415-427`, and `CONFIGURED_FX_SOURCE =
+  "configured:usd_inr_rate"` at `core/fx.py:163`).
+- **Both citations in the original entry are unresolvable and always were.** There is no
+  `apps/api/core/config.py`; the field is at
+  `packages/shared/src/calevate_shared/config.py:427`. `ai_quota.py` is at
+  `apps/api/billing/ai_quota.py` and its line 190 is not the quoted text. P1.9's fourth
+  bullet carried the same broken `config.py` spelling and is corrected there.
+
+**WHAT WOULD ACTUALLY BE LEFT TO DECIDE, and it is a PRICING decision rather than a
+refactor:** which instant `LIST_PRICE_USD_INR` is struck at, and by whom.
+`apps/api/billing/rates.py:304-310` already names the answer — an OPERATOR-ATTESTED strike
+rate beside the attested prices, quoted from the FX store this repository already runs —
+and says why it is the founder's call and not a code change. That is the successor to this
+entry; it is not this entry's FIX.
+
 ### P1.5 — The INR branch of the cost adapter divides by 100 on a silent premise · SERIOUS · OURS to mark, EXTERNAL to settle (gate 7)
 
 `bolna.py:196` computes `cents / 100 * rate` and `bolna.py:1041` hands a stated-INR payload
@@ -461,23 +502,48 @@ issue DATE (`generated_at` is the render timestamp, re-derived every GET).
 per-document blocker list so it cannot go green on a document missing a mandatory field. The
 reverse-charge line is one literal.
 
-### P1.9 — Minor money items · MINOR · OURS
+### P1.9 — Minor money items · MINOR · OURS — **THREE OF FOUR CLOSED; every citation in the original entry was stale or unresolvable**
 
-- `payments.py:252` says a `Settings` field *"DOES NOT EXIST YET"*. It exists
-  (`config.py:605`). Before it existed, setting `RAZORPAY_KEY_SECRET` crashed boot on
-  `extra="forbid"`; now it configures. A stale paragraph on the money-critical module that
-  tells a reader the opposite of the truth. Delete it.
-- `apps/web/src/components/ui.tsx:474` (`formatINR`) and `usage/page.tsx:631` (`addRupees`)
-  TRUNCATE below two decimals rather than round. Safe today because every field they receive
-  is paise-rounded server-side, but `unit_inr` on an invoice line is a deliberate 4dp rate —
-  one future caller drops a fraction of a paisa on a legal document. Make them refuse or
-  round explicitly.
-- The margin panel hard-codes `"Premium (v3)"` / `"Value (v2)"`
-  (`admin/tenants/[tenantId]/page.tsx:665`) while the catalog owns those words
-  (`voices.py:150`) and `rates.py:109` says the generation is unverified.
-- `scripts/pilot/safety.py:60` imputes ~467 chars/min, the exact imputation `rates.py:142`
-  refuses to make. Low stakes (a budget line, never a ledger row) but the same premise
-  treated two ways.
+⚠ Re-verified against the working tree on 10 Sep 2026. The line numbers below are the ones
+that resolve today; the ones this entry shipped with did not.
+
+- ~~`payments.py:252` says a `Settings` field *"DOES NOT EXIST YET"*.~~ **CLOSED.** The
+  string `DOES NOT EXIST YET` appears nowhere in `apps/api/billing/payments.py`. The field
+  is `razorpay_key_secret` at `packages/shared/src/calevate_shared/config.py:1487` — **not**
+  `config.py:605`, and there is no `apps/api/core/config.py` for that spelling to have meant
+  (the same broken spelling P1.4 carried).
+- **STILL OPEN, narrowed, and both of its citations were wrong.** `formatINR` is at
+  `apps/web/src/components/ui.tsx:1383`, not `:474`, and it does TRUNCATE — `` `${fraction}00`.slice(0, 2) ``
+  makes ₹0.2425 print as ₹0.24. **`addRupees` no longer exists**: the paise-based adder on
+  the usage panel was deleted when `UsagePanelOut.month_charges_inr` became the server's own
+  total, and `apps/web/src/lib/llmRates.ts:27-36` records the deletion and refuses to let the
+  work return. **The specific harm this bullet named is also closed**: the 4dp `unit_inr` on
+  an invoice line renders through `formatRupeeRate` (`ui.tsx:1411`, digits unparsed) at
+  `apps/web/src/components/invoiceDocument.tsx:148`, and `formatRupeeRate`'s own docstring
+  argues the rate/total distinction. What survives is the latent one — `formatINR` truncates
+  where a reader would expect rounding, and nothing makes it refuse a value with more than
+  two decimals, so the next caller who reaches for the wrong one of the two helpers loses a
+  fraction silently. Make it refuse or round explicitly.
+- ~~The margin panel hard-codes `"Premium (v3)"` / `"Value (v2)"`.~~ **CLOSED.** Those
+  strings survive in exactly one place — the prose at
+  `apps/web/src/app/admin/tenants/[tenantId]/MarginPanel.tsx:78-93`, recording that the card
+  used to carry them and why they were wrong TWICE (rung vocabulary this product does not
+  use, naming an axis the numbers do not come from). The card now splits by the plan's
+  OVERAGE RUNG (`billing/service.py::_ROW_TIER_SQL`), which is what the server actually
+  stamps. `admin/tenants/[tenantId]/page.tsx:665` no longer holds the labels, and
+  `voices.py:150` is not the catalogue's naming code. `ENGINE_TTS_MODEL_GENERATION_VERIFIED`
+  is at `apps/api/billing/rates.py:181`, not `rates.py:109`, and stays **False** for a reason
+  that is about the ENGINE's payload rather than Sarvam's catalogue (`rates.py:174-181`).
+- ~~`scripts/pilot/safety.py:60` imputes ~467 chars/min.~~ **CLOSED 10 Sep 2026, and the
+  entry was right about the defect and understated it.** ₹1.40 of TTS at
+  `TTS_INR_PER_10K_CHARS` is 466.67 chars/call-minute — a POINT inside the 360–540 band
+  `apps/api/billing/rates.py:127` (`TTS_ASSUMED_CHARS_PER_CALL_MINUTE`) refuses to collapse,
+  and **not** its top, so the ceiling advertised as *"deliberately pessimistic"* was struck
+  below the band it cites. The same three-leg literal also carried *"Sarvam LLM ₹0.00 — TRD
+  §10.1, D-36"*, which the cited source contradicts in capitals (TRD §10.1's 27 Aug 2026
+  correction: D-36's "free per token" premise is WITHDRAWN, and the in-call leg has not been
+  Sarvam since D-410). `safety.py` now sums three separately-named legs, each struck at the
+  TOP of its §10.1 row and each citing that row. Pinned by `tests/pilot_safety_test.py`.
 
 ---
 
@@ -1062,12 +1128,26 @@ never mentions any of them, `.pre-commit-config.yaml` has no shell hook, and `ma
 not either. A repo with thirteen executable guardrails has **zero on the artefact that puts it
 in production.**
 
-### P5.1 — Nothing ever starts `redis`. The first deploy cannot succeed. · BLOCKER · OURS
+### P5.1 — Nothing ever starts `redis`. The first deploy cannot succeed. · BLOCKER · OURS — **CLOSED (Stage 1 row 1); `redis` IS started, and the heading below is the DIAGNOSIS, not the current state**
 
+⚠ **Do not read the title as a live claim.** `scripts/vps-deploy.sh:1327-1328` starts it
+explicitly, before the swap loop and deliberately **without** `--no-deps`:
+
+```
+  step "redis"
+  compose up -d redis
+```
+
+guarded by `if in_plan api || in_plan workers || in_plan voice-runtime`, and the script's own
+comment at `:1312-1325` carries the diagnosis below verbatim as the reason. The swaps still
+pass `--no-deps`, which remains correct FOR A SWAP — it is what stops an `api` deploy
+restarting redis and, through it, the service answering live calls.
+
+**The diagnosis, kept because it is why the fix is shaped the way it is:**
 `ALL_COMPONENTS=(api voice-runtime workers web nginx)` (`vps-deploy.sh:87`). `redis` is not a
-component, not in the path map, and every swap is `compose up -d --no-deps "$service"` (`:459`)
+component, not in the path map, and every swap is `compose up -d --no-deps "$service"`
 — and `--no-deps` is precisely the flag telling compose **not** to start `depends_on`, so
-`redis: {condition: service_healthy}` is never evaluated and the container is never created.
+`redis: {condition: service_healthy}` was never evaluated and the container was never created.
 
 On the first `--all` run: workers start with no queue, `api` is swapped, `wait_healthy` polls
 `/healthz` which does a Redis PING (`core/health.py:133`) and returns **503**. `curl -fsS`
@@ -1288,36 +1368,42 @@ broken-relay state pings normally and nobody learns until the night it is needed
 **FIX:** make `/etc/calevate/alerts.env` the only documented shape, and add "rotate
 `SMTP_PASSWORD` in the console AND in `/etc/calevate/alerts.env`" to OPERATIONS §6.
 
-### P5.12 — The restore-drill harness is unreachable and names a Makefile target that does not exist · SERIOUS · OURS (harness) / EXTERNAL (the real chain)
+### P5.12 — The restore-drill harness is unreachable and names a Makefile target that does not exist · SERIOUS · OURS (harness) / EXTERNAL (the real chain) — **CLOSED (Stage 3 row 18); the four bullets below were TRUE WHEN WRITTEN and are ALL FALSE NOW**
 
-`docs/evidence/` contains no `restore-drill-*.md`, so OPERATIONS §8's "backups verified" is
-un-tickable — which the docs say honestly. What this register did **not** record:
-`scripts/restore_drill.py` (69KB, D-92, *"the executable half of
-runbooks/backup-restore-drill.md"*) is wired to nothing.
+⚠ **READ THE CLOSURE FIRST. This entry was written in the present tense and every fact in
+it has since been reversed**, so a reader reaching it on-call would go hunting for
+machinery that is already here. Re-verified against the working tree on 10 Sep 2026:
 
-- Its own usage block tells the reader to run a Makefile target named restore-drill.
-  **There is no such target.** A committed file naming a command that does not exist.
-- `runbooks/backup-restore-drill.md` never mentions `restore_drill` — zero hits. The runbook it
-  is the executable half of does not know it exists.
-- It is in no CI step and no `make check`.
+| The entry said | The tree today |
+|---|---|
+| `docs/evidence/` contains no `restore-drill-*.md` | **Five records**, e.g. `docs/evidence/restore-drill-local-20260818t131256z.md` plus four sabotage runs (tamper-audit-row, disable-append-only-trigger, drop-rls-policy, corrupt-object) — the red path is evidenced, not just the green one |
+| Its usage block names a Makefile target that does not exist | **`Makefile:457` (`.PHONY`) / `Makefile:482`** define `restore-drill`, running `uv run python -m scripts.restore_drill`, with `SABOTAGE=<kind>` passed through; `Makefile:37` lists it in `make help` |
+| `runbooks/backup-restore-drill.md` never mentions `restore_drill` — zero hits | **`runbooks/backup-restore-drill.md:36`** is a section headed *"Run the local half first — `make restore-drill`"*, `:38` names `scripts/restore_drill.py`, `:48-49` give the green and the sabotage invocations, `:257` names the evidence path |
+| It is in no CI step | **`.github/workflows/ci.yml:255`**, *"Guardrail: restore-drill evidence has not expired (D-166)"*, runs `scripts.check_drill_freshness` on every build |
 
-So the one part of the backup design exercisable **without a cloud account** — whose whole point
-is proving the verifier goes red — has, by the same reasoning this register applies to terraform,
-almost certainly never run.
+**What is genuinely still open is the EXTERNAL half only**, and it is unchanged:
+`infra/backup/` §8 steps 1-11 need a cloud account, and OPERATIONS §8's "backups verified"
+is ticked by the QUARTERLY record (`docs/evidence/restore-drill-<YYYY>-Q<N>.md`), which the
+local records above do not and must not substitute for — `Makefile:364-365` says exactly
+that: the local records *"are counted and never counted AS"* the quarterly one, and
+`check_drill_freshness` is *"structurally incapable of producing the evidence it reads"*
+(`ci.yml:256-262`).
 
-**FIX:** add the restore-drill target to the Makefile, cite it from the runbook, run it once,
-commit the output.
-Everything in `infra/backup/` §8 steps 1-11 remains genuinely EXTERNAL.
+### P5.13 — `/healthz/ready` is called "the GO-LIVE GATE" and nothing polls it · SERIOUS · OURS — **CLOSED (Stage 3 row 18); the grep result below is NO LONGER WHAT THAT COMMAND RETURNS**
 
-### P5.13 — `/healthz/ready` is called "the GO-LIVE GATE" and nothing polls it · SERIOUS · OURS
+⚠ **The FIX landed and this entry was never re-tensed.** Re-run on 10 Sep 2026,
+`grep -rn "healthz/ready" scripts/ .github/ infra/ Makefile` returns **nine hits, not one** —
+`scripts/check_public_routes.py:108` (the route is a declared public-route entry),
+`scripts/vps-deploy.sh:250,270`, `scripts/check_deploy_env.py:59,499`,
+`scripts/check_env_parity.py:120`, `scripts/check_docs_drift.py:2232`, and
+`infra/nginx/calevate.conf.template:539,629`. And **OPERATIONS §8 names it**:
+`docs/OPERATIONS.md:828` puts *"`GET /healthz/ready` answers `ready` — last, because it is
+the only item on this list the platform can answer for itself"* on the pre-launch checklist,
+and `:831` is the sentence that closes this entry in as many words — *"`/healthz/ready` is
+the go-live gate and this is the line that polls it."*
 
-`core/health.py:7` names it the go-live gate and `runtime_config_missing_keys` is the
-completeness check for nine credentials. `grep -rn "healthz/ready" scripts/ .github/ infra/
-Makefile` returns **exactly one hit — a comment**. The deploy polls `/healthz`; compose polls
-`/healthz/live`; OPERATIONS §8's checklist does not name it. The gate is a route nothing calls.
-
-**FIX:** add `GET /healthz/ready` (with an `ops:manage` credential so the `fields[]` detail is
-readable) as the last numbered item of §8's pre-launch checklist.
+`core/health.py` still names it the go-live gate and `runtime_config_missing_keys` is still
+the completeness check behind it; what was false was only that nothing polls it.
 
 **Confirming P2.1 from the nginx side:** `calevate.conf.template:160` proxies both `= /healthz`
 and `^~ /healthz/` on the **hooks** vhost. `hooks.` needs no health route at all — the deploy
@@ -1384,7 +1470,7 @@ vCPU · 2GB swap (the `next build` OOM is `deploy-failed.md` §5's first cause).
 `AWS_*` · `CALEVATE_IMAGE_TAG` · `API_WORKERS`/`VOICE_RUNTIME_WORKERS`/`*_DB_POOL_SIZE` (defaults
 sized for ≥4 vCPU and `max_connections=200`; a smaller box silently oversubscribes both) · every
 `NEXT_PUBLIC_*` · `ALERTS_EMAIL`/`SMTP_*` on the database host.
-**Red on `/healthz/ready`, which nothing polls** (P5.13): the nine credentials.
+**Red on `/healthz/ready`, which the pre-launch checklist now polls** (`docs/OPERATIONS.md:828`; P5.13 is CLOSED and this line read "which nothing polls" until 10 Sep 2026): the nine credentials.
 
 ### Checked and clean (ops/deploy)
 
@@ -1899,6 +1985,14 @@ happens to be set is the mistake D-49 exists for.
 `billing/rates.py::client_billed_inr` is the single answer to "what does the CLIENT owe
 for these minutes", reached from two call sites in the same transaction — the wallet
 debit and the `spend_state` accrual — and `cost.total_inr` never appears in either again.
+⚠ **THAT SYMBOL NO LONGER EXISTS and this paragraph is a record of what landed THEN, not a
+pointer** (noted 10 Sep 2026): `billing/rates.py` defines no `client_billed_inr`. The single
+answer is now `apps/api/billing/service.py`'s `usage_summary` / `month_increment` pair — the
+meter asks what the month costs with the call and without it and charges the difference —
+and `apps/api/billing/service.py:2354` records that this function carries the same
+"an unpriced plan accrues nothing" refusal `client_billed_inr` used to. The PROPERTY the
+paragraph claims still holds; the name does not. `docs/BUILD-LOG.md:3610` carries the same
+dead citation and was not in this session's ownership.
 Migration `c4f18a6b90e2` adds `spend_state.billed_inr`; the compliance gate, the client's
 cap route, the client usage panel and the admin health panel's cap utilisation all read
 it, while `spend_used` stays exactly where the margin panel needs it. Both writes are

@@ -142,7 +142,14 @@ def test_the_cartesia_rung_moving_in_the_doc_alone_is_named() -> None:
 
     # BOTH spellings moved together — the doc is self-consistent and still wrong, which is
     # the failure that reads as fine in review because the two tables line up.
-    both = moved.replace("₹5.7200 / 1,000 chars", "₹4.00 / 1,000 chars", 1)
+    # ANCHORED ON THE TABLE CELL, not on the first occurrence in the file. §10 gained a
+    # correction note (D-563's lane, 10 Sep 2026) that quotes this same rate in prose ABOVE
+    # the card, so `replace(..., 1)` began mutating the note and leaving the row alone —
+    # which made the "both spellings moved" fixture a doc that really does contradict
+    # itself, and the guard rightly said so. The guard was never wrong; the mutation was
+    # reaching for the wrong sentence. Pipes make it the row or nothing.
+    both = moved.replace("| ₹5.7200 / 1,000 chars |", "| ₹4.00 / 1,000 chars |", 1)
+    assert "| ₹4.00 / 1,000 chars |" in both, "the rate-card row moved or changed shape"
     offenders = guard.tts_rate_card_drift(both)
     assert not any("stated twice, disagreeing" in line for line in offenders), offenders
     assert any("sonic-3.5" in line and "cost model is the code" in line for line in offenders), (

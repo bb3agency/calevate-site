@@ -49,6 +49,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.core.errors import ProblemError
+from apps.api.core.rbac import ADMIN_REALM_PREFIXES
 from apps.api.db.session import tenant_session
 
 #: The methods that write. A GET or HEAD carrying a mutating permission (there are none
@@ -110,6 +111,9 @@ async def guard_agent_write(request: Request, *, tenant_id: UUID | None) -> None
 
     Cheap on the overwhelming majority of them: three in-memory tests before anything
     touches the database, and the query runs only for a write whose path names an agent.
+
+    The RLS scope it reads under is `_write_scope`'s answer, and the choice there is a
+    security property, not a detail — read it before changing this.
     """
     if request.method not in WRITE_METHODS:
         return
@@ -119,11 +123,7 @@ async def guard_agent_write(request: Request, *, tenant_id: UUID | None) -> None
     route_path = getattr(request.scope.get("route"), "path", "")
     if route_path in ARCHIVED_WRITE_EXEMPT_PATHS:
         return
-    # The admin realm names the tenant in the path and has no tenant of its own; the client
-    # realm carries it on the principal. Neither can reach `agents` without an RLS scope, so
-    # a request with no tenant at all has nothing to guard and nothing to write either.
-    path_tenant = request.path_params.get("tenant_id")
-    scope = _as_uuid(path_tenant) or tenant_id
+    scope = _write_scope(request, tenant_id=tenant_id, route_path=route_path)
     if scope is None:
         return
     agent_id = _as_uuid(raw)
@@ -133,6 +133,42 @@ async def guard_agent_write(request: Request, *, tenant_id: UUID | None) -> None
         return
     async with tenant_session(scope) as session:
         await assert_agent_writable(session, agent_id)
+
+
+def _write_scope(request: Request, *, tenant_id: UUID | None, route_path: str) -> UUID | None:
+    """The tenant whose RLS scope this guard's own read runs under.
+
+    **THE PRINCIPAL WINS, AND THE PATH IS CONSULTED ONLY ON THE CONSOLE'S OWN PREFIXES.**
+    This used to read `_as_uuid(path_tenant) or tenant_id`, which let a value the CALLER
+    typed into the URL override the tenant their credential resolved to — and the value is
+    not merely compared, it is handed to `tenant_session`, i.e. it SETS the RLS GUC. On a
+    client-realm route carrying both `{tenant_id}` and `{agent_id}` that is a cross-tenant
+    oracle: the refusal wording differs for an agent that exists and is deleted from one
+    that does not, so a signed-in owner could probe a neighbour's ids. No such route exists
+    today — every `{tenant_id}` path param in the tree is under `/v1/admin/`, and
+    `rbac.assert_policy_registry_complete` (asserted at import in `main.py`) refuses to boot
+    a process where such a path is not `realm="admin"` — but that is the ROUTE INVENTORY
+    protecting us, not this function, and the inventory is a thing people add to.
+
+    **THE NAIVE SWAP (`tenant_id or path`) WOULD HAVE BEEN WRONG, WHICH IS WHY THIS IS
+    REALM-AWARE.** The admin realm genuinely needs the path value: `_load_admin_principal`
+    sets `Principal.tenant_id` on exactly one path — an authorised, granted impersonation —
+    so a plain operator's principal carries NO tenant, and the console's per-tenant writes
+    (`/v1/admin/tenants/{tenant_id}/agents/{agent_id}/...`) would fall through to `None` and
+    be silently unguarded. Worse, for the one mutation a view-as session may still perform
+    (`rbac.IMPERSONATION_PERMITTED_MUTATIONS`) the principal's tenant is the IMPERSONATED
+    one, which need not be the tenant the admin path names — so preferring it there would
+    scope the check to the wrong client and fail open.
+
+    The realm is read from the ROUTE TEMPLATE rather than from the principal because that is
+    what this hook is given, and it is the same fact `assert_policy_registry_complete` keys
+    on: a path under `rbac.ADMIN_REALM_PREFIXES` is reachable by admin credentials only, or
+    the process does not start. An unknown route (no `route` in scope) is not an admin path,
+    so it takes the safe leg.
+    """
+    if route_path.startswith(ADMIN_REALM_PREFIXES):
+        return _as_uuid(request.path_params.get("tenant_id")) or tenant_id
+    return tenant_id
 
 
 def _as_uuid(value: object) -> UUID | None:

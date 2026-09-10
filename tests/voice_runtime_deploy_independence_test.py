@@ -20,12 +20,26 @@ and only one of them is the dangerous one:
   guard: it reads the live schema and the SQL the receiver actually issues, and fails in
   the `api` author's own test run rather than in production at 2am.
 * **Database OLDER than this service.** Only dangerous if this service reads something new
-  — and §2 pins that its entire schema surface is two infra tables, both of which predate
-  everything else it touches, with no SELECT anywhere on the path.
+  — and §2 pins that the REQUEST path touches two infra tables and nothing else, both of
+  which predate everything else it touches, with no SELECT anywhere on it.
 
-Both sections measure the RUNNING service rather than reading its source: the statements
-are captured off the SQLAlchemy engine while a real delivery goes through, so a claim that
-moves into a helper, an ORM call or another module is still counted.
+**WHAT THESE TWO SECTIONS MEASURE, EXACTLY — because this said something wider and it was
+not true.** Both drive HTTP requests and capture the statements off the SQLAlchemy engine,
+so a claim that moves into a helper, an ORM call or another module is still counted. What
+that instrument cannot see is anything the process does when nobody is calling it, and
+this deployable has one such thing: the background config poll started in `main._startup`,
+which reads `platform_config_version` and `platform_settings` every few seconds. So the
+sentence that used to stand here — "the whole schema surface of this deployable is two
+infra tables" — was false as written, and false in the direction that matters, since the
+poll ALSO read `platform_secrets` and decrypted every credential in it until
+`start_config_refresher(with_secrets=False)` stopped it.
+
+The poll's two tables are pinned where the poll can actually be observed, in a subprocess
+that boots the service and runs its lifespan: `tests/voice_runtime_import_surface_test.py`
+§5 (`POLL_TABLES`). They are the platform-config seam's own infra tables, on the same
+footing as the two below — no `tenant_id`, no product feature, no dashboard release moves
+them — which is why adopting the poll did not cost this deployable its independence. What
+it would have cost is a credential table read, which is now guarded there.
 """
 
 from __future__ import annotations
@@ -47,7 +61,7 @@ HOOK = "/hooks/v1/engine/bolna"
 TOOL = "/tools/v1/bolna/opt-out"
 HEADERS = {"CF-Connecting-IP": ENGINE_EGRESS_IP}
 
-#: The whole schema surface of this deployable. Both are infra tables (no `tenant_id`, no
+#: The schema surface of this deployable's REQUEST PATH. Both are infra tables (no `tenant_id`, no
 #: RLS policy, no tenant resolved here — see the receiver's docstring item 4), and both
 #: exist for the reliability triad rather than for any product feature, which is what makes
 #: them the two least likely rows in the repo to move under a dashboard release.
@@ -172,14 +186,16 @@ async def test_the_rows_this_service_writes_name_every_column_the_schema_require
 # --- 2. the database may also run BEHIND it -----------------------------------
 
 
-async def test_the_whole_schema_surface_of_this_deployable_is_two_infra_tables() -> None:
-    """What an OLDER database can and cannot break.
+async def test_the_request_path_of_this_deployable_touches_two_infra_tables() -> None:
+    """What an OLDER database can and cannot break, on the path a call arrives by.
 
     Every branch this service has is driven above, and the statements it produced must name
     nothing outside `SCHEMA_SURFACE`. That is the property that makes a rollback safe: a
     database at an earlier head is missing tables and columns that `api` grew LATER, and
     none of them is reachable from here — the receiver resolves no tenant, prices nothing
-    and reads no configuration row (its settings come from an in-memory snapshot).
+    and reads no configuration row DURING A REQUEST (its settings come from an in-memory
+    snapshot, which the background poll fills; see this module's docstring for what that
+    poll reads and where it is pinned).
 
     It also pins the negative that makes the positive meaningful: **no SELECT and no
     `alembic_version`**. A service that checked the migration head would have made itself

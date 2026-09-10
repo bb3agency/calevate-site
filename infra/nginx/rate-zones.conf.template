@@ -52,6 +52,35 @@ limit_req_zone $binary_remote_addr zone=client_api:10m rate=120r/m;
 # per source IP and the engine has one, so this is a ceiling on ONE sender.
 limit_req_zone $binary_remote_addr zone=webhooks:10m rate=600r/m;
 
+# IN-CALL TOOL CALLS — A SEPARATE BUCKET FROM `webhooks`, AND THE SEPARATION IS THE POINT.
+# Both surfaces arrive from the engine's egress addresses, and both are keyed on
+# `$binary_remote_addr`, so one zone for both is ONE bucket shared by two kinds of traffic
+# with opposite shapes. `/hooks/v1/*` is POST-CALL: a campaign finishing hangs up 250 calls
+# and delivers 250 webhooks in the same second (the zone above). `/tools/v1/*` is DURING a
+# call — the engine's custom functions, invoked mid-conversation while a human is on the
+# line. Sharing meant the hangup burst spent the allowance and the next tool call was
+# refused 429 AT THE EDGE: the handler is never entered, so every deadline inside it is
+# moot, the model gets a failed tool call, and the caller hears silence. Raising the shared
+# zone does not fix that — it only makes the burst bigger before it eats the same
+# allowance. Two zones is the fix, because the resource being protected is different.
+#
+# THE CEILING IS CONCURRENT CALLS, NOT COMPLETED ONES, and that is the whole derivation:
+#   * concurrency ceiling: 250+ concurrent calls in production (D-32, TRD §5 — customer
+#     evidence, not the marketing plan claim);
+#   * per-call ceiling: a tool call follows a conversational turn (STT → model → TTS → a
+#     human speaking), which cannot repeat faster than a few seconds. At a pathological
+#     one call every 6s that is 10/min for a single conversation;
+#   * 250 × 10/min = 2,500r/m ≈ 42r/s, which is the rate below.
+# It is a real ceiling and not a rubber stamp: it bounds that one address at 42r/s against
+# a process TRD §5 measures at ~1,750 acks/s, so a flood is still refused — while honest
+# in-call traffic has an order of magnitude of headroom and never meets it.
+#
+# BURST (declared at the `limit_req`, not here) IS 250, for the reason the shape is bursty
+# at all: a campaign dials its 250 calls together, so those conversations run roughly in
+# lockstep and one round of tool calls can land inside a second. `nodelay` serves that
+# round immediately rather than queueing it into the deadline it is racing.
+limit_req_zone $binary_remote_addr zone=in_call_tools:10m rate=2500r/m;
+
 # Health endpoints. Generous enough for an uptime monitor at any sane interval, bounded
 # so /healthz cannot be used as a free database-load generator.
 limit_req_zone $binary_remote_addr zone=health:5m rate=60r/m;

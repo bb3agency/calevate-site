@@ -3,7 +3,7 @@
 TWO SURFACES, ONE PROPERTY: the status is public, the reasons are not.
 
 1. **`/healthz` and `/healthz/ready`.** Readiness published `fields[].field` — literally
-   `runtime_config_missing_keys`, i.e. the NAMES of the credentials this deployment has
+   the readiness config probe, i.e. the NAMES of the credentials this deployment has
    not installed (`BOLNA_API_KEY`, `CLERK_ADMIN_SECRET_KEY`, `AUDIT_CHAIN_SECRET`) —
    alongside queue depth, oldest-waiting age and which of DB/Redis is down. It is
    unauthenticated, exempt from the in-app rate limiter, and proxied from
@@ -60,7 +60,7 @@ from sqlalchemy import text
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 #: A configuration key name that exists nowhere else, so finding it in a response body
-#: proves the disclosure came from `runtime_config_missing_keys` and not from anything
+#: proves the disclosure came from the readiness config probe and not from anything
 #: this box happens to be missing today.
 SENTINEL_KEY = "SENTINEL_CREDENTIAL_NOT_INSTALLED"
 
@@ -105,7 +105,7 @@ def healthy(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     `QUEUE_STALE_AFTER_S` and flip `degradation_mode` to `queue_stale` under this file's
     feet. Determinism here is what lets the assertions below be equalities.
     """
-    monkeypatch.setattr(health_module, "runtime_config_missing_keys", lambda _settings: [])
+    monkeypatch.setattr(health_module, "readiness_missing_keys", lambda _service, _settings: [])
     monkeypatch.setattr(health_module, "_queue_stats", _no_queue)
     yield
 
@@ -114,7 +114,7 @@ def healthy(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 def missing_a_credential(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """The condition this endpoint exists to report, forced by name."""
     monkeypatch.setattr(
-        health_module, "runtime_config_missing_keys", lambda _settings: [SENTINEL_KEY]
+        health_module, "readiness_missing_keys", lambda _service, _settings: [SENTINEL_KEY]
     )
     monkeypatch.setattr(health_module, "_queue_stats", _no_queue)
     yield

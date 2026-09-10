@@ -49,6 +49,7 @@ from apps.api.compliance.service import (
     BIG_RED_SWITCH_RULE,
     MAINTENANCE_DRAIN_RULE,
     PERSON_LEVEL_REFUSALS,
+    TRUTHFUL_ANSWER_DRIFT_RULE,
     dial_refusal_for_agent_status,
 )
 
@@ -109,6 +110,22 @@ TRANSIENT_REFUSALS: dict[str, str] = {
     "tm_link_not_active": "the client re-authorises Calevate as its telemarketer",
     "number_not_bound_to_agent": "the registered number is bound to this campaign's agent",
     "number_not_registered": "the registrar approves the number's DLT header",
+    # TRANSIENT, and it is the one entry here whose lifting fact is a MEASUREMENT rather
+    # than something somebody sets (D-562/D-564). Two doors open it and both are real: the
+    # client republishes the agent, whose read-back refuses unless the truthful-answer
+    # directive is provably back — which is precisely what `TRUTHFUL_ANSWER_DRIFT_REASON`
+    # tells them to do — and the sweep restates the verdict within the day either way
+    # (`TRUTHFUL_ANSWER_VERDICT_TTL_S`, which fails OPEN). Settling on it would be the
+    # expensive error: a contact terminally done because an agent was misconfigured for an
+    # hour is a lead the client never rings, and the fault is ours, not the person's. The
+    # livelock door is `campaigns/service.launch_blockers`, which since D-564 refuses to
+    # LAUNCH a campaign against a drifted agent at all, so the state cannot be entered
+    # fresh — and `dispatch_blockers` is deliberately not where it lives, because
+    # `check_dispatch` already asks it per contact.
+    TRUTHFUL_ANSWER_DRIFT_RULE: (
+        "the agent is published again and the read-back PROVES the truthful-answer "
+        "directive is back, or the drift sweep restates the verdict"
+    ),
     CAMPAIGN_STOPPED_RULE: "the client resumes the campaign",
     CAMPAIGN_WINDOW_CLOSED_RULE: "the clock reaches the campaign's own narrowed window",
 }

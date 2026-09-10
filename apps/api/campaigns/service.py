@@ -70,6 +70,7 @@ from apps.api.compliance.service import (
     first_campaign_hold_blocker,
     kyc_blocker,
     spend_capped,
+    truthful_answer_drift_blocker,
 )
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.core.logging import get_logger
@@ -1082,6 +1083,26 @@ async def launch_blockers(
         )
     if not facts.disclosure or not str(facts.disclosure).strip():
         blockers.append(LaunchBlocker("disclosure_missing", "The agent has no disclosure line."))
+    # AND WHETHER THE ENGINE IS STILL RUNNING THE RULE THAT MAKES IT ANSWER HONESTLY
+    # (D-562, D-564). `check_dispatch` refuses every dial on this verdict, and this gate
+    # did not ask it — so a campaign against a proven-non-compliant agent LAUNCHED, went
+    # `running`, and had every contact claimed, refused, refunded and rescheduled for
+    # ever. That is the exact outcome this function's docstring says leaving a dial-time
+    # rule out of the launch gate produces, and it is the same argument that already puts
+    # the spend cap and the wallet here.
+    #
+    # NOT a second implementation and not a second sentence: the rule name and the wording
+    # come from `truthful_answer_drift_blocker`, so the launch screen and the refused dial
+    # say the same thing. It is asked on the AGENT rather than the tenant, unlike its
+    # neighbours below, because the verdict is a measurement of one vendor object.
+    #
+    # It is NOT in `dispatch_blockers`, under that function's own rule: `check_dispatch`
+    # already asks it per contact, and asking twice is how two gates start disagreeing.
+    drifted = await truthful_answer_drift_blocker(
+        session, tenant_id=tenant_id, agent_id=facts.agent_id
+    )
+    if drifted is not None:
+        blockers.append(LaunchBlocker(*drifted))
 
     # WHO may dial, and on what consent (SEC-COMP §3, bullets one and four).
     blockers.extend(await _entity_blockers(session, tenant_id=tenant_id, facts=facts))

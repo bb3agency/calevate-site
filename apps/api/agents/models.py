@@ -346,6 +346,17 @@ class Agent(PKMixin, TimestampMixin, Base):
     # A TIMESTAMP RATHER THAN A BOOLEAN because "since when" is the first question asked
     # of a phone line that has gone quiet, by an operator and by the client's own console.
     inbound_silenced_at: Mapped[datetime | None]
+    # AND WHY IT IS SILENT (D-564, migration f4a2c7e19d63). One word from
+    # `agents.service.INBOUND_SILENCE_REASONS`, NULL exactly when the stamp above is —
+    # an equivalence the table's own CHECK enforces, because a stamp with no reason is a
+    # silence nothing can correctly end and a reason with no stamp is a claim about an
+    # engine that is answering normally.
+    #
+    # It exists because the stamp acquired a SECOND writer with a different remedy: an
+    # empty wallet holds the credit-stop script, and a proven-missing truthful-answer
+    # directive unbinds the numbers so nothing answers at all. With the reason implied by
+    # "whatever wrote it", a top-up would have ended a silence it did not cause.
+    inbound_silence_reason: Mapped[str | None] = mapped_column(Text)
     # WHEN to hand over, in the client's own words, or NULL for the composed default
     # (`agents/handoff.HANDOFF_TRIGGER_DEFAULT`). A TOOL DESCRIPTION, not a prompt:
     # nothing written here reaches the system prompt, so nothing written here can touch

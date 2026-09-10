@@ -14,6 +14,13 @@ possibly find were found only by whoever thought to look:
 Both are silent, both are indefinite, and both end with a client's phone line speaking a
 script nobody approved. This cron is what finds them.
 
+**ONE OF ITS VERDICTS IS NOW ENFORCED (D-562).** An object read back without the
+truthful-answer directive is recorded as `truthful_answer_missing` rather than as the
+generic `not_applied`, and `compliance.service.check_dispatch` refuses a dial on that
+verdict alone while it is fresh. That is still not a repair — see below — and it is
+deliberately narrow: an agent whose prompt merely differs from what we published goes on
+calling, because halting a paying client over a cosmetic drift is the worse failure.
+
 **IT IS A READ. IT RE-PUBLISHES NOTHING.** D-121 argues this at length and it is preserved
 here as a property of the code, not a note: `_reconcile_one` calls `engine_drift_for`,
 which is a pure read, and writes only OUR observation columns. Overwriting an operator's
@@ -77,15 +84,19 @@ from arq import Retry
 from apps.api.agents.publishing import engine_drift_for
 from apps.api.agents.reconciliation import (
     DRIFT_STATES_OUT_OF_SYNC,
+    TRUTHFUL_ANSWER_MISSING,
+    TRUTHFUL_ANSWER_VERDICT_TTL_S,
     DriftCandidate,
     claim_drift_batch,
     record_drift,
+    recorded_drift_state,
 )
+from apps.api.agents.service import reconcile_inbound_truthful_answer
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.api.db.session import untenanted_session
+from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 
 log = get_logger(__name__)
@@ -107,6 +118,42 @@ SWEEP_BUDGET_S = 120.0
 #: that shows up in someone else's latency graph.
 SWEEP_MINUTES = frozenset({7, 37})
 SWEEP_INTERVAL_S = 30 * 60
+
+#: The number of live vendor agent objects this platform is built to watch. Not a limit
+#: and not a licence check — it is the figure the assertion below compares the sweep's
+#: throughput against, so that "the sweep reaches every agent well inside a day" stays a
+#: property somebody has checked rather than a sentence in a docstring. ROADMAP's horizon
+#: is client #1 and then tens; 1,000 is that with two orders of magnitude of slack.
+SWEEP_FLEET_HORIZON = 1000
+
+
+def _assert_the_sweep_can_refresh_a_verdict_before_it_expires() -> None:
+    """A `truthful_answer_missing` verdict REFUSES DIALS until it goes stale (D-562), and
+    the only thing that can ever refresh or clear it is this sweep. So the two numbers
+    have to be in a relationship, and it is checked here rather than described in a
+    comment for `_assert_the_tick_fits_its_interval`'s reason.
+
+    THE FAILURE IT PREVENTS IS SILENT IN BOTH DIRECTIONS. Too short a TTL (or too small a
+    batch) and verdicts expire faster than the sweep can restate them, so the gate stops
+    enforcing under entirely normal operation and nothing anywhere says so. `SWEEP_MINUTES`
+    is the tick count per hour, `SWEEP_BATCH_SIZE` the objects per tick; their product over
+    the TTL window is how many live objects the sweep can re-read before the oldest verdict
+    expires, and `SWEEP_FLEET_HORIZON` is the fleet this platform is built for
+    (`docs/ROADMAP.md` — client #1, then tens). Wrong in the safe direction by a wide
+    margin today, which is what makes it an assertion and not a budget.
+    """
+    ticks_per_ttl = (TRUTHFUL_ANSWER_VERDICT_TTL_S / SWEEP_INTERVAL_S) * len(SWEEP_MINUTES)
+    refreshable = ticks_per_ttl * SWEEP_BATCH_SIZE
+    if refreshable < SWEEP_FLEET_HORIZON:
+        raise AssertionError(
+            f"the sweep can re-read {refreshable:.0f} objects inside the "
+            f"{TRUTHFUL_ANSWER_VERDICT_TTL_S}s a truthful-answer verdict is honoured for, "
+            f"which is short of the {SWEEP_FLEET_HORIZON}-object fleet this platform plans "
+            "for — so a proven-missing compliance directive would expire out of the dial "
+            "gate before this cron could restate it, and the gate would stop enforcing "
+            "with nothing to show for it. Raise TRUTHFUL_ANSWER_VERDICT_TTL_S or "
+            "SWEEP_BATCH_SIZE, or shorten the schedule."
+        )
 
 
 def _assert_the_tick_fits_its_interval() -> None:
@@ -138,6 +185,7 @@ def _assert_the_tick_fits_its_interval() -> None:
 
 
 _assert_the_tick_fits_its_interval()
+_assert_the_sweep_can_refresh_a_verdict_before_it_expires()
 
 
 async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | None:
@@ -178,22 +226,65 @@ async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | N
             },
         )
         return None
+    # WHICH divergence, not just that there was one (D-562). `recorded_drift_state` is
+    # the one place the refinement is made; storing `drift.state` raw is what left the
+    # single divergence with a legal consequence indistinguishable from a whitespace
+    # difference in a client's script, and therefore unenforceable at the dial gate.
+    state = recorded_drift_state(drift.state, truthful_answer_applied=drift.truthful_answer_applied)
     async with untenanted_session() as session:
         recorded = await record_drift(
-            session, engine=engine_name, ref=candidate.engine_agent_ref, state=drift.state
+            session, engine=engine_name, ref=candidate.engine_agent_ref, state=state
         )
     if not recorded:
         # The route was deleted between the batch read and now. Nothing to record and
         # nothing wrong — the object is no longer ours to watch.
         return None
-    return drift.state
+
+    # THE INBOUND HALF OF THE VERDICT (D-564). `record_drift` above is the OUTBOUND half's
+    # evidence — `check_dispatch` reads that column. Inbound reaches nothing of ours before
+    # it is answered, so it needs durable state AT the engine, applied on this edge.
+    # Handed the drift THIS TICK MEASURED rather than a re-read of the column: a verdict is
+    # evidence about the instant it was taken, and `None` ("we could not tell") must not
+    # move a client's phone. A TENANT SESSION because `agents` is FORCE-RLS'd — the sweep's
+    # own session is untenanted, and only `engine_agent_routes` carries that exemption.
+    async with tenant_session(candidate.tenant_id) as session:
+        silence = await reconcile_inbound_truthful_answer(
+            session,
+            get_engine(),
+            tenant_id=candidate.tenant_id,
+            agent_id=candidate.agent_id,
+            truthful_answer_applied=drift.truthful_answer_applied,
+        )
+    if silence not in ("unchanged", "indeterminate", "gone"):
+        log.info(
+            "inbound_truthful_answer_reconciled",
+            extra={"agent_id": str(candidate.agent_id), "outcome": silence},
+        )
+
+    if state == TRUTHFUL_ANSWER_MISSING:
+        # ITS OWN LINE, at ERROR, and it names the agent (hard rule 6: an id, never the
+        # prompt). This is the only verdict that stops a client's calling, and an operator
+        # reading the alert needs to be able to find WHICH agent from the logs — the alert
+        # body carries counts because an email with 25 uuids in it is an email nobody reads.
+        log.error(
+            "engine_drift_truthful_answer_missing",
+            extra={
+                "agent_id": str(candidate.agent_id),
+                "tenant_id": str(candidate.tenant_id),
+                "engine": engine_name,
+            },
+        )
+    return state
 
 
 async def _sweep() -> str:
     """One tick's work: the stalest live agents read back and their verdicts recorded.
 
     THE ALERT is the half that makes this more than a table nobody reads, and it fires on
-    `not_applied` ONLY. `unreadable` and `unreachable` are held out for the reason
+    the OUT-OF-SYNC verdicts only — `not_applied` and, since D-562, its compliance
+    refinement `truthful_answer_missing`, which the body names separately because that one
+    has already stopped the client's calling rather than merely asking someone to look.
+    `unreadable` and `unreachable` are held out for the reason
     `agents/verification.py` separates them from a mismatch in the first place: "we could
     not tell" is not evidence, and an alarm that fires whenever a vendor is briefly slow is
     an alarm somebody mutes long before it ever catches a real dashboard edit. They are
@@ -245,6 +336,7 @@ async def _sweep() -> str:
             **verdicts,
         },
     )
+    uncompliant = verdicts.get(TRUTHFUL_ANSWER_MISSING, 0)
     if drifted:
         alert(
             # `WORKER_STALL`, following `report_stalled_pipeline` rather than inventing a
@@ -261,6 +353,17 @@ async def _sweep() -> str:
             detail=(
                 f"{drifted} of {checked} live agents are running something other than "
                 "what we published"
+                + (
+                    # SAID FIRST-CLASS AND SAID PLAINLY (D-562). These agents are now
+                    # REFUSED at the dial gate, so the operator is being told what has
+                    # already happened to a client's calling, not only what they must go
+                    # and look at. Without this sentence the alert reported the compliance
+                    # failure and the campaign outage as the same anonymous count.
+                    f"; {uncompliant} of them have lost the truthful-answer rule and can "
+                    "no longer place calls until a republish restores it"
+                    if uncompliant
+                    else ""
+                )
             ),
         )
     return f"checked={checked} drifted={drifted}"

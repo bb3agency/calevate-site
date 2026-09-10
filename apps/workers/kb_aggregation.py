@@ -109,10 +109,12 @@ DIGEST_HOUR = 7
 #: budget it must finish inside, so a fleet-wide neighbour holding pooled connections in
 #: the same minute is subtracted from the agents it reaches. They only met on Monday
 #: mornings, which is precisely the collision nobody would have caught by reading.
-#: :12 is clear of every registered schedule.
-#: `tests/job_registration_test.py::test_no_two_fleet_wide_walks_share_a_firing_minute`
-#: is the guard; it is what found this one.
-DIGEST_MINUTE = 12
+#: :22, and :12 before it — which was NOT "clear of every registered schedule" as this
+#: line claimed: `write_knowledge_glosses` runs the fleet on :12/:42, so the two heaviest
+#: walks in the tree met every Monday morning. The guard now derives the fleet-wide set
+#: from `settings.WALK_SHAPES` instead of a hand-written list, which is what surfaced it
+#: (`tests/job_registration_test.py::test_no_two_fleet_wide_walks_share_a_firing_minute`).
+DIGEST_MINUTE = 22
 
 #: Agents whose owner gets a digest in one tick. The arithmetic that justifies it: one
 #: bounded SELECT and one SMTP send per agent, at roughly a second each in the worst case,

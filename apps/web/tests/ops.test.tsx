@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
@@ -601,6 +601,23 @@ describe("the ops screen when the platform state cannot be read", () => {
 });
 
 describe("the big red switch", () => {
+  it("sits in the danger zone, separated from the everyday settings", async () => {
+    // `opsLanguage.DangerZone` was written for this lever — "the wrapper for a lever that
+    // changes platform state for every customer at once" — and then nothing imported it,
+    // while the lever itself sat in the same plain `Card` as the rate card and the
+    // feature flags. UX-DOCTRINE §4: a destructive control is never dressed like an
+    // ordinary one. This is an assertion about the SECTION rather than about a class,
+    // so the styling can move; what may not come back is the halt button living in an
+    // unmarked panel.
+    renderAdminPage(<OpsPage />, routes(platform()));
+
+    const halt = await screen.findByRole("button", { name: /Halt all outbound calling/ });
+    const zone = halt.closest("section");
+    expect(zone, "the halt lever is in no section of its own").not.toBeNull();
+    const heading = within(zone as HTMLElement).getByRole("heading", { level: 2 });
+    expect(heading.textContent).toContain("every client at once");
+  });
+
   it("will not fire on one click, and needs the reason the audit log will hold", async () => {
     renderAdminPage(<OpsPage />, routes(platform()));
 

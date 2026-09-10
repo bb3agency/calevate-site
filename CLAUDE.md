@@ -9,8 +9,17 @@ mirrors this manual for other coding agents.
 ## What this system is (30 seconds)
 
 Clients get AI phone agents (inbound receptionist + outbound campaigns) built on a rented
-voice engine (Bolna primary per D-31) with BYOK models. **Speech is Sarvam** (Saaras STT ·
-Bulbul v3 TTS, v2 = value tier — D-36, unchanged). **Language is Azure OpenAI in East US 2**
+voice engine (Bolna primary per D-31) with BYOK models. **Speech is TWO VENDORS, and the
+TTS half is chosen PER AGENT (D-547)** — STT is Sarvam Saaras throughout, TTS is
+`apps/api/agents/voices.py::TtsModel`, which is `Literal["bulbul:v3", "sonic-3.5"]`: Sarvam
+Bulbul v3 or Cartesia Sonic 3.5. The provider IS the voice tier (`voices.voice_tier()`,
+plan §2.3 invariant 7) and it prices the minute — ₹1.08–1.62 against ₹2.06–3.09 per
+call-minute (TRD §10.1). ⚠ **THIS LINE READ "Speech is Sarvam … v2 = value tier — D-36,
+unchanged" AND BOTH HALVES WERE WRONG (10 Sep 2026)**: it hid a shipped second vendor, and
+Bulbul **v2 is WITHDRAWN, not a value tier** — it prices nothing, `TTS_INR_PER_10K_CHARS`
+is one scalar for the Sarvam rung (`apps/api/billing/rates.py`), and the premium/value
+`Mapping[TtsTier, Decimal]` it names was deleted with the rung (TRD §10.1). **Language is
+Azure OpenAI in East US 2**
 — `AZURE_LOCATION` (`eastus2`), whose deployment is made from `AZURE_OPENAI_DEFAULT_MODEL`
 (`gpt-4o-mini`), with `gpt-4.1-mini` a live config switch.
 ⚠ **THE PLATFORM'S OWN DEFAULT MODEL IS NO LONGER THAT CONSTANT AND IS NO LONGER ON THIS
@@ -205,7 +214,13 @@ uv sync --all-packages           # install python deps (never pip install direct
                                  # --all-packages IS REQUIRED: plain `uv sync` installs the
                                  # root only and leaves every workspace member out, so
                                  # `import calevate_shared` fails and the suite cannot
-                                 # collect. `.github/workflows/ci.yml:63` uses this form.
+                                 # collect. Every `uv sync` in
+                                 # `.github/workflows/ci.yml` uses this exact form —
+                                 # the `backend` job's "Install dependencies" step and
+                                 # the `types` and audit jobs — and
+                                 # `tests/guardrail_audit_test.py` requires it of every
+                                 # job. Cited by JOB/STEP NAME: this note said
+                                 # `ci.yml:63`, which is a Postgres health-interval.
 uv run pytest                    # all tests; -k rls for tenancy tests
 uv run ruff check --fix . && uv run ruff format .
 uv run mypy apps packages        # strict; must pass. NOT `mypy .` — see below.
@@ -213,7 +228,10 @@ uv run mypy apps packages        # strict; must pass. NOT `mypy .` — see below
                                  # without sentry-sdk installed mypy cannot see its real
                                  # types, `ignore_missing_imports` turns them into Any, and
                                  # observability.py type-checks in a shape production does
-                                 # not run (`.github/workflows/ci.yml:404`).
+                                 # not run. See the comment above the `uv sync` step of
+                                 # the `types` job in `.github/workflows/ci.yml`, which
+                                 # argues it in full. Cited by job name: this note said
+                                 # `ci.yml:404`, a deploy-preflight guardrail.
 uv run alembic upgrade head      # migrations (autogenerate + hand-review diff)
 pnpm -C apps/web dev|build|typecheck|test   # or `make web-check` (typecheck+lint+test+
                                  # test:a11y-browser — axe in real Chromium over every

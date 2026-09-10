@@ -305,8 +305,16 @@ rendered component: `Tabs`, `Dropdown`, `Pagination`, `LoadMore`, `ShowMore`,
 `LiveActivity`, `NewItemsPill`, `ToastProvider`/`useToast`.
 
 Also shared, and equally binding: `components/llmModelPicker.tsx` for any model choice,
-`components/deployButton.tsx`, `components/actionButton.tsx`, `components/navDrawer.tsx`,
-`lib/lookup.ts` (`lookup`/`hasKey`) for **every** map keyed by a wire string.
+`components/actionButton.tsx`, `components/navDrawer.tsx`, `lib/lookup.ts`
+(`lookup`/`hasKey`) for **every** map keyed by a wire string.
+
+⚠ **A primitive belongs on that list only once a screen renders it.** This line carried
+`components/deployButton.tsx` until 10 Sep 2026, when it turned out to have had ZERO
+importers for its whole life — so the construction manual was pointing the next engineer
+at a primitive nobody had ever rendered, which is worse than an omission because it reads
+as settled practice. It was deleted, not adopted. `apps/web/tests/componentConsumers.test.ts`
+now fails on any module under `src/components/` that nothing imports, so a name here that
+has lost its last consumer is a name that should have left this list in the same change.
 
 **The rule:** a new primitive is added to `components/ui.tsx` (small) or
 `components/interior/` (behavioural) — **never duplicated per route**. If a route needs a

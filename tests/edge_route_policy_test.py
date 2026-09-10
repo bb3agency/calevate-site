@@ -54,6 +54,17 @@ class Location:
     def refuses(self) -> bool:
         return bool(re.search(r"\breturn\s+404\b", self.body))
 
+    @property
+    def limit_zone(self) -> str | None:
+        """The `limit_req` zone this location's traffic is counted in, if any."""
+        found = _LIMIT_REQ.search(self.body)
+        return found.group(1) if found else None
+
+    @property
+    def limit_burst(self) -> int:
+        found = re.search(r"\bburst=(\d+)", self.body)
+        return int(found.group(1)) if found else 0
+
 
 @dataclass
 class ServerBlock:
@@ -71,6 +82,9 @@ _SERVER_NAME = re.compile(r"\bserver_name\s+([^;]+);")
 _MAX_BODY = re.compile(r"\bclient_max_body_size\s+([^;]+);")
 _LOCATION = re.compile(r"\blocation\s+(=|\^~|~\*?|)\s*(\S+)\s*\{")
 _SERVER_REDIRECT = re.compile(r"\breturn\s+30[1278]\b")
+_LIMIT_REQ = re.compile(r"\blimit_req\s+zone=([a-z_]+)")
+_CONF_ZONE = re.compile(r"zone=([a-z_]+):\S*\s+rate=(\d+)r/([sm])")
+RATE_ZONES_TEMPLATE = REPO_ROOT / "infra" / "nginx" / "rate-zones.conf.template"
 
 
 def _outside_locations(body: str) -> str:
@@ -358,6 +372,124 @@ def test_edge_body_cap_is_never_smaller_than_the_app_cap(host: str) -> None:
     assert _size_to_bytes(cap) >= MAX_BODY_BYTES, (
         f"{host}. caps bodies at {cap}, below the app's own {MAX_BODY_BYTES} bytes — the "
         "edge would answer with a bare 413 before the app could explain the limit."
+    )
+
+
+# --- 6. the live-call surface and the post-call surface are not one bucket -------------
+
+
+def _selected(block: ServerBlock, path: str) -> Location:
+    """nginx's own location selection for `path`, as far as this template uses it.
+
+    An `=` match wins outright; otherwise the LONGEST matching prefix wins, and `^~` only
+    decides whether regex locations are then tried (this template declares none on the
+    hooks vhost). Reproduced rather than assumed because the whole point of the new
+    `^~ /tools/` location is that it beats `location /`, and "it is longer, so it wins" is
+    exactly the class of claim that deserves to be executed rather than believed.
+    """
+    exact = [loc for loc in block.locations if loc.modifier == "=" and loc.path == path]
+    if exact:
+        return exact[0]
+    prefixes = [
+        loc
+        for loc in block.locations
+        if loc.modifier in {"", "^~"}
+        and (path == loc.path.rstrip("/") or path.startswith(loc.path))
+    ]
+    assert prefixes, f"no location on {block.names} matches {path!r}"
+    return max(prefixes, key=lambda loc: len(loc.path))
+
+
+def conf_rate_zones() -> dict[str, str]:
+    """`{zone: rate}` from the zone template, parsed from the DIRECTIVE.
+
+    Same reading `scripts/check_docs_drift.conf_rate_zones` makes, and for its reason: a
+    `limit_req` naming a zone no `limit_req_zone` declares is a config nginx refuses to
+    load, and a comment claiming a rate is not the rate.
+    """
+    text = RATE_ZONES_TEMPLATE.read_text(encoding="utf-8")
+    return {zone: f"{rate}r/{unit}" for zone, rate, unit in _CONF_ZONE.findall(text)}
+
+
+def test_in_call_tools_and_post_call_webhooks_are_not_in_the_same_rate_bucket() -> None:
+    """THE DEFECT: one `location /` on `hooks.` carrying one `limit_req zone=webhooks`.
+
+    Both surfaces on this vhost arrive from the SAME source — `engine_intake.verify_source`
+    resolves one allowlist for the webhook receiver (`webhook_routes`) and for the in-call
+    tools (`tool_routes`) alike — and the zone is keyed on `$binary_remote_addr`. So one
+    location meant one bucket for both, and the two have opposite shapes: a campaign
+    finishing delivers 250 webhooks in a second (the `webhooks` zone's own comment), while
+    a tool call happens DURING a call. The burst exhausts the allowance, the next tool call
+    is refused 429 AT THE EDGE, and the handler never runs — so the ack budget, the durable
+    deadline and every bound inside them decide nothing. The model gets a failed tool call
+    and the caller hears silence.
+
+    Asserted from the APP's route list rather than from two literals: whichever paths
+    voice-runtime actually mounts under `/tools/` and `/hooks/` must be counted in
+    different zones. A route family that moved would fail here rather than silently
+    rejoining the bucket it was split out of.
+    """
+    hooks = block_for("hooks")
+    tool_paths = sorted(p for p in voice_paths() if p.startswith("/tools/"))
+    hook_paths = sorted(p for p in voice_paths() if p.startswith("/hooks/"))
+    assert tool_paths and hook_paths, (
+        f"voice-runtime mounts {sorted(voice_paths())}; this check needs both an in-call "
+        "tool family and a webhook family to have anything to separate"
+    )
+
+    tool_zones = {_selected(hooks, path).limit_zone for path in tool_paths}
+    hook_zones = {_selected(hooks, path).limit_zone for path in hook_paths}
+    assert None not in tool_zones | hook_zones, (
+        f"a proxying location on hooks. declares no limit_req at all "
+        f"(tools -> {tool_zones}, hooks -> {hook_zones}) — an unlimited surface on the "
+        "vhost the internet reaches is not the fix for sharing a bucket"
+    )
+    assert not (tool_zones & hook_zones), (
+        f"in-call tool calls {tool_paths} and post-call webhooks {hook_paths} are counted "
+        f"in the same limit_req zone ({tool_zones & hook_zones}). They arrive from one "
+        "engine egress address and the zone is keyed on it, so a hangup burst spends the "
+        "allowance and a LIVE call's tool call is answered 429 before the handler is "
+        "entered. Give /tools/ its own location and its own zone."
+    )
+
+
+def test_every_zone_the_hooks_vhost_applies_is_declared_and_sized_for_its_surface() -> None:
+    """Two properties one read of `rate-zones.conf.template` settles.
+
+    A `limit_req` naming an undeclared zone is `[emerg] unknown limit_req_zone` — the whole
+    config refused, every vhost with it, which is failure 1 in
+    `tests/nginx_config_parses_test.py`'s docstring. And the in-call zone must be the
+    LARGER of the two: sizing the live-call surface below the hangup surface would
+    reinstate the defect in a quieter form, since the traffic it has to admit is bounded by
+    concurrent calls (250+, D-32) rather than by one campaign's completions.
+    """
+    declared = conf_rate_zones()
+    hooks = block_for("hooks")
+    applied = {loc.limit_zone for loc in hooks.locations if loc.limit_zone}
+    missing = applied - set(declared)
+    assert not missing, (
+        f"hooks. applies limit_req zone(s) {sorted(missing)} that "
+        f"{RATE_ZONES_TEMPLATE} does not declare — nginx refuses the whole config"
+    )
+
+    def per_minute(rate: str) -> int:
+        value, _, unit = rate.partition("r/")
+        return int(value) * (60 if unit == "s" else 1)
+
+    tools = _selected(hooks, sorted(p for p in voice_paths() if p.startswith("/tools/"))[0])
+    webhooks = _selected(hooks, sorted(p for p in voice_paths() if p.startswith("/hooks/"))[0])
+    assert tools.limit_zone and webhooks.limit_zone
+    assert per_minute(declared[tools.limit_zone]) > per_minute(declared[webhooks.limit_zone]), (
+        f"the in-call zone {tools.limit_zone} is rated "
+        f"{declared[tools.limit_zone]}, no higher than the post-call zone "
+        f"{webhooks.limit_zone} at {declared[webhooks.limit_zone]}. The in-call surface is "
+        "bounded by CONCURRENT calls, not completed ones, and a live call has nothing to "
+        "retry with."
+    )
+    assert tools.limit_burst >= 250, (
+        f"the in-call location bursts at {tools.limit_burst}. A campaign dials its 250 "
+        "calls together (D-32), so one lockstep round of tool calls can land inside a "
+        "second; a smaller burst refuses part of that round at the edge."
     )
 
 

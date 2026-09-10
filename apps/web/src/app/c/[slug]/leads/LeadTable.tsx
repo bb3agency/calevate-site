@@ -16,7 +16,7 @@ export function LeadTable({ kit }: { kit: LeadRowKit }) {
   const {
     items, columns, canCall, maySelect, ticked, allOfPageTicked,
     toggleRow, toggleAllOnPage, renderCell, rowFailure, callCell,
-    status, searchTerm, askTerm, onClearFilters,
+    filtered, askTerm, onClearFilters,
   } = kit;
   return (
         <Card bodyClassName="p-2">
@@ -88,25 +88,32 @@ export function LeadTable({ kit }: { kit: LeadRowKit }) {
           ) : (
             /* "No leads yet" only where the server said so — never on a failed fetch,
                which is why that case never reaches this Card at all. With a filter on,
-               the emptiness belongs to the filter and not to the business. */
+               the emptiness belongs to the filter and not to the business.
+
+               `filtered` is ONE boolean over the whole lens (`leadFilters.ts`), never a
+               chain of the filters this component happens to know about. The chain is
+               what failed: it named two of five, so an owner who ticked "Assigned to me"
+               or picked a facet value was told their account had no leads at all, with
+               no way offered to clear the thing that had emptied it. */
             <EmptyState
               title={
-              askTerm
-                ? "No lead's captured answers match that question"
-                : status || searchTerm
-                  ? "No leads match this filter"
-                  : "No leads yet"
-            }
+                askTerm
+                  ? "No lead's captured answers match that question"
+                  : filtered
+                    ? "No leads match these filters"
+                    : "No leads yet"
+              }
               hint={
-                status || searchTerm
-                  ? "Clear the filter to see everything."
+                filtered
+                  ? "Clear the filters to see everything."
                   : "Every answered call becomes a lead within two minutes."
               }
               /* The sentence used to NAME the action without offering it — the dead-end
                  shape ux-audit F-18 flags. Only the filtered case gets a button: an
-                 account with genuinely no leads has nothing to clear. */
+                 account with genuinely no leads has nothing to clear. A question is a
+                 filter like any other, so the ranked-and-empty case gets it too. */
               action={
-                (status || searchTerm) && (
+                filtered && (
                   <button
                     type="button"
                     onClick={onClearFilters}

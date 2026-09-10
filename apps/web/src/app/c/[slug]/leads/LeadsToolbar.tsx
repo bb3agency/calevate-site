@@ -31,7 +31,7 @@ export function LeadsToolbar({
   lens,
   exportLeads,
   mayExport,
-  exportReason,
+  exportRefusal,
   onExported,
 }: {
   search: string;
@@ -48,8 +48,14 @@ export function LeadsToolbar({
   lens: LeadLens;
   exportLeads: ReturnType<typeof useExportLeads>;
   mayExport: boolean;
-  /** The server's own refusal, or `null` while `/v1/me` has not answered. */
-  exportReason: string | null;
+  /**
+   * WHY THE EXPORT IS REFUSED, or `null`. Derived once by the screen
+   * (`leadsTable.exportRefusal`) because the SAME sentence is rendered twice: here on the
+   * control, and on the screen in a `RestrictionNote` — a disabled button's `title` is
+   * unreachable by keyboard and on touch, so it cannot be the only place the reason lives
+   * (UX-DOCTRINE §4).
+   */
+  exportRefusal: string | null;
   onExported: () => void;
 }) {
   return (
@@ -168,16 +174,16 @@ export function LeadsToolbar({
             })
           }
           title={
-            askTerm
-              ? "A question ranks the best matches rather than selecting a complete set, " +
-                "so it cannot be exported. Clear it to export by the filters instead."
-              : mayExport
+            // The refusal when there is one, in the server's own terms where the server
+            // owns the wording — "Only an account owner can export leads." for a role
+            // that lacks it, "We could not check…" when `/v1/me` failed, the question
+            // sentence when a ranking is on screen. The remaining two cases are not
+            // refusals: what the button DOES when it is live, and the wait while the
+            // permission answer is still coming.
+            exportRefusal ??
+            (mayExport
               ? "Downloads the leads and the columns shown here, with full phone numbers."
-              : // The refusal in the server's own terms — "Only an account owner can
-                // export leads." for a role that lacks it, and "We could not check…"
-                // when `/v1/me` failed. Those are different facts and the tooltip used
-                // to state the first for both.
-                (exportReason ?? "Checking whether you can export these leads…")
+              : "Checking whether you can export these leads…")
           }
           className="flex items-center gap-1.5 rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium text-ink-muted hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-white/5"
         >

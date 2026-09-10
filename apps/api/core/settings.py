@@ -10,7 +10,7 @@ optional model key.
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import lru_cache
@@ -821,6 +821,81 @@ def runtime_config_missing_keys(settings: Settings | None = None) -> list[str]:
     return missing
 
 
+def webhook_receiver_missing_keys(settings: Settings | None = None) -> list[str]:
+    """Readiness for a service that RECEIVES engine traffic and calls no vendor.
+
+    WHY THIS EXISTS AT ALL, AND IT IS NOT A NARROWER COPY OF THE FUNCTION ABOVE.
+    `runtime_config_missing_keys` asks the engine layer which credentials the selected
+    vendor needs, and the only way to ask is `build_engine(cfg)` — which imports
+    `apps.api.engine.bolna`, and with it `httpx`. Both are FORBIDDEN in voice-runtime
+    (`tests/voice_runtime_import_surface_test.FORBIDDEN`: "vendor adapters — hard rule 2"
+    and "HTTP client — the receiver makes no outbound call"), and the import was measured
+    at 381-435ms on a first call — 76-87% of hard rule 3's entire 500ms ack budget, paid
+    on the event loop carrying live calls. `infra/nginx/calevate.conf.template` closed the
+    PUBLIC path to it with a 404; the route is still served on loopback, and
+    `runbooks/` tell an operator to curl it during an incident, i.e. while calls are live.
+
+    NOT "DELETE THE CHECK": readiness still has to mean something for this service. What
+    it means is different, because the job is different. This service never calls the
+    vendor — it is called BY it — so a vendor API credential is not one of its
+    preconditions. What it must have is the one thing without which every value it reads
+    can be silently stale:
+
+    * **it can decrypt its console-managed configuration.** `start_config_refresher`
+      (this service opts in deliberately — `apps/voice-runtime/main._startup`) applies
+      `platform_secrets` rows unwrapped with `PLATFORM_KEK`, and the values it carries are
+      exactly the ones an operator changes without a deploy — the selected engine and the
+      source-IP allowlist that IS the whole authenticity control for an unsigned engine
+      (D-31, TRD §5). Without the KEK those rows are unreadable (`platform_config` alerts
+      `platform_secret_unreadable`) and the process serves on whatever the environment
+      last gave it, silently.
+
+    THE ALLOWLIST ITSELF IS NOT REPORTED, AND THAT IS A FINDING RATHER THAN AN OMISSION.
+    The obvious second check — "an engine whose `WEBHOOK_AUTH_BY_ENGINE` method is
+    `source_ip` and whose allowlist resolves empty is unfit" — is UNREACHABLE:
+    `parse_source_ip_allowlist` fails safe, so a blanked or unparseable
+    `BOLNA_WEBHOOK_SOURCE_IPS` falls back to `DEFAULT_BOLNA_SOURCE_IPS` and the resolver
+    can never hand back an empty set. Writing the branch anyway would be a defensive arm
+    no test can enter and a suppression on a hard-rule surface; the operator-facing answer
+    to a WRONG allowlist is `webhook_allowlist_entry_ignored` and the receiver's own
+    rejection alert, both of which already exist.
+
+    Everything else `runtime_config_missing_keys` reports belongs to another deployable:
+    `SARVAM_API_KEY` to the extraction worker, the object-store credentials to the
+    recording copier, the email transport to the admin console's second factor, the audit
+    and idempotency secrets to the api's mutation paths, and `BOLNA_API_KEY` to whatever
+    calls the vendor — which this service never does. Reporting them here would make this
+    probe red for a fault this process cannot have and cannot fix: the "probe operators
+    learn to ignore" the function above declines to become.
+    """
+    cfg = settings or get_settings()
+    missing: list[str] = []
+    if cfg.app_env != "local" and not cfg.platform_kek:
+        missing.append(env_var_for("platform_kek"))
+    return missing
+
+
+#: Which readiness config probe each service gets, by the name `build_health_router` is
+#: built with.
+#:
+#: A TABLE RATHER THAN AN `if service == ...` INSIDE THE PROBE, and the default is the
+#: STRICT one on purpose. A service absent from this table gets
+#: `runtime_config_missing_keys` — the complete check, which is the safe direction to be
+#: wrong in: an over-strict probe is a red light somebody investigates, an under-strict one
+#: is a green light on a deployment that cannot serve. Only a service that must not
+#: construct an adapter opts out, and it says why here.
+READINESS_CONFIG_PROBES: dict[str, Callable[[Settings | None], list[str]]] = {
+    # Hard rule 3. `apps/voice-runtime` carries live calls on one event loop and may hold
+    # neither `apps.api.engine` nor `httpx`; see `webhook_receiver_missing_keys`.
+    "voice-runtime": webhook_receiver_missing_keys,
+}
+
+
+def readiness_missing_keys(service: str, settings: Settings | None = None) -> list[str]:
+    """The config keys `/healthz/ready` reports for THIS service."""
+    return READINESS_CONFIG_PROBES.get(service, runtime_config_missing_keys)(settings)
+
+
 __all__ = [
     "BOOTSTRAP_REASONS",
     "BOOTSTRAP_REQUIRED",
@@ -829,6 +904,7 @@ __all__ = [
     "ENV_ONLY_KEYS",
     "ENV_ONLY_REASONS",
     "MIN_HMAC_KEY_BYTES",
+    "READINESS_CONFIG_PROBES",
     "BootstrapError",
     "apply_platform_overrides",
     "effective_env",
@@ -836,8 +912,10 @@ __all__ = [
     "env_var_for",
     "get_settings",
     "platform_overrides",
+    "readiness_missing_keys",
     "resolve_hmac_key",
     "runtime_config_missing_keys",
     "settings_scope",
     "validate_bootstrap_env",
+    "webhook_receiver_missing_keys",
 ]

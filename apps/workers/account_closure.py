@@ -104,6 +104,19 @@ RETRY_BACKOFF_S: tuple[float, ...] = (15.0, 45.0)
 #: cron runs hourly, so nothing waits more than an hour past its date.
 SWEEP_BUDGET: Final = 200
 
+#: The minute past the hour `sweep_due_erasures` fires on. `settings.py` builds the
+#: registration from this, the convention ten of its neighbours already follow — two
+#: places writing the schedule is how the reason for it stops being true. It was a bare
+#: `minute={25}` in `settings.py`, whose comment said :25 was chosen "so it does not land
+#: on the same minute as the fleet's other sweeps": :25 is `copilot_memory.DISTILL_MINUTE`,
+#: the heaviest hourly fan-out in the tree, and `report_overdue_erasures` had already been
+#: MOVED OFF :25 for that exact reason before this job was registered on it.
+#:
+#: :27 rather than a round number: the FX pull holds every multiple of five, the execution
+#: poller every multiple of ten, and this sweep opens one `tenant_session` per due closure
+#: (up to `SWEEP_BUDGET`), so it is worth keeping off both.
+SWEEP_MINUTE: Final = 27
+
 
 def _retry_after(attempt: int) -> float:
     index = min(attempt, len(RETRY_BACKOFF_S)) - 1
@@ -611,6 +624,7 @@ __all__ = [
     "NOTICE_JOB",
     "NOTICE_RESTORED",
     "SWEEP_BUDGET",
+    "SWEEP_MINUTE",
     "enqueue_closure_notice",
     "enqueue_notice_address_changed",
     "notify_account_closed",

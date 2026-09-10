@@ -2,7 +2,7 @@
 
 import { Eye, ShieldCheck, User } from "lucide-react";
 
-import { EmptyState, NoticeBox, ProblemNotice, Card } from "@/components/ui";
+import { EmptyState, NoticeBox, ProblemNotice, RestrictionNote, Card } from "@/components/ui";
 import { formatClock } from "@/components/callAudioPlayer";
 import type { CallDetail } from "@/lib/api/client";
 import { lookup } from "@/lib/lookup";
@@ -57,6 +57,13 @@ export function TranscriptCard({
       }
     >
       <div className="space-y-4">
+        {/* WHY THE CONTROL ABOVE IS DEAD, on the SCREEN and not only in a tooltip.
+            `RestrictionNote` renders nothing while `/v1/me` is in flight, so the sentence
+            never flashes and is never retracted; a refusal we have not received is not a
+            refusal (§52). Above the notices rather than below the turns, because a reader
+            deciding whether they are seeing everything asks this before they read. */}
+        {!rawAccess.allowed && <RestrictionNote reason={rawAccess.reason} />}
+
         {/* The state of the transcript in front of you, said before you read it.
             Hard rule 5 is invisible otherwise: a client sees an odd-looking number in
             a line and assumes the agent misheard it. */}

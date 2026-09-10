@@ -21,7 +21,10 @@ Honesty about what each layer proves, and the exact count each one reaches:
    claim for an unseeded table; it is coverage of the POLICY, not of row behaviour.
 3. Cross-tenant WRITES on seeded tables: FORCEd RLS hides the other tenant's rows
    from UPDATE, so the observable behaviour is rowcount 0 — not an exception.
-4. Cross-tenant INSERT, on ALL 42 tenant-isolated tables and behaviourally, not by
+4. Cross-tenant INSERT, on EVERY tenant-isolated table the run discovers (the
+   `information_schema` sweep above, minus the documented exemptions) — no count is
+   written here: this line said "ALL 42" long after the universe passed sixty, and a
+   count in prose is exactly the defect class D-103/D-105 exist for. Behavioural, not
    policy inspection. This is the one layer that reaches the whole universe, because
    RLS's insert check runs ahead of NOT NULL and CHECK — an invalid two-column row is
    enough to make the policy speak, so no table needs to be seeded first. Layers 1-3

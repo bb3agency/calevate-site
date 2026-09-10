@@ -29,9 +29,19 @@ export interface LeadRowKit {
   hrefFor: (lead: Lead) => string;
   /** The SERVER's count for a stage, or `undefined` when it did not say. */
   stageCount: (stage: LeadStatus) => number | undefined;
-  /** The filters in force, so the empty state can belong to them and not to the business. */
-  status: string | undefined;
-  searchTerm: string;
+  /**
+   * IS ANY FILTER IN FORCE — one boolean, derived from the LENS the server was actually
+   * given (`leadFilters.anyFilterInForce`), so the empty state can belong to the filters
+   * and not to the business.
+   *
+   * It used to be `status` and `searchTerm` handed down raw, and the empty state built
+   * its own `status || searchTerm` out of them — two of the screen's five filters. An
+   * owner filtering by assignee or by a facet value was told "No leads yet". The
+   * derivation is now in one place and is exhaustive over `LeadLens` by type, so a sixth
+   * filter cannot arrive without it.
+   */
+  filtered: boolean;
+  /** The semantic question in force, or "" — the empty state names what was asked. */
   askTerm: string;
   onClearFilters: () => void;
 }

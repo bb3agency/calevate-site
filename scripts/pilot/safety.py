@@ -56,12 +56,57 @@ ABSOLUTE_MAX_CALLS = 25
 #: LOW: TRD §10's all-in target for the shipped product, ₹3.00/min.
 #: HIGH: what a pilot actually pays before any BYOK platform fee is negotiated —
 #: Bolna's published bundled rate of 6.00¢/min (TRD §5 commercials) converted at the
-#: configured `USD_INR_RATE`, plus the BYOK legs the bundled rate does not cover
-#: (Saaras STT ₹0.50 + Bulbul v3 TTS up to ₹1.40 + Sarvam LLM ₹0.00 — TRD §10.1, D-36).
-#: Deliberately pessimistic: an estimate that undershoots is worse than useless.
+#: configured `USD_INR_RATE`, plus the BYOK legs below, which the bundled rate does not
+#: cover. Deliberately pessimistic: an estimate that undershoots is worse than useless.
 BUNDLED_USD_PER_MIN = Decimal("0.06")
-BYOK_INR_PER_MIN = Decimal("1.90")
 LOW_INR_PER_MIN = Decimal("3.00")
+
+# THE BYOK LEGS, EACH STRUCK AT THE TOP OF ITS OWN TRD §10.1 ROW.
+#
+# ⚠ THIS WAS ONE LITERAL, `BYOK_INR_PER_MIN = 1.90`, DESCRIBED AS
+# "Saaras STT ₹0.50 + Bulbul v3 TTS up to ₹1.40 + Sarvam LLM ₹0.00 — TRD §10.1, D-36",
+# AND IT WAS WRONG IN BOTH DIRECTIONS THAT MATTER FOR A CEILING (10 Sep 2026):
+#
+#   * **The LLM leg cited a source that says the opposite.** TRD §10.1 carries a
+#     correction headed "THE SARVAM CHAT LEG IS NOT FREE, AND THIS DOCUMENT PRICED IT AT
+#     ₹0.00 EVERYWHERE" — D-36's "free per token" premise is WITHDRAWN — and the in-call
+#     LLM leg has not been Sarvam since D-410 in any case. A ₹0.00 leg citing the page
+#     that withdrew it is hard rule 12's last bullet: the citation was never opened.
+#   * **The TTS leg imputed a speaking rate the cost model refuses to impute.** ₹1.40 at
+#     `rates.TTS_INR_PER_10K_CHARS` (₹30/10k) is 466.67 chars per call-minute — a POINT
+#     inside `rates.TTS_ASSUMED_CHARS_PER_CALL_MINUTE`'s unmeasured 360-540 band, and not
+#     its top. §10.1 publishes the band's ENDS as the per-call-minute row precisely so a
+#     reader does not have to pick a point; picking one, low, inside a ceiling advertised
+#     as "deliberately pessimistic" is the defect PRODUCTION-READINESS P1.9 named.
+#
+# WHY THESE ARE LITERALS AND NOT AN IMPORT OF `apps.api.billing.rates`. This module's whole
+# design is that the harness CANNOT reach app internals — `tests/pilot_safety_test.py`
+# asserts the package imports nothing that could hand it a number it was not given, and the
+# fourth defence in the docstring above is that absence. A budget line printed before a
+# dial is the one place that trade is worth making; the cost is that these three must be
+# re-read against §10.1 when it moves, which is what the citations are for.
+#
+# EACH IS THE DEAREST THING §10.1 PRICES ON ITS LEG, because a ceiling that assumes the
+# cheap configuration is not a ceiling:
+
+#: Saaras STT+Translate, ₹30/hr → ₹0.50 per call-minute (TRD §10.1, the STT row). One
+#: value, not a band: STT is billed on wall-clock audio, not on how much the agent spoke.
+PILOT_STT_INR_PER_MIN = Decimal("0.50")
+
+#: The DEARER of the two voice tiers at the TOP of its band: Cartesia Sonic 3.5,
+#: ₹2.06-3.09 per call-minute (TRD §10.1). Not Bulbul v3's ₹1.08-1.62 — the voice is a
+#: per-agent choice since D-547 and a pilot may dial either, so the ceiling takes the one
+#: that can cost more.
+PILOT_TTS_INR_PER_MIN = Decimal("3.09")
+
+#: The DEAREST in-call LLM leg we offer, at its worst per-minute point: `gpt-5.4-mini` on
+#: OpenAI direct, ₹1.24 at ten minutes (TRD §10.1). The curve RISES with call length —
+#: §6.1 resends the conversation every turn — so the ten-minute point is the ceiling and
+#: the one-minute point (₹0.54) would not be. Replaces the ₹0.00 above.
+PILOT_LLM_INR_PER_MIN = Decimal("1.24")
+
+#: ₹4.83. DERIVED, so a leg that moves is traceable to the §10.1 row that moved it.
+BYOK_INR_PER_MIN = PILOT_STT_INR_PER_MIN + PILOT_TTS_INR_PER_MIN + PILOT_LLM_INR_PER_MIN
 
 #: A pilot call is a scripted exchange, not a real consultation. Overridable, because
 #: gate 3's ten-utterance Telugu script runs longer than gate 2's "say the nonce".

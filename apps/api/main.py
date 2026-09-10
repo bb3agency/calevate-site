@@ -11,16 +11,17 @@ file only declares WHICH routers the monolith mounts.
 """
 
 from collections.abc import AsyncIterator
+from contextlib import suppress
 
 from fastapi import FastAPI
 
 from apps.api.core.bootstrap import create_app
 from apps.api.core.errors import install_error_handlers
-from apps.api.core.platform_config import start_config_refresher
+from apps.api.core.platform_config import start_config_refresher, stop_config_refresher
 from apps.api.core.rbac import assert_policy_registry_complete
 from apps.api.flags.registry import assert_flag_registry_wellformed
-from apps.api.ops.fx_rates import start_fx_refresher
-from apps.api.ops.pricing_snapshot import start_pricing_refresher
+from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
+from apps.api.ops.pricing_snapshot import start_pricing_refresher, stop_pricing_refresher
 
 
 async def _startup() -> AsyncIterator[None]:
@@ -62,7 +63,29 @@ async def _startup() -> AsyncIterator[None]:
     start_config_refresher()
     start_pricing_refresher()
     start_fx_refresher()
-    yield
+    try:
+        yield
+    finally:
+        # AND THEY ARE STOPPED, WHICH THEY WERE NOT: this hook ended at the bare `yield`
+        # above and `create_app` consumed it to that point and abandoned it, so every one
+        # of these polls outlived the drain that was meant to end it. What an operator saw
+        # on an ORDINARY deploy was a burst of database and Redis failures from tasks
+        # reading through pools being closed under them — errors indistinguishable from a
+        # real outage — and under `--reload` and in tests each restart left another poller
+        # running against the same stores. The same leak `core/bootstrap` records as
+        # already fixed for the Redis client and the ARQ pool.
+        #
+        # The order and the shape are `apps/workers/settings.shutdown`'s, deliberately, so
+        # the fleet has one answer: the two polls that hold a DATABASE SESSION go first
+        # (FX and pricing both read through the session pool `_shutdown` is about to tear
+        # down), config last, and each independently — a stop that raises must not keep
+        # the next task alive.
+        with suppress(Exception):
+            await stop_fx_refresher()
+        with suppress(Exception):
+            await stop_pricing_refresher()
+        with suppress(Exception):
+            await stop_config_refresher()
 
 
 app: FastAPI = create_app(service="api", title="Calevate API", version="0.1.0", on_startup=_startup)

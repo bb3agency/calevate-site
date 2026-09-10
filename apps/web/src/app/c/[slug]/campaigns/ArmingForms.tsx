@@ -71,7 +71,7 @@ export function ArmingForms({
                   What the screen owes them instead of a hidden form is the other half of
                   that truth, and it is directly above and beside these controls: the
                   blocker list is still rendered in full by the branch above, and
-                  `ArmingConsequence` says in advance what the fire-time check will do. A
+                  `FireTimeRefusal` says in advance what the fire-time check will do. A
                   form reachable with the blockers HIDDEN would be the dangerous version of
                   this fix rather than the fix.
 
@@ -84,7 +84,7 @@ export function ArmingForms({
                       action with a delay on it — and the gate that guards Launch runs
                       again when this fires. The green tick above is about right now;
                       the hint below says plainly that it is not a promise about the
-                      start, and `ArmingConsequence` says what happens when it is not
+                      start, and `FireTimeRefusal` says what happens when it is not
                       even true about right now.
 
                       Still keyed on `draft`: a campaign that is already `scheduled`

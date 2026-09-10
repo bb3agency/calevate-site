@@ -117,12 +117,18 @@ from apps.workers.extraction import AZURE_PROVIDER, azure_credentials
 
 log = get_logger(__name__)
 
-#: The minute this cron fires. :50, which is clear of every other fleet-wide fan-out in
-#: `settings.CRON_JOBS` — the poller (:00/:10/...), `report_stalled_pipeline` (:05/:35),
-#: `reconcile_outstanding_calls` (:15/:45) and `distil_copilot_memories` (:25) — so no two
-#: O(tenants) sweeps share a minute. Hourly, because a returning caller's next call is
-#: hours away at best and the ceiling below is per tick, so the cadence IS the spend rate.
-DISTIL_MINUTE: Final = 50
+#: The minute this cron fires. :52, and the minute it replaces is why the clearance
+#: argument is no longer made here: this said ":50 ... is clear of every other fleet-wide
+#: fan-out" and enumerated four neighbours, while `sweep_engine_violations` was registered
+#: on :50 saying of ITSELF that ":50 is the one slot the other fleet-wide fan-outs leave
+#: free" — two comments each claiming sole ownership of one minute, and the poller and the
+#: FX pull are on it as well. `settings.WALK_SHAPES` now declares each cron's fan-out where
+#: its schedule is chosen and `tests/job_registration_test.py` derives the collision check
+#: from that, so no comment has to be trusted for this property.
+#:
+#: Hourly, because a returning caller's next call is hours away at best and the ceiling
+#: below is per tick, so the cadence IS the spend rate.
+DISTIL_MINUTE: Final = 52
 
 #: How long after a call ends before it is considered finished enough to read.
 #:

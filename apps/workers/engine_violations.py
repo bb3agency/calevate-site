@@ -74,6 +74,11 @@ log = get_logger(__name__)
 
 #: Minutes past the hour. `settings.py` builds the `cron()` registration from this so the
 #: schedule and the reason for it are not two facts in two files.
+#:
+#: :50 is NOT a slot this job holds alone, and `settings.py` used to say it was — the FX
+#: pull and the execution poller are both on it. It does not need to be: this sweep is one
+#: vendor listing and one untenanted read, declared `bounded` in `settings.WALK_SHAPES`,
+#: so it is not competing for a tenant-session pool with anybody.
 SWEEP_MINUTE = 50
 
 #: How many violation ids an alert body names before it stops listing them. An operator

@@ -501,3 +501,81 @@ def test_a_managed_trial_is_absorbed_at_the_plan_rungs_and_not_at_a_list_rate() 
         # moved with it would be unmistakable.
         self_serve_rate_inr_per_min=Decimal("999.00"),
     ) == Decimal("258.00")
+
+
+# ============================================================================
+# A re-price only ever goes DOWN (D-561)
+# ============================================================================
+
+
+async def test_a_reprice_that_would_make_a_minute_dearer_is_refused_naming_both_figures() -> None:
+    """THE ONE DIRECTION THIS FEATURE HAS. Our published Terms say it without qualification
+    — "Each purchase of credit is priced at the per-minute rates shown for that purchase
+    when you made it... Those rates apply to that purchase's credit until it is spent"
+    (`apps/web/src/lib/legal/terms.ts:316-320`) — and the feature was specified as a
+    founding-client promotion (plan §0 Q6), which is cheaper by construction.
+
+    The trap this pins is that the ₹2,000 `starter` pack is not simply "the small one": its
+    Clear rate MATCHES the ₹5,000 rung's, and only its Studio rate is dearer (₹8.00 against
+    ₹7.00). So a guard that compared a single tier, or compared the packs by size, would
+    have let this through — and the replacement inherits `opened_at`, so the dearer credit
+    would be spent FIRST. Refused loudly, never clamped: the operator picked the wrong pack
+    and a half-applied re-price is a decision nobody could later describe.
+    """
+    token, tenant_id = await _admin(), await _tenant()
+    async with _client() as http:
+        lot_id = await _wallet_with_one_lot(http, token, tenant_id)
+        before = await _balance(tenant_id)
+        answer = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credit-lots/{lot_id}/override",
+            headers=_headers(token, lot_reprice_confirmation(lot_id)),
+            json={"pack_id": "starter", "reason": "meant to pick the pro pack"},
+        )
+    assert answer.status_code == 422, answer.text
+    body = answer.json()
+    assert body["type"].endswith("/lot_reprice_raises_rate"), answer.text
+    # BOTH figures, in the operator's own vocabulary, so the refusal can be acted on
+    # without opening the rate card in another tab.
+    assert "Studio ₹7.00 to ₹8.00 a minute." in body["detail"], body["detail"]
+    assert "Clear" not in body["detail"], "the tier that did not move must not be named"
+    assert "lower" in body["remediation"]
+
+    # NOTHING MOVED: no replacement lot, no marker row, no money.
+    rows = await lot_rows(tenant_id)
+    assert len(rows) == 1 and rows[0]["closed_at"] is None
+    assert rows[0]["cartesia_inr_per_min"] == Decimal("7.0000")
+    assert await _balance(tenant_id) == before
+    async with tenant_session(tenant_id) as session:
+        marker = (
+            await session.execute(
+                text("SELECT count(*) FROM credit_ledger WHERE tenant_id = :t AND ref = :r"),
+                {"t": tenant_id, "r": lot_reprice_ref(lot_id=lot_id, pack_id="starter")},
+            )
+        ).scalar_one()
+    assert marker == 0, "a refused re-price leaves no marker to replay against"
+
+
+async def test_a_reprice_that_raises_both_tiers_names_both_of_them() -> None:
+    """The plural branch of the same message. A lot sold at the ₹50,000 pack's rates
+    (₹4.50 / ₹6.00) cannot be moved to the ₹5,000 rung, on either voice."""
+    token, tenant_id = await _admin(), await _tenant()
+    async with _client() as http:
+        lot_id = await _wallet_with_one_lot(http, token, tenant_id)
+        cheapened = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credit-lots/{lot_id}/override",
+            headers=_headers(token, lot_reprice_confirmation(lot_id)),
+            json={"pack_id": "max", "reason": "founding client"},
+        )
+        assert cheapened.status_code == 200, cheapened.text
+        replacement = uuid.UUID(cheapened.json()["lot"]["lot_id"])
+        # ... and taking it back is what this refuses.
+        answer = await http.post(
+            f"/v1/admin/tenants/{tenant_id}/credit-lots/{replacement}/override",
+            headers=_headers(token, lot_reprice_confirmation(replacement)),
+            json={"pack_id": "growth", "reason": "the promotion is over"},
+        )
+    assert answer.status_code == 422, answer.text
+    detail = answer.json()["detail"]
+    assert "Clear ₹4.50 to ₹5.00" in detail, detail
+    assert "Studio ₹6.00 to ₹7.00 a minute." in detail, detail
+    assert len(await lot_rows(tenant_id)) == 2, "the refusal opened no third lot"

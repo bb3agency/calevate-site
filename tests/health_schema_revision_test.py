@@ -51,7 +51,7 @@ async def _ready() -> Response:
 def otherwise_healthy(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """Everything readiness asks about EXCEPT the schema is green, so the verdict this
     file reads is unambiguously the schema's."""
-    monkeypatch.setattr(health_module, "runtime_config_missing_keys", lambda _settings: [])
+    monkeypatch.setattr(health_module, "readiness_missing_keys", lambda _service, _settings: [])
     monkeypatch.setattr(health_module, "_queue_stats", _no_queue)
     yield
 

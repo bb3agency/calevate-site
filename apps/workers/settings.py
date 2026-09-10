@@ -65,6 +65,7 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 from arq import cron
+from arq.cron import CronJob
 
 from apps.api.core.alert_admission import close_admission
 from apps.api.core.alerting import alert
@@ -85,6 +86,9 @@ from apps.api.core.settings import (
 )
 from apps.api.ops.fx_rates import start_fx_refresher, stop_fx_refresher
 from apps.api.ops.pricing_snapshot import start_pricing_refresher, stop_pricing_refresher
+from apps.workers.account_closure import (
+    SWEEP_MINUTE as ERASURE_FILING_MINUTE,
+)
 from apps.workers.account_closure import notify_account_closed, sweep_due_erasures
 from apps.workers.action_audit import record_action_invocation
 from apps.workers.auth_email import deliver_auth_email
@@ -114,6 +118,7 @@ from apps.workers.dispatcher import (
 from apps.workers.dnc_recall import recall_dials_for_dnc
 from apps.workers.engine_reconciliation import SWEEP_MINUTES, sweep_engine_drift
 from apps.workers.engine_violations import SWEEP_MINUTE, sweep_engine_violations
+from apps.workers.fleet_walk import WalkShape, bounded, every_tick, fleet_wide
 from apps.workers.fx_pull import PULL_MINUTES, pull_fx_rate
 from apps.workers.handoff import record_handoff_started
 from apps.workers.inbound_cutover import apply_inbound_credit_state
@@ -297,12 +302,45 @@ FUNCTIONS: list[Any] = [
     )
 ]
 
+#: What each registered cron costs per tick, keyed by the arq job name.
+#:
+#: Written by `_cron` and by nothing else, so it cannot fall behind `CRON_JOBS`:
+#: `tests/job_registration_test.py` derives the fleet-wide set from this and asserts every
+#: registered job appears, which is what stops a new fan-out from quietly skipping the
+#: collision guard. `fleet_walk.WalkShape` carries the argument for why the CLASSIFICATION
+#: is declared rather than derived, including the three derivable signals that were
+#: measured against this tree and found insufficient.
+WALK_SHAPES: dict[str, WalkShape] = {}
+
+
+def _cron(coroutine: Any, *, walk: WalkShape, **kwargs: Any) -> CronJob:
+    """`arq.cron`, plus the one fact its schedule cannot be read without.
+
+    `walk` is keyword-only and has NO default on purpose. A fleet-wide fan-out that shares
+    a firing minute with another one competes for the worker and the pool, and a walk
+    under a `WalkBudget` that loses that race latches `exhausted` and starves the same
+    deterministic tail every tick — so `trial_sweep_truncated` fires nightly on a healthy
+    fleet and stops being read. The set that guard runs over used to be hand-written in
+    the test file and checked in one direction only; four collisions accumulated behind
+    that hole in the months after it was written. Registering without declaring a shape is
+    now a `TypeError` at import.
+    """
+    job = cron(coroutine, **kwargs)
+    WALK_SHAPES[job.name] = walk
+    return job
+
+
 # Crons are traced too. They have no enqueuing parent, so each tick is its own ROOT
 # trace — which is the point for `dispatch_outbox`: outbox lag is a stage of the same
 # 2-minute SLO, and it is invisible from the call's own trace.
 CRON_JOBS = [
     # The outbox dispatcher is the heartbeat of every reliable side effect.
-    cron(traced_job(dispatch_outbox), second={0, 10, 20, 30, 40, 50}, run_at_startup=True),
+    _cron(
+        traced_job(dispatch_outbox),
+        walk=bounded("one untenanted session, one bounded batch of outbox rows"),
+        second={0, 10, 20, 30, 40, 50},
+        run_at_startup=True,
+    ),
     # THE MAINTENANCE WINDOW'S ONLY ACTUATOR (D-544). Every fifteen seconds, because the
     # cadence IS the resolution of three promises a client and an operator both feel: how
     # soon after the window opens the platform stops accepting new work, how soon after the
@@ -318,8 +356,12 @@ CRON_JOBS = [
     # `WorkerSettings.max_tries` does not reach a function carrying its own. Retrying is
     # safe and is the point — every transition inside is a compare-and-swap, so a retried
     # tick that finds the work already done does nothing and says so.
-    cron(
+    _cron(
         traced_job(maintenance_tick),
+        walk=every_tick(
+            "one untenanted read per tick, then one tenant_session per tenant to notify, "
+            "under its own WalkBudget"
+        ),
         second=set(MAINTENANCE_TICK_SECONDS),
         run_at_startup=True,
         max_tries=WORKER_MAX_TRIES,
@@ -336,8 +378,9 @@ CRON_JOBS = [
     # engine listing, Redis, the pool) rather than one tenant's, and re-running it is free:
     # every re-drive is enqueued under a fixed `job_id_for(..., "reconcile")`, so a retried
     # tick cannot double-drive an execution the previous attempt already queued.
-    cron(
+    _cron(
         traced_job(reconcile_executions),
+        walk=bounded("one vendor listing, then one session per execution in it"),
         minute={0, 10, 20, 30, 40, 50},
         run_at_startup=True,
         max_tries=WORKER_MAX_TRIES,
@@ -346,7 +389,12 @@ CRON_JOBS = [
     # later: the alarm's whole job is to notice that the pipeline is late, and an alarm
     # that gives up on its first transient database error is silent for exactly as long
     # as the incident it exists to report. Half an hour of that is not free.
-    cron(traced_job(report_stalled_pipeline), minute={5, 35}, max_tries=WORKER_MAX_TRIES),
+    _cron(
+        traced_job(report_stalled_pipeline),
+        walk=fleet_wide("one tenant_session per callable tenant"),
+        minute={5, 35},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # THE COPILOT'S SEMANTIC DISTILLATION (migration d4a9c17e6b02). Hourly at :25, which is
     # clear of the poller (:00/:10/...), `report_stalled_pipeline` (:05/:35) and
     # `reconcile_outstanding_calls` (:15/:45), so no two O(tenants) fan-outs share a minute.
@@ -361,8 +409,9 @@ CRON_JOBS = [
     # safe: the job is idempotent on `copilot_memories.distilled_at`, stamped in the same
     # transaction as the rows it produced, so a re-run finds nothing rather than paying
     # twice for the same conversation.
-    cron(
+    _cron(
         traced_job(distil_copilot_memories),
+        walk=fleet_wide("one tenant_session per tenant with a worklist row, plus a model call"),
         minute={DISTILL_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -385,8 +434,9 @@ CRON_JOBS = [
     # NO MODEL CALL AND NO SPEND: two credential reads and one statement per tenant.
     # `max_tries` explicit for its neighbours' reason, and retrying is safe because the
     # job is a set of DELETEs whose predicate is re-derived from live state each time.
-    cron(
+    _cron(
         traced_job(sweep_ended_conversations),
+        walk=fleet_wide("one tenant_session per tenant with a worklist row"),
         minute={TRANSCRIPT_SWEEP_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -405,8 +455,9 @@ CRON_JOBS = [
     # memory rows it produced, so a re-run finds nothing rather than paying twice for the
     # same conversation — and the state carries the "read it, owed nothing" answer that a
     # `source_call_id` alone could not express.
-    cron(
+    _cron(
         traced_job(distil_caller_memories),
+        walk=fleet_wide("one tenant_session per tenant with a worklist row, plus a model call"),
         minute={CALLER_MEMORY_DISTIL_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -429,8 +480,9 @@ CRON_JOBS = [
     # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1 and
     # `WorkerSettings.max_tries` does not reach a function carrying its own, so a sweep
     # that met one transient database error would be finished for the half hour.
-    cron(
+    _cron(
         traced_job(reconcile_outstanding_calls),
+        walk=fleet_wide("one tenant_session per callable tenant, plus vendor reads"),
         minute={15, 45},
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -451,8 +503,9 @@ CRON_JOBS = [
     # every hour, and this one has a wall-clock budget that a neighbour competing for the
     # pool spends on waiting. `dispatcher.ERASURE_PROBE_MINUTE` carries the argument and
     # `tests/job_registration_test.py` is the guard that keeps it true.
-    cron(
+    _cron(
         traced_job(report_overdue_erasures),
+        walk=fleet_wide("one tenant_session per ORGANIZATION, under a time budget"),
         minute={ERASURE_PROBE_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -471,7 +524,12 @@ CRON_JOBS = [
     # that gave up on its first transient failure would be silent for five minutes, which
     # is survivable — but the ladder is also what makes the LAST attempt's `alert()`
     # reachable, and that alert is the only dead-letter this queue has.
-    cron(traced_job(pull_fx_rate), minute=set(PULL_MINUTES), max_tries=WORKER_MAX_TRIES),
+    _cron(
+        traced_job(pull_fx_rate),
+        walk=bounded("one HTTP request for one number"),
+        minute=set(PULL_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # The dispatch tick (FLOWS §5). Hard rule 5's DNC propagation deadline is
     # 'before the next dispatch tick' — this cron IS that tick.
     #
@@ -487,11 +545,21 @@ CRON_JOBS = [
     # `cron(job_id=...)`, holds its in-progress key for 60s after the job ENDS
     # (`keep_cronjob_progress`) and would turn a 30-second tick into a 60-second one.
     # `campaign_dispatch._tick_lease` is where single-flight actually comes from.
-    cron(traced_job(dispatch_campaign_tick), second=set(TICK_SECONDS)),
+    _cron(
+        traced_job(dispatch_campaign_tick),
+        walk=every_tick("one tenant_session per tenant holding an outbound line"),
+        second=set(TICK_SECONDS),
+    ),
     # `max_tries` for `apply_retention`'s reason, and it is the same class of job: the
     # other half of the retention obligation, on the same nightly cadence, with the same
     # "gone until tomorrow" failure mode and no next tick to self-heal on.
-    cron(traced_job(sweep_expired), hour={3}, minute={17}, max_tries=WORKER_MAX_TRIES),
+    _cron(
+        traced_job(sweep_expired),
+        walk=bounded("one untenanted DELETE over an expiry index"),
+        hour={3},
+        minute={17},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # THE RECURRING COST OF A PHONE NUMBER (D-537), and the only cost in this system that
     # no event produces: the vendor debits its wallet on a renewal date we do not observe
     # and issues nothing, so the only way a monthly rental enters the ledger is that we go
@@ -505,11 +573,17 @@ CRON_JOBS = [
     # matters more than most — a failed attempt on a MONTHLY job is a whole month of a
     # client's number costs missing from the margin, and there is no next tick to
     # self-heal on until the 1st of the following month.
-    cron(
+    _cron(
         traced_job(meter_number_rentals),
+        walk=fleet_wide(
+            "one tenant_session per organization, then one usage event per bought number"
+        ),
         day={1},
         hour={2},
-        minute={20},
+        # :28, not :20: `draw_qa_samples` walks every organization on Monday 02:20, and a
+        # 1st that falls on a Monday put two fleet walks in one minute twelve times a year
+        # — the shape of collision a hand-checked list never catches.
+        minute={28},
         max_tries=WORKER_MAX_TRIES,
     ),
     # The other half: a number bought at the vendor whose row never landed here is
@@ -517,8 +591,9 @@ CRON_JOBS = [
     # window between "the purchase succeeded and the INSERT did not" and somebody noticing
     # should be measured in hours, and one small GET is not a load. Read-only; it alarms
     # and changes nothing, deliberately (see the job).
-    cron(
+    _cron(
         traced_job(reconcile_engine_numbers),
+        walk=bounded("one vendor listing against one untenanted read"),
         hour={2},
         minute={35},
         max_tries=WORKER_MAX_TRIES,
@@ -540,8 +615,9 @@ CRON_JOBS = [
     # carrying its own. A sampling tick that gave up on its first failure would leave a
     # week undrawn with every screen still green. Verified against a real
     # `arq.worker.Worker` in `tests/qa_sampling_test.py`, not asserted by this comment.
-    cron(
+    _cron(
         traced_job(draw_qa_samples),
+        walk=fleet_wide("one tenant_session per organization, under a time budget"),
         weekday={0},
         hour={2},
         minute={20},
@@ -561,8 +637,9 @@ CRON_JOBS = [
     # `WorkerSettings.max_tries` does not reach a function carrying its own. This one is
     # weekly, so a tick finished by its first transient error is not a job that self-heals
     # in half an hour — it is a week in which no client heard anything.
-    cron(
+    _cron(
         traced_job(send_agent_knowledge_digests),
+        walk=fleet_wide("one tenant_session and one SMTP send per live agent"),
         weekday={DIGEST_WEEKDAY},
         hour={DIGEST_HOUR},
         minute={DIGEST_MINUTE},
@@ -577,7 +654,13 @@ CRON_JOBS = [
     # `max_tries` EXPLICIT for the reason its neighbours give: `cron()` defaults it to 1.
     # This job is idempotent to the point of being read-only — one TLS handshake — so a
     # retried attempt costs nothing and a lost one costs a day of not knowing.
-    cron(traced_job(check_tls_expiry), hour={4}, minute={5}, max_tries=WORKER_MAX_TRIES),
+    _cron(
+        traced_job(check_tls_expiry),
+        walk=bounded("one TLS handshake per configured hostname"),
+        hour={4},
+        minute={5},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     # Retention is a legal obligation, not a cleanup task: without this the
     # policies we promise in the DPA are only a table (SEC-COMP §4).
     #
@@ -592,8 +675,19 @@ CRON_JOBS = [
     # which is a night's expired recordings, transcripts and leads still held — so
     # `apply_retention` also alerts on a non-zero failure count now, because a retry
     # ladder that runs out still has to tell somebody.
-    cron(traced_job(apply_retention), hour={3}, minute={40}, max_tries=WORKER_MAX_TRIES),
-    # TRIALS THAT HAVE RUN OUT, AND THE ERASURES THEY MAKE DUE (D-536). 02:25, ahead of
+    _cron(
+        traced_job(apply_retention),
+        walk=fleet_wide(
+            "one tenant_session per tenant that can hold call data, under a time budget"
+        ),
+        hour={3},
+        minute={40},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # TRIALS THAT HAVE RUN OUT, AND THE ERASURES THEY MAKE DUE (D-536). 02:33 — :25 is
+    # `copilot_memory.DISTILL_MINUTE`, an hourly walk of every tenant with a worklist row,
+    # and this one walks every organization under a `WalkBudget` it must finish inside.
+    # Ahead of
     # the retention sweep at 03:40 rather than after it, so an erasure this tick files can
     # be picked up by tonight's retention pass instead of tomorrow's — the two are days
     # apart in effect, but the ordering is free and the shorter path is the one a data
@@ -608,9 +702,21 @@ CRON_JOBS = [
     # `WorkerSettings.max_tries` does not reach a function carrying its own. A tick that
     # gave up on its first transient error would leave a client's trial reading as running
     # for another day and an erasure that is due unfiled.
-    cron(traced_job(sweep_trials), hour={2}, minute={25}, max_tries=WORKER_MAX_TRIES),
-    # D-538. HOURLY, at :25 so it does not land on the same minute as the fleet's other
-    # sweeps. The grace window is a PROMISE WITH A DATE ON IT and it has to hold in both
+    _cron(
+        traced_job(sweep_trials),
+        walk=fleet_wide("one tenant_session per organization, under a time budget"),
+        hour={2},
+        minute={33},
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # D-538. HOURLY. THE MINUTE COMES FROM THE MODULE (`account_closure.SWEEP_MINUTE`),
+    # the convention its neighbours follow, and it is no longer :25: this comment used to
+    # say :25 was chosen "so it does not land on the same minute as the fleet's other
+    # sweeps", when :25 is `copilot_memory.DISTILL_MINUTE` and `report_overdue_erasures`
+    # had been moved OFF :25 a few entries above for exactly that collision. The vacated
+    # slot was refilled the same week.
+    #
+    # The grace window is a PROMISE WITH A DATE ON IT and it has to hold in both
     # directions: an account must not be erased before the date the client was given, and
     # a client who asked us to erase now (`bring_erasure_forward`) must not wait until
     # 03:40 for a deadline they set for this afternoon. An hour is the coarsest tick that
@@ -622,9 +728,12 @@ CRON_JOBS = [
     # and `request_tenant_erasure` dedupes on the open request — but an hour of an
     # overdue erasure is an hour past a date we published to a client, so the ladder runs
     # first and the tick is the backstop rather than the only recovery.
-    cron(
+    _cron(
         traced_job(sweep_due_erasures),
-        minute={25},
+        walk=bounded(
+            "one admin read, then one tenant_session per due closure, capped at SWEEP_BUDGET"
+        ),
+        minute={ERASURE_FILING_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     # The two infra tables `apply_retention` structurally cannot reach, because neither
@@ -635,8 +744,9 @@ CRON_JOBS = [
     # promise of a side effect, and pruning promises before the sweep that may still be
     # making them is an ordering nobody would be able to reason about at 03:00.
     # `max_tries` EXPLICIT for the reason its neighbour above spells out at length.
-    cron(
+    _cron(
         traced_job(prune_reliability_tables),
+        walk=bounded("one untenanted session, batched deletes"),
         hour={4},
         minute={10},
         max_tries=WORKER_MAX_TRIES,
@@ -655,8 +765,9 @@ CRON_JOBS = [
     # `max_tries` EXPLICIT, the reason `issue_one_time_charges` states below: `cron()`
     # defaults it to 1, so a sweep that gave up on its first failure would leave every
     # client's live agent unwatched with the console still green.
-    cron(
+    _cron(
         traced_job(sweep_engine_drift),
+        walk=bounded("one claimed batch of drift candidates, capped per tick"),
         minute=set(SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -682,8 +793,9 @@ CRON_JOBS = [
     # `max_tries` EXPLICIT, the reason `issue_one_time_charges` states below: `cron()`
     # defaults it to 1, so a sweep that gave up on its first failure would leave every
     # client's published knowledge unwatched with the console still green.
-    cron(
+    _cron(
         traced_job(sweep_kb_drift),
+        walk=bounded("one claimed batch of drift candidates, capped per tick"),
         minute=set(KB_SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -706,8 +818,9 @@ CRON_JOBS = [
     # `max_tries` EXPLICIT: `cron()` defaults it to 1, and the failure this job is most
     # likely to suffer is a slow vendor listing — precisely the one that must not be
     # allowed to mean "nothing to report until tomorrow".
-    cron(
+    _cron(
         traced_job(sweep_kb_orphans),
+        walk=bounded("one vendor listing against one untenanted read"),
         hour=set(ORPHAN_SWEEP_HOUR),
         minute=set(ORPHAN_SWEEP_MINUTE),
         max_tries=WORKER_MAX_TRIES,
@@ -726,8 +839,11 @@ CRON_JOBS = [
     # EXPLICIT because `cron()` defaults it to 1 and `WorkerSettings.max_tries` does not
     # reach a function registered here; the tick's own failure is a worklist read, which is
     # exactly the kind a retry fixes.
-    cron(
+    _cron(
         traced_job(write_knowledge_glosses),
+        walk=fleet_wide(
+            "one tenant_session per tenant with a gloss worklist row, plus a model call"
+        ),
         minute=set(GLOSS_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -745,8 +861,11 @@ CRON_JOBS = [
     # `minute` comes FROM the module for its neighbours' reason, and `max_tries` is
     # EXPLICIT because `cron()` defaults it to 1 — a sweep that gave up on its first
     # failure would leave every stalled upload unattended until somebody noticed.
-    cron(
+    _cron(
         traced_job(sweep_kb_uploads),
+        walk=bounded(
+            "two untenanted reads, each capped per tick, then one session per tenant named in them"
+        ),
         minute=set(KB_UPLOAD_SWEEP_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -764,8 +883,11 @@ CRON_JOBS = [
     # EXPLICIT because `cron()` defaults it to 1 and `WorkerSettings.max_tries` does not
     # reach a function registered here; the tick's own failure is a worklist read, which is
     # exactly the kind a retry fixes.
-    cron(
+    _cron(
         traced_job(embed_knowledge_chunks),
+        walk=fleet_wide(
+            "one tenant_session per tenant with unembedded chunks, plus an embedding call"
+        ),
         minute=set(EMBED_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -781,8 +903,11 @@ CRON_JOBS = [
     # other O(tenants) fan-out uses) stops being true. `max_tries` EXPLICIT because `cron()`
     # defaults it to 1 and `WorkerSettings.max_tries` does not reach a function registered
     # here; the tick's own failure is a worklist read, which is exactly the kind a retry fixes.
-    cron(
+    _cron(
         traced_job(embed_caller_chunks),
+        walk=fleet_wide(
+            "one tenant_session per tenant with unembedded caller chunks, plus an embedding call"
+        ),
         minute=set(CALLER_EMBED_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -800,8 +925,9 @@ CRON_JOBS = [
     # `max_tries` EXPLICIT, the reason its neighbours give: `cron()` defaults it to 1, and
     # a sweep that gave up on its first vendor blip would leave a compliance obligation
     # unwatched for the hour with every screen green.
-    cron(
+    _cron(
         traced_job(sweep_engine_violations),
+        walk=bounded("one vendor listing and one untenanted read"),
         minute={SWEEP_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
@@ -820,8 +946,9 @@ CRON_JOBS = [
     # 02:05 local, ahead of the 03:xx retention/sweep block so a slow sweep cannot
     # delay billing behind it. Which tenant-month a charge belongs to does not depend on
     # this hour, which is what lets it be chosen for scheduling reasons alone.
-    cron(
+    _cron(
         traced_job(issue_one_time_charges),
+        walk=bounded("one untenanted read of the unbilled queue, then one session per candidate"),
         hour={2},
         minute={5},
         max_tries=WORKER_MAX_TRIES,
@@ -836,13 +963,27 @@ CRON_JOBS = [
     # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1, and a
     # money watch that gave up on its first database blip would leave every payment
     # unwatched for the half-hour with every screen green.
-    cron(
+    _cron(
         traced_job(sweep_topup_settlement),
+        walk=fleet_wide("one tenant_session per organization, under a time budget"),
         minute=set(SETTLEMENT_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
 ]
 
+
+#: arq's template for a job that ended by RAISING, and the one exception class alerted
+#: from it. Arg 2 is `e.__class__.__name__` (`arq/worker.py:630`).
+#:
+#: NOT every exception: a job that raises anything else has its own retry ladder, its own
+#: `alert()` on the last attempt, and `job_retries_exhausted` above as the backstop —
+#: alerting here as well would page twice for every transient failure and mute the handler
+#: inside a week. `TimeoutError` is the one class no job can report for itself, because it
+#: means arq cancelled the coroutine that would have done the reporting. A job that raises
+#: `TimeoutError` from its OWN `wait_for` is caught here too; that is a terminal job
+#: failure with no owner either, so it is the right side to be wrong on.
+ARQ_JOB_FAILED_TEMPLATE = "%6.2fs ! %s failed, %s: %s"
+ARQ_TIMEOUT_EXCEPTION = "TimeoutError"
 
 #: The two ways arq itself ends a job WITHOUT the job's own code running, mapped to the
 #: alert code an operator would search for. Keyed by the LOGGING FORMAT STRING rather than
@@ -871,9 +1012,19 @@ CRON_JOBS = [
 #: `alert()` (BACKEND-PATTERNS §8). It stores nothing, reads nothing and touches neither
 #: Postgres nor Redis, which is the property that keeps it working on the night the thing
 #: it is reporting is the queue.
+#:   * `failed, TimeoutError` — the job overran `WorkerSettings.job_timeout` and
+#:     `asyncio.wait_for` cancelled it (arq 0.28.0, `arq/worker.py:598,630`, read from the
+#:     installed source). `TimeoutError` is none of `Retry`, `RetryJob` or
+#:     `CancelledError`, so `retry_jobs` does not apply and the job is FINISHED ON ITS
+#:     FIRST ATTEMPT whatever `max_tries` says — and the coroutine that would have alerted
+#:     is the one that was cancelled, so no per-job `alert()` can reach an operator
+#:     either. `apply_retention` is the worked example: registered at 03:40, killed at
+#:     03:45, its own truncation alarm sits after the sweep returns and therefore never
+#:     ran, and the tail of an ORDERED tenant list went unswept every night in silence.
 ARQ_TERMINAL_MESSAGES: dict[str, str] = {
     "job %s, function %r not found": "job_function_not_registered",
     "%6.2fs ! %s max retries %d exceeded": "job_retries_exhausted",
+    ARQ_JOB_FAILED_TEMPLATE: "job_killed_at_timeout",
 }
 
 #: How much of arq's rendered message rides the alert. Bounded because the message
@@ -881,6 +1032,16 @@ ARQ_TERMINAL_MESSAGES: dict[str, str] = {
 #: construction (`core/queue.job_id_for`), but an alert body is forwarded further than a
 #: log line is and a bound costs nothing (hard rule 6).
 _ARQ_DETAIL_CHARS = 200
+
+
+def _exception_class(record: logging.LogRecord) -> str | None:
+    """The exception class name arq interpolated, or None if this record is not shaped
+    like one. Defensive because a logging handler that raises inside arq's own exception
+    handling turns one failure into two."""
+    args = record.args
+    if isinstance(args, tuple) and len(args) >= 3:
+        return str(args[2])
+    return None
 
 
 class _ArqTerminalFailureAlerter(logging.Handler):
@@ -897,6 +1058,10 @@ class _ArqTerminalFailureAlerter(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         code = ARQ_TERMINAL_MESSAGES.get(str(record.msg))
         if code is None:
+            return
+        if code == "job_killed_at_timeout" and _exception_class(record) != ARQ_TIMEOUT_EXCEPTION:
+            # The same template carries every other unhandled exception — see
+            # `ARQ_JOB_FAILED_TEMPLATE` for why only the timeout is alerted from it.
             return
         # `alert()` never raises (its own contract), so nothing here can turn a logging
         # call inside arq's exception handling into a second failure.

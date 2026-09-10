@@ -111,6 +111,7 @@ from apps.api.retrieval.caller_erasure import (
     unreachable_generations,
 )
 from apps.workers import storage
+from apps.workers.fleet_walk import WalkBudget
 
 log = get_logger(__name__)
 
@@ -711,8 +712,38 @@ async def apply_retention(ctx: dict[str, Any]) -> str:
     the count comes back, and a non-zero count alerts.
     """
     tenants = await _due_tenants()
-    totals = await sweep_tenants(tenants)
+    # THE WALL CLOCK, and this walk is the one the instrument was MEASURED from
+    # (`fleet_walk` names `_due_tenants` in its first paragraph) and the last one to
+    # adopt it. Registered at 03:40 with `WorkerSettings.job_timeout` at 300s, the tick
+    # was killed at 03:45 by `asyncio.wait_for` — which raises `TimeoutError`, none of
+    # the three exceptions arq retries, so the job FINISHED on its first attempt whatever
+    # `max_tries` said, and the alert below never ran because it sits after the sweep
+    # returns. `_due_tenants` is `ORDER BY tenant_id`, so the unswept tail was the SAME
+    # tenants every night: their expired recordings, transcripts, leads and extractions
+    # were held past the TTL the DPA states, indefinitely, with nothing red anywhere.
+    budget = WalkBudget()
+    totals = await sweep_tenants(tenants, budget=budget)
     log.info("retention_sweep", extra={**totals, "tenants_scanned": len(tenants)})
+    unreached = totals.get("tenants_unreached", 0)
+    if unreached:
+        # ITS OWN ALARM, separate from the failure count below, because the two are
+        # different sentences to an operator: a failure is a tenant we tried and could not
+        # sweep, this is a tenant we never asked at all — so every count in this tick is a
+        # floor, and silence would read exactly like a fleet with nothing left to expire.
+        # The fix is not a bigger budget: it is that the walk now costs more than one
+        # night's window, and the sweep needs splitting across ticks or the fleet sharding.
+        alert(
+            "WORKER_TERMINAL",
+            "retention_sweep_truncated",
+            detail=(
+                f"tonight's retention sweep reached {totals.get('tenants_scanned', 0)} of "
+                f"{len(tenants)} tenant(s) inside its {int(budget.budget.total_seconds())}s "
+                f"budget; {unreached} were never swept. Because the tenant list is ordered, "
+                "the same tenants are skipped every night until this is acted on — their "
+                "expired recordings, transcripts, leads and extractions are being held past "
+                "the retention period we publish (DPDP s.8(7))."
+            ),
+        )
     failed = totals.get("tenants_failed", 0)
     if failed:
         # AFTER the sweep, not instead of it. The tick did what it could for everybody
@@ -733,9 +764,17 @@ async def apply_retention(ctx: dict[str, Any]) -> str:
     return json.dumps(totals)
 
 
-async def sweep_tenants(tenant_ids: Iterable[UUID]) -> dict[str, int]:
+async def sweep_tenants(
+    tenant_ids: Iterable[UUID], *, budget: WalkBudget | None = None
+) -> dict[str, int]:
     """One tick over an explicit tenant list. Split out from `apply_retention` so the
     resolution step and the sweeping step can be exercised — and costed — separately.
+
+    **THE WALK STOPS ITSELF** (`fleet_walk.WalkBudget`), the shape
+    `topup_settlement.scan_tenants` takes: the caller may hand in its own budget so a test
+    can pin the bound without waiting for one, and a caller that does not gets the default.
+    `tenants_unreached` is the number of tenants the budget cost us, and it is the caller's
+    to alarm on — see `apply_retention`, which is where the alarm and its wording live.
 
     **A FAILED TENANT DOES NOT FAIL THE TICK** (P6.2). This loop had no `try`, so a single
     tenant's database error — a lock timeout, a storage refusal, one malformed policy row
@@ -748,10 +787,17 @@ async def sweep_tenants(tenant_ids: Iterable[UUID]) -> dict[str, int]:
     error string can quote the row that broke it, and these rows name calls (hard rule 6).
     """
     totals = dict(_EMPTY_TOTALS)
+    walk = budget or WalkBudget()
+    # Materialised so the tick can say how many tenants it did NOT reach. An `Iterable`
+    # consumed lazily could report the ones it walked and nothing about the remainder,
+    # which is the half of the answer that matters here.
+    tenants = list(tenant_ids)
     swept = 0
     failed = 0
     scanned = 0
-    for tenant_id in tenant_ids:
+    for tenant_id in tenants:
+        if walk.spent():
+            break
         scanned += 1
         try:
             counts = await sweep_tenant(tenant_id)
@@ -766,6 +812,7 @@ async def sweep_tenants(tenant_ids: Iterable[UUID]) -> dict[str, int]:
     totals["tenants_swept"] = swept
     totals["tenants_failed"] = failed
     totals["tenants_scanned"] = scanned
+    totals["tenants_unreached"] = len(tenants) - scanned
     return totals
 
 

@@ -7,11 +7,22 @@ authoritative blueprint. Precedence: docs/ > AGENTS.md/CLAUDE.md > code comments
 ## Project
 
 Multi-tenant AI voice-agent SaaS (India, Telugu-first). Rented voice engine (Bolna —
-D-31) + BYOK models. Speech is Sarvam (Saaras STT, Bulbul v3 TTS, v2 = value tier —
-D-36, unchanged). Language is **Azure OpenAI in East US 2** — `AZURE_LOCATION`
+D-31) + BYOK models. **Speech is TWO VENDORS, and the TTS half is chosen PER AGENT
+(D-547)** — STT is Sarvam Saaras throughout, TTS is `apps/api/agents/voices.py::TtsModel`,
+which is `Literal["bulbul:v3", "sonic-3.5"]`: Sarvam Bulbul v3 or Cartesia Sonic 3.5. The
+provider IS the voice tier (`voices.voice_tier()`, plan §2.3 invariant 7) and it prices the
+minute — ₹1.08–1.62 against ₹2.06–3.09 per call-minute (TRD §10.1). ⚠ **THIS LINE READ
+"Speech is Sarvam … v2 = value tier — D-36, unchanged" AND BOTH HALVES WERE WRONG (10 Sep
+2026)**: it hid a shipped second vendor, and Bulbul **v2 is WITHDRAWN, not a value tier** —
+it prices nothing, `TTS_INR_PER_10K_CHARS` is one scalar for the Sarvam rung
+(`apps/api/billing/rates.py`), and the premium/value `Mapping[TtsTier, Decimal]` it names
+was deleted with the rung (TRD §10.1). Language is **Azure OpenAI in East US 2** —
+`AZURE_LOCATION`
 (`eastus2`), default `AZURE_OPENAI_DEFAULT_MODEL` (`gpt-4o-mini`), with `gpt-4.1-mini`
 a live config switch through `azure_openai_model`. **D-410 supersedes D-400/D-404 on the
-in-call leg and D-127 on the dashboard leg; Gemini and Vertex are out of this product.
+in-call leg and D-127 on the dashboard leg; **Vertex is OUT of this product and Gemini is
+now OFFERED on its two safe models** — this clause read "Gemini and Vertex are out of this
+product" and was contradicted three sentences later by its own paragraph.
 D-449 moved the REGION off `southindia`: the engine's
 orchestrator is US-hosted, so every turn was an ocean round trip, and Microsoft does not
 offer our default model in South India on Regional Standard. The default model and TRD §10
@@ -83,7 +94,12 @@ services), and nothing has been deployed — `infra/` is templates nobody has ap
 docker compose up -d          # pg16+pgvector, redis, minio
 uv sync --all-packages        # python deps (uv only; no pip/poetry). --all-packages is
                               # required: plain `uv sync` skips the workspace members and
-                              # `calevate_shared` then will not import (ci.yml:63).
+                              # `calevate_shared` then will not import. Every `uv sync`
+                              # in `.github/workflows/ci.yml` uses this form (`backend`
+                              # "Install dependencies", `types`, audit), and
+                              # `tests/guardrail_audit_test.py` requires it of each.
+                              # By job name, not a line: this said `ci.yml:63`, which
+                              # is a Postgres health-interval.
 uv run alembic upgrade head
 uv run python -m scripts.seed
 pnpm install && pnpm -C apps/web dev
@@ -96,7 +112,10 @@ uv run mypy apps packages     # strict. NOT `mypy .` — two conftest.py files c
                               # under module resolution and it stops before checking
                               # anything. Needs `--group errors` synced first, or
                               # sentry-sdk is missing and observability.py is checked
-                              # against Any (Makefile `types:`, ci.yml:404).
+                              # against Any (Makefile `types:`, and the comment above
+                              # the `uv sync` step of ci.yml's `types` job). By job
+                              # name, not a line: this said `ci.yml:404`, a
+                              # deploy-preflight guardrail.
 uv run pytest                 # includes RLS + engine-conformance suites
 make guardrails               # executable governance (ENGINEERING-PRACTICES §2)
 make web-check                # frontend: typecheck + lint + vitest + browser axe gate (D-53).
