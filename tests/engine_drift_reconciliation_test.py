@@ -202,11 +202,55 @@ async def _only(*refs: str) -> None:
     for exactly that meaning, and NO other query in the tree reads it — so flipping it here
     cannot perturb another suite.
     """
+    # ONLY THE TENANTS WHOSE ROWS ACTUALLY CHANGE, and the bound is why. An untenanted
+    # session reads every route and writes none since `b8e2d47f0c19`, so this is now a
+    # read followed by one session per owner — and looping over EVERY tenant with a route
+    # was measured at minutes on this shared database (2,124 tenants carry a route, 29
+    # carry a LIVE one). The rows that move are exactly: the active ones that are not
+    # mine, and mine.
     async with untenanted_session() as session:
-        await session.execute(
-            text("UPDATE engine_agent_routes SET active = (engine_agent_ref = ANY(:mine))"),
-            {"mine": list(refs)},
-        )
+        owners = [
+            row[0]
+            for row in (
+                await session.execute(
+                    text(
+                        "SELECT DISTINCT tenant_id FROM engine_agent_routes "
+                        "WHERE active AND NOT (engine_agent_ref = ANY(:mine))"
+                    ),
+                    {"mine": list(refs)},
+                )
+            ).all()
+        ]
+        mine = [
+            row[0]
+            for row in (
+                await session.execute(
+                    text(
+                        "SELECT DISTINCT tenant_id FROM engine_agent_routes "
+                        "WHERE engine_agent_ref = ANY(:mine)"
+                    ),
+                    {"mine": list(refs)},
+                )
+            ).all()
+        ]
+    for owner in owners:
+        async with tenant_session(owner) as session:
+            await session.execute(
+                text(
+                    "UPDATE engine_agent_routes SET active = false "
+                    "WHERE active AND NOT (engine_agent_ref = ANY(:mine))"
+                ),
+                {"mine": list(refs)},
+            )
+    for owner in mine:
+        async with tenant_session(owner) as session:
+            await session.execute(
+                text(
+                    "UPDATE engine_agent_routes SET active = true "
+                    "WHERE engine_agent_ref = ANY(:mine)"
+                ),
+                {"mine": list(refs)},
+            )
 
 
 async def _route(ref: str) -> tuple[str | None, datetime | None, datetime | None]:
@@ -223,6 +267,36 @@ async def _route(ref: str) -> tuple[str | None, datetime | None, datetime | None
         ).first()
     assert row is not None, "the publish did not write a routing row"
     return row[0], row[1], row[2]
+
+
+async def _tenant_of(ref: str) -> uuid.UUID:
+    """Which tenant this vendor object belongs to — read the way the sweep reads it.
+
+    The lookup is UNTENANTED and the write it feeds is not, which is the whole shape of
+    `b8e2d47f0c19`: a drift sweep starts from what the vendor lists, so its batch read is
+    cross-tenant, and the row it then stamps names its own tenant.
+    """
+    async with untenanted_session() as session:
+        return uuid.UUID(
+            str(
+                (
+                    await session.execute(
+                        text(
+                            "SELECT tenant_id FROM engine_agent_routes "
+                            "WHERE engine = 'fake' AND engine_agent_ref = :r"
+                        ),
+                        {"r": ref},
+                    )
+                ).scalar_one()
+            )
+        )
+
+
+async def _stamp(ref: str, state: str) -> None:
+    """Record a verdict against one vendor object exactly as `_check_one` does."""
+    tenant_id = await _tenant_of(ref)
+    async with tenant_session(tenant_id) as session:
+        await record_drift(session, tenant_id=tenant_id, engine="fake", ref=ref, state=state)
 
 
 # --- 1. the schema and the code agree on the vocabulary ----------------------
@@ -428,9 +502,10 @@ async def test_the_batch_is_bounded_and_ordered_by_staleness() -> None:
     refs = [(await _published_agent(engine))[2] for _ in range(3)]
     await _only(*refs)
     now = datetime.now(UTC)
-    async with untenanted_session() as session:
-        # Two checked at known instants, one never checked.
-        for ref, age_h in ((refs[0], 1), (refs[1], 9)):
+    # Two checked at known instants, one never checked. Under the tenant that owns each
+    # row (`b8e2d47f0c19`): an untenanted UPDATE here now touches nothing at all.
+    for ref, age_h in ((refs[0], 1), (refs[1], 9)):
+        async with tenant_session(await _tenant_of(ref)) as session:
             await session.execute(
                 text(
                     "UPDATE engine_agent_routes SET drift_state = 'applied', "
@@ -529,12 +604,12 @@ async def test_the_ops_summary_counts_drift_undetermined_and_unswept_separately(
 
     with _engine(good), _batch_size(2):
         await sweep_engine_drift({})  # reaches the two never-checked of good's three
-    async with untenanted_session() as session:
-        # Drive the two named objects deterministically rather than relying on which two
-        # the capped tick happened to take.
-        for ref, state in ((drifted_ref, "not_applied"), (clean_ref, "applied")):
-            await record_drift(session, engine="fake", ref=ref, state=state)
-        await record_drift(session, engine="fake", ref=unread_ref, state="unreachable")
+    # Drive the two named objects deterministically rather than relying on which two
+    # the capped tick happened to take.
+    for ref, state in ((drifted_ref, "not_applied"), (clean_ref, "applied")):
+        await _stamp(ref, state)
+    await _stamp(unread_ref, "unreachable")
+    async with tenant_session(await _tenant_of(never_ref)) as session:
         await session.execute(
             text(
                 "UPDATE engine_agent_routes SET drift_state = NULL, drift_checked_at = NULL, "
@@ -577,8 +652,7 @@ async def test_a_drift_that_persists_keeps_the_detection_time_it_was_first_given
 
     # And it CLEARS the moment the object reads back clean, so a fixed drift stops being
     # counted without anyone having to acknowledge it.
-    async with untenanted_session() as session:
-        await record_drift(session, engine="fake", ref=ref, state="applied")
+    await _stamp(ref, "applied")
     assert (await _route(ref))[2] is None
 
 
@@ -632,8 +706,11 @@ async def test_a_route_deleted_mid_sweep_records_nothing_and_is_not_counted() ->
 
     async def deleting_claim(session: Any, **kw: Any) -> Any:
         batch = await original(session, **kw)
-        # The route disappears AFTER it is claimed — the window the rowcount guards.
-        async with untenanted_session() as other:
+        # The route disappears AFTER it is claimed — the window the rowcount guards. The
+        # delete runs as the route's own tenant, which is the only session that may delete
+        # one at all since `b8e2d47f0c19`; what is being simulated is an unpublish, and an
+        # unpublish is a tenant-scoped request.
+        async with tenant_session(await _tenant_of(ref)) as other:
             await other.execute(
                 text("DELETE FROM engine_agent_routes WHERE engine_agent_ref = :r"), {"r": ref}
             )

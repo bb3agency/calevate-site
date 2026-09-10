@@ -37,7 +37,7 @@ from typing import Any
 
 import pytest
 from apps.api.core.logging import JsonFormatter
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import SAMPLE_TURNS
 from apps.workers.pipeline import ingest_engine_event, run_post_call_pipeline
@@ -181,7 +181,7 @@ async def _seed_tenant(agent_ref: str) -> uuid.UUID:
             text("UPDATE agents SET extraction_schema_id = :sid WHERE id = :aid"),
             {"sid": schema_id, "aid": agent_id},
         )
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "

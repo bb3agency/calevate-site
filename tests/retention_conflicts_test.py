@@ -43,7 +43,7 @@ from typing import Any
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.compliance.export import subject_ref
-from apps.api.db.session import get_engine, tenant_session, untenanted_session
+from apps.api.db.session import get_engine, tenant_session
 from apps.workers import retention
 from apps.workers.retention import (
     RECORDING_FLOOR_DAYS,
@@ -89,7 +89,7 @@ async def _org() -> tuple[uuid.UUID, uuid.UUID]:
     # without this reports `agreements_not_accepted` in place of the answer under test.
     await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id, agent_id = created["id"], created["agent_id"]
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

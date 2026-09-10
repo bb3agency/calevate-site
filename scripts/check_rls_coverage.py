@@ -33,6 +33,19 @@ that CLAIMS to have created a policy:
    address with a plaintext password-reset secret beside it, and the whole outbound CRM
    body (a lead's name, number and extraction), with no tenant_id, no policy and — until
    this rule — no entry in the one dict that answers "what is not tenant-isolated, and why".
+8. **the shape rules 1-3 handed a free pass to** (D-575) — an entry in
+   `RLS_EXEMPT_TENANT_COLUMNS` exempts a table from "must be policied ON tenant_id"; it
+   has never exempted it from "must not open to an UNTENANTED session". Rules 1-3 were
+   skipped wholesale for an exempt table, so `PolicyFacts.opens_when_guc_unset` — the
+   rule written for exactly this shape after the measured `kb_uploads` incident — never
+   ran on the one set of tables whose entries ARGUE for cross-tenant access.
+   `engine_agent_routes` and `engine_kb_routes` both carried `tenant_isolation` FOR ALL
+   with `USING`/`WITH CHECK` = `tenant_id = <guc> OR <guc> IS NULL`, so an untenanted
+   session could INSERT, UPDATE or DELETE a row naming ANY tenant — measured against the
+   live catalogue as `calevate_app` on 10 Sep 2026 (rowcount 1 on another tenant's row,
+   both tables, both verbs) while this gate printed OK. Migration b8e2d47f0c19 narrowed
+   both to the strict form. An exempt table is now judged on that ONE question and only
+   that one — see `_check_untenanted_write`.
 
 Run: uv run python -m scripts.check_rls_coverage   (needs migrated DB; owner URL)
 """
@@ -263,6 +276,11 @@ def fetch_state(engine: Engine) -> SchemaState:
 def _check_isolated(table: str, policies: list[PolicyFacts], failures: list[str]) -> None:
     """One tenant-scoped table: named policy present, FORCEd, and no policy that opens
     the table back up."""
+    # First, the question that is also asked of EXEMPT tables (rule 8), and asked BEFORE
+    # the early return below: a table with no `tenant_isolation` policy at all can still
+    # carry another permissive policy that opens to an untenanted session, and "it has no
+    # policy" is a different finding from "the policy it has is open".
+    _check_untenanted_write(table, policies, failures)
     isolation = [p for p in policies if p.name == POLICY_NAME]
     if not isolation:
         failures.append(f"{table}: has tenant_id but NO {POLICY_NAME} policy")
@@ -288,6 +306,49 @@ def _check_isolated(table: str, policies: list[PolicyFacts], failures: list[str]
                 f"{table}: policy {candidate.name} WITH CHECK does not read {TENANT_GUC} "
                 f"— a tenant can write rows it cannot read ({candidate.with_check})"
             )
+
+
+def _check_untenanted_write(table: str, policies: list[PolicyFacts], failures: list[str]) -> None:
+    """No policy on this table may hand an UNTENANTED session a write. (Rule 8.)
+
+    **THIS IS THE ONE QUESTION AN RLS EXEMPTION DOES NOT ANSWER, AND THE REASON IT IS ITS
+    OWN FUNCTION.** `RLS_EXEMPT_TENANT_COLUMNS` answers "why may a session scoped to
+    tenant A READ tenant B's row here" — a global hash chain, a webhook that arrives with
+    only a vendor id, an account-level vendor object with no owner field. Every entry in
+    that dict is an argument about READING. None of them is an argument for letting a
+    session with NO tenant at all INSERT, UPDATE or DELETE a row naming any tenant it
+    likes, and until D-575 nothing asked: `evaluate` skipped rules 1-3 entirely for an
+    exempt table, and `opens_when_guc_unset` — written for precisely this policy shape
+    after the measured `kb_uploads` incident — therefore never ran on the tables most
+    likely to carry it. It was carried, by both engine route tables, on every verb.
+
+    **WHY THERE IS NO WAIVER, AND WHAT ONE WOULD COST.** The obvious hatch is to let the
+    exemption's own prose say "this arm is deliberate" and match on it. That is refused:
+
+      * a waiver read out of free text is a `grep` over English, and the reason strings
+        here are 15-line arguments written for a human reviewer, not a predicate;
+      * it would have been self-defeating on the exact tables this rule exists for.
+        `engine_agent_routes`'s entry read "That arm is deliberate (the same asymmetry
+        a1c8e40f27b9 gave `dnc_list`)" about the very policy b8e2d47f0c19 then removed —
+        the sweeps it cited turned out never to have needed it. A prose-driven waiver
+        would have excused this finding on the authority of a sentence that was wrong,
+        and gone on excusing it afterwards, because nothing makes prose and catalogue
+        disagree out loud;
+      * the waiver a legitimate case needs is per-table AND per-verb ("the untenanted
+        INSERT the drift sweep does, and nothing else"), which is a shape prose cannot
+        carry reviewably and `MIN_EXEMPTION_REASON` cannot police.
+
+    So a table that genuinely needs an untenanted write arm needs a SECOND, separate,
+    machine-readable registry entry stating that and why — not a sentence inside the
+    read exemption. None exists, so nothing is waived here; adding one is a deliberate
+    change to `apps/api/db/registry.py` with its own key-set pin, exactly as
+    `RLS_EXEMPT_TENANT_COLUMNS` has.
+    """
+    for candidate in policies:
+        # Permissive policies are OR'd together: any one of them that opens is a hole,
+        # whatever the others say.
+        if not candidate.permissive:
+            continue
         # A policy that opens up when NO tenant is set is how a platform sweep reads
         # across tenants, and it is legitimate — bought with a `FOR SELECT` policy, which
         # is the shape `retention_worklist` and `dnc_list` use. On any other command it
@@ -324,8 +385,17 @@ def evaluate(
     failures: list[str] = []
 
     # 1-3. Every tenant_id table is isolated, or exempt with a reason.
+    #
+    # 8. AN EXEMPTION IS NOT A SKIP, and this loop used to make it one. Being exempt
+    #    answers "may a tenant session read across tenants here"; it does not answer
+    #    "may an UNTENANTED session write here", which is a different question with a
+    #    different victim, and `continue` conflated them for as long as both rules have
+    #    existed. The exempt table keeps its pass on the tenant_id-policy rules and is
+    #    still judged on the untenanted-write one — see `_check_untenanted_write` for
+    #    why that judgement carries no waiver.
     for table in sorted(state.tenant_column_tables):
         if table in exempt:
+            _check_untenanted_write(table, state.for_table(table), failures)
             continue
         _check_isolated(table, state.for_table(table), failures)
 

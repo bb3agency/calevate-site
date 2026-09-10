@@ -214,9 +214,28 @@ async def claim_drift_batch(
     ]
 
 
-async def record_drift(session: AsyncSession, *, engine: str, ref: str, state: str) -> bool:
+async def record_drift(
+    session: AsyncSession, *, tenant_id: UUID, engine: str, ref: str, state: str
+) -> bool:
     """Write down what the engine was observed to be holding. Returns False if the route
     vanished under us (an agent unpublished mid-sweep), which is not an error.
+
+    **RUNS ON A TENANT SESSION, AND `tenant_id` IS A PARAMETER RATHER THAN A LOOKUP
+    (migration `b8e2d47f0c19`).** This UPDATE used to run from `untenanted_session`, and
+    the only reason it worked was the `OR <guc> IS NULL` arm on `engine_agent_routes`'
+    write policy — an arm that handed EVERY untenanted writer, present and future,
+    cross-tenant INSERT/UPDATE/DELETE on the table that decides which agent an inbound
+    number reaches. The arm is gone, and nothing was lost: the sweep's cross-tenant leg is
+    `claim_drift_batch`, which is a READ and stays untenanted, and every candidate it
+    returns already carries the `tenant_id` this row names. So the caller opens
+    `tenant_session(candidate.tenant_id)` and the write is scoped to the tenant whose row
+    it is — the same re-scoping `dispatch_scan` (`a8d4f21c9b06`) does per tenant rather
+    than reaching for a privileged role.
+
+    `tenant_id` is in the WHERE clause as well as in the session, deliberately: RLS already
+    guarantees it, and a reader of this statement should not have to know that to see what
+    it can touch. Under the wrong session it is a zero-row UPDATE — the same `False` this
+    function already returns for a route that vanished — never a write to somebody else.
 
     `drift_detected_at` is the one column with a rule rather than a value, and the rule is
     what makes an age mean something: it is set on the FIRST tick that finds this object
@@ -241,12 +260,13 @@ async def record_drift(session: AsyncSession, *, engine: str, ref: str, state: s
             "UPDATE engine_agent_routes SET drift_state = :state, drift_checked_at = now(), "
             "drift_detected_at = CASE WHEN :out_of_sync THEN COALESCE(drift_detected_at, now()) "
             "ELSE NULL END, updated_at = now() "
-            "WHERE engine = :engine AND engine_agent_ref = :ref"
+            "WHERE engine = :engine AND engine_agent_ref = :ref AND tenant_id = :tenant_id"
         ),
         {
             "state": state,
             "engine": engine,
             "ref": ref,
+            "tenant_id": tenant_id,
             "out_of_sync": state in DRIFT_STATES_OUT_OF_SYNC,
         },
     )

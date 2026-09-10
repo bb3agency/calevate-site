@@ -121,7 +121,7 @@ async def _rejected_source(
 async def _publish(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> None:
     """The `engine_agent_routes` row `publish_agent` writes — the OTHER half of the
     worklist, so a tenant named by both halves can be exercised."""
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

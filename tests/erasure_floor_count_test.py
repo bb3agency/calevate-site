@@ -107,7 +107,7 @@ async def _org() -> tuple[uuid.UUID, uuid.UUID, str, str]:
     # without this reports `agreements_not_accepted` in place of the answer under test.
     await accept_agreements(uuid.UUID(str(created["id"])))
     tenant_id, agent_id, slug = created["id"], created["agent_id"], created["slug"]
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

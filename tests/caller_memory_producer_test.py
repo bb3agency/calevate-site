@@ -39,7 +39,7 @@ from apps.api.admin import service as admin_service
 from apps.api.compliance import caller_memory
 from apps.api.crm.assist import ASSIST_FEATURE_CALLER_MEMORY
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.workers import caller_memory_distil
 from apps.workers.caller_memory_distil import (
     MIN_TURNS,
@@ -85,7 +85,7 @@ async def _tenant(vertical: str = "real_estate") -> tuple[uuid.UUID, uuid.UUID]:
     # tenant with no published agent holds no calls, so it is correctly invisible. The
     # fixture publishes nothing, so the route row is written here rather than the suite
     # silently testing an empty worklist.
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "

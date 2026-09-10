@@ -113,7 +113,7 @@ async def _tenant_with_dials(dials: list[dict[str, Any]]) -> tuple[uuid.UUID, li
                     "recalled": dial.get("recalled", False),
                 },
             )
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

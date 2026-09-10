@@ -154,11 +154,55 @@ async def _only(*refs: str) -> None:
     """Put exactly these vendor objects in the sweep's platform-wide scope. The suite
     shares one database and nothing truncates between files, so `active` is the lever —
     exactly the predicate `claim_drift_batch` filters on."""
+    # ONLY THE TENANTS WHOSE ROWS ACTUALLY CHANGE, and the bound is why. An untenanted
+    # session reads every route and writes none since `b8e2d47f0c19`, so this is now a
+    # read followed by one session per owner — and looping over EVERY tenant with a route
+    # was measured at minutes on this shared database (2,124 tenants carry a route, 29
+    # carry a LIVE one). The rows that move are exactly: the active ones that are not
+    # mine, and mine.
     async with untenanted_session() as session:
-        await session.execute(
-            text("UPDATE engine_agent_routes SET active = (engine_agent_ref = ANY(:mine))"),
-            {"mine": list(refs)},
-        )
+        owners = [
+            row[0]
+            for row in (
+                await session.execute(
+                    text(
+                        "SELECT DISTINCT tenant_id FROM engine_agent_routes "
+                        "WHERE active AND NOT (engine_agent_ref = ANY(:mine))"
+                    ),
+                    {"mine": list(refs)},
+                )
+            ).all()
+        ]
+        mine = [
+            row[0]
+            for row in (
+                await session.execute(
+                    text(
+                        "SELECT DISTINCT tenant_id FROM engine_agent_routes "
+                        "WHERE engine_agent_ref = ANY(:mine)"
+                    ),
+                    {"mine": list(refs)},
+                )
+            ).all()
+        ]
+    for owner in owners:
+        async with tenant_session(owner) as session:
+            await session.execute(
+                text(
+                    "UPDATE engine_agent_routes SET active = false "
+                    "WHERE active AND NOT (engine_agent_ref = ANY(:mine))"
+                ),
+                {"mine": list(refs)},
+            )
+    for owner in mine:
+        async with tenant_session(owner) as session:
+            await session.execute(
+                text(
+                    "UPDATE engine_agent_routes SET active = true "
+                    "WHERE engine_agent_ref = ANY(:mine)"
+                ),
+                {"mine": list(refs)},
+            )
 
 
 async def _state(ref: str) -> str | None:
@@ -179,6 +223,16 @@ async def _age_verdict(ref: str, *, seconds: int) -> None:
     what the sweep wrote, which is what makes the staleness test about time and not about
     a hand-written row."""
     async with untenanted_session() as session:
+        owner = (
+            await session.execute(
+                text(
+                    "SELECT tenant_id FROM engine_agent_routes "
+                    "WHERE engine = 'fake' AND engine_agent_ref = :r"
+                ),
+                {"r": ref},
+            )
+        ).scalar_one()
+    async with tenant_session(owner) as session:
         await session.execute(
             text(
                 "UPDATE engine_agent_routes "

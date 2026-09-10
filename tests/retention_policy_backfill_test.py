@@ -38,7 +38,7 @@ from pathlib import Path
 
 from apps.api.admin import service as admin_service
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.workers import storage
 from apps.workers.retention import sweep_tenant
 from scripts.seed import DEFAULT_RETENTION_POLICIES
@@ -167,7 +167,7 @@ async def _org_with_an_expired_payload(s3: FakeS3) -> tuple[uuid.UUID, str]:
         created_by=None,
     )
     tenant_id, agent_id = created["id"], created["agent_id"]
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

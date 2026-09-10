@@ -54,7 +54,7 @@ from apps.api.campaigns.scheduling import (
 )
 from apps.api.core.errors import InvalidStatusTransitionError, ProblemError
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import ACTIVE_STATUSES, dispatch_campaign_tick
@@ -145,7 +145,7 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
             ),
             {"r": ref, "a": agent_id},
         )
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         # The routing bridge `dispatch_scan()` enumerates. Without it the tick cannot
         # see this tenant at all, scheduled campaign or not.
         await session.execute(

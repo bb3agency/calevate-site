@@ -144,7 +144,7 @@ async def test_the_nightly_sweep_reaches_a_tenant_that_only_has_memories() -> No
     no `engine_agent_routes` row, so without the worklist trigger its memories would never
     expire — a legal obligation switched off by an unrelated fact about their onboarding."""
     tenant_id, user_id = await _tenant_with_user()
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text("DELETE FROM engine_agent_routes WHERE tenant_id = :tid"), {"tid": tenant_id}
         )

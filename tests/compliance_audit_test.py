@@ -39,7 +39,7 @@ from apps.api.campaigns import service as campaigns
 from apps.api.compliance.service import add_to_dnc, check_dispatch
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from apps.workers import campaign_dispatch
 from apps.workers.campaign_dispatch import dispatch_campaign_tick
@@ -121,7 +121,7 @@ async def _tenant(*, direction: str = "outbound") -> tuple[uuid.UUID, uuid.UUID]
     # cannot produce — and the dispatcher now resolves its tenant worklist from this
     # table rather than walking every organization, so a fixture that skips it is
     # simply invisible to the tick.
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

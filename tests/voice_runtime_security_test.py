@@ -156,7 +156,7 @@ async def _seed_route(engine_agent_ref: str) -> uuid.UUID:
             ),
             {"id": agent_id, "tid": tenant_id, "ref": engine_agent_ref},
         )
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

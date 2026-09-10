@@ -331,27 +331,34 @@ async def _population() -> AsyncIterator[Population]:
                         routes.append({"ref": ref, "tid": tenant_id, "aid": agent_id})
             (dispatchable if publish else idle).append(tenant_id)
 
-        # `engine_agent_routes` is the global bridge (no RLS, by design — see
-        # `_tenants_with_work`), so the whole published set lands in one executemany.
-        async with untenanted_session() as session:
-            await session.execute(
-                text(
-                    "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
-                    "agent_id, active, created_at, updated_at) VALUES ('fake', :ref, :tid, "
-                    ":aid, true, now(), now())"
-                ),
-                routes,
-            )
+        # `engine_agent_routes` READS globally (the bridge — see `_tenants_with_work`) and
+        # WRITES only under the tenant its row names, since `b8e2d47f0c19`. So the
+        # executemany is per tenant rather than one for the whole population: every route
+        # in this fixture belongs to exactly one of them, and the batches stay batches.
+        by_tenant: dict[Any, list[dict[str, Any]]] = {}
+        for route in routes:
+            by_tenant.setdefault(route["tid"], []).append(route)
+        for owner, owned in by_tenant.items():
+            async with tenant_session(owner) as session:
+                await session.execute(
+                    text(
+                        "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
+                        "agent_id, active, created_at, updated_at) VALUES ('fake', :ref, :tid, "
+                        ":aid, true, now(), now())"
+                    ),
+                    owned,
+                )
         yield Population(dispatchable, idle)
     finally:
         # FK order — routes are unreferenced, then the agent, then the organization every
         # other row points at. No swallowing: a population this test cannot remove is the
         # very defect this file is about, so it fails loudly rather than leaking rows.
-        async with untenanted_session() as session:
-            await session.execute(
-                text("DELETE FROM engine_agent_routes WHERE engine_agent_ref LIKE :p"),
-                {"p": f"{tag}-%"},
-            )
+        for owner in dispatchable + idle:
+            async with tenant_session(owner) as session:
+                await session.execute(
+                    text("DELETE FROM engine_agent_routes WHERE engine_agent_ref LIKE :p"),
+                    {"p": f"{tag}-%"},
+                )
         published = set(dispatchable)
         for tenant_id in dispatchable + idle:
             async with tenant_session(tenant_id) as session:
@@ -419,7 +426,7 @@ async def _tenant(*, published: bool = True) -> tuple[uuid.UUID, uuid.UUID]:
             ),
             {"r": ref, "a": agent_id},
         )
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "
@@ -662,7 +669,7 @@ async def test_a_tenant_with_two_published_agents_is_scanned_once(
             ),
             {"id": second_agent, "tid": tenant_id, "ref": second_ref},
         )
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

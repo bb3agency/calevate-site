@@ -346,26 +346,40 @@ async def _sweep() -> str:
     listing_attributes_by_agent = any(observation.attached for observation in observations)
 
     verdicts: dict[str, int] = {}
-    async with untenanted_session() as session:
-        for observation in observations:
-            state = classify_kb_drift(
-                attached=observation.attached,
-                recorded=observation.recorded,
-                listing_attributes_by_agent=listing_attributes_by_agent,
-            )
+    # ONE TENANT SESSION PER OBSERVATION, where this was one untenanted session for the
+    # whole loop (migration `b8e2d47f0c19`). `engine_agent_routes` no longer lets an
+    # untenanted session write at all, and the candidate has named its tenant since the
+    # batch read, so nothing here needs to ask. The batch read itself is unchanged and
+    # still untenanted: the cross-tenant leg of a drift sweep is the READ.
+    #
+    # THE COST IS A SESSION SETUP PER ROW AND IT WAS WEIGHED, not waved through: at most
+    # KB_SWEEP_BATCH_SIZE (15) of them, against a tick that has already spent up to
+    # KB_SWEEP_BUDGET_S (180s) on vendor round trips — D-57 measured session setup at
+    # ~0.9ms (11.02s over 12,070), so this is under 15ms on a 180-second tick. Grouping
+    # the observations by tenant would shave a fraction of that and would put a second
+    # shape of this loop next to `engine_reconciliation`'s per-candidate one, which is the
+    # kind of divergence these two deliberately parallel modules exist without.
+    for observation in observations:
+        state = classify_kb_drift(
+            attached=observation.attached,
+            recorded=observation.recorded,
+            listing_attributes_by_agent=listing_attributes_by_agent,
+        )
+        async with tenant_session(observation.candidate.tenant_id) as session:
             recorded = await record_kb_drift(
                 session,
+                tenant_id=observation.candidate.tenant_id,
                 engine=engine.name,
                 ref=observation.candidate.engine_agent_ref,
                 state=state,
             )
-            if not recorded:
-                # The route was deleted between the batch read and now — the agent was
-                # unpublished mid-sweep. Nothing to record and nothing wrong; it must not
-                # count as coverage either.
-                skipped += 1
-                continue
-            verdicts[state] = verdicts.get(state, 0) + 1
+        if not recorded:
+            # The route was deleted between the batch read and now — the agent was
+            # unpublished mid-sweep. Nothing to record and nothing wrong; it must not
+            # count as coverage either.
+            skipped += 1
+            continue
+        verdicts[state] = verdicts.get(state, 0) + 1
 
     drifted = sum(
         count for state, count in verdicts.items() if state in KB_DRIFT_STATES_OUT_OF_SYNC

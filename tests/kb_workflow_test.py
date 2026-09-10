@@ -85,7 +85,10 @@ async def _tenant_with_published_agent() -> tuple[uuid.UUID, uuid.UUID]:
             {"r": ref, "a": agent_id},
         )
     await give_agent_a_script(tenant_id, agent_id)
-    async with untenanted_session() as session:
+    # UNDER THE TENANT, because that is the only session that may write a route since
+    # migration `b8e2d47f0c19`: `engine_agent_routes` reads globally and writes only under
+    # the tenant its row names, so an untenanted INSERT here is refused outright.
+    async with tenant_session(uuid.UUID(str(tenant_id))) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

@@ -94,7 +94,7 @@ async def _seed_tenant(engine_agent_ref: str) -> tuple[uuid.UUID, uuid.UUID]:
 
     # The publish path writes the inbound routing row in the same breath as
     # engine_agent_ref; without it an engine webhook has no way back to this tenant.
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "

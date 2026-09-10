@@ -40,7 +40,7 @@ from apps.api.callbacks import service as callbacks
 from apps.api.core.errors import ProblemError
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.engine.fake import FakeEngine
 from apps.api.engine.vendor_http import EngineRejectedError
 from apps.workers import callbacks as worker
@@ -82,7 +82,7 @@ async def _routed_tenant() -> tuple[uuid.UUID, uuid.UUID, str]:
             text("UPDATE agents SET engine_agent_ref = :r WHERE id = :a"),
             {"r": ref, "a": agent_id},
         )
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

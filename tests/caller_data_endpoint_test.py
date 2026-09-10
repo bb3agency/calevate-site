@@ -27,7 +27,7 @@ from datetime import UTC, datetime
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.compliance import caller_data_routes, caller_memory
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.main import app as api_app
 from calevate_shared.engine import CALLER_MEMORY_VARIABLE
 from httpx import ASGITransport, AsyncClient
@@ -69,7 +69,7 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID, str]:
     )
     tenant_id, agent_id = created["id"], created["agent_id"]
     ref = f"agent_{uuid.uuid4().hex[:10]}"
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "

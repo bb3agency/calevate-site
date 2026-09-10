@@ -72,7 +72,7 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
     tenant_id, agent_id = created["id"], created["agent_id"]
     # The sweep resolves its tenants from `engine_agent_routes` — a call only ever exists
     # for a published agent, and `publish_agent` writes this row in the same transaction.
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

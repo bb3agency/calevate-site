@@ -237,7 +237,10 @@ async def _agent_with_knowledge(
     # agent write on a control-plane engine (D-488), and an agent with no script is not
     # publishable. See `give_agent_a_script` for why the fixture is what was wrong.
     await give_agent_a_script(uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id)))
-    async with untenanted_session() as session:
+    # UNDER THE TENANT THAT OWNS IT. `b8e2d47f0c19` took the untenanted write arm off
+    # `engine_agent_routes`, so this INSERT is refused outright from a session with no
+    # `app.tenant_id` — as any INSERT naming an arbitrary tenant should be.
+    async with tenant_session(uuid.UUID(str(tenant_id))) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
@@ -250,6 +253,34 @@ async def _agent_with_knowledge(
         for name, body in sources:
             await _publish(tenant_id, agent_id, name, body)
     return tenant_id, agent_id, ref
+
+
+async def _tenant_of(engine: FakeEngine, ref: str) -> uuid.UUID:
+    """Which tenant this vendor object belongs to — the untenanted read the sweep does
+    before it re-scopes to that tenant to write (migration `b8e2d47f0c19`)."""
+    async with untenanted_session() as session:
+        return uuid.UUID(
+            str(
+                (
+                    await session.execute(
+                        text(
+                            "SELECT tenant_id FROM engine_agent_routes "
+                            "WHERE engine = :e AND engine_agent_ref = :r"
+                        ),
+                        {"e": engine.name, "r": ref},
+                    )
+                ).scalar_one()
+            )
+        )
+
+
+async def _stamp(engine: FakeEngine, ref: str, state: str) -> None:
+    """Record a knowledge verdict against one vendor object exactly as the sweep does."""
+    tenant_id = await _tenant_of(engine, ref)
+    async with tenant_session(tenant_id) as session:
+        await record_kb_drift(
+            session, tenant_id=tenant_id, engine=engine.name, ref=ref, state=state
+        )
 
 
 async def _route(
@@ -649,8 +680,9 @@ async def test_the_batch_is_bounded_and_ordered_by_staleness() -> None:
     engine = _scoped()
     refs = [(await _agent_with_knowledge(engine, ("Fees", FEES)))[2] for _ in range(3)]
     now = datetime.now(UTC)
-    async with untenanted_session() as session:
-        for ref, age_h in ((refs[0], 1), (refs[1], 9)):
+    # Under each row's own tenant: an untenanted UPDATE here now touches nothing.
+    for ref, age_h in ((refs[0], 1), (refs[1], 9)):
+        async with tenant_session(await _tenant_of(engine, ref)) as session:
             await session.execute(
                 text(
                     "UPDATE engine_agent_routes SET kb_drift_state = 'in_sync', "
@@ -871,7 +903,9 @@ async def test_a_route_deleted_mid_sweep_records_nothing_and_is_not_counted() ->
 
     async def deleting_claim(session: Any, **kw: Any) -> Any:
         batch = await original(session, **kw)
-        async with untenanted_session() as other:
+        # As the route's own tenant — an unpublish is a tenant-scoped request, and since
+        # `b8e2d47f0c19` no other session may delete a route at all.
+        async with tenant_session(await _tenant_of(engine, ref)) as other:
             await other.execute(
                 text("DELETE FROM engine_agent_routes WHERE engine_agent_ref = :r"), {"r": ref}
             )
@@ -910,8 +944,7 @@ async def test_a_drift_that_persists_keeps_the_detection_time_it_was_first_given
 
     # And it CLEARS the moment the agent reads back in sync, so a drift somebody fixed
     # stops being counted without anyone having to acknowledge it.
-    async with untenanted_session() as session:
-        await record_kb_drift(session, engine=engine.name, ref=ref, state="in_sync")
+    await _stamp(engine, ref, "in_sync")
     assert (await _route(engine, ref))[2] is None
 
 
@@ -932,13 +965,12 @@ async def test_the_ops_summary_counts_drift_undetermined_and_unswept_separately(
     unread_ref = (await _agent_with_knowledge(engine, ("Fees", FEES)))[2]
     never_ref = (await _agent_with_knowledge(engine, ("Fees", FEES)))[2]
 
-    async with untenanted_session() as session:
-        for ref, state in (
-            (drifted_ref, "unaccounted"),
-            (clean_ref, "in_sync"),
-            (unread_ref, "unreadable"),
-        ):
-            await record_kb_drift(session, engine=engine.name, ref=ref, state=state)
+    for ref, state in (
+        (drifted_ref, "unaccounted"),
+        (clean_ref, "in_sync"),
+        (unread_ref, "unreadable"),
+    ):
+        await _stamp(engine, ref, state)
 
     assert (await _route(engine, never_ref))[0] is None, "premise: one agent was never swept"
 

@@ -717,7 +717,7 @@ async def test_an_erased_tenant_records_no_further_inbound_call() -> None:
     """
     tenant_id, agent_id, _ = await _tenant()
     ref = f"withdrawn_{uuid.uuid4().hex[:10]}"
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "

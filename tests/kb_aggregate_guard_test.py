@@ -31,7 +31,7 @@ from typing import Any
 
 import pytest
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.kb import insights as insights_module
 from apps.api.kb.patterns import (
     MIN_CALLS_PER_PATTERN,
@@ -1166,7 +1166,7 @@ async def test_the_sweep_mails_one_digest_per_agent_and_it_carries_no_call_conte
         for _ in range(MIN_CALLS_PER_PATTERN + 1)
     ]
     tenant_id, agent_id = await _agent_with_calls(outcomes=calls)
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
@@ -1210,7 +1210,7 @@ async def _live_agent_addressed(address: str) -> uuid.UUID:
             text("UPDATE organizations SET billing_email = :email WHERE id = :id"),
             {"email": address, "id": tenant_id},
         )
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
@@ -1372,7 +1372,7 @@ async def test_a_route_row_pointing_at_the_wrong_tenant_mails_nobody(
             text("UPDATE organizations SET billing_email = :email WHERE id = :id"),
             {"email": stranger_address, "id": stranger_tenant},
         )
-    async with untenanted_session() as session:
+    async with tenant_session(stranger_tenant) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "

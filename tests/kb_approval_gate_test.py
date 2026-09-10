@@ -25,7 +25,7 @@ import uuid
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.core.errors import ProblemError
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.kb import service
 from sqlalchemy import text
@@ -50,7 +50,7 @@ async def _second_published_agent(tenant_id: uuid.UUID) -> uuid.UUID:
             ),
             {"id": agent_id, "t": tenant_id, "r": ref},
         )
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "

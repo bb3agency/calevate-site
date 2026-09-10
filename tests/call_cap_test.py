@@ -45,7 +45,7 @@ from apps.api.agents.models import CALL_CAP_DEFAULT_S, CALL_CAP_MAX_S, CALL_CAP_
 from apps.api.agents.service import effective_call_cap, publish_agent
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.engine.fake import FakeEngine
 from sqlalchemy import text
@@ -103,7 +103,7 @@ async def _live(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> tuple[str, FakeEng
             text("UPDATE agents SET engine_agent_ref = :r, status = 'live' WHERE id = :a"),
             {"r": ref, "a": agent_id},
         )
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

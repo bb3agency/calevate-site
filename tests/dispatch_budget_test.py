@@ -41,7 +41,7 @@ from apps.api.agents.service import UNCONFIRMED_ENGINE_CALL_PREFIX
 from apps.api.campaigns import service as campaigns
 from apps.api.core.errors import ProblemError
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.engine import reset_engine_cache
 from apps.api.engine.fake import FakeEngine
 from apps.api.engine.vendor_http import EngineRejectedError
@@ -128,7 +128,7 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
             tm_link_status="active",
             registered_at=datetime.now(UTC) - timedelta(days=30),
         )
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

@@ -41,7 +41,7 @@ from apps.api.core.observability import (
     tracing_enabled,
 )
 from apps.api.core.settings import get_settings
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.workers.pipeline import ingest_engine_event, run_post_call_pipeline
 from fastapi import Response
@@ -197,7 +197,7 @@ async def _seed_tenant(engine_agent_ref: str) -> tuple[uuid.UUID, uuid.UUID]:
             {"sid": schema_id, "aid": agent_id},
         )
 
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "

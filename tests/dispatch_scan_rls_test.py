@@ -128,7 +128,7 @@ async def _published_tenant(*, live_calls: int = 0, running_campaign: bool = Fal
                 ),
                 {"id": uuid7(), "tid": tenant_id, "aid": agent_id},
             )
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

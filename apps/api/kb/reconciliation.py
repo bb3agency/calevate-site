@@ -315,9 +315,20 @@ async def claim_kb_drift_batch(
     ]
 
 
-async def record_kb_drift(session: AsyncSession, *, engine: str, ref: str, state: str) -> bool:
+async def record_kb_drift(
+    session: AsyncSession, *, tenant_id: UUID, engine: str, ref: str, state: str
+) -> bool:
     """Write down what the engine was observed to be holding. Returns False if the route
     vanished under us (an agent unpublished mid-sweep), which is not an error.
+
+    **RUNS ON A TENANT SESSION, for `agents/reconciliation.record_drift`'s reason and by
+    the same migration (`b8e2d47f0c19`).** The untenanted write arm on
+    `engine_agent_routes` is gone, and with it the standing grant that let any untenanted
+    session re-tenant, deactivate or delete a client's inbound route. Nothing is lost:
+    `claim_kb_drift_batch` is a READ and stays untenanted, and every candidate it returns
+    carries the `tenant_id` of the row this statement stamps. `tenant_id` is in the WHERE
+    clause as well as in the session so the statement's reach is legible without knowing
+    the policy; under the wrong session it is a zero-row UPDATE, never somebody else's row.
 
     `kb_drift_detected_at` carries `record_drift`'s rule, and the rule is what makes an age
     mean something: set on the FIRST tick that finds this agent out of sync, left alone by
@@ -336,12 +347,13 @@ async def record_kb_drift(session: AsyncSession, *, engine: str, ref: str, state
             "UPDATE engine_agent_routes SET kb_drift_state = :state, "
             "kb_drift_checked_at = now(), kb_drift_detected_at = CASE WHEN :out_of_sync "
             "THEN COALESCE(kb_drift_detected_at, now()) ELSE NULL END, updated_at = now() "
-            "WHERE engine = :engine AND engine_agent_ref = :ref"
+            "WHERE engine = :engine AND engine_agent_ref = :ref AND tenant_id = :tenant_id"
         ),
         {
             "state": state,
             "engine": engine,
             "ref": ref,
+            "tenant_id": tenant_id,
             "out_of_sync": state in KB_DRIFT_STATES_OUT_OF_SYNC,
         },
     )

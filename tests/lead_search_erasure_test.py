@@ -43,7 +43,7 @@ from apps.api.crm.lead_chunks import discover_lead_chunks
 from apps.api.crm.lead_projection import LEAD_SUBJECT_KIND
 from apps.api.crm.lead_search import search_leads
 from apps.api.crm.schemas import LeadLensIn, LeadSearchIn
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.retrieval.caller_projections import registered_projections, store_chunks
 from apps.workers.retention import (
     apply_retention,
@@ -129,7 +129,7 @@ async def _tenant_with_projected_lead(
     # `apply_retention` resolves its tenants from `engine_agent_routes` — the same global
     # bridge the poller uses, with no RLS exemption — so an account with rows and no
     # published agent is a shape production cannot produce and the sweep would skip.
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

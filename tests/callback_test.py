@@ -19,7 +19,7 @@ from apps.api.admin import service as admin_service
 from apps.api.core.errors import ProblemError
 from apps.api.crm import service
 from apps.api.db.base import uuid7
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from sqlalchemy import text
 from tests.conftest import accept_agreements
@@ -58,7 +58,7 @@ async def _tenant() -> tuple[uuid.UUID, uuid.UUID]:
             ),
             {"r": ref, "a": agent_id},
         )
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

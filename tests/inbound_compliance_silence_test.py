@@ -588,10 +588,12 @@ async def _destroy_agent(tenant_id: UUID, agent_id: UUID, ref: str) -> None:
     """
     async with untenanted_session() as session:
         children = (await session.execute(text(_AGENT_CHILDREN_SQL))).all()
+    async with tenant_session(tenant_id) as session:
+        # The route goes with the agent and under the same tenant: since `b8e2d47f0c19`
+        # only the tenant that owns a route may delete it, which is what an unpublish is.
         await session.execute(
             text("DELETE FROM engine_agent_routes WHERE engine_agent_ref = :r"), {"r": ref}
         )
-    async with tenant_session(tenant_id) as session:
         for table, column in children:
             await session.execute(
                 text(f"DELETE FROM {table} WHERE {column} = :a"),

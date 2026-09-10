@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.compliance.service import add_to_dnc
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from apps.api.ingest.routes import SECRET_HEADER
 from apps.api.ingest.service import normalize_phone
@@ -92,7 +92,7 @@ async def _tenant_with_ingest(
                 ),
             },
         )
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

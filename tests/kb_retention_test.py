@@ -51,7 +51,7 @@ from apps.api.compliance.deletion_proof import certificate
 from apps.api.compliance.deletion_routes import ErasureProofOut
 from apps.api.compliance.export import subject_ref
 from apps.api.compliance.models import DATA_CATEGORIES
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.workers import retention
 from apps.workers.retention import apply_retention, execute_deletion_request, sweep_tenant
@@ -92,7 +92,7 @@ async def _org() -> tuple[uuid.UUID, uuid.UUID]:
         created_by=None,
     )
     tenant_id, agent_id = created["id"], created["agent_id"]
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

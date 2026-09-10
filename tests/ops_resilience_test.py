@@ -37,7 +37,7 @@ from apps.api.core import loadshed
 from apps.api.core.loadshed import PlatformStatus, get_platform_status
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.core.redis import get_redis
-from apps.api.db.session import tenant_session, untenanted_session
+from apps.api.db.session import tenant_session
 from apps.workers import dispatcher, notifications
 from arq import Retry
 from sqlalchemy import text
@@ -69,7 +69,7 @@ async def _publish_route(tenant_id: UUID, agent_id: UUID) -> str:
     """What the agent publish path writes: the global bridge from the engine's id space
     to ours. A tenant only ever has calls once this row exists."""
     ref = f"eng_{uuid.uuid4().hex[:12]}"
-    async with untenanted_session() as session:
+    async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
                 "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, agent_id, "

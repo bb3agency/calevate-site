@@ -36,6 +36,17 @@ Honesty about what each layer proves, and the exact count each one reaches:
    its tenant-carrying entries are asserted to refuse cross-tenant UPDATE and DELETE
    anyway (`audit_log` by the hard-rule-4 trigger, `engine_agent_routes` by the write
    policy migration c4b70e928a1f added after this test found it could not).
+7. The UNTENANTED direction on those same exempt tables (D-575). Layer 6 probes from
+   TENANT A's seat; layer 4's untenanted INSERT probe runs only over `sweep.tables`,
+   which excludes the exemptions by construction (see the fixture). So the seat with NO
+   `app.tenant_id` at all — the one the drift sweeps and every ARQ worker actually use —
+   had never been pointed at an exempt table, and it is the seat their policies were
+   widest to: until migration b8e2d47f0c19, `tenant_isolation` on both engine route
+   tables was FOR ALL with `USING`/`WITH CHECK` = `tenant_id = <guc> OR <guc> IS NULL`,
+   satisfied by EVERY row when the GUC is unset — measured 10 Sep 2026, untenanted
+   UPDATE and DELETE each reaching another tenant's row and an untenanted INSERT getting
+   past RLS to be stopped only by a NOT NULL. `scripts/check_rls_coverage` was blind to
+   the same shape for the same reason and is fixed in the same change (D-575).
 
 Run: uv run pytest tests/rls_sweep_test.py -q
 Requires the local Postgres (docker compose up -d) with migrations applied, plus
@@ -229,6 +240,52 @@ async def sweep() -> AsyncIterator[Sweep]:
         )
     finally:
         await owner.dispose()
+
+
+async def _victim_tenants(tables: list[str], *, attacker: uuid.UUID | None) -> dict[str, uuid.UUID]:
+    """One real victim tenant per table, read WITHOUT RLS, asserting there is one.
+
+    THE VICTIM MUST BE A TENANT THAT REALLY HAS ROWS. `create_organization` writes
+    nothing to the exempt tables, so aiming at `sweep.org_b` made every UPDATE match zero
+    rows and the whole cross-tenant test passed on an empty set — which is how the leak
+    that test exists for survived being written. The victim is therefore read from the
+    OWNER connection (RLS-bypassing ground truth): any tenant on that table other than
+    the attacker, or any tenant at all when the attacker holds no tenant (the untenanted
+    probe, whose seat belongs to no tenant by definition).
+    """
+    owner_url = Settings().alembic_database_url
+    assert owner_url, "ALEMBIC_DATABASE_URL required: the victim row is found without RLS"
+    owner = create_async_engine(owner_url)
+    try:
+        async with owner.connect() as conn:
+            found = {
+                table: (
+                    await conn.execute(
+                        text(
+                            f"SELECT tenant_id FROM {_ident(table)} "
+                            # IS DISTINCT FROM, not `<>`: with a NULL attacker (the
+                            # untenanted probe, which is nobody) `<>` is NULL for every
+                            # row and the query returns none, silently making the test
+                            # pass on empty — the exact failure the assertion below
+                            # exists to prevent.
+                            "WHERE tenant_id IS NOT NULL "
+                            "AND tenant_id IS DISTINCT FROM CAST(:attacker AS uuid) LIMIT 1"
+                        ),
+                        {"attacker": attacker},
+                    )
+                ).scalar()
+                for table in tables
+            }
+    finally:
+        await owner.dispose()
+
+    unattackable = sorted(t for t, v in found.items() if v is None)
+    assert not unattackable, (
+        f"{unattackable} hold no row belonging to any tenant other than the attacker, so "
+        "the probe would match nothing and report a refusal that never happened. "
+        "Seed the table or narrow this test deliberately — do not let it pass on empty."
+    )
+    return {t: v for t, v in found.items() if v is not None}
 
 
 async def test_every_tenant_table_yields_zero_rows_cross_tenant(sweep: Sweep) -> None:
@@ -618,37 +675,7 @@ async def test_an_rls_exempt_table_still_refuses_a_cross_tenant_mutation(
         "discovery broke; this test must not pass on an empty set"
     )
 
-    # THE VICTIM MUST BE A TENANT THAT REALLY HAS ROWS. `create_organization` writes
-    # nothing to either exempt table, so aiming at `sweep.org_b` made every UPDATE match
-    # zero rows and the whole test passed on an empty set — which is how the leak this
-    # test exists for survived being written. The victim is therefore read from the
-    # OWNER connection (RLS-bypassing ground truth): any tenant on that table other than
-    # the attacker.
-    owner_url = Settings().alembic_database_url
-    assert owner_url, "ALEMBIC_DATABASE_URL required: the victim row is found without RLS"
-    owner = create_async_engine(owner_url)
-    try:
-        async with owner.connect() as conn:
-            victims = {}
-            for table in exempt_with_tenant:
-                victims[table] = (
-                    await conn.execute(
-                        text(
-                            f"SELECT tenant_id FROM {_ident(table)} "
-                            "WHERE tenant_id IS NOT NULL AND tenant_id <> :attacker LIMIT 1"
-                        ),
-                        {"attacker": sweep.org_a},
-                    )
-                ).scalar()
-    finally:
-        await owner.dispose()
-
-    unattackable = sorted(t for t, v in victims.items() if v is None)
-    assert not unattackable, (
-        f"{unattackable} hold no row belonging to any tenant other than the attacker, so "
-        "the probe below would match nothing and report a refusal that never happened. "
-        "Seed the table or narrow this test deliberately — do not let it pass on empty."
-    )
+    victims = await _victim_tenants(exempt_with_tenant, attacker=sweep.org_a)
 
     escaped = []
     for table, victim in victims.items():
@@ -670,4 +697,115 @@ async def test_an_rls_exempt_table_still_refuses_a_cross_tenant_mutation(
         f"{escaped}: an RLS-exempt table let tenant A rewrite or delete another tenant's "
         "rows. The exemption is an argument about READING cross-tenant; it has never "
         "been an argument for letting one client mutate another's."
+    )
+
+
+async def test_an_rls_exempt_table_refuses_an_untenanted_write(sweep: Sweep) -> None:
+    """The seat layer 6 never sat in: no `app.tenant_id` at all. (D-575.)
+
+    Layer 6 above proves that TENANT A cannot rewrite tenant B's row on an exempt table.
+    That is the direction a client request can take, and it was not the direction these
+    tables were widest in. Until migration b8e2d47f0c19, `tenant_isolation` on both
+    engine route tables was FOR ALL with `USING`/`WITH CHECK` = `tenant_id = <guc> OR
+    <guc> IS NULL` (read off `pg_policy`, 10 Sep 2026), and with the GUC unset that
+    predicate is TRUE for every row on the table: measured the same day, an untenanted
+    session re-tenanted and deleted another tenant's row at rowcount 1 on both tables,
+    and its INSERT got past RLS to be stopped only by a NOT NULL. Nothing asked — layer
+    4's untenanted INSERT probe runs over `sweep.tables`, which the fixture builds by
+    SUBTRACTING the exemptions.
+
+    The untenanted seat is not hypothetical here: it is the one the drift sweeps
+    (`workers/engine_reconciliation`, `workers/kb_reconciliation`) and every other
+    tenant-less worker open, and the open arm was written down as deliberate BECAUSE
+    those sweeps used it. They did not need it — b8e2d47f0c19 re-scoped the stamping to
+    `tenant_session(candidate.tenant_id)` and kept only the batch READ untenanted — which
+    is why this test asserts the property rather than exempting the table from it. An
+    argument for a worker's convenience was never an argument for "any row, any tenant,
+    any verb", which is what the policy actually granted.
+
+    WHAT IS ASSERTED OF WHICH TABLE IS DERIVED FROM THE CATALOGUE, never a list here —
+    `_ops_readable_tables`'s reasoning, for its reason. An exempt table that carries a
+    `tenant_isolation` policy has CLAIMED to constrain writes, so it must refuse an
+    untenanted INSERT with 42501. `audit_log` claims no such thing: its exemption is that
+    the hash chain is global and unpoliced, every writer goes through
+    `compliance/audit.py`, and an untenanted INSERT there is the platform writing from
+    its own seat — so the INSERT probe would be asserting the opposite of that entry.
+    Its rows are still protected against being CHANGED or DESTROYED, and by a mechanism
+    that is asserted rather than assumed: the hard-rule-4 immutability trigger (P0001).
+    """
+    exempt_with_tenant = sorted(set(RLS_EXEMPT_TENANT_COLUMNS) & set(sweep.all_tenant_tables))
+    assert exempt_with_tenant, (
+        "no exempt table carries a tenant_id — either the list changed shape or "
+        "discovery broke; this test must not pass on an empty set"
+    )
+    victims = await _victim_tenants(exempt_with_tenant, attacker=None)
+
+    # (1) INSERT: a row addressed to a tenant, written by a session that is no tenant.
+    #     Minimal and invalid on purpose — RLS's insert check runs ahead of NOT NULL and
+    #     CHECK (PostgreSQL 16 `ExecInsert`), so 42501 is the policy speaking and 23502
+    #     is the policy having LET THE ROW THROUGH and a column happening to catch it.
+    wrong_error, allowed = [], []
+    for table in (t for t in exempt_with_tenant if t in sweep.policies):
+        columns = (
+            "(id, tenant_id) VALUES (:rid, :tid)"
+            if table in sweep.has_id
+            else "(tenant_id) VALUES (:tid)"
+        )
+        async with untenanted_session() as s:
+            savepoint = await s.begin_nested()
+            try:
+                await s.execute(
+                    text(f"INSERT INTO {_ident(table)} {columns}"),
+                    {"rid": uuid.uuid4(), "tid": victims[table]},
+                )
+            except DBAPIError as exc:
+                state = str(getattr(exc.orig, "sqlstate", "") or "")
+                if state != _RLS_VIOLATION:
+                    wrong_error.append(f"{table}({state})")
+            else:
+                allowed.append(table)
+            await savepoint.rollback()
+
+    assert not allowed, (
+        f"{allowed}: an UNTENANTED session INSERTed a row naming a real tenant into an "
+        "RLS-exempt table. The exemption is an argument about READING; a session that is "
+        "no tenant has no tenant's rows to write."
+    )
+    assert not wrong_error, (
+        f"{wrong_error}: the untenanted INSERT was stopped by something OTHER than RLS "
+        f"(expected sqlstate {_RLS_VIOLATION}). A not-null refusal means the policy "
+        "admitted the row and the schema caught it — which stops being true the day a "
+        "column becomes nullable."
+    )
+
+    # (2) and (3) RE-TENANT and DELETE, on every exempt tenant-carrying table. Two
+    #     shapes of refusal are accepted, exactly as in the tenant-seat twin above: 42501
+    #     from the policy, P0001 from the append-only trigger. Reaching zero rows is the
+    #     third acceptable outcome — FORCEd RLS filters a row out of an UPDATE rather
+    #     than raising, so rowcount 0 IS the refusal on an ordinary table.
+    escaped = []
+    for table, victim in victims.items():
+        for verb, statement in (
+            ("UPDATE", f"UPDATE {_ident(table)} SET tenant_id = :other WHERE tenant_id = :tid"),
+            ("DELETE", f"DELETE FROM {_ident(table)} WHERE tenant_id = :tid"),
+        ):
+            async with untenanted_session() as s:
+                savepoint = await s.begin_nested()
+                try:
+                    result = await s.execute(text(statement), {"tid": victim, "other": sweep.org_a})
+                except DBAPIError as exc:
+                    state = str(getattr(exc.orig, "sqlstate", "") or "")
+                    if state not in (_RLS_VIOLATION, _APPEND_ONLY_VIOLATION):
+                        escaped.append(f"{table}.{verb}(unexpected sqlstate {state})")
+                    await savepoint.rollback()
+                    continue
+                if result.rowcount:
+                    escaped.append(f"{table}.{verb} reached {result.rowcount} row(s)")
+                await savepoint.rollback()
+    assert not escaped, (
+        f"{escaped}: an UNTENANTED session re-tenanted or deleted a real tenant's rows "
+        "on an RLS-exempt table. `tenant_id = <guc> OR <guc> IS NULL` on a FOR ALL policy "
+        "is not isolation with an escape hatch; with no GUC it is no policy at all. Buy "
+        "the cross-tenant READ with a separate FOR SELECT policy, as retention_worklist "
+        "and dnc_list do."
     )

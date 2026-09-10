@@ -231,9 +231,22 @@ async def _reconcile_one(engine_name: str, candidate: DriftCandidate) -> str | N
     # single divergence with a legal consequence indistinguishable from a whitespace
     # difference in a client's script, and therefore unenforceable at the dial gate.
     state = recorded_drift_state(drift.state, truthful_answer_applied=drift.truthful_answer_applied)
-    async with untenanted_session() as session:
+    # A TENANT SESSION, and it used to be `untenanted_session` (migration `b8e2d47f0c19`).
+    # The sweep is still cross-tenant where that matters — `claim_drift_batch` reads the
+    # stalest routes across the fleet from no session at all, which is how a drift sweep
+    # can start from what the vendor lists rather than from a tenant. What moved is only
+    # the WRITE: the candidate already names its tenant, and scoping the stamp to it is
+    # what let `engine_agent_routes` drop the `OR <guc> IS NULL` arm that handed every
+    # untenanted writer, present and future, the power to re-tenant a client's inbound
+    # route. The second `tenant_session` below is the same tenant and stays separate: it
+    # makes vendor calls, and this stamp must be committed before those are attempted.
+    async with tenant_session(candidate.tenant_id) as session:
         recorded = await record_drift(
-            session, engine=engine_name, ref=candidate.engine_agent_ref, state=state
+            session,
+            tenant_id=candidate.tenant_id,
+            engine=engine_name,
+            ref=candidate.engine_agent_ref,
+            state=state,
         )
     if not recorded:
         # The route was deleted between the batch read and now. Nothing to record and
