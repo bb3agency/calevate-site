@@ -188,9 +188,9 @@ def test_the_dlt_number_class_still_says_standard() -> None:
     """
     # The panel moved out of the route module when that screen was split by subject
     # (UX-DOCTRINE §6); the control and the assertion about it are unchanged.
-    numbers = (
-        REPO / "apps/web/src/app/admin/tenants/[tenantId]/CampaignSetup.tsx"
-    ).read_text(encoding="utf-8")
+    numbers = (REPO / "apps/web/src/app/admin/tenants/[tenantId]/CampaignSetup.tsx").read_text(
+        encoding="utf-8"
+    )
     assert '<option value="standard">standard</option>' in numbers, (
         "the DLT number class lost its `standard` option — that word is the TRAI series "
         "name (CLAUDE.md's domain vocabulary), not one of the excluded rung names"

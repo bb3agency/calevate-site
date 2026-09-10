@@ -56,10 +56,7 @@ def test_the_verification_screen_is_still_read_only() -> None:
     offenders = [
         module.name
         for module in modules
-        if any(
-            token in module.read_text(encoding="utf-8")
-            for token in ("useMutation", "<form")
-        )
+        if any(token in module.read_text(encoding="utf-8") for token in ("useMutation", "<form"))
     ]
     assert not offenders, (
         "the Verification screen now takes input; re-check `readiness.ROW_COPY`, whose "

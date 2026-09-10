@@ -32,7 +32,7 @@ it for a two-person pre-revenue company:
     BSP inserts itself into that loop without improving it.
 
 What ships behind the seam is one class with one method, exactly as this docstring
-promised. Shape mirrors `workers/transport.py` and `workers/google_sheets.py`: a
+promised. Shape mirrors `core/transport.py` and `workers/google_sheets.py`: a
 Protocol, a dev sink that needs no credentials and no network, an `Unconfigured` sink
 that refuses loudly, and the real provider chosen by config.
 

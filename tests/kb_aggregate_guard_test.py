@@ -1223,7 +1223,7 @@ async def _live_agent_addressed(address: str) -> uuid.UUID:
 
 
 class _FlakyTransport:
-    """Raises for one address, records the rest. The transports in `workers/transport.py`
+    """Raises for one address, records the rest. The transports in `core/transport.py`
     return False for the failures they EXPECT — this is the class they do not: settings
     that will not resolve, an HTTP error the client did not classify, anything
     `asyncio.to_thread` re-raises from the worker thread."""

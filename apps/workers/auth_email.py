@@ -3,7 +3,7 @@
 A reset link nobody receives is a password nobody can change, so this job is the other half
 of every flow in `authn/service.py` that ends in `_enqueue_auth_email`. It is deliberately
 tiny: it renders one of five short messages and hands it to the transport
-(`workers/transport.py`) that `notify_hot_lead` already uses. No new dependency, no second
+(`core/transport.py`) that `notify_hot_lead` already uses. No new dependency, no second
 mail path, no template engine — a template engine for five fixed strings would be a second
 way to compose an email in a repo that already has one.
 
@@ -64,9 +64,9 @@ from apps.api.core.alerting import alert
 from apps.api.core.console_links import CONSOLE_BASE
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.transport import _domain, get_transport
 from apps.workers.email_render import SUBJECTS as _SUBJECTS
 from apps.workers.email_render import render
-from apps.workers.transport import _domain, get_transport
 
 log = get_logger(__name__)
 

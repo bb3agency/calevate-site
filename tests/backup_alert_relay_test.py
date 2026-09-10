@@ -81,7 +81,7 @@ class RecordingTransport:
 
 @pytest.fixture
 def transport(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Any:
-    from apps.workers import transport as transport_module
+    from apps.api.core import transport as transport_module
 
     alerting.reset_alerts()
     recorder = RecordingTransport()
@@ -305,7 +305,7 @@ def test_a_delivery_that_failed_does_not_start_a_window(
 ) -> None:
     """The window means "a human has been told". A transport that returned False told
     nobody — the same reason `alerting._forget` exists, applied to the on-disk stamp."""
-    from apps.workers import transport as transport_module
+    from apps.api.core import transport as transport_module
 
     alerting.reset_alerts()
     failing = RecordingTransport(succeed=False)

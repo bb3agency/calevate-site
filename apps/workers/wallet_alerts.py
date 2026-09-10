@@ -67,10 +67,10 @@ from apps.api.billing.service import (
 from apps.api.billing.wallet import TierMinutes, tier_minutes
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.transport import get_transport
 from apps.api.db.session import tenant_session
 from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.email_render import from_text
-from apps.workers.transport import get_transport
 
 log = get_logger(__name__)
 

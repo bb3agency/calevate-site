@@ -21,7 +21,7 @@ Run: uv run pytest tests/notification_reply_to_test.py -q
 
 from __future__ import annotations
 
-from apps.workers.transport import ResendTransport, SmtpTransport
+from apps.api.core.transport import ResendTransport, SmtpTransport
 
 SENDER = "support@calevate.tech"
 READ_MAILBOX = "calevate.voice@gmail.com"

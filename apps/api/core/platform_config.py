@@ -394,11 +394,11 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "object_store_bucket": AppliesRule(LIVE),  # workers/storage, per call
     "bolna_webhook_source_ips": AppliesRule(LIVE),  # bolna_source_ips(get_settings())
     # WHICH email transport this deployment sends through. `live`, and checked rather
-    # than assumed: `workers/transport.get_transport()` resolves it through
+    # than assumed: `core/transport.get_transport()` resolves it through
     # `calevate_shared.config.email_transport_reason()` on EVERY send and builds a fresh
     # transport each time — no adapter instance is cached anywhere, unlike `engine`.
     "email_provider": AppliesRule(LIVE),
-    "smtp_host": AppliesRule(LIVE),  # workers/transport.get_transport(), per send
+    "smtp_host": AppliesRule(LIVE),  # core/transport.get_transport(), per send
     "smtp_port": AppliesRule(LIVE),
     "smtp_username": AppliesRule(LIVE),
     "smtp_use_tls": AppliesRule(LIVE),
@@ -647,7 +647,7 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     "audit_chain_secret_retired": AppliesRule(LIVE),
     "idempotency_scope_secret": AppliesRule(LIVE),
     "impersonation_grant_secret": AppliesRule(LIVE),  # core/impersonation, per mint
-    "smtp_password": AppliesRule(LIVE),  # workers/transport.get_transport(), per send
+    "smtp_password": AppliesRule(LIVE),  # core/transport.get_transport(), per send
     # D-91's Meta token, and `live` here against `on_restart` for `bolna_api_key` twelve
     # lines up is the distinction this table exists to make. Those two are `on_restart`
     # because `get_engine()` CACHES the adapter for the life of the process, so the key is

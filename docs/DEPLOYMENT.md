@@ -1002,7 +1002,7 @@ ranges so the raw IP serves nothing; MX/TXT/DKIM independent of proxy status.
 
    **EMAIL IS THREE SETTINGS AND ONE EXTERNAL STEP.** Both channels that leave the
    platform by mail — hot-lead notifications to clients and operator alerts to Sri — go
-   through one transport (`apps/workers/transport.py`), and it is selected by
+   through one transport (`apps/api/core/transport.py`), and it is selected by
    `EMAIL_PROVIDER` alone. Nothing is inferred from the presence of a credential, so a
    leftover `SMTP_HOST` does not quietly keep sending:
 

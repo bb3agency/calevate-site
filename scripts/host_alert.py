@@ -1,7 +1,7 @@
 """Relay a HOST-side alert into the application's alert path.
 
     scripts/backup/notify.sh  --(one JSON object on stdin)-->  python -m scripts.host_alert
-                              --> apps.api.core.alerting.alert() --> workers/transport
+                              --> apps.api.core.alerting.alert() --> core/transport
 
 WHY THIS FILE EXISTS. `alert()` delivers now (D-49: SMTP transport, per-fingerprint
 suppression, an hourly bucket) and `HOST_BACKUP` is a member of its `FailureStage`. But

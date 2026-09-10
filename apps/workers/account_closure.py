@@ -56,11 +56,11 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.core.settings import get_settings
+from apps.api.core.transport import _domain, get_transport
 from apps.api.db.session import admin_session, tenant_session
 from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.closure import due_erasures
 from apps.workers.email_render import from_text
-from apps.workers.transport import _domain, get_transport
 from apps.workers.whatsapp import (
     SendStatus,
     WhatsAppMessage,

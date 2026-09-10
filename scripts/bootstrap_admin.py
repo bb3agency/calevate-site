@@ -35,7 +35,7 @@ USAGE (from the repo root, with the same environment `alembic upgrade head` need
     uv run python -m scripts.bootstrap_admin --email ops@example.com --role operator
 
 The link is mailed through the deployment's configured transport
-(`apps/workers/transport.py`) and is ALSO printed to stdout, because the operator running a
+(`apps/api/core/transport.py`) and is ALSO printed to stdout, because the operator running a
 deploy is standing at the terminal and a mail provider that is not configured yet must not
 be the thing that blocks a bootstrap.
 """
@@ -85,8 +85,8 @@ async def _run(*, email: str, name: str | None, role: str) -> str:
     # Imported inside the function so `--help` works on a host with no database reachable,
     # and so an import error names this module rather than argparse's frame.
     from apps.api.authn.bootstrap import bootstrap_first_admin
+    from apps.api.core.transport import get_transport
     from apps.workers.email_render import render
-    from apps.workers.transport import get_transport
 
     result = await bootstrap_first_admin(email=email, name=name, role=role)
     link = _link(result.token)

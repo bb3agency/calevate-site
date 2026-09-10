@@ -65,7 +65,7 @@ from typing import IO
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 #: The event `ConsoleTransport.send` logs, and the extra it carries the body in. Both are
-#: spelled in `apps/workers/transport.py` and nowhere else; if either moves, this script
+#: spelled in `apps/api/core/transport.py` and nowhere else; if either moves, this script
 #: goes quiet rather than wrong, which is why `--verbose` exists and why the banner says
 #: what to fall back to.
 _EMAIL_EVENT = "email_console"

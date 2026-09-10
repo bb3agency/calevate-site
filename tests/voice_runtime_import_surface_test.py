@@ -567,47 +567,25 @@ async def test_no_module_is_imported_while_serving_a_request(
 #
 # The two sections above measure the boot graph and the request path. Between them they
 # miss one door, and it is open in production and shut in every test: `alert()` queues a
-# notice, a daemon thread drains it, and `alerting._deliver` does
-# `from apps.workers.transport import get_transport` — an import of a package this file's
-# FORBIDDEN list names, into this process, at runtime. It never fires here because
-# `ALERTS_EMAIL` is unset in the test environment, so `_recipient()` returns None and
-# nothing is queued at all.
+# notice, a daemon thread drains it, and `alerting._deliver` imports the transport into
+# this process at runtime. It never fires in the other tests because `ALERTS_EMAIL` is
+# unset there, so `_recipient()` returns None and nothing is queued at all.
 #
-# D-49 recorded the opposite as a property: "the import happens inside the delivery thread
-# so voice-runtime's forbidden `apps.workers` import surface stays clean". Deferring the
-# import moved it out of the BOOT graph, which is the only thing anything was checking; it
-# did not keep it out of the process. Measured below rather than argued.
-
-#: What a voice-runtime process acquires the first time an alert is DELIVERED.
-#:
-#: An equality-pinned exception, in the shape this repo already uses for a recorded gap
-#: (`check_redaction_exposure.KNOWN_SAFE_FIELDS`): the day it is closed this test goes red
-#: and the entry is deleted with it.
-#:
-#: WHY IT IS RECORDED RATHER THAN CLOSED HERE. The module is not worker code in any real
-#: sense — it is an SMTP client, stdlib-only, shared by `workers/notifications.py` and by
-#: `core/alerting.py` — and the fix is to move it to `apps/api/core/transport.py`, which is
-#: the tree voice-runtime already borrows as a library. That is a rename across two
-#: importers, a colocated unit test and three suites, i.e. a change whose whole cost is in
-#: files this slice does not own. What is NOT deferred is the visibility: the hole is now
-#: measured, named, and fails loudly the moment it grows.
-#:
-#: The harm today is bounded and stated: the import is stdlib-light (`smtplib`, `email`,
-#: `ssl`) and lands on a daemon thread, so it costs the ack path GIL contention for the
-#: duration of one import rather than a stall. The harm the FORBIDDEN list is really
-#: guarding against is the next reader concluding that `apps.workers` is reachable from
-#: here and reaching for something else in it.
-RUNTIME_IMPORTS_ON_THE_ALERT_THREAD: dict[str, str] = {
-    "apps.workers": (
-        "namespace package of `apps.workers.transport`, imported by "
-        "`alerting._deliver`. Closes when the SMTP transport moves under "
-        "`apps/api/core/`, which is the tree this service already borrows."
-    ),
-    "apps.workers.transport": (
-        "the SMTP/console/null transport `alerting._deliver` sends through. "
-        "Closes with the move above."
-    ),
-}
+# THIS SECTION USED TO RECORD A GAP, AND THE GAP IS CLOSED. The transport lived at
+# `apps/workers/transport.py`, so delivering one alert pulled `apps.workers` — a package
+# this file's FORBIDDEN list names — into a latency-critical process. D-49 had recorded
+# the opposite as a property ("the import happens inside the delivery thread so the
+# forbidden surface stays clean"); deferring the import moved it out of the BOOT graph,
+# which was the only thing anything checked, and did not keep it out of the process.
+#
+# The module was never worker code in any real sense — an SMTP client importing nothing
+# but stdlib, `calevate_shared.config` and `apps.api.core` — and it now lives at
+# `apps/api/core/transport.py`, the tree voice-runtime already borrows as a library. So
+# `RUNTIME_IMPORTS_ON_THE_ALERT_THREAD` and the consistency test that pinned it are
+# DELETED rather than emptied: a recorded gap that outlives the gap is a hole with a
+# comment on it, and an empty dict with a test iterating it is a guard that agrees with
+# anything. What survives is the measurement — the equality below still fails the moment
+# this thread acquires anything undeclared.
 
 #: Modules the delivery thread acquires ON PURPOSE, which no rule bans.
 #:
@@ -622,6 +600,18 @@ RUNTIME_IMPORTS_ON_THE_ALERT_THREAD: dict[str, str] = {
 #: The measured set below is compared against the UNION: an intended import still has to
 #: be declared, or an equality guard cannot tell it from an accidental one.
 INTENDED_RUNTIME_IMPORTS_ON_THE_ALERT_THREAD: dict[str, str] = {
+    # The SMTP/console/null transport `_deliver` sends through. It is here rather than in
+    # a gap list because no rule bans it: `apps.api.core` is the library tree this service
+    # already imports at boot. The cost is bounded and stated — its only imports are
+    # stdlib (`smtplib`, `email`), `calevate_shared.config` and two `apps.api.core`
+    # modules already resident, so the delta is this one module and it lands on a daemon
+    # thread, never the ack path. `httpx` is NOT here: the Resend transport imports it
+    # inside the send, so a deployment on SMTP or console never pays for it.
+    "apps.api.core.transport": (
+        "the SMTP/console/null transport `alerting._deliver` sends through. Intended: "
+        "`apps.api.core` is the tree this service borrows as a library, the import is "
+        "stdlib-light and lands on the delivery thread. This does not close."
+    ),
     # `alerting._admit_shared` asks Redis whether a SIBLING WORKER has already sent this
     # fingerprint, because `compose.prod.yml` runs this service with `--workers=4` and an
     # in-process window cannot see the other three (D-160).
@@ -658,7 +648,7 @@ after = sorted(sys.modules)
 # does — so on its own it is not evidence that anything was sent. The transport module
 # appearing in the delta is: it is imported by `_deliver` and by nothing else on this
 # path. Reported separately so a failure says which of the two went wrong.
-delivered = flushed and "apps.workers.transport" in set(after) - set(before)
+delivered = flushed and "apps.api.core.transport" in set(after) - set(before)
 with open(sys.argv[1], "w") as handle:
     json.dump(
         {"before": before, "after": after, "delivered": delivered, "flushed": flushed},
@@ -712,31 +702,15 @@ def test_the_alert_delivery_thread_acquires_only_the_recorded_exception() -> Non
         for module in set(measured["after"]) - set(measured["before"])
         if module.split(".")[0] not in sys.stdlib_module_names and not module.startswith("_")
     }
-    expected = set(RUNTIME_IMPORTS_ON_THE_ALERT_THREAD) | set(
-        INTENDED_RUNTIME_IMPORTS_ON_THE_ALERT_THREAD
-    )
+    expected = set(INTENDED_RUNTIME_IMPORTS_ON_THE_ALERT_THREAD)
     assert acquired == expected, (
         "delivering one alert changed what this latency-critical process holds:\n"
         + "\n".join(f"  - {module}" for module in sorted(acquired))
-        + "\n\nIf the transport has moved out of `apps.workers`, delete the matching "
-        "RUNTIME_IMPORTS_ON_THE_ALERT_THREAD entries — a recorded gap that outlives the "
-        "gap is a hole with a comment on it. If something NEW appeared, it is on the "
-        "shared-process side of hard rule 3 and needs the same argument as any boot import."
+        + "\n\nIf something NEW appeared, it is on the shared-process side of hard rule "
+        "3 and needs the same argument as any boot import: declare it in "
+        "INTENDED_RUNTIME_IMPORTS_ON_THE_ALERT_THREAD with what it costs the ack path, or "
+        "make the delivery thread stop reaching for it."
     )
-
-
-def test_the_recorded_runtime_exception_is_forbidden_at_boot() -> None:
-    """The two lists must not drift into contradicting each other.
-
-    Everything in `RUNTIME_IMPORTS_ON_THE_ALERT_THREAD` is a module FORBIDDEN above. That
-    is what makes it an exception rather than a second opinion: if somebody legitimises
-    `apps.workers` in `FORBIDDEN`, this fails and the runtime record has to be revisited
-    in the same change rather than quietly becoming redundant.
-    """
-    for module in RUNTIME_IMPORTS_ON_THE_ALERT_THREAD:
-        assert any(module == prefix or module.startswith(f"{prefix}.") for prefix in FORBIDDEN), (
-            f"{module} is recorded as a runtime exception to a rule that no longer bans it"
-        )
 
 
 def test_the_docstring_that_promises_this_file_names_this_file() -> None:

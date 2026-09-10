@@ -66,12 +66,12 @@ from apps.api.billing.rates import PREPAID_TIERS, VOICE_TIERS, VoiceTier, voice_
 from apps.api.billing.service import plan_tier_of, to_paise
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
+from apps.api.core.transport import _domain, get_transport
 from apps.api.crm.performance import IST_ZONE
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.reliability.service import enqueue_outbox_once
 from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.email_render import from_text
-from apps.workers.transport import _domain, get_transport
 
 log = get_logger(__name__)
 

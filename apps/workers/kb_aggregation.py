@@ -41,7 +41,7 @@ threw, three times over, while the agent that threw never gets a digest at all. 
 hold the invariant, and both were defects here before they were rules:
 
 * `_digest_one` contains everything about one agent INCLUDING THE SEND. The transports
-  return False for the failures they expect (`workers/transport.py`), but `get_transport`
+  return False for the failures they expect (`core/transport.py`), but `get_transport`
   reads settings, `asyncio.to_thread` re-raises whatever the thread raised, and an
   unexpected exception class from an HTTP client is not a hypothetical — leaving the send
   outside the guard made a single SMTP hiccup on agent 700 re-mail 699 clients.
@@ -78,6 +78,7 @@ from sqlalchemy import text
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.transport import get_transport
 from apps.api.crm.performance import IST_ZONE
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb.insights import insights_for_agent, render_digest
@@ -85,7 +86,6 @@ from apps.api.kb.patterns import CallContentLeakError
 from apps.api.quality.sampling import ist_week_start
 from apps.workers.email_render import from_text
 from apps.workers.fleet_walk import WalkBudget
-from apps.workers.transport import get_transport
 
 log = get_logger(__name__)
 

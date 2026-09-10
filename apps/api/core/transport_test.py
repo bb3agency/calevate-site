@@ -31,9 +31,9 @@ from calevate_shared.config import (
     email_transport_reason,
 )
 
+from apps.api.core import transport as transport_module
 from apps.api.core.settings import get_settings
-from apps.workers import transport as transport_module
-from apps.workers.transport import (
+from apps.api.core.transport import (
     RESEND_API_CONTRACT_VERIFIED,
     RESEND_SEND_URL,
     ConsoleTransport,
@@ -448,7 +448,7 @@ def test_the_http_budget_equals_the_number_three_other_places_were_sized_against
     (the first draft) pushed two attempts plus the retry delay to 47s and would have made
     the backup relay report a delivered alert as undelivered.
     """
-    from apps.workers.transport import (
+    from apps.api.core.transport import (
         RESEND_CONNECT_TIMEOUT_S,
         RESEND_POOL_TIMEOUT_S,
         RESEND_READ_TIMEOUT_S,

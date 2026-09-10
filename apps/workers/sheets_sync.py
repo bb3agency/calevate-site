@@ -17,7 +17,7 @@ SDK was added for it — `pyjwt[crypto]` and `httpx` were already in the lockfil
 API is three REST calls (hard rule 9: a vendor SDK on a guess is the supply-chain move,
 and this one would have been a guess).
 
-Shape mirrors `workers/transport.py` and `workers/whatsapp.py` on purpose: a Protocol, a
+Shape mirrors `core/transport.py` and `workers/whatsapp.py` on purpose: a Protocol, a
 dev sink that needs no credentials and no network, and the real provider chosen by
 config. `append` is async where `WhatsAppTransport.send` is sync, because this one runs
 inside `deliver_outbound_webhook` — the same job, the same event loop as the signed POST

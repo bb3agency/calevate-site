@@ -27,9 +27,9 @@ from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from apps.api.core import console_links
+from apps.api.core import console_links, transport
 from apps.api.core.queue import WORKER_MAX_TRIES
-from apps.workers import auth_email, transport
+from apps.workers import auth_email
 from arq import Retry
 
 pytestmark = pytest.mark.asyncio

@@ -112,15 +112,15 @@ credential path this migration exists to leave.
 | Item | Where | Note |
 |---|---|---|
 | Phone numbers | `campaigns/provisioning.py`, `PROVISIONING_IMPLEMENTED = False` | **Not a hole — a decided non-feature (D-474).** Model B: the client buys the connection on their own Exotel/Plivo/Vobiz account and stays the subscriber of record; `POST /v1/numbers/purchase` refuses every request and its remediation names the carriers and asks for the number plus revocable credentials. An operator records the number with `POST /v1/admin/tenants/{tenant_id}/numbers`. |
-| TTS rung attribution unverified | `billing/rates.py`, `ENGINE_TTS_MODEL_GENERATION_VERIFIED = False` | The margin panel splits cost by rung; the mapping from engine model name to rung is not confirmed. Money (hard rule 7). |
+| Engine never names the synthesizer | `billing/rates.py`, `ENGINE_TTS_MODEL_GENERATION_VERIFIED = False` | **This row's old note was wrong twice and §P1.7 corrects it — read that before acting on this one.** There is no engine-model-name-to-rung mapping to confirm, because no engine model name enters this system: `ExecutionSnapshot` and `CostBreakdown` carry no synthesizer field (`tests/tts_tier_metering_test.py`), and the margin panel's split is by the PLAN's overage rung — the constant `BASE_OVERAGE_RUNG`, stamped on every call by `apps/workers/pipeline.py::_meter` — not by anything the engine says. No bill and no margin figure reads this flag. What it still records is narrower and true: the engine never confirms that a call SPOKE the model we configured for it. Closed only by a live capture (OPERATIONS §2 gate 7, D-358) — EXTERNAL, nothing in this repository can close it. |
 | HMAC path in the receiver | `voice-runtime/engine_intake.py` — `reason="signature verification not implemented"` | Only reachable for an engine that SIGNS. Bolna does not (gate 1), so this is unreached today and would be needed the moment a signing engine is added. |
 
 ### B2. Structural, worth doing before scale rather than after
 
 | Item | Status | Why it matters |
 |---|---|---|
-| `apps/api/core/transport.py` move | **OURS** | The SMTP transport lives under `apps.workers`, which voice-runtime is forbidden to import — so the alert delivery thread holds a recorded, measured exception (`RUNTIME_IMPORTS_ON_THE_ALERT_THREAD`). Moving it to `apps/api/core/` closes the hole and deletes the exception. |
-| Per-call latency storage | **OURS**, but *sequenced after gate 4* | `calls.latency` was dropped deliberately. The shape gets chosen from the payload gate 4 actually captures — building it first would be guessing. |
+| `apps/api/core/transport.py` move | **DONE** (10 Sep 2026) | Was: the SMTP transport lived under `apps.workers`, which voice-runtime is forbidden to import, so the alert delivery thread held a recorded, measured exception (`RUNTIME_IMPORTS_ON_THE_ALERT_THREAD`). It now lives at `apps/api/core/transport.py` — it only ever imported stdlib, `calevate_shared.config` and `apps.api.core`, so it was never worker code and there was no cycle to break. The exception dict and the consistency test that pinned it are DELETED, not emptied; the transport's entry moved to `INTENDED_RUNTIME_IMPORTS_ON_THE_ALERT_THREAD`, because the measurement of what that thread acquires is still worth pinning even once nothing bans the module. `apps.workers` stays in `FORBIDDEN` with nothing excepting it. |
+| Per-call latency storage | **OURS**, but *sequenced after gate 4* — and NARROWER than this row used to say | `calls.latency` was dropped deliberately and stays dropped. **The engine-reported half is already built and wired**: `latency_data` → `parse_latency_data` → `ExecutionSnapshot.latency` → `call_engine_latency` (migration `b7d3e91c4a05`) → `GET /v1/ops/engine-latency`. What is undecided is only whether any per-call scalar (realistically `time_to_first_audio`) earns a place on the call row — and the vendor's own API-reference example returns that scalar ALONE, with no component blocks, so the shape still gets chosen from the payload gate 4 captures. The full accounting — what we can and cannot attribute on a call today, what the vendor documents, what gate 4 must record, and the decision rule for each outcome — is `docs/evidence/per-call-latency-accounting.md`. |
 
 ---
 
@@ -176,7 +176,7 @@ Sequenced by dependency, not by size. Each step is either unblocked today or nam
 one thing it waits on.
 
 **Step 1 — things that need nobody (do now).**
-`apps/api/core/transport.py` move. `terraform init && terraform validate` if egress now
+`terraform init && terraform validate` if egress now
 permits it; if it does not, that becomes an external blocker and should be recorded as one.
 
 **Step 2 — the two accounts, in this order.**
@@ -393,6 +393,16 @@ The day one is needed, `runbooks/topup-payments.md` is its neighbour. **The corr
 it never repriced the client's bill (D-372) and it moved a prepaid wallet by our supplier
 cost (D-373).
 
+**⚠ THE "DONE" ABOVE NO LONGER DESCRIBES THIS TREE (single-tier voice collapse, D-466 /
+D-547), AND THE ENTRY IS KEPT ONLY AS HISTORY.** Verified against the working tree on
+10 Sep 2026, not recalled: `scripts/correct_tts_tier.py` and
+`tests/tts_tier_correction_script_test.py` do not exist, and `record_tier_correction` is
+defined in no module under `apps/` — every name in the paragraph above survives in prose
+only. The cross-rung correction went with the second rung it corrected between. If a
+compensating-entry route for a mis-priced call is wanted again (hard rule 4), it has to be
+re-decided and re-built; no row in this register tracks it, and this note is not a claim
+that one is needed.
+
 ### P1.7 — `tts_tier_source` is written on every row and read by nothing; the register was wrong about why · SERIOUS · OURS
 
 The audit corrected this document. The earlier claim — *"the mapping from engine model name
@@ -412,6 +422,31 @@ three buckets keep "we know this ran on v2" and "we never knew" apart. They do n
 
 **FIX:** add `meta->>'tts_tier_source'` to `_tier_totals`' GROUP BY and give the panel a
 fourth cell for value-but-unproven. Correct the docstring either way.
+
+**WITHDRAWN — DO NOT IMPLEMENT (D-466 / D-547). The path this entry describes was deleted,
+so the FIX above would now build a column no writer fills.** Verified against the working
+tree on 10 Sep 2026: `billable_tier` is defined in no module under `apps/` (only `rates.py`
+and `pipeline.py` prose recording its withdrawal), nothing writes `meta.tts_tier_source`
+(`tests/tts_tier_metering_test.py` asserts its absence on a freshly metered row), and there
+is no voice-derived rung left to be unprovable — `pipeline._meter` stamps the single
+constant `BASE_OVERAGE_RUNG` on every call and `_tier_totals` groups on that one key
+(`billing/service.py::_ROW_TIER_SQL`). The voice a call spoke is a different fact on a
+different key (`meta.voice_tier`, `agents/voices.voice_tier`) and it prices no rung.
+
+**WHAT SURVIVES OF THE ENTRY, because one half of it is still live and is deliberate.** An
+unrecognised rung token still files as `UNATTRIBUTED_RUNG` and `tier_usage` still bills
+unattributed minutes at the CHEAPER rung (`billing/service.py`, SURFACES §2b: a call we
+cannot attribute is never charged the dearer rate). That is client-favourable by decision,
+not by accident; it is pinned by `tests/rung_rename_closed_month_test.py` and
+`tests/tts_tier_metering_test.py`, and the admin margin panel renders the unattributed
+bucket even at zero so it can never be absorbed silently into a rung total. With
+`plans.overage_rate_second` NULL on every plan, no live path stamps anything but the base
+rung anyway.
+
+`ENGINE_TTS_MODEL_GENERATION_VERIFIED` stays **False** and this session did not move it:
+flipping it needs a captured execution payload from a funded Bolna account (OPERATIONS §2
+gate 7, D-358), which is EXTERNAL. Both corrections above are pinned by
+`tests/tts_tier_metering_test.py` so this register cannot rot back.
 
 ### P1.8 — Invoice will self-certify as a tax invoice while missing a mandatory particular · SERIOUS · OURS (columns) / EXTERNAL (registration)
 

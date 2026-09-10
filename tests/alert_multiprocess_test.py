@@ -46,7 +46,7 @@ _WORKER = """
 import json, sys
 sys.path.insert(0, ".")
 from apps.api.core import alerting
-from apps.workers import transport as transport_module
+from apps.api.core import transport as transport_module
 
 class Recorder:
     name = "recording"

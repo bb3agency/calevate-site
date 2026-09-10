@@ -79,6 +79,7 @@ from apps.api.core.alerting import alert
 from apps.api.core.loadshed import LoadShedMode, get_platform_status, set_platform_status
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.transport import get_transport
 from apps.api.db.session import admin_session, tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.ops.maintenance import (
@@ -96,7 +97,6 @@ from apps.api.ops.maintenance import (
 from apps.api.reliability.service import enqueue_outbox
 from apps.workers.email_render import from_text
 from apps.workers.fleet_walk import WalkBudget
-from apps.workers.transport import get_transport
 
 log = get_logger(__name__)
 

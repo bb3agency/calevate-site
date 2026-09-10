@@ -405,7 +405,7 @@ them, which makes the DPA a promise rather than a control. Now:
   Bolna's deletion API is undocumented (pilot gate), and a proof that overclaims is
   worse than one that states its limits. 6 tests.
 
-**23. Notification transport — `apps/workers/transport.py`**
+**23. Notification transport — `apps/api/core/transport.py`**
 
 Three implementations behind one Protocol, selected by config: SMTP (any provider —
 keeps the vendor a deployment decision, not a dependency), a console sink for local

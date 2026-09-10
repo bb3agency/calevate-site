@@ -175,7 +175,7 @@ PROBES: Mapping[str, Probe] = {
     # domain is verified — this file reads a status code and never a body, so it cannot
     # see which domains came back. That check is the operator's, in the Resend dashboard.
     #
-    # Host and auth header are READ AT SOURCE from `apps/workers/transport.py`'s
+    # Host and auth header are READ AT SOURCE from `apps/api/core/transport.py`'s
     # `RESEND_SEND_URL` and its `Authorization: Bearer` header — the same evidence the
     # other three probes use, which is what keeps a probe from authenticating differently
     # from the thing it tests. The `/domains` PATH is REPORTED, NOT READ
@@ -191,7 +191,7 @@ PROBES: Mapping[str, Probe] = {
         url="https://api.resend.com/domains",
         headers=_bearer,
         source=(
-            "apps/workers/transport.py (RESEND_SEND_URL host, Bearer auth); "
+            "apps/api/core/transport.py (RESEND_SEND_URL host, Bearer auth); "
             "the /domains path and the 401-vs-403 split are REPORTED, NOT READ"
         ),
         verified=False,

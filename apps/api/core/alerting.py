@@ -426,7 +426,7 @@ def _deliver(notice: AlertNotice) -> None:
         return
     _local.delivering = True
     try:
-        from apps.workers.transport import get_transport
+        from apps.api.core.transport import get_transport
 
         transport = get_transport()
         subject = _subject(notice)

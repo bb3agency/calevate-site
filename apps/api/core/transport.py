@@ -113,7 +113,7 @@ SMTP_TIMEOUT_S = 15.0
 #
 # A constant rather than a comment so the claim is greppable and testable, the same device
 # `billing/rates.ENGINE_REPORTS_TTS_MODEL` and `billing/payments.PROVIDER_CREATES_ORDERS`
-# use. `apps/workers/transport_test.py` pins it.
+# use. `apps/api/core/transport_test.py` pins it.
 RESEND_API_CONTRACT_VERIFIED = False
 
 #: READ AT SOURCE (`resend-openapi/resend.yaml`, `resend-python/resend/emails/_emails.py`).
@@ -356,7 +356,7 @@ class ResendTransport:
                     "recipient_domain": recipient_domain,
                     "remediation": (
                         "Resend rejected the request body: a contract mismatch in "
-                        "workers/transport.py, not a configuration error."
+                        "core/transport.py, not a configuration error."
                     ),
                 },
             )

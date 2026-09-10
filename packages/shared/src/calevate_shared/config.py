@@ -969,7 +969,7 @@ class Settings(BaseSettings):
     impersonation_grant_secret: str | None = None
 
     # WHICH email transport this deployment uses. THE statement, and the only one:
-    # `email_transport_reason()` below is the single resolver and `workers/transport
+    # `email_transport_reason()` below is the single resolver and `core/transport
     # .get_transport()` is its only consumer, so "which transport is this deployment
     # using?" has exactly one answer and it is this field.
     #
@@ -982,7 +982,7 @@ class Settings(BaseSettings):
     #
     # A SEAM, NOT A SWITCH, exactly as `whatsapp_provider` is: the names with an adapter
     # behind them are `resend` (the founder's choice, Aug 2026) and
-    # `smtp` (kept as the escape hatch — see workers/transport.py for why). Any other
+    # `smtp` (kept as the escape hatch — see core/transport.py for why). Any other
     # name resolves to `provider_not_implemented` and refuses to send, loudly, rather
     # than looking configured. `console` is deliberately NOT a name here: the local dev
     # sink is selected by APP_ENV=local with no provider set, which is what it already
@@ -1029,7 +1029,7 @@ class Settings(BaseSettings):
     # `support@calevate.tech` is the founder's choice and is the address the Calevate
     # domain is being verified for. A sender whose DOMAIN the provider has not verified is
     # not a soft failure — Resend refuses the send outright (403) — so changing this to an
-    # unverified domain stops mail rather than sending it to spam. `workers/transport.py`
+    # unverified domain stops mail rather than sending it to spam. `core/transport.py`
     # logs that refusal under its own event name for exactly that reason.
     #
     # 320 is the RFC 5321 maximum for an addr-spec (64 local + @ + 255 domain).
@@ -1606,7 +1606,7 @@ SOURCE_IP_ALLOWLIST_BY_ENGINE: dict[str, Callable[[Settings], frozenset[str]]] =
 
 # --- email: the one selector ---------------------------------------------------
 #
-# The provider names that have an adapter behind them in `workers/transport.py`.
+# The provider names that have an adapter behind them in `core/transport.py`.
 # `console` is absent on purpose — see `Settings.email_provider`.
 EMAIL_PROVIDER_RESEND = "resend"
 EMAIL_PROVIDER_SMTP = "smtp"
@@ -1625,7 +1625,7 @@ NO_SMTP_HOST_REASON = "no_smtp_host"
 def email_transport_reason(settings: Settings) -> str | None:
     """Why this deployment can deliver no email, or None when it can. ONE resolver.
 
-    Both halves of the email question call THIS — `workers/transport.get_transport()`,
+    Both halves of the email question call THIS — `core/transport.get_transport()`,
     which builds the transport, and `core/observability.init_observability`, which warns
     at boot that alerts have nowhere to go — for the same reason `bolna_source_ips` above
     is one resolver: a second read of the same fields is a second answer waiting to

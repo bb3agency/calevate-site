@@ -54,13 +54,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
+from apps.api.core.transport import get_transport
 from apps.api.db.base import uuid7
 from apps.api.db.result import rowcount_of
 from apps.api.db.session import tenant_session
 from apps.workers.auth_email import CONSOLE_BASE
 from apps.workers.email_render import from_text
 from apps.workers.redaction import redact
-from apps.workers.transport import get_transport
 from apps.workers.whatsapp import enqueue_hot_lead_whatsapp
 
 log = get_logger(__name__)
@@ -381,7 +381,7 @@ def _compose(
 
 
 async def _send_email(to: str, subject: str, body: str) -> bool:
-    """Delivery goes through the configured transport (`workers/transport.py`).
+    """Delivery goes through the configured transport (`core/transport.py`).
 
     Returns whether it landed; the CALLER decides what a failure costs, because only
     the caller knows which attempt this is. The no-address case never reaches here —

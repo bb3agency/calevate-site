@@ -7,7 +7,7 @@ a bad Razorpay signature, a refused escalation — fired into a log nobody reads
 These tests pin the four properties that make the difference between "logged" and
 "reached a human":
 
-1. it is DELIVERED, through the transport that already exists (`workers/transport.py`),
+1. it is DELIVERED, through the transport that already exists (`core/transport.py`),
 2. it never blocks the caller — `alert()` runs on the voice-runtime ack path, whose
    entire budget is 500ms (hard rule 3), and SMTP has a 15-second timeout,
 3. it is deduplicated and rate limited, because 4,000 copies is the same as none,
@@ -35,7 +35,7 @@ PLANTED_PHONE = "+919876543210"
 
 
 class RecordingTransport:
-    """Stands in for `workers/transport.py`'s SMTP/console/null trio."""
+    """Stands in for `core/transport.py`'s SMTP/console/null trio."""
 
     name = "recording"
 
@@ -59,7 +59,7 @@ class RecordingTransport:
 @pytest.fixture
 def transport(monkeypatch: pytest.MonkeyPatch) -> RecordingTransport:
     """A configured operator address + a transport we can look inside."""
-    from apps.workers import transport as transport_module
+    from apps.api.core import transport as transport_module
 
     alerting.reset_alerts()
     recorder = RecordingTransport()
@@ -364,7 +364,7 @@ def test_a_transport_that_alerts_does_not_recurse(
             alerting.alert("CORE_LOGIC", "raised_from_inside_delivery")
             return super().send(to=to, subject=subject, body=body)
 
-    from apps.workers import transport as transport_module
+    from apps.api.core import transport as transport_module
 
     reentrant = ReentrantTransport()
     monkeypatch.setattr(transport_module, "get_transport", lambda: reentrant)
@@ -387,7 +387,7 @@ def test_a_raising_transport_does_not_reach_the_caller(
         def send(self, **_: Any) -> bool:
             raise RuntimeError("smtp exploded")
 
-    from apps.workers import transport as transport_module
+    from apps.api.core import transport as transport_module
 
     monkeypatch.setattr(transport_module, "get_transport", lambda: Exploding())
 
