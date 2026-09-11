@@ -3785,6 +3785,24 @@ class BolnaEngine:
                                 "provider_config": _synthesizer_config(
                                     cfg.models, cfg.language_primary
                                 ),
+                                # **REQUIRED AT BLOCK LEVEL, AND WE SENT IT ONLY INSIDE
+                                # `provider_config` (D-580).** The transcriber below has
+                                # always carried its own; the synthesizer did not, and the
+                                # first live publish this product ever attempted was
+                                # refused for exactly that:
+                                #
+                                #   400 POST /v2/agent — "Validation failed (1 error):
+                                #   Agent Config > Tasks > #1 > Tools Config > Voice >
+                                #   Language: This field is required"
+                                #
+                                # "Voice" is this block. EVIDENCE CLASS: the vendor's own
+                                # live API response, 11 Sep 2026, which OUTRANKS the
+                                # hash-pinned mirror — `graph-agent/full-example.md:191-198`
+                                # shows an elevenlabs synthesizer with no `language` at all
+                                # and would have argued this field was wrong to send. A
+                                # documented example is what a vendor CHOSE to print; a 400
+                                # is what their validator enforces.
+                                "language": cfg.language_primary,
                                 "stream": True,
                             },
                             "transcriber": {

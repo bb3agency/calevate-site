@@ -172,6 +172,36 @@ async def test_the_telephony_input_and_output_blocks_are_sent() -> None:
         assert set(tools[leg]) >= {"provider", "format"}
 
 
+async def test_the_voice_block_carries_its_own_language_like_the_transcriber_does() -> None:
+    """THE FIRST LIVE PUBLISH THIS PRODUCT EVER ATTEMPTED WAS REFUSED FOR THIS (D-580).
+
+        400 POST /v2/agent — "Validation failed (1 error): Agent Config > Tasks > #1 >
+        Tools Config > Voice > Language: This field is required"
+
+    "Voice" is the synthesizer block. The transcriber had always carried a block-level
+    `language`; the synthesizer carried it only inside `provider_config`, where their
+    validator does not look. Both are asserted here because the defect was the ASYMMETRY —
+    one of the pair having it read as "the payload handles language" to every reader.
+
+    EVIDENCE CLASS: the vendor's own live API response, 11 Sep 2026. It outranks the
+    hash-pinned mirror, whose `graph-agent/full-example.md:191-198` elevenlabs synthesizer
+    carries no `language` at all and would have argued this field was wrong to send. A
+    documented example is what a vendor CHOSE to print; a 400 is what their validator
+    enforces. Nothing in the mirror could have caught this, which is why it survived every
+    gate until a real publish.
+    """
+    tools = (await _created_body())["agent_config"]["tasks"][0]["tools_config"]
+
+    for leg in ("synthesizer", "transcriber"):
+        assert tools[leg].get("language"), (
+            f"`{leg}` reached the wire with no block-level `language`; the vendor's "
+            "validator refuses the agent at CREATE, so nothing downstream of publish runs"
+        )
+    assert tools["synthesizer"]["language"] == tools["transcriber"]["language"], (
+        "the agent would listen in one language and speak in another"
+    )
+
+
 async def test_the_toolchain_and_prompt_envelope_match_the_spec() -> None:
     """The two parts that were already right, pinned so a refactor of the block above
     cannot quietly drop them: `AgentRequestV2` requires both `agent_config` and
