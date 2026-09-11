@@ -22,6 +22,7 @@ const PHONE = "+919876543210";
 
 const ME: Me = {
   impersonating: false,
+  withheld_acts: [],
   permissions: ["leads:read", "leads:dispatch"],
   realm: "client",
   role: "owner",
@@ -55,11 +56,17 @@ async function lookUp(answer: MessagingConsent) {
 describe("messaging consent verdict", () => {
   it("does NOT say messageable for a granted opt-in the server has ruled stale", async () => {
     const { container } = await lookUp(
-      consent({ messageable: false, status: "granted", expires_at: "2026-05-30T10:00:00Z" }),
+      consent({
+        messageable: false,
+        status: "granted",
+        expires_at: "2026-05-30T10:00:00Z",
+      }),
     );
 
     await screen.findByText("Not messageable — their opt-in has expired.");
-    expect(container.textContent).not.toContain("You may send this person WhatsApp messages.");
+    expect(container.textContent).not.toContain(
+      "You may send this person WhatsApp messages.",
+    );
   });
 
   it("says messageable only when the server does", async () => {
@@ -68,7 +75,9 @@ describe("messaging consent verdict", () => {
   });
 
   it("reads a withdrawal and a refusal as different sentences", async () => {
-    const withdrawn = await lookUp(consent({ messageable: false, status: "withdrawn" }));
+    const withdrawn = await lookUp(
+      consent({ messageable: false, status: "withdrawn" }),
+    );
     await screen.findByText("Not messageable — they asked us to stop.");
     withdrawn.unmount();
 
@@ -84,7 +93,9 @@ describe("messaging consent verdict", () => {
     );
 
     await screen.findByText(/^Not messageable/);
-    expect(container.textContent).not.toContain("You may send this person WhatsApp messages.");
+    expect(container.textContent).not.toContain(
+      "You may send this person WhatsApp messages.",
+    );
   });
 
   it("keeps the number out of the URL and puts it in the body (hard rule 6)", async () => {

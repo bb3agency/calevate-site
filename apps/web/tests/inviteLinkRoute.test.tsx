@@ -37,10 +37,16 @@ import { renderClientPage } from "./harness";
  *    be the original defect back, aimed at everyone who was ever invited.
  */
 
-const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..", "src", "app");
+const APP_DIR = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "src",
+  "app",
+);
 
 const ME: Me = {
   impersonating: false,
+  withheld_acts: [],
   permissions: ["org:read", "org:manage", "leads:read"],
   realm: "client",
   role: "owner",
@@ -100,9 +106,12 @@ describe("the invite link", () => {
     });
 
     await screen.findByText("Anita");
-    fireEvent.change(screen.getByRole("textbox", { name: "Email address to invite" }), {
-      target: { value: "priya@clinic.example" },
-    });
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Email address to invite" }),
+      {
+        target: { value: "priya@clinic.example" },
+      },
+    );
     fireEvent.click(screen.getByRole("button", { name: /Create invite link/ }));
 
     // The confirmation appears…

@@ -15,7 +15,7 @@ import {
 } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
 import { useFileErasure, useSubjectExport } from "@/lib/api/dataRights";
-import { useWriteAccess } from "@/lib/api/hooks";
+import { useActAccess } from "@/lib/api/hooks";
 import { type Session } from "@/lib/api/client";
 
 import { useSubjectExportAccess } from "./access";
@@ -32,10 +32,19 @@ const ERASE_CONFIRMATION = "ERASE";
  * reason: the decision has to be made before the click, not discovered after it.
  */
 export function Erasure({ session }: { session: Session }) {
-  // `org:manage`, and `useWriteAccess` is exactly right here: filing an erasure IS a
-  // mutation, so D-22's refusal of every mutating permission to an impersonating operator
-  // is the feature rather than the obstacle (deletion_routes.py says so).
-  const access = useWriteAccess(session, "org:manage", "file an erasure request");
+  // `org:manage` AND the named act, because since D-587 the permission is no longer the
+  // whole answer: `org:manage` is writable in a view-as session, and filing an erasure is
+  // refused inside it by name (`compliance/deletion_routes.py:294`,
+  // `rbac.VIEW_AS_WITHHELD_ACTS["compliance.erasure_request"]`) — it destroys this
+  // account's records of a person irreversibly, which is the account's decision about
+  // their own customer. `useWriteAccess` alone would have armed the button for an
+  // operator and let the typed ERASE end in a 403.
+  const access = useActAccess(
+    session,
+    "org:manage",
+    "compliance.erasure_request",
+    "file an erasure request",
+  );
   const file = useFileErasure(session);
   // The TARGET check (ux-audit DR-1 🔒): the typed ERASE confirms intent, but a
   // transposed digit in a ten-digit mobile passes every check on this form and erases a

@@ -16,11 +16,13 @@ import {
   EmptyState,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
+  RestrictionNote,
   SECONDARY_BUTTON_SM,
   Skeleton,
   formatIST,
 } from "@/components/ui";
 import { ConfirmDialog } from "@/components/confirmDialog";
+import { useActAccess } from "@/lib/api/hooks";
 import {
   useConfirmUpload,
   useDeleteUpload,
@@ -251,6 +253,23 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
   const session = useClientSession();
   const chunks = useKbChunks(session, upload.source_id);
   const confirm = useConfirmUpload(session);
+  /**
+   * THE ACT THIS SCREEN PERFORMS IS AN APPROVAL, and it is the one knowledge act a view-as
+   * session may not do. `POST /v1/kb/uploads/{id}/confirm` publishes under the client's own
+   * name, so it asks `may_self_approve` and then `assert_view_as_may(principal,
+   * "kb.self_approve")` for an operator (`apps/api/kb/uploads.py:722`) — the ground being
+   * that the record must show that WE approved it, from the operator console's queue.
+   *
+   * SUBMITTING is a different route and is NOT withheld (`kb/routes.py:266` takes an
+   * operator's upload with `auto_approve=False`, i.e. into review), which is why the gate
+   * is here on the button that publishes rather than on the form that adds.
+   */
+  const approve = useActAccess(
+    session,
+    "kb:write",
+    "kb.self_approve",
+    "publish what we read under this account's name",
+  );
   const discard = useDeleteUpload(session);
   const [confirmingDiscard, setConfirmingDiscard] = useState(false);
 
@@ -290,11 +309,13 @@ function ExtractedText({ upload, onDone }: { upload: KbUpload; onDone: () => voi
       )}
 
       {confirm.error && <ProblemNotice error={confirm.error} />}
+      <RestrictionNote reason={approve.reason} />
 
       <div className="flex flex-wrap items-center gap-2">
         <button
           type="button"
-          disabled={confirm.isPending}
+          disabled={!approve.allowed || confirm.isPending}
+          title={approve.reason ?? undefined}
           onClick={() => confirm.mutate(upload.id, { onSuccess: onDone })}
           className={PRIMARY_BUTTON_SM}
         >

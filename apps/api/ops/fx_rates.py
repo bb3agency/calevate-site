@@ -289,6 +289,13 @@ async def refresh_fx_snapshot() -> FxQuote | None:
     stopped three days ago produces no job, no exception and no log line anywhere, and
     silently reverts every conversion to the configured fallback. This poll is the thing
     that is still running when nothing else is.
+
+    **`fx_rate_stale` NOW MEANS THE WHOLE LADDER IS STALE, NOT ONE SOURCE (D-589).** The
+    pull walks `workers/fx_pull.LADDER` and stores whichever rung can serve, so a quiet
+    preferred source no longer reaches this alarm at all — it raises `fx_source_degraded`
+    from the pull and keeps converting at a published rate. Nothing here had to change to
+    make that true, and that is the point of deciding usability on the read: this function
+    asks whether the rate IN FORCE is past the ceiling, whoever published it.
     """
     try:
         async with untenanted_session() as session:
@@ -307,9 +314,11 @@ async def refresh_fx_snapshot() -> FxQuote | None:
             "CORE_LOGIC",
             "fx_rate_stale",
             detail=(
-                "The pulled USD/INR rate is older than the ceiling, so every vendor cost "
-                "is being converted at the configured USD_INR_RATE instead. Check the "
-                "fx_rate_pull job and the upstream feed."
+                "EVERY published USD/INR source is older than the ceiling, so every vendor "
+                "cost is being converted at the configured USD_INR_RATE instead. This is "
+                "the bottom of the ladder in apps/workers/fx_pull.py: the preferred source "
+                "and its published fallback have both gone quiet, or the puller is not "
+                "running. Check the fx_rate_pull job and the upstream feed."
             ),
             as_of=quote.as_of.isoformat(),
             age_days=str(quote.age().days),

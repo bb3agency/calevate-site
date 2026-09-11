@@ -83,7 +83,9 @@ describe("the root error boundary", () => {
   it("never renders the thrown message, and never a stack", () => {
     render(
       <RootError
-        error={crash("TypeError: e.reduce is not a function at /_next/static/chunks/9f2.js")}
+        error={crash(
+          "TypeError: e.reduce is not a function at /_next/static/chunks/9f2.js",
+        )}
         reset={vi.fn()}
       />,
     );
@@ -91,7 +93,9 @@ describe("the root error boundary", () => {
     expect(document.body.textContent).not.toContain("reduce is not a function");
     expect(document.body.textContent).not.toContain("_next/static");
     // What it says instead is something a person can act on.
-    expect(screen.getAllByText("Something went wrong on this page.").length).toBe(1);
+    expect(
+      screen.getAllByText("Something went wrong on this page.").length,
+    ).toBe(1);
   });
 
   it("gives the operator the log line the user does not get", () => {
@@ -110,7 +114,9 @@ describe("the root error boundary", () => {
 
   it("offers a working retry and a way out of the screen", async () => {
     const reset = vi.fn();
-    const { container } = render(<RootError error={crash("boom")} reset={reset} />);
+    const { container } = render(
+      <RootError error={crash("boom")} reset={reset} />,
+    );
 
     screen.getByRole("button", { name: "Try again" }).click();
     expect(reset).toHaveBeenCalledTimes(1);
@@ -125,13 +131,21 @@ describe("the root error boundary", () => {
     const problem = new ApiProblem(422, {
       type: "https://calevate.tech/problems/dnc-listed",
       detail: "That number is on the do-not-call list.",
-      remediation: "Remove it from the campaign, or ask the client to re-consent.",
+      remediation:
+        "Remove it from the campaign, or ask the client to re-consent.",
       trace_id: "trace-77",
       retryable: false,
     });
-    render(<RootError error={problem as Error & { digest?: string }} reset={vi.fn()} />);
+    render(
+      <RootError
+        error={problem as Error & { digest?: string }}
+        reset={vi.fn()}
+      />,
+    );
 
-    expect(screen.getAllByText("That number is on the do-not-call list.").length).toBe(1);
+    expect(
+      screen.getAllByText("That number is on the do-not-call list.").length,
+    ).toBe(1);
     expect(screen.getAllByText(/Remove it from the campaign/).length).toBe(1);
     expect(screen.getAllByText("trace-77").length).toBe(1);
   });
@@ -149,20 +163,28 @@ describe("the realm error boundaries", () => {
   });
 
   it("return an operator to the operator console, not to the marketing site", () => {
-    const { container } = render(<AdminError error={crash("boom")} reset={vi.fn()} />);
+    const { container } = render(
+      <AdminError error={crash("boom")} reset={vi.fn()} />,
+    );
     const links = Array.from(container.querySelectorAll("a[href]"));
     expect(links.map((a) => a.getAttribute("href"))).toEqual(["/admin"]);
   });
 
   it("return a client to their own dashboard, using the slug in the path", () => {
     nav.pathname = "/c/kirana-mart/leads";
-    const { container } = render(<ClientRealmError error={crash("boom")} reset={vi.fn()} />);
-    expect(container.querySelector("a[href]")?.getAttribute("href")).toBe("/c/kirana-mart");
+    const { container } = render(
+      <ClientRealmError error={crash("boom")} reset={vi.fn()} />,
+    );
+    expect(container.querySelector("a[href]")?.getAttribute("href")).toBe(
+      "/c/kirana-mart",
+    );
   });
 
   it("fall back to the /c junction when the path carries no usable slug", () => {
     nav.pathname = "/";
-    const { container } = render(<ClientRealmError error={crash("boom")} reset={vi.fn()} />);
+    const { container } = render(
+      <ClientRealmError error={crash("boom")} reset={vi.fn()} />,
+    );
     expect(container.querySelector("a[href]")?.getAttribute("href")).toBe("/c");
   });
 });
@@ -175,7 +197,9 @@ describe("global-error, the boundary for the root layout itself", () => {
    * produced when the root layout fails during SSR.
    */
   const markup = (): string =>
-    renderToStaticMarkup(<GlobalError error={crash("boom", "d1g35t")} reset={vi.fn()} />);
+    renderToStaticMarkup(
+      <GlobalError error={crash("boom", "d1g35t")} reset={vi.fn()} />,
+    );
 
   it("renders its own html and body, because it replaces the root layout", () => {
     const html = markup();
@@ -209,13 +233,19 @@ describe("the 404", () => {
   it("renders our page, with a heading and a real way back", async () => {
     const { container } = render(<NotFound />);
     expect(screen.getAllByRole("heading", { level: 1 }).length).toBe(1);
-    expect(document.body.textContent).toContain("could not connect you to that page");
+    expect(document.body.textContent).toContain(
+      "could not connect you to that page",
+    );
     // Plain language: the reader may be a procurement reviewer following a stale link.
     expect(document.body.textContent).not.toContain("404");
     expect(document.body.textContent).not.toContain("NOT_FOUND");
 
     const links = Array.from(container.querySelectorAll("a[href]"));
-    expect(links.map((a) => a.getAttribute("href"))).toEqual(["/", "/c", "/legal"]);
+    expect(links.map((a) => a.getAttribute("href"))).toEqual([
+      "/",
+      "/c",
+      "/legal",
+    ]);
     await expectNoA11yViolations(container, "app/not-found.tsx");
   });
 
@@ -227,7 +257,9 @@ describe("the 404", () => {
     expect(container.querySelectorAll("img").length).toBe(0);
     // Remove the figure and the page still says everything it needs to.
     svg?.remove();
-    expect(container.textContent).toContain("could not connect you to that page");
+    expect(container.textContent).toContain(
+      "could not connect you to that page",
+    );
   });
 
   it("colours the illustration from tokens only, so it is correct in both themes", () => {
@@ -244,11 +276,15 @@ describe("the 404", () => {
   it("offers a realm-appropriate exit when the failed address was inside a realm", () => {
     nav.pathname = "/admin/tenants/nope";
     const { container } = render(<NotFound />);
-    expect(container.querySelector("a[href]")?.getAttribute("href")).toBe("/admin");
+    expect(container.querySelector("a[href]")?.getAttribute("href")).toBe(
+      "/admin",
+    );
 
     nav.pathname = "/c/kirana-mart/leads/nope";
     const client = render(<NotFound />);
-    expect(client.container.querySelector("a[href]")?.getAttribute("href")).toBe("/c");
+    expect(
+      client.container.querySelector("a[href]")?.getAttribute("href"),
+    ).toBe("/c");
   });
 
   it("is what an unknown legal slug now reaches", async () => {
@@ -260,7 +296,9 @@ describe("the 404", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     try {
       await act(async () => {
-        render(<LegalDocumentRoute params={Promise.resolve({ slug: "gdpr" })} />);
+        render(
+          <LegalDocumentRoute params={Promise.resolve({ slug: "gdpr" })} />,
+        );
       });
     } catch {
       // The framework signal, propagating because there is no router above this render.
@@ -274,7 +312,9 @@ describe("the 404", () => {
     // The other half of the same rule: a route that 404s everything would pass the case
     // above and break the product.
     await act(async () => {
-      render(<LegalDocumentRoute params={Promise.resolve({ slug: "privacy" })} />);
+      render(
+        <LegalDocumentRoute params={Promise.resolve({ slug: "privacy" })} />,
+      );
     });
     expect(nav.notFound).not.toHaveBeenCalled();
   });

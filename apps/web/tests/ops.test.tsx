@@ -211,7 +211,7 @@ function modelPrices(): ModelPrices {
         source_note: null,
       },
     ],
-prices: [
+    prices: [
       {
         model: "gpt-4o-mini",
         provider: "azure_openai",
@@ -265,7 +265,8 @@ function dashboardDataUse(): DashboardDataUseList {
         source_note: null,
       },
     ],
-    statement: "I have opened this provider's own console and checked the account our API key belongs to.",
+    statement:
+      "I have opened this provider's own console and checked the account our API key belongs to.",
   };
 }
 
@@ -611,10 +612,14 @@ describe("the big red switch", () => {
     // unmarked panel.
     renderAdminPage(<OpsPage />, routes(platform()));
 
-    const halt = await screen.findByRole("button", { name: /Halt all outbound calling/ });
+    const halt = await screen.findByRole("button", {
+      name: /Halt all outbound calling/,
+    });
     const zone = halt.closest("section");
     expect(zone, "the halt lever is in no section of its own").not.toBeNull();
-    const heading = within(zone as HTMLElement).getByRole("heading", { level: 2 });
+    const heading = within(zone as HTMLElement).getByRole("heading", {
+      level: 2,
+    });
     expect(heading.textContent).toContain("every client at once");
   });
 

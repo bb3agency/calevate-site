@@ -42,13 +42,28 @@ const ME: Me = {
   user_id: "u1",
   realm: "client",
   role: "owner",
-  permissions: ["leads:read", "leads:write", "leads:dispatch", "calls:read_raw"],
+  permissions: [
+    "leads:read",
+    "leads:write",
+    "leads:dispatch",
+    "calls:read_raw",
+  ],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  withheld_acts: [],
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 /** A staff session: everything but `calls:read_raw`, which is the export's gate. */
-const STAFF: Me = { ...ME, role: "staff", permissions: ["leads:read", "leads:write"] };
+const STAFF: Me = {
+  ...ME,
+  role: "staff",
+  permissions: ["leads:read", "leads:write"],
+};
 
 const MEMBERS: Member[] = [{ id: "u1", name: "Priya Nair", role: "owner" }];
 
@@ -99,8 +114,12 @@ function routes(over: Record<string, unknown> = {}) {
 
 /** The last lens the table asked the server for. */
 function lastSearchLens(calls: ApiCall[]): Record<string, unknown> {
-  const searches = calls.filter((c) => c.path === "/v1/leads/search" && c.method === "POST");
-  expect(searches.length, "the table made no search request").toBeGreaterThan(0);
+  const searches = calls.filter(
+    (c) => c.path === "/v1/leads/search" && c.method === "POST",
+  );
+  expect(searches.length, "the table made no search request").toBeGreaterThan(
+    0,
+  );
   return lensOf(searches[searches.length - 1]);
 }
 
@@ -130,10 +149,14 @@ describe("the empty state belongs to the filters, not to the business", () => {
 
     // The defect, in the words a client read.
     expect(container.textContent).not.toContain("No leads yet");
-    expect(container.textContent).not.toContain("Every answered call becomes a lead");
+    expect(container.textContent).not.toContain(
+      "Every answered call becomes a lead",
+    );
     expect(screen.getByText("No leads match these filters")).toBeTruthy();
     // And the way out is OFFERED, not merely named (ux-audit F-18).
-    expect(screen.getByRole("button", { name: "Clear the filters" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Clear the filters" }),
+    ).toBeTruthy();
   });
 
   it("does not say 'No leads yet' when a QUESTION is what emptied the table", async () => {
@@ -145,18 +168,28 @@ describe("the empty state belongs to the filters, not to the business", () => {
     // The question branch always had its own title; the HINT and the button below it
     // still fell through to the unfiltered arm, so a ranked empty table told the client
     // their leads were still on their way.
-    expect(container.textContent).toContain("No lead's captured answers match that question");
-    expect(container.textContent).not.toContain("Every answered call becomes a lead");
-    expect(screen.getByRole("button", { name: "Clear the filters" })).toBeTruthy();
+    expect(container.textContent).toContain(
+      "No lead's captured answers match that question",
+    );
+    expect(container.textContent).not.toContain(
+      "Every answered call becomes a lead",
+    );
+    expect(
+      screen.getByRole("button", { name: "Clear the filters" }),
+    ).toBeTruthy();
   });
 
   it("still says 'No leads yet' when nothing is filtering — the sentence is not deleted", async () => {
     const { container } = await renderClientPage(<LeadsPage />, routes());
 
     expect(await screen.findByText("No leads yet")).toBeTruthy();
-    expect(container.textContent).toContain("Every answered call becomes a lead");
+    expect(container.textContent).toContain(
+      "Every answered call becomes a lead",
+    );
     // Nothing to clear, so nothing is offered.
-    expect(screen.queryByRole("button", { name: "Clear the filters" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Clear the filters" }),
+    ).toBeNull();
   });
 });
 
@@ -179,7 +212,9 @@ describe("'Clear the filters' clears the filters — all of them", () => {
     expect(narrowed.assigned_to).toBe("u1");
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Clear the filters" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Clear the filters" }),
+      );
     });
 
     await waitFor(() => {
@@ -226,7 +261,9 @@ describe("the two counts say what they are counts OF", () => {
     expect(container.textContent).toContain("leads matching your filters");
     // And the six badges beside it are the server's counts over that same narrowed
     // scope (crm/service.py), so they are not "this account" either.
-    expect(container.textContent).toContain("Matching these filters, by stage:");
+    expect(container.textContent).toContain(
+      "Matching these filters, by stage:",
+    );
     expect(container.textContent).not.toContain("In this account, by stage:");
   });
 });
@@ -244,18 +281,27 @@ describe("the CSV refusal is on the screen, not only in a tooltip", () => {
     expect(button.disabled).toBe(true);
     // The assertion that would have caught it: the sentence is in the DOCUMENT, not in
     // an attribute of a control that takes no focus and receives no hover on touch.
-    expect(container.textContent).toContain("A question ranks the best matches");
-    expect(container.textContent).toContain("Clear it to export by the filters instead");
+    expect(container.textContent).toContain(
+      "A question ranks the best matches",
+    );
+    expect(container.textContent).toContain(
+      "Clear it to export by the filters instead",
+    );
   });
 
   it("states the permission refusal on the screen for a role that lacks calls:read_raw", async () => {
-    const { container } = await renderClientPage(<LeadsPage />, routes({ "/v1/me": STAFF }));
+    const { container } = await renderClientPage(
+      <LeadsPage />,
+      routes({ "/v1/me": STAFF }),
+    );
 
     const button = (await screen.findByRole("button", {
       name: /Export this view as CSV/,
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
-    expect(container.textContent).toContain("Only an account owner can export leads.");
+    expect(container.textContent).toContain(
+      "Only an account owner can export leads.",
+    );
   });
 
   it("says nothing at all while the permission answer is still coming", async () => {
@@ -268,8 +314,12 @@ describe("the CSV refusal is on the screen, not only in a tooltip", () => {
     );
 
     await screen.findByRole("button", { name: /Export this view as CSV/ });
-    expect(container.textContent).not.toContain("Only an account owner can export leads.");
-    expect(container.textContent).toContain("could not check whether you can export");
+    expect(container.textContent).not.toContain(
+      "Only an account owner can export leads.",
+    );
+    expect(container.textContent).toContain(
+      "could not check whether you can export",
+    );
   });
 
   it("says nothing when the export is available", async () => {
@@ -278,8 +328,12 @@ describe("the CSV refusal is on the screen, not only in a tooltip", () => {
       name: /Export this view as CSV/,
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(false);
-    expect(container.textContent).not.toContain("A question ranks the best matches");
-    expect(container.textContent).not.toContain("Only an account owner can export leads.");
+    expect(container.textContent).not.toContain(
+      "A question ranks the best matches",
+    );
+    expect(container.textContent).not.toContain(
+      "Only an account owner can export leads.",
+    );
   });
 });
 
@@ -307,14 +361,19 @@ describe("the derivation is exhaustive over the lens, not over the filters we re
     // A facet key the client OPENED and chose nothing in is not a filter either.
     expect(anyFilterInForce({ fields: { budget: [] } })).toBe(false);
     expect(anyFilterInForce({ fields: { budget: ["50L"] } })).toBe(true);
-    expect(filtersInForce({ status: "hot", assigned_to: "u1" })).toEqual(["status", "assigned_to"]);
+    expect(filtersInForce({ status: "hot", assigned_to: "u1" })).toEqual([
+      "status",
+      "assigned_to",
+    ]);
   });
 
   it("keeps the stage tally's question separate — every filter EXCEPT the stage chip", () => {
     // The server computes the badges over the scope minus the status filter, so a stage
     // chip alone leaves them account-wide and everything else does not.
     expect(narrowedBeyondStatus({ status: "hot" })).toBe(false);
-    expect(narrowedBeyondStatus({ status: "hot", assigned_to: "u1" })).toBe(true);
+    expect(narrowedBeyondStatus({ status: "hot", assigned_to: "u1" })).toBe(
+      true,
+    );
     expect(narrowedBeyondStatus({ fields: { budget: ["50L"] } })).toBe(true);
   });
 
@@ -329,9 +388,9 @@ describe("the derivation is exhaustive over the lens, not over the filters we re
   it("orders the export refusal the way the button is disabled", () => {
     // A question refuses the export even for an owner who holds the permission.
     expect(exportRefusal("3BHK", true, null)).toContain("cannot be exported");
-    expect(exportRefusal("", false, "Only an account owner can export leads.")).toBe(
-      "Only an account owner can export leads.",
-    );
+    expect(
+      exportRefusal("", false, "Only an account owner can export leads."),
+    ).toBe("Only an account owner can export leads.");
     // Not yet answered, and available: neither is a refusal.
     expect(exportRefusal("", false, null)).toBeNull();
     expect(exportRefusal("", true, null)).toBeNull();

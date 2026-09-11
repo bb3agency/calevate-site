@@ -33,10 +33,11 @@ import { useKnowledgeCopilot } from "./copilot";
  * The screen renders no `<h1>`: the shell prints the page title from the nav list
  * (layout.tsx), and a second "Knowledge base" beside it is a visible duplicate.
  *
- * Submitting is `kb:write`, and an impersonating operator is refused it (D-22) — so the
- * control is disabled WITH the reason rather than left to answer 403. Reading
- * (`agents:read`) stays open, which is the whole point of "view as client": support can
- * see the knowledge base they are being asked about.
+ * Submitting is `kb:write` — held by the OWNER role, by a `staff` member whose owner has
+ * switched curation on, and (since D-587) by a view-as operator, whose submission goes for
+ * review like any other. Anyone else gets the reason beside the disabled control rather
+ * than a 403 after the click. Reading (`agents:read`) stays open, which is the other half
+ * of "view as client": support can see the knowledge base they are being asked about.
  *
  * **`staff` HOLDING `kb:write` IS AN ACCOUNT-BY-ACCOUNT ANSWER.** Since the founder's
  * "give the staff perms allowing option to owner", a staff member holds it exactly when
@@ -51,13 +52,25 @@ export function KnowledgeScreen() {
   const submit = useSubmitKnowledge(session);
 
   /**
-   * D-22 read-only. Submitting is `kb:write` (kb/routes.py) — a MUTATING permission,
-   * so an impersonating operator is refused it even though the `operator` role holds
-   * it outright. Reading what an agent knows is `agents:read` and stays open, which is
-   * the whole point of "view as client": support can see the knowledge base they are
-   * being asked about, they just cannot add to it wearing the client's face.
+   * SUBMITTING IS `kb:write` AND NOTHING ELSE — the act is on the other route.
+   *
+   * ⚠ THIS BRIEFLY ASKED `useActAccess(..., "kb.self_approve", ...)` AND THAT WAS ONE
+   * REFUSAL TOO MANY. The withheld act sits on `POST /v1/kb/uploads/{id}/confirm`
+   * (`apps/api/kb/uploads.py:722`), the APPROVAL; this form posts `POST /v1/kb/sources`,
+   * which takes a view-as operator's submission and files it for review with
+   * `auto_approve=False` (`kb/routes.py:266`, `uploads.may_self_approve`). Refusing it
+   * here disabled a write the server accepts — and "a knowledge base with a stale price"
+   * is one of the four support jobs D-587 names as its reason for existing. The gate on
+   * the approval lives in `UploadList.ExtractedText`, where that button is.
+   *
+   * Reading what an agent knows is `agents:read` and stays open, which is the other half
+   * of "view as client": support can see the knowledge base they are being asked about.
    */
-  const write = useWriteAccess(session, "kb:write", "add knowledge to this account");
+  const write = useWriteAccess(
+    session,
+    "kb:write",
+    "add knowledge to this account",
+  );
 
   /**
    * THE OWNER'S SWITCH: may this account's `staff` members curate knowledge at all.
@@ -72,7 +85,11 @@ export function KnowledgeScreen() {
    * already receives `kb:write` and `useWriteAccess` enables the form on its own. This
    * control decides the switch; it does not gate the form.
    */
-  const curationWrite = useWriteAccess(session, "org:manage", "change who may add knowledge");
+  const curationWrite = useWriteAccess(
+    session,
+    "org:manage",
+    "change who may add knowledge",
+  );
 
   const [name, setName] = useState("");
   const [body, setBody] = useState("");
@@ -122,9 +139,10 @@ export function KnowledgeScreen() {
           the faster arrangement, not the poorer one, and it is written that way.
           `tests/knowledgeApproval.test.tsx` pins the sentence and bans the shapes. */}
       <p className="text-sm text-ink-muted">
-        What your agent knows. Everything you add is reviewed by your account manager,
-        and once it is approved it becomes part of what the agent already knows when it
-        picks up — hours, address, prices, the questions you get asked every day.
+        What your agent knows. Everything you add is reviewed by your account
+        manager, and once it is approved it becomes part of what the agent
+        already knows when it picks up — hours, address, prices, the questions
+        you get asked every day.
       </p>
 
       <RestrictionNote reason={write.reason} />
@@ -133,10 +151,17 @@ export function KnowledgeScreen() {
 
       <StaffCurationSwitch write={curationWrite} />
 
-      {sources.error && <ProblemNotice error={sources.error} onRetry={() => sources.refetch()} />}
+      {sources.error && (
+        <ProblemNotice
+          error={sources.error}
+          onRetry={() => sources.refetch()}
+        />
+      )}
       {/* Without this the form simply refused to submit and never said why: no agent
           list means no agent to teach, and the disabled button looked like a bug. */}
-      {agents.error && <ProblemNotice error={agents.error} onRetry={() => agents.refetch()} />}
+      {agents.error && (
+        <ProblemNotice error={agents.error} onRetry={() => agents.refetch()} />
+      )}
       {submit.error && <ProblemNotice error={submit.error} />}
 
       <div className="grid gap-5 lg:grid-cols-12">
@@ -161,7 +186,11 @@ export function KnowledgeScreen() {
           <div className="mt-5">
             <AddDocument
               agentId={selectedAgentId}
-              agentName={agentOptions.length === 1 ? (agentOptions[0]?.name ?? null) : null}
+              agentName={
+                agentOptions.length === 1
+                  ? (agentOptions[0]?.name ?? null)
+                  : null
+              }
               allowed={write.allowed}
               reason={write.reason}
             />

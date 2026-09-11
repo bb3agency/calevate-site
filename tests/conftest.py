@@ -431,6 +431,53 @@ async def platform_tm_registration_is_live() -> None:
         )
 
 
+@pytest.fixture(scope="session", autouse=True)
+async def platform_offers_voices() -> None:
+    """This test database's platform has SYNCED its voice catalogue and ENABLED it (D-588).
+
+    The same class of fact as `platform_tm_registration_is_live` above, supplied for the
+    same three reasons — one row set for the whole platform, no per-tenant fixture can
+    invent it, and a suite that forgot would pass or fail depending on run order.
+
+    It is needed at all because D-588 deleted the compiled catalogue. "What voices does this
+    platform offer" is now a property of a DEPLOYMENT (cached rows plus an operator's
+    `curation_state`), and a test database is a deployment with nobody at its console. See
+    `tests/voice_fixture.py` for where the nine ids come from and why they live in the test
+    tree rather than in `apps/`.
+
+    It SUPPLIES the fact and softens no gate: offerability's other three grounds are
+    untouched, and the suites that care take these rows away again inside their own
+    transactions to assert the empty-catalogue behaviour directly.
+    """
+    from apps.api.agents.voice_sync import load_voice_catalogue
+    from tests.voice_fixture import seed_platform_voices
+
+    await seed_platform_voices()
+    async with untenanted_session() as session:
+        await load_voice_catalogue(session)
+
+
+@pytest.fixture(autouse=True)
+def _voice_catalogue_snapshot_is_restored() -> Iterator[None]:
+    """Every test starts from the catalogue the fixture above installed.
+
+    `voices.install_voice_catalogue` rebinds PROCESS state, and several suites install their
+    own catalogue (or the empty one) to exercise a branch. Without this, the next test in the
+    same worker inherits it — the cross-test leak that is invisible in the failing test and
+    fatal in the one that runs after it.
+
+    A pure rebind from a tuple already in memory, NOT a re-read of the database: it runs
+    before every test in the suite, and D-29 exists because several of these suites are
+    speed-dependent.
+    """
+    from apps.api.agents.voices import catalogue, install_voice_catalogue
+
+    installed = catalogue()
+    yield
+    if catalogue() is not installed:
+        install_voice_catalogue(installed or None)
+
+
 @pytest.fixture
 def source_ip_allowlist(monkeypatch: pytest.MonkeyPatch) -> Iterator[Callable[..., None]]:
     """Point the Bolna webhook source-IP allowlist at documentation addresses.

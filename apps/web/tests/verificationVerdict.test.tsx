@@ -58,13 +58,19 @@ describe("business verification verdict", () => {
     // The whole point. `status` is the last decision written down; `is_verified` is the
     // gate's live answer, and only the second one may paint the box green.
     const { container } = await renderWith(
-      record({ status: "verified", is_verified: false, number_purchase_available: false }),
+      record({
+        status: "verified",
+        is_verified: false,
+        number_purchase_available: false,
+      }),
     );
 
     await screen.findByText(SCREEN);
     expect(container.textContent).toContain("Calls coming IN are unaffected");
     // The not-verified branch renders the two remediation panels; the cleared one does not.
-    expect(screen.queryByText("What this affects while it is outstanding")).not.toBeNull();
+    expect(
+      screen.queryByText("What this affects while it is outstanding"),
+    ).not.toBeNull();
     expect(screen.queryByText("What to send us")).not.toBeNull();
 
     // THE VERDICT BOX ITSELF, which is the sentence the client reads first and the half
@@ -73,15 +79,21 @@ describe("business verification verdict", () => {
     // get verified. Either sentence alone is a lie in a different direction; together
     // they are a screen that cannot be acted on.
     expect(container.textContent).not.toContain("Your business is verified.");
-    expect(container.textContent).not.toContain("Nothing here is holding up your calls.");
-    expect(container.textContent).toContain("Your business is not verified yet.");
+    expect(container.textContent).not.toContain(
+      "Nothing here is holding up your calls.",
+    );
+    expect(container.textContent).toContain(
+      "Your business is not verified yet.",
+    );
   });
 
   it("does not withhold the cleared state because the status is one it cannot name", async () => {
     // The same rule read the other way, and the reason `verdictCopy` covers both
     // directions: the server says this account is verified, so a status string this
     // build predates must not send the client chasing a block that does not exist.
-    const { container } = await renderWith(record({ status: "verified_by_operator" }));
+    const { container } = await renderWith(
+      record({ status: "verified_by_operator" }),
+    );
 
     await screen.findByText(SCREEN);
     expect(container.textContent).toContain("Your business is verified.");
@@ -95,9 +107,13 @@ describe("business verification verdict", () => {
     const { container } = await renderWith(record());
 
     await screen.findByText(SCREEN);
-    expect(screen.queryByText("What this affects while it is outstanding")).toBeNull();
+    expect(
+      screen.queryByText("What this affects while it is outstanding"),
+    ).toBeNull();
     expect(screen.queryByText("What to send us")).toBeNull();
-    expect(container.textContent).not.toContain("Calls coming IN are unaffected");
+    expect(container.textContent).not.toContain(
+      "Calls coming IN are unaffected",
+    );
   });
 
   it("treats a status this build has never heard of as not cleared", async () => {
@@ -108,7 +124,9 @@ describe("business verification verdict", () => {
     );
 
     await screen.findByText("Your business is not verified yet.");
-    expect(container.textContent).toContain("Ask your account manager where your verification stands.");
+    expect(container.textContent).toContain(
+      "Ask your account manager where your verification stands.",
+    );
   });
 
   it("survives a status that collides with an Object prototype key", async () => {
@@ -126,9 +144,16 @@ describe("business verification verdict", () => {
   it("shows a leftover refusal reason only while the account is still not cleared", async () => {
     // The reason is the last thing we told them and the thing they are answering — but
     // under a verified record it would explain a decision that has since been reversed.
-    const reason = "The registration number does not match the name on the account.";
+    const reason =
+      "The registration number does not match the name on the account.";
 
-    const stillHeld = await renderWith(record({ status: "rejected", is_verified: false, rejection_reason: reason }));
+    const stillHeld = await renderWith(
+      record({
+        status: "rejected",
+        is_verified: false,
+        rejection_reason: reason,
+      }),
+    );
     await screen.findByText(SCREEN);
     expect(stillHeld.container.textContent).toContain(reason);
     stillHeld.unmount();

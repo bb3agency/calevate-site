@@ -9,7 +9,10 @@ import { expectNoA11yViolations } from "./a11y";
 import { WALLET_LOTS_PATH } from "@/app/c/[slug]/billing/lots";
 
 import BillingPage from "@/app/c/[slug]/billing/page";
-import { useCopilotSurfaceHolder, type SurfaceHolder } from "@/lib/copilot/registry";
+import {
+  useCopilotSurfaceHolder,
+  type SurfaceHolder,
+} from "@/lib/copilot/registry";
 
 import { renderBillingHub } from "./billingHub";
 import { problem, renderClientPage, stillLoading } from "./harness";
@@ -42,7 +45,13 @@ const ME: Me = {
   role: "owner",
   permissions: ["wallet:read", "billing:read", "org:manage"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  withheld_acts: [],
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 const WALLET = "/v1/billing/wallet";
@@ -73,7 +82,10 @@ function wallet(over: Partial<Wallet> = {}): Wallet {
       min_history_days: 7,
       max_days: 365,
     },
-    minutes_left: [{ provider: "sarvam", label: "Clear", minutes: 425 }, { provider: "cartesia", label: "Studio", minutes: 304 }],
+    minutes_left: [
+      { provider: "sarvam", label: "Clear", minutes: 425 },
+      { provider: "cartesia", label: "Studio", minutes: 304 },
+    ],
     drawdown: {
       calls_inr: "8400.00",
       ai_assist_inr: "300.00",
@@ -232,7 +244,13 @@ const BILL_OF_SUPPLY: Invoice = {
     basis: "Address on record (IGST Act s.12(2)(b)).",
   },
   line_items: [
-    { description: "Calling", qty: "125", unit_inr: "8.0000", amount_inr: "1000.00", sac: null },
+    {
+      description: "Calling",
+      qty: "125",
+      unit_inr: "8.0000",
+      amount_inr: "1000.00",
+      sac: null,
+    },
   ],
   subtotal_inr: "1000.00",
   gst_rate_pct: "0",
@@ -248,14 +266,16 @@ function routes(over: Record<string, unknown> = {}) {
     [WALLET]: wallet(),
     [LEDGER]: LEDGER_ROWS,
     [ATTEMPTS]: [],
-    [CAPABILITY]: { online_payments_available: true, provider_orders_available: true },
+    [CAPABILITY]: {
+      online_payments_available: true,
+      provider_orders_available: true,
+    },
     [PACKS]: PACK_CARD,
     [LOTS_ROUTE]: LOTS,
     [INVOICE_ROUTE]: BILL_OF_SUPPLY,
     ...over,
   };
 }
-
 
 describe("the hero: how much, and how long it lasts", () => {
   it("puts the balance and the runway together, and shows the working behind the days", async () => {
@@ -264,7 +284,9 @@ describe("the hero: how much, and how long it lasts", () => {
     // The digits the server sent, grouped the Indian way — never a parsed number. Scoped
     // to the balance tile: the same figure is the "balance after" of a ledger row, and
     // the history now loads alongside the hero rather than behind it.
-    const tile = (await screen.findByText("Calling credit")).closest("div") as HTMLElement;
+    const tile = (await screen.findByText("Calling credit")).closest(
+      "div",
+    ) as HTMLElement;
     within(tile).getByText("₹3,400.00");
     await screen.findByText(/About 10 days of calling left/);
     // THE WORKING, not only the conclusion: an owner who disagrees with "10 days" can see
@@ -291,7 +313,10 @@ describe("the hero: how much, and how long it lasts", () => {
       routes({
         [WALLET]: wallet({
           balance_inr: "1000.00",
-          minutes_left: [{ provider: "sarvam", label: "Clear", minutes: 125 }, { provider: "cartesia", label: "Studio", minutes: 89 }],
+          minutes_left: [
+            { provider: "sarvam", label: "Clear", minutes: 125 },
+            { provider: "cartesia", label: "Studio", minutes: 89 },
+          ],
           runway: {
             basis: "too_new",
             days: null,
@@ -362,7 +387,10 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
           balance_inr: "0.00",
           is_low: true,
           outbound_stopped: true,
-          minutes_left: [{ provider: "sarvam", label: "Clear", minutes: 0 }, { provider: "cartesia", label: "Studio", minutes: 1 }],
+          minutes_left: [
+            { provider: "sarvam", label: "Clear", minutes: 0 },
+            { provider: "cartesia", label: "Studio", minutes: 1 },
+          ],
           runway: {
             basis: "empty",
             days: null,
@@ -385,9 +413,13 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
     // and their callers would be turned away all night. The banner now leads with the
     // whole of what stopped.
     expect(text).not.toContain("still get through");
-    expect(text).toContain("outgoing calls have stopped and your agents are no longer answering incoming ones");
+    expect(text).toContain(
+      "outgoing calls have stopped and your agents are no longer answering incoming ones",
+    );
     // The reputational half — a caller must not be able to work out why (D-551).
-    expect(text).toContain("gives no reason and says nothing about your account");
+    expect(text).toContain(
+      "gives no reason and says nothing about your account",
+    );
     // And the one action that undoes BOTH, with no support ticket in it.
     expect(text).toContain("start again straight away");
     // The state is not carried by colour alone (WCAG 1.4.1): there is a sentence.
@@ -406,7 +438,10 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
           balance_inr: "0.00",
           is_low: true,
           outbound_stopped: true,
-          minutes_left: [{ provider: "sarvam", label: "Clear", minutes: 0 }, { provider: "cartesia", label: "Studio", minutes: 1 }],
+          minutes_left: [
+            { provider: "sarvam", label: "Clear", minutes: 0 },
+            { provider: "cartesia", label: "Studio", minutes: 1 },
+          ],
           runway: {
             basis: "empty",
             days: null,
@@ -430,8 +465,9 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
       }),
     );
 
-    const notice = (await screen.findByText(/Until there is credit on the account/))
-      .closest("[role=status]");
+    const notice = (
+      await screen.findByText(/Until there is credit on the account/)
+    ).closest("[role=status]");
     // ⚠ THIS USED TO ASSERT "already get through" led the sentence. D-551 withdrew that
     // reassurance on day one too: an account with no credit has no answering agents
     // either, so the day-one variant differs from the run-out one only in TENSE — it says
@@ -446,11 +482,22 @@ describe("an empty wallet: what stopped, and what emphatically did not", () => {
 
   it("warns at the low band without claiming anything has stopped yet", async () => {
     await renderBillingHub(
-      routes({ [WALLET]: wallet({ balance_inr: "150.00", is_low: true, minutes_left: [{ provider: "sarvam", label: "Clear", minutes: 18 }, { provider: "cartesia", label: "Studio", minutes: 13 }] }) }),
+      routes({
+        [WALLET]: wallet({
+          balance_inr: "150.00",
+          is_low: true,
+          minutes_left: [
+            { provider: "sarvam", label: "Clear", minutes: 18 },
+            { provider: "cartesia", label: "Studio", minutes: 13 },
+          ],
+        }),
+      }),
     );
     // NOT `findByRole("status")`: `Skeleton` is a live region too (it announces the
     // start of a load), so that query races the panel it is looking for.
-    const notice = (await screen.findByText(/running low/)).closest("[role=status]");
+    const notice = (await screen.findByText(/running low/)).closest(
+      "[role=status]",
+    );
     expect(notice?.textContent).toContain("₹150.00");
     // Nothing has stopped, so nothing says it has.
     expect(screen.queryByText(/Outgoing calls have stopped/)).toBeNull();
@@ -464,7 +511,9 @@ describe("the credit itself: what is left, and at which rates", () => {
     // THE SENTENCE THIS PANEL EXISTS TO MAKE READABLE (plan §5 F1): "3,200 credits at
     // ₹4.70 / ₹6.50, then 2,000 at ₹5.00 / ₹8.00". A single balance with a single price
     // cannot say it, and a client who bought the cheaper minute could not see they had.
-    const table = await screen.findByRole("table", { name: /in the order it will be spent/i });
+    const table = await screen.findByRole("table", {
+      name: /in the order it will be spent/i,
+    });
     const rows = within(table).getAllByRole("row");
     // Header, then the two lots IN SPEND ORDER. The order is the fact: the first row is
     // what the next call is charged at, which is why it — and not the newest purchase —
@@ -479,8 +528,12 @@ describe("the credit itself: what is left, and at which rates", () => {
     expect(within(rows[2]).queryByText("Spent first")).toBeNull();
     // The columns are named by the SERVER's words for the two qualities, never the
     // vendors' — which company synthesises a voice is not a product tier a client reads.
-    expect(within(table).getByRole("columnheader", { name: "Clear" })).toBeTruthy();
-    expect(within(table).getByRole("columnheader", { name: "Studio" })).toBeTruthy();
+    expect(
+      within(table).getByRole("columnheader", { name: "Clear" }),
+    ).toBeTruthy();
+    expect(
+      within(table).getByRole("columnheader", { name: "Studio" }),
+    ).toBeTruthy();
     for (const vendor of ["Sarvam", "sarvam", "Cartesia", "cartesia"]) {
       expect(container.textContent).not.toContain(vendor);
     }
@@ -505,15 +558,25 @@ describe("the credit itself: what is left, and at which rates", () => {
       }),
     );
 
-    const table = await screen.findByRole("table", { name: /in the order it will be spent/i });
-    expect(within(table).getByRole("columnheader", { name: "Everyday" })).toBeTruthy();
-    expect(within(table).getByRole("columnheader", { name: "Premium" })).toBeTruthy();
+    const table = await screen.findByRole("table", {
+      name: /in the order it will be spent/i,
+    });
+    expect(
+      within(table).getByRole("columnheader", { name: "Everyday" }),
+    ).toBeTruthy();
+    expect(
+      within(table).getByRole("columnheader", { name: "Premium" }),
+    ).toBeTruthy();
     expect(container.textContent).toContain("1,080 minutes on Everyday");
     expect(container.textContent).toContain("800 minutes on Premium");
     // The names this build happens to ship with are nowhere on screen, because nothing
     // here knows them.
-    expect(within(table).queryByRole("columnheader", { name: "Clear" })).toBeNull();
-    expect(within(table).queryByRole("columnheader", { name: "Studio" })).toBeNull();
+    expect(
+      within(table).queryByRole("columnheader", { name: "Clear" }),
+    ).toBeNull();
+    expect(
+      within(table).queryByRole("columnheader", { name: "Studio" }),
+    ).toBeNull();
   });
 
   it("says nothing about rates at all when the server cannot answer for the lots", async () => {
@@ -526,7 +589,9 @@ describe("the credit itself: what is left, and at which rates", () => {
     );
 
     await screen.findByText("₹3,400.00");
-    expect(screen.queryByRole("table", { name: /in the order it will be spent/i })).toBeNull();
+    expect(
+      screen.queryByRole("table", { name: /in the order it will be spent/i }),
+    ).toBeNull();
     expect(container.textContent).not.toContain("minutes on");
     expect(container.textContent).not.toContain("425 minutes");
     // And no failure notice either: the balance, the runway in days and the history are
@@ -548,13 +613,19 @@ describe("the credit itself: what is left, and at which rates", () => {
           lots: [],
           overdraft_inr: "1000.00",
         },
-        [WALLET]: wallet({ balance_inr: "-1000.00", is_low: true, outbound_stopped: true }),
+        [WALLET]: wallet({
+          balance_inr: "-1000.00",
+          is_low: true,
+          outbound_stopped: true,
+        }),
       }),
     );
 
     await screen.findByText(/run ₹1,000.00 past the credit on the account/);
     await screen.findByText(/next top-up clears that first/);
-    expect(screen.queryByRole("table", { name: /in the order it will be spent/i })).toBeNull();
+    expect(
+      screen.queryByRole("table", { name: /in the order it will be spent/i }),
+    ).toBeNull();
     expect(container.textContent).not.toContain("/min");
   });
 
@@ -580,7 +651,9 @@ describe("the credit itself: what is left, and at which rates", () => {
     };
     await renderBillingHub(routes({ [LOTS_ROUTE]: reversed }));
 
-    const table = await screen.findByRole("table", { name: /in the order it will be spent/i });
+    const table = await screen.findByRole("table", {
+      name: /in the order it will be spent/i,
+    });
     const headers = within(table)
       .getAllByRole("columnheader")
       .map((th) => th.textContent);
@@ -611,8 +684,12 @@ describe("the credit itself: what is left, and at which rates", () => {
       }),
     );
 
-    const table = await screen.findByRole("table", { name: /in the order it will be spent/i });
-    expect(within(table).getByRole("columnheader", { name: "Theatre" })).toBeTruthy();
+    const table = await screen.findByRole("table", {
+      name: /in the order it will be spent/i,
+    });
+    expect(
+      within(table).getByRole("columnheader", { name: "Theatre" }),
+    ).toBeTruthy();
     const cells = within(within(table).getAllByRole("row")[1] as HTMLElement)
       .getAllByRole("cell")
       .map((td) => td.textContent);
@@ -638,7 +715,11 @@ describe("the credit itself: what is left, and at which rates", () => {
           lots: [],
           overdraft_inr: "0.00",
         },
-        [WALLET]: wallet({ balance_inr: "0.00", outbound_stopped: true, is_low: true }),
+        [WALLET]: wallet({
+          balance_inr: "0.00",
+          outbound_stopped: true,
+          is_low: true,
+        }),
         [LEDGER]: { entries: [], payments: [] },
       }),
     );
@@ -659,16 +740,24 @@ describe("the credit itself: what is left, and at which rates", () => {
     const { container } = await renderBillingHub(
       routes({
         [LOTS_ROUTE]: problem(404, { title: "Not found" }),
-        [WALLET]: wallet({ balance_inr: "-120.00", outbound_stopped: true, is_low: true }),
+        [WALLET]: wallet({
+          balance_inr: "-120.00",
+          outbound_stopped: true,
+          is_low: true,
+        }),
       }),
     );
 
-    const tile = (await screen.findByText("Calling credit")).closest("div") as HTMLElement;
+    const tile = (await screen.findByText("Calling credit")).closest(
+      "div",
+    ) as HTMLElement;
     within(tile).getByText("-₹120.00");
     expect(tile.textContent).toMatch(/a little below zero/);
     expect(tile.textContent).toMatch(/next top-up clears what is owed first/);
     // And it is not said to everybody: a wallet in credit gets the plain sentence only.
-    expect(container.textContent).toContain("Outgoing calls stop when this reaches zero");
+    expect(container.textContent).toContain(
+      "Outgoing calls stop when this reaches zero",
+    );
   });
 
   it("says nothing about going below zero on a wallet that is in credit", async () => {
@@ -694,7 +783,9 @@ describe("the credit itself: what is left, and at which rates", () => {
     );
 
     await screen.findByText("₹3,400.00");
-    expect(screen.queryByText("Your credit and what it costs a minute")).toBeNull();
+    expect(
+      screen.queryByText("Your credit and what it costs a minute"),
+    ).toBeNull();
   });
 });
 
@@ -740,7 +831,9 @@ describe("where the money went", () => {
     // blank. They are on different tabs now (D-525), so the count is asserted per tab:
     // "where it went" is Overview's and the history is Transactions'.
     await waitFor(() =>
-      expect(screen.getAllByText(/Nothing has moved on your credit yet/)).toHaveLength(1),
+      expect(
+        screen.getAllByText(/Nothing has moved on your credit yet/),
+      ).toHaveLength(1),
     );
     fireEvent.click(await screen.findByRole("tab", { name: "Transactions" }));
     await screen.findByText(/Payments you make and calls your agents handle/);
@@ -764,8 +857,12 @@ describe("the ledger and its receipts", () => {
     expect(within(rows[2]).getByText("Credit added")).toBeTruthy();
     // A receipt exists for the payment and NOT for the call charge: there is no document
     // to issue for money we took a fraction of a rupee at a time.
-    expect(within(rows[1]).queryByRole("button", { name: /receipt/i })).toBeNull();
-    expect(within(rows[2]).getByRole("button", { name: /receipt for the payment/i })).toBeTruthy();
+    expect(
+      within(rows[1]).queryByRole("button", { name: /receipt/i }),
+    ).toBeNull();
+    expect(
+      within(rows[2]).getByRole("button", { name: /receipt for the payment/i }),
+    ).toBeTruthy();
     // The sign is in the DIGITS, not only in a colour (WCAG 1.4.1).
     expect(within(rows[1]).getByText("-₹42.50")).toBeTruthy();
   });
@@ -831,16 +928,24 @@ describe("the ledger and its receipts", () => {
     );
 
     const table = await screen.findByRole("table", { name: /credit history/i });
-    const expander = within(table).getByRole("button", { name: /Calls \(2 purchases\)/ });
+    const expander = within(table).getByRole("button", {
+      name: /Calls \(2 purchases\)/,
+    });
     // A DISCLOSURE, closed by default: the splits answer "why is this figure what it is",
     // which most readers never ask of most rows.
     expect(expander.getAttribute("aria-expanded")).toBe("false");
     fireEvent.click(expander);
-    await waitFor(() => expect(expander.getAttribute("aria-expanded")).toBe("true"));
+    await waitFor(() =>
+      expect(expander.getAttribute("aria-expanded")).toBe("true"),
+    );
 
-    const detail = document.getElementById(expander.getAttribute("aria-controls") ?? "");
+    const detail = document.getElementById(
+      expander.getAttribute("aria-controls") ?? "",
+    );
     expect(detail?.textContent).toContain("₹47.00");
-    expect(detail?.textContent).toContain("10.0000 min at ₹4.7000/min on Clear");
+    expect(detail?.textContent).toContain(
+      "10.0000 min at ₹4.7000/min on Clear",
+    );
     expect(detail?.textContent).toContain("2.6000 min at ₹5.0000/min on Clear");
     // NOTHING IS SUMMED HERE: the row's own -₹60.00 is the server's, and the splits are
     // shown beside it rather than added up to check it.
@@ -850,9 +955,13 @@ describe("the ledger and its receipts", () => {
     // rupees of help, not minutes of talk, and carries no rate and no voice at all
     // (ADDENDUM 2 §2.1). A "—" where the rate would be is the tri-state defect that
     // addendum exists to avoid.
-    const assist = within(table).getByRole("button", { name: /Correction we made \(1 purchase\)/ });
+    const assist = within(table).getByRole("button", {
+      name: /Correction we made \(1 purchase\)/,
+    });
     fireEvent.click(assist);
-    const assistDetail = document.getElementById(assist.getAttribute("aria-controls") ?? "");
+    const assistDetail = document.getElementById(
+      assist.getAttribute("aria-controls") ?? "",
+    );
     await waitFor(() =>
       expect(assistDetail?.textContent).toContain("₹12.00 of extra AI help"),
     );
@@ -865,7 +974,9 @@ describe("the ledger and its receipts", () => {
     // is simply nothing to open, and no control is offered that would open nothing.
     await renderBillingHub(routes(), "Transactions");
     const table = await screen.findByRole("table", { name: /credit history/i });
-    expect(within(table).queryByRole("button", { name: /purchase/ })).toBeNull();
+    expect(
+      within(table).queryByRole("button", { name: /purchase/ }),
+    ).toBeNull();
     expect(within(table).getByText("Calls")).toBeTruthy();
   });
 
@@ -945,16 +1056,25 @@ describe("the ledger and its receipts", () => {
       "Transactions",
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /receipt for the payment/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /receipt for the payment/i }),
+    );
 
-    const dialog = await screen.findByRole("dialog", { name: "Payment receipt" });
+    const dialog = await screen.findByRole("dialog", {
+      name: "Payment receipt",
+    });
     await within(dialog).findByText("₹2,500.00");
     // THE HEADING COMES OFF THE WIRE. The business is not GST-registered, so CGST s.32
     // forbids collecting tax and nothing here may print a tax heading.
-    expect(within(dialog).getByRole("heading", { name: "Receipt" })).toBeTruthy();
+    expect(
+      within(dialog).getByRole("heading", { name: "Receipt" }),
+    ).toBeTruthy();
     expect(dialog.textContent).toContain("It is not a tax invoice.");
     expect(dialog.textContent).not.toMatch(/TAX INVOICE|GSTIN/);
-    await expectNoA11yViolations(container, "c/[slug]/credits — receipt dialog");
+    await expectNoA11yViolations(
+      container,
+      "c/[slug]/credits — receipt dialog",
+    );
   });
 });
 
@@ -1020,7 +1140,9 @@ describe("the states that are not a balance", () => {
     // The skeleton is ANNOUNCED as well as drawn (`components/ui.Skeleton`), which is the
     // half a screen-reader user would otherwise get nothing from.
     await screen.findByText("Loading your balance");
-    expect(container.querySelector("[role=status][aria-live=polite]")).toBeTruthy();
+    expect(
+      container.querySelector("[role=status][aria-live=polite]"),
+    ).toBeTruthy();
     expect(container.textContent).not.toContain("₹0.00");
   });
 
@@ -1043,7 +1165,13 @@ describe("the states that are not a balance", () => {
 
   it("gives an invoiced account a screen of its own rather than a dead end", async () => {
     const { container } = await renderBillingHub(
-      routes({ [WALLET]: wallet({ prepaid: false, balance_inr: "0.00", minutes_left: null }) }),
+      routes({
+        [WALLET]: wallet({
+          prepaid: false,
+          balance_inr: "0.00",
+          minutes_left: null,
+        }),
+      }),
     );
     await screen.findByText("This account is billed on a monthly invoice");
     await screen.findByText(/never stop for want of credit/);
@@ -1058,7 +1186,10 @@ describe("the states that are not a balance", () => {
     await screen.findByText(/Most accounts pay as they go/);
     // No balance about nothing, and no control the intent route is bound to refuse.
     expect(screen.queryByText(/Add credit/)).toBeNull();
-    await expectNoA11yViolations(container, "c/[slug]/credits — invoiced account");
+    await expectNoA11yViolations(
+      container,
+      "c/[slug]/credits — invoiced account",
+    );
   });
 
   it("gives a session without the permission a sentence, not a red 403", async () => {
@@ -1090,7 +1221,9 @@ describe("the explainer's claims about the money", () => {
     const explainer = (await screen.findByText("What calls cost")).closest(
       "section",
     ) as HTMLElement;
-    expect(explainer.textContent).not.toMatch(/Nothing runs it down except your own calls/);
+    expect(explainer.textContent).not.toMatch(
+      /Nothing runs it down except your own calls/,
+    );
     expect(explainer.textContent).toMatch(/extra dashboard AI/i);
     // The panel it used to contradict is on the same screen, saying the same thing.
     const spend = (
@@ -1108,7 +1241,9 @@ describe("the explainer's claims about the money", () => {
     const explainer = (await screen.findByText("What calls cost")).closest(
       "section",
     ) as HTMLElement;
-    expect(explainer.textContent).toMatch(/Moving an agent to the other voice costs you nothing/);
+    expect(explainer.textContent).toMatch(
+      /Moving an agent to the other voice costs you nothing/,
+    );
     expect(explainer.textContent).toMatch(/the same purchase is drawn down/i);
   });
 
@@ -1125,7 +1260,6 @@ describe("the explainer's claims about the money", () => {
   });
 });
 
-
 /**
  * WHAT THE ASSISTANT IS TOLD ABOUT THIS SCREEN.
  *
@@ -1135,7 +1269,11 @@ describe("the explainer's claims about the money", () => {
  * `formatWhole`, and the fact interpolated the column.
  */
 describe("the facts the hub hands the assistant", () => {
-  function Probe({ onHolder }: { onHolder: (holder: SurfaceHolder | null) => void }) {
+  function Probe({
+    onHolder,
+  }: {
+    onHolder: (holder: SurfaceHolder | null) => void;
+  }) {
     onHolder(useCopilotSurfaceHolder());
     return null;
   }

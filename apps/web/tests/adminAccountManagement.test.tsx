@@ -95,39 +95,55 @@ const PROFILE: TenantProfile = {
 };
 
 function renderClosure(routes: Partial<Routes> = {}) {
-  return renderAdminRoute(<ClosurePage params={routeParams({ tenantId: TENANT })} />, {
-    [ADMIN_ME_PATH]: ME,
-    [TENANT_PATH]: SUMMARY,
-    [CLOSURE_PATH]: OPEN,
-    ...routes,
-  });
+  return renderAdminRoute(
+    <ClosurePage params={routeParams({ tenantId: TENANT })} />,
+    {
+      [ADMIN_ME_PATH]: ME,
+      [TENANT_PATH]: SUMMARY,
+      [CLOSURE_PATH]: OPEN,
+      ...routes,
+    },
+  );
 }
 
 function renderProfile(routes: Partial<Routes> = {}) {
-  return renderAdminRoute(<TenantProfilePage params={routeParams({ tenantId: TENANT })} />, {
-    [ADMIN_ME_PATH]: ME,
-    [PROFILE_PATH]: PROFILE,
-    ...routes,
-  });
+  return renderAdminRoute(
+    <TenantProfilePage params={routeParams({ tenantId: TENANT })} />,
+    {
+      [ADMIN_ME_PATH]: ME,
+      [PROFILE_PATH]: PROFILE,
+      ...routes,
+    },
+  );
 }
 
 function renderInvitations(routes: Partial<Routes> = {}) {
   return renderAdminRoute(
     <TenantInvitationsPage params={routeParams({ tenantId: TENANT })} />,
-    { [ADMIN_ME_PATH]: ME, [TENANT_PATH]: SUMMARY, [INVITES_PATH]: [], ...routes },
+    {
+      [ADMIN_ME_PATH]: ME,
+      [TENANT_PATH]: SUMMARY,
+      [INVITES_PATH]: [],
+      ...routes,
+    },
   );
 }
 
 describe("closing a client account", () => {
   it("refuses to render a closure state it could not read", async () => {
     const { container } = await renderClosure({
-      [CLOSURE_PATH]: problem(503, { title: "Upstream unavailable", retryable: true }),
+      [CLOSURE_PATH]: problem(503, {
+        title: "Upstream unavailable",
+        retryable: true,
+      }),
     });
 
     // "Not closed" printed over a 503, next to a Close button, is how an account gets
     // closed twice — or how an operator concludes a closure they filed never took.
     await screen.findByRole("alert");
-    expect(screen.queryByRole("button", { name: /Close this account/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Close this account/ }),
+    ).toBeNull();
     expect(container.textContent).toContain("Upstream unavailable");
   });
 
@@ -145,7 +161,11 @@ describe("closing a client account", () => {
       target: { value: "Not renewing after the pilot." },
     });
     expect(
-      (screen.getByRole("button", { name: /Close this account/ }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: /Close this account/,
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
 
     fireEvent.change(screen.getByLabelText(/Type CLOSE to confirm/), {
@@ -153,24 +173,33 @@ describe("closing a client account", () => {
     });
     await waitFor(() => {
       expect(
-        (screen.getByRole("button", { name: /Close this account/ }) as HTMLButtonElement)
-          .disabled,
+        (
+          screen.getByRole("button", {
+            name: /Close this account/,
+          }) as HTMLButtonElement
+        ).disabled,
       ).toBe(false);
     });
     fireEvent.click(screen.getByRole("button", { name: /Close this account/ }));
 
     await waitFor(() => {
-      expect(calls.some((call) => call.method === "POST" && call.path === CLOSURE_PATH)).toBe(
-        true,
-      );
+      expect(
+        calls.some(
+          (call) => call.method === "POST" && call.path === CLOSURE_PATH,
+        ),
+      ).toBe(true);
     });
-    const post = calls.find((call) => call.method === "POST" && call.path === CLOSURE_PATH);
+    const post = calls.find(
+      (call) => call.method === "POST" && call.path === CLOSURE_PATH,
+    );
     // The step-up string is the CLOSURE one, never the status route's old `close_account:`
     // — a confirmation captured for ending a relationship must not authorise an erasure.
     expect(post?.headers["X-Confirm-Action"]).toBe(closureConfirmation(TENANT));
     // No `grace_days`: the server's own GRACE_DAYS stays the single place the window is
     // decided, and a console that always sent a number would be a second one.
-    expect(JSON.parse(post?.body ?? "{}")).toEqual({ reason: "Not renewing after the pilot." });
+    expect(JSON.parse(post?.body ?? "{}")).toEqual({
+      reason: "Not renewing after the pilot.",
+    });
   });
 
   it("shows a closed account what happens next and by when, off the server's clock", async () => {
@@ -183,7 +212,9 @@ describe("closing a client account", () => {
     expect(container.textContent).toContain("Not renewing after the pilot.");
     // The disclosure the client's own notice makes, made here too.
     expect(container.textContent).toContain("still pointed at the agent");
-    expect(screen.queryByRole("button", { name: /Close this account/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Close this account/ }),
+    ).toBeNull();
   });
 
   it("reopens in one click, with no typed word and no confirmation header", async () => {
@@ -192,26 +223,38 @@ describe("closing a client account", () => {
       [`DELETE ${CLOSURE_PATH}`]: OPEN,
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /Reopen the account/ }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Reopen the account/ }),
+    );
     await waitFor(() => {
-      expect(calls.some((call) => call.method === "DELETE" && call.path === CLOSURE_PATH)).toBe(
-        true,
-      );
+      expect(
+        calls.some(
+          (call) => call.method === "DELETE" && call.path === CLOSURE_PATH,
+        ),
+      ).toBe(true);
     });
     // The asymmetry is the point: a second factor on the recovery path means the operator
     // who closed the wrong client at a coffee shop cannot fix it from the same coffee shop.
     expect(
-      calls.find((call) => call.method === "DELETE")?.headers["X-Confirm-Action"],
+      calls.find((call) => call.method === "DELETE")?.headers[
+        "X-Confirm-Action"
+      ],
     ).toBeUndefined();
   });
 
   it("offers no undo once the erasure has run", async () => {
     const { container } = await renderClosure({
-      [CLOSURE_PATH]: { ...CLOSED, erased_at: "2026-09-19T06:00:00Z", restorable: false },
+      [CLOSURE_PATH]: {
+        ...CLOSED,
+        erased_at: "2026-09-19T06:00:00Z",
+        restorable: false,
+      },
     });
 
     await screen.findByText(/records have been erased/);
-    expect(screen.queryByRole("button", { name: /Reopen the account/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Reopen the account/ }),
+    ).toBeNull();
     expect(container.textContent).toContain("cannot be undone");
   });
 });
@@ -220,7 +263,10 @@ describe("correcting a client's business record", () => {
   it("refuses to pre-fill a form from a read that failed", async () => {
     // A form filled from a failed read saves a guess over a real value.
     await renderProfile({
-      [PROFILE_PATH]: problem(503, { title: "Upstream unavailable", retryable: true }),
+      [PROFILE_PATH]: problem(503, {
+        title: "Upstream unavailable",
+        retryable: true,
+      }),
     });
 
     await screen.findByRole("alert");
@@ -255,7 +301,9 @@ describe("correcting a client's business record", () => {
       expect(calls.some((call) => call.method === "PATCH")).toBe(true);
     });
     const patch = calls.find((call) => call.method === "PATCH");
-    expect(JSON.parse(patch?.body ?? "{}")).toEqual({ name: "Sri Traders & Co" });
+    expect(JSON.parse(patch?.body ?? "{}")).toEqual({
+      name: "Sri Traders & Co",
+    });
     // A header on a change that redirects nothing is a confirmation of nothing.
     expect(patch?.headers["X-Confirm-Action"]).toBeUndefined();
   });
@@ -269,10 +317,15 @@ describe("correcting a client's business record", () => {
       },
     });
 
-    fireEvent.change(await screen.findByLabelText(/Where this account's notices go/), {
-      target: { value: "billing@sri.example" },
-    });
-    const save = screen.getByRole("button", { name: /Save changes/ }) as HTMLButtonElement;
+    fireEvent.change(
+      await screen.findByLabelText(/Where this account's notices go/),
+      {
+        target: { value: "billing@sri.example" },
+      },
+    );
+    const save = screen.getByRole("button", {
+      name: /Save changes/,
+    }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
 
     fireEvent.change(screen.getByLabelText(/Type CHANGE ADDRESS to confirm/), {
@@ -280,7 +333,11 @@ describe("correcting a client's business record", () => {
     });
     await waitFor(() => {
       expect(
-        (screen.getByRole("button", { name: /Save changes/ }) as HTMLButtonElement).disabled,
+        (
+          screen.getByRole("button", {
+            name: /Save changes/,
+          }) as HTMLButtonElement
+        ).disabled,
       ).toBe(false);
     });
     fireEvent.click(screen.getByRole("button", { name: /Save changes/ }));
@@ -289,8 +346,12 @@ describe("correcting a client's business record", () => {
       expect(calls.some((call) => call.method === "PATCH")).toBe(true);
     });
     const patch = calls.find((call) => call.method === "PATCH");
-    expect(patch?.headers["X-Confirm-Action"]).toBe(noticeAddressConfirmation(TENANT));
-    expect(JSON.parse(patch?.body ?? "{}")).toEqual({ billing_email: "billing@sri.example" });
+    expect(patch?.headers["X-Confirm-Action"]).toBe(
+      noticeAddressConfirmation(TENANT),
+    );
+    expect(JSON.parse(patch?.body ?? "{}")).toEqual({
+      billing_email: "billing@sri.example",
+    });
   });
 
   it("says how many queued notices follow the address, rather than letting it happen quietly", async () => {
@@ -302,9 +363,12 @@ describe("correcting a client's business record", () => {
       },
     });
 
-    fireEvent.change(await screen.findByLabelText(/Where this account's notices go/), {
-      target: { value: "billing@sri.example" },
-    });
+    fireEvent.change(
+      await screen.findByLabelText(/Where this account's notices go/),
+      {
+        target: { value: "billing@sri.example" },
+      },
+    );
     fireEvent.change(screen.getByLabelText(/Type CHANGE ADDRESS to confirm/), {
       target: { value: "CHANGE ADDRESS" },
     });
@@ -321,11 +385,18 @@ describe("correcting a client's business record", () => {
   it("refuses to clear the address, which would leave the account with no channel", async () => {
     const { container, calls } = await renderProfile();
 
-    fireEvent.change(await screen.findByLabelText(/Where this account's notices go/), {
-      target: { value: "" },
-    });
+    fireEvent.change(
+      await screen.findByLabelText(/Where this account's notices go/),
+      {
+        target: { value: "" },
+      },
+    );
     expect(
-      (screen.getByRole("button", { name: /Save changes/ }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: /Save changes/,
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
     expect(container.textContent).toContain("nowhere to send its notices");
     expect(calls.some((call) => call.method === "PATCH")).toBe(false);
@@ -334,7 +405,9 @@ describe("correcting a client's business record", () => {
   it("offers exactly the verticals the server said it would accept", async () => {
     await renderProfile();
 
-    const select = (await screen.findByLabelText("Vertical")) as HTMLSelectElement;
+    const select = (await screen.findByLabelText(
+      "Vertical",
+    )) as HTMLSelectElement;
     expect(Array.from(select.options).map((option) => option.value)).toEqual(
       PROFILE.verticals,
     );
@@ -346,7 +419,10 @@ describe("a client's invitations", () => {
     // An operator who believes "no invitation is outstanding" issues a second link to an
     // address that already holds one — which the API then refuses.
     const { container } = await renderInvitations({
-      [INVITES_PATH]: problem(503, { title: "Upstream unavailable", retryable: true }),
+      [INVITES_PATH]: problem(503, {
+        title: "Upstream unavailable",
+        retryable: true,
+      }),
     });
 
     await screen.findByRole("alert");
@@ -398,15 +474,21 @@ describe("a client's invitations", () => {
       },
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /Send the link again/ }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Send the link again/ }),
+    );
     await waitFor(() => {
-      expect(calls.some((call) => call.method === "POST" && call.path === resendPath)).toBe(
-        true,
-      );
+      expect(
+        calls.some(
+          (call) => call.method === "POST" && call.path === resendPath,
+        ),
+      ).toBe(true);
     });
     // No address, so the server sends to the one on file. NOT a revoke-then-invite: the
     // token rotates on the same row, so two live keys for one address cannot exist.
-    expect(JSON.parse(calls.find((call) => call.path === resendPath)?.body ?? "{}")).toEqual({});
+    expect(
+      JSON.parse(calls.find((call) => call.path === resendPath)?.body ?? "{}"),
+    ).toEqual({});
     expect(calls.some((call) => call.method === "DELETE")).toBe(false);
   });
 
@@ -433,7 +515,9 @@ describe("a client's invitations", () => {
       },
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /Wrong address/ }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Wrong address/ }),
+    );
     fireEvent.change(screen.getByLabelText("Send it to"), {
       target: { value: "owner@sri.example" },
     });
@@ -450,15 +534,22 @@ describe("a client's invitations", () => {
     });
     await waitFor(() => {
       expect(
-        (screen.getByRole("button", { name: /Send to the corrected address/ }) as HTMLButtonElement)
-          .disabled,
+        (
+          screen.getByRole("button", {
+            name: /Send to the corrected address/,
+          }) as HTMLButtonElement
+        ).disabled,
       ).toBe(false);
     });
-    fireEvent.click(screen.getByRole("button", { name: /Send to the corrected address/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Send to the corrected address/ }),
+    );
     await waitFor(() => {
       expect(calls.some((call) => call.path === resendPath)).toBe(true);
     });
-    expect(JSON.parse(calls.find((call) => call.path === resendPath)?.body ?? "{}")).toEqual({
+    expect(
+      JSON.parse(calls.find((call) => call.path === resendPath)?.body ?? "{}"),
+    ).toEqual({
       email: "owner@sri.example",
       attestation: "confirmed on a call with the owner",
     });

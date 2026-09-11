@@ -54,7 +54,9 @@ describe("a tool call, as the person sees it", () => {
     // An empty `<p>` is a blank line of padding under the tool name that reads as a
     // rendering fault on the one screen whose job is to look competent.
     const { container } = render(
-      <StepList steps={[step({ detail: null }), step({ id: "s2", detail: "" })]} />,
+      <StepList
+        steps={[step({ detail: null }), step({ id: "s2", detail: "" })]}
+      />,
     );
     expect(container.querySelectorAll("p.text-ink-muted")).toHaveLength(0);
   });
@@ -69,7 +71,9 @@ describe("a tool call, as the person sees it", () => {
   });
 
   it("shows the arguments only while the call is in flight", () => {
-    const { rerender } = render(<StepList steps={[step({ status: "running", detail: null })]} />);
+    const { rerender } = render(
+      <StepList steps={[step({ status: "running", detail: null })]} />,
+    );
     expect(screen.getByText('{"days": 7}')).toBeTruthy();
     // Once the answer is on screen it is the more useful of the two, and the row has to
     // stay one or two lines — a step list taller than the answer has inverted the panel.
@@ -80,10 +84,17 @@ describe("a tool call, as the person sees it", () => {
   it("says a lookup failed without the person having to read a stack trace", () => {
     render(
       <StepList
-        steps={[step({ status: "failed", detail: "`calls_recent` could not be read just now." })]}
+        steps={[
+          step({
+            status: "failed",
+            detail: "`calls_recent` could not be read just now.",
+          }),
+        ]}
       />,
     );
-    expect(screen.getByText("`calls_recent` could not be read just now.")).toBeTruthy();
+    expect(
+      screen.getByText("`calls_recent` could not be read just now."),
+    ).toBeTruthy();
   });
 
   it("keeps the machine tool name, deliberately (see this file's header)", () => {

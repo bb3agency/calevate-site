@@ -50,12 +50,20 @@ describe("the maintenance confirmations", () => {
     // Pinned as literals because `runbooks/maintenance-window.md` prints them and the API
     // refuses anything else. A reformat here has to fail a test rather than quietly leave
     // the console sending a header the server rejects.
-    expect(maintenanceConfirmation("schedule_maintenance")).toBe("schedule_maintenance");
+    expect(maintenanceConfirmation("schedule_maintenance")).toBe(
+      "schedule_maintenance",
+    );
     expect(maintenanceConfirmation("end_maintenance", DRAINING.id)).toBe(
       `end_maintenance:${DRAINING.id}`,
     );
-    const verbs = ["amend_maintenance", "cancel_maintenance", "end_maintenance"];
-    const strings = new Set(verbs.map((verb) => maintenanceConfirmation(verb, DRAINING.id)));
+    const verbs = [
+      "amend_maintenance",
+      "cancel_maintenance",
+      "end_maintenance",
+    ];
+    const strings = new Set(
+      verbs.map((verb) => maintenanceConfirmation(verb, DRAINING.id)),
+    );
     expect(strings.size).toBe(3);
   });
 });
@@ -66,27 +74,45 @@ describe("the operator's screen", () => {
     // numbers will force it and break a live call." Both counts and the deadline have to
     // be on the screen before any button is.
     const view = renderAdminPage(<MaintenancePage />, {
-      "/v1/ops/maintenance": { current: DRAINING, history: [DRAINING], notice_lead_hours: 24 },
+      "/v1/ops/maintenance": {
+        current: DRAINING,
+        history: [DRAINING],
+        notice_lead_hours: 24,
+      },
     });
     expect(await view.findByText("What the drain is waiting for")).toBeTruthy();
     expect(screen.getByText("Calls still up")).toBeTruthy();
     expect(screen.getByText("Jobs still queued")).toBeTruthy();
     expect(view.container.textContent).toContain("Drain deadline");
     // And the state is explained in the operator's terms, not as a status word alone.
-    expect(view.container.textContent).toContain("Client portals are still OPEN");
+    expect(view.container.textContent).toContain(
+      "Client portals are still OPEN",
+    );
   });
 
   it("says a partial check is a floor rather than reporting a clean drain", async () => {
     const truncated = {
       ...DRAINING,
-      in_flight: { calls: 0, jobs: 0, tenants_unreached: 4, complete: false, measured_at: null },
+      in_flight: {
+        calls: 0,
+        jobs: 0,
+        tenants_unreached: 4,
+        complete: false,
+        measured_at: null,
+      },
     };
     const view = renderAdminPage(<MaintenancePage />, {
-      "/v1/ops/maintenance": { current: truncated, history: [], notice_lead_hours: 24 },
+      "/v1/ops/maintenance": {
+        current: truncated,
+        history: [],
+        notice_lead_hours: 24,
+      },
     });
     // Two zeros on the screen must NOT read as "drained": the caveat is what stops an
     // operator concluding the platform is idle from a walk that gave up early.
-    expect(await view.findByText("These numbers are a floor, not a total")).toBeTruthy();
+    expect(
+      await view.findByText("These numbers are a floor, not a total"),
+    ).toBeTruthy();
     expect(view.container.textContent).toContain("4 clients");
   });
 
@@ -106,9 +132,15 @@ describe("the operator's screen", () => {
       },
     };
     const view = renderAdminPage(<MaintenancePage />, {
-      "/v1/ops/maintenance": { current: forced, history: [forced], notice_lead_hours: 24 },
+      "/v1/ops/maintenance": {
+        current: forced,
+        history: [forced],
+        notice_lead_hours: 24,
+      },
     });
-    expect(await view.findByText("What was still running when it activated")).toBeTruthy();
+    expect(
+      await view.findByText("What was still running when it activated"),
+    ).toBeTruthy();
     expect(view.container.textContent).toContain(
       "Activated on the deadline, not on a clean drain",
     );
@@ -120,9 +152,15 @@ describe("the operator's screen", () => {
     // this surface's refusals as noise, so it is not rendered.
     const active = { ...DRAINING, state: "active" as const, in_flight: null };
     const view = renderAdminPage(<MaintenancePage />, {
-      "/v1/ops/maintenance": { current: active, history: [], notice_lead_hours: 24 },
+      "/v1/ops/maintenance": {
+        current: active,
+        history: [],
+        notice_lead_hours: 24,
+      },
     });
-    expect(await view.findByText("End now and reopen the portals")).toBeTruthy();
+    expect(
+      await view.findByText("End now and reopen the portals"),
+    ).toBeTruthy();
     expect(screen.queryByText("Call it off")).toBeNull();
   });
 
@@ -132,24 +170,37 @@ describe("the operator's screen", () => {
     const view = renderAdminPage(<MaintenancePage />, {
       "/v1/ops/maintenance": problem(503, { title: "Unavailable" }),
     });
-    expect(await view.findByText("The maintenance board could not be read")).toBeTruthy();
+    expect(
+      await view.findByText("The maintenance board could not be read"),
+    ).toBeTruthy();
     expect(screen.queryByText("Schedule it")).toBeNull();
   });
 
   it("sends the amendment as only the fields that moved, with the bound confirmation", async () => {
     const view = renderAdminPage(<MaintenancePage />, {
-      "/v1/ops/maintenance": { current: DRAINING, history: [], notice_lead_hours: 24 },
-      [`/v1/ops/maintenance/${DRAINING.id}`]: { ...DRAINING, max_drain_minutes: 40 },
+      "/v1/ops/maintenance": {
+        current: DRAINING,
+        history: [],
+        notice_lead_hours: 24,
+      },
+      [`/v1/ops/maintenance/${DRAINING.id}`]: {
+        ...DRAINING,
+        max_drain_minutes: 40,
+      },
     });
     await view.findByText("Change it");
-    fireEvent.change(screen.getByDisplayValue("15"), { target: { value: "40" } });
+    fireEvent.change(screen.getByDisplayValue("15"), {
+      target: { value: "40" },
+    });
     fireEvent.click(screen.getByText("Save changes"));
     await waitFor(() => {
       const patch = view.calls.find((call) => call.method === "PATCH");
       expect(patch).toBeTruthy();
       // Only the drain bound moved, so only the drain bound is sent — an amendment that
       // resent the unchanged reason would re-notify every client for nothing.
-      expect(JSON.parse(patch?.body ?? "{}")).toEqual({ max_drain_minutes: 40 });
+      expect(JSON.parse(patch?.body ?? "{}")).toEqual({
+        max_drain_minutes: 40,
+      });
       expect(patch?.headers["X-Confirm-Action"]).toBe(
         `amend_maintenance:${DRAINING.id}`,
       );
@@ -171,9 +222,15 @@ describe("moving an announced window", () => {
       announced: true,
     };
     const view = renderAdminPage(<MaintenancePage />, {
-      "/v1/ops/maintenance": { current: scheduled, history: [], notice_lead_hours: 24 },
+      "/v1/ops/maintenance": {
+        current: scheduled,
+        history: [],
+        notice_lead_hours: 24,
+      },
     });
-    expect(await view.findByText("Clients have already been told about this window")).toBeTruthy();
+    expect(
+      await view.findByText("Clients have already been told about this window"),
+    ).toBeTruthy();
     expect(screen.getByText("Opens at (IST)")).toBeTruthy();
   });
 
@@ -181,7 +238,11 @@ describe("moving an announced window", () => {
     // A draining window's start is history and the API refuses it by name. An input
     // rendered to fail teaches an operator to read this surface's refusals as noise.
     const view = renderAdminPage(<MaintenancePage />, {
-      "/v1/ops/maintenance": { current: DRAINING, history: [], notice_lead_hours: 24 },
+      "/v1/ops/maintenance": {
+        current: DRAINING,
+        history: [],
+        notice_lead_hours: 24,
+      },
     });
     await view.findByText("Change it");
     expect(screen.queryByText("Opens at (IST)")).toBeNull();
@@ -193,10 +254,16 @@ describe("moving an announced window", () => {
     // screen stating a rule the platform does not follow is the stale-constant defect one
     // surface closer to the person acting on it.
     const view = renderAdminPage(<MaintenancePage />, {
-      "/v1/ops/maintenance": { current: null, history: [], notice_lead_hours: 6 },
+      "/v1/ops/maintenance": {
+        current: null,
+        history: [],
+        notice_lead_hours: 6,
+      },
     });
     expect(await view.findByText("Schedule it")).toBeTruthy();
-    expect(view.container.textContent).toContain("Clients are emailed 6 hours ahead");
+    expect(view.container.textContent).toContain(
+      "Clients are emailed 6 hours ahead",
+    );
     expect(view.container.textContent).not.toContain("24 hours ahead");
   });
 });
@@ -234,7 +301,11 @@ describe("the window's times are IST, whoever is looking", () => {
   it("shows the IST wall clock on an operator whose machine is not in India", async () => {
     process.env.TZ = "America/Los_Angeles";
     const view = renderAdminPage(<MaintenancePage />, {
-      "/v1/ops/maintenance": { current: SCHEDULED, history: [], notice_lead_hours: 24 },
+      "/v1/ops/maintenance": {
+        current: SCHEDULED,
+        history: [],
+        notice_lead_hours: 24,
+      },
     });
     await view.findByText("Change it");
     // 2026-09-06T20:30Z is 07 Sep 02:00 IST; the browser's own zone would say 13:30 on
@@ -246,7 +317,11 @@ describe("the window's times are IST, whoever is looking", () => {
   it("sends what the operator typed read as IST, not as their own clock", async () => {
     process.env.TZ = "America/Los_Angeles";
     const view = renderAdminPage(<MaintenancePage />, {
-      "/v1/ops/maintenance": { current: SCHEDULED, history: [], notice_lead_hours: 24 },
+      "/v1/ops/maintenance": {
+        current: SCHEDULED,
+        history: [],
+        notice_lead_hours: 24,
+      },
       [`/v1/ops/maintenance/${SCHEDULED.id}`]: SCHEDULED,
     });
     await view.findByText("Change it");
@@ -257,7 +332,9 @@ describe("the window's times are IST, whoever is looking", () => {
     await waitFor(() => {
       const patch = view.calls.find((call) => call.method === "PATCH");
       expect(patch).toBeTruthy();
-      expect(JSON.parse(patch?.body ?? "{}")).toEqual({ ends_at: "2026-09-06T22:30:00.000Z" });
+      expect(JSON.parse(patch?.body ?? "{}")).toEqual({
+        ends_at: "2026-09-06T22:30:00.000Z",
+      });
     });
   });
 });
@@ -274,7 +351,9 @@ describe("what a client sees", () => {
     });
     expect(await view.findByText(/Planned maintenance/)).toBeTruthy();
     // The one sentence a shop owner most needs and an outage notice usually omits.
-    expect(view.container.textContent).toContain("Your phone numbers keep ringing");
+    expect(view.container.textContent).toContain(
+      "Your phone numbers keep ringing",
+    );
   });
 
   it("renders nothing at all on an ordinary day", async () => {
@@ -301,7 +380,9 @@ describe("what a client sees", () => {
         }),
       },
     );
-    expect(await view.findByText("Calevate is down for planned maintenance")).toBeTruthy();
+    expect(
+      await view.findByText("Calevate is down for planned maintenance"),
+    ).toBeTruthy();
     // The operator's own sentence, verbatim — not a re-worded version of it.
     expect(view.container.textContent).toContain(
       "Upgrading the telephony stack. Nothing is deleted.",

@@ -120,7 +120,9 @@ function leg(over: Partial<LegSummary> & { leg: LatencyLeg }): LegSummary {
  * Pydantic field with a `None` default is omitted, and a fixture that spelled them `null`
  * would test a wire this server does not produce.
  */
-function tooFewLeg(over: Partial<LegSummary> & { leg: LatencyLeg }): LegSummary {
+function tooFewLeg(
+  over: Partial<LegSummary> & { leg: LatencyLeg },
+): LegSummary {
   return {
     budget_ms: BUDGET.llm_ttft_ms,
     turns: 3,
@@ -160,7 +162,11 @@ function tooFew(over: Partial<LatencyGroup> = {}): LatencyGroup {
       tooFewLeg({ leg: "stt", budget_ms: BUDGET.stt_ms, unit_verified: false }),
       tooFewLeg({ leg: "llm_ttft" }),
       tooFewLeg({ leg: "tts_ttfa", budget_ms: BUDGET.tts_ttfa_ms }),
-      tooFewLeg({ leg: "turn", budget_ms: BUDGET.turn_ms, unit_verified: false }),
+      tooFewLeg({
+        leg: "turn",
+        budget_ms: BUDGET.turn_ms,
+        unit_verified: false,
+      }),
     ],
     ...over,
   };
@@ -209,7 +215,9 @@ describe("the engine latency report", () => {
     // The alarm's question, answered above the table: one of two rows is over, and the
     // unjudgeable row is named separately so "could not tell" never reads as "fine".
     expect(container.textContent).toContain("1 of 2");
-    expect(container.textContent).toContain("1 more row(s) could not be judged");
+    expect(container.textContent).toContain(
+      "1 more row(s) could not be judged",
+    );
   });
 
   it("prints the server's own percentiles and its budget verdict", async () => {
@@ -250,7 +258,12 @@ describe("the engine latency report", () => {
           p50_ms: 900,
           budget_breached: true,
         }),
-        leg({ leg: "llm_ttft", p50_ms: 120, budget_breached: false, turns_over_budget: 0 }),
+        leg({
+          leg: "llm_ttft",
+          p50_ms: 120,
+          budget_breached: false,
+          turns_over_budget: 0,
+        }),
         leg({
           leg: "tts_ttfa",
           budget_ms: BUDGET.tts_ttfa_ms,
@@ -272,8 +285,12 @@ describe("the engine latency report", () => {
       routes({ [WINDOW_PATH(7)]: report({ groups: [split] }) }),
     );
 
-    expect((await rowFor("Thinking of a reply")).join(" ")).toContain("within target");
-    expect((await rowFor("Hearing the caller")).join(" ")).toContain("over target");
+    expect((await rowFor("Thinking of a reply")).join(" ")).toContain(
+      "within target",
+    );
+    expect((await rowFor("Hearing the caller")).join(" ")).toContain(
+      "over target",
+    );
     const whole = await rowFor("The whole reply");
     expect(whole.join(" ")).toContain("over target");
     // And it is judged against the COMPOSED target, which is a different number from any
@@ -287,7 +304,14 @@ describe("the engine latency report", () => {
 
     // Every figure TRD §4 declares, as the SERVER sent it. None of these is the number the
     // spec states, so a bundle that had hardcoded the spec would fail here.
-    for (const target of ["311 ms", "371 ms", "331 ms", "111 ms", "1,171 ms", "1,871 ms"]) {
+    for (const target of [
+      "311 ms",
+      "371 ms",
+      "331 ms",
+      "111 ms",
+      "1,171 ms",
+      "1,871 ms",
+    ]) {
       expect(container.textContent).toContain(target);
     }
     // The composed totals and the headroom are the server's arithmetic. The fixture's
@@ -312,7 +336,9 @@ describe("the engine latency report", () => {
     const stages = within((await screen.findAllByRole("table"))[0])
       .getAllByRole("row")
       .map((row) => row.textContent ?? "");
-    expect(stages.some((row) => row.includes("Looking something up"))).toBe(false);
+    expect(stages.some((row) => row.includes("Looking something up"))).toBe(
+      false,
+    );
   });
 
   it("states the shortfall when the stage goals do not fit inside the end-to-end goal", async () => {
@@ -365,8 +391,12 @@ describe("the engine latency report", () => {
      */
     renderAdminPage(<EngineLatencyPage />, routes());
 
-    expect((await rowFor("Hearing the caller")).join(" ")).toContain("have not confirmed what unit");
-    expect((await rowFor("The whole reply")).join(" ")).toContain("have not confirmed what unit");
+    expect((await rowFor("Hearing the caller")).join(" ")).toContain(
+      "have not confirmed what unit",
+    );
+    expect((await rowFor("The whole reply")).join(" ")).toContain(
+      "have not confirmed what unit",
+    );
     expect((await rowFor("Thinking of a reply")).join(" ")).not.toContain(
       "have not confirmed what unit",
     );
@@ -405,7 +435,9 @@ describe("the engine latency report", () => {
     );
 
     await screen.findAllByRole("table");
-    expect(container.textContent).toContain("These figures cover only part of the window");
+    expect(container.textContent).toContain(
+      "These figures cover only part of the window",
+    );
   });
 
   it("asks the API for the window the chips ask for", async () => {
@@ -438,10 +470,14 @@ describe("the engine latency report", () => {
       }),
     );
 
-    await waitFor(() => expect(container.textContent).toContain("could not be assembled"));
+    await waitFor(() =>
+      expect(container.textContent).toContain("could not be assembled"),
+    );
     // "No timed replies in this window" is a claim about our own instrumentation, and a 503
     // is not evidence for it. Neither is a skeleton left on screen forever.
-    expect(container.textContent).not.toContain("No timed replies in this window");
+    expect(container.textContent).not.toContain(
+      "No timed replies in this window",
+    );
     expect(screen.queryAllByRole("table")).toHaveLength(0);
   });
 
@@ -452,7 +488,9 @@ describe("the engine latency report", () => {
     );
 
     await screen.findByText("Loading the engine's latency report");
-    expect(container.textContent).not.toContain("No timed replies in this window");
+    expect(container.textContent).not.toContain(
+      "No timed replies in this window",
+    );
     expect(screen.queryAllByRole("table")).toHaveLength(0);
   });
 
@@ -462,7 +500,11 @@ describe("the engine latency report", () => {
       routes({ [WINDOW_PATH(7)]: report({ groups: [] }) }),
     );
 
-    await waitFor(() => expect(container.textContent).toContain("No timed replies in this window"));
+    await waitFor(() =>
+      expect(container.textContent).toContain(
+        "No timed replies in this window",
+      ),
+    );
   });
 
   it("withholds the report from a session the server would refuse, and never paints it as an outage", async () => {
@@ -491,7 +533,9 @@ describe("the engine latency report", () => {
     // claim about what the engine measured.
     expect(screen.queryByRole("group", { name: "Choose a window" })).toBeNull();
     expect(screen.queryAllByRole("table")).toHaveLength(0);
-    expect(container.textContent).not.toContain("No timed replies in this window");
+    expect(container.textContent).not.toContain(
+      "No timed replies in this window",
+    );
   });
 
   /**
@@ -518,12 +562,16 @@ describe("the engine latency report", () => {
     await waitFor(() =>
       expect(container.textContent).toContain("does not have permission to"),
     );
-    const reads = calls.filter((call) => call.path.startsWith(ENGINE_LATENCY_PATH)).length;
+    const reads = calls.filter((call) =>
+      call.path.startsWith(ENGINE_LATENCY_PATH),
+    ).length;
     expect(reads).toBeLessThanOrEqual(1);
     // Nothing re-arms it: no retry control is on screen, and the disabled query does not
     // refetch. A settle is given so a queued refetch would have had its chance to fire.
     await new Promise((resolve) => setTimeout(resolve, 50));
-    expect(calls.filter((call) => call.path.startsWith(ENGINE_LATENCY_PATH)).length).toBe(reads);
+    expect(
+      calls.filter((call) => call.path.startsWith(ENGINE_LATENCY_PATH)).length,
+    ).toBe(reads);
   });
 
   it("still asks while the identity read is unknown — navigation fails open", async () => {
@@ -536,7 +584,9 @@ describe("the engine latency report", () => {
       routes({ [ADMIN_ME_PATH]: stillLoading() }),
     );
 
-    await waitFor(() => expect(calls.some((call) => call.path === WINDOW_PATH(7))).toBe(true));
+    await waitFor(() =>
+      expect(calls.some((call) => call.path === WINDOW_PATH(7))).toBe(true),
+    );
   });
 });
 

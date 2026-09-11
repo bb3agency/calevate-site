@@ -34,6 +34,7 @@ const ME: Me = {
   role: "owner",
   permissions: ["wallet:read", "billing:read", "org:manage"],
   impersonating: false,
+  withheld_acts: [],
   organization: {
     id: "o1",
     name: "Sri Clinic",

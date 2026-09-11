@@ -82,7 +82,9 @@ describe("proving a second factor acknowledges itself", () => {
     mount();
 
     // Before: the refusal, announced as an alert because it interrupts the operator.
-    expect(screen.getByRole("alert").textContent).toContain("Nothing was changed");
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Nothing was changed",
+    );
 
     await proveTheFactor();
 
@@ -101,13 +103,17 @@ describe("proving a second factor acknowledges itself", () => {
     await proveTheFactor();
     await screen.findByRole("status");
 
-    expect(screen.getByRole("status").textContent).toContain("Nothing has been applied");
+    expect(screen.getByRole("status").textContent).toContain(
+      "Nothing has been applied",
+    );
     // `onRetry` still fires for a caller that wants it — the component's contract is
     // unchanged — but no write left this screen on its own.
     expect(calls).toEqual(["retried"]);
     await waitFor(() => {
       const paths = api.map((call) => call.path);
-      expect(paths.filter((p) => p !== STEP_UP_PATH && p !== VERIFY_PATH)).toEqual([]);
+      expect(
+        paths.filter((p) => p !== STEP_UP_PATH && p !== VERIFY_PATH),
+      ).toEqual([]);
     });
   });
 
@@ -123,7 +129,9 @@ describe("proving a second factor acknowledges itself", () => {
 
     // Still the refusal underneath: nothing was proved, and a screen that congratulated
     // the operator here would be lying about the state of their session.
-    expect(screen.getByRole("alert").textContent).toContain("Nothing was changed");
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Nothing was changed",
+    );
     expect(screen.queryByRole("status")).toBeNull();
   });
 });

@@ -563,7 +563,7 @@ Compliance API (client realm)
   refuses it to an impersonating admin; a status read discloses no personal data and
   stays available to them. Every response carries the erasure's stated limitations
   (SEC-COMP §4). Both surfaces speak `subject_ref`, never the phone number.
-- **Voice catalog**: `GET /v1/agents/voices` (D-36's premium/value ladder as data).
+- **Voice catalog**: `GET /v1/agents/voices` — ⚠ **NOT "D-36's premium/value ladder as data", WHICH IS WHAT THIS LINE USED TO SAY AND HAS BEEN WRONG TWICE OVER.** The ladder was collapsed and then re-opened as a second PROVIDER chosen per agent (D-547), and the catalogue is no longer DATA IN OUR SOURCE AT ALL: it is READ from the voice platform account (D-585, `platform_voice_catalog`) and then CURATED by an operator (D-588) — only voices enabled on the admin console's **Voices** page (`/admin/ops/voices`) are offered to anybody, in either realm. A deployment nobody has synced and curated offers NONE, and says so.
 - **Scheduled campaign start**: `POST /v1/campaigns/{campaign_id}/schedule` /
   `DELETE` the same path (`leads:dispatch`, audited) — a ONE-TIME future start, stored
   in `campaigns.schedule` and fired by the dispatch tick. Same permission as `POST

@@ -55,7 +55,6 @@ from uuid import UUID
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.agents import prompts, publishing, voice_routes
-from apps.api.agents import voices as voices_module
 from apps.api.agents.publishing_routes import router as publishing_router
 from apps.api.agents.routes import router as agents_router
 from apps.api.agents.service import publish_agent
@@ -65,13 +64,14 @@ from apps.api.agents.voice_offer import (
 )
 from apps.api.agents.voice_routes import router as voice_router
 from apps.api.agents.voices import (
-    DEFAULT_SPEAKER,
-    DEFAULT_VOICE_ID,
+    CARTESIA_TTS_MODEL,
+    Voice,
     VoiceSelectionCapability,
     catalogue,
-    default_voice,
+    catalogue_note,
     get_voice,
     is_supported_voice,
+    voice_id_for,
     voice_ids,
 )
 from apps.api.billing.rates import voice_tier_label
@@ -85,11 +85,76 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.conftest import accept_agreements
+from tests.voice_fixture import TEST_SPEAKER, TEST_VOICE_ID
 
 # The catalogue id every test in this file writes. Named rather than typed 20 times: it is
 # `<tts_model>:<speaker>` now (D-358's second half), and the whole point of the split is
 # that the id, the model and the speaker are three different strings.
-VOICE_ID = DEFAULT_VOICE_ID
+VOICE_ID = TEST_VOICE_ID
+
+
+async def _curated(voice: Voice, state: str = "enabled") -> None:
+    """Give an injected catalogue voice a curation row, so a clause about the PRICED grounds
+    is driving the ground it means to.
+
+    Offerability ground zero is read from `platform_voice_catalog` (D-588) and fails CLOSED
+    on a voice with no row — correctly: that is what a voice the platform has stopped
+    listing looks like. A test that injects a voice into the capability seam alone would
+    therefore get "the platform no longer lists this" for every case, including the ones
+    about a missing key or an unattested price.
+    """
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO platform_voice_catalog (voice_id, engine_voice_id, label, "
+                " tts_model, provider, languages, is_custom, synced_at, curation_state) "
+                "VALUES (:id, :speaker, :label, :model, :provider, :languages, false, now(), "
+                " :state) "
+                "ON CONFLICT (voice_id) DO UPDATE SET curation_state = :state"
+            ),
+            {
+                "id": voice.id,
+                "speaker": voice.speaker,
+                "label": voice.label,
+                "model": voice.tts_model,
+                "provider": voice.provider,
+                "languages": list(voice.languages),
+                "state": state,
+            },
+        )
+        await session.commit()
+
+
+async def _uncurated(voice: Voice) -> None:
+    """Take the row away again. `platform_voice_catalog` is PLATFORM state shared with every
+    other suite, so a clause that adds a row removes it."""
+    async with untenanted_session() as session:
+        await session.execute(
+            text("DELETE FROM platform_voice_catalog WHERE voice_id = :id"), {"id": voice.id}
+        )
+        await session.commit()
+
+
+def _cartesia_voice(speaker: str = "test-record-not-a-real-voice-id") -> Voice:
+    """ONE Cartesia catalogue entry, as the ENGINE SYNC would build one.
+
+    Built here rather than loaded, because D-588 deleted the hand-loaded Cartesia list these
+    clauses used to drive: the only route into the catalogue is the engine's own voice-config
+    API, and what these clauses are about is the ROUTE's behaviour on an unofferable voice.
+    The id is deliberately not a plausible Cartesia id — nothing in this tree has read one,
+    and a fixture that looked real is how an invented id ends up quoted as fact.
+    """
+    return Voice(
+        id=voice_id_for(CARTESIA_TTS_MODEL, speaker),
+        label="Test Persona",
+        provider="cartesia",
+        tts_model=CARTESIA_TTS_MODEL,
+        speaker=speaker,
+        languages=("te-IN",),
+        gender=None,
+        verified=True,
+        note=catalogue_note("cartesia"),
+    )
 
 
 def _app() -> FastAPI:
@@ -263,14 +328,16 @@ def test_the_catalog_carries_no_tier_field_and_no_sarvam_ladder() -> None:
     Sarvam: Bulbul v2 stays withdrawn, and there is still no `tier` FIELD, because the tier
     is `provider` and a second spelling is where the two would come to disagree.
 
-    The Sarvam half of the catalogue is still exactly one model. The Cartesia half is empty
-    today by design (`voices.CARTESIA_CATALOG_SOURCE` — no id here has been read from the
-    vendor), which `tests/voice_tier_test.py` is the file about.
+    The Sarvam half of the catalogue is still exactly one model. Whether a Cartesia voice
+    is in it at all is now the ENGINE ACCOUNT's business rather than ours (D-585/D-588) —
+    `tests/voice_tier_test.py` is the file about that half.
     """
     assert {v.tts_model for v in catalogue() if v.provider == "sarvam"} == {"bulbul:v3"}
-    assert not hasattr(default_voice(), "tier"), "the tier dimension is never a field"
-    assert default_voice().tts_model == "bulbul:v3"
-    assert default_voice().provider == "sarvam", "Cartesia is chosen, never inherited (Q9)"
+    for voice in catalogue():
+        assert not hasattr(voice, "tier"), "the tier dimension is never a field"
+        assert not hasattr(voice, "is_default"), (
+            "a compiled default persona is back; D-588 deleted the last hardcoded voice"
+        )
     # v2 is no longer a voice we offer.
     assert get_voice("bulbul:v2:anushka") is None
     assert not is_supported_voice("bulbul:v2:anushka")
@@ -284,11 +351,21 @@ def test_an_unknown_voice_id_is_not_supported() -> None:
         assert get_voice(unknown) is None
 
 
-def test_no_entry_claims_to_be_pilot_verified() -> None:
-    """The docs name no voices and OPERATIONS §2 gate 3 still asks whether Bulbul V3 is
-    even selectable on Bolna. Until that gate passes, presenting these ids as verified
-    would be inventing fact. When the pilot answers, flip `verified` and this test."""
-    assert all(not voice.verified for voice in catalogue())
+def test_every_entry_was_listed_by_the_engine_and_none_claims_a_gender() -> None:
+    """⚠ **THE `verified` HALF OF THIS CLAUSE REVERSED, AND THE REVERSAL IS D-585/D-588.**
+
+    It used to assert `verified is False` on every entry, because the ids were copied from
+    the MODEL vendor's SDK and nobody had confirmed the engine would accept them. There is
+    no such entry any more: every voice in the catalogue is there because the ENGINE's own
+    voice-config API listed it, on our own account, for a model we offer. That is exactly
+    what `verified` claims and nothing more — it is not an ear test, and OPERATIONS §2
+    gate 3's listening half is still open.
+
+    The gender half is unchanged: no vendor enumeration this tree reads carries one, and a
+    name is not evidence of a voice (hard rule 11).
+    """
+    assert catalogue(), "the suite's platform offers no voices; the fixture did not run"
+    assert all(voice.verified for voice in catalogue())
     assert all(voice.gender is None for voice in catalogue()), "no speaker genders in the docs"
 
 
@@ -349,11 +426,8 @@ async def test_an_unavailable_voice_is_returned_with_its_reason_never_dropped(
     reads — which is also the only place a surface could have filtered.
     """
     _tenant_id, _agent_id, slug, token = await _tenant()
-    cartesia = voices_module._cartesia_entry(
-        voices_module.CartesiaVoiceRecord(
-            id="test-record-not-a-real-voice-id", name="Test Persona", languages=("te-IN",)
-        )
-    )
+    cartesia = _cartesia_voice()
+    await _curated(cartesia)
     real = voice_routes.voice_selection_capability
 
     def with_cartesia(engine: object | None = None) -> VoiceSelectionCapability:
@@ -362,17 +436,20 @@ async def test_an_unavailable_voice_is_returned_with_its_reason_never_dropped(
 
     monkeypatch.setattr(voice_routes, "voice_selection_capability", with_cartesia)
 
-    async with _client(_app()) as http:
-        response = await http.get(
-            "/v1/agents/voices",
-            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
-        )
+    try:
+        async with _client(_app()) as http:
+            response = await http.get(
+                "/v1/agents/voices",
+                headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+            )
+    finally:
+        await _uncurated(cartesia)
 
     assert response.status_code == 200, response.text
     rows = {entry["id"]: entry for entry in response.json()["voices"]}
     assert cartesia.id in rows, "the unavailable voice was dropped instead of explained"
     assert rows[cartesia.id]["offerable"] is False
-    assert rows[DEFAULT_VOICE_ID]["offerable"] is True
+    assert rows[TEST_VOICE_ID]["offerable"] is True
     # THE SENTENCE IS THE CLIENT'S, because the caller is one — the operator ground names
     # the vendor and the setting that fixes it, and this route is readable in both realms.
     # `test_the_refusal_a_client_reads_names_neither_the_vendor_nor_our_settings` below is
@@ -398,11 +475,8 @@ async def test_the_refusal_a_client_reads_names_neither_the_vendor_nor_our_setti
     rather than the fork.
     """
     _tenant_id, _agent_id, slug, token = await _tenant()
-    cartesia = voices_module._cartesia_entry(
-        voices_module.CartesiaVoiceRecord(
-            id="test-record-not-a-real-voice-id", name="Test Persona", languages=("te-IN",)
-        )
-    )
+    cartesia = _cartesia_voice()
+    await _curated(cartesia)
     real = voice_routes.voice_selection_capability
 
     def with_cartesia(engine: object | None = None) -> VoiceSelectionCapability:
@@ -411,11 +485,14 @@ async def test_the_refusal_a_client_reads_names_neither_the_vendor_nor_our_setti
 
     monkeypatch.setattr(voice_routes, "voice_selection_capability", with_cartesia)
 
-    async with _client(_app()) as http:
-        response = await http.get(
-            "/v1/agents/voices",
-            headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
-        )
+    try:
+        async with _client(_app()) as http:
+            response = await http.get(
+                "/v1/agents/voices",
+                headers={"Authorization": f"Bearer {token}", "X-Org-Slug": slug},
+            )
+    finally:
+        await _uncurated(cartesia)
 
     assert response.status_code == 200, response.text
     row = {entry["id"]: entry for entry in response.json()["voices"]}[cartesia.id]
@@ -638,7 +715,7 @@ async def test_a_live_agent_is_re_voiced_on_the_spot() -> None:
     # THE ENGINE ITSELF, not our mirror of it: the mirror is written by the same function
     # that made the call, so asserting only on the column would pass against a publish
     # that never happened.
-    assert engine._agents[ref].models.tts_voice == DEFAULT_SPEAKER
+    assert engine._agents[ref].models.tts_voice == TEST_SPEAKER
 
 
 async def test_an_engine_refusal_leaves_the_row_and_the_engine_agreeing(
@@ -717,8 +794,18 @@ async def test_an_unknown_voice_id_is_refused_with_a_named_problem() -> None:
     assert problem["kind"] == "business_rule"
     assert problem["retryable"] is False
     assert problem["fields"][0]["field"] == "voice_id"
-    # The remediation names the real options, so the caller can fix it without docs.
-    assert all(vid in problem["remediation"] for vid in voice_ids())
+    # THE REMEDIATION POINTS AT THE READ, AND NO LONGER ENUMERATES THE CATALOGUE (D-588).
+    # It used to list every id in `voice_ids()`. Two things made that wrong: the lookup
+    # layer now includes voices an operator has switched OFF, so the list named ids the very
+    # next check refuses; and on a deployment nobody has synced the catalogue is empty and
+    # the sentence degenerated to "Pick one of the available voices: ." The read it names
+    # answers per audience, per deployment and per moment, and carries its own empty-state
+    # sentence.
+    assert "GET /v1/agents/voices" in problem["remediation"]
+    assert "offerable" in problem["remediation"]
+    assert not any(vid in problem["remediation"] for vid in voice_ids()), (
+        "the remediation enumerates the catalogue again — it will name disabled voices"
+    )
 
     assert await _stored_voice(tenant_id, agent_id) == (None, None), "nothing was written"
 
@@ -786,7 +873,7 @@ async def test_publishing_records_the_voice_the_engine_was_actually_sent() -> No
     engine = await _publish(tenant_id, agent_id)
 
     ref = next(iter(engine._agents))
-    assert engine._agents[ref].models.tts_voice == DEFAULT_SPEAKER
+    assert engine._agents[ref].models.tts_voice == TEST_SPEAKER
 
     state = await publishing.pending_state_for(tenant_id=tenant_id, agent_id=agent_id)
     assert state.published is True
@@ -844,7 +931,7 @@ async def test_a_stale_live_voice_is_closed_by_the_next_write_not_left_for_a_pub
     assert state.voice.configured is not None and state.voice.configured.voice_id == VOICE_ID
     assert state.voice.live is not None and state.voice.live.voice_id == VOICE_ID
     assert state.voice.republish_required is False
-    assert engine._agents[ref].models.tts_voice == DEFAULT_SPEAKER
+    assert engine._agents[ref].models.tts_voice == TEST_SPEAKER
 
 
 async def test_re_selecting_the_voice_the_engine_already_holds_asks_for_no_republish() -> None:

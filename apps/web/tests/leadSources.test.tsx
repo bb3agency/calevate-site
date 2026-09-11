@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import LeadSourcesPage from "@/app/c/[slug]/lead-sources/page";
 import type { Me } from "@/lib/api/client";
-import type { IngestActivityItem, LeadSource, MetaSetup } from "@/lib/api/leadSources";
+import type {
+  IngestActivityItem,
+  LeadSource,
+  MetaSetup,
+} from "@/lib/api/leadSources";
 
 import { problem, renderClientPage, stillLoading } from "./harness";
 
@@ -45,6 +49,7 @@ const TOKEN = "verify-token-9f2c4a";
 
 const ME: Me = {
   impersonating: false,
+  withheld_acts: [],
   permissions: ["org:read", "org:manage", "leads:read"],
   realm: "client",
   role: "owner",
@@ -53,7 +58,11 @@ const ME: Me = {
 };
 
 /** `staff`: sees the deliveries (`org:read`), may not act on the account (`org:manage`). */
-const READ_ONLY_ME: Me = { ...ME, permissions: ["org:read", "leads:read"], role: "staff" };
+const READ_ONLY_ME: Me = {
+  ...ME,
+  permissions: ["org:read", "leads:read"],
+  role: "staff",
+};
 
 function delivery(over: Partial<IngestActivityItem> = {}): IngestActivityItem {
   return {
@@ -96,7 +105,9 @@ const RETRIES_COLUMN = 3;
  *  LIST above the table shows too — so a row is found by its label WITHIN the deliveries
  *  table, never page-wide, to keep the anchor unambiguous. */
 function retriesCell(sourceLabelText: string): string {
-  const row = within(screen.getByRole("table")).getByText(sourceLabelText).closest("tr");
+  const row = within(screen.getByRole("table"))
+    .getByText(sourceLabelText)
+    .closest("tr");
   expect(row, `no row for ${sourceLabelText}`).not.toBeNull();
   return row!.querySelectorAll("td")[RETRIES_COLUMN]?.textContent ?? "";
 }
@@ -213,7 +224,10 @@ describe("the delivery log", () => {
           items: [
             // Identical `lead_source_id` AND `event_key` — the collision the two
             // keyspaces produce — differing only in what the row is for.
-            delivery({ outcome: "rejected", error: "no dialable phone number" }),
+            delivery({
+              outcome: "rejected",
+              error: "no dialable phone number",
+            }),
             delivery({ deduplicated: 15 }),
           ],
         },
@@ -234,7 +248,10 @@ describe("the delivery log", () => {
   it("stays visible to a viewer who cannot act, because the read permission differs", async () => {
     // `/v1/lead-sources/activity` is on `org:read` precisely so a read-only support
     // session can still see whether a client's form is reaching us.
-    await renderPage({ [ACTIVITY_PATH]: { items: [delivery()] } }, READ_ONLY_ME);
+    await renderPage(
+      { [ACTIVITY_PATH]: { items: [delivery()] } },
+      READ_ONLY_ME,
+    );
     await screen.findByText("lead.created:website_form");
   });
 });
@@ -253,7 +270,9 @@ describe("the leads we could not read", () => {
    */
   const REDRIVE_PATH = `/v1/lead-sources/${SOURCE_ID}/meta/redrive`;
 
-  function stranded(over: Partial<IngestActivityItem> = {}): IngestActivityItem {
+  function stranded(
+    over: Partial<IngestActivityItem> = {},
+  ): IngestActivityItem {
     return delivery({
       source: "meta_lead_ads",
       lead_source_id: SOURCE_ID,
@@ -312,10 +331,14 @@ describe("the leads we could not read", () => {
     });
 
     await screen.findByText("2 leads are waiting.");
-    fireEvent.click(screen.getByRole("button", { name: "Recover unread leads" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Recover unread leads" }),
+    );
 
     await screen.findByText("2 of 2 recovered.");
-    expect(calls.filter((c) => c.path === REDRIVE_PATH && c.method === "POST")).toHaveLength(1);
+    expect(
+      calls.filter((c) => c.path === REDRIVE_PATH && c.method === "POST"),
+    ).toHaveLength(1);
   });
 
   it("says nothing is waiting only when the server answered", async () => {
@@ -340,8 +363,12 @@ describe("the leads we could not read", () => {
     // `findAllByRole`: the delivery log below refuses on the same failed read, so there
     // are two refusals on screen and exactly one of them is this block's.
     expect((await screen.findAllByRole("alert")).length).toBeGreaterThan(0);
-    expect(container.textContent).not.toContain("Nothing is waiting for this source.");
-    expect(screen.queryByRole("button", { name: "Recover unread leads" })).toBeNull();
+    expect(container.textContent).not.toContain(
+      "Nothing is waiting for this source.",
+    );
+    expect(
+      screen.queryByRole("button", { name: "Recover unread leads" }),
+    ).toBeNull();
   });
 
   it("shows a skeleton rather than a count while the read is still in flight", async () => {
@@ -350,9 +377,13 @@ describe("the leads we could not read", () => {
     });
 
     await screen.findByText("Leads we recorded but could not read");
-    expect(container.textContent).not.toContain("Nothing is waiting for this source.");
+    expect(container.textContent).not.toContain(
+      "Nothing is waiting for this source.",
+    );
     expect(container.textContent).not.toContain("leads are waiting");
-    expect(screen.queryByRole("button", { name: "Recover unread leads" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Recover unread leads" }),
+    ).toBeNull();
   });
 
   it("names every bucket, so a partial run does not read as a whole one", async () => {
@@ -369,13 +400,15 @@ describe("the leads we could not read", () => {
       },
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Recover unread leads" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Recover unread leads" }),
+    );
 
     await screen.findByText("1 of 2 recovered.");
     // The deferred one is the bucket with an action attached: press again shortly.
-    expect((await screen.findByText(/could not be fetched just now/)).textContent).toContain(
-      "try again shortly",
-    );
+    expect(
+      (await screen.findByText(/could not be fetched just now/)).textContent,
+    ).toContain("try again shortly");
   });
 
   it("marks the recoverable row in the delivery log and leaves the others alone", async () => {
@@ -401,7 +434,10 @@ describe("the leads we could not read", () => {
   });
 
   it("is disabled for a viewer who lacks the permission the route requires", async () => {
-    await renderPage({ [ACTIVITY_PATH]: { items: [stranded()] } }, READ_ONLY_ME);
+    await renderPage(
+      { [ACTIVITY_PATH]: { items: [stranded()] } },
+      READ_ONLY_ME,
+    );
     fireEvent.change(screen.getByLabelText("Meta lead source"), {
       target: { value: SOURCE_ID },
     });
@@ -434,7 +470,9 @@ describe("the leads we could not read", () => {
         deferred: 0,
       },
     });
-    fireEvent.click(await screen.findByRole("button", { name: "Recover unread leads" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Recover unread leads" }),
+    );
     await screen.findByText("1 of 1 recovered.");
 
     // To a DIFFERENT Meta source, not to the empty option: clearing the picker hides
@@ -455,7 +493,9 @@ describe("the leads we could not read", () => {
       }),
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Recover unread leads" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Recover unread leads" }),
+    );
 
     await screen.findByRole("alert");
     expect(container.textContent).not.toContain("recovered.");
@@ -487,7 +527,9 @@ describe("what the screen claims about a connection", () => {
 
     await screen.findByText(/lead answers are not collected yet/);
     expect(container.textContent).toContain("meta_access_token_missing");
-    expect(container.textContent).not.toContain("Lead answers will be collected.");
+    expect(container.textContent).not.toContain(
+      "Lead answers will be collected.",
+    );
   });
 
   it("does not print the retrieval warning when the deployment can retrieve", async () => {
@@ -497,9 +539,13 @@ describe("what the screen claims about a connection", () => {
     });
 
     await screen.findByText("Lead answers will be collected.");
-    expect(container.textContent).not.toContain("lead answers are not collected yet");
+    expect(container.textContent).not.toContain(
+      "lead answers are not collected yet",
+    );
     // Still not a claim that anything is wired up — that remains the inbox's job.
-    expect(container.textContent).toContain("Showing these details does not connect anything");
+    expect(container.textContent).toContain(
+      "Showing these details does not connect anything",
+    );
   });
 
   it("keeps the verify token hidden until asked, and out of every URL", async () => {
@@ -516,11 +562,14 @@ describe("what the screen claims about a connection", () => {
     // The callback URL is displayable precisely because it carries no secret — the token
     // goes in Meta's own field. If it ever ends up in the URL it is published in the
     // access log of every hop between Meta and us.
-    expect(screen.getByText(/\/hooks\/v1\/ingest\/meta\//).textContent).not.toContain(TOKEN);
+    expect(
+      screen.getByText(/\/hooks\/v1\/ingest\/meta\//).textContent,
+    ).not.toContain(TOKEN);
     for (const call of calls) {
-      expect(call.url, `${call.method} ${call.path} carries the verify token`).not.toContain(
-        TOKEN,
-      );
+      expect(
+        call.url,
+        `${call.method} ${call.path} carries the verify token`,
+      ).not.toContain(TOKEN);
     }
   });
 });
@@ -541,7 +590,13 @@ describe("the dry run", () => {
     // string lands in access logs, proxies and browser history (hard rule 6).
     const { calls } = await runTest({
       would_call: true,
-      steps: [{ step: "phone_number", ok: true, detail: "Found a dialable Indian number." }],
+      steps: [
+        {
+          step: "phone_number",
+          ok: true,
+          detail: "Found a dialable Indian number.",
+        },
+      ],
     });
 
     await screen.findByText("A real submission like this WOULD get a call.");
@@ -550,9 +605,10 @@ describe("the dry run", () => {
     expect(posted[0].method).toBe("POST");
     expect(posted[0].body).toContain("9876543210");
     for (const call of calls) {
-      expect(call.url, `${call.method} ${call.path} carries the sample number`).not.toContain(
-        "9876543210",
-      );
+      expect(
+        call.url,
+        `${call.method} ${call.path} carries the sample number`,
+      ).not.toContain("9876543210");
     }
   });
 
@@ -569,7 +625,9 @@ describe("the dry run", () => {
       ],
     });
 
-    await screen.findByText("A real submission like this would NOT get a call.");
+    await screen.findByText(
+      "A real submission like this would NOT get a call.",
+    );
     expect(container.textContent).not.toContain("WOULD get a call");
     // Which rule refused is what tells the client where to look.
     expect(container.textContent).toContain("rule: dnc");
@@ -594,7 +652,10 @@ describe("the dry run", () => {
 
   it("renders a refusal, not a verdict, when the dry run itself fails", async () => {
     const { container } = await runTest(
-      problem(404, { title: "Lead source not found", detail: "No such lead source." }),
+      problem(404, {
+        title: "Lead source not found",
+        detail: "No such lead source.",
+      }),
     );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
@@ -616,7 +677,13 @@ describe("the dry run", () => {
   it("retracts the verdict when the payload it was about is edited", async () => {
     const { container } = await runTest({
       would_call: true,
-      steps: [{ step: "phone_number", ok: true, detail: "Found a dialable Indian number." }],
+      steps: [
+        {
+          step: "phone_number",
+          ok: true,
+          detail: "Found a dialable Indian number.",
+        },
+      ],
     });
     await screen.findByText("A real submission like this WOULD get a call.");
 
@@ -630,7 +697,13 @@ describe("the dry run", () => {
   it("retracts the verdict when a DIFFERENT lead source is picked", async () => {
     const { container } = await runTest({
       would_call: true,
-      steps: [{ step: "phone_number", ok: true, detail: "Found a dialable Indian number." }],
+      steps: [
+        {
+          step: "phone_number",
+          ok: true,
+          detail: "Found a dialable Indian number.",
+        },
+      ],
     });
     await screen.findByText("A real submission like this WOULD get a call.");
 
@@ -671,11 +744,16 @@ describe("controls are gated on the permission their route requires", () => {
     fireEvent.change(screen.getByLabelText("Meta lead source"), {
       target: { value: SOURCE_ID },
     });
-    expect((screen.getByRole("button", { name: /Run test/ }) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
     expect(
-      (screen.getByRole("button", { name: "Show setup details" }) as HTMLButtonElement).disabled,
+      (screen.getByRole("button", { name: /Run test/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Show setup details",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
   });
 
@@ -688,11 +766,16 @@ describe("controls are gated on the permission their route requires", () => {
     fireEvent.change(screen.getByLabelText("Meta lead source"), {
       target: { value: SOURCE_ID },
     });
-    expect((screen.getByRole("button", { name: /Run test/ }) as HTMLButtonElement).disabled).toBe(
-      false,
-    );
     expect(
-      (screen.getByRole("button", { name: "Show setup details" }) as HTMLButtonElement).disabled,
+      (screen.getByRole("button", { name: /Run test/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Show setup details",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(false);
   });
 
@@ -738,13 +821,17 @@ describe("provisioning a lead source", () => {
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(container.textContent).not.toContain("No lead sources yet");
     // …and the pickers must not read as "you have none" either.
-    expect(container.textContent).toContain("We could not load your lead sources");
+    expect(container.textContent).toContain(
+      "We could not load your lead sources",
+    );
   });
 
   it("says the account has none only when the server said so", async () => {
     const { container } = await renderPage({ [SOURCES_PATH]: sourceList() });
     await screen.findByText("No lead sources yet");
-    expect(container.textContent).not.toContain("We could not load your lead sources");
+    expect(container.textContent).not.toContain(
+      "We could not load your lead sources",
+    );
   });
 
   it("shows a fingerprint in the list and never a secret", async () => {
@@ -759,9 +846,15 @@ describe("provisioning a lead source", () => {
     await renderPage({}, READ_ONLY_ME);
     await screen.findByText("Your lead sources");
     expect(
-      (screen.getByRole("button", { name: "Add lead source" }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: "Add lead source",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
-    for (const button of screen.getAllByRole("button", { name: "New secret" })) {
+    for (const button of screen.getAllByRole("button", {
+      name: "New secret",
+    })) {
       expect((button as HTMLButtonElement).disabled).toBe(true);
     }
     for (const button of screen.getAllByRole("button", { name: "Turn off" })) {
@@ -786,8 +879,12 @@ describe("provisioning a lead source", () => {
     // client updates their form. The label has to say what it is for.
     await renderPage();
     fireEvent.click(screen.getAllByRole("button", { name: "New secret" })[0]);
-    const options = screen.getByLabelText("How long the old secret keeps working");
-    expect(options.textContent).toContain("Stop it immediately — my secret leaked");
+    const options = screen.getByLabelText(
+      "How long the old secret keeps working",
+    );
+    expect(options.textContent).toContain(
+      "Stop it immediately — my secret leaked",
+    );
     expect(options.textContent).toContain("1 hour (recommended)");
   });
 
@@ -797,7 +894,11 @@ describe("provisioning a lead source", () => {
     // A website form: we mint, so there is nothing to ask for.
     expect(screen.queryByLabelText("Meta App Secret")).toBeNull();
     expect(
-      (screen.getByRole("button", { name: "Add lead source" }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: "Add lead source",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(false);
 
     fireEvent.change(kind, { target: { value: "meta_lead_ads" } });
@@ -814,7 +915,10 @@ describe("provisioning a lead source", () => {
   });
 
   it("sends only the field mappings the client filled in", async () => {
-    const { calls } = await renderPage({ [SOURCES_PATH]: sourceList(), [CREATE_PATH]: CREATED });
+    const { calls } = await renderPage({
+      [SOURCES_PATH]: sourceList(),
+      [CREATE_PATH]: CREATED,
+    });
     fireEvent.change(screen.getByLabelText("Your form's phone field name"), {
       target: { value: "phone_number" },
     });
@@ -825,8 +929,12 @@ describe("provisioning a lead source", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Add lead source" }));
 
-    await screen.findByText("Copy this secret now — we will not show it again.");
-    const posted = calls.filter((c) => c.path === SOURCES_PATH && c.method === "POST");
+    await screen.findByText(
+      "Copy this secret now — we will not show it again.",
+    );
+    const posted = calls.filter(
+      (c) => c.path === SOURCES_PATH && c.method === "POST",
+    );
     expect(posted).toHaveLength(1);
     const body = JSON.parse(posted[0].body ?? "{}");
     expect(body.mapping).toEqual({ phone: "phone_number" });
@@ -840,7 +948,9 @@ describe("provisioning a lead source", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Add lead source" }));
 
-    await screen.findByText("Copy this secret now — we will not show it again.");
+    await screen.findByText(
+      "Copy this secret now — we will not show it again.",
+    );
     expect(container.textContent).toContain(CREATED.secret);
     expect(container.textContent).toContain("X-Ingest-Secret");
     expect(container.textContent).toContain(CREATED.ingest_path);
@@ -864,19 +974,32 @@ describe("provisioning a lead source", () => {
 describe("the agent that answers a new lead source", () => {
   it("refuses, and blocks the save, rather than offering 'don't call' as the only choice", async () => {
     const { container } = await renderPage({
-      [AGENTS_PATH]: problem(503, { title: "Service unavailable", retryable: true }),
+      [AGENTS_PATH]: problem(503, {
+        title: "Service unavailable",
+        retryable: true,
+      }),
     });
 
     // The refusal is PRESENT — not merely the picker absent, which an empty card also
     // satisfies — and it says what saving anyway would have done.
-    expect(container.textContent).toContain("We could not read your agents just now");
-    expect(container.textContent).toContain("would create a source that never rings anyone");
+    expect(container.textContent).toContain(
+      "We could not read your agents just now",
+    );
+    expect(container.textContent).toContain(
+      "would create a source that never rings anyone",
+    );
     expect(screen.queryByLabelText("Agent to answer these leads")).toBeNull();
-    expect(container.textContent).not.toContain("Not yet — save leads, don't call");
+    expect(container.textContent).not.toContain(
+      "Not yet — save leads, don't call",
+    );
 
     // …and the form cannot be sent, because otherwise that sentence is not true.
     expect(
-      (screen.getByRole("button", { name: "Add lead source" }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: "Add lead source",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
   });
 
@@ -886,18 +1009,28 @@ describe("the agent that answers a new lead source", () => {
 
     expect(screen.getByLabelText("Agent to answer these leads")).toBeDefined();
     expect(container.textContent).toContain("Not yet — save leads, don't call");
-    expect(container.textContent).not.toContain("We could not read your agents just now");
+    expect(container.textContent).not.toContain(
+      "We could not read your agents just now",
+    );
     expect(
-      (screen.getByRole("button", { name: "Add lead source" }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: "Add lead source",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(false);
   });
 
   it("waits rather than claiming the list is empty while it is still reading", async () => {
     const { container } = await renderPage({ [AGENTS_PATH]: stillLoading() });
 
-    const picker = screen.getByLabelText("Agent to answer these leads") as HTMLSelectElement;
+    const picker = screen.getByLabelText(
+      "Agent to answer these leads",
+    ) as HTMLSelectElement;
     expect(picker.disabled).toBe(true);
     expect(container.textContent).toContain("Reading your agents…");
-    expect(container.textContent).not.toContain("Not yet — save leads, don't call");
+    expect(container.textContent).not.toContain(
+      "Not yet — save leads, don't call",
+    );
   });
 });

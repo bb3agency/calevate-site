@@ -24,7 +24,10 @@ import { problem, stubApi, type Routes } from "./harness";
  * so "you are locked out and here is why" has to be one page, not twelve.
  */
 
-const OPERATOR = { role: "superadmin", permissions: ["ops:manage", "admin:tenants"] };
+const OPERATOR = {
+  role: "superadmin",
+  permissions: ["ops:manage", "admin:tenants"],
+};
 
 // `401 auth`, not `403 permission` (D-177): a session that owes its emailed code is
 // half-AUTHENTICATED rather than half-authorised, and the difference is what tells an
@@ -34,7 +37,8 @@ const MFA_REFUSAL = problem(401, {
   title: "Two-step verification required",
   detail: "The operator console requires two-step verification.",
   kind: "auth",
-  remediation: "Enter the code emailed to your operator address to finish signing in.",
+  remediation:
+    "Enter the code emailed to your operator address to finish signing in.",
 });
 
 function renderShell(routes: Routes) {
@@ -48,17 +52,26 @@ function renderShell(routes: Routes) {
 
 describe("the operator console under an MFA refusal", () => {
   it("replaces the whole console with the API's own sentence and remedy", async () => {
-    const { container } = renderShell({ [ADMIN_ME_PATH]: MFA_REFUSAL, [HOLDS_PATH]: [] });
+    const { container } = renderShell({
+      [ADMIN_ME_PATH]: MFA_REFUSAL,
+      [HOLDS_PATH]: [],
+    });
 
-    expect(await screen.findByText(/Two-step verification required/)).toBeTruthy();
+    expect(
+      await screen.findByText(/Two-step verification required/),
+    ).toBeTruthy();
     // The REMEDIATION, not just the refusal: a wall that does not say what to do next is
     // the state this component exists to replace.
-    expect(container.textContent).toContain("Enter the code emailed to your operator address");
+    expect(container.textContent).toContain(
+      "Enter the code emailed to your operator address",
+    );
 
     // REPLACES rather than sits above. If the shell rendered underneath, every panel on
     // it would answer its own 403 and the page would be a list of failures.
     expect(container.textContent).not.toContain("console body");
-    expect(container.textContent).not.toContain("Cross-client · every action is audited");
+    expect(container.textContent).not.toContain(
+      "Cross-client · every action is audited",
+    );
   });
 
   it("prints the API's own remediation rather than a sentence of its own", async () => {
@@ -80,25 +93,35 @@ describe("the operator console under an MFA refusal", () => {
         type: "https://calevate.tech/problems/second_factor_required",
         detail: "This session has not completed two-factor authentication.",
         kind: "auth",
-        remediation: "Check the inbox for the address this operator account was created with.",
+        remediation:
+          "Check the inbox for the address this operator account was created with.",
       }),
       [HOLDS_PATH]: [],
     });
 
-    expect(await screen.findByText(/the address this operator account was created with/)).toBeTruthy();
+    expect(
+      await screen.findByText(
+        /the address this operator account was created with/,
+      ),
+    ).toBeTruthy();
     expect(container.textContent).not.toContain("console body");
   });
 });
 
 describe("every other state of the console", () => {
   it("renders untouched when the identity read succeeds", async () => {
-    const { container } = renderShell({ [ADMIN_ME_PATH]: OPERATOR, [HOLDS_PATH]: [] });
+    const { container } = renderShell({
+      [ADMIN_ME_PATH]: OPERATOR,
+      [HOLDS_PATH]: [],
+    });
 
     // The ROLE, which only renders once `/v1/admin/me` has answered — so this waits for
     // the query to settle rather than catching the shell in its loading state, where a
     // gate that blanks on every error would still look correct.
     expect(await screen.findByText(/superadmin · all clients/)).toBeTruthy();
-    expect(container.textContent).not.toContain("Two-step verification required");
+    expect(container.textContent).not.toContain(
+      "Two-step verification required",
+    );
   });
 
   it("renders untouched when the identity read fails for ANY other reason", async () => {
@@ -126,6 +149,8 @@ describe("every other state of the console", () => {
     await act(async () => {});
 
     expect(container.textContent).toContain("console body");
-    expect(container.textContent).not.toContain("Two-step verification required");
+    expect(container.textContent).not.toContain(
+      "Two-step verification required",
+    );
   });
 });

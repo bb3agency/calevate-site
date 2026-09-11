@@ -49,7 +49,11 @@ const { AdminCopilotDock } = await import("@/components/copilot/CopilotDock");
 function Parent() {
   const [n, setN] = useState(0);
   return (
-    <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <QueryClientProvider
+      client={
+        new QueryClient({ defaultOptions: { queries: { retry: false } } })
+      }
+    >
       <button type="button" onClick={() => setN((v) => v + 1)}>
         re-render {n}
       </button>
@@ -60,7 +64,10 @@ function Parent() {
 
 describe("the admin dock's session", () => {
   it("IS BUILT ONCE, however many times its parent re-renders", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}", { status: 200 })),
+    );
     built.count = 0;
     render(<Parent />);
     expect(built.count).toBe(1);

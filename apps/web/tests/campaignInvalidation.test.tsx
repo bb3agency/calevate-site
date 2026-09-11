@@ -58,7 +58,11 @@ const ATTENTION = { items: [], counts: {}, total: 0 };
 const ROUTES = {
   "/v1/campaigns": [],
   "/v1/attention": ATTENTION,
-  [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: { added: 2, rejected: 0, duplicates: 0 },
+  [`POST /v1/campaigns/${CAMPAIGN_ID}/contacts`]: {
+    added: 2,
+    rejected: 0,
+    duplicates: 0,
+  },
   [`POST /v1/campaigns/${CAMPAIGN_ID}/consent-provenance`]: {},
   [`POST /v1/campaigns/${CAMPAIGN_ID}/launch`]: { queued: 2 },
   [`POST /v1/campaigns/${CAMPAIGN_ID}/pause`]: {},
@@ -70,7 +74,8 @@ const ROUTES = {
 };
 
 function countOf(calls: ApiCall[], path: string): number {
-  return calls.filter((call) => call.method === "GET" && call.path === path).length;
+  return calls.filter((call) => call.method === "GET" && call.path === path)
+    .length;
 }
 
 /**
@@ -80,9 +85,10 @@ function countOf(calls: ApiCall[], path: string): number {
  * a key stale and refetches only the observers that exist, which is exactly the situation
  * on the real screen — the list and the nav bell are both on it.
  */
-function mountWith(
-  useWrite: () => { mutate: (input: never) => void },
-): { calls: ApiCall[]; fire: (input?: unknown) => Promise<void> } {
+function mountWith(useWrite: () => { mutate: (input: never) => void }): {
+  calls: ApiCall[];
+  fire: (input?: unknown) => Promise<void>;
+} {
   const calls = stubApi(ROUTES);
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
@@ -97,7 +103,9 @@ function mountWith(
   }
 
   function Wrapper({ children }: { children: ReactNode }) {
-    return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+    return (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
   }
 
   render(
@@ -122,13 +130,17 @@ function mountWith(
 
 describe("adding contacts to a campaign", () => {
   it("refreshes the list, whose row carries the contact COUNT it just moved", async () => {
-    const { calls, fire } = mountWith(() => useAddContacts(SESSION, CAMPAIGN_ID));
+    const { calls, fire } = mountWith(() =>
+      useAddContacts(SESSION, CAMPAIGN_ID),
+    );
     await fire([{ phone: "+919876543210" }]);
     await waitFor(() => expect(countOf(calls, "/v1/campaigns")).toBe(2));
   });
 
   it("refreshes the attention queue, which counts a campaign with nothing left to dial", async () => {
-    const { calls, fire } = mountWith(() => useAddContacts(SESSION, CAMPAIGN_ID));
+    const { calls, fire } = mountWith(() =>
+      useAddContacts(SESSION, CAMPAIGN_ID),
+    );
     await fire([{ phone: "+919876543210" }]);
     await waitFor(() => expect(countOf(calls, "/v1/attention")).toBe(2));
   });
@@ -139,20 +151,27 @@ describe("answering the consent provenance question", () => {
     const { calls, fire } = mountWith(() =>
       useDeclareConsentProvenance(SESSION, CAMPAIGN_ID),
     );
-    await fire({ source: "website_form", collected_at: "2026-08-09T18:30:00.000Z" });
+    await fire({
+      source: "website_form",
+      collected_at: "2026-08-09T18:30:00.000Z",
+    });
     await waitFor(() => expect(countOf(calls, "/v1/campaigns")).toBe(2));
   });
 });
 
 describe("pausing and resuming", () => {
   it("refreshes the attention queue, where PAUSED is itself an item", async () => {
-    const { calls, fire } = mountWith(() => usePauseCampaign(SESSION, CAMPAIGN_ID));
+    const { calls, fire } = mountWith(() =>
+      usePauseCampaign(SESSION, CAMPAIGN_ID),
+    );
     await fire("pause");
     await waitFor(() => expect(countOf(calls, "/v1/attention")).toBe(2));
   });
 
   it("refreshes it on the way back out too, so the badge drops when the fix lands", async () => {
-    const { calls, fire } = mountWith(() => usePauseCampaign(SESSION, CAMPAIGN_ID));
+    const { calls, fire } = mountWith(() =>
+      usePauseCampaign(SESSION, CAMPAIGN_ID),
+    );
     await fire("resume");
     await waitFor(() => expect(countOf(calls, "/v1/attention")).toBe(2));
   });
@@ -160,7 +179,9 @@ describe("pausing and resuming", () => {
 
 describe("launching", () => {
   it("refreshes the attention queue, which only counts running and paused campaigns", async () => {
-    const { calls, fire } = mountWith(() => useLaunchCampaign(SESSION, CAMPAIGN_ID));
+    const { calls, fire } = mountWith(() =>
+      useLaunchCampaign(SESSION, CAMPAIGN_ID),
+    );
     await fire();
     await waitFor(() => expect(countOf(calls, "/v1/attention")).toBe(2));
   });

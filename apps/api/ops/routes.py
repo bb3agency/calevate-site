@@ -1087,8 +1087,10 @@ class VoiceCatalogueRefreshOut(BaseModel):
     written: int
     pruned: int | None
     complete: bool
-    #: How many voices this process is now offering. `0` means the built-in seed is in
-    #: force (`agents/voices.SEED_CATALOG`).
+    #: How many voices are in this process's catalogue. `0` means the built-in seed is in
+    #: force (`agents/voices.SEED_CATALOG`). ⚠ SINCE D-588 THERE IS NO SEED: `0` means
+    #: this process offers NO voices, which is the correct state for a deployment nobody
+    #: has synced and is not the same fact as "nothing is enabled".
     in_force: int
     #: One sentence an operator reads verbatim.
     note: str
@@ -1100,12 +1102,14 @@ class VoiceCatalogueRefreshOut(BaseModel):
     openapi_extra=permission_meta("ops:manage"),
     summary="Re-read the voice catalogue from the voice platform (audited)",
     description=(
-        "Reads the voice platform account's own TTS voice list and replaces the cached "
-        "catalogue every client's voice picker is built from. Use it after cloning or "
-        "adding a voice on the platform — the hourly job would otherwise take up to an "
-        "hour to notice. It changes no agent and no call: an agent already speaking a "
+        "Reads the voice platform account's own TTS voice list into the cache the admin "
+        "console's Voices page is built from. Use it after importing or cloning a voice in "
+        "the voice platform's Playground — the hourly job would otherwise take up to an "
+        "hour to notice. A NEWLY SEEN VOICE ARRIVES DISABLED and has to be enabled on that "
+        "page before anybody can be put on it (D-588), so this alone changes what nobody "
+        "may choose. It changes no agent and no call either: an agent already speaking a "
         "voice keeps speaking it whatever this returns. A sync that reads nothing is "
-        "refused rather than applied, so a bad credential cannot empty the picker."
+        "refused rather than applied, so a bad credential cannot empty the catalogue."
     ),
 )
 async def refresh_voice_catalogue_route(
@@ -1167,19 +1171,20 @@ def _voice_refresh_note(result: VoiceSyncResult, *, in_force: int) -> str:
     if result.written == 0:
         return (
             "The voice platform returned no usable voices, so nothing was changed and the "
-            f"previous catalogue ({in_force or 'the built-in starter'} list) is still being "
-            "offered. Check the voice platform credential in the ops console, then try again."
+            f"previous catalogue ({in_force} voice(s)) is still being offered. Check the "
+            "voice platform credential in the ops console, then try again."
         )
     if not result.complete:
         return (
             f"{result.written} voice(s) cached, but the platform's listing was incomplete "
-            f"({result.incomplete_reason}), so nothing was removed — a voice withdrawn on "
+            f"({result.incomplete_reason}), so nothing was withdrawn — a voice removed on "
             "the platform may still appear. Run this again; if it keeps reporting an "
             "incomplete listing, the account has more voices than one listing returns."
         )
     return (
-        f"{result.written} voice(s) cached and {result.pruned or 0} removed. "
-        f"{in_force} voice(s) are now offered."
+        f"{result.written} voice(s) cached and {result.pruned or 0} withdrawn by the voice "
+        f"platform. {in_force} voice(s) are in the catalogue — a newly seen voice arrives "
+        "disabled, so enable the ones clients should be able to choose."
     )
 
 

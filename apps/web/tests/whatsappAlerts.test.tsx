@@ -3,10 +3,18 @@ import { describe, expect, it } from "vitest";
 
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
 import AlertsPage from "@/app/c/[slug]/settings/alerts/page";
-import { WHATSAPP_ALERTS_PATH, type AlertOptIn } from "@/lib/api/whatsappAlerts";
+import {
+  WHATSAPP_ALERTS_PATH,
+  type AlertOptIn,
+} from "@/lib/api/whatsappAlerts";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
-import { problem, renderClientPage, stillLoading, type Routes } from "./harness";
+import {
+  problem,
+  renderClientPage,
+  stillLoading,
+  type Routes,
+} from "./harness";
 
 /**
  * WhatsApp hot-lead alerts — the client's own opt-in, and the operator's record of one.
@@ -40,13 +48,19 @@ const ME = {
   role: "owner",
   permissions: ["org:read", "org:manage"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 /** A member who may read the account's settings and not change them. */
 const STAFF = { ...ME, role: "staff", permissions: ["org:read"] };
 
-const NOTICE = "I agree that Calevate may send WhatsApp messages to this number…";
+const NOTICE =
+  "I agree that Calevate may send WhatsApp messages to this number…";
 
 function optIn(over: Partial<AlertOptIn> = {}): AlertOptIn {
   return {
@@ -63,7 +77,11 @@ function optIn(over: Partial<AlertOptIn> = {}): AlertOptIn {
   };
 }
 
-function clientRoutes(state: AlertOptIn, me: unknown = ME, over: Routes = {}): Routes {
+function clientRoutes(
+  state: AlertOptIn,
+  me: unknown = ME,
+  over: Routes = {},
+): Routes {
   return { "/v1/me": me, [WHATSAPP_ALERTS_PATH]: state, ...over };
 }
 
@@ -72,7 +90,10 @@ describe("the client's own WhatsApp alert opt-in", () => {
     const { calls, container } = await renderClientPage(
       <AlertsPage />,
       clientRoutes(optIn(), ME, {
-        [`POST ${WHATSAPP_ALERTS_PATH}`]: optIn({ status: "granted", messageable: true }),
+        [`POST ${WHATSAPP_ALERTS_PATH}`]: optIn({
+          status: "granted",
+          messageable: true,
+        }),
       }),
     );
 
@@ -101,38 +122,53 @@ describe("the client's own WhatsApp alert opt-in", () => {
     // what makes the refusal reachable at all. The screen renders the refusal it gets.
     const { calls, container } = await renderClientPage(
       <AlertsPage />,
-      clientRoutes(optIn({ current_notice_version: "whatsapp-alerts-v0" }), ME, {
-        [`POST ${WHATSAPP_ALERTS_PATH}`]: problem(422, {
-          kind: "validation",
-          type: "urn:calevate:error/alert_optin_notice_out_of_date",
-          title: "The wording on your screen is out of date",
-          detail: "The wording on your screen is out of date.",
-          remediation: "Reload the page and confirm again.",
-        }),
-      }),
+      clientRoutes(
+        optIn({ current_notice_version: "whatsapp-alerts-v0" }),
+        ME,
+        {
+          [`POST ${WHATSAPP_ALERTS_PATH}`]: problem(422, {
+            kind: "validation",
+            type: "urn:calevate:error/alert_optin_notice_out_of_date",
+            title: "The wording on your screen is out of date",
+            detail: "The wording on your screen is out of date.",
+            remediation: "Reload the page and confirm again.",
+          }),
+        },
+      ),
     );
 
     fireEvent.click(await screen.findByRole("button", { name: /I agree/ }));
     await waitFor(() => {
       expect(calls.some((c) => c.method === "POST")).toBe(true);
     });
-    expect(JSON.parse(calls.find((c) => c.method === "POST")?.body ?? "{}")).toEqual({
+    expect(
+      JSON.parse(calls.find((c) => c.method === "POST")?.body ?? "{}"),
+    ).toEqual({
       status: "granted",
       notice_version: "whatsapp-alerts-v0",
     });
     await waitFor(() => {
-      expect(container.textContent).toContain("Reload the page and confirm again");
+      expect(container.textContent).toContain(
+        "Reload the page and confirm again",
+      );
     });
   });
 
   it("withholds the agreement while nothing can deliver it, and says whose problem that is", async () => {
     const { container } = await renderClientPage(
       <AlertsPage />,
-      clientRoutes(optIn({ delivery_available: false, delivery_unavailable_reason: "no_credential" })),
+      clientRoutes(
+        optIn({
+          delivery_available: false,
+          delivery_unavailable_reason: "no_credential",
+        }),
+      ),
     );
 
     await waitFor(() => {
-      expect(container.textContent).toContain("We cannot send WhatsApp messages yet");
+      expect(container.textContent).toContain(
+        "We cannot send WhatsApp messages yet",
+      );
     });
     // Present and DEAD, with the reason — not absent, which would read as a broken page.
     const agree = await screen.findByRole("button", { name: /I agree/ });
@@ -162,10 +198,12 @@ describe("the client's own WhatsApp alert opt-in", () => {
     expect((stop as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(stop);
 
-    await waitFor(() => expect(calls.some((c) => c.method === "POST")).toBe(true));
-    expect(JSON.parse(calls.find((c) => c.method === "POST")?.body ?? "{}").status).toBe(
-      "withdrawn",
+    await waitFor(() =>
+      expect(calls.some((c) => c.method === "POST")).toBe(true),
     );
+    expect(
+      JSON.parse(calls.find((c) => c.method === "POST")?.body ?? "{}").status,
+    ).toBe("withdrawn");
   });
 
   it("refuses rather than reporting alerts off when the read fails", async () => {
@@ -181,7 +219,9 @@ describe("the client's own WhatsApp alert opt-in", () => {
     await waitFor(() => {
       expect(screen.getByRole("alert").textContent).toBeTruthy();
     });
-    expect(container.textContent).not.toContain("Hot-lead alerts are not going to your WhatsApp");
+    expect(container.textContent).not.toContain(
+      "Hot-lead alerts are not going to your WhatsApp",
+    );
     expect(container.textContent).not.toContain("Hot-lead alerts are on");
     expect(screen.queryByRole("button", { name: /I agree/ })).toBeNull();
   });
@@ -193,16 +233,23 @@ describe("the client's own WhatsApp alert opt-in", () => {
     );
 
     await waitFor(() => {
-      expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
+      expect(
+        container.querySelectorAll(".animate-pulse").length,
+      ).toBeGreaterThan(0);
     });
-    expect(container.textContent).not.toContain("Hot-lead alerts are not going to your WhatsApp");
+    expect(container.textContent).not.toContain(
+      "Hot-lead alerts are not going to your WhatsApp",
+    );
   });
 
   it("does not let a staff member give the owner's consent", async () => {
     // `org:manage` is the owner's alone (ROLE_PERMISSIONS): the subject of an opt-in is
     // the only person who can give it, so the control is dead with its reason rather
     // than posting a request the API would refuse.
-    const { container } = await renderClientPage(<AlertsPage />, clientRoutes(optIn(), STAFF));
+    const { container } = await renderClientPage(
+      <AlertsPage />,
+      clientRoutes(optIn(), STAFF),
+    );
 
     const agree = await screen.findByRole("button", { name: /I agree/ });
     expect((agree as HTMLButtonElement).disabled).toBe(true);
@@ -276,7 +323,9 @@ describe("the operator's record of a client's opt-in", () => {
       expect(container.textContent).toContain("The owner has WITHDRAWN");
     });
     // …and the channel's own state, which is a different fact from consent.
-    expect(container.textContent).toContain("We cannot send WhatsApp messages on this account yet");
+    expect(container.textContent).toContain(
+      "We cannot send WhatsApp messages on this account yet",
+    );
   });
 
   it("will not record a grant without the document it rests on", async () => {
@@ -285,22 +334,36 @@ describe("the operator's record of a client's opt-in", () => {
       tenantRoutes(optIn()),
     );
 
-    const record = await screen.findByRole("button", { name: /Record that the owner agreed/ });
+    const record = await screen.findByRole("button", {
+      name: /Record that the owner agreed/,
+    });
     // Dead until a reference is typed: the service AND a CHECK refuse an unevidenced
     // grant, so a live button here would send a request that cannot succeed.
-    await waitFor(() => expect((record as HTMLButtonElement).disabled).toBe(true));
-    expect(container.textContent).toContain("A reference, never the document itself");
+    await waitFor(() =>
+      expect((record as HTMLButtonElement).disabled).toBe(true),
+    );
+    expect(container.textContent).toContain(
+      "A reference, never the document itself",
+    );
 
     fireEvent.change(screen.getByPlaceholderText(/ONB-2026/), {
       target: { value: " ONB-2026-0042 " },
     });
-    await waitFor(() => expect((record as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() =>
+      expect((record as HTMLButtonElement).disabled).toBe(false),
+    );
     fireEvent.click(record);
 
     // Filtered by PATH: the tenant screen mints a view-as grant on load, which is also a
     // POST, so `find(method === "POST")` would assert against the wrong request.
-    await waitFor(() => expect(calls.some((c) => c.path === TENANT_ALERTS && c.method === "POST")).toBe(true));
-    const post = calls.find((c) => c.path === TENANT_ALERTS && c.method === "POST");
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.path === TENANT_ALERTS && c.method === "POST"),
+      ).toBe(true),
+    );
+    const post = calls.find(
+      (c) => c.path === TENANT_ALERTS && c.method === "POST",
+    );
     expect(post?.path).toBe(TENANT_ALERTS);
     expect(JSON.parse(post?.body ?? "{}")).toEqual({
       status: "granted",
@@ -316,11 +379,17 @@ describe("the operator's record of a client's opt-in", () => {
       tenantRoutes(optIn({ status: "granted", messageable: true })),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Record a withdrawal/ }));
-    await waitFor(() =>
-      expect(calls.some((c) => c.path === TENANT_ALERTS && c.method === "POST")).toBe(true),
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Record a withdrawal/ }),
     );
-    const post = calls.find((c) => c.path === TENANT_ALERTS && c.method === "POST");
+    await waitFor(() =>
+      expect(
+        calls.some((c) => c.path === TENANT_ALERTS && c.method === "POST"),
+      ).toBe(true),
+    );
+    const post = calls.find(
+      (c) => c.path === TENANT_ALERTS && c.method === "POST",
+    );
     expect(JSON.parse(post?.body ?? "{}")).toEqual({
       status: "withdrawn",
       evidence: null,
@@ -336,17 +405,24 @@ describe("the operator's record of a client's opt-in", () => {
           type: "urn:calevate:error/alert_optin_no_owner_with_a_number",
           title: "This account has no active owner with a mobile number",
           detail: "This account has no active owner with a mobile number.",
-          remediation: "Add a mobile number to the owner's profile, then record the opt-in.",
+          remediation:
+            "Add a mobile number to the owner's profile, then record the opt-in.",
         }),
       ),
     );
 
     await waitFor(() => {
-      expect(container.textContent).toContain("no active owner with a mobile number");
+      expect(container.textContent).toContain(
+        "no active owner with a mobile number",
+      );
     });
     // The refusal names what to fix, and the write is not offered over a state nobody read.
-    expect(container.textContent).toContain("Add a mobile number to the owner's profile");
-    expect(screen.queryByRole("button", { name: /Record that the owner agreed/ })).toBeNull();
+    expect(container.textContent).toContain(
+      "Add a mobile number to the owner's profile",
+    );
+    expect(
+      screen.queryByRole("button", { name: /Record that the owner agreed/ }),
+    ).toBeNull();
   });
 });
 
@@ -369,7 +445,11 @@ describe("granting and withdrawing consent sit in the same weight class", () => 
     await renderClientPage(
       <AlertsPage />,
       clientRoutes(
-        optIn({ status: "granted", messageable: true, captured_at: "2026-08-12T09:00:00Z" }),
+        optIn({
+          status: "granted",
+          messageable: true,
+          captured_at: "2026-08-12T09:00:00Z",
+        }),
         ME,
       ),
     );

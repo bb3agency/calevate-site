@@ -26,7 +26,13 @@ const ME: Me = {
   role: "owner",
   permissions: ["calls:read", "kb:write"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  withheld_acts: [],
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 const GAP: KnowledgeGap = {
@@ -62,7 +68,9 @@ describe("the knowledge-gaps card", () => {
 
     expect(await screen.findByText("Pricing")).toBeTruthy();
     expect(screen.getByText("DIDN'T KNOW THIS")).toBeTruthy();
-    expect(screen.getByText("I don't know the price, I'll WhatsApp you.")).toBeTruthy();
+    expect(
+      screen.getByText("I don't know the price, I'll WhatsApp you."),
+    ).toBeTruthy();
     expect(screen.getByText("3× on 2 calls")).toBeTruthy();
     // The agent name is shown on the org-wide card so gaps from several agents are
     // distinguishable.
@@ -96,20 +104,31 @@ describe("the knowledge-gaps card", () => {
     fireEvent.click(await screen.findByText("Dismiss"));
     // The POST is the whole action; the optimistic removal + invalidation follow it.
     await screen.findByText("Nothing unanswered").catch(() => undefined);
-    expect(calls.some((c) => c.path.endsWith(`/dismiss`) && c.method === "POST")).toBe(true);
+    expect(
+      calls.some((c) => c.path.endsWith(`/dismiss`) && c.method === "POST"),
+    ).toBe(true);
   });
 
   it("Teach opens a form and posts the answer", async () => {
     const { calls } = await renderClientPage(
       page,
-      routes({ [`POST /v1/knowledge-gaps/${GAP.id}/teach`]: { ...GAP, status: "taught" } }),
+      routes({
+        [`POST /v1/knowledge-gaps/${GAP.id}/teach`]: {
+          ...GAP,
+          status: "taught",
+        },
+      }),
     );
     fireEvent.click(await screen.findByText("Teach this"));
-    const box = await screen.findByLabelText("What should the agent say next time?");
+    const box = await screen.findByLabelText(
+      "What should the agent say next time?",
+    );
     fireEvent.change(box, { target: { value: "It is 500 rupees." } });
     fireEvent.click(screen.getByText("Save answer"));
     await screen.findByText("Nothing unanswered").catch(() => undefined);
-    const teach = calls.find((c) => c.path.endsWith(`/teach`) && c.method === "POST");
+    const teach = calls.find(
+      (c) => c.path.endsWith(`/teach`) && c.method === "POST",
+    );
     expect(teach).toBeTruthy();
     expect(teach?.body).toContain("It is 500 rupees.");
   });

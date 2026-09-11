@@ -578,10 +578,12 @@ def _refuse_cartesia_voice_incomplete() -> ProblemError:
     """A CARTESIA AGENT WITH NO USABLE VOICE — the one case still refused (D-547 §4.C.3).
 
     ADDENDUM 3 replaced this module's earlier blanket refusal with a real block: the field
-    names were the unknown, and Bolna's OSS answers them. What is STILL unknown is any
-    actual Cartesia voice id — `play.cartesia.ai/voices` needs a login and
-    `agents/voices.CARTESIA_CATALOG_SOURCE` ships EMPTY for that reason — so an agent can
-    reach here on the Cartesia provider with nothing to put in `voice_id`.
+    names were the unknown, and Bolna's OSS answers them. What can still be MISSING is an
+    actual Cartesia voice id: this product no longer types one anywhere (D-588 deleted the
+    hand-loaded list this comment used to name), so the only source is the engine's own
+    voice-config API — and if that account carries no Cartesia provider, or nobody has
+    enabled the voices it returned, an agent can reach here on the Cartesia provider with
+    nothing to put in `voice_id`.
 
     **WHY THAT IS A REFUSAL AND NOT AN OMITTED KEY.** `StandardVoiceConfig.voice_id` and
     `.model` are both REQUIRED `str` (VERIFIED-OSS, `bolna/models.py` @`ae03977f`), so an
@@ -611,9 +613,9 @@ def _refuse_cartesia_voice_incomplete() -> ProblemError:
         remediation=(
             "Nothing is live from this version and the agent is unchanged. Switch the agent "
             "to a Sarvam voice to publish today. To unblock the Cartesia tier, an operator "
-            "installs the Cartesia key and lists the account's voices "
-            "(GET /voices?language=te), then adds them to CARTESIA_CATALOG_SOURCE in "
-            "apps/api/agents/voices.py."
+            "installs the Cartesia key, presses Refresh on the admin console's Voices page "
+            "to re-read the voice platform's catalogue, and enables the Cartesia voices it "
+            "returns."
         ),
         failure_stage="CORE_LOGIC",
     )

@@ -91,7 +91,9 @@ describe("the exchange rate panel", () => {
   it("says the fallback is in force when the published rate has aged out", async () => {
     renderPanel({ [OPS_FX_RATE_PATH]: STALE });
     await waitFor(() =>
-      expect(screen.queryAllByText(/too old to use/i).length).toBeGreaterThan(0),
+      expect(screen.queryAllByText(/too old to use/i).length).toBeGreaterThan(
+        0,
+      ),
     );
     expect(
       screen.queryAllByText(/fallback you set, not a published rate/i).length,
@@ -120,7 +122,9 @@ describe("the exchange rate panel", () => {
       ).toBeGreaterThan(0),
     );
     // The two must not be confusable: a failed read must NOT claim the pull never ran.
-    expect(screen.queryAllByText(/No rate has been pulled yet/i)).toHaveLength(0);
+    expect(screen.queryAllByText(/No rate has been pulled yet/i)).toHaveLength(
+      0,
+    );
   });
 
   it("renders no age at all rather than inventing one", () => {

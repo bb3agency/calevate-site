@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, type RenderResult } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  type RenderResult,
+} from "@testing-library/react";
 import { Suspense } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -62,7 +68,13 @@ const OPERATOR: AdminMe = {
   realm: "admin",
   user_id: "0192f0aa-7777-7000-8000-0000000000cc",
   role: "operator",
-  permissions: ["org:read", "billing:read", "agents:read", "kb:write", "admin:tenants"],
+  permissions: [
+    "org:read",
+    "billing:read",
+    "agents:read",
+    "kb:write",
+    "admin:tenants",
+  ],
 };
 
 function source(over: Partial<KbSource> = {}): KbSource {
@@ -168,7 +180,9 @@ async function renderScreen(): Promise<RenderResult> {
   return result;
 }
 
-async function renderHealthy(over: Partial<Routes> = {}): Promise<RenderResult> {
+async function renderHealthy(
+  over: Partial<Routes> = {},
+): Promise<RenderResult> {
   stubApi({ ...healthy(), ...over });
   return renderScreen();
 }
@@ -186,7 +200,8 @@ async function renderWithPendingApprovedQueue(): Promise<RenderResult> {
   stubApi(healthy());
   const delegate = globalThis.fetch;
   vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
-    if (String(input).includes("status=approved")) return new Promise<Response>(() => {});
+    if (String(input).includes("status=approved"))
+      return new Promise<Response>(() => {});
     return delegate(input, init);
   });
   return renderScreen();
@@ -207,7 +222,9 @@ describe("the publish queue, in the three states a read can be in", () => {
     // And it is a SKELETON, not a number, a state or an empty list: nothing claims a
     // count, and no Publish button is offered over sources we have not seen.
     expect(container.querySelector(".animate-pulse")).not.toBeNull();
-    expect(container.textContent).not.toContain("The agent does not know these");
+    expect(container.textContent).not.toContain(
+      "The agent does not know these",
+    );
   });
 
   it("refuses in words when the read failed", async () => {
@@ -219,7 +236,9 @@ describe("the publish queue, in the three states a read can be in", () => {
       }),
     });
 
-    await screen.findByText("We could not read this client's approved knowledge.");
+    await screen.findByText(
+      "We could not read this client's approved knowledge.",
+    );
     expect(container.textContent).toContain(PANEL);
   });
 
@@ -240,8 +259,13 @@ describe("the publish queue, in the three states a read can be in", () => {
 
     await screen.findByText("Clinic price list");
     expect(container.textContent).toContain(PANEL);
-    const publish = screen.getByRole("button", { name: "Publish" }) as HTMLButtonElement;
-    expect(publish.disabled, "the one control that makes an approved source live").toBe(false);
+    const publish = screen.getByRole("button", {
+      name: "Publish",
+    }) as HTMLButtonElement;
+    expect(
+      publish.disabled,
+      "the one control that makes an approved source live",
+    ).toBe(false);
   });
 
   /**
@@ -268,35 +292,46 @@ describe("the publish queue, in the three states a read can be in", () => {
       "The voice platform holds knowledge we cannot account for",
       "Ask support to reconcile this agent's knowledge on the voice platform.",
     ],
-  ])("hands the operator %s's own cure, not the other one", async (code, title, remediation) => {
-    const { container } = await renderHealthy({
-      [APPROVED_PATH]: [source()],
-      [`POST /v1/admin/tenants/${TENANT}/kb/${source().id}/publish`]: problem(422, {
-        type: `https://calevate.tech/problems/${code}`,
-        title,
-        detail: title,
-        kind: "business_rule",
-        retryable: false,
-        remediation,
-      }),
-    });
+  ])(
+    "hands the operator %s's own cure, not the other one",
+    async (code, title, remediation) => {
+      const { container } = await renderHealthy({
+        [APPROVED_PATH]: [source()],
+        [`POST /v1/admin/tenants/${TENANT}/kb/${source().id}/publish`]: problem(
+          422,
+          {
+            type: `https://calevate.tech/problems/${code}`,
+            title,
+            detail: title,
+            kind: "business_rule",
+            retryable: false,
+            remediation,
+          },
+        ),
+      });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Publish" }));
+      fireEvent.click(await screen.findByRole("button", { name: "Publish" }));
 
-    await screen.findByText(remediation);
-    // The two cures must not be interchangeable on screen either: an operator who reads
-    // "reconcile the agent" when the finding was a missing handle goes and deletes a
-    // document they matched by eye (runbook §A step 3).
-    const other = code === "kb_engine_ref_unknown" ? "reconcile" : "withdraw the stale copy";
-    expect(container.textContent).not.toContain(other);
-  });
+      await screen.findByText(remediation);
+      // The two cures must not be interchangeable on screen either: an operator who reads
+      // "reconcile the agent" when the finding was a missing handle goes and deletes a
+      // document they matched by eye (runbook §A step 3).
+      const other =
+        code === "kb_engine_ref_unknown"
+          ? "reconcile"
+          : "withdraw the stale copy";
+      expect(container.textContent).not.toContain(other);
+    },
+  );
 
   it("does not offer Publish for a source that is already live", async () => {
     // `publish_source` leaves `status` at 'approved' and flips `is_active`, so a live
     // source stays in this list. A second Publish button over it would re-attach a fresh
     // engine copy of text the agent already has (kb/service.py: `attach_kb` is a CREATE).
     const { container } = await renderHealthy({
-      [APPROVED_PATH]: [source({ is_active: true, published_at: "2026-08-14T10:00:00Z" })],
+      [APPROVED_PATH]: [
+        source({ is_active: true, published_at: "2026-08-14T10:00:00Z" }),
+      ],
     });
 
     await screen.findByText("Nothing awaiting approval");

@@ -33,8 +33,15 @@
 import { BookOpenCheck, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 
-import { NOTICE_TONES, ProblemNotice, SectionHeading, ToggleSwitch } from "@/components/ui";
+import {
+  NOTICE_TONES,
+  ProblemNotice,
+  RestrictionNote,
+  SectionHeading,
+  ToggleSwitch,
+} from "@/components/ui";
 import { useSetCallerMemory, type Agent } from "@/lib/api/agents";
+import { useActAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 
 /** The refusal code the API uses when this account has not confirmed what its calls hold. */
@@ -59,6 +66,23 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
   // attestation is still needed, so this is the record of "the client has now READ it",
   // which is a fact about this screen and about nothing else.
   const [readStatement, setReadStatement] = useState(false);
+
+  /**
+   * THE SWITCH IS ONE THING AND THE ATTESTATION IS ANOTHER (D-587), and only the second is
+   * withheld. Flipping caller memory is `org:manage`, which a view-as operator holds — a
+   * client on the phone asking us to switch it off is exactly the support job the
+   * reversal exists for. ATTESTING is refused by name
+   * (`agents/routes.py:974`, `compliance.caller_memory_attestation`): the row it writes is
+   * `organizations.caller_memory_attested_by`, a `users.id` of the account, and an
+   * operator has none. So the confirm control below reads the ground instead of posting an
+   * `accept: true` the server answers 403 to.
+   */
+  const attest = useActAccess(
+    session,
+    "org:manage",
+    "compliance.caller_memory_attestation",
+    "confirm what this account's calls collect",
+  );
 
   const needsAttestation = problemCode(setCallerMemory.error) === NEEDS_ATTESTATION;
   const statement = needsAttestation ? remediation(setCallerMemory.error) : null;
@@ -142,10 +166,14 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
           <p className="mt-3 rounded-lg border border-line p-3 text-sm text-ink">
             {statement}
           </p>
+          <div className="mt-3">
+            <RestrictionNote reason={attest.reason} />
+          </div>
           <label className="mt-3 flex items-start gap-2 text-sm text-ink">
             <input
               type="checkbox"
               className="mt-0.5"
+              disabled={!attest.allowed}
               checked={readStatement}
               onChange={(event) => setReadStatement(event.target.checked)}
             />
@@ -154,7 +182,8 @@ export function CallerContinuity({ agent }: { agent: Agent }) {
           <button
             type="button"
             className="mt-3 rounded-lg border border-line px-3 py-1.5 text-sm font-medium text-ink disabled:opacity-50"
-            disabled={!readStatement || setCallerMemory.isPending}
+            disabled={!attest.allowed || !readStatement || setCallerMemory.isPending}
+            title={attest.reason ?? undefined}
             onClick={() => setCallerMemory.mutate({ enabled: true, accept: true })}
           >
             Confirm and switch on

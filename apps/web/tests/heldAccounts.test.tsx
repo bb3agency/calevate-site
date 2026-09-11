@@ -66,9 +66,13 @@ describe("the hold queue", () => {
     // The row survives, and the rule is printed as itself — an operator who can read
     // the unfamiliar name can go and find out what it is.
     expect(container.textContent).toContain("a_gate_added_after_this_build");
-    expect(container.textContent).toContain("This console does not know this rule");
+    expect(container.textContent).toContain(
+      "This console does not know this rule",
+    );
     // No invented remedy: the fallback is the account itself, never a guessed screen.
-    expect(screen.getByRole("link", { name: "Open the account" })).toBeDefined();
+    expect(
+      screen.getByRole("link", { name: "Open the account" }),
+    ).toBeDefined();
     expect(container.textContent).not.toContain("Nobody is waiting on us");
   });
 
@@ -84,18 +88,24 @@ describe("the hold queue", () => {
     await screen.findByText("Sri Traders");
     expect(container.textContent).toContain("Identity not filed");
     expect(container.textContent).toContain("Identity not verified");
-    expect(screen.getAllByRole("link", { name: "Identity (KYC)" })).toHaveLength(1);
+    expect(
+      screen.getAllByRole("link", { name: "Identity (KYC)" }),
+    ).toHaveLength(1);
   });
 
   it("offers both remedies when an account is held by both gates", async () => {
     const { container } = renderAdminPage(<HeldAccountsPage />, {
-      [HOLDS_PATH]: [tenant({ holds: ["kyc_missing", "first_campaign_review_pending"] })],
+      [HOLDS_PATH]: [
+        tenant({ holds: ["kyc_missing", "first_campaign_review_pending"] }),
+      ],
     });
 
     await screen.findByText("Sri Traders");
     // A row that picked one gate would leave the other one's work invisible.
     expect(screen.getByRole("link", { name: "Identity (KYC)" })).toBeDefined();
-    expect(screen.getByRole("link", { name: "Review & release" })).toBeDefined();
+    expect(
+      screen.getByRole("link", { name: "Review & release" }),
+    ).toBeDefined();
     expect(container.textContent).not.toContain("Open the account");
   });
 
@@ -111,11 +121,15 @@ describe("the hold queue", () => {
     });
 
     await screen.findByText(/could not be read/);
-    expect(container.textContent).toContain("we cannot say whether anyone is waiting");
+    expect(container.textContent).toContain(
+      "we cannot say whether anyone is waiting",
+    );
     // The one sentence that must never appear on a failed load.
     expect(container.textContent).not.toContain("Nobody is waiting on us");
     // Nor the empty state's reassurance, which is the same claim in gentler words.
-    expect(container.textContent).not.toContain("This list fills up on its own");
+    expect(container.textContent).not.toContain(
+      "This list fills up on its own",
+    );
   });
 
   it("prints no headline count over a failed read", async () => {
@@ -124,7 +138,11 @@ describe("the hold queue", () => {
     // dead token is the queue's empty claim in its most trusted form — a figure — and it
     // is worse than the sentence, because a figure is what an operator scans for.
     const { container } = renderAdminPage(<HeldAccountsPage />, {
-      [HOLDS_PATH]: problem(503, { title: "Unavailable", status: 503, retryable: true }),
+      [HOLDS_PATH]: problem(503, {
+        title: "Unavailable",
+        status: 503,
+        retryable: true,
+      }),
     });
 
     await screen.findByText(/could not be read/);
@@ -134,7 +152,9 @@ describe("the hold queue", () => {
   });
 
   it("says nobody is waiting, in words, when nobody is", async () => {
-    const { container } = renderAdminPage(<HeldAccountsPage />, { [HOLDS_PATH]: [] });
+    const { container } = renderAdminPage(<HeldAccountsPage />, {
+      [HOLDS_PATH]: [],
+    });
 
     await screen.findByText("Nobody is waiting on us");
     expect(container.textContent).not.toContain("could not be read");
@@ -149,8 +169,16 @@ describe("the hold queue", () => {
     // and the fixture is deliberately out of order to prove the computation happened.
     const { container } = renderAdminPage(<HeldAccountsPage />, {
       [HOLDS_PATH]: [
-        tenant({ tenant_id: "t-recent", name: "Recent Co", signed_up_at: daysAgo(1) }),
-        tenant({ tenant_id: "t-old", name: "Old Co", signed_up_at: daysAgo(23) }),
+        tenant({
+          tenant_id: "t-recent",
+          name: "Recent Co",
+          signed_up_at: daysAgo(1),
+        }),
+        tenant({
+          tenant_id: "t-old",
+          name: "Old Co",
+          signed_up_at: daysAgo(23),
+        }),
       ],
     });
 
@@ -236,5 +264,4 @@ describe("the hold queue", () => {
     expect(container.textContent).toContain("The queue could not be read");
     expect(container.textContent).toContain("This is not an empty queue");
   });
-
 });

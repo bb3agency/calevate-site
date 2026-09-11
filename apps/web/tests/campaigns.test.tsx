@@ -3,10 +3,19 @@ import { describe, expect, it } from "vitest";
 
 import CampaignsPage from "@/app/c/[slug]/campaigns/page";
 import type { Agent } from "@/lib/api/agents";
-import type { CampaignProgress, CampaignSummary, LaunchCheck } from "@/lib/api/campaigns";
+import type {
+  CampaignProgress,
+  CampaignSummary,
+  LaunchCheck,
+} from "@/lib/api/campaigns";
 import type { Me } from "@/lib/api/client";
 
-import { problem, renderClientPage, stillLoading, type Routes } from "./harness";
+import {
+  problem,
+  renderClientPage,
+  stillLoading,
+  type Routes,
+} from "./harness";
 
 /**
  * The campaigns screen either side of the launch panel.
@@ -41,6 +50,7 @@ const AGENT_ID = "0192f0aa-3333-7000-8000-000000000002";
 
 const ME: Me = {
   impersonating: false,
+  withheld_acts: [],
   permissions: ["leads:read", "leads:dispatch"],
   realm: "client",
   role: "owner",
@@ -57,12 +67,14 @@ const AGENT: Agent = {
   // Hard rule 5: an agent ALWAYS carries a non-null disclosure line, and an outbound
   // campaign agent is the case the rule exists for. This fixture omitted it entirely —
   // `as unknown as Agent` is why nobody noticed.
-  disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   // D-163 split the bundled line into two notices with two switches. The fixture keeps
   // both ON, which is what a new agent is born with, and carries the server-composed
   // `opening_line` rather than joining the two sentences here — the screens read that
   // field, so a fixture that computed it would be testing its own arithmetic.
-  ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  ai_disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   ai_disclosure_enabled: true,
   recording_notice_line: "This call is being recorded.",
   caller_memory_notice_line: "I keep a short note of what you ask about.",
@@ -121,7 +133,10 @@ const BLOCKED: LaunchCheck = {
 };
 
 /** Everything the screen asks for before a campaign is opened. */
-function landingRoutes(campaigns: CampaignSummary[], extra: Routes = {}): Routes {
+function landingRoutes(
+  campaigns: CampaignSummary[],
+  extra: Routes = {},
+): Routes {
   return {
     "/v1/me": ME,
     "/v1/agents": [AGENT],
@@ -134,7 +149,11 @@ function landingRoutes(campaigns: CampaignSummary[], extra: Routes = {}): Routes
 
 /** The consent radios on the CREATE form — `idPrefix="new"` names them. */
 function consentRadios(container: HTMLElement): HTMLInputElement[] {
-  return Array.from(container.querySelectorAll<HTMLInputElement>('input[name="new-consent-source"]'));
+  return Array.from(
+    container.querySelectorAll<HTMLInputElement>(
+      'input[name="new-consent-source"]',
+    ),
+  );
 }
 
 function consentDateInput(container: HTMLElement): HTMLInputElement {
@@ -170,7 +189,9 @@ describe("the create form's consent declaration", () => {
     expect(before).toHaveLength(5);
 
     fireEvent.click(before[0]);
-    fireEvent.change(consentDateInput(container), { target: { value: "2026-08-01" } });
+    fireEvent.change(consentDateInput(container), {
+      target: { value: "2026-08-01" },
+    });
     // The answer really is on the form — otherwise the reset below proves nothing.
     expect(consentRadios(container).some((r) => r.checked)).toBe(true);
     expect(consentDateInput(container).value).toBe("2026-08-01");
@@ -178,7 +199,9 @@ describe("the create form's consent declaration", () => {
     // Away and back, the way the screen allows: open a campaign, then "Start another".
     fireEvent.click(screen.getByRole("button", { name: CAMPAIGN.name }));
     await screen.findByText("Before you launch");
-    fireEvent.click(screen.getByRole("button", { name: "Start another campaign" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Start another campaign" }),
+    );
     await screen.findByText("New campaign");
 
     // The declaration is gone — both halves, because the API takes them as one object
@@ -187,9 +210,13 @@ describe("the create form's consent declaration", () => {
     expect(consentDateInput(container).value).toBe("");
     // …and the consequence is visible rather than implied: the button is dead again and
     // says why, so the next campaign cannot be created without somebody answering.
-    const create = screen.getByRole("button", { name: "Create campaign" }) as HTMLButtonElement;
+    const create = screen.getByRole("button", {
+      name: "Create campaign",
+    }) as HTMLButtonElement;
     expect(create.disabled).toBe(true);
-    expect(container.textContent).toContain("Answer both questions about your list above");
+    expect(container.textContent).toContain(
+      "Answer both questions about your list above",
+    );
   });
 });
 
@@ -226,7 +253,9 @@ describe("a campaign whose progress the screen could not read", () => {
     expect(container.textContent).not.toContain("calls answered");
     // The launch panel is keyed on a status we do not have, so it must not appear at
     // all: a campaign we cannot read is not a campaign we can say anything about.
-    expect(screen.queryByRole("button", { name: "Launch campaign" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Launch campaign" }),
+    ).toBeNull();
     expect(container.textContent).not.toContain("Everything checks out.");
   });
 
@@ -284,7 +313,10 @@ describe("the campaign list", () => {
     // resolved a key it does not own to `Object`. An unlabelled button on this row is
     // unreachable by a screen reader and meaningless to everyone else.
     for (const button of container.querySelectorAll("button")) {
-      expect(button.textContent?.trim(), "a control was rendered with no label").not.toBe("");
+      expect(
+        button.textContent?.trim(),
+        "a control was rendered with no label",
+      ).not.toBe("");
     }
   });
 
@@ -292,7 +324,10 @@ describe("the campaign list", () => {
     // The app shell prints "Campaigns" from the nav list (layout.tsx). A second one on
     // the page is a duplicate today and a contradiction the day the nav entry is
     // renamed — the screen would keep arguing with the header above it.
-    const { container } = await renderClientPage(<CampaignsPage />, landingRoutes([CAMPAIGN]));
+    const { container } = await renderClientPage(
+      <CampaignsPage />,
+      landingRoutes([CAMPAIGN]),
+    );
 
     await screen.findByRole("button", { name: CAMPAIGN.name });
     expect(container.querySelector("h1")).toBeNull();
@@ -336,7 +371,9 @@ describe("choosing which agent makes the calls (D-440)", () => {
     await screen.findByText("New campaign");
     const picker = container.querySelector<HTMLSelectElement>("select");
     expect(picker, "the create form has no agent picker").not.toBeNull();
-    const options = Array.from(picker!.options).map((option) => option.textContent);
+    const options = Array.from(picker!.options).map(
+      (option) => option.textContent,
+    );
     expect(options.join(" | ")).toContain("Follow-ups");
     expect(options.join(" | ")).not.toContain("Retired dialler");
   });
@@ -353,9 +390,9 @@ describe("choosing which agent makes the calls (D-440)", () => {
 
     await screen.findByText("Which agent makes these calls");
     const picker = container.querySelector<HTMLSelectElement>("select");
-    expect(Array.from(picker!.options).map((option) => option.textContent)).toEqual([
-      "Follow-ups",
-    ]);
+    expect(
+      Array.from(picker!.options).map((option) => option.textContent),
+    ).toEqual(["Follow-ups"]);
   });
 
   it("marks an agent that cannot dial yet, rather than letting launch be the first news", async () => {
@@ -366,15 +403,24 @@ describe("choosing which agent makes the calls (D-440)", () => {
       <CampaignsPage />,
       landingRoutes([], {
         "/v1/agents": [
-          agentIn({ id: "a-draft", name: "Half built", status: "draft", published: false }),
+          agentIn({
+            id: "a-draft",
+            name: "Half built",
+            status: "draft",
+            published: false,
+          }),
         ],
       }),
     );
 
     await screen.findByText("Which agent makes these calls");
     const picker = container.querySelector<HTMLSelectElement>("select");
-    expect(picker!.options[0].textContent).toContain("not able to call out yet");
-    expect(container.textContent).toContain("it will not launch until the agent is switched on");
+    expect(picker!.options[0].textContent).toContain(
+      "not able to call out yet",
+    );
+    expect(container.textContent).toContain(
+      "it will not launch until the agent is switched on",
+    );
   });
 
   it("offers no picker at all while the agent list is still in flight", async () => {
@@ -386,7 +432,9 @@ describe("choosing which agent makes the calls (D-440)", () => {
     );
 
     expect(container.textContent).toContain("New campaign");
-    expect(container.textContent).not.toContain("Which agent makes these calls");
+    expect(container.textContent).not.toContain(
+      "Which agent makes these calls",
+    );
   });
 });
 
@@ -476,7 +524,10 @@ describe("the three reads the create form is built from", () => {
     // in-flight frame now held open forever, the "and then it appears" half needs its own
     // render — otherwise the guard could be suppressing the sentence for good and this
     // suite would not notice.
-    await renderClientPage(<CampaignsPage />, landingRoutes([], { "/v1/agents": [] }));
+    await renderClientPage(
+      <CampaignsPage />,
+      landingRoutes([], { "/v1/agents": [] }),
+    );
 
     await screen.findByText(new RegExp(NO_AGENT_CLAIM));
   });
@@ -490,7 +541,10 @@ describe("the three reads the create form is built from", () => {
      */
     const { container } = await renderClientPage(
       <CampaignsPage />,
-      landingRoutes([], { "/v1/campaigns/numbers": OUTAGE, "/v1/campaigns/templates": OUTAGE }),
+      landingRoutes([], {
+        "/v1/campaigns/numbers": OUTAGE,
+        "/v1/campaigns/templates": OUTAGE,
+      }),
     );
 
     await screen.findByText("New campaign");
@@ -504,7 +558,10 @@ describe("the three reads the create form is built from", () => {
   });
 
   it("keeps the empty-list hints for lists the server really answered as empty", async () => {
-    const { container } = await renderClientPage(<CampaignsPage />, landingRoutes([]));
+    const { container } = await renderClientPage(
+      <CampaignsPage />,
+      landingRoutes([]),
+    );
 
     await screen.findByText("New campaign");
     expect(container.textContent).toContain("No numbers yet");

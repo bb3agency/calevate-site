@@ -3,7 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 
 import LeadDetailPage from "@/app/c/[slug]/leads/[leadId]/page";
 import type { Me } from "@/lib/api/client";
-import type { Lead, LeadTimeline, LeadTimelineEvent, Member } from "@/lib/api/leads";
+import type {
+  Lead,
+  LeadTimeline,
+  LeadTimelineEvent,
+  Member,
+} from "@/lib/api/leads";
 
 import { problem, renderClientPage } from "./harness";
 
@@ -38,7 +43,13 @@ const ME: Me = {
   role: "owner",
   permissions: ["leads:read", "leads:write", "calls:read"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  withheld_acts: [],
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 const MEMBERS: Member[] = [
@@ -77,7 +88,10 @@ function event(over: Partial<LeadTimelineEvent> = {}): LeadTimelineEvent {
   };
 }
 
-function timeline(items: LeadTimelineEvent[], over: Partial<LeadTimeline> = {}): LeadTimeline {
+function timeline(
+  items: LeadTimelineEvent[],
+  over: Partial<LeadTimeline> = {},
+): LeadTimeline {
   return { items, total: items.length, limit: 50, offset: 0, ...over };
 }
 
@@ -93,7 +107,11 @@ function routes(over: Record<string, unknown> = {}) {
 
 /** The route page reads `params` with React 19's `use()`, so it gets a promise. */
 function page() {
-  return <LeadDetailPage params={Promise.resolve({ slug: "acme", leadId: "lead-a" })} />;
+  return (
+    <LeadDetailPage
+      params={Promise.resolve({ slug: "acme", leadId: "lead-a" })}
+    />
+  );
 }
 
 describe("the history a client can finally read", () => {
@@ -109,7 +127,8 @@ describe("the history a client can finally read", () => {
             actor_kind: "system",
             actor_name: null,
             title: "Hot-lead alert not sent by WhatsApp",
-            detail: "We could not deliver it after 3 attempt(s). (recipient_not_opted_in)",
+            detail:
+              "We could not deliver it after 3 attempt(s). (recipient_not_opted_in)",
           }),
           event({
             id: "ev-3",
@@ -124,7 +143,9 @@ describe("the history a client can finally read", () => {
     );
 
     await screen.findByText("Moved to hot");
-    expect(container.textContent).toContain("Hot-lead alert not sent by WhatsApp");
+    expect(container.textContent).toContain(
+      "Hot-lead alert not sent by WhatsApp",
+    );
     expect(container.textContent).toContain("recipient_not_opted_in");
     expect(container.textContent).toContain("Call blocked");
     // A person's edit is attributed to them; the platform's is attributed to us. A
@@ -137,7 +158,9 @@ describe("the history a client can finally read", () => {
     const { container } = await renderClientPage(
       page(),
       routes({
-        "/v1/leads/lead-a/timeline?limit=50": timeline([event()], { total: 64 }),
+        "/v1/leads/lead-a/timeline?limit=50": timeline([event()], {
+          total: 64,
+        }),
       }),
     );
     await screen.findByText("Moved to hot");
@@ -153,7 +176,9 @@ describe("the history a client can finally read", () => {
     const { container } = await renderClientPage(
       page(),
       routes({
-        "/v1/leads/lead-a/timeline?limit=50": timeline(firstPage, { total: 51 }),
+        "/v1/leads/lead-a/timeline?limit=50": timeline(firstPage, {
+          total: 51,
+        }),
         "/v1/leads/lead-a/timeline?limit=50&offset=50": timeline(
           [event({ id: "ev-oldest", title: "The very first call" })],
           { total: 51, offset: 50 },
@@ -164,7 +189,9 @@ describe("the history a client can finally read", () => {
     // The remainder used to be an honest sentence about an unreachable 92% of the
     // record; now the sentence has a control under it.
     expect(container.textContent).toContain("The 50 most recent of 51");
-    fireEvent.click(screen.getByRole("button", { name: "Show earlier history" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show earlier history" }),
+    );
     await screen.findByText("The very first call");
     // Appended, not replaced.
     expect(container.textContent).toContain("Recent event 0");
@@ -172,15 +199,22 @@ describe("the history a client can finally read", () => {
   });
 
   it("changes the stage from the lead's own page with the shared control (LD1)", async () => {
-    const { calls } = await renderClientPage(page(), routes({ "PATCH /v1/leads/lead-a": LEAD }));
+    const { calls } = await renderClientPage(
+      page(),
+      routes({ "PATCH /v1/leads/lead-a": LEAD }),
+    );
     const select = await screen.findByLabelText("Stage for Ramesh Kumar");
     fireEvent.change(select, { target: { value: "won" } });
     await vi.waitFor(() =>
       expect(
-        calls.some((c) => c.method === "PATCH" && c.path === "/v1/leads/lead-a"),
+        calls.some(
+          (c) => c.method === "PATCH" && c.path === "/v1/leads/lead-a",
+        ),
       ).toBe(true),
     );
-    const patch = calls.find((c) => c.method === "PATCH" && c.path === "/v1/leads/lead-a");
+    const patch = calls.find(
+      (c) => c.method === "PATCH" && c.path === "/v1/leads/lead-a",
+    );
     expect(JSON.parse(patch?.body ?? "{}")).toEqual({ status: "won" });
   });
 
@@ -194,7 +228,9 @@ describe("the history a client can finally read", () => {
       }),
     );
 
-    const link = (await screen.findByRole("link", { name: "Open the call" })) as HTMLAnchorElement;
+    const link = (await screen.findByRole("link", {
+      name: "Open the call",
+    })) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("/c/acme/calls/call-9");
     for (const anchor of Array.from(container.querySelectorAll("a"))) {
       expect(anchor.getAttribute("href") ?? "").not.toContain("9876543210");
@@ -209,7 +245,12 @@ describe("the history a client can finally read", () => {
       page(),
       routes({
         "/v1/leads/lead-a/timeline?limit=50": timeline([
-          event({ type: "merge", title: "Activity", actor_kind: "system", actor_name: null }),
+          event({
+            type: "merge",
+            title: "Activity",
+            actor_kind: "system",
+            actor_name: null,
+          }),
         ]),
       }),
     );
@@ -247,7 +288,9 @@ describe("an empty history and a failed one are different sentences", () => {
     );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(container.textContent).toContain("We could not read this lead's history.");
+    expect(container.textContent).toContain(
+      "We could not read this lead's history.",
+    );
     expect(container.textContent).not.toContain("Nothing has happened yet");
     // And no count either: "0 entries" from a request that never landed is the same lie
     // in a smaller font.
@@ -258,7 +301,9 @@ describe("an empty history and a failed one are different sentences", () => {
     const { container } = await renderClientPage(
       page(),
       routes({
-        "/v1/leads/lead-a/timeline?limit=50": problem(503, { title: "Service unavailable" }),
+        "/v1/leads/lead-a/timeline?limit=50": problem(503, {
+          title: "Service unavailable",
+        }),
       }),
     );
 
@@ -305,7 +350,9 @@ describe("an empty history and a failed one are different sentences", () => {
 describe("the owner control on the lead's own screen", () => {
   it("is the same control the table uses, with the team from /v1/members", async () => {
     await renderClientPage(page(), routes());
-    const select = (await screen.findByLabelText("Owner of Ramesh Kumar")) as HTMLSelectElement;
+    const select = (await screen.findByLabelText(
+      "Owner of Ramesh Kumar",
+    )) as HTMLSelectElement;
     expect(select.value).toBe("u2");
     expect(Array.from(select.options).map((o) => o.textContent)).toEqual([
       "Unassigned",
@@ -316,9 +363,16 @@ describe("the owner control on the lead's own screen", () => {
 
   it("is disabled WITH the reason for a role that may not assign", async () => {
     const staff = { ...ME, role: "staff", permissions: ["leads:read"] };
-    const { container } = await renderClientPage(page(), routes({ "/v1/me": staff }));
-    const select = (await screen.findByLabelText("Owner of Ramesh Kumar")) as HTMLSelectElement;
+    const { container } = await renderClientPage(
+      page(),
+      routes({ "/v1/me": staff }),
+    );
+    const select = (await screen.findByLabelText(
+      "Owner of Ramesh Kumar",
+    )) as HTMLSelectElement;
     expect(select.disabled).toBe(true);
-    expect(container.textContent).toContain("Only an account owner can change who owns a lead");
+    expect(container.textContent).toContain(
+      "Only an account owner can change who owns a lead",
+    );
   });
 });

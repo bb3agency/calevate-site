@@ -1,4 +1,10 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
@@ -50,7 +56,12 @@ const OWNER = {
     "kb:write",
   ],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 function agent(over: Partial<Agent> = {}): Agent {
@@ -61,13 +72,15 @@ function agent(over: Partial<Agent> = {}): Agent {
     status: "live",
     archived_at: null,
     language_primary: "te-IN",
-    disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+    disclosure_line:
+      "Namaskaram, this is an AI assistant calling for Sri Clinic.",
     // D-163: the two notices this agent volunteers, and the switch on each. Both ON by
     // default — that is what a new agent is born with. `opening_line` is the SERVER's
     // composition and is passed as data rather than derived here: the screen renders it
     // verbatim, so a fixture that joined the two sentences itself would be asserting its
     // own arithmetic instead of the contract.
-    ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+    ai_disclosure_line:
+      "Namaskaram, this is an AI assistant calling for Sri Clinic.",
     ai_disclosure_enabled: true,
     recording_notice_line: "This call is being recorded.",
     caller_memory_notice_line: "I keep a short note of what you ask about.",
@@ -91,13 +104,18 @@ function agent(over: Partial<Agent> = {}): Agent {
 }
 
 /** One voice as `GET /v1/agents/{id}/pending` returns it, catalogue entry and all. */
-type TtsModel = NonNullable<NonNullable<PendingState["voice"]["live"]>["catalog"]>["tts_model"];
+type TtsModel = NonNullable<
+  NonNullable<PendingState["voice"]["live"]>["catalog"]
+>["tts_model"];
 
 /**
  * `id` is the TTS MODEL, and the wire type is a closed two-value union — not a string, so
  * a fixture naming a model this build does not ship does not compile.
  */
-function storedVoice(id: TtsModel, label: string): NonNullable<PendingState["voice"]["live"]> {
+function storedVoice(
+  id: TtsModel,
+  label: string,
+): NonNullable<PendingState["voice"]["live"]> {
   return {
     voice_id: id,
     provider: "sarvam",
@@ -112,7 +130,6 @@ function storedVoice(id: TtsModel, label: string): NonNullable<PendingState["voi
       gender: null,
       languages: ["te-IN"],
       note: "",
-      is_default: false,
       verified: false,
     },
   };
@@ -122,7 +139,9 @@ function storedVoice(id: TtsModel, label: string): NonNullable<PendingState["voi
  *  raw id. There is one voice quality now, so divergence between the configured voice and
  *  what the engine still holds is shown with one of these rather than a second catalogue
  *  entry. */
-function legacyVoice(voiceId: string): NonNullable<PendingState["voice"]["live"]> {
+function legacyVoice(
+  voiceId: string,
+): NonNullable<PendingState["voice"]["live"]> {
   return { voice_id: voiceId, provider: "sarvam", catalog: null };
 }
 
@@ -138,7 +157,8 @@ function settled(over: Partial<PendingState> = {}): PendingState {
     effective_call_cap_s: 600,
     call_cap_is_platform_default: true,
     worst_case_call_cost_inr: "65.00",
-    precedence_rule: "Script decides content, rules decide conduct, voice only changes delivery.",
+    precedence_rule:
+      "Script decides content, rules decide conduct, voice only changes delivery.",
     // REQUIRED on `PendingOut`. Empty is the honest default here: this account has no open
     // credit lot to quote a next-minute rate from, so the voice fact prints no price.
     voice_tier_rates: [],
@@ -153,7 +173,8 @@ function settled(over: Partial<PendingState> = {}): PendingState {
       confirmed: true,
       publishable: true,
       verified_at: "2026-08-15T09:20:00Z",
-      headline: "The voice platform was read back and is running this script and voice.",
+      headline:
+        "The voice platform was read back and is running this script and voice.",
     },
     ...over,
   };
@@ -181,7 +202,9 @@ const STAGED: PendingState = settled({
 });
 
 const page = (
-  <AgentDetailPage params={Promise.resolve({ slug: "acme", agentId: "agent-1" })} />
+  <AgentDetailPage
+    params={Promise.resolve({ slug: "acme", agentId: "agent-1" })}
+  />
 );
 
 /**
@@ -225,7 +248,11 @@ function routes(over: Record<string, unknown> = {}) {
     "/v1/organization/llm-defaults": LLM_DEFAULTS,
     // The Actions tab's reads, so the panel renders rather than raising its own alert —
     // these tests are about the pending/voice surface, not actions.
-    "/v1/agents/agent-1/actions": { api_actions_enabled: false, calendar_available: false, tools: [] },
+    "/v1/agents/agent-1/actions": {
+      api_actions_enabled: false,
+      calendar_available: false,
+      tools: [],
+    },
     "/v1/integrations/credentials": [],
     // The KnowledgeGaps card's read, for the SAME reason — and it is not optional. Left
     // unstubbed, the harness throws, the card renders the generic "We could not reach
@@ -247,8 +274,10 @@ function routes(over: Record<string, unknown> = {}) {
       agent_id: "agent-1",
       enabled: false,
       trigger: null,
-      effective_trigger: "Hand the call to a person when the caller asks for one.",
-      spoken_line: "Okay, I am putting you through to someone from our team now.",
+      effective_trigger:
+        "Hand the call to a person when the caller asks for one.",
+      spoken_line:
+        "Okay, I am putting you through to someone from our team now.",
       members: [],
       recent: [],
       on_duty_member_id: null,
@@ -284,7 +313,9 @@ describe("which script callers are actually hearing", () => {
 
     // …and the sentence under the list must not re-attach "what callers hear" to the
     // version listed above it, which is the staged one. This exact phrasing shipped.
-    expect(container.textContent).not.toContain("Callers still hear the version above");
+    expect(container.textContent).not.toContain(
+      "Callers still hear the version above",
+    );
   });
 
   it("says nothing is live yet rather than inventing a version for a first draft", async () => {
@@ -322,7 +353,10 @@ describe("which script callers are actually hearing", () => {
       page,
       routes({
         "/v1/agents/agent-1": agent({ published: false, status: "draft" }),
-        "/v1/agents/agent-1/pending": settled({ published: false, agent_status: "draft" }),
+        "/v1/agents/agent-1/pending": settled({
+          published: false,
+          agent_status: "draft",
+        }),
       }),
     );
 
@@ -335,11 +369,17 @@ describe("which script callers are actually hearing", () => {
     // they stop chasing us about an edit. It may only be printed on the server's word.
     const { container } = await renderClientPage(
       page,
-      routes({ "/v1/agents/agent-1/pending": problem(503, { title: "Service unavailable" }) }),
+      routes({
+        "/v1/agents/agent-1/pending": problem(503, {
+          title: "Service unavailable",
+        }),
+      }),
     );
 
     await screen.findByRole("alert");
-    expect(container.textContent).not.toContain("Nothing is waiting to go live");
+    expect(container.textContent).not.toContain(
+      "Nothing is waiting to go live",
+    );
     expect(container.textContent).not.toContain("Longest one call may run");
   });
 });
@@ -370,7 +410,12 @@ describe("which voice callers are actually hearing", () => {
           // `PendingOut.voice_tier_rates`, generated and required — read as a field now
           // that the schema carries it, not through a hand validator.
           voice_tier_rates: [
-            { provider: "sarvam", label: "Clear", inr_per_min: "5.0000", further_open_lots: 1 },
+            {
+              provider: "sarvam",
+              label: "Clear",
+              inr_per_min: "5.0000",
+              further_open_lots: 1,
+            },
           ],
         },
       }),
@@ -407,15 +452,29 @@ describe("which voice callers are actually hearing", () => {
         "/v1/agents/agent-1/pending": {
           ...settled({
             voice: {
-              configured: { voice_id: "sonic-3.5:ananya", provider: "cartesia", catalog: null },
+              configured: {
+                voice_id: "sonic-3.5:ananya",
+                provider: "cartesia",
+                catalog: null,
+              },
               live: storedVoice("bulbul:v3", "Bulbul v3"),
               republish_required: true,
               headline: "Callers still hear Bulbul v3.",
             },
           }),
           voice_tier_rates: [
-            { provider: "sarvam", label: "Clear", inr_per_min: "5.0000", further_open_lots: 0 },
-            { provider: "cartesia", label: "Studio", inr_per_min: "8.0000", further_open_lots: 0 },
+            {
+              provider: "sarvam",
+              label: "Clear",
+              inr_per_min: "5.0000",
+              further_open_lots: 0,
+            },
+            {
+              provider: "cartesia",
+              label: "Studio",
+              inr_per_min: "8.0000",
+              further_open_lots: 0,
+            },
           ],
         },
       }),
@@ -517,7 +576,9 @@ describe("the numbers come from the server", () => {
     const { container } = await renderClientPage(
       page,
       routes({
-        "/v1/agents/agent-1/pending": settled({ worst_case_call_cost_inr: "1500.5" }),
+        "/v1/agents/agent-1/pending": settled({
+          worst_case_call_cost_inr: "1500.5",
+        }),
       }),
     );
 
@@ -530,7 +591,11 @@ describe("the numbers come from the server", () => {
   it("says it cannot price a call rather than quoting ₹0 when the plan has no rate", async () => {
     const { container } = await renderClientPage(
       page,
-      routes({ "/v1/agents/agent-1/pending": settled({ worst_case_call_cost_inr: null }) }),
+      routes({
+        "/v1/agents/agent-1/pending": settled({
+          worst_case_call_cost_inr: null,
+        }),
+      }),
     );
 
     await screen.findByText("Most one call can cost you");
@@ -551,7 +616,9 @@ describe("the numbers come from the server", () => {
     const { container } = await renderClientPage(
       page,
       routes({
-        "/v1/agents/agent-1/pending": settled({ worst_case_call_cost_inr: "70.00" }),
+        "/v1/agents/agent-1/pending": settled({
+          worst_case_call_cost_inr: "70.00",
+        }),
       }),
     );
 
@@ -574,15 +641,27 @@ describe("the numbers come from the server", () => {
       routes({
         "/v1/agents/agent-1/pending": settled({
           voice_tier_rates: [
-            { provider: "sarvam", label: "Clear", inr_per_min: null, further_open_lots: 0 },
-            { provider: "cartesia", label: "Studio", inr_per_min: null, further_open_lots: 0 },
+            {
+              provider: "sarvam",
+              label: "Clear",
+              inr_per_min: null,
+              further_open_lots: 0,
+            },
+            {
+              provider: "cartesia",
+              label: "Studio",
+              inr_per_min: null,
+              further_open_lots: 0,
+            },
           ],
         }),
       }),
     );
 
     await screen.findByText("Voice quality");
-    expect(container.textContent).toContain("The credit pack you buy fixes the rate you pay");
+    expect(container.textContent).toContain(
+      "The credit pack you buy fixes the rate you pay",
+    );
     expect(container.textContent).not.toContain(
       "We cannot put a per-minute price on this voice for your account right now.",
     );
@@ -621,7 +700,9 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     // rather than leaving a quoted sentence with no control beside it to read as an
     // oversight.
     expect(container.textContent).toContain("cannot be edited here");
-    expect(container.textContent).toContain("every agent must have all of them on file");
+    expect(container.textContent).toContain(
+      "every agent must have all of them on file",
+    );
   });
 
   /**
@@ -670,7 +751,9 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     expect(container.textContent).toContain("This one has no switch");
     // WHY it is being said, not just that it is: a client reading a three-sentence opening
     // has to be able to find the setting that produced the third one.
-    expect(container.textContent).toContain("remembers what callers asked about");
+    expect(container.textContent).toContain(
+      "remembers what callers asked about",
+    );
   });
 
   it("says nothing about memory for an agent that does not remember", async () => {
@@ -678,7 +761,9 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
 
     await screen.findByText(`“${OPENING}”`);
     expect(container.textContent).not.toContain("This one has no switch");
-    expect(container.textContent).not.toContain("Say that it remembers callers");
+    expect(container.textContent).not.toContain(
+      "Say that it remembers callers",
+    );
   });
 
   it("puts the truthful-answer guarantee above the switches, in the server's words", async () => {
@@ -700,7 +785,8 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     // Above, not below: two switches read "off" before the guarantee is read is exactly how
     // a client concludes the opposite of what the platform enforces.
     expect(
-      promise.compareDocumentPosition(switches[0]) & Node.DOCUMENT_POSITION_FOLLOWING,
+      promise.compareDocumentPosition(switches[0]) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 
@@ -725,7 +811,9 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
     // "DPDP" now carries a hover gloss, so it renders in its own element and the gloss
     // text interleaves with the sentence in textContent; assert the term and the phrases
     // around it rather than one contiguous run.
-    expect(container.textContent).toContain("still your responsibility under the");
+    expect(container.textContent).toContain(
+      "still your responsibility under the",
+    );
     expect(container.textContent).toContain("DPDP");
     expect(container.textContent).toContain(
       "Act; with this off, it has to be covered by your own privacy notice or consent",
@@ -760,13 +848,17 @@ describe("the two opening notices, and the answer neither of them reaches (D-163
 
     const patched = calls.find((call) => call.path.endsWith("/disclosure"));
     expect(patched?.method).toBe("PATCH");
-    expect(JSON.parse(patched?.body ?? "{}")).toEqual({ ai_disclosure_enabled: false });
+    expect(JSON.parse(patched?.body ?? "{}")).toEqual({
+      ai_disclosure_enabled: false,
+    });
   });
 });
 
 describe("editing what an agent captures (the extraction variables)", () => {
   /** One extraction field on the wire, with `reason` (the renamed per-field hint). */
-  function field(over: Partial<Agent["extraction_fields"][number]> = {}): Agent["extraction_fields"][number] {
+  function field(
+    over: Partial<Agent["extraction_fields"][number]> = {},
+  ): Agent["extraction_fields"][number] {
     return {
       key: "visit_reason",
       label: "Reason for visit",
@@ -791,7 +883,12 @@ describe("editing what an agent captures (the extraction variables)", () => {
       routes({
         "/v1/agents/agent-1": agent({
           extraction_fields: [
-            field({ key: "visit_reason", label: "Reason for visit", type: "text", required: true }),
+            field({
+              key: "visit_reason",
+              label: "Reason for visit",
+              type: "text",
+              required: true,
+            }),
             field({ key: "budget", label: "Budget", type: "number" }),
           ],
         }),
@@ -816,7 +913,9 @@ describe("editing what an agent captures (the extraction variables)", () => {
       page,
       routes({
         "/v1/agents/agent-1": agent({
-          extraction_fields: [field({ key: "budget", label: "Budget", type: "number" })],
+          extraction_fields: [
+            field({ key: "budget", label: "Budget", type: "number" }),
+          ],
         }),
       }),
     );
@@ -835,10 +934,16 @@ describe("editing what an agent captures (the extraction variables)", () => {
       page,
       routes({
         "/v1/agents/agent-1": agent({
-          extraction_fields: [field({ key: "visit_reason", label: "Reason for visit" })],
+          extraction_fields: [
+            field({ key: "visit_reason", label: "Reason for visit" }),
+          ],
         }),
         "PUT /v1/agents/agent-1/extraction-schema": schemaOut([
-          field({ key: "visit_reason", label: "Why they called", reason: "route urgent cases first" }),
+          field({
+            key: "visit_reason",
+            label: "Why they called",
+            reason: "route urgent cases first",
+          }),
         ]),
       }),
     );
@@ -883,7 +988,9 @@ describe("editing what an agent captures (the extraction variables)", () => {
       page,
       routes({
         "/v1/agents/agent-1": agent({
-          extraction_fields: [field({ key: "budget", label: "Budget", type: "number" })],
+          extraction_fields: [
+            field({ key: "budget", label: "Budget", type: "number" }),
+          ],
         }),
         "PUT /v1/agents/agent-1/extraction-schema": schemaOut([
           field({ key: "budget", label: "Monthly budget", type: "number" }),
@@ -895,7 +1002,9 @@ describe("editing what an agent captures (the extraction variables)", () => {
     const panel = card(captures);
     await pressable(panel, /Add variable/); // wait for write access before editing
     await act(async () => {
-      fireEvent.change(within(panel).getByLabelText("Name"), { target: { value: "Monthly budget" } });
+      fireEvent.change(within(panel).getByLabelText("Name"), {
+        target: { value: "Monthly budget" },
+      });
     });
     await act(async () => {
       fireEvent.click(await pressable(panel, /Save variables/));
@@ -912,10 +1021,20 @@ describe("editing what an agent captures (the extraction variables)", () => {
       page,
       routes({
         "/v1/agents/agent-1": agent({
-          extraction_fields: [field({ key: "visit_reason", label: "Reason for visit", required: false })],
+          extraction_fields: [
+            field({
+              key: "visit_reason",
+              label: "Reason for visit",
+              required: false,
+            }),
+          ],
         }),
         "PUT /v1/agents/agent-1/extraction-schema": schemaOut([
-          field({ key: "visit_reason", label: "Reason for visit", required: true }),
+          field({
+            key: "visit_reason",
+            label: "Reason for visit",
+            required: true,
+          }),
         ]),
       }),
     );
@@ -958,7 +1077,9 @@ describe("editing what an agent captures (the extraction variables)", () => {
     });
     // The row is gone before we save — proves the delete registered, and that removing a
     // row is itself the change that lights the Save button.
-    await waitFor(() => expect(within(panel).queryByDisplayValue("Reason for visit")).toBeNull());
+    await waitFor(() =>
+      expect(within(panel).queryByDisplayValue("Reason for visit")).toBeNull(),
+    );
     await act(async () => {
       fireEvent.click(await pressable(panel, /Save variables/));
     });
@@ -974,14 +1095,23 @@ describe("editing what an agent captures (the extraction variables)", () => {
       page,
       routes({
         "/v1/agents/agent-1": agent({
-          extraction_fields: [field({ key: "visit_reason", label: "Reason for visit" })],
+          extraction_fields: [
+            field({ key: "visit_reason", label: "Reason for visit" }),
+          ],
         }),
         "PUT /v1/agents/agent-1/extraction-schema": problem(422, {
           type: "urn:calevate:validation/extraction_field_reserved_key",
           title: "That id is reserved",
-          detail: "One of the variable ids collides with a built-in Leads column.",
+          detail:
+            "One of the variable ids collides with a built-in Leads column.",
           remediation: "Pick a different id for the highlighted variable.",
-          fields: [{ field: "status", rule: "reserved", message: "“status” is a built-in column." }],
+          fields: [
+            {
+              field: "status",
+              rule: "reserved",
+              message: "“status” is a built-in column.",
+            },
+          ],
         }),
       }),
     );
@@ -991,7 +1121,9 @@ describe("editing what an agent captures (the extraction variables)", () => {
     await pressable(panel, /Add variable/); // wait for write access before editing
     // Make something change so Save lights, then save into the refusal.
     await act(async () => {
-      fireEvent.change(within(panel).getByLabelText("Name"), { target: { value: "Status" } });
+      fireEvent.change(within(panel).getByLabelText("Name"), {
+        target: { value: "Status" },
+      });
     });
     await act(async () => {
       fireEvent.click(await pressable(panel, /Save variables/));
@@ -1011,11 +1143,17 @@ describe("editing what an agent captures (the extraction variables)", () => {
       page,
       routes({
         "/v1/agents/agent-1": agent({
-          extraction_fields: [field({ key: "visit_reason", label: "Reason for visit" })],
+          extraction_fields: [
+            field({ key: "visit_reason", label: "Reason for visit" }),
+          ],
         }),
         "PUT /v1/agents/agent-1/extraction-schema": schemaOut([
           field({ key: "visit_reason", label: "Reason for visit" }),
-          field({ key: "call_back_time", label: "Call back time", type: "text" }),
+          field({
+            key: "call_back_time",
+            label: "Call back time",
+            type: "text",
+          }),
         ]),
       }),
     );
@@ -1027,7 +1165,9 @@ describe("editing what an agent captures (the extraction variables)", () => {
     });
     const names = within(panel).getAllByLabelText("Name");
     await act(async () => {
-      fireEvent.change(names[names.length - 1], { target: { value: "Call back time" } });
+      fireEvent.change(names[names.length - 1], {
+        target: { value: "Call back time" },
+      });
     });
     await act(async () => {
       fireEvent.click(await pressable(panel, /Save variables/));
@@ -1098,7 +1238,10 @@ describe("the controls this session may not use are absent, not waiting to 403",
  * property in ONE place with the reason attached — and asserts it: a control that never
  * becomes pressable for an owner would time out here rather than pass quietly.
  */
-async function pressable(panel: HTMLElement, name: RegExp): Promise<HTMLElement> {
+async function pressable(
+  panel: HTMLElement,
+  name: RegExp,
+): Promise<HTMLElement> {
   const button = within(panel).getByRole("button", { name });
   await waitFor(() => expect(button.hasAttribute("disabled")).toBe(false));
   return button;
@@ -1127,7 +1270,9 @@ function card(title: string): HTMLElement {
 }
 
 /** A paused agent, which since D-527 is the only state a delete is offered from. */
-const SWITCHED_OFF = { "/v1/agents/agent-1": agent({ status: "paused", published: true }) };
+const SWITCHED_OFF = {
+  "/v1/agents/agent-1": agent({ status: "paused", published: true }),
+};
 
 describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
   it("offers a live agent only the moves the server's transition table allows", async () => {
@@ -1139,10 +1284,16 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     // them, and Delete stopped being one at D-527: a working agent is refused with
     // `agent_is_live` until it is switched off, so offering it here would be a click that
     // could only ever be refused.
-    expect(within(panel).getByRole("button", { name: /Switch off/ })).toBeTruthy();
+    expect(
+      within(panel).getByRole("button", { name: /Switch off/ }),
+    ).toBeTruthy();
     expect(within(panel).queryByRole("button", { name: /Delete/ })).toBeNull();
-    expect(within(panel).queryByRole("button", { name: /Switch on/ })).toBeNull();
-    expect(within(panel).queryByRole("button", { name: /Bring it back/ })).toBeNull();
+    expect(
+      within(panel).queryByRole("button", { name: /Switch on/ }),
+    ).toBeNull();
+    expect(
+      within(panel).queryByRole("button", { name: /Bring it back/ }),
+    ).toBeNull();
   });
 
   it("offers a switched-off agent the delete the live one could not have", async () => {
@@ -1152,9 +1303,13 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
 
     await screen.findByText("Reception");
     const panel = card("Switching it on and off");
-    expect(within(panel).getByRole("button", { name: /Switch on/ })).toBeTruthy();
+    expect(
+      within(panel).getByRole("button", { name: /Switch on/ }),
+    ).toBeTruthy();
     expect(within(panel).getByRole("button", { name: /Delete/ })).toBeTruthy();
-    expect(within(panel).queryByRole("button", { name: /Switch off/ })).toBeNull();
+    expect(
+      within(panel).queryByRole("button", { name: /Switch off/ }),
+    ).toBeNull();
   });
 
   it("offers an archived agent a restore and nothing else, and says it comes back switched off", async () => {
@@ -1177,9 +1332,13 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     // there is is the restore, and a heading offering a switch it does not have is the
     // same class of lie as the script button this screen used to show.
     const panel = card("Bringing it back");
-    expect(within(panel).getByRole("button", { name: /Bring it back/ })).toBeTruthy();
+    expect(
+      within(panel).getByRole("button", { name: /Bring it back/ }),
+    ).toBeTruthy();
     expect(within(panel).queryByRole("button", { name: /Delete/ })).toBeNull();
-    expect(within(panel).queryByRole("button", { name: /Switch off/ })).toBeNull();
+    expect(
+      within(panel).queryByRole("button", { name: /Switch off/ }),
+    ).toBeNull();
     expect(panel.textContent).toContain("comes back switched OFF");
   });
 
@@ -1253,8 +1412,13 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     const announced = within(panel).getByRole("status");
     expect(announced.textContent).toContain("stay in your call log");
 
-    const armed = within(panel).getByRole("button", { name: /Delete this agent/ });
-    expect(document.activeElement, "the keyboard was dropped by the confirm step").toBe(armed);
+    const armed = within(panel).getByRole("button", {
+      name: /Delete this agent/,
+    });
+    expect(
+      document.activeElement,
+      "the keyboard was dropped by the confirm step",
+    ).toBe(armed);
 
     // And the way out is reachable too — a confirmation a keyboard user can enter and not
     // leave is worse than no confirmation.
@@ -1262,7 +1426,9 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
       fireEvent.click(within(panel).getByRole("button", { name: /Keep it/ }));
     });
     expect(within(panel).queryByRole("status")).toBeNull();
-    expect(within(panel).getByRole("button", { name: /^Delete…$/ })).toBeTruthy();
+    expect(
+      within(panel).getByRole("button", { name: /^Delete…$/ }),
+    ).toBeTruthy();
   });
 
   it("renders the server's refusal when switching on is not possible yet", async () => {
@@ -1292,8 +1458,12 @@ describe("switching an agent on, off and deleting it (D-440, D-527)", () => {
     // `ApiProblem` leads with `detail` (falling back to `title`), and `ProblemNotice`
     // prints the remediation under it — so BOTH halves are asserted: what happened, and
     // what the client can do about it. A refusal with no second line is a dead end.
-    expect(alert.textContent).toContain("Nothing has been written for it to say.");
-    expect(alert.textContent).toContain("Ask your account manager to write its script.");
+    expect(alert.textContent).toContain(
+      "Nothing has been written for it to say.",
+    );
+    expect(alert.textContent).toContain(
+      "Ask your account manager to write its script.",
+    );
   });
 });
 
@@ -1418,7 +1588,9 @@ describe("changing what an agent is", () => {
 
     await screen.findByText("Reception");
     const panel = card("What it is");
-    expect(within(panel).queryByRole("button", { name: /Save changes/ })).toBeNull();
+    expect(
+      within(panel).queryByRole("button", { name: /Save changes/ }),
+    ).toBeNull();
     expect(panel.textContent).toContain("Bring it back first");
   });
 });
@@ -1428,7 +1600,11 @@ describe("teaching the agent", () => {
     const { calls } = await renderClientPage(
       page,
       routes({
-        "POST /v1/kb/sources": { id: "src-1", status: "pending_approval", version: 1 },
+        "POST /v1/kb/sources": {
+          id: "src-1",
+          status: "pending_approval",
+          version: 1,
+        },
       }),
     );
 
@@ -1438,9 +1614,12 @@ describe("teaching the agent", () => {
       fireEvent.change(within(panel).getByLabelText("What this is about"), {
         target: { value: "Clinic hours" },
       });
-      fireEvent.change(within(panel).getByLabelText("What the agent should say"), {
-        target: { value: "We are open 9am to 7pm, Monday to Saturday." },
-      });
+      fireEvent.change(
+        within(panel).getByLabelText("What the agent should say"),
+        {
+          target: { value: "We are open 9am to 7pm, Monday to Saturday." },
+        },
+      );
     });
     await act(async () => {
       fireEvent.click(await pressable(panel, /Submit for review/));
@@ -1582,11 +1761,15 @@ describe("the script is the screen's primary surface", () => {
   it("tells an unpublished agent that the script is what unblocks it", async () => {
     const { container } = await renderClientPage(
       page,
-      routes({ "/v1/agents/agent-1": agent({ status: "draft", published: false }) }),
+      routes({
+        "/v1/agents/agent-1": agent({ status: "draft", published: false }),
+      }),
     );
 
     await screen.findByText("Reception");
-    expect(container.textContent).toContain("an agent with none cannot be switched on");
+    expect(container.textContent).toContain(
+      "an agent with none cannot be switched on",
+    );
   });
 });
 
@@ -1630,7 +1813,9 @@ describe("progressive disclosure defaults", () => {
     expect(disclosed("What it captures")).toBe(false);
     expect(disclosed("What it knows")).toBe(false);
     // The hero itself is not in a `<details>` at all.
-    const hero = screen.getByRole("heading", { name: "What it says on a call" });
+    const hero = screen.getByRole("heading", {
+      name: "What it says on a call",
+    });
     expect(hero.closest("details")).toBeNull();
   });
 
@@ -1643,7 +1828,9 @@ describe("progressive disclosure defaults", () => {
 
     await screen.findByText("Reception");
     const model = card("The model it thinks with");
-    expect(model.querySelector("summary")?.textContent).toContain("gpt-4o-mini");
+    expect(model.querySelector("summary")?.textContent).toContain(
+      "gpt-4o-mini",
+    );
   });
 
   it("is a native details/summary, so it is keyboard-operable with no JS", async () => {

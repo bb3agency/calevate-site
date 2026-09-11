@@ -29,7 +29,12 @@ from apps.api.core.auth import (
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
-from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta, withheld_from_view_as
+from apps.api.core.rbac import (
+    ROLE_PERMISSIONS,
+    VIEW_AS_WITHHELD_ACTS,
+    permission_meta,
+    withheld_from_view_as,
+)
 from apps.api.kb.curation import CURATE_PERMISSION, may_curate_knowledge
 from apps.api.tenancy import members as members_service
 
@@ -61,6 +66,22 @@ class MeOut(BaseModel):
     # D-587 the banner says what is true of a view-as session now: the controls work, and
     # every change is recorded against the operator who made it.
     impersonating: bool
+    #: THE NAMED ACTS THIS SESSION MAY NOT PERFORM, even though it holds the permission.
+    #:
+    #: **THE HALF `permissions` CANNOT EXPRESS, AND THE DEFECT IT CLOSES.** D-587 filtered
+    #: withheld PERMISSIONS out of the list above so the console would need no copy of the
+    #: ruling — but six refusals are not permission-shaped. `org:manage` and `kb:write` are
+    #: both writable in a view-as session, and `rbac.VIEW_AS_WITHHELD_ACTS` then refuses
+    #: `org.membership` and `kb.self_approve` INSIDE them. So `useWriteAccess`, which asks
+    #: only "is the permission in the list", rendered a working Invite button and a working
+    #: Submit for review, and the server refused the click — a screen offering a control the
+    #: API will not honour, which is the exact failure `EngineCapabilities` exists to
+    #: prevent one layer down.
+    #:
+    #: Empty for everyone who is not impersonating, which is every client session: the acts
+    #: are withheld from view-as and from nothing else, so a client must never see a list
+    #: that reads like a restriction on them.
+    withheld_acts: list[str] = []
     organization: OrganizationOut | None = None
 
 
@@ -116,6 +137,7 @@ async def me(session: Session, principal: Principal = Depends(requires("org:read
         impersonating=principal.impersonating,
     ):
         permissions.add(CURATE_PERMISSION)
+    withheld_acts: list[str] = []
     if principal.impersonating:
         # THE VIEW-AS RULING, APPLIED HERE SO THE CONSOLE NEEDS NO COPY OF IT (D-587).
         #
@@ -127,12 +149,19 @@ async def me(session: Session, principal: Principal = Depends(requires("org:read
         # wrong for six permissions out of thirteen. The screen asks "is it in the list",
         # the server decides what is in the list, and the two cannot drift.
         permissions = {p for p in permissions if withheld_from_view_as(p) is None}
+        # AND THE ACTS, which the filter above cannot reach: `org:manage` and `kb:write`
+        # SURVIVE it (both are writable in view-as) while `org.membership` and
+        # `kb.self_approve` are refused inside them by `assert_view_as_may`. Sent whole
+        # rather than per-screen for the same reason the permission list is: the server
+        # owns the ruling, the console asks.
+        withheld_acts = sorted(VIEW_AS_WITHHELD_ACTS)
     return MeOut(
         realm=principal.realm,
         user_id=principal.user_id,
         role=principal.role,
         permissions=sorted(permissions),
         impersonating=principal.impersonating,
+        withheld_acts=withheld_acts,
         organization=org,
     )
 

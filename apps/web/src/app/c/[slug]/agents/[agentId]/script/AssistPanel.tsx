@@ -20,8 +20,10 @@ import {
   NoticeBox,
   PRIMARY_BUTTON_SM,
   ProblemNotice,
+  RestrictionNote,
   SECONDARY_BUTTON_SM,
 } from "@/components/ui";
+import { useActAccess } from "@/lib/api/hooks";
 import { useClientSession } from "@/lib/api/session";
 import { useAssistScript, type CallScript } from "@/lib/api/script";
 import { useVerticalExamples } from "@/lib/useVerticalExamples";
@@ -41,6 +43,21 @@ export function AssistPanel({
   const [description, setDescription] = useState("");
   const [open, setOpen] = useState(false);
   const assist = useAssistScript(session, agentId);
+  /**
+   * WHOSE ALLOWANCE THE DRAFT SPENDS. The route is `org:manage` (`script_routes.py:59`),
+   * which a view-as operator now HOLDS (D-587) — and the same route then refuses them the
+   * named act `billing.ai_assist` before the ownership check (`script_routes.py:229`),
+   * because drafting runs the assistant on the CLIENT'S included allowance and support
+   * work is never billed to the client. This panel had no gate at all, so an operator was
+   * offered a Draft button whose only possible answer was a 403; a `staff` member, who
+   * does not hold `org:manage`, was offered the same. Both now read the reason instead.
+   */
+  const write = useActAccess(
+    session,
+    "org:manage",
+    "billing.ai_assist",
+    "draft a script with AI",
+  );
 
   const run = () => {
     assist.mutate(
@@ -67,9 +84,11 @@ export function AssistPanel({
             line, steps and questions for you to review and edit — nothing goes live until you
             save and apply.
           </p>
+          <RestrictionNote reason={write.reason} />
           <textarea
             className={FIELD}
             rows={4}
+            disabled={!write.allowed}
             value={description}
             aria-label="Business description"
             onChange={(e) => setDescription(e.target.value)}
@@ -79,7 +98,10 @@ export function AssistPanel({
             <button
               type="button"
               className={PRIMARY_BUTTON_SM}
-              disabled={assist.isPending || disabled || description.trim().length < 10}
+              disabled={
+                !write.allowed || assist.isPending || disabled || description.trim().length < 10
+              }
+              title={write.reason ?? undefined}
               onClick={run}
             >
               <Wand2 aria-hidden className="h-3.5 w-3.5" />

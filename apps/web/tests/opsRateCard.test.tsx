@@ -19,7 +19,11 @@ import {
 } from "@/lib/api/opsRateCard";
 import { OPS_TTS_PRICES_PATH, type TtsPrice } from "@/lib/api/opsTtsPricing";
 import { ttsVerdict } from "@/app/admin/ops/ModelPricingPanel";
-import { OPS_CONFIG_PATH, type ConfigField, type ConfigList } from "@/lib/api/opsConfig";
+import {
+  OPS_CONFIG_PATH,
+  type ConfigField,
+  type ConfigList,
+} from "@/lib/api/opsConfig";
 import { OPS_MODEL_PRICES_PATH } from "@/lib/api/opsModelPricing";
 import { OPS_DASHBOARD_DATA_USE_PATH } from "@/lib/api/opsDashboardDataUse";
 import { OPS_FX_RATE_PATH } from "@/lib/api/opsFxRate";
@@ -57,7 +61,13 @@ const SUPERADMIN: AdminMe = {
   realm: "admin",
   user_id: "0192f0aa-7777-7000-8000-0000000000c1",
   role: "superadmin",
-  permissions: ["org:read", "admin:tenants", "ops:manage", "platform:config", "platform:secrets"],
+  permissions: [
+    "org:read",
+    "admin:tenants",
+    "ops:manage",
+    "platform:config",
+    "platform:secrets",
+  ],
 };
 
 function configField(over: Partial<ConfigField> = {}): ConfigField {
@@ -195,7 +205,8 @@ function speakingRate(over: Partial<SpeakingRate> = {}): SpeakingRate {
     calls: 3,
     minimum_calls: 20,
     window: null,
-    basis: "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12); 3 of 20 calls measured",
+    basis:
+      "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12); 3 of 20 calls measured",
     cost_floor_inr_per_min: "4.1211",
     refusal_floor_inr_per_min: "4.1211",
     floor_above_refusal: false,
@@ -203,7 +214,10 @@ function speakingRate(over: Partial<SpeakingRate> = {}): SpeakingRate {
   };
 }
 
-function card(cells: RateCardCell[] = [cell(), HEALTHY], over: Partial<RateCard> = {}): RateCard {
+function card(
+  cells: RateCardCell[] = [cell(), HEALTHY],
+  over: Partial<RateCard> = {},
+): RateCard {
   return {
     effective_from: "2026-09-07T04:30:00Z",
     target_gross_margin_pct: "20",
@@ -235,7 +249,12 @@ function fullCard(over: Partial<RateCard> = {}): RateCard {
   return card(
     [
       cell(),
-      cell({ voice_tier: "cartesia", tier_label: "Studio", inr_per_min: "6.0000", below_target: false }),
+      cell({
+        voice_tier: "cartesia",
+        tier_label: "Studio",
+        inr_per_min: "6.0000",
+        below_target: false,
+      }),
       cell({ pack_id: "max", amount_inr: "50000.00", inr_per_min: "4.5000" }),
       cell({
         pack_id: "max",
@@ -255,7 +274,12 @@ const SCHEDULED: PendingCard = {
   effective_from: "2026-10-20T00:00:00+00:00",
   cells: [
     cell({ inr_per_min: "5.5000" }),
-    cell({ voice_tier: "cartesia", tier_label: "Studio", inr_per_min: "6.0000", below_target: false }),
+    cell({
+      voice_tier: "cartesia",
+      tier_label: "Studio",
+      inr_per_min: "6.0000",
+      below_target: false,
+    }),
   ],
 };
 
@@ -351,7 +375,10 @@ function routes(extra: Routes = {}): Routes {
     [ADMIN_ME_PATH]: SUPERADMIN,
     [OPS_CONFIG_PATH]: configList(),
     [OPS_RATE_CARD_PATH]: card(),
-    [OPS_MODEL_PRICES_PATH]: { ...MODEL_PRICES_BASE, tts_prices: [SARVAM_ROW, ttsRow()] },
+    [OPS_MODEL_PRICES_PATH]: {
+      ...MODEL_PRICES_BASE,
+      tts_prices: [SARVAM_ROW, ttsRow()],
+    },
     [OPS_DASHBOARD_DATA_USE_PATH]: DASHBOARD_DATA_USE,
     [OPS_FX_RATE_PATH]: FX_RATE,
     [OPS_SECRETS_PATH]: SECRETS,
@@ -449,14 +476,20 @@ describe("the rate card an operator is about to date", () => {
         ]),
       }),
     );
-    await screen.findByText(/2 of 2 rungs earn less than 20% at this month's volume/);
+    await screen.findByText(
+      /2 of 2 rungs earn less than 20% at this month's volume/,
+    );
     expect(container.textContent).toContain("(1 against the structural floor)");
     // ...and the rung that is actually under water at this volume is called out by name,
     // with the volume it needs. Amber, not red: the card is still recordable.
-    await screen.findByText(/1 rung sold a minute for less than it cost at this month's volume/);
+    await screen.findByText(
+      /1 rung sold a minute for less than it cost at this month's volume/,
+    );
     expect(container.textContent).toContain("₹6.9011/min of real cost");
     expect(container.textContent).toContain("break-even 126 platform min/mo");
-    expect(screen.queryByText("Some rungs sell a minute for less than it costs")).toBeNull();
+    expect(
+      screen.queryByText("Some rungs sell a minute for less than it costs"),
+    ).toBeNull();
   });
 
   /**
@@ -481,7 +514,9 @@ describe("the rate card an operator is about to date", () => {
     // card whose only fault is thinness.
     // The below-cost refusal, VERBATIM as the panel would render it — a paraphrase here is
     // an assertion that passes while the screen refuses the card.
-    expect(screen.queryByText("Some rungs sell a minute for less than it costs")).toBeNull();
+    expect(
+      screen.queryByText("Some rungs sell a minute for less than it costs"),
+    ).toBeNull();
     expect(container.textContent).not.toContain(
       "The server refuses to record a card in this state",
     );
@@ -491,16 +526,19 @@ describe("the rate card an operator is about to date", () => {
     // AND THE WRITE IS STILL AVAILABLE: the row that dates the card offers its form, and
     // filling it arms the save. A thin margin blocks nothing.
     fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
-    fireEvent.change(screen.getByLabelText(/New value/), { target: { value: "5.00" } });
+    fireEvent.change(screen.getByLabelText(/New value/), {
+      target: { value: "5.00" },
+    });
     fireEvent.change(screen.getByPlaceholderText(/Q3 price change/), {
       target: { value: "re-dating the card" },
     });
     fireEvent.change(screen.getByPlaceholderText("SELF_SERVE_INR_PER_MIN"), {
       target: { value: "SELF_SERVE_INR_PER_MIN" },
     });
-    expect((screen.getByRole("button", { name: /^Save$/ }) as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+    expect(
+      (screen.getByRole("button", { name: /^Save$/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
   });
 
   it("renders the two refusals as the server's own sentences when the write is refused", async () => {
@@ -521,7 +559,9 @@ describe("the rate card an operator is about to date", () => {
 
     await screen.findByText("self_serve_inr_per_min");
     fireEvent.click(screen.getAllByRole("button", { name: /Change/ })[0]);
-    fireEvent.change(screen.getByLabelText(/New value/), { target: { value: "4.00" } });
+    fireEvent.change(screen.getByLabelText(/New value/), {
+      target: { value: "4.00" },
+    });
     fireEvent.change(screen.getByPlaceholderText(/Q3 price change/), {
       target: { value: "cutting the rate" },
     });
@@ -542,7 +582,9 @@ describe("the rate card an operator is about to date", () => {
   });
 
   it("shows no cells at all when the card could not be read", async () => {
-    const { container } = renderOps(routes({ [OPS_RATE_CARD_PATH]: problem(404, {}) }));
+    const { container } = renderOps(
+      routes({ [OPS_RATE_CARD_PATH]: problem(404, {}) }),
+    );
 
     await screen.findByText("We could not read the rate card");
     // NOT a table of defaults: no rate, no floor, no margin and no verdict anywhere.
@@ -560,11 +602,15 @@ describe("the voice price that decides whether a tier can be sold", () => {
     await screen.findByText(/Voice prices/);
     expect(container.textContent).toContain("Cartesia · Studio");
     expect(container.textContent).toContain("sonic-3.5");
-    expect(container.textContent).toContain("This voice cannot be sold until its price is confirmed");
+    expect(container.textContent).toContain(
+      "This voice cannot be sold until its price is confirmed",
+    );
     // The CONSEQUENCE, in the words that make it actionable: a blank price is not "no data",
     // it is a leg that would meter every minute as free.
     expect(container.textContent).toContain("metered as free");
-    expect(container.textContent).toContain("Blocked — needs a confirmed price");
+    expect(container.textContent).toContain(
+      "Blocked — needs a confirmed price",
+    );
   });
 
   it("does not demand an attestation for the leg the engine already bills us for", async () => {
@@ -582,20 +628,32 @@ describe("the voice price that decides whether a tier can be sold", () => {
     );
 
     await screen.findByText(/Voice prices/);
-    fireEvent.click(screen.getAllByRole("button", { name: /Confirm price/ }).slice(-1)[0]);
-    fireEvent.change(screen.getByLabelText(/Price \(₹ per 1,000 characters\)/), {
-      target: { value: "3.4496" },
-    });
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /Confirm price/ }).slice(-1)[0],
+    );
+    fireEvent.change(
+      screen.getByLabelText(/Price \(₹ per 1,000 characters\)/),
+      {
+        target: { value: "3.4496" },
+      },
+    );
     fireEvent.change(screen.getByPlaceholderText(/Cartesia Startup plan/), {
       target: { value: "Cartesia Startup plan, Sep 2026 invoice" },
     });
-    fireEvent.change(screen.getByLabelText(/Type CONFIRM/), { target: { value: "CONFIRM" } });
+    fireEvent.change(screen.getByLabelText(/Type CONFIRM/), {
+      target: { value: "CONFIRM" },
+    });
     // The SUBMIT inside the open form, not the button that opens another row's form: three
     // controls on this screen carry the words "Confirm price".
-    const form = screen.getByLabelText(/Price \(₹ per 1,000 characters\)/).closest("form");
+    const form = screen
+      .getByLabelText(/Price \(₹ per 1,000 characters\)/)
+      .closest("form");
     fireEvent.submit(form as HTMLFormElement);
 
-    const write = await waitForCall(calls, `POST ${OPS_TTS_PRICES_PATH}/cartesia`);
+    const write = await waitForCall(
+      calls,
+      `POST ${OPS_TTS_PRICES_PATH}/cartesia`,
+    );
     // The exact string, four decimals of a division somebody did against an invoice —
     // never a JSON number (hard rule 7).
     expect(write.body).toContain('"inr_per_1k_chars":"3.4496"');
@@ -610,7 +668,9 @@ describe("the voice price that decides whether a tier can be sold", () => {
     );
 
     await screen.findByText("This deployment did not send any voice prices");
-    expect(container.textContent).toContain("treat this as unknown, not as free");
+    expect(container.textContent).toContain(
+      "treat this as unknown, not as free",
+    );
     // The rate card above names the same two words for a different fact, so the tell that
     // no voice ROW rendered is the synthesizer model and the row's own verdict.
     expect(container.textContent).not.toContain("sonic-3.5");
@@ -645,7 +705,11 @@ describe("what a margin verdict may say", () => {
     // genuinely at or above target is built explicitly rather than borrowed, so this
     // assertion keeps testing the tone rather than the fixture.
     const healthy = cellVerdict(
-      cell({ voice_tier: "cartesia", below_target: false, below_target_at_volume: false }),
+      cell({
+        voice_tier: "cartesia",
+        below_target: false,
+        below_target_at_volume: false,
+      }),
       "20",
     );
     expect(healthy.tone).toBe("ok");
@@ -686,7 +750,9 @@ describe("the volume every Studio cost figure is struck at", () => {
     // ⚠ THE REGRESSION THIS GUARDS. The column headed "COSTS US" carried ₹4.3639 for every
     // Studio rung with no volume anywhere near it. Every one of these assertions is a piece
     // of the caveat that was missing, and dropping any of them puts the old screen back.
-    expect(container.textContent).toContain("Studio (Cartesia) is a monthly subscription");
+    expect(container.textContent).toContain(
+      "Studio (Cartesia) is a monthly subscription",
+    );
     expect(container.textContent).toContain("200"); // the measured platform call-minutes
     expect(container.textContent).toContain("₹4.9299"); // what a minute ACTUALLY cost
     expect(container.textContent).toContain("pro"); // ...and on which plan
@@ -712,7 +778,9 @@ describe("the volume every Studio cost figure is struck at", () => {
     );
     await screen.findByText("17.60%");
     expect(container.textContent).toContain("configured:usd_inr_rate");
-    expect(container.textContent).toContain("because no published rate is current");
+    expect(container.textContent).toContain(
+      "because no published rate is current",
+    );
   });
 
   it("refuses to print a cost column at all when the deployment sent no volume", async () => {
@@ -757,10 +825,11 @@ describe("reading a voice price off the wire", () => {
     expect(ttsVerdict(ttsRow({ credential_installed: false })).label).toBe(
       "Blocked — needs a vendor key and a confirmed price",
     );
-    expect(ttsVerdict(ttsRow({ offerable: true })).label).toBe("On sale to customers");
+    expect(ttsVerdict(ttsRow({ offerable: true })).label).toBe(
+      "On sale to customers",
+    );
   });
 });
-
 
 /* ════════════════════════════════════════════════════════════════════════════════════ */
 
@@ -792,16 +861,24 @@ describe("reading a voice price off the wire", () => {
  */
 describe("recording the next rate card", () => {
   it("says how many clients will be emailed before anything is sent", async () => {
-    const { container } = renderOps(routes({ [OPS_RATE_CARD_PATH]: fullCard() }));
+    const { container } = renderOps(
+      routes({ [OPS_RATE_CARD_PATH]: fullCard() }),
+    );
 
     await screen.findByRole("button", { name: /Record a new card/ });
     fireEvent.click(screen.getByRole("button", { name: /Record a new card/ }));
 
     // The SERVER's count, in front of the button, before a keystroke is typed.
-    await screen.findByText("3 clients will be emailed as soon as you record this");
-    expect(container.textContent).toContain("Clients on an invoiced plan are not emailed");
+    await screen.findByText(
+      "3 clients will be emailed as soon as you record this",
+    );
+    expect(container.textContent).toContain(
+      "Clients on an invoiced plan are not emailed",
+    );
     // And the promise that stops the support call, on the same panel.
-    expect(container.textContent).toContain("Credit already bought is not repriced");
+    expect(container.textContent).toContain(
+      "Credit already bought is not repriced",
+    );
   });
 
   it("does not invent a count when the API did not publish one", async () => {
@@ -811,11 +888,15 @@ describe("recording the next rate card", () => {
     delete (older as { notice_recipients?: number }).notice_recipients;
     const { container } = renderOps(routes({ [OPS_RATE_CARD_PATH]: older }));
 
-    fireEvent.click(await screen.findByRole("button", { name: /Record a new card/ }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Record a new card/ }),
+    );
 
     await screen.findByText("We do not know how many clients would be emailed");
     expect(container.textContent).not.toContain("0 clients will be emailed");
-    expect(container.textContent).toContain("no number is shown rather than a guessed one");
+    expect(container.textContent).toContain(
+      "no number is shown rather than a guessed one",
+    );
   });
 
   it("sends the typed rates as exact strings, with the step-up bound to the instant it sent", async () => {
@@ -830,17 +911,24 @@ describe("recording the next rate card", () => {
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Record a new card/ }));
-    fireEvent.change(screen.getByLabelText("Rupees per minute, starter pack on Sarvam Clear"), {
-      target: { value: "5.5000" },
-    });
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Record a new card/ }),
+    );
+    fireEvent.change(
+      screen.getByLabelText("Rupees per minute, starter pack on Sarvam Clear"),
+      {
+        target: { value: "5.5000" },
+      },
+    );
     fireEvent.change(screen.getByLabelText(/The day the new rates start/), {
       target: { value: "2026-10-20" },
     });
     fireEvent.change(screen.getByPlaceholderText(/Cartesia raised/), {
       target: { value: "Cartesia raised its per-character price" },
     });
-    fireEvent.change(screen.getByLabelText(/Type RECORD/), { target: { value: "RECORD" } });
+    fireEvent.change(screen.getByLabelText(/Type RECORD/), {
+      target: { value: "RECORD" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /^Record card$/ }));
 
     const write = await waitForCall(calls, `POST ${OPS_RATE_CARD_PATH}`);
@@ -850,17 +938,26 @@ describe("recording the next rate card", () => {
     expect(write.body).toContain('"pack_id":"starter"');
     // MIDNIGHT IST WITH THE OFFSET WRITTEN IN, not `toISOString()`. Both halves are
     // asserted because only their EQUALITY makes the save possible.
-    expect(write.body).toContain('"effective_from":"2026-10-20T00:00:00+05:30"');
-    expect(write.headers["X-Confirm-Action"]).toBe("record_rate_card:2026-10-20T00:00:00+05:30");
+    expect(write.body).toContain(
+      '"effective_from":"2026-10-20T00:00:00+05:30"',
+    );
+    expect(write.headers["X-Confirm-Action"]).toBe(
+      "record_rate_card:2026-10-20T00:00:00+05:30",
+    );
   });
 
   it("shows what each rate moved by, against the card in force", async () => {
     renderOps(routes({ [OPS_RATE_CARD_PATH]: fullCard() }));
 
-    fireEvent.click(await screen.findByRole("button", { name: /Record a new card/ }));
-    fireEvent.change(screen.getByLabelText("Rupees per minute, starter pack on Sarvam Clear"), {
-      target: { value: "5.5000" },
-    });
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Record a new card/ }),
+    );
+    fireEvent.change(
+      screen.getByLabelText("Rupees per minute, starter pack on Sarvam Clear"),
+      {
+        target: { value: "5.5000" },
+      },
+    );
 
     // Exact rupees and the percentage of the old rate, both derived without parsing either
     // figure into a JavaScript number.
@@ -875,20 +972,25 @@ describe("recording the next rate card", () => {
           kind: "validation",
           type: "urn:calevate:validation/rate_card_too_soon",
           title: "This card starts too soon",
-          detail: "a rate card starts at least 30 days out; that instant is 4 days away",
+          detail:
+            "a rate card starts at least 30 days out; that instant is 4 days away",
           retryable: false,
         }),
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Record a new card/ }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Record a new card/ }),
+    );
     fireEvent.change(screen.getByLabelText(/The day the new rates start/), {
       target: { value: "2026-10-20" },
     });
     fireEvent.change(screen.getByPlaceholderText(/Cartesia raised/), {
       target: { value: "moving the entry rung" },
     });
-    fireEvent.change(screen.getByLabelText(/Type RECORD/), { target: { value: "RECORD" } });
+    fireEvent.change(screen.getByLabelText(/Type RECORD/), {
+      target: { value: "RECORD" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /^Record card$/ }));
 
     await screen.findByText("This card starts too soon — nothing was saved");
@@ -905,12 +1007,18 @@ describe("recording the next rate card", () => {
   it("offers the earliest permitted day as the picker's own floor", async () => {
     renderOps(routes({ [OPS_RATE_CARD_PATH]: fullCard() }));
 
-    fireEvent.click(await screen.findByRole("button", { name: /Record a new card/ }));
-    const picker = screen.getByLabelText(/The day the new rates start/) as HTMLInputElement;
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Record a new card/ }),
+    );
+    const picker = screen.getByLabelText(
+      /The day the new rates start/,
+    ) as HTMLInputElement;
     // The client-side floor and the sentence under it are one answer, and the server is
     // still the real gate — see `earliestPickableDate`.
     expect(picker.min).toBe("2026-10-09");
-    expect(screen.getByText(/earliest day this deployment accepts is 2026-10-09/)).toBeTruthy();
+    expect(
+      screen.getByText(/earliest day this deployment accepts is 2026-10-09/),
+    ).toBeTruthy();
   });
 });
 
@@ -934,13 +1042,20 @@ describe("a card that is scheduled but has not started", () => {
     fireEvent.change(screen.getByPlaceholderText(/superseded by/), {
       target: { value: "recorded against the wrong quarter" },
     });
-    fireEvent.change(screen.getByLabelText(/Type WITHDRAW/), { target: { value: "WITHDRAW" } });
+    fireEvent.change(screen.getByLabelText(/Type WITHDRAW/), {
+      target: { value: "WITHDRAW" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /^Withdraw$/ }));
 
-    const write = await waitForCall(calls, `POST ${OPS_RATE_CARD_PATH}/cancellations`);
+    const write = await waitForCall(
+      calls,
+      `POST ${OPS_RATE_CARD_PATH}/cancellations`,
+    );
     // THE SERVER'S OWN STRING, ECHOED — re-deriving it here is how the step-up header and
     // the row the API looks up stop naming the same instant.
-    expect(write.body).toContain(`"effective_from":"${SCHEDULED.effective_from}"`);
+    expect(write.body).toContain(
+      `"effective_from":"${SCHEDULED.effective_from}"`,
+    );
     expect(write.headers["X-Confirm-Action"]).toBe(
       `cancel_rate_card:${SCHEDULED.effective_from}`,
     );
@@ -956,8 +1071,12 @@ describe("a card that is scheduled but has not started", () => {
 
     await screen.findByText(/Nothing is scheduled/);
     // The rest of the panel is still there, which is the property being pinned.
-    expect(container.textContent).toContain("Rate card — six packs, two voices");
-    expect(screen.getByRole("button", { name: /Record a new card/ })).toBeTruthy();
+    expect(container.textContent).toContain(
+      "Rate card — six packs, two voices",
+    );
+    expect(
+      screen.getByRole("button", { name: /Record a new card/ }),
+    ).toBeTruthy();
   });
 });
 
@@ -1012,11 +1131,18 @@ describe("the two date rules the step-up header rests on", () => {
 
 /** The first call matching a method-scoped key, once it has happened. */
 async function waitForCall(
-  calls: { method: string; path: string; body: string | null; headers: Record<string, string> }[],
+  calls: {
+    method: string;
+    path: string;
+    body: string | null;
+    headers: Record<string, string>;
+  }[],
   scoped: string,
 ) {
   for (let attempt = 0; attempt < 50; attempt += 1) {
-    const found = calls.find((call) => `${call.method} ${call.path}` === scoped);
+    const found = calls.find(
+      (call) => `${call.method} ${call.path}` === scoped,
+    );
     if (found) return found;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }

@@ -40,7 +40,9 @@ const TABBABLE =
 
 function tabbablesWithin(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(TABBABLE)).filter(
-    (element) => element.closest("[inert]") === null && element.closest("[hidden]") === null,
+    (element) =>
+      element.closest("[inert]") === null &&
+      element.closest("[hidden]") === null,
   );
 }
 
@@ -70,8 +72,10 @@ function stubViewport(kind: "mobile" | "desktop"): void {
   const mediaListEntry = (query: string, matches: boolean) => ({
     media: query,
     matches,
-    addEventListener: (_: string, listener: () => void) => listeners.add(listener),
-    removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+    addEventListener: (_: string, listener: () => void) =>
+      listeners.add(listener),
+    removeEventListener: (_: string, listener: () => void) =>
+      listeners.delete(listener),
     addListener: (listener: () => void) => listeners.add(listener),
     removeListener: (listener: () => void) => listeners.delete(listener),
     dispatchEvent: () => false,
@@ -89,8 +93,10 @@ function stubViewport(kind: "mobile" | "desktop"): void {
       return {
         media: query,
         matches: kind === "mobile",
-        addEventListener: (_: string, listener: () => void) => listeners.add(listener),
-        removeEventListener: (_: string, listener: () => void) => listeners.delete(listener),
+        addEventListener: (_: string, listener: () => void) =>
+          listeners.add(listener),
+        removeEventListener: (_: string, listener: () => void) =>
+          listeners.delete(listener),
         addListener: (listener: () => void) => listeners.add(listener),
         removeListener: (listener: () => void) => listeners.delete(listener),
         dispatchEvent: () => false,
@@ -134,10 +140,16 @@ async function renderAdminShell(): Promise<HTMLElement> {
 async function renderClientShell(): Promise<HTMLElement> {
   // Not `renderClientPage`: this layout mounts its OWN `ClientRealmProvider`, and the
   // harness would nest a second one around it — a composition the app never has.
-  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+  const { QueryClient, QueryClientProvider } =
+    await import("@tanstack/react-query");
   const { stubApi } = await import("./harness");
-  stubApi({ "/v1/me": { organization: { name: "Acme" }, role: "owner" }, "/v1/attention": { total: 0 } });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  stubApi({
+    "/v1/me": { organization: { name: "Acme" }, role: "owner" },
+    "/v1/attention": { total: 0 },
+  });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   let container!: HTMLElement;
   await act(async () => {
     const ui: ReactElement = (

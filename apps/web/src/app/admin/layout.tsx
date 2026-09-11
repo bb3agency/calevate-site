@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ComponentType } from "react";
 import {
+  AudioLines,
   CalendarClock,
   Building2,
   ClipboardCheck,
@@ -236,6 +237,23 @@ const NAV: NavGroup[] = [
         permission: "platform:config",
         action: "change platform configuration or install vendor credentials",
         hideUnlessAllowed: true,
+      },
+      {
+        // WHICH VOICES THIS PLATFORM OFFERS (D-588). Its own entry rather than a panel on
+        // Operations, for the two rows below's reason — discovery — and one of its own.
+        // The founder asked for a "Voices section" by name; and the operator who has just
+        // cloned a voice on the voice platform is looking for the place that makes it
+        // selectable, not scrolling a screen of incident switches to find it. The
+        // longest-match title rule below means `/admin/ops/voices` keeps this name instead
+        // of inheriting "Operations".
+        //
+        // `ops:manage` is the permission every route the screen calls carries
+        // (`apps/api/ops/voice_curation_routes.py`, and the refresh in `ops/routes.py`).
+        href: "/admin/ops/voices",
+        label: "Voices",
+        icon: AudioLines,
+        permission: "ops:manage",
+        action: "choose which voices this platform offers",
       },
       {
         // PLANNED MAINTENANCE. Its own entry rather than a panel on Operations, for the

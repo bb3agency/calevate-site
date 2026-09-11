@@ -48,9 +48,11 @@ const SLOW_INTERVAL_MS = 60_000;
 export const queryKeys = {
   me: (org: string) => ["me", org] as const,
   dashboard: (org: string) => ["dashboard", org] as const,
-  calls: (org: string, filters: Record<string, unknown>) => ["calls", org, filters] as const,
+  calls: (org: string, filters: Record<string, unknown>) =>
+    ["calls", org, filters] as const,
   call: (org: string, id: string) => ["call", org, id] as const,
-  leads: (org: string, filters: Record<string, unknown>) => ["leads", org, filters] as const,
+  leads: (org: string, filters: Record<string, unknown>) =>
+    ["leads", org, filters] as const,
 };
 
 function query(params: Record<string, string | number | undefined>): string {
@@ -146,7 +148,11 @@ export interface WriteAccess {
  * A preview, never a substitute: the endpoints still refuse, and every screen keeps its
  * ProblemNotice as the backstop.
  */
-export function useWriteAccess(session: Session, permission: string, action: string): WriteAccess {
+export function useWriteAccess(
+  session: Session,
+  permission: string,
+  action: string,
+): WriteAccess {
   const me = useMe(session);
 
   if (me.error) {
@@ -185,6 +191,46 @@ export function useWriteAccess(session: Session, permission: string, action: str
   return { allowed: true, reason: null, unknown: false };
 }
 
+/**
+ * Whether this session may perform one NAMED ACT, as distinct from holding a permission.
+ *
+ * **THE HALF `useWriteAccess` CANNOT ANSWER, AND THE DEFECT THAT PROVED IT.** D-587 made
+ * view-as writable and filtered withheld PERMISSIONS out of `/v1/me`, so the console could
+ * stop carrying a copy of the ruling. But six of the refusals are not permission-shaped:
+ * `org:manage` and `kb:write` are both writable in a view-as session, and the server then
+ * refuses `org.membership` and `kb.self_approve` INSIDE them (`rbac.VIEW_AS_WITHHELD_ACTS`,
+ * enforced by `assert_view_as_may`). `useWriteAccess` asks only "is the permission in the
+ * list", so it rendered a working Invite button and a working Submit for review that the
+ * API then refused — a screen offering a control the server will not honour.
+ *
+ * So a control guarded by a named act asks BOTH: the permission first (a staff member
+ * without `org:manage` is refused for the ordinary reason, in the ordinary words), then the
+ * act. `withheld_acts` comes from the server whole, for `useWriteAccess`'s reason — the
+ * ruling lives in one place and the browser asks it.
+ *
+ * `reason` is the operator's sentence, not the client's: these acts are withheld from
+ * view-as and from nobody else, so a client session can never reach this branch.
+ */
+export function useActAccess(
+  session: Session,
+  permission: string,
+  act: string,
+  action: string,
+): WriteAccess {
+  const me = useMe(session);
+  const write = useWriteAccess(session, permission, action);
+
+  if (!write.allowed) return write;
+  if (me.data?.withheld_acts?.includes(act)) {
+    return {
+      allowed: false,
+      reason: `This stays with the client, so you cannot ${action} from a view-as session. Do it from the operator console, or ask the account to do it.`,
+      unknown: false,
+    };
+  }
+  return write;
+}
+
 export function useDashboard(session: Session): UseQueryResult<Dashboard> {
   return useQuery({
     queryKey: queryKeys.dashboard(session.orgSlug),
@@ -201,7 +247,10 @@ export function useCalls(
   return useQuery({
     queryKey: queryKeys.calls(session.orgSlug, filters),
     queryFn: () =>
-      apiRequest<CallSummary[]>(session, `/v1/calls${query({ ...filters, limit: filters.limit ?? 50 })}`),
+      apiRequest<CallSummary[]>(
+        session,
+        `/v1/calls${query({ ...filters, limit: filters.limit ?? 50 })}`,
+      ),
     refetchInterval: LIVE_INTERVAL_MS,
     refetchOnWindowFocus: true,
   });
@@ -243,7 +292,10 @@ export function useCallsLog(
   });
 }
 
-export function useCall(session: Session, callId: string): UseQueryResult<CallDetail> {
+export function useCall(
+  session: Session,
+  callId: string,
+): UseQueryResult<CallDetail> {
   return useQuery({
     queryKey: queryKeys.call(session.orgSlug, callId),
     queryFn: () => apiRequest<CallDetail>(session, `/v1/calls/${callId}`),
@@ -326,11 +378,17 @@ export function useCallBack(session: Session, callId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      apiRequest<components["schemas"]["CallbackOut"]>(session, `/v1/calls/${callId}/callback`, {
-        method: "POST",
-      }),
+      apiRequest<components["schemas"]["CallbackOut"]>(
+        session,
+        `/v1/calls/${callId}/callback`,
+        {
+          method: "POST",
+        },
+      ),
     onSuccess: () => {
-      void client.invalidateQueries({ queryKey: ["callback-check", session.orgSlug, callId] });
+      void client.invalidateQueries({
+        queryKey: ["callback-check", session.orgSlug, callId],
+      });
       void client.invalidateQueries({ queryKey: ["calls", session.orgSlug] });
     },
   });
@@ -400,7 +458,10 @@ export function useCallAssist(session: Session, callId: string) {
   const mutation = useMutation({
     mutationFn: () => {
       const held = attempt.current;
-      const key = held !== null && held.callId === callId ? held.key : crypto.randomUUID();
+      const key =
+        held !== null && held.callId === callId
+          ? held.key
+          : crypto.randomUUID();
       attempt.current = { callId, key };
       return apiRequest<components["schemas"]["CallAssistOut"]>(
         session,

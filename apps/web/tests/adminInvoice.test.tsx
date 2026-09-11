@@ -38,7 +38,9 @@ const PATH = `/v1/admin/tenants/${TENANT}/invoice`;
 
 /** The current IST month, exactly as the page computes it for its default request. */
 function currentISTMonth(): string {
-  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }).slice(0, 7);
+  return new Date()
+    .toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
+    .slice(0, 7);
 }
 
 const MONTH = currentISTMonth();
@@ -84,7 +86,8 @@ function invoice(over: Partial<Invoice> = {}): Invoice {
       state_code: "29",
       state_name: "Karnataka",
       supply_type: "interstate",
-      basis: "Location of the recipient, a registered person (IGST Act s.12(2)(a)).",
+      basis:
+        "Location of the recipient, a registered person (IGST Act s.12(2)(a)).",
     },
     line_items: [
       {
@@ -108,7 +111,9 @@ function invoice(over: Partial<Invoice> = {}): Invoice {
     subtotal_inr: "1015900.00",
     gst_rate_pct: "18",
     gst_inr: "182862.00",
-    tax_components: [{ label: "IGST", rate_pct: "18", amount_inr: "182862.00" }],
+    tax_components: [
+      { label: "IGST", rate_pct: "18", amount_inr: "182862.00" },
+    ],
     total_inr: "1198762.00",
     usage: { minutes_used: "220.5", calls: 118, included_minutes: 200 },
     ...over,
@@ -116,24 +121,27 @@ function invoice(over: Partial<Invoice> = {}): Invoice {
 }
 
 async function render(answer: unknown) {
-  return await renderAdminRoute(<TenantInvoicePage params={routeParams({ tenantId: TENANT })} />, {
-    [ROUTE]: answer,
-    // The chrome names WHOSE statement the operator is driving (ux-audit F-1) — one
-    // tenant-scoped read on the same query key every sibling screen uses.
-    [`/v1/admin/tenants/${TENANT}`]: {
-      id: TENANT,
-      name: "Sri Traders",
-      slug: "sri-traders",
-      status: "active",
-      vertical_template: "clinic",
-      live_agents: 1,
-      calls_7d: 0,
-      leads: 0,
-      last_call_at: null,
-      holds: [],
-      capped: false,
+  return await renderAdminRoute(
+    <TenantInvoicePage params={routeParams({ tenantId: TENANT })} />,
+    {
+      [ROUTE]: answer,
+      // The chrome names WHOSE statement the operator is driving (ux-audit F-1) — one
+      // tenant-scoped read on the same query key every sibling screen uses.
+      [`/v1/admin/tenants/${TENANT}`]: {
+        id: TENANT,
+        name: "Sri Traders",
+        slug: "sri-traders",
+        status: "active",
+        vertical_template: "clinic",
+        live_agents: 1,
+        calls_7d: 0,
+        leads: 0,
+        last_call_at: null,
+        holds: [],
+        capped: false,
+      },
     },
-  });
+  );
 }
 
 describe("the tenant invoice", () => {
@@ -152,7 +160,9 @@ describe("the tenant invoice", () => {
     expect(screen.queryByText("₹7.13")).toBeNull();
     // And the quantity is the server's decimal string, not a parsed number.
     expect(screen.getByText("20.5").tagName).toBe("TD");
-    expect(container.textContent).toContain("Extra calling minutes beyond the plan");
+    expect(container.textContent).toContain(
+      "Extra calling minutes beyond the plan",
+    );
   });
 
   it("groups the TOTALS the way the client's own usage screen does, to the paisa", async () => {
@@ -197,7 +207,10 @@ describe("the tenant invoice", () => {
 
   it("will not print what has not loaded", async () => {
     await render(
-      problem(403, { detail: "You do not have permission to do this.", retryable: false }),
+      problem(403, {
+        detail: "You do not have permission to do this.",
+        retryable: false,
+      }),
     );
 
     // A sheet of paper that looks like an invoice and carries no figures is worse than

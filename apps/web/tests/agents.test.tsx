@@ -194,8 +194,14 @@ describe("which of my agents is on the dearer voice", () => {
       page,
       routes({
         "/v1/agents": [
-          { ...agent({ id: "a-studio", name: "Front desk" }), voice_tier_label: "Studio" },
-          { ...agent({ id: "a-clear", name: "Weekend line" }), voice_tier_label: "Clear" },
+          {
+            ...agent({ id: "a-studio", name: "Front desk" }),
+            voice_tier_label: "Studio",
+          },
+          {
+            ...agent({ id: "a-clear", name: "Weekend line" }),
+            voice_tier_label: "Clear",
+          },
         ],
         "/v1/agents/stats": [],
       }),

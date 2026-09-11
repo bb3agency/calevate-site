@@ -37,11 +37,19 @@ const ME: Me = {
   role: "owner",
   permissions: ["calls:read", "leads:read"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  withheld_acts: [],
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 /** 24 IST buckets, as the API always sends them — silent hours are 0, not absent. */
-const HOURS = [0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 5, 3, 1, 0, 0, 4, 6, 9, 12, 7, 2, 0, 0, 0];
+const HOURS = [
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 5, 3, 1, 0, 0, 4, 6, 9, 12, 7, 2, 0, 0, 0,
+];
 
 function performance(over: Partial<Performance> = {}): Performance {
   return {
@@ -87,11 +95,16 @@ describe("the performance report", () => {
     // THE assertion. A brand-new client has made no calls; "0% answered" would be a
     // verdict on an agent that has never rung, and it is the number that gets us
     // cancelled in week one.
-    expect(container.textContent, "a null rate must never render as a percentage").not.toContain(
-      "0%",
+    expect(
+      container.textContent,
+      "a null rate must never render as a percentage",
+    ).not.toContain("0%");
+    expect(container.textContent).toContain(
+      "No calls yet — nothing to measure",
     );
-    expect(container.textContent).toContain("No calls yet — nothing to measure");
-    expect(container.textContent).toContain("No answered calls yet — nothing to measure");
+    expect(container.textContent).toContain(
+      "No answered calls yet — nothing to measure",
+    );
     // And the tile itself carries the em dash, not a fabricated figure.
     expect(container.textContent).not.toContain("undefined");
     expect(container.textContent).not.toContain("null%");
@@ -115,11 +128,17 @@ describe("the performance report", () => {
 
     await screen.findByText("Calls answered");
     expect(container.textContent).toContain("0%");
-    expect(container.textContent).toContain("0 of 12 reached a real conversation");
+    expect(container.textContent).toContain(
+      "0 of 12 reached a real conversation",
+    );
     // The "nothing to measure" copy belongs to the OTHER state; printing it here would
     // hide a failing agent behind a shrug.
-    expect(container.textContent).not.toContain("No calls yet — nothing to measure");
-    expect(container.textContent).toContain("No answered calls yet — nothing to measure");
+    expect(container.textContent).not.toContain(
+      "No calls yet — nothing to measure",
+    );
+    expect(container.textContent).toContain(
+      "No answered calls yet — nothing to measure",
+    );
   });
 
   it("shows a refusal instead of figures when the request fails", async () => {
@@ -146,8 +165,8 @@ describe("the performance report", () => {
     const { container } = await renderClientPage(page, routes());
     await screen.findByText("Busiest hours (IST)");
 
-    const bars = Array.from(container.querySelectorAll("[title]")).filter((el) =>
-      /\b\d+ calls?$/.test(el.getAttribute("title") ?? ""),
+    const bars = Array.from(container.querySelectorAll("[title]")).filter(
+      (el) => /\b\d+ calls?$/.test(el.getAttribute("title") ?? ""),
     );
     expect(bars, "one bar per IST hour, always 24").toHaveLength(24);
 
@@ -185,7 +204,10 @@ describe("the performance report", () => {
     );
 
     await screen.findByText(/permission to read call records/);
-    expect(screen.queryByRole("alert"), "a permission is not a fault").toBeNull();
+    expect(
+      screen.queryByRole("alert"),
+      "a permission is not a fault",
+    ).toBeNull();
     expect(container.textContent).not.toContain("Calls answered");
     expect(container.textContent).not.toContain("%");
   });
@@ -216,6 +238,8 @@ describe("the performance report", () => {
     await screen.findByText("Busiest hours (IST)");
 
     expect(HOURS.reduce((sum, n) => sum + n, 0)).toBe(51);
-    expect(container.textContent).not.toContain("calls in this period have a start time");
+    expect(container.textContent).not.toContain(
+      "calls in this period have a start time",
+    );
   });
 });

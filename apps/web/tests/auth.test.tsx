@@ -3,9 +3,18 @@ import { describe, expect, it, vi } from "vitest";
 
 import Home from "@/app/page";
 import { adminSession } from "@/lib/api/admin";
-import { apiRequest, AuthProblem, devSession, devToken } from "@/lib/api/client";
+import {
+  apiRequest,
+  AuthProblem,
+  devSession,
+  devToken,
+} from "@/lib/api/client";
 import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
-import { AUTH_MODE_ENV, AuthConfigError, resolveAuthMode } from "@/lib/authn/mode";
+import {
+  AUTH_MODE_ENV,
+  AuthConfigError,
+  resolveAuthMode,
+} from "@/lib/authn/mode";
 import { clientRealmSession } from "@/lib/authn/realmSessions";
 
 import { stubApi } from "./harness";
@@ -68,10 +77,21 @@ describe("which credential this build presents", () => {
     // WORD is not.
     // `SESSION` is deliberately NOT here: the resolver casefolds, and `.env` files come
     // back shouting often enough that refusing one would be a rule with no threat behind it.
-    for (const value of ["production", "true", "clerk", "prod", "1", "session;dev"]) {
-      expect(() => resolveAuthMode(value, false), value).toThrow(AuthConfigError);
+    for (const value of [
+      "production",
+      "true",
+      "clerk",
+      "prod",
+      "1",
+      "session;dev",
+    ]) {
+      expect(() => resolveAuthMode(value, false), value).toThrow(
+        AuthConfigError,
+      );
     }
-    expect(() => resolveAuthMode("production", false)).toThrow(new RegExp(AUTH_MODE_ENV));
+    expect(() => resolveAuthMode("production", false)).toThrow(
+      new RegExp(AUTH_MODE_ENV),
+    );
   });
 });
 
@@ -94,8 +114,12 @@ describe("the local credential", () => {
       const fresh = await import("@/lib/api/client");
       // No React is involved in this module, so a second copy of the graph is harmless
       // here — unlike the component tests, which say why they cannot do this.
-      expect(() => fresh.devToken("client", "user_x")()).toThrow(fresh.AuthProblem);
-      expect(() => fresh.devToken("client", "user_x")()).toThrow(/never valid here/);
+      expect(() => fresh.devToken("client", "user_x")()).toThrow(
+        fresh.AuthProblem,
+      );
+      expect(() => fresh.devToken("client", "user_x")()).toThrow(
+        /never valid here/,
+      );
     } finally {
       vi.unstubAllEnvs();
       vi.resetModules();
@@ -105,7 +129,11 @@ describe("the local credential", () => {
 
 describe("a refusal the browser produced itself", () => {
   it("carries the API's error shape so every screen can already render it", () => {
-    const problem = new AuthProblem("auth_not_configured", "No key.", "Set the key.");
+    const problem = new AuthProblem(
+      "auth_not_configured",
+      "No key.",
+      "Set the key.",
+    );
     // `status: 0` says plainly that no HTTP response happened — nothing here claims the
     // server spoke.
     expect(problem.status).toBe(0);
@@ -173,11 +201,17 @@ describe("the credential that reaches the wire", () => {
     const calls = stubApi({ "/v1/me": ME });
     const refusing = {
       token: () => {
-        throw new AuthProblem("not_signed_in", "Not signed in.", "Sign in at /auth/sign-in.");
+        throw new AuthProblem(
+          "not_signed_in",
+          "Not signed in.",
+          "Sign in at /auth/sign-in.",
+        );
       },
       orgSlug: "acme",
     };
-    await expect(apiRequest(refusing, "/v1/me")).rejects.toBeInstanceOf(AuthProblem);
+    await expect(apiRequest(refusing, "/v1/me")).rejects.toBeInstanceOf(
+      AuthProblem,
+    );
     expect(calls).toEqual([]);
   });
 

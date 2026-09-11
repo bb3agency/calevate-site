@@ -12,7 +12,7 @@ import {
   formatCount,
 } from "@/components/ui";
 import { ConfirmDialog } from "@/components/confirmDialog";
-import { useMe, useWriteAccess } from "@/lib/api/hooks";
+import { useActAccess, useMe } from "@/lib/api/hooks";
 import {
   ROLE_COPY,
   useMembers,
@@ -68,12 +68,22 @@ export function TeamScreen() {
   const invitations = usePendingInvitations(session);
 
   /**
-   * `org:manage` — the permission the API requires for every write on this surface, and
-   * the one D-22 refuses to an impersonating operator. Reading the team is `org:read`,
-   * so a support session keeps the list and loses the buttons, which is exactly the
-   * split the endpoints implement.
+   * `org:manage` — the permission the API requires for every write on this surface.
+   * Reading the team is `org:read`, so a support session keeps the list and loses the
+   * buttons, which is exactly the split the endpoints implement. ⚠ THE REASON FOR THAT
+   * SPLIT CHANGED: it used to be D-22 refusing `org:manage` to an impersonating operator;
+   * it is now the named act below, because the permission itself came back.
    */
-  const write = useWriteAccess(session, "org:manage", "change who is on this team");
+  // `useActAccess`, NOT `useWriteAccess`: a view-as operator KEEPS `org:manage`
+  // (D-587 made it writable), and the server then refuses `org.membership` inside it —
+  // an invitation is an access grant that outlives the session. Asking only the
+  // permission rendered working Invite and Remove buttons that the API refused.
+  const write = useActAccess(
+    session,
+    "org:manage",
+    "org.membership",
+    "change who is on this team",
+  );
 
   const changeRole = useSetMemberRole(session);
   const remove = useRemoveMember(session);
@@ -144,7 +154,10 @@ export function TeamScreen() {
         label: "What the invited person may do",
         type: "select",
         value: role,
-        options: ROLES.map((value) => ({ value, label: ROLE_COPY[value].label })),
+        options: ROLES.map((value) => ({
+          value,
+          label: ROLE_COPY[value].label,
+        })),
         help: "Owner can change billing and settings; staff works the leads.",
       },
     ],
@@ -158,12 +171,19 @@ export function TeamScreen() {
             ? "the team failed to load, so nobody is listed"
             : "still loading",
       },
-      { key: "members", label: "People on the account", value: people ? String(people.length) : "not known" },
+      {
+        key: "members",
+        label: "People on the account",
+        value: people ? String(people.length) : "not known",
+      },
       {
         key: "role_split",
         label: "How many hold each role",
         value: people
-          ? ROLES.map((value) => `${value}: ${people.filter((member) => member.role === value).length}`).join(", ")
+          ? ROLES.map(
+              (value) =>
+                `${value}: ${people.filter((member) => member.role === value).length}`,
+            ).join(", ")
           : "not known",
       },
       {
@@ -174,7 +194,9 @@ export function TeamScreen() {
       {
         key: "may_change",
         label: "May this session invite, re-role or remove anyone?",
-        value: write.allowed ? "yes" : `no — ${write.reason ?? "no reason given"}`,
+        value: write.allowed
+          ? "yes"
+          : `no — ${write.reason ?? "no reason given"}`,
       },
     ],
     apply: (items) => {
@@ -211,21 +233,26 @@ export function TeamScreen() {
              evidence. */
           people ? (
             <span className="text-xs text-ink-faint">
-              {formatCount(people.length)} {people.length === 1 ? "person" : "people"}
+              {formatCount(people.length)}{" "}
+              {people.length === 1 ? "person" : "people"}
             </span>
           ) : undefined
         }
         bodyClassName="p-2"
       >
         {/* A removal refusal belongs inside the dialog while it is open — see below. */}
-        {(changeRole.error != null || (remove.error != null && removing == null)) && (
+        {(changeRole.error != null ||
+          (remove.error != null && removing == null)) && (
           <div className="mb-3 px-4 pt-2">
             <ProblemNotice error={changeRole.error ?? remove.error} />
           </div>
         )}
         {members.error != null && (
           <div className="mb-3 px-4 pt-2">
-            <ProblemNotice error={members.error} onRetry={() => members.refetch()} />
+            <ProblemNotice
+              error={members.error}
+              onRetry={() => members.refetch()}
+            />
           </div>
         )}
 
@@ -247,7 +274,8 @@ export function TeamScreen() {
                 canManage={write.allowed}
                 restriction={write.reason}
                 busy={
-                  (changeRole.isPending && changeRole.variables?.userId === member.id) ||
+                  (changeRole.isPending &&
+                    changeRole.variables?.userId === member.id) ||
                   (remove.isPending && remove.variables === member.id)
                 }
                 onRole={(next) =>
@@ -275,7 +303,9 @@ export function TeamScreen() {
             <NoticeBox tone="warn" title="Access removed">
               {remove.data.leads_still_assigned > 0
                 ? `${formatCount(remove.data.leads_still_assigned)} ${
-                    remove.data.leads_still_assigned === 1 ? "lead is" : "leads are"
+                    remove.data.leads_still_assigned === 1
+                      ? "lead is"
+                      : "leads are"
                   } still assigned to them. Those leads were not touched — reassign them from the Leads screen so somebody picks them up.`
                 : "They had no leads assigned, so nothing needs reassigning."}
             </NoticeBox>
@@ -283,8 +313,9 @@ export function TeamScreen() {
         )}
 
         <p className="px-4 pb-3 pt-1 text-xs text-ink-faint">
-          An account always keeps at least one owner: the last one cannot be removed or
-          moved to staff. Nobody can change their own role — ask another owner.
+          An account always keeps at least one owner: the last one cannot be
+          removed or moved to staff. Nobody can change their own role — ask
+          another owner.
         </p>
       </Card>
 
@@ -293,7 +324,8 @@ export function TeamScreen() {
         action={
           pending ? (
             <span className="text-xs text-ink-faint">
-              {formatCount(pending.length)} unused {pending.length === 1 ? "link" : "links"}
+              {formatCount(pending.length)} unused{" "}
+              {pending.length === 1 ? "link" : "links"}
             </span>
           ) : undefined
         }
@@ -306,7 +338,10 @@ export function TeamScreen() {
         )}
         {invitations.error != null && (
           <div className="mb-3 px-4 pt-2">
-            <ProblemNotice error={invitations.error} onRetry={() => invitations.refetch()} />
+            <ProblemNotice
+              error={invitations.error}
+              onRetry={() => invitations.refetch()}
+            />
           </div>
         )}
 
@@ -355,14 +390,14 @@ export function TeamScreen() {
           }
         >
           <p>
-            They will be signed out and will not be able to sign in to this account again
-            unless you invite them back.
+            They will be signed out and will not be able to sign in to this
+            account again unless you invite them back.
           </p>
           {/* Said BEFORE the click. The `Access removed` notice on the list already
               reports this afterwards, which is the wrong moment to learn it. */}
           <p>
-            Any leads assigned to them stay assigned to them and are not reassigned —
-            you would pick those up from the Leads screen.
+            Any leads assigned to them stay assigned to them and are not
+            reassigned — you would pick those up from the Leads screen.
           </p>
         </ConfirmDialog>
       )}

@@ -36,13 +36,28 @@ WHAT MAKES THIS SAFE UNDER FAILURE (the part that reaches a client's phone line)
   true by a page we missed) and leaves the rest of the table alone.
 * **AN EMPTY LISTING IS REFUSED, NEVER APPLIED.** Zero voices is what a broken credential,
   a changed route and a genuinely empty account all look like, and only the last is a
-  catalogue. `voices.install_voice_catalogue` refuses `()` outright; this module refuses to
-  write it and alerts instead.
+  catalogue. This module refuses to write it and alerts instead, so the previous TABLE
+  stands. (`voices.install_voice_catalogue` used to refuse `()` as a second backstop; since
+  D-588 deleted the seed, "no voices in force" is a real state — a deployment nobody has
+  synced — and the refusal that matters is the one HERE, at the only place that can tell an
+  empty account from a broken credential.)
 * **A VOICE THAT DISAPPEARS IS NOT DELETED FROM ANY AGENT.** `agents.tts_voice` is free
   text and `voices.speech_for_voice_id` passes an unrecognised id through verbatim, which
   is unchanged: an agent whose voice the vendor withdrew keeps speaking it and reads back
   as itself. What it loses is a place on the PICKER, which is correct — it is a voice the
   engine no longer offers.
+* **AND IT IS NOT DELETED FROM THIS TABLE EITHER (D-588).** A complete listing that no
+  longer names a voice stamps `withdrawn_at` instead of deleting the row, because the row
+  now carries the one fact in it that a re-sync cannot re-derive: the operator's
+  `curation_state`. Deleting it meant a voice that vanished from one listing and returned
+  came back as a fresh un-curated row — silently disabled if it had been enabled, silently
+  un-archived if it had been put away. A returning voice clears the stamp and keeps its
+  state. `read_cached_catalogue` drops withdrawn rows, so the PICKER sees exactly what a
+  delete used to leave it.
+* **CURATION IS NEVER WRITTEN BY A SYNC.** The upsert below names every column it
+  refreshes, and `curation_state` is not among them: re-reading the vendor's list can
+  neither offer a voice nor withdraw one. A sync reports what the platform has; an operator
+  decides what we sell.
 * **THE TIER NEVER COMES FROM THIS TABLE.** `voices.voice_tier` derives an agent's billing
   tier from the id's own model prefix (hard rule 7), so a row missing from this cache
   cannot re-price a minute. The `provider` column here is a derived convenience for readers
@@ -65,7 +80,7 @@ from datetime import UTC, datetime
 from typing import Final, get_args
 
 from calevate_shared.engine import EngineVoice, EngineVoiceListing, VoiceEngine
-from sqlalchemy import delete, select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -111,6 +126,12 @@ class VoiceSyncResult:
     `pruned is None` is not zero: it means the listing was INCOMPLETE and pruning was
     deliberately not attempted, which is a different fact from "nothing needed pruning" and
     the only one that explains a catalogue that keeps a voice the vendor withdrew.
+
+    "Pruned" is still the right word for a number the console prints, and it is now a
+    WITHDRAWAL rather than a delete (D-588): the rows leave the picker and keep their
+    curation state. The count is of rows newly stamped, so a voice withdrawn last week is
+    not counted again this week — an operator reading `pruned: 0` is reading "the platform
+    dropped nothing since the last run", which is the question they are asking.
     """
 
     seen: int
@@ -122,7 +143,8 @@ class VoiceSyncResult:
     @property
     def installed(self) -> bool:
         """Did this sync produce a catalogue the process can serve? False means the
-        previous answer (or the seed) is still standing, by design."""
+        previous answer — or nothing at all, on a deployment that has never synced — is
+        still standing, by design."""
         return self.written > 0
 
 
@@ -169,10 +191,6 @@ def voice_from_engine(entry: EngineVoice) -> Voice | None:
         speaker=entry.voice_id,
         languages=languages,
         gender=None,
-        # Stamped by `voices._with_one_default` over the whole installed catalogue, never
-        # per entry: which voice is the default is a property of the LIST (exactly one),
-        # and deciding it here would let a listing arrive with none or two.
-        is_default=False,
         verified=True,
         note=catalogue_note(provider),
     )
@@ -290,6 +308,12 @@ async def sync_voice_catalogue(
                 "languages": statement.excluded.languages,
                 "is_custom": statement.excluded.is_custom,
                 "synced_at": statement.excluded.synced_at,
+                # A RETURNING VOICE IS UN-WITHDRAWN, AND KEEPS THE STATE IT WAS PUT AWAY
+                # WITH. `curation_state` is deliberately absent from this list — see the
+                # module docstring: a sync reports what the platform has and never decides
+                # what we sell. Clearing the stamp is not that decision; it is the same
+                # vendor statement as the row itself.
+                "withdrawn_at": None,
             },
         )
     )
@@ -299,10 +323,18 @@ async def sync_voice_catalogue(
         # ONLY ON A COMPLETE LISTING. See the module docstring: a page we failed to read is
         # indistinguishable from a shorter catalogue, and pruning on one would withdraw
         # voices that live agents are speaking right now.
+        #
+        # A STAMP, NOT A DELETE (D-588). The row is the only place an operator's curation
+        # decision exists, and it is the one thing here a re-sync cannot re-derive. Already
+        # withdrawn rows are excluded so the count means "newly dropped by the platform"
+        # rather than "still missing", which is the number the console prints.
         result = await session.execute(
-            delete(PlatformVoiceCatalogEntry).where(
-                PlatformVoiceCatalogEntry.voice_id.not_in([voice.id for voice in voices])
+            update(PlatformVoiceCatalogEntry)
+            .where(
+                PlatformVoiceCatalogEntry.voice_id.not_in([voice.id for voice in voices]),
+                PlatformVoiceCatalogEntry.withdrawn_at.is_(None),
             )
+            .values(withdrawn_at=stamp)
         )
         # `rowcount` is on the DBAPI cursor result; SQLAlchemy's async `Result` exposes it
         # for a DML statement, and mypy's stub does not know that of the generic `Result`.
@@ -335,51 +367,85 @@ async def read_cached_catalogue(session: AsyncSession) -> tuple[Voice, ...]:
     names the tier, so a copy frozen into a cache row would still be saying "Studio" the
     day the tier was renamed. `verified=True` for `voice_from_engine`'s reason — these rows
     exist because the engine listed them.
+
+    **WITHDRAWN ROWS ARE EXCLUDED, CURATED-OFF ROWS ARE NOT** (D-588), and the asymmetry is
+    the whole shape of this feature:
+
+    * A voice the PLATFORM no longer lists is not a voice at all any more. Publishing with
+      it earns a live `400` ("not available for the provider"), so it leaves the catalogue
+      exactly as a deleted row used to — the row survives only to hold the operator's
+      curation state against the day it comes back.
+    * A voice an OPERATOR disabled or archived is still a real voice on the account, and it
+      stays in the catalogue on purpose. `voices.catalogue()` is the LOOKUP layer: it is
+      what resolves the id on a live agent's row through `speech_for_voice_id` and
+      `get_voice`, on every publish and every drift sweep. Dropping a disabled voice here
+      would leave a client's agent publishing its own composed id in the vendor's speaker
+      slot the moment somebody clicked a toggle. Whether it may be OFFERED is
+      `agents/voice_offer.py`'s fourth ground, and that is the only place it is decided.
     """
-    rows = (await session.execute(select(PlatformVoiceCatalogEntry))).scalars().all()
-    voices: list[Voice] = []
-    for row in rows:
-        model = _offered_model(row.tts_model)
-        provider = provider_of_tts_model(row.tts_model) if model is not None else None
-        if model is None or provider is None:
-            # A cached row for a model this build no longer offers. Skipped rather than
-            # coerced: `Voice.tts_model` is a Literal, and the honest reading of a row we
-            # can no longer place is "not offerable here", not "offer it as something else".
-            continue
-        languages = tuple(
-            language for language in _PRODUCT_LANGUAGES if language in set(row.languages)
-        )
-        if not languages:
-            continue
-        voices.append(
-            Voice(
-                id=row.voice_id,
-                label=row.label,
-                provider=provider,
-                tts_model=model,
-                speaker=row.engine_voice_id,
-                languages=languages,
-                gender=None,
-                is_default=False,
-                verified=True,
-                note=catalogue_note(provider),
+    rows = (
+        (
+            await session.execute(
+                select(PlatformVoiceCatalogEntry).where(
+                    PlatformVoiceCatalogEntry.withdrawn_at.is_(None)
+                )
             )
         )
-    return _ordered(voices)
+        .scalars()
+        .all()
+    )
+    return _ordered([voice for voice in map(voice_from_row, rows) if voice is not None])
+
+
+def voice_from_row(row: PlatformVoiceCatalogEntry) -> Voice | None:
+    """ONE CACHED ROW -> ONE CATALOGUE ENTRY, or None for a row this build cannot place.
+
+    Public because `agents/voice_curation.py` renders the SAME voice in the operator's
+    table that the client's picker renders, and a second translation there would be the
+    place the two came to describe one voice differently — a different label, a different
+    language list, a different tier name.
+
+    TWO REASONS A ROW IS DROPPED, and each is the same refusal `voice_from_engine` makes on
+    the way in. A model `TTS_MODEL_LIFECYCLE` cannot place has no provider, therefore no
+    voice tier, therefore no price for a minute of it (hard rule 7). A row under none of the
+    three product languages is a voice no picker in this product has a row for. Both are
+    unreachable through today's sync, which applies the same two gates; they survive as the
+    second gate for a row an older build wrote.
+    """
+    model = _offered_model(row.tts_model)
+    provider = provider_of_tts_model(row.tts_model) if model is not None else None
+    if model is None or provider is None:
+        return None
+    languages = tuple(language for language in _PRODUCT_LANGUAGES if language in set(row.languages))
+    if not languages:
+        return None
+    return Voice(
+        id=row.voice_id,
+        label=row.label,
+        provider=provider,
+        tts_model=model,
+        speaker=row.engine_voice_id,
+        languages=languages,
+        gender=None,
+        verified=True,
+        note=catalogue_note(provider),
+    )
 
 
 async def load_voice_catalogue(session: AsyncSession) -> int:
     """Install the cached catalogue into THIS process. Returns how many voices are in force.
 
     Called at API and worker startup and after every sync. **A miss is not an error and
-    must not be treated as one**: a deployment on which no sync has ever run serves
-    `voices.SEED_CATALOG` and says `source: "seed"` on every surface that renders the
-    picker — see `SEED_CATALOG` for why the product must stay publishable rather than
-    refuse until a background job has run.
+    must not be treated as one**: a deployment on which no sync has ever run has NO voices,
+    says `source: "unsynced"` on every surface that renders a picker, and tells the reader
+    to sync and then enable. D-588 deleted the compiled seed that used to answer here — see
+    `voices.install_voice_catalogue` for why an empty catalogue is now a state rather than a
+    refusal, and why the protection against a BROKEN read is in `sync_voice_catalogue`
+    instead.
     """
     voices = await read_cached_catalogue(session)
     if not voices:
-        log.info("voice_catalogue_seed_in_force", extra={"reason": "no cached rows"})
+        log.info("voice_catalogue_unsynced", extra={"reason": "no cached rows"})
         install_voice_catalogue(None)
         return 0
     install_voice_catalogue(voices)
@@ -395,4 +461,5 @@ __all__ = [
     "read_cached_catalogue",
     "sync_voice_catalogue",
     "voice_from_engine",
+    "voice_from_row",
 ]

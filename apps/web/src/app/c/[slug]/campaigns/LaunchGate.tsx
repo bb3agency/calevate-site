@@ -151,7 +151,8 @@ export function LaunchGate({
                   {/* THE ONE PLACE THE TOP-OF-SCREEN RESTRICTION NOTE IS REPEATED, and
                       the exception is earned: this is the only branch where the sentence
                       immediately above a dead control says everything is fine. A `staff`
-                      user or an impersonating operator (D-22) reads "Everything checks
+                      user — no longer a view-as operator, who since D-587 holds
+                      `leads:dispatch` and may press it — reads "Everything checks
                       out", presses nothing, and has to scroll past the tiles and the
                       contact list to find out why — which is how a working compliance
                       gate gets reported as a broken button. The other three controls

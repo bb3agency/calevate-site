@@ -39,7 +39,13 @@ function me(over: Partial<Me> = {}): Me {
     role: "owner",
     permissions: ["calls:read", "calls:read_raw", "leads:read"],
     impersonating: false,
-    organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+    withheld_acts: [],
+    organization: {
+      id: "o1",
+      name: "Sri Clinic",
+      slug: "acme",
+      status: "active",
+    },
     ...over,
   };
 }
@@ -70,20 +76,36 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     disclosure_played: true,
     moments: [],
     transcript: [
-      { idx: 0, speaker: "agent", text: "Namaskaram, this is an AI assistant.", redacted: true },
-      { idx: 1, speaker: "caller", text: "My number is [redacted].", redacted: true },
+      {
+        idx: 0,
+        speaker: "agent",
+        text: "Namaskaram, this is an AI assistant.",
+        redacted: true,
+      },
+      {
+        idx: 1,
+        speaker: "caller",
+        text: "My number is [redacted].",
+        redacted: true,
+      },
     ],
     ...over,
   };
 }
 
-const page = <CallDetailPage params={Promise.resolve({ slug: "acme", callId: "c1" })} />;
+const page = (
+  <CallDetailPage params={Promise.resolve({ slug: "acme", callId: "c1" })} />
+);
 
 function routes(call: unknown, over: Record<string, unknown> = {}) {
   return {
     "/v1/me": me(),
     "/v1/calls/c1": call,
-    "/v1/calls/c1/callback": { eligible: false, reason: "This call was answered.", rule: null },
+    "/v1/calls/c1/callback": {
+      eligible: false,
+      reason: "This call was answered.",
+      rule: null,
+    },
     ...over,
   };
 }
@@ -101,7 +123,9 @@ describe("the call detail screen", () => {
     expect(calls.some((c) => c.path === RAW_PATH)).toBe(false);
     // And the reader is TOLD which view they are on — hard rule 5 is invisible
     // otherwise, and an odd-looking line reads as the agent mishearing.
-    expect(screen.getByText(/Personal details .* are hidden in this view/)).toBeTruthy();
+    expect(
+      screen.getByText(/Personal details .* are hidden in this view/),
+    ).toBeTruthy();
   });
 
   it("flags a captured field for review without leaking the value (P4)", async () => {
@@ -159,12 +183,20 @@ describe("the call detail screen", () => {
   });
 
   it("refuses the raw-transcript control to a session without calls:read_raw, before the click", async () => {
-    const { calls } = await renderClientPage(page, routes(detail(), { "/v1/me": STAFF }));
+    const { calls } = await renderClientPage(
+      page,
+      routes(detail(), { "/v1/me": STAFF }),
+    );
 
-    const button = await screen.findByRole("button", { name: /full transcript/i });
+    const button = await screen.findByRole("button", {
+      name: /full transcript/i,
+    });
     expect((button as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.getAllByTitle("Only an account owner can open the full transcript.").length)
-      .toBeGreaterThan(0);
+    expect(
+      screen.getAllByTitle(
+        "Only an account owner can open the full transcript.",
+      ).length,
+    ).toBeGreaterThan(0);
 
     // Disabled is not enough on its own — clicking a disabled button is a no-op in a
     // browser, but the assertion that matters is that no code path fires the request.
@@ -181,14 +213,23 @@ describe("the call detail screen", () => {
     // `title` attribute, which is exactly why the visible half went unnoticed for so
     // long, so this one is deliberately about TEXT IN THE DOCUMENT and about the classes
     // that decide whether a human sees it.
-    const { container } = await renderClientPage(page, routes(detail(), { "/v1/me": STAFF }));
+    const { container } = await renderClientPage(
+      page,
+      routes(detail(), { "/v1/me": STAFF }),
+    );
 
     const reason = "Only an account owner can open the full transcript.";
     const shown = await screen.findByText(reason);
     expect(shown).toBeTruthy();
     // Nothing on the path from the sentence to the card may hide it below a breakpoint.
-    for (let node: HTMLElement | null = shown; node !== null; node = node.parentElement) {
-      expect(node.className.toString()).not.toMatch(/(^|\s)(hidden|sm:inline|sm:block)(\s|$)/);
+    for (
+      let node: HTMLElement | null = shown;
+      node !== null;
+      node = node.parentElement
+    ) {
+      expect(node.className.toString()).not.toMatch(
+        /(^|\s)(hidden|sm:inline|sm:block)(\s|$)/,
+      );
     }
     // Exactly once: two spellings of one sentence in one card is the §5 defect.
     expect((container.textContent ?? "").split(reason).length - 1).toBe(1);
@@ -200,7 +241,9 @@ describe("the call detail screen", () => {
       routes(detail(), { [RAW_PATH]: problem(403, { title: "Forbidden" }) }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /show full transcript/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /show full transcript/i }),
+    );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     // The transcript did NOT blank out, and it did not silently upgrade either.
@@ -215,18 +258,35 @@ describe("the call detail screen", () => {
     // eleven lines above spells the same shape correctly (tests/wireFixtureGuard.test.ts).
     const raw = detail({
       transcript: [
-        { idx: 0, speaker: "agent", text: "Namaskaram, this is an AI assistant.", redacted: false },
-        { idx: 1, speaker: "caller", text: `My number is ${RAW_NUMBER}.`, redacted: false },
+        {
+          idx: 0,
+          speaker: "agent",
+          text: "Namaskaram, this is an AI assistant.",
+          redacted: false,
+        },
+        {
+          idx: 1,
+          speaker: "caller",
+          text: `My number is ${RAW_NUMBER}.`,
+          redacted: false,
+        },
       ],
     });
-    const { container } = await renderClientPage(page, routes(detail(), { [RAW_PATH]: raw }));
+    const { container } = await renderClientPage(
+      page,
+      routes(detail(), { [RAW_PATH]: raw }),
+    );
 
-    fireEvent.click(await screen.findByRole("button", { name: /show full transcript/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /show full transcript/i }),
+    );
 
     expect(await screen.findByText(`My number is ${RAW_NUMBER}.`)).toBeTruthy();
     // Honesty about the audit row is the price of the view. Someone deciding whether to
     // look must know before they look, not learn it from a compliance review.
-    expect(container.textContent).toContain("recorded in your account's audit log");
+    expect(container.textContent).toContain(
+      "recorded in your account's audit log",
+    );
     expect(container.textContent).not.toContain("are hidden in this view");
   });
 
@@ -249,24 +309,38 @@ describe("the call detail screen", () => {
   it("mints a second request, and so a second audit row, on a second opening", async () => {
     const raw = detail({
       transcript: [
-        { idx: 0, speaker: "caller", text: `My number is ${RAW_NUMBER}.`, redacted: false },
+        {
+          idx: 0,
+          speaker: "caller",
+          text: `My number is ${RAW_NUMBER}.`,
+          redacted: false,
+        },
       ],
     });
-    const { calls } = await renderClientPage(page, routes(detail(), { [RAW_PATH]: raw }));
+    const { calls } = await renderClientPage(
+      page,
+      routes(detail(), { [RAW_PATH]: raw }),
+    );
 
-    const button = await screen.findByRole("button", { name: /show full transcript/i });
+    const button = await screen.findByRole("button", {
+      name: /show full transcript/i,
+    });
     fireEvent.click(button);
     expect(await screen.findByText(`My number is ${RAW_NUMBER}.`)).toBeTruthy();
     expect(calls.filter((c) => c.path === RAW_PATH).length).toBe(1);
 
     // Hide. The unredacted turns must LEAVE, not be parked where the next press can
     // read them back without asking the server.
-    fireEvent.click(await screen.findByRole("button", { name: /hide full transcript/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /hide full transcript/i }),
+    );
     expect(screen.queryByText(`My number is ${RAW_NUMBER}.`)).toBeNull();
 
     // Show again — a deliberate re-open, which is a read of personal data and must be
     // recorded as one.
-    fireEvent.click(await screen.findByRole("button", { name: /show full transcript/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /show full transcript/i }),
+    );
     expect(await screen.findByText(`My number is ${RAW_NUMBER}.`)).toBeTruthy();
     expect(calls.filter((c) => c.path === RAW_PATH).length).toBe(2);
   });
@@ -282,27 +356,49 @@ describe("the call detail screen", () => {
     // assertions would pass against the broken version and prove nothing.
     const raw = detail({
       transcript: [
-        { idx: 0, speaker: "caller", text: `My number is ${RAW_NUMBER}.`, redacted: false },
+        {
+          idx: 0,
+          speaker: "caller",
+          text: `My number is ${RAW_NUMBER}.`,
+          redacted: false,
+        },
       ],
     });
     const client = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     });
 
-    const first = await renderClientPage(page, routes(detail(), { [RAW_PATH]: raw }), "acme", client);
-    fireEvent.click(await screen.findByRole("button", { name: /show full transcript/i }));
+    const first = await renderClientPage(
+      page,
+      routes(detail(), { [RAW_PATH]: raw }),
+      "acme",
+      client,
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: /show full transcript/i }),
+    );
     expect(await screen.findByText(`My number is ${RAW_NUMBER}.`)).toBeTruthy();
     expect(first.calls.filter((c) => c.path === RAW_PATH).length).toBe(1);
 
     first.unmount();
 
-    const second = await renderClientPage(page, routes(detail(), { [RAW_PATH]: raw }), "acme", client);
+    const second = await renderClientPage(
+      page,
+      routes(detail(), { [RAW_PATH]: raw }),
+      "acme",
+      client,
+    );
     // Nothing unredacted is on screen, and nothing was asked for, before the reader asks.
     await screen.findByText("My number is [redacted].");
     expect(screen.queryByText(`My number is ${RAW_NUMBER}.`)).toBeNull();
     expect(second.calls.filter((c) => c.path === RAW_PATH).length).toBe(0);
 
-    fireEvent.click(await screen.findByRole("button", { name: /show full transcript/i }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /show full transcript/i }),
+    );
     expect(await screen.findByText(`My number is ${RAW_NUMBER}.`)).toBeTruthy();
     expect(second.calls.filter((c) => c.path === RAW_PATH).length).toBe(1);
   });
@@ -333,7 +429,9 @@ describe("the call detail screen", () => {
       }),
     );
 
-    const listen = await screen.findByRole("button", { name: /listen to this call/i });
+    const listen = await screen.findByRole("button", {
+      name: /listen to this call/i,
+    });
     // Minting a signed URL burns its clock and writes an audit row for a listen that
     // never happened, so it must not be a page-load side effect.
     expect(calls.some((c) => c.path === "/v1/calls/c1/recording")).toBe(false);
@@ -343,25 +441,36 @@ describe("the call detail screen", () => {
     // "stops working in about 10 minutes" — a sentence that told the listener their
     // link would die and left them to do something about it. The link is now sized to
     // the audio and refreshed on expiry, so the sentence it replaces says that.
-    expect(await screen.findByText(/refreshed automatically while you listen/)).toBeTruthy();
+    expect(
+      await screen.findByText(/refreshed automatically while you listen/),
+    ).toBeTruthy();
     // In an <audio>, not an <a href>: a signed URL in a link is a credential handed to
     // history and to the next page's referrer.
-    expect(container.querySelector("audio")?.getAttribute("src")).toContain("rec.mp3");
+    expect(container.querySelector("audio")?.getAttribute("src")).toContain(
+      "rec.mp3",
+    );
     for (const link of Array.from(container.querySelectorAll("a"))) {
       expect(link.getAttribute("href") ?? "").not.toContain("sig=");
     }
   });
 
   it("keeps a missing disclosure answer apart from a disclosure that was not played", async () => {
-    const unknown = await renderClientPage(page, routes(detail({ disclosure_played: null })));
+    const unknown = await renderClientPage(
+      page,
+      routes(detail({ disclosure_played: null })),
+    );
     await screen.findByText("My number is [redacted].");
     // `null` is "the pipeline never recorded an answer", NOT "no". Telling an owner
     // their call was non-compliant on a null sends them to fix what was never broken.
-    expect(unknown.container.textContent).not.toContain("No disclosure was played");
+    expect(unknown.container.textContent).not.toContain(
+      "No disclosure was played",
+    );
     unknown.unmount();
 
     await renderClientPage(page, routes(detail({ disclosure_played: false })));
-    expect(await screen.findByText("No disclosure was played on this call")).toBeTruthy();
+    expect(
+      await screen.findByText("No disclosure was played on this call"),
+    ).toBeTruthy();
   });
 
   it("prints a speaker it has never heard of rather than dropping the turn", async () => {
@@ -376,7 +485,12 @@ describe("the call detail screen", () => {
       routes({
         ...detail(),
         transcript: [
-          { idx: 0, speaker: "constructor", text: "A line nobody may lose.", redacted: true },
+          {
+            idx: 0,
+            speaker: "constructor",
+            text: "A line nobody may lose.",
+            redacted: true,
+          },
         ],
       }),
     );
@@ -404,7 +518,10 @@ describe("the follow-up card when the eligibility read did not answer", () => {
     const { container } = await renderClientPage(
       page,
       routes(detail(), {
-        "/v1/calls/c1/callback": problem(503, { title: "Service unavailable", retryable: true }),
+        "/v1/calls/c1/callback": problem(503, {
+          title: "Service unavailable",
+          retryable: true,
+        }),
       }),
     );
 
@@ -416,7 +533,9 @@ describe("the follow-up card when the eligibility read did not answer", () => {
       "We could not check whether this call can be followed up",
     );
     // And the action is not offered on a check that never landed.
-    expect(screen.queryByRole("button", { name: /Call back with AI/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Call back with AI/ }),
+    ).toBeNull();
   });
 
   it("still renders the card, with its reason, when the server answered", async () => {
@@ -425,6 +544,8 @@ describe("the follow-up card when the eligibility read did not answer", () => {
 
     expect(await screen.findByText("Follow up")).toBeTruthy();
     expect(container.textContent).toContain("This call was answered.");
-    expect(container.textContent).not.toContain("We could not check whether this call");
+    expect(container.textContent).not.toContain(
+      "We could not check whether this call",
+    );
   });
 });

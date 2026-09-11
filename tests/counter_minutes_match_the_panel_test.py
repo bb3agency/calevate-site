@@ -51,12 +51,12 @@ _AWKWARD_SECONDS = (3847, 2913, 611, 137, 89, 1451)
 async def _voice(tenant_id: UUID, agent_id: UUID) -> None:
     """Set the one voice quality (the single-tier voice decision). The minute counter this
     test checks is rung-independent, so a single voice exercises it fully."""
-    from apps.api.agents.voices import default_voice
+    from tests.voice_fixture import TEST_VOICE_ID
 
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE agents SET tts_voice = :v WHERE id = :i"),
-            {"v": default_voice().id, "i": agent_id},
+            {"v": TEST_VOICE_ID, "i": agent_id},
         )
 
 

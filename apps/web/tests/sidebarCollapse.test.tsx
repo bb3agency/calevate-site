@@ -98,7 +98,8 @@ function stubDesktopViewport(): void {
   vi.stubGlobal(
     "matchMedia",
     vi.fn((query: string) => {
-      if (query.startsWith("(prefers-reduced-motion")) return noopList(query, false);
+      if (query.startsWith("(prefers-reduced-motion"))
+        return noopList(query, false);
       if (query !== "(max-width: 1023.98px)") {
         throw new Error(`unexpected media query in the shell: ${query}`);
       }
@@ -123,13 +124,16 @@ async function renderAdminShell(): Promise<HTMLElement> {
 async function renderClientShell(): Promise<HTMLElement> {
   // Not `renderClientPage`: this layout mounts its OWN `ClientRealmProvider`, and the
   // harness would nest a second one around it — a composition the app never has.
-  const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
+  const { QueryClient, QueryClientProvider } =
+    await import("@tanstack/react-query");
   const { stubApi } = await import("./harness");
   stubApi({
     "/v1/me": { organization: { name: "Acme" }, role: "owner" },
     "/v1/attention": { total: 0 },
   });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   let container!: HTMLElement;
   await act(async () => {
     const ui: ReactElement = (
@@ -148,7 +152,9 @@ async function renderClientShell(): Promise<HTMLElement> {
 function sidebarLinkNames(container: HTMLElement): string[] {
   const aside = container.querySelector("aside");
   if (!aside) throw new Error("no <aside> in the shell — the sidebar moved");
-  return Array.from(aside.querySelectorAll("a")).map((a) => (a.textContent ?? "").trim());
+  return Array.from(aside.querySelectorAll("a")).map((a) =>
+    (a.textContent ?? "").trim(),
+  );
 }
 
 function collapse(): void {
@@ -245,7 +251,10 @@ describe("prefers-reduced-motion", () => {
       source.matchAll(/[\w:[\]-]*\b(?:duration|delay|ease)-[\w[\]().,-]+/g),
       (m) => m[0],
     ).filter((token) => !token.includes("motion-safe:"));
-    expect(offenders, `ungated timing utilities:\n  ${offenders.join("\n  ")}`).toEqual([]);
+    expect(
+      offenders,
+      `ungated timing utilities:\n  ${offenders.join("\n  ")}`,
+    ).toEqual([]);
   });
 
   it("still reaches the correct final state with motion off", () => {
@@ -308,7 +317,8 @@ describe.each([
 ])("the sidebar's header block — %s", (_realm, renderShell) => {
   function brandOf(container: HTMLElement): HTMLElement {
     const brand = container.querySelector<HTMLElement>("[data-sidebar-brand]");
-    if (!brand) throw new Error("no brand block in the panel — SidebarBrand moved");
+    if (!brand)
+      throw new Error("no brand block in the panel — SidebarBrand moved");
     return brand;
   }
 
@@ -327,9 +337,10 @@ describe.each([
     // NOTHING between the brand and the nav. The old shape was brand → toggle row → nav,
     // and this is the assertion that a re-added row cannot slip past by being styled flat.
     const nav = container.querySelector("nav");
-    expect(brand.nextElementSibling, "an element reappeared between the brand and the nav").toBe(
-      nav,
-    );
+    expect(
+      brand.nextElementSibling,
+      "an element reappeared between the brand and the nav",
+    ).toBe(nav);
   });
 
   it("keeps the toggle on the 72px rail, where the brand mark yields to it", async () => {
@@ -339,14 +350,18 @@ describe.each([
 
     const brand = brandOf(container);
     const toggle = container.querySelector("[data-sidebar-collapse-toggle]");
-    expect(toggle, "nothing expands the panel again once it is collapsed").toBeTruthy();
+    expect(
+      toggle,
+      "nothing expands the panel again once it is collapsed",
+    ).toBeTruthy();
     expect(toggle?.parentElement).toBe(brand);
     expect(screen.getByLabelText("Expand sidebar")).toBe(toggle);
 
     // The mark steps aside at `lg` only, so the 255px mobile drawer still shows it.
     const mark = brand.querySelector("img");
-    expect(mark?.className, "the brand mark still fills the rail the toggle needs").toContain(
-      "lg:hidden",
-    );
+    expect(
+      mark?.className,
+      "the brand mark still fills the rail the toggle needs",
+    ).toContain("lg:hidden");
   });
 });

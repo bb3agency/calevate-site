@@ -34,7 +34,6 @@ from collections.abc import AsyncIterator, Iterator
 
 import pytest
 from apps.api.admin import service as admin_service
-from apps.api.agents.voices import default_voice
 from apps.api.core import ratelimit
 from apps.api.core.context import bearer_token
 from apps.api.core.ratelimit import LimitProfile
@@ -42,6 +41,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
+from tests.voice_fixture import TEST_VOICE_ID
 
 pytestmark = [pytest.mark.rls]
 
@@ -304,7 +304,7 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
 #: A voice id the catalogue really offers, read from the catalogue rather than typed, so
 #: the two delivery rows below are refused by the TENANT SCOPE and not by a 422 on an
 #: unknown voice — which would make this sweep pass without proving anything.
-_SWEEP_VOICE_ID: str = default_voice().id
+_SWEEP_VOICE_ID: str = TEST_VOICE_ID
 
 _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/agents/{agent_id}", {}, {}),

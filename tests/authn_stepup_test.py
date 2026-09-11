@@ -445,6 +445,19 @@ _OPS_WRITES_WITHOUT_STEP_UP = {
         "on a harmless lever, which is what makes them worthless on `outbox/replay`, "
         "where the blast radius is other people's customer data arriving twice."
     ),
+    ("apps/api/ops/voice_curation_routes.py", "set_voice_curation"): (
+        "moves ONE voice between enabled/disabled/archived for the platform (D-588), and "
+        "it cannot reach a call. It writes no agent row, calls no vendor, and cannot move "
+        "an agent off the voice it is speaking: a published agent holds its voice on the "
+        "ENGINE, and `voices.catalogue()` deliberately keeps resolving a disabled id on "
+        "the publish path, so the picker narrows and the phone line does not. Its "
+        "widening direction cannot bypass money either — enabling a voice clears "
+        "offerability ground zero and leaves the credential, attested-price and Cartesia-"
+        "cap grounds exactly where they were (hard rule 7). It is reversible in one click, "
+        "and it is a CURATION screen: an operator reviewing a freshly synced catalogue "
+        "toggles rows in one sitting, which is the exact surface where a typed "
+        "confirmation becomes a reflex and stops meaning anything on `outbox/replay`."
+    ),
 }
 
 

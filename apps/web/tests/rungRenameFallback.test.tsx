@@ -5,7 +5,11 @@ import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import CommercialsPage from "@/app/admin/tenants/[tenantId]/commercials/page";
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
 import type { Margin, TenantSummary } from "@/lib/api/admin";
-import { commercialTermsPath, type CommercialTerms, type PlanRow } from "@/lib/api/commercials";
+import {
+  commercialTermsPath,
+  type CommercialTerms,
+  type PlanRow,
+} from "@/lib/api/commercials";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
@@ -63,7 +67,13 @@ const ME: AdminMe = {
   realm: "admin",
   user_id: "0192f0aa-7777-7000-8000-0000000000f2",
   role: "operator",
-  permissions: ["org:read", "billing:read", "agents:read", "kb:write", "admin:tenants"],
+  permissions: [
+    "org:read",
+    "billing:read",
+    "agents:read",
+    "kb:write",
+    "admin:tenants",
+  ],
 };
 
 function tenant(): TenantSummary {
@@ -86,7 +96,10 @@ function tenant(): TenantSummary {
 /** The rung split as the previous release sent it: the deprecated names and no others. */
 type LegacyTiers = Omit<
   Margin["tiers"],
-  "minutes_base_rung" | "minutes_second_rung" | "cost_base_rung_inr" | "cost_second_rung_inr"
+  | "minutes_base_rung"
+  | "minutes_second_rung"
+  | "cost_base_rung_inr"
+  | "cost_second_rung_inr"
 >;
 
 /** One dated agreement without the field that replaced `overage_rate_value_inr`. */
@@ -143,7 +156,8 @@ function legacyPlan(): LegacyPlanRow {
       below_target_margin: [],
       min_gross_margin: "0.20",
       cost_floor_inr_per_min: "3.70",
-      cost_floor_basis: "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12)",
+      cost_floor_basis:
+        "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12)",
     },
   };
 }

@@ -35,7 +35,14 @@ const REQUEST_ID = "0192f0aa-4444-7000-8000-0000000000ab";
 
 const OWNER: Me = {
   impersonating: false,
-  permissions: ["calls:read", "calls:read_raw", "leads:read", "org:read", "org:manage"],
+  withheld_acts: [],
+  permissions: [
+    "calls:read",
+    "calls:read_raw",
+    "leads:read",
+    "org:read",
+    "org:manage",
+  ],
   realm: "client",
   role: "owner",
   user_id: "user_1",
@@ -103,7 +110,8 @@ function completedRequest(): DeletionRequest {
           what: "The audio recordings of the calls this erasure covered.",
           outcome: "retained_under_legal_floor",
           why: "Indian telecom rules require call recordings to be kept for at least 90 days.",
-          authority: "TRAI 90-day recording-retention floor (SECURITY-COMPLIANCE §1).",
+          authority:
+            "TRAI 90-day recording-retention floor (SECURITY-COMPLIANCE §1).",
           count: 1,
         },
       ],
@@ -196,7 +204,9 @@ describe("data rights — subject access export", () => {
     expect(screen.getByText("Transcript turns")).toBeTruthy();
     expect(screen.getByText("47")).toBeTruthy();
 
-    const request = view.calls.find((call) => call.path === "/v1/compliance/subject-export");
+    const request = view.calls.find(
+      (call) => call.path === "/v1/compliance/subject-export",
+    );
     expect(request?.method).toBe("POST");
     expect(request?.body).toBe(JSON.stringify({ phone: PHONE }));
 
@@ -208,7 +218,10 @@ describe("data rights — subject access export", () => {
 
   it("refuses rather than claiming an export exists when the request fails", async () => {
     await render({
-      [EXPORT_PATH]: problem(503, { title: "Upstream unavailable", detail: "Try again shortly." }),
+      [EXPORT_PATH]: problem(503, {
+        title: "Upstream unavailable",
+        detail: "Try again shortly.",
+      }),
     });
 
     type("Their phone number", PHONE);
@@ -230,7 +243,9 @@ describe("data rights — filing an erasure", () => {
       [STATUS_PATH]: pendingRequest(),
     });
 
-    const submit = screen.getByRole("button", { name: /Erase this person's data/ });
+    const submit = screen.getByRole("button", {
+      name: /Erase this person's data/,
+    });
     type(/Number to erase permanently/, PHONE);
     // A number alone must not arm an irreversible action.
     expect((submit as HTMLButtonElement).disabled).toBe(true);
@@ -242,7 +257,9 @@ describe("data rights — filing an erasure", () => {
     expect(await screen.findByText(/Submitted — waiting to run/)).toBeTruthy();
 
     const filed = view.calls.find(
-      (call) => call.path === "/v1/compliance/deletion-requests" && call.method === "POST",
+      (call) =>
+        call.path === "/v1/compliance/deletion-requests" &&
+        call.method === "POST",
     );
     expect(filed?.body).toBe(JSON.stringify({ phone: PHONE }));
     // Irreversible and therefore idempotent on the wire: a double-click must not file two.
@@ -251,15 +268,21 @@ describe("data rights — filing an erasure", () => {
   });
 
   it("offers a target check before erasing — whose record the digits point at (DR-1)", async () => {
-    const view = await render({ [EXPORT_PATH]: EXPORT_DOCUMENT, [LIST_PATH]: [] });
+    const view = await render({
+      [EXPORT_PATH]: EXPORT_DOCUMENT,
+      [LIST_PATH]: [],
+    });
 
     type(/Number to erase permanently/, PHONE);
     // The typed ERASE confirms INTENT; this button confirms TARGET.
-    fireEvent.click(screen.getByRole("button", { name: /Check whose record this is first/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Check whose record this is first/ }),
+    );
 
     await screen.findByText(/All of it will be erased/);
     const previewCall = view.calls.find(
-      (call) => call.path === "/v1/compliance/subject-export" && call.method === "POST",
+      (call) =>
+        call.path === "/v1/compliance/subject-export" && call.method === "POST",
     );
     expect(previewCall?.body).toBe(JSON.stringify({ phone: PHONE }));
 
@@ -273,17 +296,28 @@ describe("data rights — filing an erasure", () => {
     await render({
       [EXPORT_PATH]: {
         ...EXPORT_DOCUMENT,
-        counts: { leads: 0, calls: 0, transcript_turns: 0, consent_records: 0, recordings_available: 0 },
+        counts: {
+          leads: 0,
+          calls: 0,
+          transcript_turns: 0,
+          consent_records: 0,
+          recordings_available: 0,
+        },
       },
       [LIST_PATH]: [],
     });
     type(/Number to erase permanently/, PHONE);
-    fireEvent.click(screen.getByRole("button", { name: /Check whose record this is first/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Check whose record this is first/ }),
+    );
     await screen.findByText(/check the digits/);
   });
 
   it("shows the certificate with what survived the erasure, not only what it cleared", async () => {
-    await render({ [LIST_PATH]: [COMPLETED_SUMMARY], [STATUS_PATH]: completedRequest() });
+    await render({
+      [LIST_PATH]: [COMPLETED_SUMMARY],
+      [STATUS_PATH]: completedRequest(),
+    });
 
     expect(await screen.findByText("Erasure complete")).toBeTruthy();
     await open();
@@ -291,9 +325,13 @@ describe("data rights — filing an erasure", () => {
     expect(await screen.findByText("Proof certificate")).toBeTruthy();
     expect(screen.getByText("Not erased")).toBeTruthy();
     expect(
-      screen.getByText(/The audio recordings of the calls this erasure covered\./),
+      screen.getByText(
+        /The audio recordings of the calls this erasure covered\./,
+      ),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: /Save the certificate/ })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Save the certificate/ }),
+    ).toBeTruthy();
   });
 
   it("has no accessibility violations once the certificate is on screen", async () => {
@@ -310,7 +348,10 @@ describe("data rights — filing an erasure", () => {
     await open();
     await screen.findByText("Proof certificate");
 
-    await expectNoA11yViolations(view.container, "c/[slug]/data-rights (certificate)");
+    await expectNoA11yViolations(
+      view.container,
+      "c/[slug]/data-rights (certificate)",
+    );
   });
 
   it("says an erasure was already running instead of reporting a fault", async () => {
@@ -322,7 +363,9 @@ describe("data rights — filing an erasure", () => {
 
     type(/Number to erase permanently/, PHONE);
     type(/Type ERASE to confirm/, "ERASE");
-    fireEvent.click(screen.getByRole("button", { name: /Erase this person's data/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Erase this person's data/ }),
+    );
 
     expect(await screen.findByText(/already running/)).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
@@ -352,13 +395,20 @@ describe("data rights — §52: a failed status read is a refusal, never an answ
   });
 
   it("says it could not check, rather than refusing, when /v1/me fails", async () => {
-    await render({ "/v1/me": problem(503, { title: "Identity unavailable" }) }, OWNER);
+    await render(
+      { "/v1/me": problem(503, { title: "Identity unavailable" }) },
+      OWNER,
+    );
 
     expect(
       await screen.findByText(/We could not check what you are allowed to see/),
     ).toBeTruthy();
     expect(
-      (screen.getByRole("button", { name: /Build the export/ }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: /Build the export/,
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
   });
 });
@@ -393,7 +443,9 @@ describe("data rights — the erasure register", () => {
 
     // Certificates are fetched per request, so opening the screen must not pull every
     // proof on the account across the wire.
-    expect(view.calls.filter((call) => call.path.startsWith(STATUS_PATH))).toHaveLength(0);
+    expect(
+      view.calls.filter((call) => call.path.startsWith(STATUS_PATH)),
+    ).toHaveLength(0);
   });
 
   it("refuses rather than claiming the account has no erasure requests", async () => {
@@ -410,14 +462,20 @@ describe("data rights — the erasure register", () => {
 
     await waitFor(() => expect(screen.getByRole("alert")).toBeTruthy());
     expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
-    expect(screen.queryByText(/No erasure requests have been filed/)).toBeNull();
-    expect(screen.queryByRole("button", { name: /Show the certificate/ })).toBeNull();
+    expect(
+      screen.queryByText(/No erasure requests have been filed/),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Show the certificate/ }),
+    ).toBeNull();
   });
 
   it("says the register is empty only when the server said so", async () => {
     await render({ [LIST_PATH]: [] });
 
-    expect(await screen.findByText(/No erasure requests have been filed/)).toBeTruthy();
+    expect(
+      await screen.findByText(/No erasure requests have been filed/),
+    ).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -429,12 +487,16 @@ describe("data rights — the erasure register", () => {
 
     type(/Number to erase permanently/, PHONE);
     type(/Type ERASE to confirm/, "ERASE");
-    fireEvent.click(screen.getByRole("button", { name: /Erase this person's data/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Erase this person's data/ }),
+    );
 
     // The filed request has to come back from the server's register, not from component
     // state: a closed tab must not lose the handle on a live legal obligation.
     await waitFor(() =>
-      expect(view.calls.filter((call) => call.path === LIST_PATH).length).toBeGreaterThan(1),
+      expect(
+        view.calls.filter((call) => call.path === LIST_PATH).length,
+      ).toBeGreaterThan(1),
     );
   });
 });
@@ -444,16 +506,27 @@ describe("data rights — permissions", () => {
     await render({}, STAFF);
 
     expect(
-      await screen.findByText(/Only an account owner can build a subject access export/),
+      await screen.findByText(
+        /Only an account owner can build a subject access export/,
+      ),
     ).toBeTruthy();
-    expect(screen.getByText(/Only an account owner can file an erasure request/)).toBeTruthy();
+    expect(
+      screen.getByText(/Only an account owner can file an erasure request/),
+    ).toBeTruthy();
 
     expect(
-      (screen.getByRole("button", { name: /Build the export/ }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: /Build the export/,
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
     expect(
-      (screen.getByRole("button", { name: /Erase this person's data/ }) as HTMLButtonElement)
-        .disabled,
+      (
+        screen.getByRole("button", {
+          name: /Erase this person's data/,
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
   });
 });
@@ -485,7 +558,9 @@ describe("data rights — the obligations printed on the screen", () => {
     expect(text).toContain("you are erasing your own record of them too");
     // What survives, and that the certificate names the rule for each.
     expect(text).toContain("Some things are kept");
-    expect(text).toContain("the certificate names each one with the rule that required it");
+    expect(text).toContain(
+      "the certificate names each one with the rule that required it",
+    );
     // The target check: a transposed digit erases a different real person.
     expect(text).toContain("Check it twice");
     expect(text).toContain("there is no undo");
@@ -510,7 +585,9 @@ describe("data rights — the obligations printed on the screen", () => {
 
   it("refuses to let a completed erasure with no proof be reported as finished", async () => {
     await render({
-      [LIST_PATH]: [summary({ status: "completed", completed_at: "2026-08-14T06:04:00Z" })],
+      [LIST_PATH]: [
+        summary({ status: "completed", completed_at: "2026-08-14T06:04:00Z" }),
+      ],
       [STATUS_PATH]: { ...completedRequest(), proof: null },
     });
 
@@ -519,7 +596,9 @@ describe("data rights — the obligations printed on the screen", () => {
       await screen.findByText("Completed, but no certificate was recorded"),
     ).toBeTruthy();
     expect(
-      screen.getByText(/do not tell them it is done on the strength of this panel alone/),
+      screen.getByText(
+        /do not tell them it is done on the strength of this panel alone/,
+      ),
     ).toBeTruthy();
   });
 });

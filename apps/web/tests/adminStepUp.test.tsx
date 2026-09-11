@@ -85,7 +85,8 @@ function readThroughViewAs(): Promise<unknown> {
   return apiRequest(viewAsSession(SLUG), "/v1/agents");
 }
 
-const mints = (calls: ApiCall[]) => calls.filter((call) => call.path === IMPERSONATION_GRANT_PATH);
+const mints = (calls: ApiCall[]) =>
+  calls.filter((call) => call.path === IMPERSONATION_GRANT_PATH);
 
 describe("the view-as mint carries what the step-up gate asks for", () => {
   it("echoes the confirmation string the API's own function builds", async () => {
@@ -128,7 +129,10 @@ describe("the view-as mint carries what the step-up gate asks for", () => {
     // The renewal names the grant it continues. Without it the API would demand a second
     // factor on every re-mint — an emailed code roughly every fourteen minutes, which is
     // the control `core/impersonation.VIEW_AS_MAX_AGE` argues gets switched off.
-    expect(JSON.parse(second?.body ?? "{}")).toEqual({ slug: SLUG, renew: "grant-1" });
+    expect(JSON.parse(second?.body ?? "{}")).toEqual({
+      slug: SLUG,
+      renew: "grant-1",
+    });
   });
 });
 
@@ -136,7 +140,8 @@ describe("a step-up refusal becomes a prompt", () => {
   it("emails a code, accepts it, and retries the mint as a cold start", async () => {
     let refuse = true;
     const calls = mountPrompt({
-      [`POST ${IMPERSONATION_GRANT_PATH}`]: () => (refuse ? reauthRequired() : grantBody()),
+      [`POST ${IMPERSONATION_GRANT_PATH}`]: () =>
+        refuse ? reauthRequired() : grantBody(),
       [`POST ${STEP_UP_PATH}`]: {},
       [`POST ${VERIFY_PATH}`]: {
         realm: "admin",
@@ -159,7 +164,9 @@ describe("a step-up refusal becomes a prompt", () => {
     });
 
     refuse = false;
-    fireEvent.change(screen.getByLabelText(/six-digit code/i), { target: { value: "123456" } });
+    fireEvent.change(screen.getByLabelText(/six-digit code/i), {
+      target: { value: "123456" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /^confirm$/i }));
 
     await expect(read).resolves.toEqual([]);
@@ -193,7 +200,9 @@ describe("a step-up refusal becomes a prompt", () => {
     readThroughViewAs().catch(() => undefined);
     const dialog = await screen.findByRole("alertdialog");
 
-    expect(screen.queryByRole("button", { name: /close without confirming/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /close without confirming/i }),
+    ).toBeNull();
     fireEvent.keyDown(dialog, { key: "Escape" });
     expect(screen.getByRole("alertdialog")).toBeTruthy();
   });
@@ -214,7 +223,9 @@ describe("a step-up refusal becomes a prompt", () => {
     // carries a title, a sentence and a remediation this console would have to reinvent.
     // It must settle even though the panel is being torn down — a caller left awaiting a
     // prompt that no longer exists is a promise nothing can resolve.
-    await expect(read).rejects.toMatchObject({ code: "reauthentication_required" });
+    await expect(read).rejects.toMatchObject({
+      code: "reauthentication_required",
+    });
     // And nothing was retried behind the closing prompt.
     expect(mints(calls)).toHaveLength(1);
     await waitFor(() => {
@@ -225,7 +236,8 @@ describe("a step-up refusal becomes a prompt", () => {
   it("asks ONCE when six reads are refused together", async () => {
     let refuse = true;
     const calls = mountPrompt({
-      [`POST ${IMPERSONATION_GRANT_PATH}`]: () => (refuse ? reauthRequired() : grantBody()),
+      [`POST ${IMPERSONATION_GRANT_PATH}`]: () =>
+        refuse ? reauthRequired() : grantBody(),
       [`POST ${STEP_UP_PATH}`]: {},
       [`POST ${VERIFY_PATH}`]: {
         realm: "admin",
@@ -300,7 +312,10 @@ describe("a step-up refusal becomes a prompt", () => {
 
 describe("the ask is single-flighted, whoever asks", () => {
   it("shares one prompt between independent callers and settles them together", async () => {
-    mountPrompt({ [`POST ${STEP_UP_PATH}`]: {}, [`POST ${VERIFY_PATH}`]: SESSION_OUT });
+    mountPrompt({
+      [`POST ${STEP_UP_PATH}`]: {},
+      [`POST ${VERIFY_PATH}`]: SESSION_OUT,
+    });
 
     const first = requireStepUp("Opening one thing.");
     const second = requireStepUp("Opening another thing.");
@@ -309,7 +324,9 @@ describe("the ask is single-flighted, whoever asks", () => {
     expect(screen.getAllByRole("alertdialog")).toHaveLength(1);
     // The FIRST asker's sentence stands: changing it under the person reading it would be
     // the prompt describing an action they did not start.
-    expect(screen.getByRole("alertdialog").textContent).toContain("Opening one thing.");
+    expect(screen.getByRole("alertdialog").textContent).toContain(
+      "Opening one thing.",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /email me a code/i }));
     fireEvent.change(await screen.findByLabelText(/six-digit code/i), {

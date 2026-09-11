@@ -50,7 +50,8 @@ const CONFIRMED = {
   // republish could confirm — `agentGoLive.test.tsx` covers that case.
   publishable: true,
   verified_at: "2026-08-15T09:20:00Z",
-  headline: "The voice platform was read back and is running this script and voice.",
+  headline:
+    "The voice platform was read back and is running this script and voice.",
 };
 
 const UNREACHABLE = {
@@ -101,14 +102,20 @@ function engineState(over: Record<string, unknown> = {}) {
     // spelled out rather than defaulted.
     truthful_answer_applied: true,
     voice_applied: true,
-    detail: "The voice platform was read back and is holding the published script and voice.",
+    detail:
+      "The voice platform was read back and is holding the published script and voice.",
     ...over,
   };
 }
 
-function render(verification: Record<string, unknown>, over: Partial<Routes> = {}) {
+function render(
+  verification: Record<string, unknown>,
+  over: Partial<Routes> = {},
+) {
   return renderAdminRoute(
-    <AgentPromptPage params={routeParams({ tenantId: TENANT, agentId: AGENT })} />,
+    <AgentPromptPage
+      params={routeParams({ tenantId: TENANT, agentId: AGENT })}
+    />,
     {
       [TENANT_PATH]: { id: TENANT, name: "Sunrise Clinic", slug: "sunrise" },
       [ME_PATH]: {
@@ -129,7 +136,9 @@ function render(verification: Record<string, unknown>, over: Partial<Routes> = {
       [EXPERIMENT_PATH]: {
         agent_id: AGENT,
         rules: {
-          metrics: [{ key: "call_outcome_resolved", label: "calls the agent resolved" }],
+          metrics: [
+            { key: "call_outcome_resolved", label: "calls the agent resolved" },
+          ],
           default_metric: "call_outcome_resolved",
           minimum_calls_per_variant: 40,
           split_min_bp: 500,
@@ -158,7 +167,9 @@ describe("what the agent screen claims about being live", () => {
     await render(UNREACHABLE);
 
     expect(await screen.findByText(UNREACHABLE.headline)).toBeTruthy();
-    expect(screen.getByText(/Nothing here is wrong yet — it is unconfirmed/)).toBeTruthy();
+    expect(
+      screen.getByText(/Nothing here is wrong yet — it is unconfirmed/),
+    ).toBeTruthy();
     // The confirmation TIMESTAMP is the thing that must not appear: a screen that shows
     // "Confirmed 2 minutes ago" over an answer nobody could read is the exact defect.
     expect(screen.queryByText(/Confirmed /)).toBeNull();
@@ -168,11 +179,17 @@ describe("what the agent screen claims about being live", () => {
     const { calls } = await render(CONFIRMED);
 
     await screen.findByText(CONFIRMED.headline);
-    expect(calls.filter((call) => call.path === ENGINE_STATE_PATH)).toHaveLength(0);
+    expect(
+      calls.filter((call) => call.path === ENGINE_STATE_PATH),
+    ).toHaveLength(0);
 
-    fireEvent.click(screen.getByRole("button", { name: /Check the voice platform now/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Check the voice platform now/ }),
+    );
     await waitFor(() =>
-      expect(calls.filter((call) => call.path === ENGINE_STATE_PATH).length).toBeGreaterThan(0),
+      expect(
+        calls.filter((call) => call.path === ENGINE_STATE_PATH).length,
+      ).toBeGreaterThan(0),
     );
   });
 
@@ -189,7 +206,9 @@ describe("what the agent screen claims about being live", () => {
     });
 
     await screen.findByText(CONFIRMED.headline);
-    fireEvent.click(screen.getByRole("button", { name: /Check the voice platform now/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Check the voice platform now/ }),
+    );
 
     expect(await screen.findByText(/running a different script/)).toBeTruthy();
     expect(screen.getByText("Does not match")).toBeTruthy();
@@ -201,12 +220,15 @@ describe("what the agent screen claims about being live", () => {
         state: "unreadable",
         in_sync: false,
         voice_applied: null,
-        detail: "The voice platform did not report back enough for us to confirm it.",
+        detail:
+          "The voice platform did not report back enough for us to confirm it.",
       }),
     });
 
     await screen.findByText(CONFIRMED.headline);
-    fireEvent.click(screen.getByRole("button", { name: /Check the voice platform now/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Check the voice platform now/ }),
+    );
 
     expect(await screen.findByText("Could not read")).toBeTruthy();
     expect(screen.queryByText("Does not match")).toBeNull();
@@ -221,9 +243,13 @@ describe("what the agent screen claims about being live", () => {
     });
 
     await screen.findByText(CONFIRMED.headline);
-    fireEvent.click(screen.getByRole("button", { name: /Check the voice platform now/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Check the voice platform now/ }),
+    );
 
-    expect(await screen.findByText(/could not reach the voice platform/i)).toBeTruthy();
+    expect(
+      await screen.findByText(/could not reach the voice platform/i),
+    ).toBeTruthy();
     // And the stored verdict is NOT quietly re-used as the answer to the question asked.
     expect(screen.queryByText("Matches")).toBeNull();
   });

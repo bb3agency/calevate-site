@@ -122,12 +122,12 @@ from apps.api.agents.voice_offer import (
     VoiceReasonAudience,
     cartesia_tier_could_be_offered,
     count_live_cartesia_agents,
+    read_curation,
     unofferable_reason,
 )
 from apps.api.agents.voices import (
     Voice,
     get_voice,
-    voice_ids,
     voice_selection_capability,
 )
 from apps.api.billing.lots import voice_tier_rates
@@ -1558,13 +1558,26 @@ async def set_call_cap(
 def _refuse_unknown_voice(voice_id: str) -> ProblemError:
     """`agents.tts_voice` is free text whose next reader is a vendor API, so a typo that
     gets stored looks saved, publishes cleanly, and surfaces as a broken call on a
-    client's line. Refusing it costs a dictionary lookup."""
+    client's line. Refusing it costs a dictionary lookup.
+
+    ⚠ **THE REMEDIATION NO LONGER ENUMERATES THE CATALOGUE, AND BOTH REASONS ARE D-588.**
+    It used to read "Pick one of the available voices: " + every id. (a) Since curation,
+    `voice_ids()` is the LOOKUP layer and includes the voices an operator has switched off,
+    so the list was naming ids the very next check refuses — a remediation that hands the
+    reader a wrong answer is worse than none. (b) On a deployment nobody has synced the
+    catalogue is empty, and the sentence degenerated to "Pick one of the available voices:
+    ." So it points at the one read that answers per audience, per deployment and per
+    moment, and that read carries a `note` saying what to do when it is empty.
+    """
     return ProblemError(
         kind="business_rule",
         code="unknown_voice",
         title="Unknown voice",
         detail="That voice is not in the catalog, so it cannot be set on an agent.",
-        remediation="Pick one of the available voices: " + ", ".join(voice_ids()) + ".",
+        remediation=(
+            "Read GET /v1/agents/voices for the voices offered on this account, and pick "
+            "one whose `offerable` is true."
+        ),
         fields=[
             {
                 "field": "voice_id",
@@ -1592,12 +1605,20 @@ async def _voice_refusal(
     refuse a change that adds nothing to the plan.
 
     The count is measured only when it could decide anything — a Sarvam voice fails no
-    ground, and a deployment with no Cartesia key or no attested price already has its
-    answer — so the ordinary write opens no extra session.
+    PRICED ground, and a deployment with no Cartesia key or no attested price already has
+    its answer — so the ordinary write opens no extra session for it.
+
+    **CURATION IS ALWAYS MEASURED (D-588)**, because ground zero applies to both providers:
+    a voice no operator has enabled may not be set on anybody's agent, and "an archived
+    voice cannot be newly selected" is this one read. It is one SELECT against a
+    platform-scoped table of tens of rows, on a write a human just made.
     """
+    curation = await read_curation()
     needs_count = voice.provider != "sarvam" and cartesia_tier_could_be_offered()
     live = await count_live_cartesia_agents(exclude_agent_id=agent_id) if needs_count else 0
-    return unofferable_reason(voice, cartesia_live_agents=live, audience=audience)
+    return unofferable_reason(
+        voice, cartesia_live_agents=live, curation=curation, audience=audience
+    )
 
 
 #: Locked for the duration, then re-read: the same row the UPDATE and the republish touch.

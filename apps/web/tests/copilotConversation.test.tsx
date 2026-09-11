@@ -1,11 +1,20 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { CopilotPanel } from "@/components/copilot/CopilotPanel";
 import { API_BASE, type Session } from "@/lib/api/client";
-import { useCopilotSurface, useCopilotSurfaceHolder } from "@/lib/copilot/registry";
+import {
+  useCopilotSurface,
+  useCopilotSurfaceHolder,
+} from "@/lib/copilot/registry";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
@@ -58,7 +67,9 @@ function PanelMount() {
 }
 
 function withQuery(node: ReactNode) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return <QueryClientProvider client={client}>{node}</QueryClientProvider>;
 }
 
@@ -125,7 +136,9 @@ describe("the durable conversation", () => {
     // BOUNDED. A conversation is a list, and the panel asks for a page rather than all of
     // it — the server caps `limit` too, and this is the half that would rot silently if
     // somebody dropped the parameter.
-    expect(calls.some((call) => call.includes("/v1/copilot/conversation?limit="))).toBe(true);
+    expect(
+      calls.some((call) => call.includes("/v1/copilot/conversation?limit=")),
+    ).toBe(true);
   });
 
   it("IS ENDED ON THE SERVER BY START AGAIN — not only on the device that clicked it", async () => {
@@ -150,12 +163,16 @@ describe("the durable conversation", () => {
 
     await act(async () => {
       fireEvent.click(
-        screen.getByRole("button", { name: "Forget this conversation and start again" }),
+        screen.getByRole("button", {
+          name: "Forget this conversation and start again",
+        }),
       );
     });
 
     expect(screen.queryByText("what did we say about the scan")).toBeNull();
-    expect(calls.some((call) => call === "DELETE /v1/copilot/conversation")).toBe(true);
+    expect(
+      calls.some((call) => call === "DELETE /v1/copilot/conversation"),
+    ).toBe(true);
   });
 
   it("OFFERS NOTHING TO FORGET WHEN THERE IS NOTHING", async () => {
@@ -172,7 +189,9 @@ describe("the durable conversation", () => {
     });
     await waitFor(() => {
       expect(
-        screen.queryByRole("button", { name: "Forget this conversation and start again" }),
+        screen.queryByRole("button", {
+          name: "Forget this conversation and start again",
+        }),
       ).toBeNull();
     });
   });

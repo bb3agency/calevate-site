@@ -70,7 +70,6 @@ function voice(over: Partial<OfferedVoice> = {}): OfferedVoice {
     gender: "female",
     languages: ["te-IN", "hi-IN", "en-IN"],
     note: "Warm, unhurried; the default for Telugu receptionists.",
-    is_default: true,
     verified: false,
     // D-547 made the catalogue two-tier, so a row now carries its own verdict: whether a
     // client may pick it, and — when they may not — the sentence saying why. A Sarvam row
@@ -96,7 +95,6 @@ const VOICES: OfferedVoice[] = [
     label: "Vidya",
     speaker: "vidya",
     gender: "female",
-    is_default: false,
     verified: true,
     note: "A brisker, more formal read; still Bulbul v3.",
   }),
@@ -111,7 +109,6 @@ function studio(over: Partial<OfferedVoice> = {}): OfferedVoice {
     tts_model: "sonic-3.5",
     speaker: "ananya",
     tier_label: "Studio",
-    is_default: false,
     verified: true,
     note: "A studio read; Telugu-English mixing is not documented for this one.",
     ...over,
@@ -323,8 +320,9 @@ describe("the voice panel", () => {
   it("pre-selects the voice the agent is configured with", async () => {
     // The gap this slice closed. `voice.configured` is the thing the operator is
     // editing, so it is what the select opens on — not `voice.live` (the past), not the
-    // catalogue's `is_default` (D-36's written default, not this agent's state), and not
-    // a blank, which invites an operator to re-pick a value that is already set.
+    // catalogue's own order (D-588 deleted the last compiled default persona, so there is
+    // no `is_default` to fall back to), and not a blank, which invites an operator to
+    // re-pick a value that is already set.
     const { container } = await render();
 
     await screen.findByRole("radio", { name: /Anushka/ });

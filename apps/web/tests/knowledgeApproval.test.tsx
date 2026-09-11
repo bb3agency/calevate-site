@@ -49,6 +49,7 @@ const SOURCE_ID = "0192f0aa-6666-7000-8000-000000000001";
 
 const ME: Me = {
   impersonating: false,
+  withheld_acts: [],
   permissions: ["agents:read", "kb:write"],
   realm: "client",
   role: "owner",
@@ -62,8 +63,29 @@ const ME: Me = {
  */
 const STAFF: Me = { ...ME, role: "staff", permissions: ["agents:read"] };
 
-/** D-22: every MUTATING permission is refused an impersonating principal, `kb:write` included. */
-const OPERATOR_VIEWING: Me = { ...ME, impersonating: true };
+/**
+ * The operator inside "view as client". `kb:write` SURVIVES D-587 (`rbac.VIEW_AS_MUTATIONS`
+ * lists it with `None`), so this session may add knowledge; what it may not do is APPROVE
+ * it under the client's name, which is the act below and lives on a different route.
+ */
+const OPERATOR_VIEWING: Me = {
+  ...ME,
+  impersonating: true,
+  // WHAT THE SERVER SENDS A VIEW-AS SESSION (D-587). `/v1/me` filters withheld
+  // PERMISSIONS out of `permissions` and reports withheld ACTS here, because the two are
+  // not the same shape: `org:manage` and `kb:write` are both writable in view-as, and
+  // `org.membership` and `kb.self_approve` are refused INSIDE them. A fixture that left
+  // this empty described a session the server never issues, and the screen under test
+  // would render controls the API refuses.
+  withheld_acts: [
+    "billing.ai_assist",
+    "compliance.caller_memory_attestation",
+    "compliance.erasure_request",
+    "kb.self_approve",
+    "leads.saved_view",
+    "org.membership",
+  ],
+};
 
 const AGENT = { id: AGENT_ID, name: "Front desk", status: "live" };
 
@@ -280,17 +302,37 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
     expect(container.textContent).toContain("In review");
   });
 
-  it("disables the submit control inside a read-only view-as session (D-22)", async () => {
+  it("leaves the submit control live in a view-as session — the withheld act is the APPROVAL", async () => {
+    /**
+     * TWO EARLIER SHAPES, AND BOTH WERE WRONG ABOUT WHICH ROUTE THE RULE SITS ON. It first
+     * asserted the old D-22 sentence ("viewing this account read-only"); it was then
+     * changed to assert the new one ("stays with the client") on the ground that
+     * `kb.self_approve` gates this button. It does not: that act is checked in
+     * `POST /v1/kb/uploads/{id}/confirm` (`apps/api/kb/uploads.py:722`), the button that
+     * PUBLISHES a machine-read document. THIS form posts `POST /v1/kb/sources`, which
+     * accepts an operator's submission and files it for review with `auto_approve=False`
+     * (`kb/routes.py:266`) — and "a knowledge base with a stale price" is one of the four
+     * support jobs D-587 gives as its reason for existing.
+     *
+     * So the screen asks `useWriteAccess("kb:write")` here, and `useActAccess(...,
+     * "kb.self_approve")` in `UploadList.ExtractedText`, where the approval is.
+     */
     const { container } = await renderKnowledge([source()], {
       "/v1/me": OPERATOR_VIEWING,
     });
 
     await screen.findByText("Opening hours");
-    expect(submitButton().disabled).toBe(true);
-    expect(container.textContent).toContain("viewing this account read-only");
-    expect(container.textContent).toContain(
-      "Do it from the admin console instead.",
+    expect(submitButton().disabled).toBe(false);
+    // SCOPED TO THIS FORM, because the page legitimately carries that sentence elsewhere.
+    // `ME` holds `kb:write` and NOT `org:manage`, so the owner-only "let staff add
+    // knowledge" switch below is refused — correctly, and with the view-as wording, since
+    // this fixture is impersonating. Asserting the whole page free of the sentence would
+    // therefore fail on a control this clause is not about, and the honest claim is the
+    // narrow one: the SUBMIT path is open.
+    expect(submitButton().closest("form")?.textContent ?? "").not.toContain(
+      "stays with the client",
     );
+    expect(container.textContent).not.toContain("read-only");
   });
 
   it("does not render a failed preview as a submission with nothing in it", async () => {

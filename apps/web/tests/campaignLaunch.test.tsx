@@ -73,6 +73,7 @@ const AGENT_ID = "0192f0aa-3333-7000-8000-000000000002";
 
 const ME: Me = {
   impersonating: false,
+  withheld_acts: [],
   permissions: ["leads:read", "leads:dispatch"],
   realm: "client",
   role: "owner",
@@ -94,7 +95,8 @@ const AGENT: Agent = {
   // D-163: the bundled line splits into two notices with two switches. Both ON, which is
   // what a new agent is born with; `opening_line` comes from the server rather than being
   // joined here, because that is the field every screen reads.
-  ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  ai_disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   ai_disclosure_enabled: true,
   recording_notice_line: "This call is being recorded.",
   caller_memory_notice_line: "I keep a short note of what you ask about.",
@@ -246,7 +248,10 @@ describe("the launch panel with blockers outstanding", () => {
      * two questions that actually matter unanswered.
      */
     const { container } = await openLaunchPanel(
-      check({ rule: "no_credits", reason: "This account has no calling credit left." }),
+      check({
+        rule: "no_credits",
+        reason: "This account has no calling credit left.",
+      }),
     );
 
     const text = container.textContent ?? "";
@@ -269,15 +274,21 @@ describe("the launch panel with blockers outstanding", () => {
 
   it("sends a capped account to the limit that is its own, not to an account manager", async () => {
     const { container } = await openLaunchPanel(
-      check({ rule: "spend_cap", reason: "This account has reached its spending cap." }),
+      check({
+        rule: "spend_cap",
+        reason: "This account has reached its spending cap.",
+      }),
     );
 
     const text = container.textContent ?? "";
     expect(text).toContain("spent up to the monthly limit");
     expect(text).toContain("People ringing you still get through");
     // The limit is the client's own (D-34 R-11), so the destination is their screen.
-    expect(screen.getByRole("link", { name: /monthly spending limit/ }).getAttribute("href"))
-      .toContain("/billing?tab=usage");
+    expect(
+      screen
+        .getByRole("link", { name: /monthly spending limit/ })
+        .getAttribute("href"),
+    ).toContain("/billing?tab=usage");
     expect(text).not.toContain("spend_cap");
   });
 
@@ -403,10 +414,11 @@ describe("the launch panel with nothing outstanding", () => {
  * Who may press it — the second way this panel can authorise wrongly.
  *
  * `POST /v1/campaigns/{id}/launch` requires `leads:dispatch` (campaigns/routes.py), which
- * `staff` does not hold (core/rbac.py) and which an impersonating operator is refused
- * however senior they are (D-22, `MUTATING_PERMISSIONS`). `/launch-check` deliberately
- * requires only `leads:read`, so BOTH of those viewers reach a panel that can legitimately
- * say "Everything checks out." over a button they may not press.
+ * `staff` does not hold (core/rbac.py). ⚠ IT ALSO SAID an impersonating operator is
+ * refused it "however senior they are" — D-587 reversed that, and the operator test below
+ * now asserts the opposite; `staff` is the viewer this block is about. `/launch-check`
+ * deliberately requires only `leads:read`, so that viewer reaches a panel that can
+ * legitimately say "Everything checks out." over a button they may not press.
  *
  * That combination is the one this screen must not ship: an encouraging sentence, a dead
  * control, and the explanation a screenful away at the top of the page. It is the same
@@ -421,9 +433,12 @@ describe("the launch panel for a viewer who may not launch", () => {
   const STAFF: Me = { ...ME, role: "staff", permissions: ["leads:read"] };
   const STAFF_REASON = "Only an account owner can start or run campaigns.";
 
-  const OPERATOR: Me = { ...ME, impersonating: true };
-  const OPERATOR_REASON =
-    "You are viewing this account read-only, so you cannot start or run campaigns from here.";
+  /**
+   * The operator in view-as, who since D-587 MAY press it — see the test below. Kept in
+   * this describe block because the block is about "a viewer who may not launch" and the
+   * operator is the one viewer who moved out of it.
+   */
+  const OPERATOR: Me = { ...ME, impersonating: true, withheld_acts: [] };
 
   it("refuses a staff user at the control, with the reason attached to it", async () => {
     const { container } = await openLaunchPanel(check(), STAFF);
@@ -440,15 +455,26 @@ describe("the launch panel for a viewer who may not launch", () => {
     expectTextCount(container, STAFF_REASON, 2);
   });
 
-  it("refuses an impersonating operator the same way, and never as a 403 to come", async () => {
+  it("lets an impersonating operator launch, and still POSTs nothing on the way in", async () => {
+    /**
+     * IT USED TO ASSERT A REFUSAL — "refuses an impersonating operator the same way" —
+     * with the sentence "You are viewing this account read-only, so you cannot start or
+     * run campaigns from here." D-587 deleted the rule under it: `leads:dispatch` is
+     * writable in a view-as session (`rbac.VIEW_AS_MUTATIONS`), no named act covers a
+     * launch, and `core/auth.requires` no longer refuses it — so a disabled button here
+     * would be a browser-side copy of a policy the server has dropped, which is the exact
+     * defect `useWriteAccess` was rewritten to stop carrying.
+     *
+     * The second half of the old test SURVIVES UNCHANGED and is why this is not simply
+     * deleted: rendering the panel must still send no mutation. An operator is now the
+     * one viewer for whom an accidental POST would actually dial.
+     */
     const { container, calls } = await openLaunchPanel(check(), OPERATOR);
 
-    expect(launchButtonDisabled()).toBe(true);
-    expect(launchButton().title).toContain(OPERATOR_REASON);
-    expect(container.textContent).toContain(OPERATOR_REASON);
-    // D-22 is read-only: nothing on this screen may have POSTed on the way to rendering
-    // a disabled button. A screen that mutates first and explains afterwards is the
-    // failure the whole doctrine exists to prevent.
+    await screen.findByText("Everything checks out.");
+    expect(launchButtonDisabled()).toBe(false);
+    expect(container.textContent).not.toContain("read-only");
+    expect(container.textContent).not.toContain("stays with the client");
     expect(calls.filter((c) => c.method !== "GET")).toEqual([]);
   });
 

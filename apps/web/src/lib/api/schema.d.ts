@@ -385,8 +385,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Mint the short-lived grant a READ-ONLY view-as session needs (D-22)
-         * @description Begins a read-only 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant, expires in minutes, and never authorises a mutation — an impersonating session is read-only, and writes go through the admin surfaces with the tenant in the path.
+         * Mint the short-lived grant a view-as session needs (D-22, D-587)
+         * @description Begins a 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant and expires in minutes.
+         *
+         *     The session may CHANGE the account, not only read it, and every change is recorded against you: the audit row names your operator id, the client, and this grant. What it may not do is spend the client's money or AI allowance, grant anyone access to their account, give a consent, accept an agreement or file an erasure — those stay with the client, and the platform surfaces stay in the operator console.
          *
          *     STARTING a view-as session needs step-up: a second factor proved in the last 30 minutes AND the header `X-Confirm-Action: view_as:<slug>`. EXTENDING one does not — send the grant currently held as `renew` and it is continued, for up to an hour from the second factor that started it.
          */
@@ -1054,7 +1056,7 @@ export interface paths {
         put?: never;
         /**
          * Create/update the agent on the engine and record its routing (admin realm, D-21)
-         * @description The tenant is named in the path because an admin principal has no tenant of its own and the one way it could get one — impersonation — is read-only by D-22. Sending `X-Impersonate-Org` to this endpoint is still refused; publish from the admin console instead.
+         * @description The tenant is named in the path because an admin principal has no tenant of its own, and a publish should record the account it acted on rather than the one a header happened to resolve. Sending `X-Impersonate-Org` alongside is accepted since D-587 and changes nothing about which agent is published — the path decides that — except that the audit row also names the view-as session.
          */
         post: operations["publish_v1_admin_tenants__tenant_id__agents__agent_id__publish_post"];
         delete?: never;
@@ -2035,16 +2037,18 @@ export interface paths {
          *     `realm="any"`, so an admin (including one impersonating, since this is a read) gets
          *     the same answer — one catalog, no realm-specific truth.
          *
-         *     Entries carry `verified: false` until the Bolna pilot confirms each string is
-         *     selectable (OPERATIONS §2 gate 3); render that, do not hide it.
+         *     ⚠ **"NO DB, NO NETWORK" USED TO BE THE FIRST LINE OF THIS DOCSTRING AND IS NOW WRONG
+         *     TWICE OVER, WHICH IS WHY IT SAYS SO.** The Cartesia agent cap (D-547 §0 Q10) is a count
+         *     of live Cartesia agents across every tenant, measured only when the two cheap grounds
+         *     have already passed and the catalogue actually holds a Cartesia voice. And since D-588
+         *     every render also reads the CURATION rows — one SELECT over a platform-scoped table of
+         *     tens of rows — because only the voices an operator has enabled may be offered, and that
+         *     is a decision somebody may have made ten seconds ago on the screen they are still
+         *     looking at. Neither read is on a call path.
          *
-         *     ⚠ **"NO DB, NO NETWORK" USED TO BE THE FIRST LINE OF THIS DOCSTRING AND IS NO LONGER
-         *     TRUE, WHICH IS WHY IT SAYS SO.** The Cartesia agent cap (D-547 §0 Q10) is a count of
-         *     live Cartesia agents across every tenant, and a count is a query.
-         *     `voice_offer.offered_catalogue()` measures it ONLY when the two cheap grounds have
-         *     already passed and the catalogue actually holds a Cartesia voice — which today, with the
-         *     Cartesia entries empty (`voices.CARTESIA_CATALOG_SOURCE`), is never. So this endpoint is
-         *     still static in practice, and stops being so exactly when the cap starts mattering.
+         *     **AN EMPTY `voices` LIST IS A REAL AND CORRECT ANSWER.** A deployment nobody has synced,
+         *     or one where nobody has enabled anything, offers nothing — `note` says which of the two
+         *     it is and what to do. Do not render it as a failure.
          *
          *     The capability read is the SAME selector `set_agent_voice` uses, and that is the whole
          *     point: this endpoint is what the picker is built from, so if the two could disagree
@@ -2335,7 +2339,7 @@ export interface paths {
          *
          *     A READ: it writes nothing and re-publishes nothing. It costs one call to the voice platform, so it is a separate endpoint rather than part of `/pending` — a banner must not dial a vendor on every page load.
          *
-         *     `agents:read`, not `agents:write`, for the D-22 reason the other reads here are: this is what support opens while looking at a client's screen, and impersonation refuses every mutating permission.
+         *     `agents:read`, not `agents:write`, for the reason the other reads here are: this is what support opens while looking at a client's screen, and a read must never be gated on a permission a view-as session can be refused.
          */
         get: operations["engine_state_v1_agents__agent_id__engine_state_get"];
         put?: never;
@@ -6256,6 +6260,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/voices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every synced voice, with its curation state (admin realm)
+         * @description The voices the voice platform lists for our account, as of the last refresh — including ones it has since stopped listing, which are shown last and marked. Only `enabled` voices can be chosen for an agent, by a client or by an admin.
+         *
+         *     A NEW voice cannot be added here: the voice platform's API is read-only. Import or clone one in its Playground, then press Refresh.
+         */
+        get: operations["list_voices_v1_ops_voices_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Enable, disable or archive one voice for the whole platform (audited)
+         * @description Decides whether ANY agent, in any client account, may be put on this voice. Only `enabled` voices are offered.
+         *
+         *     **It changes no agent and no call.** An agent already speaking this voice keeps speaking it — on the call in progress, on the next call, and on its next publish. Disabling or archiving removes it from the picker; moving an agent off it is a separate, deliberate act on that agent. `live_agents` on the response says how many are affected.
+         *
+         *     A voice the platform has stopped listing can still be curated — the state is kept against the day it returns — but it cannot be offered whatever state it is in.
+         *
+         *     Idempotent: setting the state a voice is already in is a success, not a conflict.
+         */
+        patch: operations["set_voice_curation_v1_ops_voices_patch"];
+        trace?: never;
+    };
     "/v1/ops/voices/refresh": {
         parameters: {
             query?: never;
@@ -6267,7 +6303,7 @@ export interface paths {
         put?: never;
         /**
          * Re-read the voice catalogue from the voice platform (audited)
-         * @description Reads the voice platform account's own TTS voice list and replaces the cached catalogue every client's voice picker is built from. Use it after cloning or adding a voice on the platform — the hourly job would otherwise take up to an hour to notice. It changes no agent and no call: an agent already speaking a voice keeps speaking it whatever this returns. A sync that reads nothing is refused rather than applied, so a bad credential cannot empty the picker.
+         * @description Reads the voice platform account's own TTS voice list into the cache the admin console's Voices page is built from. Use it after importing or cloning a voice in the voice platform's Playground — the hourly job would otherwise take up to an hour to notice. A NEWLY SEEN VOICE ARRIVES DISABLED and has to be enabled on that page before anybody can be put on it (D-588), so this alone changes what nobody may choose. It changes no agent and no call either: an agent already speaking a voice keeps speaking it whatever this returns. A sync that reads nothing is refused rather than applied, so a bad credential cannot empty the catalogue.
          */
         post: operations["refresh_voice_catalogue_route_v1_ops_voices_refresh_post"];
         delete?: never;
@@ -8844,6 +8880,69 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /**
+         * CuratedVoiceOut
+         * @description One row of the Voices table.
+         *
+         *     A SUPERSET of the catalogue `Voice` rather than an envelope around it, for
+         *     `OfferedVoiceOut`'s reason in `agents/voice_routes.py`: the operator's table and the
+         *     client's picker describe one voice, and nesting it would give the console two shapes to
+         *     render the same thing in.
+         */
+        CuratedVoiceOut: {
+            /** Curated At */
+            curated_at: string | null;
+            /** Engine Voice Id */
+            engine_voice_id: string;
+            /** Label */
+            label: string;
+            /** Languages */
+            languages: string[];
+            /** Live Agents */
+            live_agents: number;
+            /** Offered */
+            offered: boolean;
+            /** Provider */
+            provider: string;
+            /** Source */
+            source: string;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "enabled" | "disabled" | "archived";
+            /**
+             * Synced At
+             * Format: date-time
+             */
+            synced_at: string;
+            /** Tier Label */
+            tier_label: string;
+            /** Tts Model */
+            tts_model: string;
+            /** Voice Id */
+            voice_id: string;
+            /** Withdrawn At */
+            withdrawn_at: string | null;
+        };
+        /**
+         * CuratedVoicesOut
+         * @description The whole cached catalogue AND what an operator needs to read it.
+         *
+         *     NO FIELD HAS A DEFAULT, for `VoiceCatalogueOut`'s reason: a Pydantic default makes the
+         *     field optional in the generated TypeScript, and every one of these is a fact the console
+         *     must be able to trust rather than treat as falsy when absent.
+         */
+        CuratedVoicesOut: {
+            /** Note */
+            note: string;
+            /** Offered */
+            offered: number;
+            /** Source */
+            source: string;
+            /** Voices */
+            voices: components["schemas"]["CuratedVoiceOut"][];
         };
         /** DashboardDataUseAttestIn */
         DashboardDataUseAttestIn: {
@@ -12237,6 +12336,11 @@ export interface components {
             role: string | null;
             /** User Id */
             user_id: string | null;
+            /**
+             * Withheld Acts
+             * @default []
+             */
+            withheld_acts: string[];
         };
         /**
          * Measurement
@@ -12647,11 +12751,6 @@ export interface components {
             gender?: ("female" | "male" | "neutral") | null;
             /** Id */
             id: string;
-            /**
-             * Is Default
-             * @default false
-             */
-            is_default: boolean;
             /** Label */
             label: string;
             /** Languages */
@@ -14511,6 +14610,34 @@ export interface components {
         SetCallCapIn: {
             /** Max Call Duration S */
             max_call_duration_s?: number | null;
+        };
+        /**
+         * SetCurationIn
+         * @description One voice, one destination state.
+         *
+         *     `extra="forbid"` so a caller cannot smuggle a second field into a request whose whole
+         *     point is one decision — and so a console still sending an older spelling is told,
+         *     instead of having it dropped while the row moves anyway.
+         */
+        SetCurationIn: {
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "enabled" | "disabled" | "archived";
+            /** Voice Id */
+            voice_id: string;
+        };
+        /**
+         * SetCurationOut
+         * @description The row as it now stands, plus what changed in this process because of it.
+         */
+        SetCurationOut: {
+            /** Next Step */
+            next_step: string;
+            /** Offered */
+            offered: number;
+            voice: components["schemas"]["CuratedVoiceOut"];
         };
         /**
          * SetVoiceIn
@@ -16523,11 +16650,6 @@ export interface components {
             gender?: ("female" | "male" | "neutral") | null;
             /** Id */
             id: string;
-            /**
-             * Is Default
-             * @default false
-             */
-            is_default: boolean;
             /** Label */
             label: string;
             /** Languages */
@@ -27287,6 +27409,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TtsPlanFeeWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_voices_v1_ops_voices_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CuratedVoicesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_voice_curation_v1_ops_voices_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetCurationIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetCurationOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

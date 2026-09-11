@@ -128,24 +128,35 @@ function started(over: Partial<Trial> = {}): Trial {
 }
 
 function render(routes: Partial<Routes> = {}) {
-  return renderAdminRoute(<TenantCreditsPage params={routeParams({ tenantId: TENANT })} />, {
-    [TENANT_PATH]: tenant(),
-    [ADMIN_ME_PATH]: ME,
-    [CREDITS_READ]: credits(),
-    [TRIAL_PATH]: null,
-    ...routes,
-  });
+  return renderAdminRoute(
+    <TenantCreditsPage params={routeParams({ tenantId: TENANT })} />,
+    {
+      [TENANT_PATH]: tenant(),
+      [ADMIN_ME_PATH]: ME,
+      [CREDITS_READ]: credits(),
+      [TRIAL_PATH]: null,
+      ...routes,
+    },
+  );
 }
 
 /** Fill the trial form the way an operator does: days, days again, why. */
-async function fillTrial(days: string, why = "onboarding gift, agreed with the founder") {
-  fireEvent.change(await screen.findByLabelText("Days on us"), { target: { value: days } });
+async function fillTrial(
+  days: string,
+  why = "onboarding gift, agreed with the founder",
+) {
+  fireEvent.change(await screen.findByLabelText("Days on us"), {
+    target: { value: days },
+  });
   fireEvent.change(screen.getByLabelText("Type the number of days again"), {
     target: { value: days },
   });
-  fireEvent.change(screen.getByLabelText("Why this client is being carried (required)"), {
-    target: { value: why },
-  });
+  fireEvent.change(
+    screen.getByLabelText("Why this client is being carried (required)"),
+    {
+      target: { value: why },
+    },
+  );
 }
 
 function startButton(): HTMLButtonElement {
@@ -164,11 +175,15 @@ describe("the trial control on the credits screen", () => {
     fireEvent.click(startButton());
 
     await waitFor(() => {
-      expect(calls.some((call) => call.method === "POST" && call.path === TRIAL_PATH)).toBe(
-        true,
-      );
+      expect(
+        calls.some(
+          (call) => call.method === "POST" && call.path === TRIAL_PATH,
+        ),
+      ).toBe(true);
     });
-    const write = calls.find((call) => call.method === "POST" && call.path === TRIAL_PATH)!;
+    const write = calls.find(
+      (call) => call.method === "POST" && call.path === TRIAL_PATH,
+    )!;
     expect(JSON.parse(write.body!)).toEqual({
       days: 14,
       reason: "onboarding gift, agreed with the founder",
@@ -177,17 +192,27 @@ describe("the trial control on the credits screen", () => {
     // The route builds this string from the tenant AND the days, and refuses anything
     // else: a confirmation captured for one client must not be replayable against
     // another, and one captured for 14 days must not travel with a request for 140.
-    expect(write.headers["X-Confirm-Action"]).toBe(startTrialConfirmation(TENANT, 14));
-    await expectNoA11yViolations(container, "admin/tenants/[tenantId]/credits (trial form)");
+    expect(write.headers["X-Confirm-Action"]).toBe(
+      startTrialConfirmation(TENANT, 14),
+    );
+    await expectNoA11yViolations(
+      container,
+      "admin/tenants/[tenantId]/credits (trial form)",
+    );
   });
 
   it("will not submit until the number of days has been typed twice and matches", async () => {
     await render();
 
-    fireEvent.change(await screen.findByLabelText("Days on us"), { target: { value: "14" } });
-    fireEvent.change(screen.getByLabelText("Why this client is being carried (required)"), {
-      target: { value: "onboarding gift" },
+    fireEvent.change(await screen.findByLabelText("Days on us"), {
+      target: { value: "14" },
     });
+    fireEvent.change(
+      screen.getByLabelText("Why this client is being carried (required)"),
+      {
+        target: { value: "onboarding gift" },
+      },
+    );
     expect(startButton().disabled).toBe(true);
 
     fireEvent.change(screen.getByLabelText("Type the number of days again"), {
@@ -214,7 +239,13 @@ describe("the trial control on the credits screen", () => {
     // compliance gates are untouched, and a console that implied otherwise would be
     // teaching people that a commercial gift reaches TRAI.
     expect(text).toContain("A trial is a billing state, not a licence.");
-    for (const gate of ["KYC", "do-not-call", "consent", "AI disclosure", "DLT"]) {
+    for (const gate of [
+      "KYC",
+      "do-not-call",
+      "consent",
+      "AI disclosure",
+      "DLT",
+    ]) {
       expect(text).toContain(gate);
     }
 
@@ -265,6 +296,8 @@ describe("the trial control on the credits screen", () => {
   it("states plainly that the client has never had one when the server says null", async () => {
     const { container } = await render();
     await screen.findByLabelText("Days on us");
-    expect(container.textContent).toContain("Sri Traders has never been given a trial");
+    expect(container.textContent).toContain(
+      "Sri Traders has never been given a trial",
+    );
   });
 });

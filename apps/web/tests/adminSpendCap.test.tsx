@@ -3,7 +3,11 @@ import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import TenantDetailPage from "@/app/admin/tenants/[tenantId]/page";
-import { spendCapConfirmation, type Margin, type TenantSummary } from "@/lib/api/admin";
+import {
+  spendCapConfirmation,
+  type Margin,
+  type TenantSummary,
+} from "@/lib/api/admin";
 import type { Caps } from "@/lib/api/caps";
 
 import { problem, type Routes } from "./harness";
@@ -54,7 +58,12 @@ function me(permissions: string[]): AdminMe {
 }
 
 /** Holds `ops:manage`, so the panel is live. */
-const SUPERADMIN = me(["org:read", "billing:read", "admin:tenants", "ops:manage"]);
+const SUPERADMIN = me([
+  "org:read",
+  "billing:read",
+  "admin:tenants",
+  "ops:manage",
+]);
 /** Runs onboarding and support across tenants, and may NOT touch `/v1/ops`. */
 const OPERATOR = me(["org:read", "billing:read", "admin:tenants"]);
 
@@ -134,10 +143,13 @@ function healthy(): Routes {
 }
 
 function render(routes: Partial<Routes> = {}) {
-  return renderAdminRoute(<TenantDetailPage params={routeParams({ tenantId: TENANT })} />, {
-    ...healthy(),
-    ...routes,
-  });
+  return renderAdminRoute(
+    <TenantDetailPage params={routeParams({ tenantId: TENANT })} />,
+    {
+      ...healthy(),
+      ...routes,
+    },
+  );
 }
 
 /**
@@ -150,7 +162,9 @@ async function arm(): Promise<HTMLButtonElement> {
     name: /Recompute this client's spend cap/,
   })) as HTMLButtonElement;
   await waitFor(() => expect(button.disabled).toBe(true));
-  fireEvent.change(screen.getByPlaceholderText("RECOMPUTE"), { target: { value: "RECOMPUTE" } });
+  fireEvent.change(screen.getByPlaceholderText("RECOMPUTE"), {
+    target: { value: "RECOMPUTE" },
+  });
   await waitFor(() => expect(button.disabled).toBe(false));
   return button;
 }
@@ -169,11 +183,17 @@ describe("the two ceilings, and which of them this console can move", () => {
        is the obvious wrong fix and would leave a 403 waiting at the end of it. */
     await render();
 
-    const ours = await screen.findByRole("link", { name: /change on commercials/i });
-    expect(ours.getAttribute("href")).toBe(`/admin/tenants/${TENANT}/commercials`);
+    const ours = await screen.findByRole("link", {
+      name: /change on commercials/i,
+    });
+    expect(ours.getAttribute("href")).toBe(
+      `/admin/tenants/${TENANT}/commercials`,
+    );
 
     // One link in the ceilings grid, not two.
-    expect(screen.getAllByRole("link", { name: /change on commercials/i })).toHaveLength(1);
+    expect(
+      screen.getAllByRole("link", { name: /change on commercials/i }),
+    ).toHaveLength(1);
     expect(screen.getByText("Their own ceiling")).toBeTruthy();
   });
 });
@@ -191,11 +211,15 @@ describe("the spend-cap panel when the cap state cannot be read", () => {
     await screen.findByText("We could not read this client's spending limits.");
     expect(container.textContent).toContain("The cap state could not be read");
     // Neither verdict, because we have neither.
-    expect(screen.queryByText(/Outbound calling is STOPPED for this client/)).toBeNull();
+    expect(
+      screen.queryByText(/Outbound calling is STOPPED for this client/),
+    ).toBeNull();
     expect(screen.queryByText(/Not capped/)).toBeNull();
     // And nothing to press over a flag nobody read.
     expect(
-      screen.queryByRole("button", { name: /Recompute this client's spend cap/ }),
+      screen.queryByRole("button", {
+        name: /Recompute this client's spend cap/,
+      }),
     ).toBeNull();
   });
 });
@@ -217,7 +241,9 @@ describe("the spend-cap panel's permission gate", () => {
     expect(container.textContent).toContain("Ask a superadmin");
 
     // Typing the word does not revive it, and the endpoint is never reached.
-    fireEvent.change(screen.getByPlaceholderText("RECOMPUTE"), { target: { value: "RECOMPUTE" } });
+    fireEvent.change(screen.getByPlaceholderText("RECOMPUTE"), {
+      target: { value: "RECOMPUTE" },
+    });
     expect(button.disabled).toBe(true);
     fireEvent.click(button);
     expect(calls.some((c) => c.path === RECOMPUTE_PATH)).toBe(false);
@@ -232,7 +258,9 @@ describe("the spend-cap recompute", () => {
       name: /Recompute this client's spend cap/,
     })) as HTMLButtonElement;
     // A near-miss is not a confirmation.
-    fireEvent.change(screen.getByPlaceholderText("RECOMPUTE"), { target: { value: "recompute" } });
+    fireEvent.change(screen.getByPlaceholderText("RECOMPUTE"), {
+      target: { value: "recompute" },
+    });
     await waitFor(() => {
       expect(screen.getByText(/This client only/)).toBeDefined();
     });
@@ -244,12 +272,16 @@ describe("the spend-cap recompute", () => {
   it("says what it will and will NOT do before the click", async () => {
     const { container } = await render({ [RECOMPUTE_PATH]: recomputed() });
 
-    await screen.findByRole("button", { name: /Recompute this client's spend cap/ });
+    await screen.findByRole("button", {
+      name: /Recompute this client's spend cap/,
+    });
     // The half that keeps this from being read as an "un-cap" button.
     expect(container.textContent).toContain(
       "This client only — it re-derives the flag, it does not lift the cap",
     );
-    expect(container.textContent).toContain("raise the ceiling first if that is the fix");
+    expect(container.textContent).toContain(
+      "raise the ceiling first if that is the fix",
+    );
     expect(container.textContent).toContain("never affects inbound calls");
   });
 
@@ -259,12 +291,20 @@ describe("the spend-cap recompute", () => {
     fireEvent.click(await arm());
 
     await waitFor(() => {
-      expect(calls.some((c) => c.method === "POST" && c.path === RECOMPUTE_PATH)).toBe(true);
+      expect(
+        calls.some((c) => c.method === "POST" && c.path === RECOMPUTE_PATH),
+      ).toBe(true);
     });
-    const post = calls.find((c) => c.method === "POST" && c.path === RECOMPUTE_PATH);
-    expect(post?.headers["X-Confirm-Action"]).toBe(`recompute_spend_cap:${TENANT}`);
+    const post = calls.find(
+      (c) => c.method === "POST" && c.path === RECOMPUTE_PATH,
+    );
+    expect(post?.headers["X-Confirm-Action"]).toBe(
+      `recompute_spend_cap:${TENANT}`,
+    );
     // Pinned against the helper as well, so a reformat of one has to move the other.
-    expect(post?.headers["X-Confirm-Action"]).toBe(spendCapConfirmation(TENANT));
+    expect(post?.headers["X-Confirm-Action"]).toBe(
+      spendCapConfirmation(TENANT),
+    );
     // The admin session, never the impersonating one: `ops:manage` is a MUTATING
     // permission and D-22 refuses those to an acting-as session.
     expect(post?.headers["X-Impersonate-Org"]).toBeUndefined();
@@ -309,7 +349,9 @@ describe("the spend-cap recompute", () => {
     expect(container.textContent).not.toContain("Recomputed —");
     // The pre-click state is untouched: still capped, still stopped.
     expect(
-      screen.getByText("Outbound calling is STOPPED for this client by the spend cap"),
+      screen.getByText(
+        "Outbound calling is STOPPED for this client by the spend cap",
+      ),
     ).toBeDefined();
   });
 });
@@ -326,8 +368,12 @@ describe("which flag the panel believes", () => {
       [CAPS_PATH]: caps({ capped: false }),
     });
 
-    await screen.findByText("Not capped — the spend cap is not stopping this client");
-    expect(container.textContent).toContain("The client directory shows this account as capped");
+    await screen.findByText(
+      "Not capped — the spend cap is not stopping this client",
+    );
+    expect(container.textContent).toContain(
+      "The client directory shows this account as capped",
+    );
     expect(container.textContent).toContain("closed month");
   });
 
@@ -337,7 +383,9 @@ describe("which flag the panel believes", () => {
       [CAPS_PATH]: caps({ capped: true }),
     });
 
-    await screen.findByText("Outbound calling is STOPPED for this client by the spend cap");
+    await screen.findByText(
+      "Outbound calling is STOPPED for this client by the spend cap",
+    );
     expect(container.textContent).not.toContain("which disagrees");
   });
 });

@@ -346,11 +346,15 @@ describe("the pricing page", () => {
     const columnHeadings = selfServe?.querySelectorAll(
       "[data-rate-layout='columns'] thead th[scope='col']",
     );
-    const stackedRows = selfServe?.querySelectorAll("[data-rate-layout='rows'] tbody tr");
+    const stackedRows = selfServe?.querySelectorAll(
+      "[data-rate-layout='rows'] tbody tr",
+    );
     expect(columnHeadings).toHaveLength(
       RATE_CARD.packs.length * VOICE_TIERS.length,
     );
-    expect(stackedRows).toHaveLength(RATE_CARD.packs.length * VOICE_TIERS.length);
+    expect(stackedRows).toHaveLength(
+      RATE_CARD.packs.length * VOICE_TIERS.length,
+    );
     for (const pack of RATE_CARD.packs) {
       expect(text).toContain(formatAmountForTest(pack.amount_inr));
       for (const voice of VOICE_TIERS) {
@@ -387,11 +391,15 @@ describe("the pricing page", () => {
       ...container.querySelectorAll("#self-serve fieldset label"),
     ].map((label) => label.textContent);
     expect(positions).toEqual(["Everyday voice", "Concert voice"]);
-    const captions = [
-      ...container.querySelectorAll("#self-serve caption"),
-    ].map((caption) => caption.textContent);
-    expect(captions.filter((text) => text?.includes("Everyday"))).toHaveLength(2);
-    expect(captions.filter((text) => text?.includes("Concert"))).toHaveLength(2);
+    const captions = [...container.querySelectorAll("#self-serve caption")].map(
+      (caption) => caption.textContent,
+    );
+    expect(captions.filter((text) => text?.includes("Everyday"))).toHaveLength(
+      2,
+    );
+    expect(captions.filter((text) => text?.includes("Concert"))).toHaveLength(
+      2,
+    );
     // And in the prose, which quotes the same two names.
     expect(text).toContain("Everyday");
     expect(text).toContain("Concert");
@@ -571,7 +579,9 @@ describe("the pricing page", () => {
       // The group is NAMED for a screen reader, and named by us — the legend is the only
       // string here that is ours to write, because it is about the control rather than
       // about a voice.
-      expect(fieldset?.querySelector("legend")?.textContent).toBe("Show rates for");
+      expect(fieldset?.querySelector("legend")?.textContent).toBe(
+        "Show rates for",
+      );
 
       const radios = [
         ...container.querySelectorAll<HTMLInputElement>("#self-serve input"),

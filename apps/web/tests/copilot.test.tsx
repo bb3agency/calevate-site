@@ -1685,10 +1685,13 @@ describe("what the assistant announces", () => {
 });
 
 /**
- * D-22 VIEW-AS: THE ONE SESSION THE CLIENT ASSISTANT CANNOT ANSWER IN.
+ * VIEW-AS: THE ONE SESSION THE CLIENT ASSISTANT CANNOT ANSWER IN — AND IT SURVIVED D-587.
  *
  * `copilot:use` is in `core/rbac.MUTATING_PERMISSIONS` — asking spends the ACCOUNT'S AI
- * allowance, so it moves a balance however read-only the answer looks — and it is not in
+ * allowance, so it moves a balance however read-only the answer looks — and D-587, which
+ * made most of this console writable to an operator, deliberately kept it withheld: its
+ * entry in `rbac.VIEW_AS_MUTATIONS` is a SENTENCE, not `None`, and the ground is the payer
+ * rather than caution ("you never charge a client for your own support work"). It is not in
  * `IMPERSONATION_PERMITTED_MUTATIONS`, which holds `copilot:admin` alone. So
  * `core/auth.requires` refuses an impersonating principal with 403 before any model is
  * called, on all four client copilot routes (`apps/api/copilot/routes.py:164,752,828,905`).
@@ -1734,9 +1737,14 @@ describe("the assistant inside a view-as session", () => {
     await openDockFor(VIEW_AS);
 
     expect(screen.getByTestId("copilot-view-as-panel")).toBeTruthy();
-    // The sentence names the money, which is the part an operator can act on.
-    expect(screen.getByText(/read-only/i)).toBeTruthy();
+    // THE SENTENCE NAMES THE MONEY, which is the part an operator can act on — and it
+    // must no longer say "read-only", which this test used to require. D-587 made the
+    // rest of this console writable in a view-as session, so a panel calling the session
+    // read-only would read as a fault in the product rather than as the one rule that
+    // still holds here.
     expect(screen.getByText(/AI allowance/i)).toBeTruthy();
+    expect(screen.getByText(/view-as session/i)).toBeTruthy();
+    expect(screen.queryByText(/read-only/i)).toBeNull();
     // FAILS IF: the ordinary panel is rendered — it loads the stored conversation on
     // mount, which is itself a `copilot:use` route and itself a 403.
     expect(calls).toEqual([]);

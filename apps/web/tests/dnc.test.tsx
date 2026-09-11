@@ -41,6 +41,7 @@ const PHONE_DIGITS = "9876543210";
 
 const ME: Me = {
   impersonating: false,
+  withheld_acts: [],
   permissions: ["leads:read", "leads:dispatch"],
   realm: "client",
   role: "owner",
@@ -168,7 +169,9 @@ describe("what the list says may be undone", () => {
     // The same assertion from the other side, and the one that catches a "helpful"
     // client-side filter on `source`: if the server ever widens `REMOVABLE_SOURCES`, the
     // screen must follow it that day and not at the next frontend release.
-    await renderList([entry({ removable: true, source: "call_optout", scope: "tenant" })]);
+    await renderList([
+      entry({ removable: true, source: "call_optout", scope: "tenant" }),
+    ]);
 
     await screen.findByText(PHONE);
     expect(removeButtons()).toHaveLength(1);
@@ -178,7 +181,9 @@ describe("what the list says may be undone", () => {
     // `DncEntryOut.source` is `string | null`. Fail VISIBLE: the row is a suppression
     // whatever we call it, and a suppression the client cannot see is one they will
     // ask us to explain.
-    const { container } = await renderList([entry({ source: "a_source_added_later" })]);
+    const { container } = await renderList([
+      entry({ source: "a_source_added_later" }),
+    ]);
 
     await screen.findByText(PHONE);
     expect(container.textContent).toContain("a_source_added_later");
@@ -192,7 +197,9 @@ describe("what the list says may be undone", () => {
 
     await screen.findByText(PHONE);
     expect(removeButtons()).toHaveLength(0);
-    expect(container.textContent).toContain("Only an account owner can add or remove numbers");
+    expect(container.textContent).toContain(
+      "Only an account owner can add or remove numbers",
+    );
     // …and the row must not acquire the permanence copy it has not earned: this entry
     // IS removable, by someone else.
     expect(container.textContent).not.toContain("cannot be undone");
@@ -212,7 +219,9 @@ describe("what the list says may be undone", () => {
 
     const deletes = () => calls.filter((call) => call.method === "DELETE");
     await waitFor(() => expect(deletes()).toHaveLength(1));
-    expect(deletes()[0].path).toBe("/v1/dnc/0192f0aa-4444-7000-8000-000000000001");
+    expect(deletes()[0].path).toBe(
+      "/v1/dnc/0192f0aa-4444-7000-8000-000000000001",
+    );
     // The number does not travel at all: the row is addressed by its own id, so the
     // one string a URL must never carry (hard rule 6) is absent from it.
     expect(deletes()[0].url).not.toContain(PHONE_DIGITS);
@@ -247,7 +256,9 @@ describe("when the list itself does not load", () => {
       [LIST_PATH]: [],
     });
 
-    await screen.findByText(/We could not check whether you can add or remove numbers/);
+    await screen.findByText(
+      /We could not check whether you can add or remove numbers/,
+    );
     expect(screen.queryByLabelText("Numbers to suppress")).toBeNull();
     expect(container.textContent).not.toContain("Only an account owner");
   });
@@ -267,7 +278,9 @@ describe("when the list itself does not load", () => {
       [LIST_PATH]: rows,
     });
 
-    await screen.findByText("Showing the 500 most recently added", { exact: false });
+    await screen.findByText("Showing the 500 most recently added", {
+      exact: false,
+    });
     expect(container.textContent).not.toContain("500 entries");
     // A real full-length list, so the timeout is explicit and generous rather than left
     // at vitest's 5s default: this renders five hundred rows, and it shares a machine
@@ -291,17 +304,25 @@ describe("adding numbers", () => {
       [LIST_PATH]: [],
       "/v1/dnc": answer,
     });
-    const box = (await screen.findByLabelText("Numbers to suppress")) as HTMLTextAreaElement;
+    const box = (await screen.findByLabelText(
+      "Numbers to suppress",
+    )) as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: `${PHONE}\n9876543211` } });
     fireEvent.click(screen.getByRole("button", { name: /^Add 2 numbers/ }));
     return { ...rendered, box };
   }
 
   it("sends the numbers in the body and never in a URL", async () => {
-    const { calls } = await addTwo({ added: 2, already_suppressed: 0, malformed: 0 });
+    const { calls } = await addTwo({
+      added: 2,
+      already_suppressed: 0,
+      malformed: 0,
+    });
 
     await screen.findByText("Added");
-    const posted = calls.filter((c) => c.path === "/v1/dnc" && c.method === "POST");
+    const posted = calls.filter(
+      (c) => c.path === "/v1/dnc" && c.method === "POST",
+    );
     expect(posted).toHaveLength(1);
     expect(posted[0].body).toContain("9876543211");
     for (const call of calls) {
@@ -335,7 +356,10 @@ describe("adding numbers", () => {
 
   it("renders a refusal instead of counts when the add fails", async () => {
     const { container } = await addTwo(
-      problem(422, { title: "Too many numbers", detail: "Add up to 2,000 at a time." }),
+      problem(422, {
+        title: "Too many numbers",
+        detail: "Add up to 2,000 at a time.",
+      }),
     );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
@@ -364,7 +388,11 @@ describe("checking a number", () => {
     // number in a cache key that outlives the answer, and a GET would put it in the
     // access log of every hop between the browser and us. The harness recorded every
     // request the screen made; none of them may carry it.
-    const { calls } = await check({ valid: true, suppressed: true, scope: "tenant" });
+    const { calls } = await check({
+      valid: true,
+      suppressed: true,
+      scope: "tenant",
+    });
 
     await screen.findByText(/This number is suppressed/);
     const posted = calls.filter((c) => c.path === "/v1/dnc/check");
@@ -373,9 +401,10 @@ describe("checking a number", () => {
     expect(posted[0].body).toBe(JSON.stringify({ phone: PHONE }));
 
     for (const call of calls) {
-      expect(call.url, `${call.method} ${call.path} carries the number in its URL`).not.toContain(
-        "9876543210",
-      );
+      expect(
+        call.url,
+        `${call.method} ${call.path} carries the number in its URL`,
+      ).not.toContain("9876543210");
     }
   });
 
@@ -383,7 +412,10 @@ describe("checking a number", () => {
     // `/v1/dnc/check` is `leads:read`; only add/remove are `leads:dispatch`. Gating the
     // check on the write permission would take the answer away from `staff` and from a
     // read-only support session — the two principals most likely to be asking it.
-    await check({ valid: true, suppressed: true, scope: "tenant" }, READ_ONLY_ME);
+    await check(
+      { valid: true, suppressed: true, scope: "tenant" },
+      READ_ONLY_ME,
+    );
     await screen.findByText(/This number is suppressed/);
   });
 
@@ -391,7 +423,11 @@ describe("checking a number", () => {
     // The dangerous confusion on this card. `valid: false` means we could not parse it
     // at all — rendering the green "not on the do-not-call list" panel would tell a
     // client we checked a number we never looked at.
-    const { container } = await check({ valid: false, suppressed: false, scope: null });
+    const { container } = await check({
+      valid: false,
+      suppressed: false,
+      scope: null,
+    });
 
     await screen.findByText(/does not look like a phone number/);
     expect(container.textContent).not.toContain("not on the do-not-call list");
@@ -402,32 +438,50 @@ describe("checking a number", () => {
     // Same shape as the list failure and a worse consequence: this card's green panel is
     // the one a client reads as permission to dial, so a request that never landed must
     // produce no panel at all.
-    const { container } = await check(problem(503, { title: "Service unavailable" }));
+    const { container } = await check(
+      problem(503, { title: "Service unavailable" }),
+    );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(container.textContent).not.toContain("not on the do-not-call list");
     expect(container.textContent).not.toContain("This number is suppressed");
-    expect(container.textContent).not.toContain("does not look like a phone number");
+    expect(container.textContent).not.toContain(
+      "does not look like a phone number",
+    );
   });
 
   it("says a clear number is clear WITHOUT saying it may be called", async () => {
     // The DNC list is one gate of several. "Not suppressed" is not "dial away" —
     // calling hours and consent are separate refusals, and a client who reads this
     // panel as clearance will report the next block as a fault.
-    const { container } = await check({ valid: true, suppressed: false, scope: null });
+    const { container } = await check({
+      valid: true,
+      suppressed: false,
+      scope: null,
+    });
 
     await screen.findByText(/not on the do-not-call list/);
-    expect(container.textContent).toContain("Other checks — calling hours, consent — still apply");
+    expect(container.textContent).toContain(
+      "Other checks — calling hours, consent — still apply",
+    );
   });
 
   it("names which list a suppressed number is on, because the two end differently", async () => {
-    const { container } = await check({ valid: true, suppressed: true, scope: "global" });
+    const { container } = await check({
+      valid: true,
+      suppressed: true,
+      scope: "global",
+    });
 
     await screen.findByText(/This number is suppressed/);
     // A national-list hit cannot be cleared from this account at all; a tenant-list hit
     // can. Flattening the two would send a client looking for a row they cannot remove.
-    expect(container.textContent).toContain("it cannot be removed from this account");
-    expect(container.textContent).not.toContain("It was added to your account's list.");
+    expect(container.textContent).toContain(
+      "it cannot be removed from this account",
+    );
+    expect(container.textContent).not.toContain(
+      "It was added to your account's list.",
+    );
   });
 });
 
@@ -468,7 +522,9 @@ describe("un-suppressing is confirmed before it happens", () => {
     await screen.findByText(PHONE);
     fireEvent.click(removeButtons()[0]);
     const dialog = await screen.findByRole("dialog");
-    fireEvent.click(within(dialog).getByRole("button", { name: "Keep it suppressed" }));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Keep it suppressed" }),
+    );
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(calls.filter((call) => call.method === "DELETE")).toEqual([]);
@@ -500,7 +556,8 @@ describe("un-suppressing is confirmed before it happens", () => {
       [LIST_PATH]: [entry()],
       "/v1/dnc/0192f0aa-4444-7000-8000-000000000001": problem(422, {
         title: "Request rejected by a business rule",
-        detail: "This number recorded a consumer opt-out and cannot be removed.",
+        detail:
+          "This number recorded a consumer opt-out and cannot be removed.",
         kind: "business_rule",
       }),
     });
@@ -535,7 +592,9 @@ describe("do not call — the compliance notice printed on the screen", () => {
     expect(container.textContent).toContain(
       "checked live before every single call",
     );
-    expect(container.textContent).toContain("including for a campaign that is already running");
+    expect(container.textContent).toContain(
+      "including for a campaign that is already running",
+    );
   });
 
   it("never lets a clean check read as clearance to dial", async () => {

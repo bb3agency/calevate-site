@@ -41,7 +41,12 @@ const OWNER = {
     "kb:write",
   ],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 /**
@@ -62,8 +67,10 @@ const AGENT: Agent = {
   status: "live",
   archived_at: null,
   language_primary: "te-IN",
-  disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
-  ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  ai_disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   ai_disclosure_enabled: true,
   recording_notice_line: "This call is being recorded.",
   caller_memory_notice_line: "I keep a short note of what you ask about.",
@@ -91,7 +98,8 @@ const PENDING = {
   effective_call_cap_s: 600,
   call_cap_is_platform_default: true,
   worst_case_call_cost_inr: "65.00",
-  precedence_rule: "Script decides content, rules decide conduct, voice only changes delivery.",
+  precedence_rule:
+    "Script decides content, rules decide conduct, voice only changes delivery.",
   voice: {
     configured: null,
     live: null,
@@ -127,11 +135,17 @@ function routes(over: Record<string, unknown> = {}) {
   };
 }
 
-const page = <AgentDetailPage params={Promise.resolve({ slug: "acme", agentId: "agent-1" })} />;
+const page = (
+  <AgentDetailPage
+    params={Promise.resolve({ slug: "acme", agentId: "agent-1" })}
+  />
+);
 
 const HANDOFF_PATH = "/v1/agents/agent-1/handoff";
 
-function member(over: Partial<HandoffOut["members"][number]> = {}): HandoffOut["members"][number] {
+function member(
+  over: Partial<HandoffOut["members"][number]> = {},
+): HandoffOut["members"][number] {
   return {
     id: "m1",
     position: 0,
@@ -150,9 +164,19 @@ function handoff(over: Partial<HandoffOut> = {}): HandoffOut {
     agent_id: "agent-1",
     enabled: true,
     trigger: null,
-    effective_trigger: "Hand the call to a person when the caller asks to speak to a human.",
+    effective_trigger:
+      "Hand the call to a person when the caller asks to speak to a human.",
     spoken_line: "Okay, I am putting you through to someone from our team now.",
-    members: [member(), member({ id: "m2", position: 1, label: "Priya", phone_e164: "+919000000002", on_duty: false })],
+    members: [
+      member(),
+      member({
+        id: "m2",
+        position: 1,
+        label: "Priya",
+        phone_e164: "+919000000002",
+        on_duty: false,
+      }),
+    ],
     recent: [],
     on_duty_member_id: "m1",
     unavailable_reason: null,
@@ -176,10 +200,15 @@ describe("what the handover panel promises about the person answering", () => {
     // and the panel is a skeleton until the query resolves, so awaiting the title would
     // read `textContent` off the loading state — which is how three of these first passed
     // against a panel that had not rendered.
-    await screen.findByRole("heading", { level: 3, name: /Putting a caller through to a person/ });
+    await screen.findByRole("heading", {
+      level: 3,
+      name: /Putting a caller through to a person/,
+    });
     // THE SENTENCE THAT MUST NOT DISAPPEAR. If a future edit removes it, a client is left
     // to assume the founder's original request was built.
-    expect(container.textContent).toContain("not told anything before they pick up");
+    expect(container.textContent).toContain(
+      "not told anything before they pick up",
+    );
   });
 
   it("says a missed handover becomes a call-back rather than a second ring", async () => {
@@ -195,8 +224,13 @@ describe("what the handover panel promises about the person answering", () => {
     // and the panel is a skeleton until the query resolves, so awaiting the title would
     // read `textContent` off the loading state — which is how three of these first passed
     // against a panel that had not rendered.
-    await screen.findByRole("heading", { level: 3, name: /Putting a caller through to a person/ });
-    expect(container.textContent).toContain("we do not try the next person on the same call");
+    await screen.findByRole("heading", {
+      level: 3,
+      name: /Putting a caller through to a person/,
+    });
+    expect(container.textContent).toContain(
+      "we do not try the next person on the same call",
+    );
   });
 
   it("names who a caller would reach right now", async () => {
@@ -212,7 +246,10 @@ describe("what the handover panel promises about the person answering", () => {
     // and the panel is a skeleton until the query resolves, so awaiting the title would
     // read `textContent` off the loading state — which is how three of these first passed
     // against a panel that had not rendered.
-    await screen.findByRole("heading", { level: 3, name: /Putting a caller through to a person/ });
+    await screen.findByRole("heading", {
+      level: 3,
+      name: /Putting a caller through to a person/,
+    });
     expect(container.textContent).toContain("Ravi");
   });
 
@@ -225,7 +262,8 @@ describe("what the handover panel promises about the person answering", () => {
         [HANDOFF_PATH]: handoff({
           on_duty_member_id: null,
           unavailable_reason: "hours_unknown",
-          remediation: "We do not know when your business is open, so we will not ring anyone.",
+          remediation:
+            "We do not know when your business is open, so we will not ring anyone.",
         }),
       }),
     );
@@ -249,7 +287,8 @@ describe("what the handover panel promises about the person answering", () => {
               started_at: "2026-09-03T10:00:00Z",
               member: "Ravi",
               outcome: "connected",
-              explanation: "Your caller was put through and someone took the call.",
+              explanation:
+                "Your caller was put through and someone took the call.",
               duration_s: 120,
               second_recording_at_platform: true,
               callback_id: null,
@@ -260,7 +299,9 @@ describe("what the handover panel promises about the person answering", () => {
     );
     await screen.findByText("Recent handovers");
     expect(container.textContent).toContain("recorded separately");
-    expect(container.textContent).toContain("same terms as the rest of the call");
+    expect(container.textContent).toContain(
+      "same terms as the rest of the call",
+    );
     // AND THE WITHDRAWN SENTENCE MUST NOT COME BACK. A screen telling a client to route an
     // erasure to us for something our own erasure already destroys would have them promise
     // their caller a step nobody performs.
@@ -280,15 +321,22 @@ describe("what the handover panel promises about the person answering", () => {
     // and the panel is a skeleton until the query resolves, so awaiting the title would
     // read `textContent` off the loading state — which is how three of these first passed
     // against a panel that had not rendered.
-    await screen.findByRole("heading", { level: 3, name: /Putting a caller through to a person/ });
+    await screen.findByRole("heading", {
+      level: 3,
+      name: /Putting a caller through to a person/,
+    });
 
     fireEvent.click(screen.getAllByRole("button", { name: "Move up" })[1]);
     fireEvent.click(screen.getByRole("button", { name: "Save the list" }));
 
     await waitFor(() => {
-      const put = calls.find((call) => call.method === "PUT" && call.path === HANDOFF_PATH);
+      const put = calls.find(
+        (call) => call.method === "PUT" && call.path === HANDOFF_PATH,
+      );
       expect(put, "the roster save never went out").toBeTruthy();
-      const body = JSON.parse(put?.body ?? "{}") as { members: { label: string }[] };
+      const body = JSON.parse(put?.body ?? "{}") as {
+        members: { label: string }[];
+      };
       // ONE REQUEST CARRYING THE WHOLE ORDER — never a PATCH per row.
       expect(body.members.map((row) => row.label)).toEqual(["Priya", "Ravi"]);
     });

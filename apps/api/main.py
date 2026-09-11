@@ -178,6 +178,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.model_price_routes import tts_router as ops_tts_prices_router
     from apps.api.ops.routes import router as ops_router
     from apps.api.ops.secret_routes import router as ops_secrets_router
+    from apps.api.ops.voice_curation_routes import router as ops_voice_curation_router
     from apps.api.quality.routes import router as quality_router
     from apps.api.quality.sampling_routes import router as qa_sampling_router
     from apps.api.security.routes import router as csp_report_router
@@ -431,6 +432,14 @@ def _mount_routers(application: FastAPI) -> None:
     # model price, and the same module because it is the same panel and the same act
     # (`ops/model_price_routes.tts_router`).
     application.include_router(ops_tts_prices_router)
+    # WHICH SYNCED VOICES THIS PLATFORM OFFERS (D-588) — the curation layer over the
+    # catalogue sync, on `ops:manage` beside the refresh that fills it. Mounted AFTER
+    # `ops_router`? No: `ops_router` carries the literal `POST /v1/ops/voices/refresh`
+    # under its own `/v1/ops` prefix, and this router's paths are `/v1/ops/voices` exactly
+    # — no path parameter on either, so neither can shadow the other and the order here is
+    # not load-bearing (unlike `voice_router` vs `agents.routes`, where `{agent_id}` eats a
+    # literal segment).
+    application.include_router(ops_voice_curation_router)
     # Which LLM legs the in-app assistant may run on, and the operator attestation behind it
     # (D-477). Its own router beside the price panel for `model_price_routes.py`'s reason:
     # same realm and permission, different store and a different write shape.

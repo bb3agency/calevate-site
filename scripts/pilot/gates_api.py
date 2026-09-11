@@ -38,7 +38,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from apps.api.agents.voices import DEFAULT_SPEAKER, DEFAULT_TTS_MODEL
+from apps.api.agents.voices import DEFAULT_TTS_MODEL, catalogue
 from apps.api.core.errors import ProblemError
 from calevate_shared.config import Settings
 from calevate_shared.engine import (
@@ -225,7 +225,11 @@ def _pilot_agent_config(settings: Settings, *, nonce: str, prompt_marker: str) -
             # which is the defect the split exists to fix; a pilot sending the broken body
             # would have certified it.
             tts_model=DEFAULT_TTS_MODEL,
-            tts_voice=DEFAULT_SPEAKER,
+            # THE FIRST VOICE THIS DEPLOYMENT ACTUALLY OFFERS, not a compiled name
+            # (D-588 deleted the last one). A pilot gate that publishes a speaker the
+            # engine account does not carry proves nothing but its own staleness — which
+            # is the live 400 that started all of this.
+            tts_voice=catalogue()[0].speaker if catalogue() else None,
         ),
         webhook_url=f"{settings.webhook_base_url.rstrip('/')}/hooks/v1/engine/bolna",
     )

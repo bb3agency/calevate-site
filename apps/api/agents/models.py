@@ -807,3 +807,42 @@ class PlatformVoiceCatalogEntry(Base):
     #: stale cache is a reason to alert an operator, never a reason to silently withdraw a
     #: voice a client's live agent is speaking.
     synced_at: Mapped[datetime] = mapped_column(nullable=False)
+    #: WHETHER AN OPERATOR HAS CHOSEN TO OFFER THIS VOICE (D-588) —
+    #: `agents/voices.CurationState`, and the ONE thing the founder asked this table for:
+    #: *only the voices they enable are selectable*, by a client for their own agent or by
+    #: an admin for anyone's.
+    #:
+    #: It defaults to `disabled` (`voices.ARRIVAL_CURATION_STATE`) so a voice the vendor
+    #: adds to their platform cannot reach a client before somebody decides. The sync
+    #: NEVER writes it — `sync_voice_catalogue`'s upsert lists every other column by name —
+    #: so re-reading the vendor's list can neither enable nor disable anything.
+    #:
+    #: It is read by `agents/voice_offer.py` as the FOURTH offerability ground and by
+    #: nothing on the publish path: `voices.catalogue()` still resolves a disabled voice's
+    #: id, because a live agent must keep publishing the voice it is already speaking
+    #: however this column has been clicked since.
+    curation_state: Mapped[str] = mapped_column(
+        Text, nullable=False, server_default=text("'disabled'")
+    )
+    #: When an operator last MOVED that state, or NULL for a voice nobody has looked at.
+    #: Not "who" — that is `audit_log`, which is the durable record; this column exists so
+    #: the console can separate "reviewed and switched off" from "never reviewed", which
+    #: are the same value in the column above and completely different to a human.
+    curated_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    #: WHEN THIS VOICE STOPPED APPEARING IN THE VOICE PLATFORM'S OWN LIST, or NULL while it
+    #: is still listed. A COMPLETE listing that no longer names a voice stamps this instead
+    #: of deleting the row (`sync_voice_catalogue`), and a voice that comes back clears it.
+    #:
+    #: **A DELETE WOULD THROW AWAY THE OPERATOR'S DECISION, WHICH IS THE ONE THING HERE
+    #: THAT IS OURS.** Everything else in this row is re-derivable by running the sync
+    #: again; `curation_state` is not. A voice that vanished for one listing and returned
+    #: would come back as a fresh un-curated row — silently `disabled` if it had been
+    #: enabled, and silently un-archived if it had been put away.
+    #:
+    #: Withdrawn is NOT a curation state and deliberately does not live in that column:
+    #: it is the VENDOR's statement about their account, not an operator's about our
+    #: product, and the two have to be readable separately — "you disabled this" and "the
+    #: voice platform no longer offers this" send an operator to different places.
+    #: `read_cached_catalogue` drops a withdrawn row from the catalogue entirely, so it
+    #: leaves the picker exactly as a deleted row used to.
+    withdrawn_at: Mapped[datetime | None] = mapped_column(nullable=True)

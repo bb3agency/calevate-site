@@ -73,7 +73,8 @@ function flag(over: Partial<FeatureFlag> = {}): FeatureFlag {
   return {
     flag: FLAG,
     declared: true,
-    description: "Show the per-call timing breakdown on this client's call detail screen.",
+    description:
+      "Show the per-call timing breakdown on this client's call detail screen.",
     consumed_by: "apps.api.crm.calls",
     platform_default: false,
     override: null,
@@ -92,16 +93,21 @@ function flags(...items: FeatureFlag[]): FeatureFlags {
 
 /** The save control, typed — this suite has no jest-dom, so `disabled` is read directly. */
 function saveButton(): HTMLButtonElement {
-  return screen.getByRole("button", { name: "Save this flag" }) as HTMLButtonElement;
+  return screen.getByRole("button", {
+    name: "Save this flag",
+  }) as HTMLButtonElement;
 }
 
 function render(routes: Partial<Routes> = {}) {
-  return renderAdminRoute(<FeatureFlagsPage params={routeParams({ tenantId: TENANT })} />, {
-    [TENANT_PATH]: tenant(),
-    [ADMIN_ME_PATH]: OPERATOR,
-    [FLAGS_PATH]: flags(flag()),
-    ...routes,
-  });
+  return renderAdminRoute(
+    <FeatureFlagsPage params={routeParams({ tenantId: TENANT })} />,
+    {
+      [TENANT_PATH]: tenant(),
+      [ADMIN_ME_PATH]: OPERATOR,
+      [FLAGS_PATH]: flags(flag()),
+      ...routes,
+    },
+  );
 }
 
 describe("the feature-flag screen", () => {
@@ -114,7 +120,9 @@ describe("the feature-flag screen", () => {
       }),
     });
 
-    await screen.findByText("Cannot change a flag while the current state is unreadable");
+    await screen.findByText(
+      "Cannot change a flag while the current state is unreadable",
+    );
 
     // Not a disabled radio and not an empty form: no position control exists at all,
     // because a blind write here replaces whatever a colleague set.
@@ -126,7 +134,9 @@ describe("the feature-flag screen", () => {
 
   it("renders a client with NO row as following the platform default", async () => {
     const { container } = await render({
-      [FLAGS_PATH]: flags(flag({ platform_default: false, override: null, enabled: false })),
+      [FLAGS_PATH]: flags(
+        flag({ platform_default: false, override: null, enabled: false }),
+      ),
     });
 
     await screen.findByText("None — follows the default");
@@ -141,7 +151,9 @@ describe("the feature-flag screen", () => {
   });
 
   it("does not cry wolf when the flag has a consumer", async () => {
-    await render({ [FLAGS_PATH]: flags(flag({ consumed_by: "apps.api.crm.calls" })) });
+    await render({
+      [FLAGS_PATH]: flags(flag({ consumed_by: "apps.api.crm.calls" })),
+    });
     await screen.findByText(/Platform default/);
     expect(screen.queryByText("Nothing reads this flag yet")).toBeNull();
   });
@@ -166,7 +178,9 @@ describe("the feature-flag screen", () => {
       },
     });
 
-    fireEvent.click(await screen.findByRole("radio", { name: /Follow the platform default/ }));
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /Follow the platform default/ }),
+    );
     fireEvent.change(screen.getByLabelText("Why (recorded)"), {
       target: { value: "Beta trial finished; back on the platform default." },
     });
@@ -185,7 +199,9 @@ describe("the feature-flag screen", () => {
 
   it("refuses to send a change with no reason, before the click", async () => {
     await render();
-    fireEvent.click(await screen.findByRole("radio", { name: /On for this client/ }));
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /On for this client/ }),
+    );
     expect(saveButton().disabled).toBe(true);
     await screen.findByText(/Say why/);
   });
@@ -211,7 +227,9 @@ describe("the feature-flag screen", () => {
 
   it("says plainly when a write changed nothing", async () => {
     await render({
-      [FLAGS_PATH]: flags(flag({ override: false, source: "tenant_override", reason: "Pinned." })),
+      [FLAGS_PATH]: flags(
+        flag({ override: false, source: "tenant_override", reason: "Pinned." }),
+      ),
       [`PUT ${featureFlagPath(TENANT, FLAG)}`]: {
         tenant_id: TENANT,
         flag: FLAG,
@@ -221,7 +239,9 @@ describe("the feature-flag screen", () => {
       },
     });
 
-    fireEvent.click(await screen.findByRole("radio", { name: /On for this client/ }));
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /On for this client/ }),
+    );
     fireEvent.change(screen.getByLabelText("Why (recorded)"), {
       target: { value: "Turning the timing view on for the week." },
     });
@@ -264,7 +284,9 @@ describe("the feature-flag screen", () => {
     expect(saveButton().disabled).toBe(true);
     await screen.findByText(/does not declare this flag/);
 
-    fireEvent.click(screen.getByRole("radio", { name: /Follow the platform default/ }));
+    fireEvent.click(
+      screen.getByRole("radio", { name: /Follow the platform default/ }),
+    );
     expect(saveButton().disabled).toBe(false);
   });
 
@@ -277,7 +299,9 @@ describe("the feature-flag screen", () => {
       }),
     });
 
-    fireEvent.click(await screen.findByRole("radio", { name: /On for this client/ }));
+    fireEvent.click(
+      await screen.findByRole("radio", { name: /On for this client/ }),
+    );
     fireEvent.change(screen.getByLabelText("Why (recorded)"), {
       target: { value: "Turning the timing view on for the week." },
     });

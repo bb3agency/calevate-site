@@ -25,7 +25,9 @@ const CSV = 'Name,Phone\r\n"రవి కుమార్","\t+919876543210"\r\n'
 const session: Session = { token: () => "dev:client:u1", orgSlug: "clinic" };
 
 function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
@@ -34,7 +36,10 @@ describe("the CSV download", () => {
 
   beforeEach(() => {
     captured = null;
-    vi.stubGlobal("fetch", vi.fn(async () => new Response(CSV, { status: 200 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response(CSV, { status: 200 })),
+    );
     // jsdom implements neither, and the hook's whole job here is to call them.
     URL.createObjectURL = vi.fn((blob: Blob) => {
       captured = blob;

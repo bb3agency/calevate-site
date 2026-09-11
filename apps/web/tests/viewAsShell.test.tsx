@@ -80,7 +80,9 @@ async function mountShell(routes: Record<string, unknown> = SHELL_IN_FLIGHT) {
   await act(async () => {
     render(
       <QueryClientProvider client={client}>
-        <ClientRealmLayout params={Promise.resolve({ slug: "acme" })}>{null}</ClientRealmLayout>
+        <ClientRealmLayout params={Promise.resolve({ slug: "acme" })}>
+          {null}
+        </ClientRealmLayout>
       </QueryClientProvider>,
     );
   });
@@ -128,7 +130,10 @@ describe("the step-up prompt is reachable from inside an impersonated console", 
     // The dialog EXISTS in this shell. Before the fix `publish()` reached no listener
     // here, so nothing rendered and the promise below could never be settled by anyone.
     expect(await screen.findByRole("alertdialog")).toBeTruthy();
-    expect(settled, "the prompt must still be waiting on a person, not resolved").toBe(false);
+    expect(
+      settled,
+      "the prompt must still be waiting on a person, not resolved",
+    ).toBe(false);
   });
 });
 
@@ -137,14 +142,18 @@ describe("leaving an impersonated console", () => {
     await mountShell(SHELL_IMPERSONATING);
 
     // The confirmed banner, so this is the state an operator actually sits in.
-    expect(await screen.findByText(/^Viewing as Sunrise Dental Care/)).toBeTruthy();
+    expect(
+      await screen.findByText(/^Viewing as Sunrise Dental Care/),
+    ).toBeTruthy();
 
     // THE EXIT. There was none: the only control that looked like one was "Sign out" at
     // the foot of the sidebar, which ends the ADMIN session and drops the operator at a
     // sign-in page — so the real way out was knowing to edit the URL. Asserted by ROLE
     // and name rather than by test id, because what matters is that a person can find and
     // press it.
-    const exit = await screen.findByRole("button", { name: /exit and return to the admin console/i });
+    const exit = await screen.findByRole("button", {
+      name: /exit and return to the admin console/i,
+    });
     expect(exit).toBeTruthy();
   });
 });

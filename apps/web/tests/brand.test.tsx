@@ -46,7 +46,10 @@ describe("the brand assets exist as files, at the size that ships", () => {
       Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
     );
     // IHDR is always the first chunk: width and height are big-endian at bytes 16..24.
-    expect([bytes.readUInt32BE(16), bytes.readUInt32BE(20)]).toEqual([width, height]);
+    expect([bytes.readUInt32BE(16), bytes.readUInt32BE(20)]).toEqual([
+      width,
+      height,
+    ]);
   });
 
   it("ships derivatives rather than the masters, which are print-sized", () => {
@@ -54,7 +57,9 @@ describe("the brand assets exist as files, at the size that ships", () => {
     // console page for a 36px mark, on a 1 vCPU box. The generator exists for this.
     for (const [file] of ASSETS) {
       const size = readFileSync(join(PUBLIC, file)).length;
-      expect(size, `${file} is ${Math.round(size / 1024)}KB`).toBeLessThan(80 * 1024);
+      expect(size, `${file} is ${Math.round(size / 1024)}KB`).toBeLessThan(
+        80 * 1024,
+      );
     }
   });
 });
@@ -68,7 +73,9 @@ describe("which form carries the product name", () => {
       </>,
     );
     expect(screen.getByAltText("Calevate")).toBeTruthy();
-    expect(screen.getByAltText("Calevate — AI voice calling agents")).toBeTruthy();
+    expect(
+      screen.getByAltText("Calevate — AI voice calling agents"),
+    ).toBeTruthy();
   });
 
   it("leaves the square mark decorative, because its callers render the name in text", () => {

@@ -35,6 +35,7 @@ import { problem, renderClientPage } from "./harness";
 
 const OWNER: Me = {
   impersonating: false,
+  withheld_acts: [],
   permissions: ["calls:read", "leads:read", "org:read", "org:manage"],
   realm: "client",
   role: "owner",

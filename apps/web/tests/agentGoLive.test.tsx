@@ -80,7 +80,8 @@ function pending(over: Record<string, unknown> = {}) {
       // `false` case has its own test below.
       publishable: true,
       verified_at: null,
-      headline: "This agent is not on the voice platform yet; there is nothing to confirm.",
+      headline:
+        "This agent is not on the voice platform yet; there is nothing to confirm.",
     },
     ...over,
   };
@@ -88,7 +89,9 @@ function pending(over: Record<string, unknown> = {}) {
 
 function render(over: Partial<Routes> = {}) {
   return renderAdminRoute(
-    <AgentPromptPage params={routeParams({ tenantId: TENANT, agentId: AGENT })} />,
+    <AgentPromptPage
+      params={routeParams({ tenantId: TENANT, agentId: AGENT })}
+    />,
     {
       [TENANT_PATH]: { id: TENANT, name: "Sunrise Clinic", slug: "sunrise" },
       [ME_PATH]: {
@@ -109,7 +112,9 @@ function render(over: Partial<Routes> = {}) {
       [EXPERIMENT_PATH]: {
         agent_id: AGENT,
         rules: {
-          metrics: [{ key: "call_outcome_resolved", label: "calls the agent resolved" }],
+          metrics: [
+            { key: "call_outcome_resolved", label: "calls the agent resolved" },
+          ],
           default_metric: "call_outcome_resolved",
           minimum_calls_per_variant: 40,
           split_min_bp: 500,
@@ -118,13 +123,19 @@ function render(over: Partial<Routes> = {}) {
         },
         experiment: null,
       },
-      [VOICES_PATH]: { control: "ours", selectable: true, voices: [], note: "" },
+      [VOICES_PATH]: {
+        control: "ours",
+        selectable: true,
+        voices: [],
+        note: "",
+      },
       ...over,
     },
   );
 }
 
-const publishButton = () => screen.findByRole("button", { name: /Publish to the voice platform/ });
+const publishButton = () =>
+  screen.findByRole("button", { name: /Publish to the voice platform/ });
 
 describe("putting an agent on the voice platform for the first time", () => {
   it("posts to the tenant-scoped admin path and reports the engine's own ref", async () => {
@@ -139,7 +150,9 @@ describe("putting an agent on the voice platform for the first time", () => {
     fireEvent.click(await publishButton());
 
     await screen.findByText(/bolna_agent_7f21/);
-    const posted = calls.filter((call) => call.path === PUBLISH_PATH && call.method === "POST");
+    const posted = calls.filter(
+      (call) => call.path === PUBLISH_PATH && call.method === "POST",
+    );
     expect(posted).toHaveLength(1);
     // ADMIN realm, tenant in the path: the mutation is not reachable through the
     // read-only impersonation session the two GETs on this page use (D-22).
@@ -151,7 +164,9 @@ describe("putting an agent on the voice platform for the first time", () => {
     // is on the platform, so it must claim neither.
     const { container } = await render({ [PENDING_PATH]: stillLoading() });
 
-    const panel = (await screen.findByText("Voice platform")).closest("section");
+    const panel = (await screen.findByText("Voice platform")).closest(
+      "section",
+    );
     expect(panel).not.toBeNull();
     // A SKELETON IS PRESENT, not merely "the button is absent": rendering nothing at all
     // also passes an absence check, and an empty card is its own §52 defect — the
@@ -160,9 +175,13 @@ describe("putting an agent on the voice platform for the first time", () => {
     expect(
       screen.queryByRole("button", { name: /Publish to the voice platform/ }),
     ).toBeNull();
-    expect(container.textContent).not.toContain("has never reached the voice platform");
+    expect(container.textContent).not.toContain(
+      "has never reached the voice platform",
+    );
     // And no claim about the read having failed either — it has not.
-    expect(container.textContent).not.toContain("We could not read whether this agent");
+    expect(container.textContent).not.toContain(
+      "We could not read whether this agent",
+    );
   });
 
   it("refuses rather than reporting an unpublished agent when the read fails", async () => {
@@ -175,12 +194,18 @@ describe("putting an agent on the voice platform for the first time", () => {
 
     // ONE refusal, from the panel that owns the read and carries the retry — not the
     // same sentence twice because two panels depend on it.
-    expect(await screen.findAllByText("We could not read this agent's publishing state.")).toHaveLength(1);
+    expect(
+      await screen.findAllByText(
+        "We could not read this agent's publishing state.",
+      ),
+    ).toHaveLength(1);
     expect(
       screen.queryByRole("button", { name: /Publish to the voice platform/ }),
     ).toBeNull();
     // Not the unpublished panel either: a dead read is not evidence of a draft agent.
-    expect(screen.queryByText(/has never reached the voice platform/)).toBeNull();
+    expect(
+      screen.queryByText(/has never reached the voice platform/),
+    ).toBeNull();
   });
 
   /**
@@ -209,11 +234,15 @@ describe("putting an agent on the voice platform for the first time", () => {
     // stopped telling a failed read apart from a successful one.
     const { container } = await render();
     await screen.findByText(/Allowed 60–3600s/);
-    expect(container.textContent).not.toContain("The allowed range could not be read");
+    expect(container.textContent).not.toContain(
+      "The allowed range could not be read",
+    );
   });
 
   it("offers no first publish for an agent already on the platform, and says why", async () => {
-    await render({ [PENDING_PATH]: pending({ published: true, agent_status: "live" }) });
+    await render({
+      [PENDING_PATH]: pending({ published: true, agent_status: "live" }),
+    });
 
     await screen.findByText(/This agent is on the voice platform/);
     expect(
@@ -248,13 +277,17 @@ describe("putting an agent on the voice platform for the first time", () => {
     // scrolls straight to "what was confirmed" does not read "nothing confirmed" as a
     // publish that went wrong. Both copies are the SERVER'S wording, never a second one
     // this screen invents.
-    expect(await screen.findAllByText(/does not host agents built here/i)).toHaveLength(2);
+    expect(
+      await screen.findAllByText(/does not host agents built here/i),
+    ).toHaveLength(2);
     expect(
       screen.queryByRole("button", { name: /Publish to the voice platform/ }),
     ).toBeNull();
     // And it does not fall through to the "never reached the voice platform" warning,
     // which invites exactly the press this state cannot honour.
-    expect(screen.queryByText(/has never reached the voice platform/)).toBeNull();
+    expect(
+      screen.queryByText(/has never reached the voice platform/),
+    ).toBeNull();
   });
 
   it("renders the server's refusal verbatim instead of a sentence of its own", async () => {
@@ -263,13 +296,16 @@ describe("putting an agent on the voice platform for the first time", () => {
         title: "This agent has no script yet",
         detail:
           "The agent has no prompt version, so there is nothing to publish. Publishing it would put a generic placeholder on the client's phone line.",
-        remediation: "Complete the intake step for this client, or write a prompt version, then publish.",
+        remediation:
+          "Complete the intake step for this client, or write a prompt version, then publish.",
       }),
     });
 
     fireEvent.click(await publishButton());
 
-    await screen.findByText(/would put a generic placeholder on the client's phone line/);
+    await screen.findByText(
+      /would put a generic placeholder on the client's phone line/,
+    );
     // And it must NOT claim the publish landed.
     expect(screen.queryByText(/the platform holds this agent as/i)).toBeNull();
   });
@@ -278,7 +314,11 @@ describe("putting an agent on the voice platform for the first time", () => {
     await render({ [HISTORY_PATH]: [] });
 
     // `disabled` read off the DOM: this project has no jest-dom matchers.
-    await waitFor(async () => expect((await publishButton()).hasAttribute("disabled")).toBe(true));
-    await screen.findByText(/This agent has no script yet — complete the client's intake/);
+    await waitFor(async () =>
+      expect((await publishButton()).hasAttribute("disabled")).toBe(true),
+    );
+    await screen.findByText(
+      /This agent has no script yet — complete the client's intake/,
+    );
   });
 });

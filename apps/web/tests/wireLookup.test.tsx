@@ -59,6 +59,7 @@ export const PROTOTYPE_KEYS = [
 
 const ME: Me = {
   impersonating: false,
+  withheld_acts: [],
   permissions: ["leads:read", "leads:dispatch"],
   realm: "client",
   role: "owner",
@@ -107,7 +108,9 @@ async function lookUp(answer: MessagingConsent) {
 describe("consent source off the wire", () => {
   it("does not blank the verdict when `source` names an Object.prototype member", async () => {
     for (const inherited of PROTOTYPE_KEYS) {
-      const { container, unmount } = await lookUp(consent({ source: inherited }));
+      const { container, unmount } = await lookUp(
+        consent({ source: inherited }),
+      );
 
       // The verdict must survive. Before the fix this assertion never ran — the render
       // threw inside `describeCapture` and took the test down with the screen.
@@ -121,7 +124,9 @@ describe("consent source off the wire", () => {
   });
 
   it("still names a source it does know", async () => {
-    const { container } = await lookUp(consent({ source: "inbound_call_verbal" }));
+    const { container } = await lookUp(
+      consent({ source: "inbound_call_verbal" }),
+    );
     await screen.findByText("You may send this person WhatsApp messages.");
     expect(container.textContent).toContain("Recorded");
   });
@@ -140,7 +145,9 @@ describe("lookup", () => {
     // The whole point. `TABLE["constructor"] ?? "fallback"` yields the `Object`
     // function; `lookup(TABLE, "constructor") ?? "fallback"` yields "fallback".
     for (const inherited of PROTOTYPE_KEYS) {
-      expect(lookup(TABLE, inherited) ?? "fallback", inherited).toBe("fallback");
+      expect(lookup(TABLE, inherited) ?? "fallback", inherited).toBe(
+        "fallback",
+      );
     }
   });
 

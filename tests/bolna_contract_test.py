@@ -35,11 +35,12 @@ import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
-from apps.api.agents.voices import CartesiaVoiceRecord, cartesia_catalogue, default_voice
+from apps.api.agents.voices import CARTESIA_TTS_MODEL, Voice, catalogue, voice_id_for
 from apps.api.core.errors import ProblemError
 from apps.api.engine import bolna as bolna_module
 from apps.api.engine.bolna import (
@@ -52,6 +53,17 @@ from apps.api.engine.bolna import (
 )
 from calevate_shared.config import Settings
 from calevate_shared.engine import AgentConfig, CallContext, KBSourceRef, ModelConfig
+
+
+def _catalogue_entry() -> Voice:
+    """ONE voice this deployment actually offers.
+
+    It used to be `voices.default_voice()`, a compiled persona D-588 deleted along with the
+    rest of the hardcoded catalogue. The suite's platform is synced and curated by
+    `tests/voice_fixture.py`, so the honest source of a real entry is the catalogue itself —
+    which is also what the adapter would be handed in production.
+    """
+    return next(iter(catalogue()))
 
 
 def _engine(handler: Any) -> BolnaEngine:
@@ -1508,11 +1520,19 @@ async def test_the_cartesia_model_key_is_always_sent_and_never_defaulted() -> No
         seen.append(json.loads(request.content))
         return httpx.Response(200, json={"agent_id": "a-1"})
 
-    record = CartesiaVoiceRecord(id="vendor-voice-id", name="Test Persona", languages=("te-IN",))
-    for voice in cartesia_catalogue((record,)):
-        # The pair `agents/service.in_call_speech` splits off a REGISTERED catalogue id.
-        # Taken from the entry itself here because the fixture record is deliberately not in
-        # `CARTESIA_CATALOG_SOURCE` — the point is the loader's output, not the lookup.
+    # A CARTESIA ENTRY AS THE ENGINE SYNC WOULD BUILD ONE. D-588 deleted the hand-loaded
+    # Cartesia list this used to drive (`CARTESIA_CATALOG_SOURCE` and its loader), because
+    # the engine's voice-config API enumerates its own providers — so the only thing left to
+    # assert here is the WIRE SHAPE, from a pair that never touches the catalogue lookup.
+    for voice in (
+        SimpleNamespace(
+            provider="cartesia",
+            tts_model=CARTESIA_TTS_MODEL,
+            speaker="vendor-voice-id",
+            label="Test Persona",
+            id=voice_id_for(CARTESIA_TTS_MODEL, "vendor-voice-id"),
+        ),
+    ):
         cfg = _config().model_copy(
             update={
                 "models": ModelConfig(
@@ -1532,9 +1552,10 @@ async def test_the_cartesia_model_key_is_always_sent_and_never_defaulted() -> No
 
 async def test_a_cartesia_voice_with_no_id_is_refused_by_name_rather_than_half_sent() -> None:
     """**THE ONE REFUSAL THAT SURVIVES ADDENDUM 3**, and it is the state this phase ships
-    in: `voices.CARTESIA_CATALOG_SOURCE` is EMPTY because no Cartesia voice id in this tree
-    has been read from the vendor, so an agent can reach the adapter on the Cartesia
-    provider with nothing to put in a REQUIRED `voice_id`.
+    in: no Cartesia voice id in this tree has been read from the vendor, and an engine
+    account carrying no Cartesia provider (or one whose Cartesia voices nobody has enabled)
+    leaves an agent able to reach the adapter on the Cartesia provider with nothing to put
+    in a REQUIRED `voice_id`.
 
     The alternative is not an omitted key. `StandardVoiceConfig.voice_id` and `.model` are
     both required `str`, so a blank is either a vendor 422 about our own half-built request
@@ -1559,7 +1580,7 @@ async def test_a_cartesia_voice_with_no_id_is_refused_by_name_rather_than_half_s
         assert raised.value.code == "cartesia_voice_incomplete"
         assert raised.value.kind == "dependency", "nothing the client typed is wrong"
         assert "Sarvam" in (raised.value.remediation or ""), "what they can do TODAY"
-        assert "GET /voices" in (raised.value.remediation or ""), "and what closes it"
+        assert "Voices page" in (raised.value.remediation or ""), "and what closes it"
     assert requests == [], "a half-built body must never reach the vendor, not even once"
 
 
@@ -1589,7 +1610,7 @@ def test_the_sarvam_voice_goes_out_as_a_name_and_an_id_neither_one_derived() -> 
     name came from the CATALOGUE, by checking the pair against the catalogue entry rather
     than against a transformation of the id.
     """
-    entry = default_voice()
+    entry = _catalogue_entry()
     config = _synthesizer_config(
         ModelConfig(
             tts_provider="sarvam",

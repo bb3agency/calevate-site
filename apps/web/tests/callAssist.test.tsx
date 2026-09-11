@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, renderHook, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  renderHook,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
@@ -9,7 +15,13 @@ import type { Me } from "@/lib/api/client";
 import { useCallAssist } from "@/lib/api/hooks";
 
 import { expectNoA11yViolations } from "./a11y";
-import { type ApiCall, problem, renderClientPage, stillLoading, stubApi } from "./harness";
+import {
+  type ApiCall,
+  problem,
+  renderClientPage,
+  stillLoading,
+  stubApi,
+} from "./harness";
 
 /**
  * "Re-summarise this call" on the call detail screen (D-127 — the surface the metering,
@@ -45,7 +57,14 @@ const CALL = {
   summary: "Caller asked about a Tuesday slot.",
   lead_id: null,
   transcript: [
-    { idx: 0, speaker: "agent", text: "Namaskaram.", lang: "te", start_ms: 0, redacted: true },
+    {
+      idx: 0,
+      speaker: "agent",
+      text: "Namaskaram.",
+      lang: "te",
+      start_ms: 0,
+      redacted: true,
+    },
   ],
   extraction: {},
   extraction_valid: true,
@@ -60,7 +79,13 @@ const ME: Me = {
   role: "owner",
   permissions: ["calls:read", "billing:read", "org:manage"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  withheld_acts: [],
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 const STAFF: Me = { ...ME, permissions: ["calls:read"] };
@@ -91,11 +116,14 @@ const QUOTA_EXCEEDED = problem(422, {
   title: "Request rejected by a business rule",
   detail: "This account has used all of this month's included AI help.",
   kind: "business_rule",
-  remediation: "Open AI assistance to see what more AI help costs and to add it.",
+  remediation:
+    "Open AI assistance to see what more AI help costs and to add it.",
 });
 
 function page() {
-  return <CallDetailPage params={Promise.resolve({ slug: "acme", callId: "c1" })} />;
+  return (
+    <CallDetailPage params={Promise.resolve({ slug: "acme", callId: "c1" })} />
+  );
 }
 
 /** The base route table every test needs: identity, the call, and the follow-up read. */
@@ -103,12 +131,17 @@ function baseRoutes(me: Me = ME): Record<string, unknown> {
   return {
     "/v1/me": me,
     "/v1/calls/c1": CALL,
-    "/v1/calls/c1/callback": { eligible: false, reason: "already followed up twice" },
+    "/v1/calls/c1/callback": {
+      eligible: false,
+      reason: "already followed up twice",
+    },
   };
 }
 
 async function pressAssist(): Promise<void> {
-  const button = await screen.findByRole("button", { name: /Re-summarise with AI/i });
+  const button = await screen.findByRole("button", {
+    name: /Re-summarise with AI/i,
+  });
   await act(async () => {
     fireEvent.click(button);
   });
@@ -119,7 +152,8 @@ describe("the assistant's answer", () => {
     await renderClientPage(page(), {
       ...baseRoutes(),
       "POST /v1/calls/c1/assist": {
-        summary: "Ravi wants a Tuesday appointment and will confirm by evening.",
+        summary:
+          "Ravi wants a Tuesday appointment and will confirm by evening.",
         disclosure: null,
         metered: true,
       },
@@ -128,7 +162,9 @@ describe("the assistant's answer", () => {
     await pressAssist();
 
     expect(
-      await screen.findByText("Ravi wants a Tuesday appointment and will confirm by evening."),
+      await screen.findByText(
+        "Ravi wants a Tuesday appointment and will confirm by evening.",
+      ),
     ).toBeTruthy();
     // The FIRST pass is still on the screen, unchanged. A re-summarise is a second
     // reading (`apps/api/crm/assist.py`), and a screen that replaced one with the other
@@ -136,7 +172,9 @@ describe("the assistant's answer", () => {
     expect(screen.getByText("Caller asked about a Tuesday slot.")).toBeTruthy();
     // Nothing says "this did not use any of your allowance" for a metered assist: that
     // sentence is a claim about a client's money and it is only true when it is true.
-    expect(screen.queryByText(/did not use any of your AI allowance/i)).toBeNull();
+    expect(
+      screen.queryByText(/did not use any of your AI allowance/i),
+    ).toBeNull();
   });
 
   it("shows the disclosure when a different model wrote the answer (G-6)", async () => {
@@ -156,20 +194,28 @@ describe("the assistant's answer", () => {
     // The server's own sentence, verbatim — not a paraphrase this build composed, which
     // is the whole reason `AssistCapability.disclosure` exists on the wire at all.
     expect(await screen.findByText(disclosure)).toBeTruthy();
-    expect(screen.getByText(/did not use any of your AI allowance/i)).toBeTruthy();
+    expect(
+      screen.getByText(/did not use any of your AI allowance/i),
+    ).toBeTruthy();
   });
 
   it("states an empty answer in words rather than rendering a blank panel (§52)", async () => {
     await renderClientPage(page(), {
       ...baseRoutes(),
-      "POST /v1/calls/c1/assist": { summary: "   ", disclosure: null, metered: true },
+      "POST /v1/calls/c1/assist": {
+        summary: "   ",
+        disclosure: null,
+        metered: true,
+      },
     });
 
     await pressAssist();
 
     // A completed run that produced nothing is an OUTCOME the client paid for, and an
     // empty state must not stand in for it.
-    expect(await screen.findByText(/did not produce a summary for it/i)).toBeTruthy();
+    expect(
+      await screen.findByText(/did not produce a summary for it/i),
+    ).toBeTruthy();
   });
 
   it("is a skeleton while it runs and a refusal when it fails", async () => {
@@ -189,7 +235,8 @@ describe("the assistant's answer", () => {
         title: "AI assistance is not available",
         detail: "This deployment cannot run the AI assistant right now.",
         kind: "dependency",
-        remediation: "Try again in a few minutes; if it persists, contact support.",
+        remediation:
+          "Try again in a few minutes; if it persists, contact support.",
       }),
     });
     await pressAssist();
@@ -209,7 +256,9 @@ describe("the ceiling", () => {
 
     await pressAssist();
 
-    expect(await screen.findByText(/used this month's included AI help/i)).toBeTruthy();
+    expect(
+      await screen.findByText(/used this month's included AI help/i),
+    ).toBeTruthy();
     // The quota is read only AFTER the ceiling is met — an owner who never hits it never
     // pays for the request (`useAiQuota(session, { enabled })`).
     await waitFor(() => {
@@ -217,7 +266,9 @@ describe("the ceiling", () => {
     });
 
     await act(async () => {
-      fireEvent.click(await screen.findByRole("button", { name: /what more AI help costs/i }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: /what more AI help costs/i }),
+      );
     });
 
     const dialog = await screen.findByRole("dialog");
@@ -230,15 +281,22 @@ describe("the ceiling", () => {
     // button's label and "one of the two is right" is not the claim.
     expect(dialog.querySelector("strong")?.textContent).toBe("₹500.00");
     expect(screen.getByRole("button", { name: /^Add ₹500\.00$/ })).toBeTruthy();
-    expect(screen.getByText(/not refunded and does not carry into next month/i)).toBeTruthy();
+    expect(
+      screen.getByText(/not refunded and does not carry into next month/i),
+    ).toBeTruthy();
     expect(screen.getByText("Nothing has been charged yet.")).toBeTruthy();
     // G-5, on the NETWORK rather than on the screen: opening the dialog spends nothing.
-    expect(calls.filter((c) => c.path === "/v1/billing/ai-quota/extra")).toEqual([]);
+    expect(
+      calls.filter((c) => c.path === "/v1/billing/ai-quota/extra"),
+    ).toEqual([]);
 
     // Swept while OPEN, which the page sweep in `a11y.test.tsx` cannot do: the dialog is
     // the one control on this screen that debits a wallet, and it must be reachable and
     // named for a screen reader before it is reachable at all.
-    await expectNoA11yViolations(dialog, "call detail — add more AI help dialog");
+    await expectNoA11yViolations(
+      dialog,
+      "call detail — add more AI help dialog",
+    );
   });
 
   it("debits only on accept, and echoes the server's amount untouched", async () => {
@@ -255,17 +313,23 @@ describe("the ceiling", () => {
 
     await pressAssist();
     await act(async () => {
-      fireEvent.click(await screen.findByRole("button", { name: /what more AI help costs/i }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: /what more AI help costs/i }),
+      );
     });
     await act(async () => {
-      fireEvent.click(await screen.findByRole("button", { name: /^Add ₹500\.00$/ }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: /^Add ₹500\.00$/ }),
+      );
     });
 
     const bought = calls.filter((c) => c.path === "/v1/billing/ai-quota/extra");
     expect(bought).toHaveLength(1);
     // A STRING, exactly as it arrived. `500` as a JSON number has already been through a
     // binary double by the time the server compares it for equality (hard rule 7).
-    expect(JSON.parse(bought[0].body ?? "{}")).toEqual({ accept_amount_inr: "500.00" });
+    expect(JSON.parse(bought[0].body ?? "{}")).toEqual({
+      accept_amount_inr: "500.00",
+    });
   });
 
   it("does not offer a purchase the server would refuse", async () => {
@@ -283,8 +347,12 @@ describe("the ceiling", () => {
 
     // The SERVER's reason, mapped to the same sentence the AI-help screen shows — one
     // switch, shared, so the two cannot start disagreeing about the same month.
-    expect(await screen.findByText(/already added extra AI help this month/i)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /what more AI help costs/i })).toBeNull();
+    expect(
+      await screen.findByText(/already added extra AI help this month/i),
+    ).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /what more AI help costs/i }),
+    ).toBeNull();
   });
 
   it("says it could not read the allowance rather than offering nothing", async () => {
@@ -305,7 +373,9 @@ describe("the ceiling", () => {
     // §52's failure branch on the SECOND read. Without it, a dead billing route renders a
     // ceiling notice with no button and no explanation — indistinguishable from "there is
     // nothing you can do", which is the opposite of the truth.
-    expect(await screen.findByText("The allowance could not be read.")).toBeTruthy();
+    expect(
+      await screen.findByText("The allowance could not be read."),
+    ).toBeTruthy();
   });
 });
 
@@ -313,9 +383,13 @@ describe("the gate", () => {
   it("is previewed as a disabled control with a reason, never a 403 after the click", async () => {
     const { calls } = await renderClientPage(page(), baseRoutes(STAFF));
 
-    const button = await screen.findByRole("button", { name: /Re-summarise with AI/i });
+    const button = await screen.findByRole("button", {
+      name: /Re-summarise with AI/i,
+    });
     expect(button.hasAttribute("disabled")).toBe(true);
-    expect(screen.getByText(/Only an account owner can use AI help on this call/i)).toBeTruthy();
+    expect(
+      screen.getByText(/Only an account owner can use AI help on this call/i),
+    ).toBeTruthy();
     await act(async () => {
       fireEvent.click(button);
     });
@@ -325,7 +399,11 @@ describe("the gate", () => {
   it("sends an Idempotency-Key, and a second press sends a different one", async () => {
     const { calls } = await renderClientPage(page(), {
       ...baseRoutes(),
-      "POST /v1/calls/c1/assist": { summary: "Again.", disclosure: null, metered: true },
+      "POST /v1/calls/c1/assist": {
+        summary: "Again.",
+        disclosure: null,
+        metered: true,
+      },
     });
 
     await pressAssist();
@@ -380,7 +458,9 @@ describe("the assist idempotency key", () => {
     // of the primary button, because that is the path a person takes when they believe the
     // first attempt did not happen.
     await act(async () => {
-      fireEvent.click(await screen.findByRole("button", { name: /^Try again$/ }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: /^Try again$/ }),
+      );
     });
 
     const keys = keysOf(calls);
@@ -393,7 +473,11 @@ describe("the assist idempotency key", () => {
   it("is fresh again after a success, so a second reading is a second attempt", async () => {
     const { calls } = await renderClientPage(page(), {
       ...baseRoutes(),
-      "POST /v1/calls/c1/assist": { summary: "First.", disclosure: null, metered: true },
+      "POST /v1/calls/c1/assist": {
+        summary: "First.",
+        disclosure: null,
+        metered: true,
+      },
     });
 
     await pressAssist();
@@ -423,10 +507,14 @@ describe("the assist idempotency key", () => {
 
     await pressAssist();
     await act(async () => {
-      fireEvent.click(await screen.findByRole("button", { name: /what more AI help costs/i }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: /what more AI help costs/i }),
+      );
     });
     await act(async () => {
-      fireEvent.click(await screen.findByRole("button", { name: /^Add ₹500\.00$/ }));
+      fireEvent.click(
+        await screen.findByRole("button", { name: /^Add ₹500\.00$/ }),
+      );
     });
     await pressAssist();
 
@@ -442,10 +530,17 @@ describe("the assist idempotency key", () => {
     // call mints from that fact rather than from an effect that may not have run.
     const calls = stubApi({
       "POST /v1/calls/c1/assist": stillLoading(),
-      "POST /v1/calls/c2/assist": { summary: "Read.", disclosure: null, metered: true },
+      "POST /v1/calls/c2/assist": {
+        summary: "Read.",
+        disclosure: null,
+        metered: true,
+      },
     });
     const client = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     });
     const { result, rerender } = renderHook(
       ({ callId }) => useCallAssist({ orgSlug: "acme" }, callId),
@@ -471,7 +566,10 @@ describe("the assist idempotency key", () => {
     // THE PREMISE, ASSERTED. Two requests to two DIFFERENT calls is the situation under
     // test, and without this the key comparison below passes just as happily when the
     // rerender never reached the hook and both requests went to the same call.
-    expect(calls.map((c) => c.path)).toEqual(["/v1/calls/c1/assist", "/v1/calls/c2/assist"]);
+    expect(calls.map((c) => c.path)).toEqual([
+      "/v1/calls/c1/assist",
+      "/v1/calls/c2/assist",
+    ]);
     const keys = keysOf(calls);
     expect(keys).toHaveLength(2);
     expect(keys[0]).not.toBe(keys[1]);

@@ -81,6 +81,30 @@ class BoundedByConstruction:
 #: Every list-shaped route that legitimately has no `limit`, keyed `"METHOD /path"`.
 BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     # --- bounded by a constant or a registry in this repo ---------------------------
+    "GET /v1/ops/voices": BoundedByConstruction(
+        by=(
+            "the VOICE PLATFORM ACCOUNT's own voice list, cached whole in "
+            "`platform_voice_catalog`. It is not anybody's rows: it holds one entry per "
+            "voice our ONE vendor account offers, in the three languages this product "
+            "sells, filtered to the two TTS models we run — tens of rows, moving only when "
+            "the vendor adds a voice or the founder clones one. It takes no `limit` "
+            "DELIBERATELY, and the reason is the screen's whole job: this is the operator's "
+            "CURATION table, and the question it answers is 'which of these are we "
+            "offering'. A page size would let the answer be computed over a subset, which "
+            "is the one thing a list you are auditing may never do. The upstream bound is "
+            "the vendor's, and `agents/voice_sync.sync_voice_catalogue` refuses to apply a "
+            "listing it could not read completely rather than silently shortening this."
+        )
+    ),
+    "PATCH /v1/ops/voices": BoundedByConstruction(
+        by=(
+            "`voice.languages` is the product's own language list — `agents/voices."
+            "Language`, three codes — on the ONE voice this call moved. There is no "
+            "collection of anybody's rows in the response at all, and nothing to page "
+            "through: a `limit` on it would mean returning fewer languages than the voice "
+            "speaks, which is a wrong answer rather than a shorter one."
+        )
+    ),
     "GET /v1/me": BoundedByConstruction(
         by="`permissions` is the role's permission set — at most `len(get_args(Permission))`."
     ),

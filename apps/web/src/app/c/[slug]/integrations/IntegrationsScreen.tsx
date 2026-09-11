@@ -57,15 +57,18 @@ export function IntegrationsScreen() {
   const options = useEndpointOptions(session);
 
   /**
-   * D-22 read-only. Registering and turning off an endpoint are both `org:manage`
-   * (integrations/routes.py) — mutating, so refused while impersonating. The two READS
-   * on this screen deliberately sit on `org:read` so support keeps them: "did my CRM
-   * get it?" is the question this screen exists to answer, and it is the question
-   * support is asked.
+   * Registering and turning off an endpoint are both `org:manage`
+   * (integrations/routes.py), which `staff` does not hold. The two READS on this screen
+   * deliberately sit on `org:read` so support keeps them: "did my CRM get it?" is the
+   * question this screen exists to answer, and it is the question support is asked.
    *
-   * Turning an endpoint off is also where read-only earns its keep — an operator who
-   * did it wearing the client's face would leave an audit trail saying the client
-   * stopped their own integration.
+   * ⚠ THIS SAID the writes are "refused while impersonating" and that turning an endpoint
+   * off is "where read-only earns its keep — an operator who did it wearing the client's
+   * face would leave an audit trail saying the client stopped their own integration".
+   * BOTH HALVES ARE WITHDRAWN (D-587): `org:manage` is writable in a view-as session, and
+   * the premise of the second was answered rather than accepted — `audit_log` now records
+   * the operator as the actor with the tenant and the grant's `jti`, so the trail says who
+   * really stopped it.
    */
   const write = useWriteAccess(session, "org:manage", "change where events are sent");
 

@@ -1014,7 +1014,11 @@ the docs already promised*, which the docs-vs-code audit in this same round foun
   survives every forward). Audited under a `subject_ref` hash matching `retention._hash`,
   so an access request and an erasure request for one person correlate with neither
   record carrying the number.
-- **Voice catalog** (`agents/voices.py`, `voice_routes.py`, 10 tests) — grounded in
+- **Voice catalog** (`agents/voices.py`, `voice_routes.py`, 10 tests) — ⚠ **SUPERSEDED, AND
+  EVERY CLAIM IN THIS ENTRY IS NOW HISTORY**: the ladder went (D-547, two providers), the
+  compiled catalogue went (D-585, read from the voice platform account), and the last
+  hardcoded voice went with it (D-588, operator curation — only enabled voices are
+  offered). Kept as the dated record it is. It was grounded in
   D-36/D-35 (Bulbul v3 default, v2 the ₹15/10k value tier) and honest about its limits:
   the docs name **no speakers**, so the catalog offers a choice of MODEL and invents no
   speaker ids, every entry ships `verified: false` until pilot gate 3 confirms the

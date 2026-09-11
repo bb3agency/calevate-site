@@ -53,6 +53,7 @@ const ME: Me = {
   // needs — the founder's split (2 Sep 2026), and an owner holds both.
   permissions: ["billing:read", "wallet:read", "org:manage"],
   impersonating: false,
+  withheld_acts: [],
   organization: {
     id: "o1",
     name: "Sri Clinic",
@@ -384,7 +385,10 @@ describe("the top-up panel", () => {
     // buys. Removing the BUTTON must not remove the PRICE LIST: the catalogue reads no
     // tenant and no provider state, so it is exactly as true on a bank-transfer
     // deployment as on a card one.
-    expect(screen.getByText("Best value"), "the rate card is gone").toBeTruthy();
+    expect(
+      screen.getByText("Best value"),
+      "the rate card is gone",
+    ).toBeTruthy();
     // BOTH RATES AND BOTH TALK TIMES, each under the name a client reads for that quality
     // (D-547). A pack is no longer one price: what a minute costs depends on the voice the
     // agent that takes the call speaks with, and a card that showed one number would be
@@ -400,7 +404,9 @@ describe("the top-up panel", () => {
     expect(container.textContent?.toLowerCase()).not.toContain("bonus");
     // And the button still names its amount even where it cannot pay — a grid of controls
     // all called "Select" is a list of identical names in a screen reader.
-    expect(screen.getByRole("button", { name: "Select ₹50,000.00" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Select ₹50,000.00" }),
+    ).toBeTruthy();
   });
 
   it("never names which of our secrets is missing", async () => {
@@ -454,7 +460,11 @@ describe("the top-up panel", () => {
           online_payments_available: true,
           provider_orders_available: false,
         },
-        [INTENT]: { ...ORDER_INTENT, provider_order_id: null, provider_order_pending: true },
+        [INTENT]: {
+          ...ORDER_INTENT,
+          provider_order_id: null,
+          provider_order_pending: true,
+        },
       }),
       "Credits",
     );
@@ -495,7 +505,11 @@ describe("the top-up panel", () => {
     const opened = stubRazorpay();
     const { container } = await renderBillingHub(
       routes({
-        [INTENT]: { ...ORDER_INTENT, provider_order_id: null, provider_order_pending: true },
+        [INTENT]: {
+          ...ORDER_INTENT,
+          provider_order_id: null,
+          provider_order_pending: true,
+        },
       }),
       "Credits",
     );
@@ -503,7 +517,9 @@ describe("the top-up panel", () => {
     await payCustomAmount();
 
     await screen.findByText(/nothing has been charged yet/);
-    expect(container.textContent).toContain("to us by bank transfer quoting the reference");
+    expect(container.textContent).toContain(
+      "to us by bank transfer quoting the reference",
+    );
     expect(opened, "no checkout without an order").toHaveLength(0);
   });
 
@@ -555,7 +571,9 @@ describe("the top-up panel", () => {
     // the two. Per-agent is true and stays; the control is not ours to promise.
     const { container } = await renderBillingHub(routes(), "Credits");
     await screen.findByText(/Every pack buys both voice qualities/);
-    expect(container.textContent).not.toMatch(/you choose which one each agent/i);
+    expect(container.textContent).not.toMatch(
+      /you choose which one each agent/i,
+    );
     expect(container.textContent).toMatch(/tell your account manager/i);
   });
 
@@ -571,7 +589,8 @@ describe("the top-up panel", () => {
     // anybody who picks the dearer voice afterwards — on a different screen, later.
     const { container } = await renderBillingHub(routes(), "Credits");
     const suggestion = () =>
-      screen.getByRole("status", { name: "Which pack covers your month" }).textContent ?? "";
+      screen.getByRole("status", { name: "Which pack covers your month" })
+        .textContent ?? "";
 
     const field = await screen.findByLabelText(
       "Roughly how many minutes do you call in a month?",
@@ -584,7 +603,9 @@ describe("the top-up panel", () => {
     await waitFor(() => expect(suggestion()).toContain("₹2,000.00 covers it"));
     // Both figures, because the reader has not chosen a voice yet and one number would be
     // a promise that holds for only one of the two choices in front of them.
-    expect(suggestion()).toContain("about 250 minutes on Studio and 400 on Clear");
+    expect(suggestion()).toContain(
+      "about 250 minutes on Studio and 400 on Clear",
+    );
     // The matched card says so where the reader is looking, not only in the sentence.
     expect(container.textContent).toContain("Covers your month");
 
@@ -594,7 +615,9 @@ describe("the top-up panel", () => {
     // pack here and quietly under-bought for a Studio agent.
     fireEvent.change(field, { target: { value: "300" } });
     await waitFor(() => expect(suggestion()).toContain("₹5,000.00 covers it"));
-    expect(suggestion()).toContain("about 714 minutes on Studio and 1,000 on Clear");
+    expect(suggestion()).toContain(
+      "about 714 minutes on Studio and 1,000 on Clear",
+    );
 
     // More than the whole catalogue can hold is answered honestly rather than by
     // recommending a pack that does not cover it.
@@ -629,7 +652,8 @@ describe("the top-up panel", () => {
     await renderBillingHub(routes(), "Credits");
     const field = await screen.findByLabelText("Other amount");
     const preview = () =>
-      screen.getByRole("status", { name: "What this amount buys" }).textContent ?? "";
+      screen.getByRole("status", { name: "What this amount buys" })
+        .textContent ?? "";
 
     fireEvent.change(field, { target: { value: "3400.00" } });
     // ₹3,400 does not reach the ₹5,000 rung, so it buys at the ₹2,000 pack's rates — and
@@ -738,7 +762,9 @@ describe("the payment window", () => {
     // forbids extra keys, so forwarding the provider's object whole would turn a vendor
     // adding a field into a 422 that reads, on this screen, like a payment that could not
     // be verified.
-    const callback = calls.find((c) => c.path === "/v1/billing/topups/callback");
+    const callback = calls.find(
+      (c) => c.path === "/v1/billing/topups/callback",
+    );
     expect(callback?.method).toBe("POST");
     expect(callback?.body).toBe(
       JSON.stringify({
@@ -781,19 +807,25 @@ describe("the payment window", () => {
     });
 
     // Nothing was sent: a closed window is not a payment to verify.
-    expect(calls.some((c) => c.path === "/v1/billing/topups/callback")).toBe(false);
+    expect(calls.some((c) => c.path === "/v1/billing/topups/callback")).toBe(
+      false,
+    );
     // Not an error, and not a spinner: the panel is usable and the SAME order is still
     // payable, so an accidental close does not mint a second order.
     expect(screen.queryByRole("alert")).toBeNull();
     expect(container.textContent).not.toContain("did not go through");
-    const retry = await screen.findByRole("button", { name: "Pay ₹2,500.10 now" });
+    const retry = await screen.findByRole("button", {
+      name: "Pay ₹2,500.10 now",
+    });
     expect((retry as HTMLButtonElement).disabled).toBe(false);
 
     fireEvent.click(retry);
     await waitFor(() => expect(opened).toHaveLength(2));
     expect(opened[1].options.order_id).toBe(ORDER_INTENT.provider_order_id);
     // One intent, two openings — the order was reused, not replaced.
-    expect(calls.filter((c) => c.path === "/v1/billing/topups/intent")).toHaveLength(1);
+    expect(
+      calls.filter((c) => c.path === "/v1/billing/topups/intent"),
+    ).toHaveLength(1);
   });
 
   it("reports a failed payment in our words, never the provider's string", async () => {
@@ -809,7 +841,8 @@ describe("the payment window", () => {
       opened[0].onPaymentFailed?.({
         error: {
           code: "BAD_REQUEST_ERROR",
-          description: "Your payment failed. Try another method — VENDOR SENTENCE.",
+          description:
+            "Your payment failed. Try another method — VENDOR SENTENCE.",
           source: "customer",
           step: "payment_authentication",
         },
@@ -820,15 +853,21 @@ describe("the payment window", () => {
     // constructor builds from it), which is why the detail is written to stand alone.
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("The payment was not completed");
-    expect(alert.textContent).toContain("no credit has been added to your account");
-    expect(alert.textContent).toContain("try again with the same or a different payment method");
+    expect(alert.textContent).toContain(
+      "no credit has been added to your account",
+    );
+    expect(alert.textContent).toContain(
+      "try again with the same or a different payment method",
+    );
     // The vendor's sentence and its error code are a third party's wording rendered to a
     // client of a client — the same judgement the server makes about `reason` codes.
     expect(container.textContent).not.toContain("VENDOR SENTENCE");
     expect(container.textContent).not.toContain("BAD_REQUEST_ERROR");
     expect(container.textContent).not.toContain("payment_authentication");
     // A failed attempt is not a payment to verify.
-    expect(calls.some((c) => c.path === "/v1/billing/topups/callback")).toBe(false);
+    expect(calls.some((c) => c.path === "/v1/billing/topups/callback")).toBe(
+      false,
+    );
   });
 
   it("does not report a refused signature as success", async () => {
@@ -843,7 +882,8 @@ describe("the payment window", () => {
           type: "urn:calevate:auth/payment_signature_invalid",
           title: "Payment could not be verified",
           detail: "We could not confirm this payment was genuine.",
-          remediation: "Do not retry the payment. Contact us if it was debited.",
+          remediation:
+            "Do not retry the payment. Contact us if it was debited.",
           kind: "auth",
           retryable: false,
         }),
@@ -874,13 +914,21 @@ describe("the payment window", () => {
   it("says so when the provider's script will not load, and offers a way through", async () => {
     // No `window.Razorpay`, so the loader really injects a tag; the `error` a blocked or
     // dropped request would fire is dispatched onto it. Nothing here reaches the network.
-    const { calls } = await renderBillingHub(routes({ [INTENT]: ORDER_INTENT }), "Credits");
+    const { calls } = await renderBillingHub(
+      routes({ [INTENT]: ORDER_INTENT }),
+      "Credits",
+    );
 
     await payCustomAmount();
 
     const tag = await waitFor(() => {
-      const found = document.head.querySelector(`script[src="${RAZORPAY_CHECKOUT_SRC}"]`);
-      expect(found, "checkout.js is fetched from the click, not from a layout").toBeTruthy();
+      const found = document.head.querySelector(
+        `script[src="${RAZORPAY_CHECKOUT_SRC}"]`,
+      );
+      expect(
+        found,
+        "checkout.js is fetched from the click, not from a layout",
+      ).toBeTruthy();
       return found as HTMLScriptElement;
     });
     // Lazy, and lazy is the point: nothing loaded it before the client asked to pay.
@@ -891,19 +939,28 @@ describe("the payment window", () => {
     });
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("The secure payment window did not load in this browser");
+    expect(alert.textContent).toContain(
+      "The secure payment window did not load in this browser",
+    );
     expect(alert.textContent).toContain("nothing has been charged");
     // The way through that does not depend on this browser at all.
     expect(alert.textContent).toContain("bank transfer");
-    expect(calls.some((c) => c.path === "/v1/billing/topups/callback")).toBe(false);
+    expect(calls.some((c) => c.path === "/v1/billing/topups/callback")).toBe(
+      false,
+    );
     // The dead tag is removed so a retry gets a fresh one — an errored `<script>` never
     // fires again, so leaving it would make every retry silent.
-    expect(document.head.querySelector(`script[src="${RAZORPAY_CHECKOUT_SRC}"]`)).toBeNull();
+    expect(
+      document.head.querySelector(`script[src="${RAZORPAY_CHECKOUT_SRC}"]`),
+    ).toBeNull();
   });
 
   it("keeps no secret in the browser and passes the accessibility floor", async () => {
     const opened = stubRazorpay();
-    const { container } = await renderBillingHub(routes({ [INTENT]: ORDER_INTENT }), "Credits");
+    const { container } = await renderBillingHub(
+      routes({ [INTENT]: ORDER_INTENT }),
+      "Credits",
+    );
 
     await payCustomAmount();
     await waitFor(() => expect(opened).toHaveLength(1));
@@ -918,7 +975,11 @@ describe("the payment window", () => {
     // webhook secret are the server's alone and must not be reachable from any surface
     // this screen renders or sends.
     const wire = JSON.stringify(opened[0].options);
-    for (const secret of ["key_secret", "razorpay_api_secret", "webhook_secret"]) {
+    for (const secret of [
+      "key_secret",
+      "razorpay_api_secret",
+      "webhook_secret",
+    ]) {
       expect(wire).not.toContain(secret);
       expect(container.textContent).not.toContain(secret);
     }
@@ -926,6 +987,9 @@ describe("the payment window", () => {
     // The panel in its most-rendered state: the rate card, the form and the live pay
     // control. The sweep in `a11y.test.tsx` renders rather than drives, so it cannot
     // reach this state at all.
-    await expectNoA11yViolations(container, "c/[slug]/usage — top-up with a live order");
+    await expectNoA11yViolations(
+      container,
+      "c/[slug]/usage — top-up with a live order",
+    );
   });
 });

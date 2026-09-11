@@ -227,6 +227,19 @@ export function VoicePicker({
       <legend className="text-xs font-medium text-ink-muted">{legend}</legend>
       {hint && <p className="mt-1 text-xs text-ink-faint">{hint}</p>}
       <div className="mt-2 space-y-4">
+        {/* NO VOICES AT ALL — a real, correct and reachable state since D-588, and the one
+            this component must not render as blank space under a hint.
+            `agents/voices.py` no longer compiles a fallback catalogue: a deployment nobody
+            has synced, or one where an operator has enabled nothing, offers none. What to
+            do about it is the SERVER's sentence (`VoiceCatalogueOut.note`, which forks on
+            which of those two it is and says whether reading the catalogue again would
+            help) — the caller passes it as `hint` above, and this says out loud that the
+            absence of rows is the subject rather than a list that failed to paint. */}
+        {voices.length === 0 && (
+          <p className="rounded-card border border-dashed border-line p-3 text-sm text-ink-muted">
+            No voice is available to choose.
+          </p>
+        )}
         {ungrouped.length > 0 && <div className="space-y-2">{ungrouped.map(row)}</div>}
         {groups.map((group) => {
           const money = tierRateReading(rates, group.provider);

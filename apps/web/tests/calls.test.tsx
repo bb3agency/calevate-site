@@ -33,6 +33,7 @@ const ME: Me = {
   role: "owner",
   permissions: ["calls:read"],
   impersonating: false,
+  withheld_acts: [],
   organization: {
     id: "o1",
     name: "Sri Clinic",

@@ -347,13 +347,31 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # So it stays `on_restart`: `live` would be a promise this field cannot keep, and the
     # rule this classification exists for is that a label an operator acts on must be true
     # of the code rather than of the feature's headline.
+    #
+    # ⚠ THE CLASSIFICATION IS RIGHT AND THE CAVEAT USED TO BE WRONG (D-589). It said the
+    # fallback "is read once when the app starts and held for the life of each server
+    # process", which is true of ONE reader and false of the rest — and an operator
+    # reaching for this field during an FX outage is exactly the person who needs to know
+    # which. Verified by reading every caller, 11 Sep 2026:
+    #   * `engine/__init__.build_engine` passes `cfg.usd_inr_rate` into the adapter at
+    #     CONSTRUCTION (`BolnaEngine(fx_rate=...)` → `self._fx_rate`) and `get_engine()`
+    #     caches one adapter per engine name per process — so THAT copy, the one
+    #     `engine/bolna.py::_cost` converts a CALL's cost at, cannot refresh. This one
+    #     reader is the whole of the `on_restart`.
+    #   * `billing/number_rental.rental_inr` and `ops/config_routes.py` (the margin
+    #     figures, twice) and `ops/fx_routes.read_fx_rate` all call
+    #     `get_settings().usd_inr_rate` at the point of use, on every request — they are
+    #     genuinely live and a restart buys them nothing.
+    # So the caveat names the one path a restart actually fixes.
     "usd_inr_rate": AppliesRule(
         ON_RESTART,
-        "this is the FALLBACK rate, used only while the automatic rate pull has nothing "
-        "fresh — normal conversions already use the published rate and need no restart. "
-        "The fallback itself is read once when the app starts and held for the life of "
-        "each server process, so a new value here does not reach the cost calculation "
-        "until every server process is restarted.",
+        "this is the FALLBACK rate, used only while no published rate is fresh — normal "
+        "conversions already use the published rate and need no restart. A new value here "
+        "reaches number rentals and the cost figures on this console immediately. What it "
+        "does NOT reach is the per-CALL cost conversion: the engine adapter copies this "
+        "value when it is built and each server process keeps that adapter for its "
+        "lifetime, so call costs use the new fallback only after every server process is "
+        "restarted.",
     ),
     # The Cartesia adapter captures this at construction and `get_engine()` caches the
     # adapter for the life of the process.

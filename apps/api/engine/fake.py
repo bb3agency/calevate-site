@@ -1127,7 +1127,7 @@ class FakeEngine:
         capitalising an id passes on the platform personas and fails here, which is exactly
         when it should fail.
 
-        It is deliberately NOT `agents/voices.SEED_CATALOG`: a fake that echoed our own seed
+        It is deliberately NOT built from our own catalogue: a fake that echoed our own list
         could not show the difference between "what we compiled" and "what the engine
         offers", which is the entire defect this method was added for (D-585).
         """

@@ -26,7 +26,9 @@ describe("signup with the kill switch in its default position", () => {
     render(<SignupPage />);
 
     expect(screen.getByText("Signing up online is closed")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Create workspace" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Create workspace" }),
+    ).toBeNull();
     expect(screen.queryByLabelText("Business name")).toBeNull();
     expect(screen.queryByRole("textbox")).toBeNull();
   });

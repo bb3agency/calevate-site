@@ -193,7 +193,7 @@ const MODEL_PRICES: ModelPrices = {
       source_note: null,
     },
   ],
-prices: [
+  prices: [
     {
       model: "gpt-4o-mini",
       provider: "azure_openai",
@@ -287,7 +287,9 @@ const RATE_CARD = {
         tts_concurrency: 3,
       },
     ],
-    ladder: [{ call_minutes: "200", plan_id: "pro", cost_inr_per_min: "4.9299" }],
+    ladder: [
+      { call_minutes: "200", plan_id: "pro", cost_inr_per_min: "4.9299" },
+    ],
   },
 };
 

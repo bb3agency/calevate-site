@@ -63,12 +63,17 @@ const TOOL: ActionTool = {
 
 describe("removing a saved credential", () => {
   it("asks in ConfirmDialog and only then sends the DELETE", async () => {
-    const { calls } = await renderClientPage(<Credentials session={SESSION} />, {
-      "/v1/integrations/credentials": [CREDENTIAL],
-      "DELETE /v1/integrations/credentials/cred-1": {},
-    });
+    const { calls } = await renderClientPage(
+      <Credentials session={SESSION} />,
+      {
+        "/v1/integrations/credentials": [CREDENTIAL],
+        "DELETE /v1/integrations/credentials/cred-1": {},
+      },
+    );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Delete Clinic WhatsApp" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Delete Clinic WhatsApp" }),
+    );
 
     // The dialog, not the browser's: it is in the accessibility tree and it names the row.
     const dialog = await screen.findByRole("dialog");
@@ -79,7 +84,9 @@ describe("removing a saved credential", () => {
     await waitFor(() =>
       expect(
         calls.some(
-          (c) => c.method === "DELETE" && c.path === "/v1/integrations/credentials/cred-1",
+          (c) =>
+            c.method === "DELETE" &&
+            c.path === "/v1/integrations/credentials/cred-1",
         ),
       ).toBe(true),
     );
@@ -87,11 +94,16 @@ describe("removing a saved credential", () => {
   });
 
   it("sends nothing when the person backs out", async () => {
-    const { calls } = await renderClientPage(<Credentials session={SESSION} />, {
-      "/v1/integrations/credentials": [CREDENTIAL],
-    });
+    const { calls } = await renderClientPage(
+      <Credentials session={SESSION} />,
+      {
+        "/v1/integrations/credentials": [CREDENTIAL],
+      },
+    );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Delete Clinic WhatsApp" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Delete Clinic WhatsApp" }),
+    );
     fireEvent.click(await screen.findByRole("button", { name: "Cancel" }));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -106,7 +118,9 @@ describe("removing a configured action", () => {
       { "DELETE /v1/agents/agent-1/actions/tool-1": {} },
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Remove send_reminder" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Remove send_reminder" }),
+    );
 
     const dialog = await screen.findByRole("dialog");
     expect(dialog.textContent).toContain("send_reminder");
@@ -116,7 +130,9 @@ describe("removing a configured action", () => {
     await waitFor(() =>
       expect(
         calls.some(
-          (c) => c.method === "DELETE" && c.path === "/v1/agents/agent-1/actions/tool-1",
+          (c) =>
+            c.method === "DELETE" &&
+            c.path === "/v1/agents/agent-1/actions/tool-1",
         ),
       ).toBe(true),
     );
@@ -140,7 +156,8 @@ describe("removing a configured action", () => {
  */
 describe("the browser's own dialogs", () => {
   const SRC = resolve(dirname(fileURLToPath(import.meta.url)), "../src");
-  const BROWSER_DIALOG = /(?<![.\w])(?:window\s*\.\s*)?(?:confirm|alert|prompt)\s*\(/;
+  const BROWSER_DIALOG =
+    /(?<![.\w])(?:window\s*\.\s*)?(?:confirm|alert|prompt)\s*\(/;
 
   function files(dir: string): string[] {
     const found: string[] = [];
@@ -157,11 +174,15 @@ describe("the browser's own dialogs", () => {
     expect(sources.length).toBeGreaterThan(100);
     const offenders: string[] = [];
     for (const path of sources) {
-      blankComments(readFileSync(path, "utf8").split("\n")).forEach((line, index) => {
-        if (BROWSER_DIALOG.test(line)) {
-          offenders.push(`${relPosix(resolve(SRC, ".."), path)}:${index + 1} — ${line.trim()}`);
-        }
-      });
+      blankComments(readFileSync(path, "utf8").split("\n")).forEach(
+        (line, index) => {
+          if (BROWSER_DIALOG.test(line)) {
+            offenders.push(
+              `${relPosix(resolve(SRC, ".."), path)}:${index + 1} — ${line.trim()}`,
+            );
+          }
+        },
+      );
     }
     expect(offenders).toEqual([]);
   });

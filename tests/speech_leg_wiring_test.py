@@ -40,7 +40,7 @@ from unittest import mock
 
 import httpx
 from apps.api.agents.service import in_call_speech
-from apps.api.agents.voices import DEFAULT_SPEAKER, DEFAULT_TTS_MODEL, DEFAULT_VOICE_ID
+from apps.api.agents.voices import DEFAULT_TTS_MODEL
 from apps.api.core.settings import get_settings
 from apps.api.engine.bolna import (
     BASE_URL,
@@ -58,6 +58,7 @@ from calevate_shared.engine import (
     AgentConfig,
     ModelConfig,
 )
+from tests.voice_fixture import TEST_SPEAKER, TEST_VOICE_ID
 
 # The row shape `in_call_speech` reads, as the three keys it touches. A dict rather than a
 # database row: this resolver's whole job is a pure decision over four column values and an
@@ -65,7 +66,7 @@ from calevate_shared.engine import (
 _UNCONFIGURED: dict[str, Any] = {
     "stt_provider": None,
     "stt_model": None,
-    "tts_voice": DEFAULT_VOICE_ID,
+    "tts_voice": TEST_VOICE_ID,
 }
 
 
@@ -203,7 +204,7 @@ def test_the_catalogue_id_is_split_into_the_model_and_the_speaker() -> None:
     speech = in_call_speech(_row(), engine=FakeEngine())
 
     assert speech["tts_model"] == DEFAULT_TTS_MODEL
-    assert speech["tts_voice"] == DEFAULT_SPEAKER
+    assert speech["tts_voice"] == TEST_SPEAKER
     assert speech["tts_voice"] != speech["tts_model"], "the whole of defect 3 in one line"
 
 

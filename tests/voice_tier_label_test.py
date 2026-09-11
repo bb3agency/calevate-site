@@ -16,6 +16,8 @@ Run: uv run pytest tests/voice_tier_label_test.py -q
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from apps.api.billing.rates import (
     VOICE_TIER_LABELS,
     VOICE_TIERS,
@@ -59,6 +61,15 @@ def test_the_label_is_reached_by_a_function_so_there_is_one_definition() -> None
         assert voice_tier_label(tier), "a blank label renders as a nameless tier"
 
 
+@dataclass(frozen=True, slots=True)
+class _Note:
+    """A note and the id to name in a failure — so a per-provider sentence can be checked by
+    the same loop that checks a catalogue entry, without inventing a whole `Voice`."""
+
+    note: str
+    id: str
+
+
 def test_no_catalogue_note_names_a_vendor_as_the_tier() -> None:
     """THE GUARD THIS FILE WAS MISSING, and the string it would have caught.
 
@@ -67,22 +78,21 @@ def test_no_catalogue_note_names_a_vendor_as_the_tier() -> None:
     (`tests/agent_voice_test.py` proves the client read). Both shared notes said "the
     <vendor> voice tier" in as many words, which is exactly the sentence
     `test_no_label_names_a_vendor` forbids one level up: the labels were clean and the
-    prose beside them was not. So the rule is asserted over the prose too, and a Cartesia
-    entry is BUILT rather than taken from `catalogue()` because that half ships empty.
+    prose beside them was not. So the rule is asserted over the prose too, and it is asserted
+    over `catalogue_note` PER PROVIDER rather than over catalogue entries: since D-588 the
+    entries come from whatever the engine account happens to list, so a deployment with no
+    Cartesia provider would silently stop checking the Cartesia sentence.
     """
-    from apps.api.agents.voices import CartesiaVoiceRecord, _cartesia_entry, catalogue
+    from apps.api.agents.voices import catalogue, catalogue_note
 
-    built = _cartesia_entry(
-        CartesiaVoiceRecord(id="test-record-not-a-real-voice-id", name="Test", languages=("te-IN",))
-    )
-    for voice in (*catalogue(), built):
-        lowered = voice.note.lower()
+    for note in (*(voice.note for voice in catalogue()), catalogue_note("cartesia")):
+        lowered = note.lower()
         for vendor in VOICE_TIERS:
             assert f"{vendor} voice tier" not in lowered, (
-                f"{voice.id}'s note calls the tier {vendor!r}. A client reads this string; "
-                f"the tier is called {voice_tier_label(voice.provider)!r} to them."
+                f"a catalogue note calls the tier {vendor!r}. A client reads this string."
             )
-        assert voice_tier_label(voice.provider) in voice.note, (
+    for provider in ("sarvam", "cartesia"):
+        assert voice_tier_label(provider) in catalogue_note(provider), (
             "the note names the tier, and it must name it the way the client is told it — "
             "composed from `voice_tier_label`, never typed in a second time"
         )
@@ -93,13 +103,13 @@ def test_no_catalogue_note_tells_a_client_to_fix_our_configuration() -> None:
     Cartesia key is installed, its price attested and the platform-wide Cartesia agent cap
     not reached" — two of our own settings, in a client-readable string, and a second
     un-forked copy of an answer `agents/voice_offer.unofferable_reason` gives per audience
-    and per deployment."""
-    from apps.api.agents.voices import CartesiaVoiceRecord, _cartesia_entry, catalogue
+    and per deployment.
 
-    built = _cartesia_entry(
-        CartesiaVoiceRecord(id="test-record-not-a-real-voice-id", name="Test", languages=("te-IN",))
-    )
-    for voice in (*catalogue(), built):
+    Over `catalogue_note` per provider rather than over entries, for the reason the clause
+    above gives: since D-588 the entries are whatever the engine listed."""
+    from apps.api.agents.voices import catalogue, catalogue_note
+
+    for voice in (*catalogue(), *(_Note(catalogue_note(p), p) for p in ("sarvam", "cartesia"))):
         lowered = voice.note.lower()
         for ours in ("cartesia_api_key", "cartesia_agent_cap", "ops console", "attest"):
             assert ours not in lowered, (

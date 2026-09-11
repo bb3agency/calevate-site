@@ -79,11 +79,16 @@ export function CampaignsScreen() {
   const { name, numberId, csv } = form;
 
   /**
-   * D-22 read-only, applied to the controls rather than discovered on click. All four
+   * The permission, applied to the controls rather than discovered on click. All four
    * mutating steps on this screen — create, add contacts, launch, pause/resume — are
-   * `leads:dispatch` (campaigns/routes.py), which is a MUTATING permission: `staff`
-   * does not hold it, and an impersonating operator is refused it however senior they
-   * are. The note is rendered once at the top rather than four times, because the
+   * `leads:dispatch` (campaigns/routes.py), which `staff` does not hold.
+   *
+   * ⚠ IT ALSO SAID "an impersonating operator is refused it however senior they are"
+   * (D-22) AND THAT IS REVERSED: `leads:dispatch` is `None` in `rbac.VIEW_AS_MUTATIONS`,
+   * so a view-as operator MAY launch — the founder's own case, since dispatching a
+   * client's campaign is listed among an `operator`'s support duties — and every dial is
+   * recorded against them. The note is rendered once at the top rather than four times,
+   * because the
    * reason is the same one every time; the launch control is the single exception and
    * says why at its own call site. The server still refuses; every ProblemNotice below
    * stays.

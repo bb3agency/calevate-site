@@ -32,7 +32,12 @@ const ME = {
   role: "owner",
   permissions: ["agents:read", "calls:read"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 function report(over: Partial<QaReport> = {}): QaReport {
@@ -89,9 +94,13 @@ describe("the client's quality report", () => {
       "/v1/quality/reports": [report()],
     });
     await screen.findByText("No defects found across 58 scenarios");
-    expect(container.textContent).toContain(renderMeasurement(report().everything_captured));
+    expect(container.textContent).toContain(
+      renderMeasurement(report().everything_captured),
+    );
     expect(container.textContent).toContain("Budget (lakhs)");
-    expect(container.textContent).toContain("11 of those scenarios are adversarial");
+    expect(container.textContent).toContain(
+      "11 of those scenarios are adversarial",
+    );
   });
 
   it("names the defects when there are any, instead of softening them", async () => {
@@ -130,7 +139,10 @@ describe("the client's quality report", () => {
   it("offers earlier months and shows the one that was picked", async () => {
     await renderClientPage(<QualityPage />, {
       "/v1/me": ME,
-      "/v1/quality/reports": [report(), report({ as_of: "2026-06-30", defects: 2 })],
+      "/v1/quality/reports": [
+        report(),
+        report({ as_of: "2026-06-30", defects: 2 }),
+      ],
     });
     // Newest first by default — the server's order, kept.
     await screen.findByText("No defects found across 58 scenarios");
@@ -165,10 +177,14 @@ describe("the client's quality report", () => {
         ],
       });
       await screen.findByText("No defects found across 58 scenarios");
-      expect(screen.getByRole("button", { name: "September 2026" })).toBeTruthy();
+      expect(
+        screen.getByRole("button", { name: "September 2026" }),
+      ).toBeTruthy();
       // The report's own line names the same month, in words rather than as a wire
       // format — and the same UTC-anchored day, not the one the browser's zone lands on.
-      expect(container.textContent).toContain("For the month ending 1 September 2026");
+      expect(container.textContent).toContain(
+        "For the month ending 1 September 2026",
+      );
       expect(container.textContent).not.toContain("2026-09-01");
     } finally {
       if (original === undefined) delete process.env.TZ;
@@ -196,7 +212,8 @@ describe("the client's quality report", () => {
     // The strongest claim on this screen is that we test the agent. Its ABSENCE is the
     // second strongest, and it must never be made from a request that was never sent.
     expect(container.textContent).not.toContain("No quality report yet");
-    expect(container.textContent).toContain("Your quality reports could not be loaded");
+    expect(container.textContent).toContain(
+      "Your quality reports could not be loaded",
+    );
   });
-
 });

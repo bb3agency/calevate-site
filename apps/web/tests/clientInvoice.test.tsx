@@ -1,7 +1,6 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-
 import { formatINR } from "@/components/ui";
 import type { Invoice } from "@/lib/api/invoice";
 
@@ -28,7 +27,9 @@ import { problem } from "./harness";
  * 4. **Money is the server's string, formatted and never parsed** (hard rule 7).
  */
 
-const MONTH = new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" }).slice(0, 7);
+const MONTH = new Date()
+  .toLocaleDateString("en-CA", { timeZone: "Asia/Kolkata" })
+  .slice(0, 7);
 const ROUTE = `/v1/billing/invoice?month=${encodeURIComponent(MONTH)}`;
 
 const ME = {
@@ -37,7 +38,12 @@ const ME = {
   role: "owner",
   permissions: ["wallet:read", "billing:read", "org:read"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Traders", slug: "acme", status: "active" },
+  organization: {
+    id: "o1",
+    name: "Sri Traders",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 /**
@@ -75,7 +81,8 @@ function invoice(over: Partial<Invoice> = {}): Invoice {
       state_code: "29",
       state_name: "Karnataka",
       supply_type: "interstate",
-      basis: "Location of the recipient, a registered person (IGST Act s.12(2)(a)).",
+      basis:
+        "Location of the recipient, a registered person (IGST Act s.12(2)(a)).",
     },
     line_items: [
       {
@@ -171,7 +178,9 @@ describe("the client's own invoice", () => {
           supply_type: "undetermined",
           basis: "No GST registration is configured for Calevate.",
         },
-        tax_components: [{ label: "GST", rate_pct: "18", amount_inr: "1826.11" }],
+        tax_components: [
+          { label: "GST", rate_pct: "18", amount_inr: "1826.11" },
+        ],
       }),
     );
 
@@ -181,10 +190,14 @@ describe("the client's own invoice", () => {
     // not is worse than one that admits what it is.
     expect(container.textContent).not.toContain("TAX INVOICE");
     expect(container.textContent).toContain("This is not a tax invoice.");
-    expect(container.textContent).toContain("no input tax credit can be claimed against it");
+    expect(container.textContent).toContain(
+      "no input tax credit can be claimed against it",
+    );
     // The document names the REASON, and the reason is that we are not registered and are
     // not required to be — not that a registration is pending somewhere.
-    expect(container.textContent).toContain("not required to be at its present turnover");
+    expect(container.textContent).toContain(
+      "not required to be at its present turnover",
+    );
     // Named configuration, so the person who can fix it knows what to set.
     expect(container.textContent).toContain("GST_SUPPLIER_GSTIN");
     // And the figures are still the real ones: a missing environment variable changes
@@ -200,7 +213,9 @@ describe("the client's own invoice", () => {
     // Supplier: the LEGAL ENTITY and its registered address, not the brand word
     // "Calevate" that used to be hardcoded in this markup.
     expect(container.textContent).toContain("Calevate");
-    expect(container.textContent).toContain("Plot 42, Madhapur, Hyderabad 500081");
+    expect(container.textContent).toContain(
+      "Plot 42, Madhapur, Hyderabad 500081",
+    );
     expect(container.textContent).toContain("36AABCC1234D1Z5");
     // Recipient GSTIN — without it a B2B client cannot claim input credit.
     expect(container.textContent).toContain("29AAACR5055K1Z6");
@@ -237,7 +252,8 @@ describe("the client's own invoice", () => {
           state_code: "36",
           state_name: "Telangana",
           supply_type: "intrastate",
-          basis: "Location of the recipient, a registered person (IGST Act s.12(2)(a)).",
+          basis:
+            "Location of the recipient, a registered person (IGST Act s.12(2)(a)).",
         },
         tax_components: [
           { label: "CGST", rate_pct: "9", amount_inr: "913.06" },
@@ -300,7 +316,9 @@ describe("the client's own invoice", () => {
 
     // No tenant id anywhere in the request: the server takes it from the principal, so
     // there is nothing here that could be pointed at another account.
-    const invoiceCalls = calls.filter((c) => c.path.startsWith("/v1/billing/invoice"));
+    const invoiceCalls = calls.filter((c) =>
+      c.path.startsWith("/v1/billing/invoice"),
+    );
     expect(invoiceCalls.map((c) => c.path)).toEqual([ROUTE]);
     expect(invoiceCalls[0]?.method).toBe("GET");
   });

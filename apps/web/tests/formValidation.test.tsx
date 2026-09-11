@@ -36,6 +36,7 @@ import { codeOnly } from "./sourceScan";
 
 const ME: Me = {
   impersonating: false,
+  withheld_acts: [],
   permissions: ["org:read", "org:manage", "leads:read"],
   realm: "client",
   role: "owner",
@@ -64,11 +65,15 @@ describe("an address that is not one", () => {
     const page = await renderTeam();
     await screen.findByText("Anita");
 
-    const field = screen.getByLabelText("Email address to invite") as HTMLInputElement;
+    const field = screen.getByLabelText(
+      "Email address to invite",
+    ) as HTMLInputElement;
     fireEvent.change(field, { target: { value: "priya" } });
     fireEvent.click(screen.getByRole("button", { name: /Create invite link/ }));
 
-    const message = await screen.findByText("Enter an email address, like name@example.com.");
+    const message = await screen.findByText(
+      "Enter an email address, like name@example.com.",
+    );
     expect(page.calls.some((c) => c.method === "POST")).toBe(false);
 
     // The message is the field's DESCRIPTION, the field says it is invalid, and focus is
@@ -83,14 +88,18 @@ describe("an address that is not one", () => {
     fireEvent.change(field, { target: { value: "priya@clinic.example" } });
     fireEvent.input(field, { target: { value: "priya@clinic.example" } });
     await waitFor(() =>
-      expect(screen.queryByText("Enter an email address, like name@example.com.")).toBeNull(),
+      expect(
+        screen.queryByText("Enter an email address, like name@example.com."),
+      ).toBeNull(),
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Create invite link/ }));
     await waitFor(() =>
-      expect(page.calls.some((c) => c.method === "POST" && c.path === "/v1/invitations")).toBe(
-        true,
-      ),
+      expect(
+        page.calls.some(
+          (c) => c.method === "POST" && c.path === "/v1/invitations",
+        ),
+      ).toBe(true),
     );
   });
 
@@ -133,7 +142,9 @@ describe("an admin form with two answers missing", () => {
     const email = (await screen.findByLabelText(
       "Email address of the admin to add",
     )) as HTMLInputElement;
-    const reason = screen.getByLabelText("Why you are adding this admin") as HTMLInputElement;
+    const reason = screen.getByLabelText(
+      "Why you are adding this admin",
+    ) as HTMLInputElement;
 
     // SUBMITTED, not clicked. The typed-phrase gate still deadens the button — it is a
     // gate on the act rather than an answer on a control, so it stays there — and Enter
@@ -142,7 +153,9 @@ describe("an admin form with two answers missing", () => {
     const form = email.closest("form") as HTMLFormElement;
     fireEvent.submit(form);
 
-    const emailMessage = await screen.findByText("Enter the address this admin signs in with.");
+    const emailMessage = await screen.findByText(
+      "Enter the address this admin signs in with.",
+    );
     await screen.findByText("Say why this admin is being added.");
     expect(page.calls.some((c) => c.method === "POST")).toBe(false);
 
@@ -164,7 +177,9 @@ describe("an admin form with two answers missing", () => {
     fireEvent.submit(form);
     await waitFor(() =>
       expect(
-        page.calls.some((c) => c.method === "POST" && c.path === "/v1/admin/operators"),
+        page.calls.some(
+          (c) => c.method === "POST" && c.path === "/v1/admin/operators",
+        ),
       ).toBe(true),
     );
   });
@@ -241,9 +256,12 @@ describe("no form in either realm leaves its refusals to the browser", () => {
       // submit" — the comment written to explain that the element deliberately is not
       // one. Blanked in place, so the reported line still points at the real line. See
       // `tests/sourceScan.ts` for why that helper is shared rather than copied.
-      for (const { line, tag } of formTags(codeOnly(readFileSync(file, "utf8")))) {
+      for (const { line, tag } of formTags(
+        codeOnly(readFileSync(file, "utf8")),
+      )) {
         seen += 1;
-        if (!/noValidate/.test(tag)) offenders.push(`${relPosix(process.cwd(), file)}:${line}`);
+        if (!/noValidate/.test(tag))
+          offenders.push(`${relPosix(process.cwd(), file)}:${line}`);
       }
     }
     expect(seen).toBeGreaterThan(50);
@@ -289,7 +307,9 @@ describe("two answers missing at once", () => {
     const title = (await screen.findByLabelText(
       "What this knowledge is about",
     )) as HTMLInputElement;
-    const body = screen.getByLabelText("What the agent should say") as HTMLTextAreaElement;
+    const body = screen.getByLabelText(
+      "What the agent should say",
+    ) as HTMLTextAreaElement;
 
     fireEvent.click(screen.getByRole("button", { name: /Submit for review/ }));
 
@@ -310,9 +330,11 @@ describe("two answers missing at once", () => {
     fireEvent.change(title, { target: { value: "Parking" } });
     fireEvent.click(screen.getByRole("button", { name: /Submit for review/ }));
     await waitFor(() =>
-      expect(page.calls.some((c) => c.method === "POST" && c.path === "/v1/kb/sources")).toBe(
-        true,
-      ),
+      expect(
+        page.calls.some(
+          (c) => c.method === "POST" && c.path === "/v1/kb/sources",
+        ),
+      ).toBe(true),
     );
   });
 });
@@ -327,19 +349,22 @@ describe("two answers missing at once", () => {
 describe("the words each rule uses", () => {
   function input(attrs: Record<string, string>): HTMLInputElement {
     const el = document.createElement("input");
-    for (const [key, value] of Object.entries(attrs)) el.setAttribute(key, value);
+    for (const [key, value] of Object.entries(attrs))
+      el.setAttribute(key, value);
     return el;
   }
 
   it("says what is asked for when a field is empty, in the form's own words", () => {
-    expect(fieldProblem(input({ required: "" }), "Enter your email address.")).toBe(
-      "Enter your email address.",
-    );
+    expect(
+      fieldProblem(input({ required: "" }), "Enter your email address."),
+    ).toBe("Enter your email address.");
     // Whitespace is emptiness here. The browser counts a space as filled; the server
     // strips before it validates, so the browser's reading sends a space to be refused.
     const spaced = input({ required: "" });
     spaced.value = "   ";
-    expect(fieldProblem(spaced, "Enter your email address.")).toBe("Enter your email address.");
+    expect(fieldProblem(spaced, "Enter your email address.")).toBe(
+      "Enter your email address.",
+    );
   });
 
   it("never says 'field', 'required', 'invalid' or a type name", () => {
@@ -363,7 +388,13 @@ describe("the words each rule uses", () => {
     for (const [el] of cases) {
       const message = fieldProblem(el, "Answer this.");
       expect(message, `no message for ${el.type}`).toBeTruthy();
-      for (const banned of ["field", "required", "invalid", "String", "format"]) {
+      for (const banned of [
+        "field",
+        "required",
+        "invalid",
+        "String",
+        "format",
+      ]) {
         expect(message!.toLowerCase()).not.toContain(banned.toLowerCase());
       }
       // One sentence, ending in a full stop, like every other refusal in the console.

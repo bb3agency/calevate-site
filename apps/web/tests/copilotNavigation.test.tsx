@@ -28,7 +28,10 @@ import { noFill, type CopilotSurface } from "@/lib/copilot/types";
  * `fetch` and the router are replaced.
  */
 
-const nav = vi.hoisted(() => ({ pathname: "/c/acme/leads", pushed: [] as string[] }));
+const nav = vi.hoisted(() => ({
+  pathname: "/c/acme/leads",
+  pushed: [] as string[],
+}));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => nav.pathname,
@@ -51,7 +54,8 @@ const TO_CREDITS = {
   screen: "Credits & billing",
   route: "/c/{slug}/billing",
   where: "Credits & billing, under Settings & account in the left sidebar",
-  detail: "Opening Credits & billing, under Settings & account in the left sidebar.",
+  detail:
+    "Opening Credits & billing, under Settings & account in the left sidebar.",
   reversal: "Your browser's back button brings you back to this screen.",
 };
 
@@ -69,7 +73,9 @@ function sse(chunks: string[]): Response {
 }
 
 /** An answer that opens a screen: the model's sentence, the frame, then `done`. */
-function navigationChunks(frame: Record<string, unknown> = TO_CREDITS): string[] {
+function navigationChunks(
+  frame: Record<string, unknown> = TO_CREDITS,
+): string[] {
   return [
     'event: text\ndata: {"delta":"Opening Credits & billing for you."}\n\n',
     `event: navigate\ndata: ${JSON.stringify(frame)}\n\n`,
@@ -89,8 +95,16 @@ function stubAsk(chunks: string[]) {
 }
 
 /** A screen that declares itself however this test needs, beside the real dock. */
-function Mount({ surface, children }: { surface: CopilotSurface | null; children?: ReactNode }) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function Mount({
+  surface,
+  children,
+}: {
+  surface: CopilotSurface | null;
+  children?: ReactNode;
+}) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return (
     <QueryClientProvider client={client}>
       {/* The skip-link target the shells give every screen, and what a copilot navigation
@@ -130,7 +144,9 @@ const HAS_A_FORM: CopilotSurface = {
 
 async function openDock() {
   await act(async () => {
-    fireEvent.click(screen.getByRole("button", { name: "Ask about this screen" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Ask about this screen" }),
+    );
   });
 }
 
@@ -139,11 +155,16 @@ async function ask(question: string) {
     target: { value: question },
   });
   await act(async () => {
-    fireEvent.submit(screen.getByRole("button", { name: "Ask" }).closest("form")!);
+    fireEvent.submit(
+      screen.getByRole("button", { name: "Ask" }).closest("form")!,
+    );
   });
 }
 
-async function askToBeTaken(surface: CopilotSurface, chunks = navigationChunks()) {
+async function askToBeTaken(
+  surface: CopilotSurface,
+  chunks = navigationChunks(),
+) {
   nav.pushed.length = 0;
   stubAsk(chunks);
   render(<Mount surface={surface} />);
@@ -155,9 +176,13 @@ async function askToBeTaken(surface: CopilotSurface, chunks = navigationChunks()
 
 describe("resolving a destination", () => {
   it("substitutes the slug and returns an in-app path", () => {
-    expect(resolveDestination("/c/{slug}/billing", "acme")).toBe("/c/acme/billing");
+    expect(resolveDestination("/c/{slug}/billing", "acme")).toBe(
+      "/c/acme/billing",
+    );
     expect(resolveDestination("/c/{slug}", "acme")).toBe("/c/acme");
-    expect(resolveDestination("/c/{slug}/settings/team", "acme")).toBe("/c/acme/settings/team");
+    expect(resolveDestination("/c/{slug}/settings/team", "acme")).toBe(
+      "/c/acme/settings/team",
+    );
   });
 
   it("REFUSES ANYTHING THAT IS NOT A SCREEN THIS CONSOLE HAS", () => {
@@ -166,7 +191,9 @@ describe("resolving a destination", () => {
     // product. Membership of `clientNavigation()` is what makes the class unreachable
     // rather than filtered — none of these is one of its 28 constants.
     expect(resolveDestination("//evil.example", "acme")).toBeNull();
-    expect(resolveDestination("https://evil.example/c/{slug}/credits", "acme")).toBeNull();
+    expect(
+      resolveDestination("https://evil.example/c/{slug}/credits", "acme"),
+    ).toBeNull();
     expect(resolveDestination("/c/{slug}/../../admin/ops", "acme")).toBeNull();
     expect(resolveDestination("/c/{slug}/not-a-screen", "acme")).toBeNull();
     expect(resolveDestination("/admin/ops", "acme")).toBeNull();
@@ -222,12 +249,18 @@ describe('"take me to billing page"', () => {
     expect(document.body.textContent).not.toContain("/c/acme/billing");
     // WHAT A SCREEN-READER USER HEARS. Nothing else in this console announces a route
     // change, so a move nobody clicked for has to say where it went.
-    expect(screen.getByText("Opened Credits & billing, under Settings & account in the left sidebar.")).toBeTruthy();
+    expect(
+      screen.getByText(
+        "Opened Credits & billing, under Settings & account in the left sidebar.",
+      ),
+    ).toBeTruthy();
     // …and where the caret is when they get there: the skip-link target, not the sidebar.
     // One frame, because the focus move waits for the router's own commit rather than
     // guessing a delay — see `CopilotDock`.
     await act(async () => {
-      await new Promise((resolve) => requestAnimationFrame(() => resolve(null)));
+      await new Promise((resolve) =>
+        requestAnimationFrame(() => resolve(null)),
+      );
     });
     expect(document.activeElement?.id).toBe(MAIN_CONTENT_ID);
   });
@@ -236,7 +269,9 @@ describe('"take me to billing page"', () => {
     await askToBeTaken(HAS_A_FORM);
 
     expect(nav.pushed).toEqual([]);
-    expect(screen.getByRole("dialog", { name: "Open Credits & billing?" })).toBeTruthy();
+    expect(
+      screen.getByRole("dialog", { name: "Open Credits & billing?" }),
+    ).toBeTruthy();
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Stay here" }));
     });
@@ -249,7 +284,9 @@ describe('"take me to billing page"', () => {
   it("moves them when they answer the question with yes", async () => {
     await askToBeTaken(HAS_A_FORM);
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Open Credits & billing" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Open Credits & billing" }),
+      );
     });
     expect(nav.pushed).toEqual(["/c/acme/billing"]);
   });
@@ -282,10 +319,16 @@ describe('"take me to billing page"', () => {
         return new Response(
           new ReadableStream<Uint8Array>({
             async start(controller) {
-              controller.enqueue(encoder.encode(`event: navigate\ndata: ${JSON.stringify(TO_CREDITS)}\n\n`));
+              controller.enqueue(
+                encoder.encode(
+                  `event: navigate\ndata: ${JSON.stringify(TO_CREDITS)}\n\n`,
+                ),
+              );
               await held;
               controller.enqueue(
-                encoder.encode('event: done\ndata: {"disclosure":null,"metered":true}\n\n'),
+                encoder.encode(
+                  'event: done\ndata: {"disclosure":null,"metered":true}\n\n',
+                ),
               );
               controller.close();
             },

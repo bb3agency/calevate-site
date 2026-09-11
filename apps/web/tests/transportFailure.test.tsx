@@ -75,7 +75,9 @@ describe("a fetch that rejects", () => {
   it("arrives as an ApiProblem, so every screen already renders it", async () => {
     rejectingFetch(networkError());
 
-    const error = await failureOf(apiRequest(SESSION, "/v1/agents", { method: "POST", body: {} }));
+    const error = await failureOf(
+      apiRequest(SESSION, "/v1/agents", { method: "POST", body: {} }),
+    );
 
     expect(error).toBeInstanceOf(TransportProblem);
     expect(error).toBeInstanceOf(ApiProblem);
@@ -98,7 +100,9 @@ describe("a fetch that rejects", () => {
     // itself — a navigation, a reload, a closed tab. Our deadline and a caller's signal
     // are the two other sources and both are handled by `withDeadline`, so what reaches
     // the classifier here can only be the browser's own.
-    rejectingFetch(new DOMException("The user aborted a request.", "AbortError"));
+    rejectingFetch(
+      new DOMException("The user aborted a request.", "AbortError"),
+    );
     const cancelled = await failureOf(
       apiRequest(SESSION, "/v1/agents", { method: "POST", body: {} }),
     );
@@ -116,14 +120,21 @@ describe("a fetch that rejects", () => {
     const cause = networkError();
     rejectingFetch(cause);
 
-    const error = await failureOf(apiRequest(SESSION, "/v1/kb/uploads/u-1", { method: "DELETE" }));
+    const error = await failureOf(
+      apiRequest(SESSION, "/v1/kb/uploads/u-1", { method: "DELETE" }),
+    );
 
-    expect(error.request).toEqual({ method: "DELETE", path: "/v1/kb/uploads/u-1" });
+    expect(error.request).toEqual({
+      method: "DELETE",
+      path: "/v1/kb/uploads/u-1",
+    });
     // ATTACHED, never logged and never rendered (hard rule 6): a `TypeError`'s message
     // carries the request URL, and a URL can carry a phone number.
     expect(error.cause).toBe(cause);
     render(<ProblemNotice error={error} onRetry={() => {}} />);
-    expect(screen.getByRole("alert").textContent).not.toContain("/v1/kb/uploads/u-1");
+    expect(screen.getByRole("alert").textContent).not.toContain(
+      "/v1/kb/uploads/u-1",
+    );
   });
 
   it("sends a correlation id on writes — the id that says whether the request arrived", async () => {
@@ -140,7 +151,9 @@ describe("a fetch that rejects", () => {
   it("puts that same id on the failure, where the screen shows it as the reference", async () => {
     rejectingFetch(networkError());
 
-    const error = await failureOf(apiRequest(SESSION, "/v1/agents", { method: "POST", body: {} }));
+    const error = await failureOf(
+      apiRequest(SESSION, "/v1/agents", { method: "POST", body: {} }),
+    );
 
     expect(error.traceId).toMatch(/^[0-9a-f]{32}$/);
     render(<ProblemNotice error={error} onRetry={() => {}} />);
@@ -160,7 +173,9 @@ describe("a fetch that rejects", () => {
   it("says what it observed and nothing more", async () => {
     rejectingFetch(networkError());
 
-    const error = await failureOf(apiRequest(SESSION, "/v1/agents", { method: "POST", body: {} }));
+    const error = await failureOf(
+      apiRequest(SESSION, "/v1/agents", { method: "POST", body: {} }),
+    );
     render(<ProblemNotice error={error} onRetry={() => {}} />);
     const box = screen.getByRole("alert").textContent ?? "";
 
@@ -183,9 +198,10 @@ describe("a fetch that rejects", () => {
     vi.useFakeTimers();
     stubApi({ "/v1/agents": stillLoading() });
 
-    const pending = apiRequest(SESSION, "/v1/agents", { method: "POST", body: {} }).catch(
-      (cause: unknown) => cause,
-    );
+    const pending = apiRequest(SESSION, "/v1/agents", {
+      method: "POST",
+      body: {},
+    }).catch((cause: unknown) => cause);
     await vi.advanceTimersByTimeAsync(70_000);
 
     expect(await pending).toBeInstanceOf(TimeoutProblem);

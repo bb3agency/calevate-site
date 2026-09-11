@@ -1111,13 +1111,16 @@ function CallCapPanel({
  * force at all; the fix was not to start guessing but to make the server answer.
  *
  * **The picker pre-selects `voice.configured`** and nothing else. Not `voice.live` (the
- * operator edits the configuration, not the past), not the catalogue's `is_default` (that
- * is D-36's written default, not this agent's state), and not a blank when the server
+ * operator edits the configuration, not the past), not the first row of the catalogue
+ * (D-588 deleted the compiled default persona, so there is no `is_default` to fall back
+ * to and the order is whatever the voice platform returned), and not a blank when the server
  * answered — a picker that reopens on "choose a voice" over a configured agent invites
  * the operator to re-pick a value that is already set.
  *
- * `verified: false` is rendered, not hidden: the catalogue entries carry it until the
- * Bolna pilot confirms each string is selectable on the engine (OPERATIONS §2 gate 3), and
+ * `verified` is rendered, not hidden. Since D-585/D-588 it is TRUE on every entry and
+ * means one narrow thing — the voice platform's own API listed this voice on our account
+ * for a model we offer. It is not an ear test: which voice suits Telugu best is
+ * OPERATIONS §2 gate 3's listening half, still open. And
  * an operator picking an unverified voice should know that is what they are doing.
  *
  * **EVERY catalogue voice is rendered, including the ones this deployment cannot offer**
@@ -1223,7 +1226,13 @@ function VoicePanel({
               <VoicePicker
                 name="agent-voice"
                 legend="Voice"
-                hint="Every voice this deployment knows about. One that cannot be chosen says why, in the words of whoever can fix it."
+                /* THE SERVER'S OWN SENTENCE, not a hardcoded one. It used to read "Every
+                   voice this deployment knows about…", which is still true of a synced and
+                   curated platform and says nothing at all on the two states where the list
+                   is EMPTY (D-588): nobody has synced, or nobody has enabled anything. Those
+                   need different actions — one is fixed by Refresh and the other is not —
+                   and `VoiceCatalogueOut.note` is the one place that forks on which it is. */
+                hint={catalogue.data.note}
                 voices={catalogue.data.voices}
                 value={selected}
                 rates={rates}

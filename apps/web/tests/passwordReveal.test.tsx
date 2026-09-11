@@ -43,7 +43,8 @@ function Field(props: { reveals?: string } = {}) {
   );
 }
 
-const input = (): HTMLInputElement => screen.getByLabelText("Password") as HTMLInputElement;
+const input = (): HTMLInputElement =>
+  screen.getByLabelText("Password") as HTMLInputElement;
 const toggle = (name = "Show password"): HTMLButtonElement =>
   screen.getByRole("button", { name }) as HTMLButtonElement;
 
@@ -78,7 +79,9 @@ describe("the reveal control flips the field and says so", () => {
 
   it("names itself after the field, so two on one form are distinguishable", () => {
     render(<Field reveals="new password" />);
-    expect(screen.getByRole("button", { name: "Show new password" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Show new password" }),
+    ).toBeTruthy();
   });
 
   it("hides the icon from assistive technology", () => {
@@ -226,22 +229,35 @@ describe("the field-level refusal wiring is untouched by the toggle", () => {
     expect(field.tagName).toBe("INPUT");
     expect(field.getAttribute("aria-invalid")).toBe("true");
 
-    const describedBy = (field.getAttribute("aria-describedby") ?? "").split(" ");
+    const describedBy = (field.getAttribute("aria-describedby") ?? "").split(
+      " ",
+    );
     expect(describedBy.length).toBe(2);
     const alert = screen.getByRole("alert");
     expect(describedBy).toContain(alert.id);
-    expect(alert.textContent).toBe("That password is on a list of common passwords.");
+    expect(alert.textContent).toBe(
+      "That password is on a list of common passwords.",
+    );
 
     // …and the reveal still works on a field that is currently refusing.
     fireEvent.click(screen.getByRole("button", { name: "Show new password" }));
-    expect((screen.getByLabelText("New password") as HTMLInputElement).type).toBe("text");
-    expect(screen.getByLabelText("New password").getAttribute("aria-invalid")).toBe("true");
+    expect(
+      (screen.getByLabelText("New password") as HTMLInputElement).type,
+    ).toBe("text");
+    expect(
+      screen.getByLabelText("New password").getAttribute("aria-invalid"),
+    ).toBe("true");
   });
 
   it("leaves a non-password field with no toggle at all", async () => {
     await act(async () => {
       render(
-        <AuthField label="Email address" type="email" value="" onChange={() => {}} />,
+        <AuthField
+          label="Email address"
+          type="email"
+          value=""
+          onChange={() => {}}
+        />,
       );
     });
     expect(screen.queryByRole("button")).toBeNull();

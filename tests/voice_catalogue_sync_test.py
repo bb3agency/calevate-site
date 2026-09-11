@@ -25,8 +25,6 @@ from apps.api.agents.voice_sync import (
     voice_from_engine,
 )
 from apps.api.agents.voices import (
-    DEFAULT_VOICE_ID,
-    SEED_CATALOG,
     catalogue,
     catalogue_source,
     install_voice_catalogue,
@@ -34,16 +32,24 @@ from apps.api.agents.voices import (
 )
 from apps.api.db.session import untenanted_session
 from calevate_shared.engine import EngineVoice, EngineVoiceListing
-from sqlalchemy import delete
+from sqlalchemy import delete, text
+from tests.voice_fixture import seed_platform_voices
 
 
 @pytest.fixture(autouse=True)
-def _restore_seed() -> object:
-    """Every clause installs into a process-wide snapshot, so every clause puts it back.
-    Without this the first test to install leaks its catalogue into the rest of the run —
-    and the catalogue decides what the voice picker offers."""
+async def _restore_the_platforms_voices() -> object:
+    """Every clause here mutates PLATFORM state — the process snapshot and the shared
+    `platform_voice_catalog` rows — so every clause puts both back.
+
+    The snapshot half is `conftest._voice_catalogue_snapshot_is_restored`'s job and runs
+    after this. The ROWS are this file's, because this is the only suite that deletes them:
+    leaving the table empty would take every later suite's voice picker to zero entries and
+    fail them on a state this file created (D-588 deleted the compiled fallback that used to
+    paper over exactly that).
+    """
     yield
-    install_voice_catalogue(None)
+    await _clear()
+    await seed_platform_voices()
 
 
 def _engine_voice(**overrides: object) -> EngineVoice:
@@ -134,24 +140,21 @@ def test_the_catalogue_puts_the_cheaper_tier_first() -> None:
 # --- the snapshot and the fallback (constraint 5) --------------------------------------
 
 
-def test_the_seed_is_in_force_until_something_is_installed() -> None:
-    """The product must not become unpublishable because a background job has never run."""
-    assert catalogue() == SEED_CATALOG
-    assert catalogue_source() == "seed"
+def test_nothing_is_in_force_until_something_is_installed() -> None:
+    """NO COMPILED FALLBACK (D-588). A process that has installed nothing offers nothing,
+    and says which of the two empty states it is in.
+
+    This is the founder's requirement rather than a regression: only voices an operator has
+    enabled may be selectable, and a list compiled into the source is by construction a list
+    nobody enabled. The old clause here asserted the opposite — that the product stays
+    publishable off a built-in seed — and the seed it protected was the defect.
+    """
+    install_voice_catalogue(None)
+    assert catalogue() == ()
+    assert catalogue_source() == "unsynced"
 
 
-def test_the_seed_holds_no_voice_the_engine_is_known_to_reject() -> None:
-    """`anushka` is the first name in Sarvam's enum and the one the engine refused. A seed
-    compiled from the model vendor would ship it; this one is built from voices a live
-    engine read returned."""
-    assert all("anushka" not in voice.id for voice in SEED_CATALOG)
-    assert any(voice.id == DEFAULT_VOICE_ID for voice in SEED_CATALOG), (
-        "the default persona must survive in the fallback, or a fresh deployment cannot "
-        "create the agent its own picker pre-selects a voice for"
-    )
-
-
-def test_installing_a_synced_catalogue_replaces_the_seed_and_says_so() -> None:
+def test_installing_a_synced_catalogue_replaces_the_empty_state_and_says_so() -> None:
     install_voice_catalogue(
         catalogue_from_listing(
             EngineVoiceListing(
@@ -163,36 +166,39 @@ def test_installing_a_synced_catalogue_replaces_the_seed_and_says_so() -> None:
     assert [voice.id for voice in catalogue()] == ["bulbul:v3:ashutosh"]
 
 
-def test_an_empty_catalogue_is_refused_rather_than_installed() -> None:
-    """Zero voices is what a revoked credential, a moved route and a genuinely empty
-    account all look like, and only the last is a catalogue — while applying it takes the
-    picker to zero entries and makes every agent's voice read as withdrawn."""
-    with pytest.raises(ValueError, match="empty voice catalogue"):
-        install_voice_catalogue(())
-    assert catalogue() == SEED_CATALOG, "the previous answer must still be standing"
+def test_an_empty_catalogue_installs_and_reports_itself_as_unsynced() -> None:
+    """⚠ THIS CLAUSE USED TO ASSERT THE OPPOSITE, AND THE REVERSAL IS D-588.
+
+    `install_voice_catalogue(())` raised, on the ground that zero voices is what a revoked
+    credential and a moved route look like. That was true only while a compiled seed meant
+    an honestly-empty platform could not happen. It can now — a deployment nobody has synced
+    — so refusing would leave a process serving whatever it last loaded, forever, with no
+    way to observe that the table behind it is empty.
+
+    **WHAT THE REFUSAL PROTECTED HAS NOT MOVED**: a sync that READ nothing is still refused
+    at the one place that can tell an empty account from a broken credential, which is
+    `sync_voice_catalogue` — see the clause further down that proves it.
+    """
+    install_voice_catalogue(())
+    assert catalogue() == ()
+    assert catalogue_source() == "unsynced"
 
 
-def test_exactly_one_default_survives_a_catalogue_without_our_persona() -> None:
-    """The picker pre-selects the default and the create path calls `default_voice()`, so a
-    catalogue with none would 500 a screen and one with two would pre-select at random.
-    Whether the engine still offers OUR configured persona is the engine's business."""
+def test_no_entry_claims_to_be_a_default_persona() -> None:
+    """THE LAST HARDCODED VOICE WAS A DEFAULT PERSONA, and `is_default` went with it.
+
+    Which voice a picker pre-selects is now a property of what an operator ENABLED, in the
+    engine's own order — not a constant in our source pending an ear test nobody ran. A
+    field reappearing here would be that constant coming back by another name.
+    """
     install_voice_catalogue(
         catalogue_from_listing(
             EngineVoiceListing(
-                voices=[
-                    _engine_voice(voice_id="sonic-a", label="Aaa", tts_model="sonic-3.5"),
-                    _engine_voice(voice_id="priya", label="Priya"),
-                ],
-                complete=True,
+                voices=[_engine_voice(voice_id="priya", label="Priya")], complete=True
             )
         )
     )
-    defaults = [voice for voice in catalogue() if voice.is_default]
-    assert len(defaults) == 1
-    assert defaults[0].provider == "sarvam", (
-        "Cartesia is chosen, never inherited: a default that costs the client more per "
-        "minute must be a choice they made (plan §0 Q9)"
-    )
+    assert not any(hasattr(voice, "is_default") for voice in catalogue())
 
 
 def test_an_unrecognised_id_still_reads_back_as_itself() -> None:
@@ -394,6 +400,22 @@ async def test_a_complete_listing_does_prune_a_withdrawn_voice() -> None:
 
         assert narrowed.pruned == 1
         assert {voice.speaker for voice in cached} == {"shubh"}
+
+        # ...AND IT IS A STAMP, NOT A DELETE (D-588). The row survives because it holds the
+        # one fact a re-sync cannot re-derive — the operator's curation state — so a voice
+        # that vanished from one listing and came back does not return un-curated.
+        async with untenanted_session() as session:
+            rows = dict(
+                (
+                    await session.execute(
+                        text(
+                            "SELECT voice_id, withdrawn_at IS NOT NULL FROM platform_voice_catalog"
+                        )
+                    )
+                ).all()
+            )
+        assert rows["bulbul:v3:ritu"] is True, "the withdrawn voice was deleted, not stamped"
+        assert rows["bulbul:v3:shubh"] is False
     finally:
         await _clear()
 
@@ -425,21 +447,115 @@ async def test_an_empty_listing_leaves_the_previous_catalogue_standing() -> None
         await _clear()
 
 
-async def test_a_deployment_that_never_synced_serves_the_seed_and_says_so() -> None:
-    """A MISS IS NOT AN ERROR. A product that cannot make a voice agent until a background
-    job has run is the half-wired seam CLAUDE.md names — so an empty table installs the
-    seed and every surface that renders the picker reports `source: "seed"` so an operator
-    knows to sync rather than guessing why the list is short."""
-    await _clear()
-    try:
-        async with untenanted_session() as session:
-            installed = await load_voice_catalogue(session)
+async def test_a_deployment_that_never_synced_offers_nothing_and_says_so() -> None:
+    """A MISS IS NOT AN ERROR, AND IT IS NO LONGER PAPERED OVER (D-588).
 
-        assert installed == 0
-        assert catalogue_source() == "seed"
-        assert catalogue(), "the seed is empty; the product cannot publish a voice at all"
-        assert all(voice.speaker != "anushka" for voice in catalogue()), (
-            "the seed offers a speaker the engine is KNOWN to reject (live 400, 11 Sep 2026)"
+    This clause used to assert that an empty table installs a built-in SEED so the product
+    stays publishable. That seed was the defect the founder asked us to remove — voices
+    nobody enabled, offered on exactly the deployments nobody is watching — so an empty
+    table now installs NOTHING, `source` reports `"unsynced"`, and every surface that
+    renders a picker prints a sentence naming the two steps that fix it.
+    """
+    await _clear()
+    async with untenanted_session() as session:
+        installed = await load_voice_catalogue(session)
+
+    assert installed == 0
+    assert catalogue_source() == "unsynced"
+    assert catalogue() == (), "a compiled fallback is answering; D-588 deleted it"
+
+
+async def test_a_sync_never_writes_an_operators_curation_decision() -> None:
+    """THE FOUNDER'S REQUIREMENT, HELD AT THE ONE PLACE THAT COULD UNDO IT.
+
+    Re-reading the vendor's list must not be able to offer a voice or withdraw one: a
+    NEWLY SEEN voice arrives `disabled` so nothing reaches a client before somebody decides,
+    and a voice already curated keeps whatever an operator put it in, however many times the
+    hourly job runs.
+    """
+    await _clear()
+    listing = EngineVoiceListing(
+        voices=(_engine_voice(), _engine_voice(voice_id="ritu", label="Ritu")), complete=True
+    )
+    async with untenanted_session() as session:
+        await sync_voice_catalogue(session, _StubEngine(listing))
+        await session.commit()
+
+    async with untenanted_session() as session:
+        states = dict(
+            (
+                await session.execute(
+                    text("SELECT voice_id, curation_state FROM platform_voice_catalog")
+                )
+            ).all()
         )
-    finally:
-        install_voice_catalogue(None)
+    assert states == {"bulbul:v3:shubh": "disabled", "bulbul:v3:ritu": "disabled"}, (
+        "a synced voice arrived offerable; only an operator may enable one"
+    )
+
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "UPDATE platform_voice_catalog SET curation_state = 'enabled' "
+                "WHERE voice_id = 'bulbul:v3:shubh'"
+            )
+        )
+        await session.commit()
+    async with untenanted_session() as session:
+        await sync_voice_catalogue(session, _StubEngine(listing))
+        await session.commit()
+
+    async with untenanted_session() as session:
+        states = dict(
+            (
+                await session.execute(
+                    text("SELECT voice_id, curation_state FROM platform_voice_catalog")
+                )
+            ).all()
+        )
+    assert states["bulbul:v3:shubh"] == "enabled", "a re-sync un-enabled a curated voice"
+
+
+async def test_a_voice_that_comes_back_keeps_the_state_it_was_put_away_with() -> None:
+    """The whole reason a withdrawal is a stamp rather than a delete.
+
+    A voice the platform stops listing for one run and lists again the next must not return
+    as a fresh un-curated row — silently disabled if it had been enabled, silently
+    un-archived if it had been put away. The operator's decision is the one column here that
+    re-running the sync cannot reconstruct.
+    """
+    await _clear()
+    full = EngineVoiceListing(
+        voices=(_engine_voice(), _engine_voice(voice_id="ritu", label="Ritu")), complete=True
+    )
+    async with untenanted_session() as session:
+        await sync_voice_catalogue(session, _StubEngine(full))
+        await session.execute(
+            text(
+                "UPDATE platform_voice_catalog SET curation_state = 'archived' "
+                "WHERE voice_id = 'bulbul:v3:ritu'"
+            )
+        )
+        await session.commit()
+
+    async with untenanted_session() as session:
+        await sync_voice_catalogue(
+            session, _StubEngine(EngineVoiceListing(voices=(_engine_voice(),), complete=True))
+        )
+        await session.commit()
+    # ...and the platform lists it again.
+    async with untenanted_session() as session:
+        await sync_voice_catalogue(session, _StubEngine(full))
+        await session.commit()
+
+    async with untenanted_session() as session:
+        state, withdrawn = (
+            await session.execute(
+                text(
+                    "SELECT curation_state, withdrawn_at FROM platform_voice_catalog "
+                    "WHERE voice_id = 'bulbul:v3:ritu'"
+                )
+            )
+        ).one()
+    assert withdrawn is None, "a returning voice was left marked withdrawn"
+    assert state == "archived", "a returning voice came back un-curated"

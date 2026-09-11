@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { Suspense } from "react";
 import { describe, expect, it } from "vitest";
 
@@ -69,7 +75,14 @@ const CALL = {
   has_recording: false,
   disclosure_played: true,
   transcript: [
-    { idx: 0, speaker: "agent", text: "Namaskaram, Sri Clinic.", lang: "te-IN", start_ms: 0, redacted: true },
+    {
+      idx: 0,
+      speaker: "agent",
+      text: "Namaskaram, Sri Clinic.",
+      lang: "te-IN",
+      start_ms: 0,
+      redacted: true,
+    },
     {
       idx: 1,
       speaker: "caller",
@@ -98,10 +111,14 @@ describe("the QA sampling queue", () => {
 
   it("refuses rather than claiming everything has been reviewed", async () => {
     const { container } = await renderAdminRoute(<QaSamplingPage />, {
-      "/v1/admin/qa-samples?pending=true": problem(401, { title: "Unauthorized" }),
+      "/v1/admin/qa-samples?pending=true": problem(401, {
+        title: "Unauthorized",
+      }),
     });
     await screen.findByText("The sampling queue could not be read");
-    expect(container.textContent).not.toContain("Every sampled call has been reviewed");
+    expect(container.textContent).not.toContain(
+      "Every sampled call has been reviewed",
+    );
   });
 
   it("says an empty queue is the GOOD state", async () => {
@@ -152,7 +169,9 @@ describe("reviewing a sampled call", () => {
     // Asserted over the CONTROLS, not the prose: the notice on this screen says the word
     // "unredacted" in order to promise there is no such view, and a text search would
     // match the promise itself.
-    const controls = screen.queryAllByRole("button").map((node) => node.textContent ?? "");
+    const controls = screen
+      .queryAllByRole("button")
+      .map((node) => node.textContent ?? "");
     for (const control of controls) {
       expect(control).not.toMatch(/raw|unredacted|full text/i);
     }
@@ -172,19 +191,27 @@ describe("reviewing a sampled call", () => {
     const { container, calls } = await renderAdminRoute(
       <QaSampleReviewPage params={routeParams({ sampleId: "s1" })} />,
       routes({
-        "POST /v1/admin/qa-samples/s1/review": { ...SAMPLE, verdict: "clean", reviewed_at: "x" },
+        "POST /v1/admin/qa-samples/s1/review": {
+          ...SAMPLE,
+          verdict: "clean",
+          reviewed_at: "x",
+        },
         "/v1/admin/qa-samples?pending=true": [],
       }),
     );
     await screen.findByText("Clean");
     fireEvent.click(screen.getByRole("button", { name: /Clean/ }));
 
-    await waitFor(() => expect(calls.some((call) => call.method === "POST")).toBe(true));
+    await waitFor(() =>
+      expect(calls.some((call) => call.method === "POST")).toBe(true),
+    );
     const posted = calls.find((call) => call.method === "POST");
     expect(posted?.path).toBe("/v1/admin/qa-samples/s1/review");
     expect(posted?.body).toContain("clean");
     // And the verdict, once recorded, is not offered again from this screen.
-    await waitFor(() => expect(container.textContent).toContain("A verdict is written once"));
+    await waitFor(() =>
+      expect(container.textContent).toContain("A verdict is written once"),
+    );
   });
 
   it("shows the refusal when somebody else reviewed it first", async () => {
@@ -208,7 +235,11 @@ describe("reviewing a sampled call", () => {
   it("refuses instead of rendering an empty review when the call cannot be read", async () => {
     const { container } = await renderAdminRoute(
       <QaSampleReviewPage params={routeParams({ sampleId: "s1" })} />,
-      { "/v1/admin/qa-samples/s1": problem(503, { title: "Service unavailable" }) },
+      {
+        "/v1/admin/qa-samples/s1": problem(503, {
+          title: "Service unavailable",
+        }),
+      },
     );
     await screen.findByText(/could not be read, so it cannot be reviewed/);
     // No verdict buttons under a call nobody could read: a verdict recorded against an
@@ -220,7 +251,12 @@ describe("reviewing a sampled call", () => {
   it("shows a recorded verdict as recorded, and does not offer a second one", async () => {
     const { container } = await renderAdminRoute(
       <QaSampleReviewPage params={routeParams({ sampleId: "s1" })} />,
-      { "/v1/admin/qa-samples/s1": { sample: { ...SAMPLE, verdict: "defect" }, call: CALL } },
+      {
+        "/v1/admin/qa-samples/s1": {
+          sample: { ...SAMPLE, verdict: "defect" },
+          call: CALL,
+        },
+      },
     );
     await screen.findByText(/Recorded as/);
     expect(container.textContent).toContain("A verdict is written once");
@@ -243,8 +279,12 @@ describe("reviewing a sampled call", () => {
       "/v1/admin/qa-samples?pending=true": [SAMPLE],
     });
 
-    expect(container.textContent).not.toContain("Every sampled call has been reviewed");
-    expect(container.textContent).toContain("The sampling queue could not be read");
+    expect(container.textContent).not.toContain(
+      "Every sampled call has been reviewed",
+    );
+    expect(container.textContent).toContain(
+      "The sampling queue could not be read",
+    );
   });
 });
 
@@ -272,7 +312,10 @@ describe("re-opening a sampled call", () => {
   it("reads the server again, so the second look is audited too", async () => {
     const calls = stubApi({ [DETAIL_PATH]: { sample: SAMPLE, call: CALL } });
     const client = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     });
     const openIt = async () => {
       let result!: ReturnType<typeof render>;
@@ -297,7 +340,9 @@ describe("re-opening a sampled call", () => {
     first.unmount();
 
     const second = await openIt();
-    await waitFor(() => expect(calls.filter((c) => c.path === DETAIL_PATH).length).toBe(2));
+    await waitFor(() =>
+      expect(calls.filter((c) => c.path === DETAIL_PATH).length).toBe(2),
+    );
     second.unmount();
   });
 });

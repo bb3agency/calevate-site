@@ -497,10 +497,16 @@ class TestRlsCoverage:
             # which TTS voices that account will actually accept, cloned voices included.
             # Platform-global for `platform_secrets`' reason: one account serves every
             # tenant and its voice list is the same list for all of them, so there is no
-            # tenant whose row any of these could be. Written only by the sync (an ARQ
-            # cron plus an ops refresh), read through `voice_offer.offered_catalogue`,
-            # which answers the same catalogue to every tenant on purpose. A cache rather
-            # than a ledger, so deliberately NOT in `APPEND_ONLY_TABLES`.
+            # tenant whose row any of these could be. Written by the sync (an ARQ cron
+            # plus an ops refresh) and — since D-588 — by the operator CURATION write
+            # (`PATCH /v1/ops/voices`, `ops:manage`, audited in the same transaction),
+            # which decides which of those voices anybody may be put on. Read through
+            # `voice_offer.offered_catalogue`, which answers the same catalogue to every
+            # tenant on purpose. Mostly a cache rather than a ledger, so deliberately NOT
+            # in `APPEND_ONLY_TABLES` — but note that ONE column is not re-derivable by
+            # re-running the sync: `curation_state` is an operator's decision, which is
+            # why a voice the vendor stops listing is stamped `withdrawn_at` instead of
+            # being deleted.
             "platform_voice_catalog",
             # D-459: the founder's attested per-model prices, set once per model in
             # the ops console and read by billing for `unit_cost_paid`. Platform-

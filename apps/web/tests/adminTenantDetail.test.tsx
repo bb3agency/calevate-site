@@ -1,5 +1,13 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, cleanup, fireEvent, render as rtlRender, screen, within, type RenderResult } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render as rtlRender,
+  screen,
+  within,
+  type RenderResult,
+} from "@testing-library/react";
 import { Suspense } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -86,7 +94,13 @@ function me(permissions: string[]): AdminMe {
   };
 }
 
-const OPERATOR = me(["org:read", "billing:read", "agents:read", "kb:write", "admin:tenants"]);
+const OPERATOR = me([
+  "org:read",
+  "billing:read",
+  "agents:read",
+  "kb:write",
+  "admin:tenants",
+]);
 
 function margin(over: Partial<Margin> = {}): Margin {
   return {
@@ -160,10 +174,13 @@ function healthy(): Routes {
 }
 
 function render(routes: Partial<Routes> = {}) {
-  return renderAdminRoute(<TenantDetailPage params={routeParams({ tenantId: TENANT })} />, {
-    ...healthy(),
-    ...routes,
-  });
+  return renderAdminRoute(
+    <TenantDetailPage params={routeParams({ tenantId: TENANT })} />,
+    {
+      ...healthy(),
+      ...routes,
+    },
+  );
 }
 
 describe("the client detail screen", () => {
@@ -222,7 +239,10 @@ describe("the client detail screen", () => {
     // branch already refused on exactly this; the queue did not, until it was fixed to.
     stubApi(healthy());
     const client = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     });
     // Primed so the page gets past its tenant guard and reaches the queue card; the queue
     // read is what is left to PAUSE, which is the state under test. Everything else on the
@@ -243,7 +263,9 @@ describe("the client detail screen", () => {
     });
 
     const card = (
-      await within(result.container).findByRole("heading", { name: "Knowledge awaiting approval" })
+      await within(result.container).findByRole("heading", {
+        name: "Knowledge awaiting approval",
+      })
     ).closest("section");
     expect(card, "the knowledge card should render").not.toBeNull();
     // A paused read is refused (ProblemNotice carries role="alert"), never reported as an
@@ -289,10 +311,20 @@ describe("the client detail screen", () => {
       [ME_PATH]: me(["org:read", "billing:read", "agents:read"]),
       [QUEUE_PATH]: [source()],
       [NUMBERS_PATH]: [
-        { id: "n-1", e164: "+918041234567", series: "160", dlt_status: "pending" },
+        {
+          id: "n-1",
+          e164: "+918041234567",
+          series: "160",
+          dlt_status: "pending",
+        },
       ],
       [TEMPLATES_PATH]: [
-        { id: "t-1", classification: "service", status: "submitted", body: "Namaste…" },
+        {
+          id: "t-1",
+          classification: "service",
+          status: "submitted",
+          body: "Namaste…",
+        },
       ],
     });
 
@@ -316,16 +348,20 @@ describe("the client detail screen", () => {
       "Record registration",
     ]) {
       const button = await screen.findByRole("button", { name });
-      expect((button as HTMLButtonElement).disabled, `${name} must be disabled`).toBe(true);
+      expect(
+        (button as HTMLButtonElement).disabled,
+        `${name} must be disabled`,
+      ).toBe(true);
     }
 
     // Disabled AND explained: a dead control with no sentence beside it is indistinguishable
     // from a broken screen, and the operator's next move is the curl this console replaced.
     // Reading stays available — briefing the colleague who can decide requires seeing
     // what is queued.
-    expect((screen.getByRole("button", { name: "Preview" }) as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+    expect(
+      (screen.getByRole("button", { name: "Preview" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
   });
 
   it("rejects a source only after the operator writes a reason — never from one click", async () => {
@@ -337,14 +373,20 @@ describe("the client detail screen", () => {
 
     // Stage one: the quiet trigger opens the confirmation and sends NOTHING.
     const open = await screen.findByRole("button", { name: "Reject…" });
-    await vi.waitFor(() => expect((open as HTMLButtonElement).disabled).toBe(false));
+    await vi.waitFor(() =>
+      expect((open as HTMLButtonElement).disabled).toBe(false),
+    );
     fireEvent.click(open);
     expect(calls.some((call) => call.path === decidePath)).toBe(false);
 
     // The confirmation names the specific document and demands the operator's own words —
     // the old one-click reject sent a hardcoded reason the operator never saw.
-    expect(screen.getByText(/Rejecting/).textContent).toContain("Clinic price list");
-    const submit = screen.getByRole("button", { name: "Reject this document" }) as HTMLButtonElement;
+    expect(screen.getByText(/Rejecting/).textContent).toContain(
+      "Clinic price list",
+    );
+    const submit = screen.getByRole("button", {
+      name: "Reject this document",
+    }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
 
     fireEvent.change(screen.getByLabelText(/Why it can't be used/), {
@@ -352,17 +394,30 @@ describe("the client detail screen", () => {
     });
     await vi.waitFor(() =>
       expect(
-        (screen.getByRole("button", { name: "Reject this document" }) as HTMLButtonElement)
-          .disabled,
+        (
+          screen.getByRole("button", {
+            name: "Reject this document",
+          }) as HTMLButtonElement
+        ).disabled,
       ).toBe(false),
     );
-    fireEvent.click(screen.getByRole("button", { name: "Reject this document" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Reject this document" }),
+    );
 
     await vi.waitFor(() =>
-      expect(calls.some((call) => call.method === "POST" && call.path === decidePath)).toBe(true),
+      expect(
+        calls.some(
+          (call) => call.method === "POST" && call.path === decidePath,
+        ),
+      ).toBe(true),
     );
-    const post = calls.find((call) => call.method === "POST" && call.path === decidePath);
-    expect(JSON.parse(post?.body ?? "{}")).toEqual({ reason: "Prices are last year's" });
+    const post = calls.find(
+      (call) => call.method === "POST" && call.path === decidePath,
+    );
+    expect(JSON.parse(post?.body ?? "{}")).toEqual({
+      reason: "Prices are last year's",
+    });
   });
 
   it("keeps the writes live for a session that holds the permission", async () => {
@@ -371,20 +426,36 @@ describe("the client detail screen", () => {
     // The negative test above is only meaningful if the gate can ever be open — an
     // always-disabled console would pass it and be useless.
     const approve = await screen.findByRole("button", { name: "Approve" });
-    await vi.waitFor(() => expect((approve as HTMLButtonElement).disabled).toBe(false));
+    await vi.waitFor(() =>
+      expect((approve as HTMLButtonElement).disabled).toBe(false),
+    );
   });
 
-  it("says the view-as link is read-only where a keyboard user reads it", async () => {
+  it("says the view-as link is LOGGED where a keyboard user reads it, never read-only", async () => {
+    /**
+     * THE LABEL USED TO PROMISE "(read-only)" AND THIS TEST USED TO REQUIRE IT. D-587
+     * makes a view-as session able to change the account, so that label was a promise an
+     * operator would rely on and the product would break. What stays true — and is what a
+     * reader needs before clicking — is that everything they view and change is recorded
+     * against them, so the label says "(logged)".
+     *
+     * The unchanged half is why the assertion is still ON THE LABEL: it carries the fact,
+     * not a `title` only a mouse finds. The `view=admin` marker selects the impersonating
+     * credential and grants nothing (lib/api/session.tsx).
+     */
     await render();
 
-    // D-22: the label carries the promise, not a `title` only a mouse finds. The `view=admin`
-    // marker selects the impersonating credential and grants nothing (lib/api/session.tsx).
-    const link = await screen.findByRole("link", { name: /View as client \(read-only\)/ });
+    const link = await screen.findByRole("link", {
+      name: /View as client \(logged\)/,
+    });
     expect(link.getAttribute("href")).toBe(`/c/${SLUG}?view=admin`);
+    expect(screen.queryByRole("link", { name: /read-only/i })).toBeNull();
   });
 
   it("formats margin money without ever parsing it, and keeps 'not billed yet' out of 0%", async () => {
-    const { container } = await render({ [MARGIN_PATH]: margin({ margin_pct: null }) });
+    const { container } = await render({
+      [MARGIN_PATH]: margin({ margin_pct: null }),
+    });
 
     await screen.findByText("₹10,15,900.00");
 
@@ -411,7 +482,9 @@ describe("the client detail screen", () => {
     // "Client not found" would send an operator hunting for a deleted tenant that is
     // sitting right there.
     expect(container.textContent).not.toContain("Client not found");
-    expect(container.textContent).toContain("You do not have permission to do this.");
+    expect(container.textContent).toContain(
+      "You do not have permission to do this.",
+    );
   });
 
   /**
@@ -443,16 +516,23 @@ describe("the client detail screen", () => {
         fireEvent.change(await screen.findByLabelText("Registered on (IST)"), {
           target: { value: "2026-08-10" },
         });
-        fireEvent.click(screen.getByRole("button", { name: "Record registration" }));
+        fireEvent.click(
+          screen.getByRole("button", { name: "Record registration" }),
+        );
 
         await vi.waitFor(() => {
-          expect(calls.some((c) => c.method === "POST" && c.path === dltPath)).toBe(true);
+          expect(
+            calls.some((c) => c.method === "POST" && c.path === dltPath),
+          ).toBe(true);
         });
         const body = JSON.parse(
-          calls.find((c) => c.method === "POST" && c.path === dltPath)?.body ?? "{}",
+          calls.find((c) => c.method === "POST" && c.path === dltPath)?.body ??
+            "{}",
         );
         // Midnight IST on the picked day === 18:30Z the day before.
-        expect(body.registered_at, `registered_at in ${zone}`).toBe("2026-08-09T18:30:00.000Z");
+        expect(body.registered_at, `registered_at in ${zone}`).toBe(
+          "2026-08-09T18:30:00.000Z",
+        );
       }
     } finally {
       if (originalTz === undefined) delete process.env.TZ;

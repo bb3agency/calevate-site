@@ -2,7 +2,10 @@ import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import VerificationPage from "@/app/c/[slug]/verification/page";
-import { PE_REGISTRATION_PATH, type PeRegistration } from "@/lib/api/dltRegistration";
+import {
+  PE_REGISTRATION_PATH,
+  type PeRegistration,
+} from "@/lib/api/dltRegistration";
 import { KYC_PATH, type KycRecord } from "@/lib/api/kyc";
 
 import { problem, renderClientPage } from "./harness";
@@ -78,7 +81,9 @@ describe("the client's DLT registration on /verification", () => {
     const { container, calls } = await render(registration());
 
     await screen.findByText("Your business is registered to run campaigns.");
-    expect(calls.filter((c) => c.path === PE_REGISTRATION_PATH)).toHaveLength(1);
+    expect(calls.filter((c) => c.path === PE_REGISTRATION_PATH)).toHaveLength(
+      1,
+    );
     // The registrar's identifiers, so the client has something to quote at us.
     expect(container.textContent).toContain("1101234567890123456");
     expect(container.textContent).toContain("Sri Clinic Pvt Ltd");
@@ -93,12 +98,20 @@ describe("the client's DLT registration on /verification", () => {
     // the clients who read this to the wrong place — which is exactly why the launch gate
     // emits `pe_registration_not_active` and `tm_link_not_active` as different blockers.
     const { container } = await render(
-      registration({ status: "active", tm_link_status: "revoked", is_active: false }),
+      registration({
+        status: "active",
+        tm_link_status: "revoked",
+        is_active: false,
+      }),
     );
 
     await screen.findByText("Your DLT registration is not active yet.");
-    expect(container.textContent).toContain("Calevate authorised to dial for you: Withdrawn");
-    expect(container.textContent).toContain("Your business as a Principal Entity: Active");
+    expect(container.textContent).toContain(
+      "Calevate authorised to dial for you: Withdrawn",
+    );
+    expect(container.textContent).toContain(
+      "Your business as a Principal Entity: Active",
+    );
     // Inbound is unaffected and it is said, for the same reason the KYC half says it.
     expect(container.textContent).toContain("Calls coming IN are unaffected");
   });
@@ -109,11 +122,17 @@ describe("the client's DLT registration on /verification", () => {
     // box — that is the day this screen and the launch gate would disagree, and it is the
     // reason `is_active` is computed server-side at all.
     const { container } = await render(
-      registration({ status: "active", tm_link_status: "active", is_active: false }),
+      registration({
+        status: "active",
+        tm_link_status: "active",
+        is_active: false,
+      }),
     );
 
     await screen.findByText("Your DLT registration is not active yet.");
-    expect(container.textContent).not.toContain("Your business is registered to run campaigns.");
+    expect(container.textContent).not.toContain(
+      "Your business is registered to run campaigns.",
+    );
     expect(container.textContent).toContain(
       "Outbound campaigns cannot launch until both lines below are active.",
     );
@@ -132,12 +151,18 @@ describe("the client's DLT registration on /verification", () => {
     );
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("We could not read your DLT registration.");
+    expect(alert.textContent).toContain(
+      "We could not read your DLT registration.",
+    );
     expect(container.textContent).not.toContain(
       "We have not filed a DLT registration for your business.",
     );
-    expect(container.textContent).not.toContain("Your business is registered to run campaigns.");
-    expect(container.textContent).not.toContain("Your DLT registration is not active yet.");
+    expect(container.textContent).not.toContain(
+      "Your business is registered to run campaigns.",
+    );
+    expect(container.textContent).not.toContain(
+      "Your DLT registration is not active yet.",
+    );
     // A refusal with no way forward is the other half of the defect.
     expect(screen.getByRole("button", { name: /try again/i })).toBeTruthy();
   });
@@ -158,9 +183,13 @@ describe("the client's DLT registration on /verification", () => {
       }),
     );
 
-    await screen.findByText("We have not filed a DLT registration for your business.");
+    await screen.findByText(
+      "We have not filed a DLT registration for your business.",
+    );
     expect(screen.queryByRole("alert")).toBeNull();
-    expect(container.textContent).toContain("Ask your account manager to start it.");
+    expect(container.textContent).toContain(
+      "Ask your account manager to start it.",
+    );
   });
 
   it("keeps the DLT half readable when the KYC half fails", async () => {
@@ -168,19 +197,28 @@ describe("the client's DLT registration on /verification", () => {
     // the client whose KYC read is failing is very often the client trying to find out why
     // their campaigns are refused, and that answer lives in the other section.
     const { container } = await render(
-      registration({ recorded: true, status: "submitted", tm_link_status: "pending", is_active: false }),
+      registration({
+        recorded: true,
+        status: "submitted",
+        tm_link_status: "pending",
+        is_active: false,
+      }),
       problem(503, { title: "Service unavailable", detail: "KYC is down." }),
     );
 
     await screen.findByText("Your DLT registration is not active yet.");
     expect(container.textContent).toContain("KYC is down.");
-    expect(container.textContent).toContain("Your business as a Principal Entity: With the registrar");
+    expect(container.textContent).toContain(
+      "Your business as a Principal Entity: With the registrar",
+    );
   });
 
   it("offers no control to change either status", async () => {
     // There is no client-realm write, and there should never be one. The only button this
     // screen may ever grow is a retry on a refusal — so under a clean read, none.
-    const { container } = await render(registration({ is_active: false, status: "suspended" }));
+    const { container } = await render(
+      registration({ is_active: false, status: "suspended" }),
+    );
 
     await screen.findByText("Your DLT registration is not active yet.");
     expect(screen.queryAllByRole("button")).toHaveLength(0);

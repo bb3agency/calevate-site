@@ -40,7 +40,13 @@ const ME: Me = {
   role: "owner",
   permissions: ["billing:read", "org:manage"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  withheld_acts: [],
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 const STAFF: Me = { ...ME, permissions: ["calls:read"] };
@@ -143,8 +149,12 @@ describe("the allowance panel", () => {
     });
 
     await screen.findByText(/limited to the account owner/);
-    expect(screen.queryByRole("button", { name: /what more AI help costs/i })).toBeNull();
-    expect(calls.some((call) => call.path.includes("/ai-quota/extra"))).toBe(false);
+    expect(
+      screen.queryByRole("button", { name: /what more AI help costs/i }),
+    ).toBeNull();
+    expect(calls.some((call) => call.path.includes("/ai-quota/extra"))).toBe(
+      false,
+    );
   });
 });
 
@@ -156,8 +166,12 @@ describe("at the ceiling", () => {
     });
 
     await screen.findByText(/used this month's included AI help/i);
-    expect(screen.getByText(/calls, campaigns and leads — carries on/)).toBeTruthy();
-    expect(screen.getByRole("button", { name: /what more AI help costs/i })).toBeTruthy();
+    expect(
+      screen.getByText(/calls, campaigns and leads — carries on/),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /what more AI help costs/i }),
+    ).toBeTruthy();
   });
 
   it("offers nothing and explains why when the server says the block is unavailable", async () => {
@@ -172,7 +186,9 @@ describe("at the ceiling", () => {
     });
 
     await screen.findByText(/arranged with your account manager/);
-    expect(screen.queryByRole("button", { name: /what more AI help costs/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /what more AI help costs/i }),
+    ).toBeNull();
   });
 
   it("says the month is nearly over rather than offering a block that expires with it", async () => {
@@ -192,7 +208,9 @@ describe("at the ceiling", () => {
 
     await screen.findByText(/This month is nearly over/);
     expect(screen.getByText(/comes back within the hour/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /what more AI help costs/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /what more AI help costs/i }),
+    ).toBeNull();
   });
 
   it("disables the offer for a person who cannot spend, with the reason beside it", async () => {
@@ -201,9 +219,13 @@ describe("at the ceiling", () => {
       "/v1/billing/ai-quota": AT_CEILING,
     });
 
-    const button = await screen.findByRole("button", { name: /what more AI help costs/i });
+    const button = await screen.findByRole("button", {
+      name: /what more AI help costs/i,
+    });
     expect(button.hasAttribute("disabled")).toBe(true);
-    expect(screen.getByText(/Only an account owner can add more AI help/)).toBeTruthy();
+    expect(
+      screen.getByText(/Only an account owner can add more AI help/),
+    ).toBeTruthy();
   });
 
   it("says the month is finished, with no second offer, once the block is spent", async () => {
@@ -221,7 +243,9 @@ describe("at the ceiling", () => {
     });
 
     await screen.findByText(/This month's AI help is finished/);
-    expect(screen.queryByRole("button", { name: /what more AI help costs/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /what more AI help costs/i }),
+    ).toBeNull();
   });
 
   it("says the platform paused it, and that nothing was charged", async () => {
@@ -242,7 +266,9 @@ describe("the money dialog (G-5)", () => {
       "/v1/billing/ai-quota": AT_CEILING,
     });
 
-    const offer = await screen.findByRole("button", { name: /what more AI help costs/i });
+    const offer = await screen.findByRole("button", {
+      name: /what more AI help costs/i,
+    });
     await act(async () => {
       fireEvent.click(offer);
     });
@@ -250,13 +276,17 @@ describe("the money dialog (G-5)", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog.getAttribute("aria-modal")).toBe("true");
     // THE assertion this whole file is for: opening the dialog is not a purchase.
-    expect(calls.some((call) => call.path.includes("/ai-quota/extra"))).toBe(false);
+    expect(calls.some((call) => call.path.includes("/ai-quota/extra"))).toBe(
+      false,
+    );
 
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: "Not now" }));
     });
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(calls.some((call) => call.path.includes("/ai-quota/extra"))).toBe(false);
+    expect(calls.some((call) => call.path.includes("/ai-quota/extra"))).toBe(
+      false,
+    );
   });
 
   it("names the exact figure, what it buys, and that nothing has been charged yet", async () => {
@@ -264,7 +294,9 @@ describe("the money dialog (G-5)", () => {
       "/v1/me": ME,
       "/v1/billing/ai-quota": AT_CEILING,
     });
-    const offer = await screen.findByRole("button", { name: /what more AI help costs/i });
+    const offer = await screen.findByRole("button", {
+      name: /what more AI help costs/i,
+    });
     await act(async () => {
       fireEvent.click(offer);
     });
@@ -272,7 +304,9 @@ describe("the money dialog (G-5)", () => {
     const dialog = screen.getByRole("dialog");
     expect(dialog.textContent).toContain("₹500.00");
     expect(dialog.textContent).toContain("about 2,083 more uses");
-    expect(dialog.textContent).toContain("not refunded and does not carry into next month");
+    expect(dialog.textContent).toContain(
+      "not refunded and does not carry into next month",
+    );
     expect(dialog.textContent).toContain("Nothing has been charged yet.");
     // The accept button quotes the amount too, so the last thing a person reads before
     // pressing it is the number.
@@ -295,7 +329,9 @@ describe("the money dialog (G-5)", () => {
       "POST /v1/billing/ai-quota/extra": bought,
     });
 
-    const offer = await screen.findByRole("button", { name: /what more AI help costs/i });
+    const offer = await screen.findByRole("button", {
+      name: /what more AI help costs/i,
+    });
     await act(async () => {
       fireEvent.click(offer);
     });
@@ -307,7 +343,9 @@ describe("the money dialog (G-5)", () => {
     expect(post).toBeTruthy();
     // A STRING, exactly as the server sent it. `500` or `500.0` would mean the browser
     // parsed a rupee amount, and the server compares this for equality.
-    expect(JSON.parse(post!.body ?? "{}")).toEqual({ accept_amount_inr: "500.00" });
+    expect(JSON.parse(post!.body ?? "{}")).toEqual({
+      accept_amount_inr: "500.00",
+    });
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
@@ -322,7 +360,9 @@ describe("the money dialog (G-5)", () => {
       }),
     });
 
-    const offer = await screen.findByRole("button", { name: /what more AI help costs/i });
+    const offer = await screen.findByRole("button", {
+      name: /what more AI help costs/i,
+    });
     await act(async () => {
       fireEvent.click(offer);
     });
@@ -332,10 +372,14 @@ describe("the money dialog (G-5)", () => {
 
     // Closing the dialog to show this elsewhere would leave a person unsure whether the
     // money moved — which is the one thing this screen must never be ambiguous about.
-    const refusal = await screen.findByText("This account does not have enough credit for that.");
+    const refusal = await screen.findByText(
+      "This account does not have enough credit for that.",
+    );
     const dialog = screen.getByRole("dialog");
     expect(dialog.contains(refusal)).toBe(true);
-    expect(dialog.textContent).toContain("Top up the credit balance and try again.");
+    expect(dialog.textContent).toContain(
+      "Top up the credit balance and try again.",
+    );
   });
 
   it("is reachable and named for a screen reader while it is open", async () => {
@@ -343,7 +387,9 @@ describe("the money dialog (G-5)", () => {
       "/v1/me": ME,
       "/v1/billing/ai-quota": AT_CEILING,
     });
-    const offer = await screen.findByRole("button", { name: /what more AI help costs/i });
+    const offer = await screen.findByRole("button", {
+      name: /what more AI help costs/i,
+    });
     await act(async () => {
       fireEvent.click(offer);
     });
@@ -366,7 +412,9 @@ describe("the money dialog (G-5)", () => {
       "/v1/me": ME,
       "/v1/billing/ai-quota": AT_CEILING,
     });
-    const offer = await screen.findByRole("button", { name: /what more AI help costs/i });
+    const offer = await screen.findByRole("button", {
+      name: /what more AI help costs/i,
+    });
     await act(async () => {
       fireEvent.click(offer);
     });
@@ -377,7 +425,9 @@ describe("the money dialog (G-5)", () => {
     });
 
     expect(screen.queryByRole("dialog")).toBeNull();
-    expect(calls.some((call) => call.path.includes("/ai-quota/extra"))).toBe(false);
+    expect(calls.some((call) => call.path.includes("/ai-quota/extra"))).toBe(
+      false,
+    );
   });
 
   /**
@@ -398,7 +448,9 @@ describe("the money dialog (G-5)", () => {
       "/v1/me": ME,
       "/v1/billing/ai-quota": AT_CEILING,
     });
-    const offer = await screen.findByRole("button", { name: /what more AI help costs/i });
+    const offer = await screen.findByRole("button", {
+      name: /what more AI help costs/i,
+    });
     // Explicit, because `fireEvent.click` does not move focus in jsdom and the trap
     // restores focus to whatever HELD it — which is the browser's real sequence.
     offer.focus();
@@ -429,7 +481,9 @@ describe("the money dialog (G-5)", () => {
     const { offer } = await openDialog();
     offer.focus();
     fireEvent.keyDown(document, { key: "Tab" });
-    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Not now" }));
+    expect(document.activeElement).toBe(
+      screen.getByRole("button", { name: "Not now" }),
+    );
   });
 
   it("gives focus back to the control that opened it", async () => {

@@ -221,7 +221,8 @@ async def refresh_voice_catalogue_snapshot() -> None:
 
     Same fail-safe direction as `refresh_pricing_snapshot`: a table this process cannot
     read must not take down the voice picker, so the catalogue already in force (or
-    `agents/voices.SEED_CATALOG` on a cold start) keeps serving and the failure is logged.
+    no voices at all on a cold start that has never synced) keeps serving and the failure is
+    logged.
     This is also what makes `POST /v1/ops/voices/refresh` reach every API process rather
     than only the one that served the request.
     """

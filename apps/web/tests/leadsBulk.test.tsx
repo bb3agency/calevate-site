@@ -33,9 +33,20 @@ const ME: Me = {
   user_id: "u1",
   realm: "client",
   role: "owner",
-  permissions: ["leads:read", "leads:write", "leads:dispatch", "calls:read_raw"],
+  permissions: [
+    "leads:read",
+    "leads:write",
+    "leads:dispatch",
+    "calls:read_raw",
+  ],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  withheld_acts: [],
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 const AGENT: Agent = {
@@ -47,12 +58,14 @@ const AGENT: Agent = {
   // Hard rule 5: an agent ALWAYS carries a non-null disclosure line. These fixtures had
   // none — `as unknown as Agent` is why nobody noticed.
   language_primary: "te-IN",
-  disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   // D-163 split the bundled line into two notices with two switches. The fixture keeps
   // both ON, which is what a new agent is born with, and carries the server-composed
   // `opening_line` rather than joining the two sentences here — the screens read that
   // field, so a fixture that computed it would be testing its own arithmetic.
-  ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  ai_disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   ai_disclosure_enabled: true,
   recording_notice_line: "This call is being recorded.",
   caller_memory_notice_line: "I keep a short note of what you ask about.",
@@ -86,7 +99,11 @@ const COLUMNS = [
   { key: "status", label: "Stage", kind: "fixed", type: "enum" },
 ];
 
-function lead(id: string, name: string, over: Record<string, unknown> = {}): Lead {
+function lead(
+  id: string,
+  name: string,
+  over: Record<string, unknown> = {},
+): Lead {
   return {
     id,
     name,
@@ -118,7 +135,14 @@ function leadList(items: Lead[], total: number) {
     total,
     limit: 100,
     offset: 0,
-    status_counts_matching_search: { new: total, contacted: 0, interested: 0, hot: 0, won: 0, lost: 0 },
+    status_counts_matching_search: {
+      new: total,
+      contacted: 0,
+      interested: 0,
+      hot: 0,
+      won: 0,
+      lost: 0,
+    },
   };
 }
 
@@ -136,7 +160,11 @@ function routes(over: Record<string, unknown> = {}) {
   };
 }
 
-async function lastCallTo(calls: ApiCall[], prefix: string, method = "GET"): Promise<ApiCall> {
+async function lastCallTo(
+  calls: ApiCall[],
+  prefix: string,
+  method = "GET",
+): Promise<ApiCall> {
   return vi.waitFor(() => {
     const found = [...calls]
       .reverse()
@@ -153,14 +181,18 @@ async function tick(name: string) {
 
 /** Walk the bar's two-step control: review, then apply. */
 async function review() {
-  fireEvent.click(await screen.findByRole("button", { name: /Review this change/ }));
+  fireEvent.click(
+    await screen.findByRole("button", { name: /Review this change/ }),
+  );
 }
 
 describe("selection scope is never ambiguous", () => {
   it("says the ticked rows are ON THIS PAGE, with the count", async () => {
     await renderClientPage(<LeadsPage />, routes());
     await tick("Ramesh Kumar");
-    expect(await screen.findByText(/1 lead on this page is selected/)).toBeTruthy();
+    expect(
+      await screen.findByText(/1 lead on this page is selected/),
+    ).toBeTruthy();
   });
 
   it("offers the whole filtered query only when rows are off-screen, and names both counts", async () => {
@@ -169,9 +201,13 @@ describe("selection scope is never ambiguous", () => {
       <LeadsPage />,
       routes({ "POST /v1/leads/search": leadList([LEAD_A, LEAD_B], 140) }),
     );
-    fireEvent.click(await screen.findByLabelText("Select all leads on this page"));
+    fireEvent.click(
+      await screen.findByLabelText("Select all leads on this page"),
+    );
 
-    expect(await screen.findByText(/All 2 leads on this page are selected/)).toBeTruthy();
+    expect(
+      await screen.findByText(/All 2 leads on this page are selected/),
+    ).toBeTruthy();
     const extend = screen.getByRole("button", {
       name: /Select all 140 leads matching these filters/,
     });
@@ -180,18 +216,24 @@ describe("selection scope is never ambiguous", () => {
     // The scope sentence CHANGES, and it names the rows the person cannot see. That gap
     // is the whole risk of this control and it is stated rather than implied.
     expect(
-      await screen.findByText(/All 140 leads matching these filters are selected/),
+      await screen.findByText(
+        /All 140 leads matching these filters are selected/,
+      ),
     ).toBeTruthy();
     expect(container.textContent).toContain("138 not on this page");
   });
 
   it("does not offer the whole query when the page already holds every matching lead", async () => {
     await renderClientPage(<LeadsPage />, routes());
-    fireEvent.click(await screen.findByLabelText("Select all leads on this page"));
+    fireEvent.click(
+      await screen.findByLabelText("Select all leads on this page"),
+    );
     // The bar still names the scope and the count; what is absent is the escape hatch,
     // because there is nothing off-screen for it to reach.
     await screen.findByText(/2 leads on this page are selected/);
-    expect(screen.queryByRole("button", { name: /matching these filters/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /matching these filters/ }),
+    ).toBeNull();
   });
 
   it("sends scope 'ids' with exactly the ticked ids", async () => {
@@ -237,15 +279,21 @@ describe("selection scope is never ambiguous", () => {
     });
 
     fireEvent.click(await screen.findByRole("button", { name: "hot" }));
-    fireEvent.click(await screen.findByLabelText("Select all leads on this page"));
     fireEvent.click(
-      await screen.findByRole("button", { name: /Select all 140 leads matching these filters/ }),
+      await screen.findByLabelText("Select all leads on this page"),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /Select all 140 leads matching these filters/,
+      }),
     );
     await review();
 
     // Above the threshold the confirmation is TYPED, and what must be typed is the COUNT
     // — a fixed word proves the button was meant, and the risk here is the number.
-    const apply = screen.getByRole("button", { name: /Apply to 140/ }) as HTMLButtonElement;
+    const apply = screen.getByRole("button", {
+      name: /Apply to 140/,
+    }) as HTMLButtonElement;
     expect(apply.disabled).toBe(true);
     fireEvent.change(screen.getByLabelText("Type 140 to confirm"), {
       target: { value: "140" },
@@ -279,17 +327,35 @@ describe("selection scope is never ambiguous", () => {
     await screen.findByText(/1 lead on this page is selected/);
 
     fireEvent.click(screen.getByRole("button", { name: "won" }));
-    expect(await vi.waitFor(() => screen.queryByText(/is selected/))).toBeNull();
+    expect(
+      await vi.waitFor(() => screen.queryByText(/is selected/)),
+    ).toBeNull();
   });
 
-  it("offers no selection at all to a read-only impersonating operator", async () => {
+  it("offers the selection to a view-as operator, because `leads:write` is writable now", async () => {
+    /**
+     * IT USED TO ASSERT THE ABSENCE — "offers no selection at all to a read-only
+     * impersonating operator" — because D-22 refused every mutating permission to a
+     * view-as session, so a tick box could only ever lead to a 403. D-587 reversed it:
+     * `leads:write` is `None` in `rbac.VIEW_AS_MUTATIONS` and no named act covers a bulk
+     * stage change, so the server accepts the write and records it against the operator.
+     * A lead stuck in the wrong state is one of the four support jobs the reversal names.
+     *
+     * (The act that IS withheld on this screen is `leads.saved_view` — a saved view
+     * belongs to a `users.id` a view-as session does not have — and it gates the Save
+     * control, not the ticking. `LeadsScreen` asks `useActAccess` for that one.)
+     */
     await renderClientPage(
       <LeadsPage />,
-      routes({ "/v1/me": { ...ME, impersonating: true } }),
+      routes({
+        "/v1/me": { ...ME, impersonating: true, withheld_acts: ["leads.saved_view"] },
+      }),
     );
     await screen.findByText("Ramesh Kumar");
-    expect(screen.queryByLabelText("Select all leads on this page")).toBeNull();
-    expect(screen.queryByLabelText("Select Ramesh Kumar")).toBeNull();
+    expect(
+      await screen.findByLabelText("Select all leads on this page"),
+    ).toBeTruthy();
+    expect(screen.getByLabelText("Select Ramesh Kumar")).toBeTruthy();
   });
 });
 
@@ -314,9 +380,10 @@ describe("the confirmation states the consequences before the click", () => {
     await tick("Ramesh Kumar");
     await review();
     expect(screen.queryByLabelText(/Type .* to confirm/)).toBeNull();
-    expect((screen.getByRole("button", { name: /Apply to 1/ }) as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+    expect(
+      (screen.getByRole("button", { name: /Apply to 1/ }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
   });
 
   it("refuses to arm on a typed count that is not the real one", async () => {
@@ -324,14 +391,24 @@ describe("the confirmation states the consequences before the click", () => {
       <LeadsPage />,
       routes({ "POST /v1/leads/search": leadList([LEAD_A, LEAD_B], 140) }),
     );
-    fireEvent.click(await screen.findByLabelText("Select all leads on this page"));
     fireEvent.click(
-      await screen.findByRole("button", { name: /Select all 140 leads matching these filters/ }),
+      await screen.findByLabelText("Select all leads on this page"),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /Select all 140 leads matching these filters/,
+      }),
     );
     await review();
-    fireEvent.change(screen.getByLabelText("Type 140 to confirm"), { target: { value: "14" } });
+    fireEvent.change(screen.getByLabelText("Type 140 to confirm"), {
+      target: { value: "14" },
+    });
     expect(
-      (screen.getByRole("button", { name: /Apply to 140/ }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: /Apply to 140/,
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
   });
 });
@@ -350,12 +427,14 @@ describe("the result is the server's answer, and a partial failure reads as one"
           {
             lead_id: "lead-1002",
             rule: "not_found",
-            reason: "This lead is no longer on this account, so it was left alone.",
+            reason:
+              "This lead is no longer on this account, so it was left alone.",
           },
           {
             lead_id: "lead-9999",
             rule: "not_found",
-            reason: "This lead is no longer on this account, so it was left alone.",
+            reason:
+              "This lead is no longer on this account, so it was left alone.",
           },
         ],
       },
@@ -433,7 +512,8 @@ describe("the result is the server's answer, and a partial failure reads as one"
       "POST /v1/leads/bulk": problem(409, {
         type: "https://calevate.tech/problems/lead_bulk_set_moved",
         title: "Conflicting request",
-        detail: "This now matches 141 leads rather than the 140 you confirmed, so nothing was changed.",
+        detail:
+          "This now matches 141 leads rather than the 140 you confirmed, so nothing was changed.",
         kind: "conflict",
         remediation: "Check the table and run the action again.",
       }),
@@ -444,7 +524,9 @@ describe("the result is the server's answer, and a partial failure reads as one"
     fireEvent.click(await screen.findByRole("button", { name: /Apply to 1/ }));
 
     const alerts = await screen.findAllByRole("alert");
-    expect(alerts.some((a) => a.textContent?.includes("nothing was changed"))).toBe(true);
+    expect(
+      alerts.some((a) => a.textContent?.includes("nothing was changed")),
+    ).toBe(true);
     expect(screen.queryByRole("status")).toBeNull();
   });
 });
@@ -456,7 +538,8 @@ describe("inline edit says so on the row when it fails", () => {
       "PATCH /v1/leads/lead-1001": problem(422, {
         type: "https://calevate.tech/problems/lead_assignee_not_a_member",
         title: "Request rejected by a business rule",
-        detail: "That person is not on this account's team, so this lead cannot be assigned to them.",
+        detail:
+          "That person is not on this account's team, so this lead cannot be assigned to them.",
         kind: "business_rule",
       }),
     });
@@ -483,7 +566,11 @@ describe("inline edit says so on the row when it fails", () => {
       // The harness matches one answer per route, so the retry is exercised by flipping
       // this flag through a getter the stub reads on each call.
       get "PATCH /v1/leads/lead-1001"() {
-        if (fail) return problem(503, { title: "Service unavailable", detail: "Try again." });
+        if (fail)
+          return problem(503, {
+            title: "Service unavailable",
+            detail: "Try again.",
+          });
         return LEAD_A;
       },
     });
@@ -493,7 +580,9 @@ describe("inline edit says so on the row when it fails", () => {
     });
     await vi.waitFor(() => {
       expect(
-        screen.getAllByRole("alert").some((a) => a.textContent?.startsWith("Not saved")),
+        screen
+          .getAllByRole("alert")
+          .some((a) => a.textContent?.startsWith("Not saved")),
       ).toBe(true);
     });
 
@@ -503,7 +592,9 @@ describe("inline edit says so on the row when it fails", () => {
     });
     await vi.waitFor(() => {
       expect(
-        screen.queryAllByRole("alert").some((a) => a.textContent?.startsWith("Not saved")),
+        screen
+          .queryAllByRole("alert")
+          .some((a) => a.textContent?.startsWith("Not saved")),
       ).toBe(false);
     });
     expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(2);
@@ -516,7 +607,9 @@ describe("inline edit says so on the row when it fails", () => {
     });
 
     fireEvent.click(
-      await screen.findByLabelText("Edit the name for the lead on +919876541001"),
+      await screen.findByLabelText(
+        "Edit the name for the lead on +919876541001",
+      ),
     );
     const input = screen.getByLabelText("Name for the lead on +919876541001");
 
@@ -525,7 +618,9 @@ describe("inline edit says so on the row when it fails", () => {
     fireEvent.keyDown(input, { key: "Escape" });
     expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(0);
 
-    fireEvent.click(screen.getByLabelText("Edit the name for the lead on +919876541001"));
+    fireEvent.click(
+      screen.getByLabelText("Edit the name for the lead on +919876541001"),
+    );
     const again = screen.getByLabelText("Name for the lead on +919876541001");
     fireEvent.change(again, { target: { value: "Ramesh K" } });
     fireEvent.keyDown(again, { key: "Enter" });
@@ -541,14 +636,18 @@ describe("inline edit says so on the row when it fails", () => {
     });
 
     fireEvent.click(
-      await screen.findByLabelText("Edit the name for the lead on +919876541001"),
+      await screen.findByLabelText(
+        "Edit the name for the lead on +919876541001",
+      ),
     );
     fireEvent.blur(screen.getByLabelText("Name for the lead on +919876541001"));
     // A cell clicked into and out of must not PATCH: the write bumps `updated_at`, which
     // is this table's sort key, so a no-op edit would re-order the client's screen.
     expect(calls.filter((c) => c.method === "PATCH")).toHaveLength(0);
 
-    fireEvent.click(screen.getByLabelText("Edit the name for the lead on +919876541001"));
+    fireEvent.click(
+      screen.getByLabelText("Edit the name for the lead on +919876541001"),
+    );
     const input = screen.getByLabelText("Name for the lead on +919876541001");
     fireEvent.change(input, { target: { value: "Ramesh Gupta" } });
     fireEvent.blur(input);

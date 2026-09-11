@@ -5607,6 +5607,144 @@
         "title": "CreditsOut",
         "type": "object"
       },
+      "CuratedVoiceOut": {
+        "additionalProperties": false,
+        "description": "One row of the Voices table.\n\nA SUPERSET of the catalogue `Voice` rather than an envelope around it, for\n`OfferedVoiceOut`'s reason in `agents/voice_routes.py`: the operator's table and the\nclient's picker describe one voice, and nesting it would give the console two shapes to\nrender the same thing in.",
+        "properties": {
+          "curated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Curated At"
+          },
+          "engine_voice_id": {
+            "title": "Engine Voice Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "languages": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "live_agents": {
+            "title": "Live Agents",
+            "type": "integer"
+          },
+          "offered": {
+            "title": "Offered",
+            "type": "boolean"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "enabled",
+              "disabled",
+              "archived"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "synced_at": {
+            "format": "date-time",
+            "title": "Synced At",
+            "type": "string"
+          },
+          "tier_label": {
+            "title": "Tier Label",
+            "type": "string"
+          },
+          "tts_model": {
+            "title": "Tts Model",
+            "type": "string"
+          },
+          "voice_id": {
+            "title": "Voice Id",
+            "type": "string"
+          },
+          "withdrawn_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withdrawn At"
+          }
+        },
+        "required": [
+          "voice_id",
+          "label",
+          "provider",
+          "tier_label",
+          "tts_model",
+          "engine_voice_id",
+          "languages",
+          "source",
+          "state",
+          "offered",
+          "synced_at",
+          "curated_at",
+          "withdrawn_at",
+          "live_agents"
+        ],
+        "title": "CuratedVoiceOut",
+        "type": "object"
+      },
+      "CuratedVoicesOut": {
+        "additionalProperties": false,
+        "description": "The whole cached catalogue AND what an operator needs to read it.\n\nNO FIELD HAS A DEFAULT, for `VoiceCatalogueOut`'s reason: a Pydantic default makes the\nfield optional in the generated TypeScript, and every one of these is a fact the console\nmust be able to trust rather than treat as falsy when absent.",
+        "properties": {
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "offered": {
+            "title": "Offered",
+            "type": "integer"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "voices": {
+            "items": {
+              "$ref": "#/components/schemas/CuratedVoiceOut"
+            },
+            "title": "Voices",
+            "type": "array"
+          }
+        },
+        "required": [
+          "voices",
+          "source",
+          "offered",
+          "note"
+        ],
+        "title": "CuratedVoicesOut",
+        "type": "object"
+      },
       "DashboardDataUseAttestIn": {
         "additionalProperties": false,
         "properties": {
@@ -13199,6 +13337,14 @@
               }
             ],
             "title": "User Id"
+          },
+          "withheld_acts": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Withheld Acts",
+            "type": "array"
           }
         },
         "required": [
@@ -14025,11 +14171,6 @@
           "id": {
             "title": "Id",
             "type": "string"
-          },
-          "is_default": {
-            "default": false,
-            "title": "Is Default",
-            "type": "boolean"
           },
           "label": {
             "title": "Label",
@@ -18488,6 +18629,57 @@
           }
         },
         "title": "SetCallCapIn",
+        "type": "object"
+      },
+      "SetCurationIn": {
+        "additionalProperties": false,
+        "description": "One voice, one destination state.\n\n`extra=\"forbid\"` so a caller cannot smuggle a second field into a request whose whole\npoint is one decision \u2014 and so a console still sending an older spelling is told,\ninstead of having it dropped while the row moves anyway.",
+        "properties": {
+          "state": {
+            "enum": [
+              "enabled",
+              "disabled",
+              "archived"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "voice_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Voice Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "voice_id",
+          "state"
+        ],
+        "title": "SetCurationIn",
+        "type": "object"
+      },
+      "SetCurationOut": {
+        "additionalProperties": false,
+        "description": "The row as it now stands, plus what changed in this process because of it.",
+        "properties": {
+          "next_step": {
+            "title": "Next Step",
+            "type": "string"
+          },
+          "offered": {
+            "title": "Offered",
+            "type": "integer"
+          },
+          "voice": {
+            "$ref": "#/components/schemas/CuratedVoiceOut"
+          }
+        },
+        "required": [
+          "voice",
+          "offered",
+          "next_step"
+        ],
+        "title": "SetCurationOut",
         "type": "object"
       },
       "SetVoiceIn": {
@@ -23259,11 +23451,6 @@
             "title": "Id",
             "type": "string"
           },
-          "is_default": {
-            "default": false,
-            "title": "Is Default",
-            "type": "boolean"
-          },
           "label": {
             "title": "Label",
             "type": "string"
@@ -24795,7 +24982,7 @@
     },
     "/v1/admin/impersonation-grants": {
       "post": {
-        "description": "Begins a read-only 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant, expires in minutes, and never authorises a mutation \u2014 an impersonating session is read-only, and writes go through the admin surfaces with the tenant in the path.\n\nSTARTING a view-as session needs step-up: a second factor proved in the last 30 minutes AND the header `X-Confirm-Action: view_as:<slug>`. EXTENDING one does not \u2014 send the grant currently held as `renew` and it is continued, for up to an hour from the second factor that started it.",
+        "description": "Begins a 'view as client' session and returns the grant that authorises it. Send it as `X-Impersonation-Grant` alongside `X-Impersonate-Org: <slug>` on every request into that account; without it the request is refused. The grant is bound to this operator and this tenant and expires in minutes.\n\nThe session may CHANGE the account, not only read it, and every change is recorded against you: the audit row names your operator id, the client, and this grant. What it may not do is spend the client's money or AI allowance, grant anyone access to their account, give a consent, accept an agreement or file an erasure \u2014 those stay with the client, and the platform surfaces stay in the operator console.\n\nSTARTING a view-as session needs step-up: a second factor proved in the last 30 minutes AND the header `X-Confirm-Action: view_as:<slug>`. EXTENDING one does not \u2014 send the grant currently held as `renew` and it is continued, for up to an hour from the second factor that started it.",
         "operationId": "mint_impersonation_grant_v1_admin_impersonation_grants_post",
         "parameters": [
           {
@@ -24843,7 +25030,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Mint the short-lived grant a READ-ONLY view-as session needs (D-22)",
+        "summary": "Mint the short-lived grant a view-as session needs (D-22, D-587)",
         "tags": [
           "admin"
         ],
@@ -26670,7 +26857,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/publish": {
       "post": {
-        "description": "The tenant is named in the path because an admin principal has no tenant of its own and the one way it could get one \u2014 impersonation \u2014 is read-only by D-22. Sending `X-Impersonate-Org` to this endpoint is still refused; publish from the admin console instead.",
+        "description": "The tenant is named in the path because an admin principal has no tenant of its own, and a publish should record the account it acted on rather than the one a header happened to resolve. Sending `X-Impersonate-Org` alongside is accepted since D-587 and changes nothing about which agent is published \u2014 the path decides that \u2014 except that the audit row also names the view-as session.",
         "operationId": "publish_v1_admin_tenants__tenant_id__agents__agent_id__publish_post",
         "parameters": [
           {
@@ -29461,7 +29648,7 @@
     },
     "/v1/agents/voices": {
       "get": {
-        "description": "The catalogue, plus one capability read and \u2014 only when it could decide anything \u2014\none platform-wide count.\n\nClient-realm readable on purpose \u2014 a client is legally the Principal Entity and\nshould be able to see what their own agent sounds like, exactly as they can read\nits disclosure line (`AgentOut.disclosure_line`). `requires()` defaults to\n`realm=\"any\"`, so an admin (including one impersonating, since this is a read) gets\nthe same answer \u2014 one catalog, no realm-specific truth.\n\nEntries carry `verified: false` until the Bolna pilot confirms each string is\nselectable (OPERATIONS \u00a72 gate 3); render that, do not hide it.\n\n\u26a0 **\"NO DB, NO NETWORK\" USED TO BE THE FIRST LINE OF THIS DOCSTRING AND IS NO LONGER\nTRUE, WHICH IS WHY IT SAYS SO.** The Cartesia agent cap (D-547 \u00a70 Q10) is a count of\nlive Cartesia agents across every tenant, and a count is a query.\n`voice_offer.offered_catalogue()` measures it ONLY when the two cheap grounds have\nalready passed and the catalogue actually holds a Cartesia voice \u2014 which today, with the\nCartesia entries empty (`voices.CARTESIA_CATALOG_SOURCE`), is never. So this endpoint is\nstill static in practice, and stops being so exactly when the cap starts mattering.\n\nThe capability read is the SAME selector `set_agent_voice` uses, and that is the whole\npoint: this endpoint is what the picker is built from, so if the two could disagree\nthe console would offer precisely the choice the write refuses.",
+        "description": "The catalogue, plus one capability read and \u2014 only when it could decide anything \u2014\none platform-wide count.\n\nClient-realm readable on purpose \u2014 a client is legally the Principal Entity and\nshould be able to see what their own agent sounds like, exactly as they can read\nits disclosure line (`AgentOut.disclosure_line`). `requires()` defaults to\n`realm=\"any\"`, so an admin (including one impersonating, since this is a read) gets\nthe same answer \u2014 one catalog, no realm-specific truth.\n\n\u26a0 **\"NO DB, NO NETWORK\" USED TO BE THE FIRST LINE OF THIS DOCSTRING AND IS NOW WRONG\nTWICE OVER, WHICH IS WHY IT SAYS SO.** The Cartesia agent cap (D-547 \u00a70 Q10) is a count\nof live Cartesia agents across every tenant, measured only when the two cheap grounds\nhave already passed and the catalogue actually holds a Cartesia voice. And since D-588\nevery render also reads the CURATION rows \u2014 one SELECT over a platform-scoped table of\ntens of rows \u2014 because only the voices an operator has enabled may be offered, and that\nis a decision somebody may have made ten seconds ago on the screen they are still\nlooking at. Neither read is on a call path.\n\n**AN EMPTY `voices` LIST IS A REAL AND CORRECT ANSWER.** A deployment nobody has synced,\nor one where nobody has enabled anything, offers nothing \u2014 `note` says which of the two\nit is and what to do. Do not render it as a failure.\n\nThe capability read is the SAME selector `set_agent_voice` uses, and that is the whole\npoint: this endpoint is what the picker is built from, so if the two could disagree\nthe console would offer precisely the choice the write refuses.",
         "operationId": "list_voices_v1_agents_voices_get",
         "responses": {
           "200": {
@@ -30216,7 +30403,7 @@
     },
     "/v1/agents/{agent_id}/engine-state": {
       "get": {
-        "description": "Asks the voice platform what it is running RIGHT NOW and compares it with the script, disclosure line and voice this agent last published. This is the only read that can see an agent edited in the vendor's own dashboard, or a publish that failed on our side after the vendor had already accepted it.\n\nA READ: it writes nothing and re-publishes nothing. It costs one call to the voice platform, so it is a separate endpoint rather than part of `/pending` \u2014 a banner must not dial a vendor on every page load.\n\n`agents:read`, not `agents:write`, for the D-22 reason the other reads here are: this is what support opens while looking at a client's screen, and impersonation refuses every mutating permission.",
+        "description": "Asks the voice platform what it is running RIGHT NOW and compares it with the script, disclosure line and voice this agent last published. This is the only read that can see an agent edited in the vendor's own dashboard, or a publish that failed on our side after the vendor had already accepted it.\n\nA READ: it writes nothing and re-publishes nothing. It costs one call to the voice platform, so it is a separate endpoint rather than part of `/pending` \u2014 a banner must not dial a vendor on every page load.\n\n`agents:read`, not `agents:write`, for the reason the other reads here are: this is what support opens while looking at a client's screen, and a read must never be gated on a permission a view-as session can be refused.",
         "operationId": "engine_state_v1_agents__agent_id__engine_state_get",
         "parameters": [
           {
@@ -38928,9 +39115,75 @@
         "x-calevate-permission": "platform:config"
       }
     },
+    "/v1/ops/voices": {
+      "get": {
+        "description": "The voices the voice platform lists for our account, as of the last refresh \u2014 including ones it has since stopped listing, which are shown last and marked. Only `enabled` voices can be chosen for an agent, by a client or by an admin.\n\nA NEW voice cannot be added here: the voice platform's API is read-only. Import or clone one in its Playground, then press Refresh.",
+        "operationId": "list_voices_v1_ops_voices_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CuratedVoicesOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every synced voice, with its curation state (admin realm)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      },
+      "patch": {
+        "description": "Decides whether ANY agent, in any client account, may be put on this voice. Only `enabled` voices are offered.\n\n**It changes no agent and no call.** An agent already speaking this voice keeps speaking it \u2014 on the call in progress, on the next call, and on its next publish. Disabling or archiving removes it from the picker; moving an agent off it is a separate, deliberate act on that agent. `live_agents` on the response says how many are affected.\n\nA voice the platform has stopped listing can still be curated \u2014 the state is kept against the day it returns \u2014 but it cannot be offered whatever state it is in.\n\nIdempotent: setting the state a voice is already in is a success, not a conflict.",
+        "operationId": "set_voice_curation_v1_ops_voices_patch",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCurationIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetCurationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Enable, disable or archive one voice for the whole platform (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
     "/v1/ops/voices/refresh": {
       "post": {
-        "description": "Reads the voice platform account's own TTS voice list and replaces the cached catalogue every client's voice picker is built from. Use it after cloning or adding a voice on the platform \u2014 the hourly job would otherwise take up to an hour to notice. It changes no agent and no call: an agent already speaking a voice keeps speaking it whatever this returns. A sync that reads nothing is refused rather than applied, so a bad credential cannot empty the picker.",
+        "description": "Reads the voice platform account's own TTS voice list into the cache the admin console's Voices page is built from. Use it after importing or cloning a voice in the voice platform's Playground \u2014 the hourly job would otherwise take up to an hour to notice. A NEWLY SEEN VOICE ARRIVES DISABLED and has to be enabled on that page before anybody can be put on it (D-588), so this alone changes what nobody may choose. It changes no agent and no call either: an agent already speaking a voice keeps speaking it whatever this returns. A sync that reads nothing is refused rather than applied, so a bad credential cannot empty the catalogue.",
         "operationId": "refresh_voice_catalogue_route_v1_ops_voices_refresh_post",
         "responses": {
           "200": {

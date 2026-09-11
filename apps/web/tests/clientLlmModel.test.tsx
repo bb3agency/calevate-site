@@ -4,7 +4,10 @@ import { describe, expect, it } from "vitest";
 import AgentDetailPage from "@/app/c/[slug]/agents/[agentId]/page";
 import ClientLlmModelPage from "@/app/c/[slug]/settings/models/page";
 import type { Me } from "@/lib/api/client";
-import type { AgentWithLlm, OrganizationLlmDefaults } from "@/lib/api/llmModels";
+import type {
+  AgentWithLlm,
+  OrganizationLlmDefaults,
+} from "@/lib/api/llmModels";
 import type { PendingState } from "@/lib/api/publishing";
 
 import { problem, renderClientPage, stillLoading } from "./harness";
@@ -50,11 +53,21 @@ const OWNER: Me = {
     "kb:write",
   ],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  withheld_acts: [],
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 /** A staff member: everything except the permission that changes an account setting. */
-const STAFF: Me = { ...OWNER, role: "staff", permissions: ["agents:read", "org:read"] };
+const STAFF: Me = {
+  ...OWNER,
+  role: "staff",
+  permissions: ["agents:read", "org:read"],
+};
 
 /**
  * Two models a paisa-fraction apart, priced at FOUR decimal places.
@@ -62,7 +75,9 @@ const STAFF: Me = { ...OWNER, role: "staff", permissions: ["agents:read", "org:r
  * Deliberately not round numbers: `0.4830 - 0.2400` is the subtraction that a float gets
  * wrong, and two decimals would let `formatINR`-style rounding pass unnoticed.
  */
-function defaults(over: Partial<OrganizationLlmDefaults> = {}): OrganizationLlmDefaults {
+function defaults(
+  over: Partial<OrganizationLlmDefaults> = {},
+): OrganizationLlmDefaults {
   return {
     default_llm_model: null,
     effective_default: "gpt-4o-mini",
@@ -134,7 +149,9 @@ function radio(name: RegExp): HTMLInputElement {
   return screen.getByRole("radio", { name }) as HTMLInputElement;
 }
 
-const settingsPage = <ClientLlmModelPage params={Promise.resolve({ slug: "acme" })} />;
+const settingsPage = (
+  <ClientLlmModelPage params={Promise.resolve({ slug: "acme" })} />
+);
 
 function settingsRoutes(over: Record<string, unknown> = {}) {
   return {
@@ -146,7 +163,10 @@ function settingsRoutes(over: Record<string, unknown> = {}) {
 
 describe("the account's default model", () => {
   it("prices every option at the precision the server sent, and never through a float", async () => {
-    const { container } = await renderClientPage(settingsPage, settingsRoutes());
+    const { container } = await renderClientPage(
+      settingsPage,
+      settingsRoutes(),
+    );
 
     await screen.findByText(/In force now: gpt-4o-mini/);
     // The server's own digits, at four decimal places. ₹1.50 would be `formatINR`'s
@@ -165,7 +185,10 @@ describe("the account's default model", () => {
   });
 
   it("states the difference between two models exactly", async () => {
-    const { container } = await renderClientPage(settingsPage, settingsRoutes());
+    const { container } = await renderClientPage(
+      settingsPage,
+      settingsRoutes(),
+    );
 
     await screen.findByText(/In force now/);
     // 1.5000 − 0, in decimal, and the difference is now a claim about the CLIENT'S BILL
@@ -181,7 +204,9 @@ describe("the account's default model", () => {
     // AND THE SCREEN NO LONGER PROMISES THE BILL DOES NOT MOVE. That sentence was true
     // until `plans.llm_model_surcharge` existed and is false the moment a founder sets
     // one, so it is gone rather than qualified.
-    expect(container.textContent).not.toContain("does not change when you switch");
+    expect(container.textContent).not.toContain(
+      "does not change when you switch",
+    );
   });
 
   it("keeps the explainer's links inside the sentence, not beside it", async () => {
@@ -194,7 +219,10 @@ describe("the account's default model", () => {
     await renderClientPage(settingsPage, settingsRoutes());
 
     for (const [name, rest] of [
-      ["Usage tab of Credits & billing", "What you are actually billed for the month"],
+      [
+        "Usage tab of Credits & billing",
+        "What you are actually billed for the month",
+      ],
       ["Agents", "One agent can be put on a different model"],
     ] as const) {
       const link = await screen.findByRole("link", { name });
@@ -243,24 +271,32 @@ describe("the account's default model", () => {
     const { calls } = await renderClientPage(
       settingsPage,
       settingsRoutes({
-        "PUT /v1/organization/llm-defaults": defaults({ default_llm_model: "gpt-4.1-mini" }),
+        "PUT /v1/organization/llm-defaults": defaults({
+          default_llm_model: "gpt-4.1-mini",
+        }),
       }),
     );
 
     await act(async () => {
-      fireEvent.click(await screen.findByRole("radio", { name: /gpt-4\.1-mini/ }));
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /gpt-4\.1-mini/ }),
+      );
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Save model/ }));
     });
 
     const put = calls.find((call) => call.method === "PUT");
-    expect(JSON.parse(put?.body ?? "{}")).toEqual({ default_llm_model: "gpt-4.1-mini" });
+    expect(JSON.parse(put?.body ?? "{}")).toEqual({
+      default_llm_model: "gpt-4.1-mini",
+    });
     // The write invalidates the read rather than patching the cache: what is in force is
     // the server's answer, and after a change it is the server that should say it.
     await waitFor(() => {
       const reads = calls.filter(
-        (call) => call.method === "GET" && call.path === "/v1/organization/llm-defaults",
+        (call) =>
+          call.method === "GET" &&
+          call.path === "/v1/organization/llm-defaults",
       );
       expect(reads.length).toBeGreaterThan(1);
     });
@@ -270,13 +306,17 @@ describe("the account's default model", () => {
     const { calls } = await renderClientPage(
       settingsPage,
       settingsRoutes({
-        "/v1/organization/llm-defaults": defaults({ default_llm_model: "gpt-4.1-mini" }),
+        "/v1/organization/llm-defaults": defaults({
+          default_llm_model: "gpt-4.1-mini",
+        }),
         "PUT /v1/organization/llm-defaults": defaults(),
       }),
     );
 
     await act(async () => {
-      fireEvent.click(await screen.findByRole("radio", { name: /Use the Calevate default/ }));
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /Use the Calevate default/ }),
+      );
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Save model/ }));
@@ -296,21 +336,26 @@ describe("the account's default model", () => {
           type: "urn:calevate:validation/model_not_in_plan",
           title: "That model is not included in your plan.",
           detail: "That model is not included in your plan.",
-          remediation: "Ask your account manager to add it, or pick another model.",
+          remediation:
+            "Ask your account manager to add it, or pick another model.",
           retryable: false,
         }),
       }),
     );
 
     await act(async () => {
-      fireEvent.click(await screen.findByRole("radio", { name: /gpt-4\.1-mini/ }));
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /gpt-4\.1-mini/ }),
+      );
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Save model/ }));
     });
 
     const refusal = await screen.findByRole("alert");
-    expect(refusal.textContent).toContain("That model is not included in your plan.");
+    expect(refusal.textContent).toContain(
+      "That model is not included in your plan.",
+    );
     expect(refusal.textContent).toContain("Ask your account manager to add it");
     // Nothing optimistic: the account is still on the model it was on.
     expect(container.textContent).toContain("In force now: gpt-4o-mini");
@@ -390,7 +435,9 @@ describe("the account's default model", () => {
     // still — the screen quoted a rate for a choice the server would not take.
     const { container } = await renderClientPage(
       settingsPage,
-      settingsRoutes({ "/v1/organization/llm-defaults": withAnUndeployedModel() }),
+      settingsRoutes({
+        "/v1/organization/llm-defaults": withAnUndeployedModel(),
+      }),
     );
 
     // The DEPLOYED row first, and awaited: the whole group is disabled until `/v1/me`
@@ -401,7 +448,9 @@ describe("the account's default model", () => {
     // Shown and explained, never hidden: a missing row tells a reader nothing, and the
     // reason is the one thing a CLIENT can act on — asking their Calevate team. The
     // operator ground (a deployment, a key, a price) never reaches this screen.
-    expect(container.textContent).toContain("ask your Calevate team to enable it");
+    expect(container.textContent).toContain(
+      "ask your Calevate team to enable it",
+    );
     expect(container.textContent).not.toContain("deployment");
     expect(container.textContent).not.toContain("ops console");
     // Priced as well as explained: the row states what it WOULD add to their bill, so a
@@ -446,7 +495,10 @@ describe("the account's default model", () => {
   });
 
   it("tells a staff member why they cannot change it, instead of letting them find out", async () => {
-    const { container } = await renderClientPage(settingsPage, settingsRoutes({ "/v1/me": STAFF }));
+    const { container } = await renderClientPage(
+      settingsPage,
+      settingsRoutes({ "/v1/me": STAFF }),
+    );
 
     // Awaited rather than read after the defaults land: the reason comes from `/v1/me`,
     // which is a SECOND request, and asserting on the first one's paint is how a gate
@@ -506,40 +558,44 @@ describe("the account's default model", () => {
     const google = screen.getByRole("group", { name: "Google Gemini" });
     expect(google.textContent).toContain("gemini-2.5-flash-lite");
     expect(google.textContent).toContain("No extra charge");
-    expect(screen.getByRole("group", { name: "OpenAI" }).textContent).toContain("gpt-5-mini");
+    expect(screen.getByRole("group", { name: "OpenAI" }).textContent).toContain(
+      "gpt-5-mini",
+    );
     // A cheaper model is not a negative charge, anywhere on the screen.
     expect(container.textContent).not.toContain("-₹");
   });
 
-  it("blocks the picker under a view-as admin, and says why — the D-22 gap flagged for RBAC", async () => {
+  it("opens the picker to a view-as admin — the flagged D-22 gap that D-587 closed", async () => {
     /**
-     * THE FOUNDER WANTS AN IMPERSONATING ADMIN TO BE ABLE TO CHANGE THIS, and today they
-     * cannot. `useWriteAccess` (`lib/api/hooks.ts`) disables every write for
-     * `me.impersonating`, and the server would refuse it regardless: `org:manage` is in
-     * `MUTATING_PERMISSIONS` and `core/auth.py::requires()` refuses a mutating permission to
-     * an impersonating principal — D-22 view-as is read-only end to end. Enabling the
-     * control on the client alone would hand the operator a 403, the reachable-but-refused
-     * shape `useWriteAccess` exists to prevent.
+     * THIS IS THE FLIP THE OLD TEST PROMISED, and it is here rather than deleted because
+     * the promise is the point. It used to read "blocks the picker under a view-as admin,
+     * and says why — the D-22 gap flagged for RBAC", asserted "viewing this account
+     * read-only" plus a disabled Save, and said in its own docstring: "THE FOUNDER WANTS
+     * AN IMPERSONATING ADMIN TO BE ABLE TO CHANGE THIS… When the carve-out lands, this
+     * expectation flips to a submit."
      *
-     * So this pins the CURRENT, truthful state — disabled, with the reason on screen, and
-     * pointed at the admin console where the write DOES work — and FLAGS the gap: letting an
-     * impersonating admin set the model needs an RBAC/back-end carve-out permitting this one
-     * write under view-as. This lane must not weaken that permission check itself. When the
-     * carve-out lands, this expectation flips to a submit. A gap no test names is one the
-     * next change reopens silently.
+     * The carve-out is D-587. `org:manage` is `None` in `rbac.VIEW_AS_MUTATIONS`, no named
+     * act covers the model choice, and `/v1/me` therefore sends the permission through —
+     * so the picker is live and the write is attributed to the operator
+     * (`audit_log.via_grant_id`). The client did not have to be weakened to get here,
+     * which was the other half of the old test's condition.
      */
     const { container } = await renderClientPage(
       settingsPage,
-      settingsRoutes({ "/v1/me": { ...OWNER, impersonating: true } }),
+      settingsRoutes({
+        "/v1/me": { ...OWNER, impersonating: true, withheld_acts: [] },
+      }),
     );
 
-    await screen.findByText(/viewing this account read-only/);
-    // Directed at the working path, not a dead end.
-    expect(container.textContent).toContain("Do it from the admin console instead");
-    const save = screen.getByRole("button", { name: /Save model/ });
-    expect((save as HTMLButtonElement).disabled).toBe(true);
-    // Awaited: the group is disabled by the same flag, which arrives on the /v1/me read.
-    await waitFor(() => expect(radio(/^gpt-4o-mini/).disabled).toBe(true));
+    await screen.findByText("The model your agents use");
+    // Neither the withdrawn sentence nor the one that replaced it, and no signpost to a
+    // console the operator no longer needs for this.
+    await waitFor(() => expect(radio(/^gpt-4o-mini/).disabled).toBe(false));
+    expect(container.textContent).not.toContain("read-only");
+    expect(container.textContent).not.toContain("stays with the client");
+    expect(container.textContent).not.toContain(
+      "Do it from the admin console instead",
+    );
   });
 });
 
@@ -556,8 +612,10 @@ function agent(over: Partial<AgentWithLlm> = {}): AgentWithLlm {
     published: true,
     engine: "bolna",
     language_primary: "te-IN",
-    disclosure_line: "Namaste, this is an AI assistant calling on behalf of Sri Clinic.",
-    ai_disclosure_line: "Namaste, this is an AI assistant calling on behalf of Sri Clinic.",
+    disclosure_line:
+      "Namaste, this is an AI assistant calling on behalf of Sri Clinic.",
+    ai_disclosure_line:
+      "Namaste, this is an AI assistant calling on behalf of Sri Clinic.",
     ai_disclosure_enabled: true,
     recording_notice_line: "This call is being recorded.",
     caller_memory_notice_line: "I keep a short note of what you ask about.",
@@ -586,7 +644,8 @@ const pending: PendingState = {
   effective_call_cap_s: 600,
   call_cap_is_platform_default: true,
   worst_case_call_cost_inr: "65.00",
-  precedence_rule: "Script decides content, rules decide conduct, voice only changes delivery.",
+  precedence_rule:
+    "Script decides content, rules decide conduct, voice only changes delivery.",
   voice: {
     configured: { voice_id: "bulbul:v3", provider: "sarvam", catalog: null },
     live: { voice_id: "bulbul:v3", provider: "sarvam", catalog: null },
@@ -601,12 +660,15 @@ const pending: PendingState = {
     confirmed: true,
     publishable: true,
     verified_at: "2026-08-15T09:20:00Z",
-    headline: "The voice platform was read back and is running this script and voice.",
+    headline:
+      "The voice platform was read back and is running this script and voice.",
   },
 };
 
 const agentPage = (
-  <AgentDetailPage params={Promise.resolve({ slug: "acme", agentId: "agent-1" })} />
+  <AgentDetailPage
+    params={Promise.resolve({ slug: "acme", agentId: "agent-1" })}
+  />
 );
 
 function agentRoutes(over: Record<string, unknown> = {}) {
@@ -622,7 +684,11 @@ function agentRoutes(over: Record<string, unknown> = {}) {
     // `findByRole("alert")` assertions below are about the MODEL panel's refusal, and
     // `findByRole` fails on ambiguity, so leaving these unstubbed turns those tests into a
     // race that CI loses more often than a laptop does.
-    "/v1/agents/agent-1/actions": { api_actions_enabled: false, calendar_available: false, tools: [] },
+    "/v1/agents/agent-1/actions": {
+      api_actions_enabled: false,
+      calendar_available: false,
+      tools: [],
+    },
     "/v1/integrations/credentials": [],
     "/v1/knowledge-gaps?agent_id=agent-1&status=open&limit=20": {
       items: [],
@@ -638,8 +704,12 @@ describe("where one agent's model came from", () => {
     const { container } = await renderClientPage(agentPage, agentRoutes());
 
     await screen.findByText(/Using your organisation default: gpt-4o-mini/);
-    expect(container.textContent).toContain("Every agent that has not been given its own");
-    expect(screen.getByRole("link", { name: /Change it for every agent/ })).toBeTruthy();
+    expect(container.textContent).toContain(
+      "Every agent that has not been given its own",
+    );
+    expect(
+      screen.getByRole("link", { name: /Change it for every agent/ }),
+    ).toBeTruthy();
     // WHAT IT ADDS TO THEIR BILL, from the same catalogue the picker uses — an override
     // is a per-agent price and is stated as one. Awaited on the PICKER rather than
     // asserted straight away: the catalogue is a second request, and until it lands the
@@ -650,7 +720,9 @@ describe("where one agent's model came from", () => {
     // surcharged — the server's own rule (`rates.CLIENT_CHOSEN_LLM_SOURCES` excludes
     // `platform`), rendered here rather than re-derived.
     await screen.findByRole("radio", { name: /Follow my organisation/ });
-    expect(container.textContent).toContain("It adds nothing to what you are charged");
+    expect(container.textContent).toContain(
+      "It adds nothing to what you are charged",
+    );
     // Never OUR cost on a client's screen (D-455).
     expect(container.textContent).not.toContain("0.2400");
   });
@@ -668,8 +740,12 @@ describe("where one agent's model came from", () => {
     );
 
     await screen.findByText(/This agent has its own model: gpt-4\.1-mini/);
-    expect(container.textContent).toContain("ignores your organisation default");
-    expect(container.textContent).not.toContain("Using your organisation default");
+    expect(container.textContent).toContain(
+      "ignores your organisation default",
+    );
+    expect(container.textContent).not.toContain(
+      "Using your organisation default",
+    );
   });
 
   it("puts an overridden agent back on the account default with an explicit null", async () => {
@@ -686,10 +762,16 @@ describe("where one agent's model came from", () => {
     );
 
     await act(async () => {
-      fireEvent.click(await screen.findByRole("radio", { name: /Follow my organisation/ }));
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /Follow my organisation/ }),
+      );
     });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: /Go back to the organisation default/ }));
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: /Go back to the organisation default/,
+        }),
+      );
     });
 
     const patch = calls.find((call) => call.method === "PATCH");
@@ -701,18 +783,24 @@ describe("where one agent's model came from", () => {
   it("sends only the model when an agent is given one of its own", async () => {
     const { calls } = await renderClientPage(
       agentPage,
-      agentRoutes({ "PATCH /v1/agents/agent-1": agent({ llm_model: "gpt-4.1-mini" }) }),
+      agentRoutes({
+        "PATCH /v1/agents/agent-1": agent({ llm_model: "gpt-4.1-mini" }),
+      }),
     );
 
     await act(async () => {
-      fireEvent.click(await screen.findByRole("radio", { name: /gpt-4\.1-mini/ }));
+      fireEvent.click(
+        await screen.findByRole("radio", { name: /gpt-4\.1-mini/ }),
+      );
     });
     await act(async () => {
       fireEvent.click(screen.getByRole("button", { name: /Save model/ }));
     });
 
     const patch = calls.find((call) => call.method === "PATCH");
-    expect(JSON.parse(patch?.body ?? "{}")).toEqual({ llm_model: "gpt-4.1-mini" });
+    expect(JSON.parse(patch?.body ?? "{}")).toEqual({
+      llm_model: "gpt-4.1-mini",
+    });
   });
 
   it("says nothing at all about a model on an API build that does not report one", async () => {
@@ -737,7 +825,9 @@ describe("where one agent's model came from", () => {
     await screen.findByText("What it is");
     expect(container.textContent).not.toContain("The model it thinks with");
     // And it does not fetch a catalogue it has nothing to show from.
-    expect(calls.some((call) => call.path === "/v1/organization/llm-defaults")).toBe(false);
+    expect(
+      calls.some((call) => call.path === "/v1/organization/llm-defaults"),
+    ).toBe(false);
   });
 
   it("will not offer one agent a model this platform cannot run", async () => {
@@ -752,11 +842,15 @@ describe("where one agent's model came from", () => {
 
     // "Follow my organisation" is untouched — it resolves to a model that IS deployed —
     // and it is awaited first because the group is disabled until `/v1/me` lands.
-    await waitFor(() => expect(radio(/^Follow my organisation/).disabled).toBe(false));
+    await waitFor(() =>
+      expect(radio(/^Follow my organisation/).disabled).toBe(false),
+    );
     expect(radio(/^gpt-4\.1-mini/).disabled).toBe(true);
     // The client sentence, never the operator ground — same audience rule as the settings
     // screen: a client has no deployment to create and no key to install.
-    expect(container.textContent).toContain("ask your Calevate team to enable it");
+    expect(container.textContent).toContain(
+      "ask your Calevate team to enable it",
+    );
     expect(container.textContent).not.toContain("deployment");
   });
 
@@ -764,12 +858,19 @@ describe("where one agent's model came from", () => {
     const { container } = await renderClientPage(
       agentPage,
       agentRoutes({
-        "/v1/agents/agent-1": agent({ status: "archived", archived_at: "2026-07-01T00:00:00Z" }),
+        "/v1/agents/agent-1": agent({
+          status: "archived",
+          archived_at: "2026-07-01T00:00:00Z",
+        }),
       }),
     );
 
     await screen.findByText(/Using your organisation default: gpt-4o-mini/);
-    expect(screen.queryByRole("radio", { name: /Follow my organisation/ })).toBeNull();
-    expect(container.textContent).toContain("part of the record of what it did");
+    expect(
+      screen.queryByRole("radio", { name: /Follow my organisation/ }),
+    ).toBeNull();
+    expect(container.textContent).toContain(
+      "part of the record of what it did",
+    );
   });
 });

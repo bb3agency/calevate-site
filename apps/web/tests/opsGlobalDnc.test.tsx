@@ -94,7 +94,9 @@ describe("the platform-wide do-not-call list", () => {
     // The half that is NOT affected, said in the same breath, and the distinction the
     // route's own docstring says operators get wrong.
     expect(container.textContent).toContain("Inbound calls are unaffected");
-    expect(container.textContent).toContain("not the national customer preference register");
+    expect(container.textContent).toContain(
+      "not the national customer preference register",
+    );
 
     fireEvent.change(screen.getByPlaceholderText(/9876543210/), {
       target: { value: "9876543210" },
@@ -111,14 +113,24 @@ describe("the platform-wide do-not-call list", () => {
     // The control unlocks only once `GET /v1/admin/me` has said this session may use it —
     // fail-closed while the answer is missing, which is also why every test below waits
     // for the ENABLED state before drawing a conclusion from a disabled one.
-    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() =>
+      expect((button as HTMLButtonElement).disabled).toBe(false),
+    );
     fireEvent.click(button);
 
     await waitFor(() => {
-      expect(calls.some((c) => c.method === "POST" && c.path === OPS_DNC_GLOBAL_PATH)).toBe(true);
+      expect(
+        calls.some(
+          (c) => c.method === "POST" && c.path === OPS_DNC_GLOBAL_PATH,
+        ),
+      ).toBe(true);
     });
-    const post = calls.find((c) => c.method === "POST" && c.path === OPS_DNC_GLOBAL_PATH);
-    expect(post?.headers["X-Confirm-Action"]).toBe(SUPPRESS_GLOBALLY_CONFIRMATION);
+    const post = calls.find(
+      (c) => c.method === "POST" && c.path === OPS_DNC_GLOBAL_PATH,
+    );
+    expect(post?.headers["X-Confirm-Action"]).toBe(
+      SUPPRESS_GLOBALLY_CONFIRMATION,
+    );
     // Trimmed, because the server strips the reason and refuses anything under three
     // characters — a console that sent the padding would fail on the operator's behalf.
     expect(JSON.parse(post?.body ?? "{}")).toEqual({
@@ -147,7 +159,9 @@ describe("the platform-wide do-not-call list", () => {
     // The baseline first: a dead button proves nothing about the reason rule if it was
     // dead for want of a permission answer, which is what it is until `/v1/admin/me`
     // lands. This assertion is what stops the next one passing vacuously.
-    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() =>
+      expect((button as HTMLButtonElement).disabled).toBe(false),
+    );
 
     // The rule moved from the button to the CONTROL: a press with a whitespace reason
     // now says what is missing and sends nothing, where before it did nothing at all.
@@ -163,7 +177,11 @@ describe("the platform-wide do-not-call list", () => {
     const { container } = renderAdminPage(
       <GlobalDncPage />,
       routes({
-        [`POST ${OPS_DNC_GLOBAL_PATH}`]: { added: 2, already_suppressed: 1, malformed: 0 },
+        [`POST ${OPS_DNC_GLOBAL_PATH}`]: {
+          added: 2,
+          already_suppressed: 1,
+          malformed: 0,
+        },
       }),
     );
 
@@ -177,7 +195,9 @@ describe("the platform-wide do-not-call list", () => {
     fireEvent.change(screen.getByPlaceholderText("SUPPRESS"), {
       target: { value: "SUPPRESS" },
     });
-    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() =>
+      expect((button as HTMLButtonElement).disabled).toBe(false),
+    );
     fireEvent.click(button);
 
     await waitFor(() => {
@@ -224,7 +244,9 @@ describe("the platform-wide do-not-call list", () => {
       "A regulator, telecom operator or registrar told us to",
     );
 
-    const confirm = await screen.findByRole("button", { name: /Release \+9198/ });
+    const confirm = await screen.findByRole("button", {
+      name: /Release \+9198/,
+    });
     expect((confirm as HTMLButtonElement).disabled).toBe(true);
 
     fireEvent.change(screen.getByLabelText(/Type RELEASE to confirm/), {
@@ -241,10 +263,16 @@ describe("the platform-wide do-not-call list", () => {
     // ROW: a header captured for a suppression cannot release one, and a header captured
     // for one entry cannot release another. A console that sent the bare stem would be
     // refused, and one that sent none would make the step-up decorative.
-    expect(sent?.headers["X-Confirm-Action"]).toBe(releaseGloballyConfirmation(entry().id));
-    expect(sent?.headers["X-Confirm-Action"]).not.toBe(RELEASE_GLOBALLY_CONFIRMATION);
+    expect(sent?.headers["X-Confirm-Action"]).toBe(
+      releaseGloballyConfirmation(entry().id),
+    );
+    expect(sent?.headers["X-Confirm-Action"]).not.toBe(
+      RELEASE_GLOBALLY_CONFIRMATION,
+    );
     expect(sent?.headers["X-Confirm-Action"]).toContain(entry().id);
-    expect(RELEASE_GLOBALLY_CONFIRMATION).not.toBe(SUPPRESS_GLOBALLY_CONFIRMATION);
+    expect(RELEASE_GLOBALLY_CONFIRMATION).not.toBe(
+      SUPPRESS_GLOBALLY_CONFIRMATION,
+    );
   });
 
   it("does not carry a confirmation from one row to the next", async () => {
@@ -253,7 +281,10 @@ describe("the platform-wide do-not-call list", () => {
       routes({
         [LIST_PATH]: [
           entry(),
-          entry({ id: "0192f0aa-7777-7000-8000-000000000002", phone_e164: "+919812347788" }),
+          entry({
+            id: "0192f0aa-7777-7000-8000-000000000002",
+            phone_e164: "+919812347788",
+          }),
         ],
       }),
     );
@@ -275,8 +306,11 @@ describe("the platform-wide do-not-call list", () => {
       }),
     );
     expect(
-      (screen.getByRole("button", { name: /Release \+919812347788/ }) as HTMLButtonElement)
-        .disabled,
+      (
+        screen.getByRole("button", {
+          name: /Release \+919812347788/,
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
     expect(calls.some((c) => c.method === "DELETE")).toBe(false);
   });
@@ -290,9 +324,13 @@ describe("the platform-wide do-not-call list", () => {
     // The PRESENCE of the skeleton, not the absence of rows: an empty card passes an
     // absence assertion just as happily, which is the trap this suite exists to avoid.
     await waitFor(() => {
-      expect(container.querySelectorAll(".animate-pulse").length).toBeGreaterThan(0);
+      expect(
+        container.querySelectorAll(".animate-pulse").length,
+      ).toBeGreaterThan(0);
     });
-    expect(container.textContent).not.toContain("No number is suppressed platform-wide");
+    expect(container.textContent).not.toContain(
+      "No number is suppressed platform-wide",
+    );
   });
 
   it("refuses rather than reporting an empty platform-wide list when the read fails", async () => {
@@ -308,19 +346,28 @@ describe("the platform-wide do-not-call list", () => {
     });
     // The sentence that must never appear over a failed read — it is a statement about
     // what this platform refuses to dial, made on no evidence.
-    expect(container.textContent).not.toContain("No number is suppressed platform-wide");
+    expect(container.textContent).not.toContain(
+      "No number is suppressed platform-wide",
+    );
     // …and no count, because there is nothing to count.
     expect(container.textContent).not.toContain("entries");
   });
 
   it("says the list is empty only when the server said so", async () => {
-    const { container } = renderAdminPage(<GlobalDncPage />, routes({ [LIST_PATH]: [] }));
+    const { container } = renderAdminPage(
+      <GlobalDncPage />,
+      routes({ [LIST_PATH]: [] }),
+    );
 
     await waitFor(() => {
-      expect(container.textContent).toContain("No number is suppressed platform-wide");
+      expect(container.textContent).toContain(
+        "No number is suppressed platform-wide",
+      );
     });
     // The empty state must not read as "nothing is on any client's list either".
-    expect(container.textContent).toContain("Clients' own do-not-call lists are separate");
+    expect(container.textContent).toContain(
+      "Clients' own do-not-call lists are separate",
+    );
   });
 
   it("disables both directions for an admin without ops:manage, with the reason", async () => {
@@ -334,12 +381,16 @@ describe("the platform-wide do-not-call list", () => {
     });
     expect(
       (
-        (await screen.findByRole("button", { name: /Suppress/ })) as HTMLButtonElement
+        (await screen.findByRole("button", {
+          name: /Suppress/,
+        })) as HTMLButtonElement
       ).disabled,
     ).toBe(true);
     // The destructive control is not merely disabled, it is not offered: a Release button
     // that 403s teaches an operator that our compliance rules are a bug.
-    expect(screen.queryByRole("button", { name: /Release the platform-wide/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Release the platform-wide/ }),
+    ).toBeNull();
     expect(calls.some((c) => c.method !== "GET")).toBe(false);
   });
 
@@ -371,7 +422,9 @@ describe("the platform-wide do-not-call list", () => {
     fireEvent.change(screen.getByPlaceholderText("SUPPRESS"), {
       target: { value: "SUPPRESS" },
     });
-    await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
+    await waitFor(() =>
+      expect((button as HTMLButtonElement).disabled).toBe(false),
+    );
     fireEvent.click(button);
 
     await waitFor(() => {
@@ -395,6 +448,9 @@ describe("the platform-wide do-not-call list", () => {
         name: "Release the platform-wide suppression on +919876543210",
       }),
     );
-    await expectNoA11yViolations(container, "admin/ops/dnc (release confirmation)");
+    await expectNoA11yViolations(
+      container,
+      "admin/ops/dnc (release confirmation)",
+    );
   });
 });

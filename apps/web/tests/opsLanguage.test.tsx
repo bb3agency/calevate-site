@@ -26,7 +26,13 @@ import {
  */
 describe("ops plain-language maps", () => {
   it("translates every 'applies' timing to a human answer, none echoing the enum", () => {
-    for (const applies of ["live", "needs_republish", "on_restart", "env_only", "unclassified"]) {
+    for (const applies of [
+      "live",
+      "needs_republish",
+      "on_restart",
+      "env_only",
+      "unclassified",
+    ]) {
       const copy = timingCopy(applies);
       expect(copy.label).not.toContain("_");
       expect(copy.label).not.toBe(applies);
@@ -93,7 +99,15 @@ describe("ops plain-language maps", () => {
 describe("KeyField", () => {
   function Harness() {
     const [v, setV] = useState("");
-    return <KeyField id="k" label="API key" value={v} onChange={setV} hint="Stored encrypted." />;
+    return (
+      <KeyField
+        id="k"
+        label="API key"
+        value={v}
+        onChange={setV}
+        hint="Stored encrypted."
+      />
+    );
   }
 
   it("masks by default, is monospace, and refuses browser assistance on a secret", () => {

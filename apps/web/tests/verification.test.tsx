@@ -2,7 +2,10 @@ import { screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import VerificationPage from "@/app/c/[slug]/verification/page";
-import { PE_REGISTRATION_PATH, type PeRegistration } from "@/lib/api/dltRegistration";
+import {
+  PE_REGISTRATION_PATH,
+  type PeRegistration,
+} from "@/lib/api/dltRegistration";
 import { KYC_PATH, type KycRecord } from "@/lib/api/kyc";
 
 import { problem, renderClientPage } from "./harness";
@@ -97,10 +100,16 @@ describe("the verification gate under failure", () => {
 
     expect(await screen.findByRole("alert")).toBeTruthy();
     expect(container.textContent).not.toContain("Your business is verified.");
-    expect(container.textContent).not.toContain("Your business is not verified yet.");
-    expect(container.textContent).not.toContain("We have not verified your business yet.");
+    expect(container.textContent).not.toContain(
+      "Your business is not verified yet.",
+    );
+    expect(container.textContent).not.toContain(
+      "We have not verified your business yet.",
+    );
     expect(screen.queryByText("What to send us")).toBeNull();
-    expect(screen.queryByText("What this affects while it is outstanding")).toBeNull();
+    expect(
+      screen.queryByText("What this affects while it is outstanding"),
+    ).toBeNull();
     expect(screen.queryByText("What we hold about your business")).toBeNull();
   });
 
@@ -110,13 +119,18 @@ describe("the verification gate under failure", () => {
     // The screen has to pass `onRetry` for the button to exist at all — dropping it is a
     // one-character edit that leaves a blocked client reloading the browser.
     const { container } = await renderClientPage(<VerificationPage />, {
-      [KYC_PATH]: problem(503, { title: "Service unavailable", retryable: true }),
+      [KYC_PATH]: problem(503, {
+        title: "Service unavailable",
+        retryable: true,
+      }),
       [PE_REGISTRATION_PATH]: PE_ACTIVE,
     });
 
     const alert = await screen.findByRole("alert");
     expect((container.textContent ?? "").trim().length).toBeGreaterThan(0);
-    expect(within(alert).getByRole("button", { name: /try again/i })).toBeTruthy();
+    expect(
+      within(alert).getByRole("button", { name: /try again/i }),
+    ).toBeTruthy();
   });
 
   it("offers nothing to press — no upload, no self-verification, no number to buy", async () => {
@@ -136,7 +150,9 @@ describe("the verification gate under failure", () => {
     // the admin realm has nothing to press, and naming the buttons individually is how
     // the fourth one gets added without anyone noticing.
     expect(screen.queryAllByRole("button")).toHaveLength(0);
-    expect(container.textContent).toContain("There is nothing to upload here, on purpose.");
+    expect(container.textContent).toContain(
+      "There is nothing to upload here, on purpose.",
+    );
   });
 
   it("does not print a record it does not hold", async () => {
@@ -149,12 +165,16 @@ describe("the verification gate under failure", () => {
     });
 
     await screen.findByText(SCREEN);
-    const card = screen.getByText("What we hold about your business").closest("section");
+    const card = screen
+      .getByText("What we hold about your business")
+      .closest("section");
     expect(card?.textContent).not.toContain("Signed for the business by");
     expect(card?.textContent).not.toContain("Our file reference");
     // No dashed rows either: an em dash beside a label we DID print reads as a value we
     // are withholding, on the one card whose subject is what we hold.
-    const values = [...(card?.querySelectorAll("dd") ?? [])].map((dd) => dd.textContent);
+    const values = [...(card?.querySelectorAll("dd") ?? [])].map(
+      (dd) => dd.textContent,
+    );
     expect(values).not.toContain("—");
     expect(container.textContent).toContain("Not on file");
   });
@@ -165,13 +185,19 @@ describe("the verification gate under failure", () => {
     // (Model B, published Terms clause 3), and it must name the operators and what to
     // send back, or the client comes back with a support ticket.
     const { container } = await renderClientPage(<VerificationPage />, {
-      [KYC_PATH]: record({ status: "verified", is_verified: true, verified_at: "2026-03-01T06:00:00Z" }),
+      [KYC_PATH]: record({
+        status: "verified",
+        is_verified: true,
+        verified_at: "2026-03-01T06:00:00Z",
+      }),
       [PE_REGISTRATION_PATH]: PE_ACTIVE,
     });
 
     await screen.findByText(SCREEN);
     const text = container.textContent ?? "";
-    expect(text).toContain("Calevate does not sell, rent or supply telephone numbers");
+    expect(text).toContain(
+      "Calevate does not sell, rent or supply telephone numbers",
+    );
     expect(text).toContain("Exotel");
     expect(text).toContain("Plivo");
     expect(text).toContain("Vobiz");
@@ -210,20 +236,32 @@ describe("verification — the refusals stated on the screen", () => {
     expect(container.textContent).toContain(
       "Calls coming IN are unaffected — your agent keeps answering the phone.",
     );
-    expect(container.textContent).toContain("Incoming calls: unaffected, on every plan.");
+    expect(container.textContent).toContain(
+      "Incoming calls: unaffected, on every plan.",
+    );
   });
 
   it("refuses identity documents in words, not only in the schema", async () => {
     const { container } = await unverified();
-    expect(container.textContent).toContain("There is nothing to upload here, on purpose.");
-    expect(container.textContent).toContain("Never send an Aadhaar or an individual's PAN.");
-    expect(container.textContent).toContain("No scan, no photograph and no copy of any document is stored");
+    expect(container.textContent).toContain(
+      "There is nothing to upload here, on purpose.",
+    );
+    expect(container.textContent).toContain(
+      "Never send an Aadhaar or an individual's PAN.",
+    );
+    expect(container.textContent).toContain(
+      "No scan, no photograph and no copy of any document is stored",
+    );
   });
 
   it("says verification is ours to do, which is why the copy sends them to us", async () => {
     const { container } = await unverified();
-    expect(container.textContent).toContain("Verification is ours to do, not yours to declare.");
-    expect(container.textContent).toContain("Send these to your account manager");
+    expect(container.textContent).toContain(
+      "Verification is ours to do, not yours to declare.",
+    );
+    expect(container.textContent).toContain(
+      "Send these to your account manager",
+    );
   });
 
   it("puts the action above the explanation while it is outstanding", async () => {
@@ -232,7 +270,9 @@ describe("verification — the refusals stated on the screen", () => {
     const { container } = await unverified();
     const text = container.textContent ?? "";
     const action = text.indexOf("What to send us");
-    const consequences = text.indexOf("What this affects while it is outstanding");
+    const consequences = text.indexOf(
+      "What this affects while it is outstanding",
+    );
     expect(action).toBeGreaterThan(-1);
     expect(consequences).toBeGreaterThan(-1);
     expect(action).toBeLessThan(consequences);
@@ -243,13 +283,21 @@ describe("verification — the refusals stated on the screen", () => {
     expect(container.textContent).toContain(
       "Calevate does not sell, rent or supply telephone numbers.",
     );
-    expect(container.textContent).toContain("You stay the subscriber of record");
-    expect(container.textContent).toContain("you can withdraw them at any time");
+    expect(container.textContent).toContain(
+      "You stay the subscriber of record",
+    );
+    expect(container.textContent).toContain(
+      "you can withdraw them at any time",
+    );
   });
 
   it("says the record shown is the whole record", async () => {
     const { container } = await renderClientPage(<VerificationPage />, {
-      [KYC_PATH]: record({ is_verified: true, status: "verified", verified_at: "2026-02-02T06:00:00Z" }),
+      [KYC_PATH]: record({
+        is_verified: true,
+        status: "verified",
+        verified_at: "2026-02-02T06:00:00Z",
+      }),
       [PE_REGISTRATION_PATH]: PE_ACTIVE,
     });
     await screen.findByText("What we hold about your business");

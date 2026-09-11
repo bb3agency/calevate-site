@@ -12,7 +12,11 @@ import { join } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import { AnswerText } from "../src/components/copilot/answerText";
-import { MAX_HISTORY, recentTurns, type CopilotTurn } from "../src/lib/copilot/useCopilotConversation";
+import {
+  MAX_HISTORY,
+  recentTurns,
+  type CopilotTurn,
+} from "../src/lib/copilot/useCopilotConversation";
 
 /**
  * COUNT THE PARSES. `vi.mock` with the real implementation behind it: the assertion is
@@ -22,7 +26,8 @@ import { MAX_HISTORY, recentTurns, type CopilotTurn } from "../src/lib/copilot/u
 const parses = vi.hoisted(() => [] as string[]);
 
 vi.mock("@/lib/copilot/answerBlocks", async (importOriginal) => {
-  const real = await importOriginal<typeof import("@/lib/copilot/answerBlocks")>();
+  const real =
+    await importOriginal<typeof import("@/lib/copilot/answerBlocks")>();
   return {
     ...real,
     blocks: (answer: string) => {
@@ -40,7 +45,10 @@ function turn(role: "user" | "assistant", n: number): CopilotTurn {
 
 /** `n` complete exchanges, oldest first. */
 function exchanges(n: number): CopilotTurn[] {
-  return Array.from({ length: n }, (_, i) => [turn("user", i), turn("assistant", i)]).flat();
+  return Array.from({ length: n }, (_, i) => [
+    turn("user", i),
+    turn("assistant", i),
+  ]).flat();
 }
 
 describe("the history the browser replays", () => {
@@ -50,7 +58,9 @@ describe("the history the browser replays", () => {
     // after validation, not 12" — a validation error naming a field the person cannot
     // see, in a conversation that had been working a moment before.
     for (let count = 1; count <= 12; count += 1) {
-      expect(recentTurns(exchanges(count)).length).toBeLessThanOrEqual(MAX_HISTORY);
+      expect(recentTurns(exchanges(count)).length).toBeLessThanOrEqual(
+        MAX_HISTORY,
+      );
     }
   });
 
@@ -81,9 +91,15 @@ describe("the history the browser replays", () => {
     // a value, so this side retypes it. This is what stops the copy drifting: raising
     // MAX_HISTORY on the server without raising it here would silently keep sending the
     // old, smaller window; lowering it there would bring the 422 straight back.
-    const schemas = readFileSync(join(REPO_ROOT, "apps/api/copilot/schemas.py"), "utf8");
+    const schemas = readFileSync(
+      join(REPO_ROOT, "apps/api/copilot/schemas.py"),
+      "utf8",
+    );
     const declared = /^MAX_HISTORY = (\d+)$/m.exec(schemas);
-    expect(declared, "MAX_HISTORY is no longer declared in copilot/schemas.py").not.toBeNull();
+    expect(
+      declared,
+      "MAX_HISTORY is no longer declared in copilot/schemas.py",
+    ).not.toBeNull();
     expect(Number(declared?.[1])).toBe(MAX_HISTORY);
   });
 
@@ -98,12 +114,14 @@ describe("the history the browser replays", () => {
       readFileSync(join(__dirname, "..", "src/lib/api/openapi.json"), "utf8"),
     ) as {
       components: {
-        schemas: { CopilotAskIn: { properties: { history: { maxItems?: number } } } };
+        schemas: {
+          CopilotAskIn: { properties: { history: { maxItems?: number } } };
+        };
       };
     };
-    expect(openapi.components.schemas.CopilotAskIn.properties.history.maxItems).toBe(
-      MAX_HISTORY,
-    );
+    expect(
+      openapi.components.schemas.CopilotAskIn.properties.history.maxItems,
+    ).toBe(MAX_HISTORY);
   });
 });
 
@@ -124,23 +142,31 @@ describe("the answer the model actually sends", () => {
     const items = screen.getAllByRole("listitem");
     expect(items).toHaveLength(2);
     expect(items[0].textContent).toContain("Set Fields:");
-    expect(items[0].textContent).toContain("Update values in the form on your current screen.");
+    expect(items[0].textContent).toContain(
+      "Update values in the form on your current screen.",
+    );
     // The asterisks are GONE from what the person reads — the whole point of the fix.
     expect(screen.queryByText(/\*\*/)).toBeNull();
     expect(screen.getByText("Features:").tagName).toBe("P");
   });
 
   it("renders numbered steps as an ordered list", () => {
-    const { container } = render(<AnswerText text={"1. Open the campaign.\n2. Press launch."} />);
+    const { container } = render(
+      <AnswerText text={"1. Open the campaign.\n2. Press launch."} />,
+    );
     expect(container.querySelector("ol")).not.toBeNull();
     expect(screen.getAllByRole("listitem")).toHaveLength(2);
   });
 
   it("emphasises inline bold and inline code without losing the surrounding words", () => {
-    render(<AnswerText text="Set **status** to `qualified` before launching." />);
+    render(
+      <AnswerText text="Set **status** to `qualified` before launching." />,
+    );
     expect(screen.getByText("status").tagName).toBe("STRONG");
     expect(screen.getByText("qualified").tagName).toBe("CODE");
-    expect(document.body.textContent).toContain("Set status to qualified before launching.");
+    expect(document.body.textContent).toContain(
+      "Set status to qualified before launching.",
+    );
   });
 
   it("leaves a half-arrived construct literal instead of swallowing the answer", () => {
@@ -148,12 +174,16 @@ describe("the answer the model actually sends", () => {
     // called constantly with text that ends mid-token. An unterminated `**` that started
     // emphasis would make the rest of the answer flicker bold as tokens land.
     render(<AnswerText text="Your account has **outbound block" />);
-    expect(document.body.textContent).toContain("Your account has **outbound block");
+    expect(document.body.textContent).toContain(
+      "Your account has **outbound block",
+    );
     expect(document.querySelector("strong")).toBeNull();
   });
 
   it("renders plain prose as plain paragraphs, which is the ordinary case", () => {
-    render(<AnswerText text={"You have 4 leads waiting.\n\nTwo came in today."} />);
+    render(
+      <AnswerText text={"You have 4 leads waiting.\n\nTwo came in today."} />,
+    );
     expect(screen.getByText("You have 4 leads waiting.")).toBeTruthy();
     expect(screen.getByText("Two came in today.")).toBeTruthy();
     expect(screen.queryAllByRole("listitem")).toHaveLength(0);
@@ -164,7 +194,8 @@ describe("the answer the model actually sends", () => {
     // a model emits is a text node. Asserted rather than assumed: this is the property
     // that makes rendering an untrusted string safe, and it is one refactor away from
     // being lost.
-    const hostile = '<img src=x onerror="alert(1)"> and [a link](javascript:alert(2))';
+    const hostile =
+      '<img src=x onerror="alert(1)"> and [a link](javascript:alert(2))';
     const { container } = render(<AnswerText text={hostile} />);
     expect(container.querySelector("img")).toBeNull();
     expect(container.querySelector("a")).toBeNull();

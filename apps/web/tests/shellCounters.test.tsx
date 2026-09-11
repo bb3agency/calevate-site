@@ -8,7 +8,13 @@ import ClientRealmLayout from "@/app/c/[slug]/layout";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import { HOLDS_PATH } from "@/lib/api/holds";
 
-import { problem, renderAdminPage, stillLoading, stubApi, type Routes } from "./harness";
+import {
+  problem,
+  renderAdminPage,
+  stillLoading,
+  stubApi,
+  type Routes,
+} from "./harness";
 
 /**
  * The two counters in the shell chrome — the operator's hold queue and the client's
@@ -67,9 +73,16 @@ function renderAdminShell(routes: Partial<Routes> = {}) {
  * The client shell mounts its OWN `ClientRealmProvider`, so `renderClientPage` would nest
  * a second one — a composition the app never has. Same reasoning as navDrawer.test.tsx.
  */
-async function renderClientShell(routes: Record<string, unknown>): Promise<void> {
-  stubApi({ "/v1/me": { organization: { name: "Acme" }, role: "owner" }, ...routes });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+async function renderClientShell(
+  routes: Record<string, unknown>,
+): Promise<void> {
+  stubApi({
+    "/v1/me": { organization: { name: "Acme" }, role: "owner" },
+    ...routes,
+  });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   await act(async () => {
     const ui: ReactElement = (
       <QueryClientProvider client={client}>
@@ -84,8 +97,18 @@ async function renderClientShell(routes: Record<string, unknown>): Promise<void>
 
 /** A hold, in the shape `/v1/admin/compliance/holds` sends. */
 const HELD = [
-  { tenant_id: "t1", tenant_name: "Sri Traders", slug: "sri", rules: ["kyc_pending"] },
-  { tenant_id: "t2", tenant_name: "Kiran Clinic", slug: "kiran", rules: ["dlt_pe"] },
+  {
+    tenant_id: "t1",
+    tenant_name: "Sri Traders",
+    slug: "sri",
+    rules: ["kyc_pending"],
+  },
+  {
+    tenant_id: "t2",
+    tenant_name: "Kiran Clinic",
+    slug: "kiran",
+    rules: ["dlt_pe"],
+  },
 ];
 
 describe("the admin shell's hold-queue badge", () => {
@@ -96,7 +119,9 @@ describe("the admin shell's hold-queue badge", () => {
 
     // The mark is PRESENT and named. Its absence — the old `?? 0` behaviour — is exactly
     // what a healthy, empty queue looks like, so "no badge" proves nothing either way.
-    const link = await screen.findByLabelText("Held accounts: we could not read the queue");
+    const link = await screen.findByLabelText(
+      "Held accounts: we could not read the queue",
+    );
     expect(link.textContent).toContain("?");
   });
 
@@ -130,7 +155,9 @@ describe("the client shell's attention bell", () => {
       "/v1/attention": problem(503, { title: "Service unavailable" }),
     });
 
-    const link = await screen.findByLabelText("Needs attention: we could not read your queue");
+    const link = await screen.findByLabelText(
+      "Needs attention: we could not read your queue",
+    );
     expect(link.textContent).toContain("?");
   });
 
@@ -159,12 +186,17 @@ describe("the client shell's identity block", () => {
    */
   it("names the failure instead of leaving two permanent dashes", async () => {
     await renderClientShell({
-      "/v1/me": problem(503, { title: "Service unavailable", retryable: false }),
+      "/v1/me": problem(503, {
+        title: "Service unavailable",
+        retryable: false,
+      }),
       "/v1/attention": { total: 0, items: [] },
     });
 
     expect(await screen.findByText("Account not read")).toBeTruthy();
-    expect(screen.getByText("Reload to see whose account this is")).toBeTruthy();
+    expect(
+      screen.getByText("Reload to see whose account this is"),
+    ).toBeTruthy();
   });
 
   it("says whose account it is when the server answered", async () => {

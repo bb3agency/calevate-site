@@ -187,27 +187,34 @@ function result(over: Partial<TopUpResult> = {}): TopUpResult {
 }
 
 function render(routes: Partial<Routes> = {}) {
-  return renderAdminRoute(<TenantCreditsPage params={routeParams({ tenantId: TENANT })} />, {
-    [TENANT_PATH]: tenant(),
-    [ADMIN_ME_PATH]: ME,
-    [CREDITS_READ]: credits(),
-    // The trial control reads its own endpoint (D-577). `null` is the server's answer for
-    // a client who has never been given a trial, which is what every case in this file is
-    // about; answering it here rather than in each test keeps those tests' premise about
-    // the WALLET. A test about the trial itself is `adminTrial.test.tsx`.
-    [trialPath(TENANT)]: null,
-    ...routes,
-  });
+  return renderAdminRoute(
+    <TenantCreditsPage params={routeParams({ tenantId: TENANT })} />,
+    {
+      [TENANT_PATH]: tenant(),
+      [ADMIN_ME_PATH]: ME,
+      [CREDITS_READ]: credits(),
+      // The trial control reads its own endpoint (D-577). `null` is the server's answer for
+      // a client who has never been given a trial, which is what every case in this file is
+      // about; answering it here rather than in each test keeps those tests' premise about
+      // the WALLET. A test about the trial itself is `adminTrial.test.tsx`.
+      [trialPath(TENANT)]: null,
+      ...routes,
+    },
+  );
 }
 
 /** Fill the form the way an operator does: reference, reference again, amount. */
 async function fillTopUp(reference: string, amount: string) {
-  const ref = (await screen.findByLabelText("Bank reference (UTR / RRN)")) as HTMLInputElement;
+  const ref = (await screen.findByLabelText(
+    "Bank reference (UTR / RRN)",
+  )) as HTMLInputElement;
   fireEvent.change(ref, { target: { value: reference } });
   fireEvent.change(screen.getByLabelText("Type the reference again"), {
     target: { value: reference },
   });
-  fireEvent.change(screen.getByLabelText("Amount received (₹)"), { target: { value: amount } });
+  fireEvent.change(screen.getByLabelText("Amount received (₹)"), {
+    target: { value: amount },
+  });
 }
 
 function submit() {
@@ -215,8 +222,14 @@ function submit() {
 }
 
 /** Fill the correction the way an operator does: entry, amount, amount again, why. */
-async function fillCorrection(entryId: string, amount: string, why = "wrong client") {
-  const select = (await screen.findByLabelText("Entry to correct")) as HTMLSelectElement;
+async function fillCorrection(
+  entryId: string,
+  amount: string,
+  why = "wrong client",
+) {
+  const select = (await screen.findByLabelText(
+    "Entry to correct",
+  )) as HTMLSelectElement;
   fireEvent.change(select, { target: { value: entryId } });
   fireEvent.change(screen.getByLabelText("Amount to take back (₹)"), {
     target: { value: amount },
@@ -224,7 +237,9 @@ async function fillCorrection(entryId: string, amount: string, why = "wrong clie
   fireEvent.change(screen.getByLabelText("Type the amount again"), {
     target: { value: amount },
   });
-  fireEvent.change(screen.getByLabelText("Why (required)"), { target: { value: why } });
+  fireEvent.change(screen.getByLabelText("Why (required)"), {
+    target: { value: why },
+  });
 }
 
 function correctButton(): HTMLButtonElement {
@@ -239,15 +254,22 @@ async function fillRestatement(
   total: string,
   why = "statement shows 50,000; the 2,500 was a transposition",
 ) {
-  const select = (await screen.findByLabelText("Payment to restate")) as HTMLSelectElement;
+  const select = (await screen.findByLabelText(
+    "Payment to restate",
+  )) as HTMLSelectElement;
   fireEvent.change(select, { target: { value: paymentRef } });
   fireEvent.change(screen.getByLabelText("Total the bank moved (₹)"), {
     target: { value: total },
   });
-  fireEvent.change(screen.getByLabelText("Type the total again"), { target: { value: total } });
-  fireEvent.change(screen.getByLabelText("Why this was under-recorded (required)"), {
-    target: { value: why },
+  fireEvent.change(screen.getByLabelText("Type the total again"), {
+    target: { value: total },
   });
+  fireEvent.change(
+    screen.getByLabelText("Why this was under-recorded (required)"),
+    {
+      target: { value: why },
+    },
+  );
 }
 
 function restateButton(): HTMLButtonElement {
@@ -266,11 +288,15 @@ describe("the credits screen", () => {
     submit();
 
     await waitFor(() => {
-      expect(calls.some((call) => call.method === "POST" && call.path === CREDITS_PATH)).toBe(
-        true,
-      );
+      expect(
+        calls.some(
+          (call) => call.method === "POST" && call.path === CREDITS_PATH,
+        ),
+      ).toBe(true);
     });
-    const post = calls.find((call) => call.method === "POST" && call.path === CREDITS_PATH);
+    const post = calls.find(
+      (call) => call.method === "POST" && call.path === CREDITS_PATH,
+    );
     const body = JSON.parse(post?.body ?? "{}");
     // The whole of hard rule 7 at the last inch: a JSON number here is REFUSED by the
     // route rather than rounded, and 2500.10 through a binary float is the reason.
@@ -328,13 +354,16 @@ describe("the credits screen", () => {
     await fillTopUp(REF, "2500.00");
 
     await waitFor(() => {
-      expect(container.textContent).toContain("That reference is already on this ledger");
+      expect(container.textContent).toContain(
+        "That reference is already on this ledger",
+      );
     });
     expect(container.textContent).toContain("Sending it again credits nothing");
     // Not blocked: submitting a repeat is harmless and is how the operator finds out.
-    expect((screen.getByRole("button", { name: /^Credit / }) as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+    expect(
+      (screen.getByRole("button", { name: /^Credit / }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
   });
 
   it("cautions about an internal space without normalizing it away", async () => {
@@ -342,11 +371,15 @@ describe("the credits screen", () => {
     // space off the statement types it both times. The server keys on the exact string,
     // so silently stripping it here would make the console's key differ from the
     // ledger's — the caution is raised and the value is sent verbatim.
-    const { calls, container } = await render({ [`POST ${CREDITS_PATH}`]: result() });
+    const { calls, container } = await render({
+      [`POST ${CREDITS_PATH}`]: result(),
+    });
 
     await fillTopUp("UTR 900042", "2500.00");
     await waitFor(() => {
-      expect(container.textContent).toContain("This reference has a space inside it");
+      expect(container.textContent).toContain(
+        "This reference has a space inside it",
+      );
     });
 
     submit();
@@ -360,13 +393,16 @@ describe("the credits screen", () => {
   it("keeps the button dead until the reference has been typed twice and matches", async () => {
     await render();
 
-    const ref = (await screen.findByLabelText("Bank reference (UTR / RRN)")) as HTMLInputElement;
+    const ref = (await screen.findByLabelText(
+      "Bank reference (UTR / RRN)",
+    )) as HTMLInputElement;
     fireEvent.change(ref, { target: { value: "UTR-900042" } });
     fireEvent.change(screen.getByLabelText("Amount received (₹)"), {
       target: { value: "2500.00" },
     });
 
-    const button = () => screen.getByRole("button", { name: /^Credit / }) as HTMLButtonElement;
+    const button = () =>
+      screen.getByRole("button", { name: /^Credit / }) as HTMLButtonElement;
     expect(button().disabled).toBe(true);
     expect(screen.getByText(/Type the reference a second time/)).toBeDefined();
 
@@ -389,9 +425,10 @@ describe("the credits screen", () => {
     await fillTopUp("UTR-900042", "₹2,500.10");
 
     expect(screen.getByText(/no commas, no ₹ sign/)).toBeDefined();
-    expect((screen.getByRole("button", { name: /^Credit /}) as HTMLButtonElement).disabled).toBe(
-      true,
-    );
+    expect(
+      (screen.getByRole("button", { name: /^Credit / }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
   });
 
   it("withholds the form entirely when the ledger could not be read", async () => {
@@ -403,25 +440,35 @@ describe("the credits screen", () => {
       }),
     });
 
-    await screen.findByText("We could not read this wallet, so nothing can be credited to it here");
+    await screen.findByText(
+      "We could not read this wallet, so nothing can be credited to it here",
+    );
     expect(screen.queryByRole("button", { name: /^Credit / })).toBeNull();
     expect(screen.queryByLabelText("Bank reference (UTR / RRN)")).toBeNull();
     // The three sentences a failed read must never produce: a balance, an empty ledger,
     // or a wallet that reads healthy. Each is a REAL state with a different remedy.
     expect(container.textContent).not.toContain("₹0");
     expect(container.textContent).not.toContain("On the wallet now");
-    expect(container.textContent).not.toContain("Nothing has ever been written to this ledger");
+    expect(container.textContent).not.toContain(
+      "Nothing has ever been written to this ledger",
+    );
   });
 
   it("states an empty ledger as an empty ledger, but only after a successful read", async () => {
     const { container } = await render({
-      [CREDITS_READ]: credits({ balance_inr: "0.00", is_low: true, entries: [] }),
+      [CREDITS_READ]: credits({
+        balance_inr: "0.00",
+        is_low: true,
+        entries: [],
+      }),
     });
 
     await screen.findByText("Nothing has ever been written to this ledger");
     expect(container.textContent).toContain("₹0.00");
     // The server's own verdict, displayed and not recomputed from the balance.
-    expect(container.textContent).toContain("Below the low-balance line of ₹200.00");
+    expect(container.textContent).toContain(
+      "Below the low-balance line of ₹200.00",
+    );
   });
 
   it("disables the write, with its reason, for a session that may not make it", async () => {
@@ -434,12 +481,17 @@ describe("the credits screen", () => {
     })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(
-      (screen.getByLabelText("Bank reference (UTR / RRN)") as HTMLInputElement).disabled,
+      (screen.getByLabelText("Bank reference (UTR / RRN)") as HTMLInputElement)
+        .disabled,
     ).toBe(true);
     // A RestrictionNote beside the dead control, not a 403 after the click — and one
     // sentence PER control, so it is never ambiguous which button is being explained.
-    expect(screen.getByText(/record a payment on this client's wallet/)).toBeDefined();
-    expect(screen.getByText(/correct an entry on this client's wallet/)).toBeDefined();
+    expect(
+      screen.getByText(/record a payment on this client's wallet/),
+    ).toBeDefined();
+    expect(
+      screen.getByText(/correct an entry on this client's wallet/),
+    ).toBeDefined();
   });
 
   it("routes each mistake to the remedy that repairs it", async () => {
@@ -450,7 +502,9 @@ describe("the credits screen", () => {
     // The duplicate case still belongs to the reconciliation tool: a duplicate is
     // DETECTED, and its correction is keyed on a fingerprint of the rows it cancels — not
     // something an operator can type into a form.
-    expect(container.textContent).toContain("cancelled by our reconciliation tool");
+    expect(container.textContent).toContain(
+      "cancelled by our reconciliation tool",
+    );
     // …and the sentence this slice deleted. The console HAS a control for the wrong
     // client and the wrong amount now, so the card must not still send people away.
     expect(container.textContent).not.toContain("There is no control for this");
@@ -464,7 +518,10 @@ describe("the credits screen", () => {
     // the device tests/dataRights.test.tsx uses for its certificate.
     const { container } = await render({
       [`POST ${CREDITS_PATH}`]: result({ recorded: false }),
-      [`POST ${ADJUST_PATH}`]: correction({ balance_inr: "-500.00", stops_dialling: true }),
+      [`POST ${ADJUST_PATH}`]: correction({
+        balance_inr: "-500.00",
+        stops_dialling: true,
+      }),
       [`POST ${RESTATE_PATH}`]: restatement(),
     });
 
@@ -484,7 +541,10 @@ describe("the credits screen", () => {
     fireEvent.click(restateButton());
     await screen.findByText("Restated — ₹47,500.00 credited to Sri Traders");
 
-    await expectNoA11yViolations(container, "admin/tenants/[tenantId]/credits (filled)");
+    await expectNoA11yViolations(
+      container,
+      "admin/tenants/[tenantId]/credits (filled)",
+    );
     // AN EXPLICIT BUDGET, because this test drives three forms to completion and then runs
     // axe over the result — it is the longest single case in this suite and it sat just
     // under vitest's 5s default, so it timed out under a loaded full-suite run and passed
@@ -516,17 +576,27 @@ describe("the credits screen", () => {
  */
 describe("correcting a wrong entry", () => {
   it("appends a compensating entry, with the confirmation the direction demands", async () => {
-    const { calls, container } = await render({ [`POST ${ADJUST_PATH}`]: correction() });
+    const { calls, container } = await render({
+      [`POST ${ADJUST_PATH}`]: correction(),
+    });
 
-    await fillCorrection(ENTRY, "2500.00", "paid by Sri Traders, credited here by mistake");
+    await fillCorrection(
+      ENTRY,
+      "2500.00",
+      "paid by Sri Traders, credited here by mistake",
+    );
     fireEvent.click(correctButton());
 
     await waitFor(() => {
-      expect(calls.some((call) => call.method === "POST" && call.path === ADJUST_PATH)).toBe(
-        true,
-      );
+      expect(
+        calls.some(
+          (call) => call.method === "POST" && call.path === ADJUST_PATH,
+        ),
+      ).toBe(true);
     });
-    const post = calls.find((call) => call.method === "POST" && call.path === ADJUST_PATH);
+    const post = calls.find(
+      (call) => call.method === "POST" && call.path === ADJUST_PATH,
+    );
     const body = JSON.parse(post?.body ?? "{}");
     // A POSITIVE magnitude as a STRING. The sign is the route's to derive from the entry
     // — the one thing a form must never be trusted with (hard rule 7 for the string).
@@ -536,12 +606,16 @@ describe("correcting a wrong entry", () => {
     expect(body.reason).toBe("paid by Sri Traders, credited here by mistake");
     // Taking credit AWAY is the dangerous direction, so the header goes on the wire —
     // bound to the ENTRY, so a confirmation captured here cannot be replayed elsewhere.
-    expect(post?.headers["X-Confirm-Action"]).toBe(creditAdjustmentConfirmation(ENTRY));
+    expect(post?.headers["X-Confirm-Action"]).toBe(
+      creditAdjustmentConfirmation(ENTRY),
+    );
     // The admin session with the tenant in the path, never an impersonating one (D-22).
     expect(post?.headers["X-Impersonate-Org"]).toBeUndefined();
 
     await screen.findByText("Corrected — -₹2,500.00 taken back");
-    expect(container.textContent).toContain("The entry it cancels is still there too");
+    expect(container.textContent).toContain(
+      "The entry it cancels is still there too",
+    );
   });
 
   it("sends NO confirmation when the correction puts credit back", async () => {
@@ -556,7 +630,10 @@ describe("correcting a wrong entry", () => {
       reversible_inr: "80.00",
     });
     const { calls, container } = await render({
-      [CREDITS_READ]: credits({ balance_inr: "2420.00", entries: [charge, entry()] }),
+      [CREDITS_READ]: credits({
+        balance_inr: "2420.00",
+        entries: [charge, entry()],
+      }),
       [`POST ${ADJUST_PATH}`]: correction({
         corrects_entry_id: charge.id,
         delta_inr: "80.00",
@@ -567,14 +644,20 @@ describe("correcting a wrong entry", () => {
 
     await fillCorrection(charge.id, "80.00", "the call never connected");
     expect(container.textContent).toContain("puts credit back on this wallet");
-    fireEvent.click(screen.getByRole("button", { name: /^Put ₹80.00 back on/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Put ₹80.00 back on/ }),
+    );
 
     await waitFor(() => {
-      expect(calls.some((call) => call.method === "POST" && call.path === ADJUST_PATH)).toBe(
-        true,
-      );
+      expect(
+        calls.some(
+          (call) => call.method === "POST" && call.path === ADJUST_PATH,
+        ),
+      ).toBe(true);
     });
-    const post = calls.find((call) => call.method === "POST" && call.path === ADJUST_PATH);
+    const post = calls.find(
+      (call) => call.method === "POST" && call.path === ADJUST_PATH,
+    );
     expect(post?.headers["X-Confirm-Action"]).toBeUndefined();
     await screen.findByText("Corrected — ₹80.00 credited back");
   });
@@ -597,7 +680,10 @@ describe("correcting a wrong entry", () => {
 
   it("says out loud when the correction has stopped the client dialling", async () => {
     const { container } = await render({
-      [`POST ${ADJUST_PATH}`]: correction({ balance_inr: "-12000.00", stops_dialling: true }),
+      [`POST ${ADJUST_PATH}`]: correction({
+        balance_inr: "-12000.00",
+        stops_dialling: true,
+      }),
     });
 
     await fillCorrection(ENTRY, "2500.00");
@@ -625,9 +711,13 @@ describe("correcting a wrong entry", () => {
     expect(correctButton().disabled).toBe(true);
     expect(screen.getByText(/Pick the entry that was wrong/)).toBeDefined();
 
-    fireEvent.change(screen.getByLabelText("Entry to correct"), { target: { value: ENTRY } });
+    fireEvent.change(screen.getByLabelText("Entry to correct"), {
+      target: { value: ENTRY },
+    });
     expect(correctButton().disabled).toBe(true);
-    expect(screen.getByText(/Enter how much of that entry to take back/)).toBeDefined();
+    expect(
+      screen.getByText(/Enter how much of that entry to take back/),
+    ).toBeDefined();
 
     fireEvent.change(screen.getByLabelText("Amount to take back (₹)"), {
       target: { value: "2500.00" },
@@ -646,7 +736,9 @@ describe("correcting a wrong entry", () => {
       target: { value: "2500.00" },
     });
     expect(correctButton().disabled).toBe(true);
-    expect(screen.getByText(/Say why\. It is stored on the entry/)).toBeDefined();
+    expect(
+      screen.getByText(/Say why\. It is stored on the entry/),
+    ).toBeDefined();
 
     fireEvent.change(screen.getByLabelText("Why (required)"), {
       target: { value: "wrong client" },
@@ -658,7 +750,11 @@ describe("correcting a wrong entry", () => {
     await render();
 
     await fillCorrection(ENTRY, "-2500.00");
-    expect(screen.getByText(/Never a minus sign — the direction comes from the entry/)).toBeDefined();
+    expect(
+      screen.getByText(
+        /Never a minus sign — the direction comes from the entry/,
+      ),
+    ).toBeDefined();
     expect(correctButton().disabled).toBe(true);
   });
 
@@ -672,7 +768,9 @@ describe("correcting a wrong entry", () => {
       [CREDITS_READ]: credits({ entries: [spent, entry()] }),
     });
 
-    const select = (await screen.findByLabelText("Entry to correct")) as HTMLSelectElement;
+    const select = (await screen.findByLabelText(
+      "Entry to correct",
+    )) as HTMLSelectElement;
     const values = Array.from(select.options).map((option) => option.value);
     // A fully corrected entry is a dead option, and offering one is the defect §52
     // named — the route would refuse it, after the click.
@@ -691,7 +789,9 @@ describe("correcting a wrong entry", () => {
       }),
     });
 
-    await screen.findByText(/Every entry on this wallet has already been taken back in full/);
+    await screen.findByText(
+      /Every entry on this wallet has already been taken back in full/,
+    );
     expect(screen.queryByLabelText("Entry to correct")).toBeNull();
     expect(container.textContent).not.toContain("Correct this entry");
   });
@@ -703,7 +803,8 @@ describe("correcting a wrong entry", () => {
       [`POST ${ADJUST_PATH}`]: problem(422, {
         type: "https://calevate.tech/problems/adjustment_exceeds_entry",
         title: "Request rejected by a business rule",
-        detail: "That entry has ₹400.00 left to take back, and this asks for ₹600.01.",
+        detail:
+          "That entry has ₹400.00 left to take back, and this asks for ₹600.01.",
         kind: "business_rule",
         remediation: "Correct at most what is left of the entry.",
       }),
@@ -713,33 +814,47 @@ describe("correcting a wrong entry", () => {
     fireEvent.click(correctButton());
 
     await screen.findByText(/That entry has ₹400.00 left to take back/);
-    expect(container.textContent).toContain("Correct at most what is left of the entry");
+    expect(container.textContent).toContain(
+      "Correct at most what is left of the entry",
+    );
     // The draft survives, so the operator edits the amount instead of retyping the lot.
-    expect((screen.getByLabelText("Why (required)") as HTMLInputElement).value).toBe(
-      "wrong client",
-    );
-    expect((screen.getByLabelText("Amount to take back (₹)") as HTMLInputElement).value).toBe(
-      "600.01",
-    );
+    expect(
+      (screen.getByLabelText("Why (required)") as HTMLInputElement).value,
+    ).toBe("wrong client");
+    expect(
+      (screen.getByLabelText("Amount to take back (₹)") as HTMLInputElement)
+        .value,
+    ).toBe("600.01");
   });
 
   it("disables the correction, with its reason, for a session that may not make it", async () => {
-    await render({ [ADMIN_ME_PATH]: { ...ME, permissions: ["org:read", "billing:read"] } });
+    await render({
+      [ADMIN_ME_PATH]: { ...ME, permissions: ["org:read", "billing:read"] },
+    });
 
     await screen.findByLabelText("Entry to correct");
     expect(correctButton().disabled).toBe(true);
-    expect((screen.getByLabelText("Entry to correct") as HTMLSelectElement).disabled).toBe(true);
-    expect((screen.getByLabelText("Why (required)") as HTMLInputElement).disabled).toBe(true);
+    expect(
+      (screen.getByLabelText("Entry to correct") as HTMLSelectElement).disabled,
+    ).toBe(true);
+    expect(
+      (screen.getByLabelText("Why (required)") as HTMLInputElement).disabled,
+    ).toBe(true);
   });
 
   it("withholds the correction with the form when the ledger could not be read", async () => {
     // A correction names a specific ledger row, so a ledger nobody can read is a row
     // nobody can name — the same §52 argument as the top-up form, one step stronger.
     await render({
-      [CREDITS_READ]: problem(503, { title: "Upstream unavailable", retryable: true }),
+      [CREDITS_READ]: problem(503, {
+        title: "Upstream unavailable",
+        retryable: true,
+      }),
     });
 
-    await screen.findByText("We could not read this wallet, so nothing can be credited to it here");
+    await screen.findByText(
+      "We could not read this wallet, so nothing can be credited to it here",
+    );
     expect(screen.queryByLabelText("Entry to correct")).toBeNull();
   });
 });
@@ -775,17 +890,23 @@ describe("correcting a wrong entry", () => {
  */
 describe("restating an under-recorded payment", () => {
   it("sends the TOTAL as a string, with the confirmation that carries the amount", async () => {
-    const { calls, container } = await render({ [`POST ${RESTATE_PATH}`]: restatement() });
+    const { calls, container } = await render({
+      [`POST ${RESTATE_PATH}`]: restatement(),
+    });
 
     await fillRestatement(REF, "50000.00");
     fireEvent.click(restateButton());
 
     await waitFor(() => {
-      expect(calls.some((call) => call.method === "POST" && call.path === RESTATE_PATH)).toBe(
-        true,
-      );
+      expect(
+        calls.some(
+          (call) => call.method === "POST" && call.path === RESTATE_PATH,
+        ),
+      ).toBe(true);
     });
-    const post = calls.find((call) => call.method === "POST" && call.path === RESTATE_PATH);
+    const post = calls.find(
+      (call) => call.method === "POST" && call.path === RESTATE_PATH,
+    );
     const body = JSON.parse(post?.body ?? "{}");
     // The TOTAL the bank moved, as a STRING (hard rule 7 — the route refuses a JSON
     // number). Emphatically NOT "47500.00", which is the difference and is what an
@@ -793,10 +914,14 @@ describe("restating an under-recorded payment", () => {
     expect(typeof body.corrected_amount_inr).toBe("string");
     expect(body.corrected_amount_inr).toBe("50000.00");
     expect(body.payment_ref).toBe(REF);
-    expect(body.reason).toBe("statement shows 50,000; the 2,500 was a transposition");
+    expect(body.reason).toBe(
+      "statement shows 50,000; the 2,500 was a transposition",
+    );
     // Every call, and bound to the exact figure — a confirmation captured for one total
     // must not be able to travel with a request for another.
-    expect(post?.headers["X-Confirm-Action"]).toBe(topupRestatementConfirmation(REF, "50000.00"));
+    expect(post?.headers["X-Confirm-Action"]).toBe(
+      topupRestatementConfirmation(REF, "50000.00"),
+    );
     // The admin session with the tenant in the path, never an impersonating one (D-22).
     expect(post?.headers["X-Impersonate-Org"]).toBeUndefined();
 
@@ -809,7 +934,9 @@ describe("restating an under-recorded payment", () => {
   it("shows what the payment credits TODAY, so the total is not mistaken for the difference", async () => {
     const { container } = await render();
 
-    const select = (await screen.findByLabelText("Payment to restate")) as HTMLSelectElement;
+    const select = (await screen.findByLabelText(
+      "Payment to restate",
+    )) as HTMLSelectElement;
     fireEvent.change(select, { target: { value: REF } });
 
     // The figure this restatement will be measured against, computed by the SERVER and
@@ -845,13 +972,21 @@ describe("restating an under-recorded payment", () => {
     await render();
 
     // The consequences are stated before anything is chosen, not revealed by filling in.
-    expect(await screen.findByText(/This one cannot be undone either/)).toBeDefined();
+    expect(
+      await screen.findByText(/This one cannot be undone either/),
+    ).toBeDefined();
     expect(restateButton().disabled).toBe(true);
-    expect(screen.getByText(/Pick the payment that was under-recorded/)).toBeDefined();
+    expect(
+      screen.getByText(/Pick the payment that was under-recorded/),
+    ).toBeDefined();
 
-    fireEvent.change(screen.getByLabelText("Payment to restate"), { target: { value: REF } });
+    fireEvent.change(screen.getByLabelText("Payment to restate"), {
+      target: { value: REF },
+    });
     expect(restateButton().disabled).toBe(true);
-    expect(screen.getByText(/Enter the TOTAL the bank moved, not the difference/)).toBeDefined();
+    expect(
+      screen.getByText(/Enter the TOTAL the bank moved, not the difference/),
+    ).toBeDefined();
 
     fireEvent.change(screen.getByLabelText("Total the bank moved (₹)"), {
       target: { value: "50000.00" },
@@ -870,11 +1005,16 @@ describe("restating an under-recorded payment", () => {
       target: { value: "50000.00" },
     });
     expect(restateButton().disabled).toBe(true);
-    expect(screen.getByText(/Say why\. It is stored on the entry/)).toBeDefined();
+    expect(
+      screen.getByText(/Say why\. It is stored on the entry/),
+    ).toBeDefined();
 
-    fireEvent.change(screen.getByLabelText("Why this was under-recorded (required)"), {
-      target: { value: "the statement shows more" },
-    });
+    fireEvent.change(
+      screen.getByLabelText("Why this was under-recorded (required)"),
+      {
+        target: { value: "the statement shows more" },
+      },
+    );
     expect(restateButton().disabled).toBe(false);
   });
 
@@ -882,7 +1022,9 @@ describe("restating an under-recorded payment", () => {
     await render();
 
     await fillRestatement(REF, "₹50,000");
-    expect(screen.getByText(/The total the bank moved — not the difference/)).toBeDefined();
+    expect(
+      screen.getByText(/The total the bank moved — not the difference/),
+    ).toBeDefined();
     expect(restateButton().disabled).toBe(true);
   });
 
@@ -894,7 +1036,8 @@ describe("restating an under-recorded payment", () => {
       [`POST ${RESTATE_PATH}`]: problem(422, {
         type: "https://calevate.tech/problems/restatement_not_an_increase",
         title: "Request rejected by a business rule",
-        detail: "That reference already credits ₹50000.00, and this restates it to ₹47500.00.",
+        detail:
+          "That reference already credits ₹50000.00, and this restates it to ₹47500.00.",
         kind: "business_rule",
         remediation:
           "Send the TOTAL the bank moved, not the difference — the amount to credit is worked out here.",
@@ -907,7 +1050,8 @@ describe("restating an under-recorded payment", () => {
     await screen.findByText(/That reference already credits ₹50000.00/);
     expect(container.textContent).toContain("not the difference");
     expect(
-      (screen.getByLabelText("Total the bank moved (₹)") as HTMLInputElement).value,
+      (screen.getByLabelText("Total the bank moved (₹)") as HTMLInputElement)
+        .value,
     ).toBe("47500.00");
   });
 
@@ -915,7 +1059,12 @@ describe("restating an under-recorded payment", () => {
     // A restatement repairs a payment we already recorded; it never invents one, which
     // is one of the two things standing in for a numeric ceiling on this route.
     const { container } = await render({
-      [CREDITS_READ]: credits({ balance_inr: "0.00", is_low: true, entries: [], payments: [] }),
+      [CREDITS_READ]: credits({
+        balance_inr: "0.00",
+        is_low: true,
+        entries: [],
+        payments: [],
+      }),
     });
 
     await screen.findByText(/No payment has been recorded on this wallet/);
@@ -924,21 +1073,33 @@ describe("restating an under-recorded payment", () => {
   });
 
   it("disables the restatement, with its own reason, for a session that may not make it", async () => {
-    await render({ [ADMIN_ME_PATH]: { ...ME, permissions: ["org:read", "billing:read"] } });
+    await render({
+      [ADMIN_ME_PATH]: { ...ME, permissions: ["org:read", "billing:read"] },
+    });
 
     await screen.findByLabelText("Payment to restate");
     expect(restateButton().disabled).toBe(true);
-    expect((screen.getByLabelText("Payment to restate") as HTMLSelectElement).disabled).toBe(true);
+    expect(
+      (screen.getByLabelText("Payment to restate") as HTMLSelectElement)
+        .disabled,
+    ).toBe(true);
     // One sentence PER control, so it is never ambiguous which button is explained.
-    expect(screen.getByText(/restate a payment on this client's wallet/)).toBeDefined();
+    expect(
+      screen.getByText(/restate a payment on this client's wallet/),
+    ).toBeDefined();
   });
 
   it("withholds the restatement with the other forms when the ledger could not be read", async () => {
     await render({
-      [CREDITS_READ]: problem(503, { title: "Upstream unavailable", retryable: true }),
+      [CREDITS_READ]: problem(503, {
+        title: "Upstream unavailable",
+        retryable: true,
+      }),
     });
 
-    await screen.findByText("We could not read this wallet, so nothing can be credited to it here");
+    await screen.findByText(
+      "We could not read this wallet, so nothing can be credited to it here",
+    );
     expect(screen.queryByLabelText("Payment to restate")).toBeNull();
   });
 
@@ -973,11 +1134,15 @@ describe("restating an under-recorded payment", () => {
 
     await screen.findByText("If a credit was wrong");
     expect(container.textContent).toContain("TOO LITTLE was credited");
-    expect(container.textContent).toContain("A payment was for more than we recorded");
+    expect(container.textContent).toContain(
+      "A payment was for more than we recorded",
+    );
     // The workaround is named and refused, because "do not do X" only works when X is
     // spelled out — an operator who has not read this invents exactly that string.
     expect(container.textContent).toContain("UTR-123-part2");
-    expect(container.textContent).toContain("two payments where the bank shows one");
+    expect(container.textContent).toContain(
+      "two payments where the bank shows one",
+    );
   });
 });
 
@@ -1032,7 +1197,12 @@ const OVERRIDE_PACKS: OverridePack[] = [
 
 /** The wallet read, with a lot on it. `credits()` already carries the two REQUIRED lists. */
 function walletWithLots(over: Partial<Credits> = {}): Credits {
-  return { ...credits(), lots: [lot()], override_packs: OVERRIDE_PACKS, ...over };
+  return {
+    ...credits(),
+    lots: [lot()],
+    override_packs: OVERRIDE_PACKS,
+    ...over,
+  };
 }
 
 describe("what the balance is made of", () => {
@@ -1062,7 +1232,10 @@ describe("what the balance is made of", () => {
   it("names the lot a payment opened, with the rates frozen onto it", async () => {
     const { container } = await render({
       [CREDITS_READ]: walletWithLots(),
-      [`POST ${CREDITS_PATH}`]: { ...result(), lot: lot({ credits_total: "2500.10" }) },
+      [`POST ${CREDITS_PATH}`]: {
+        ...result(),
+        lot: lot({ credits_total: "2500.10" }),
+      },
     });
 
     await fillTopUp("UTR-900042", "2500.10");
@@ -1089,7 +1262,9 @@ describe("what the balance is made of", () => {
     await screen.findByText(/Restated — ₹47,500.00 credited/);
     // THE REGRESSION THIS TEST EXISTS FOR: the rates sentence, in the words that make the
     // promise checkable at the moment it is kept.
-    expect(container.textContent).toContain("a restatement moves totals, never rates");
+    expect(container.textContent).toContain(
+      "a restatement moves totals, never rates",
+    );
     expect(container.textContent).toContain("Sarvam (Clear) ₹5.0000/min");
   });
 
@@ -1107,8 +1282,12 @@ describe("what the balance is made of", () => {
     fireEvent.click(restateButton());
 
     await screen.findByText(/Restated — ₹47,500.00 credited/);
-    expect(container.textContent).toContain("₹1,000.00 of the correction was more than the lot");
-    expect(container.textContent).toContain("repays that before it opens a new lot");
+    expect(container.textContent).toContain(
+      "₹1,000.00 of the correction was more than the lot",
+    );
+    expect(container.textContent).toContain(
+      "repays that before it opens a new lot",
+    );
   });
 });
 
@@ -1116,39 +1295,61 @@ describe("selling a lot at another pack's rates", () => {
   it("sends the pack, the reason and a step-up bound to the lot", async () => {
     const { calls } = await render({
       [CREDITS_READ]: walletWithLots(),
-      [`POST /v1/admin/tenants/${TENANT}/credit-lots/${LOT}/override`]: { ok: true },
+      [`POST /v1/admin/tenants/${TENANT}/credit-lots/${LOT}/override`]: {
+        ok: true,
+      },
     });
 
     await screen.findByText("Sell a lot at another pack's rates");
-    fireEvent.change(screen.getByLabelText(/Which lot/), { target: { value: LOT } });
-    fireEvent.change(screen.getByLabelText(/Sell it at/), { target: { value: "pro" } });
+    fireEvent.change(screen.getByLabelText(/Which lot/), {
+      target: { value: LOT },
+    });
+    fireEvent.change(screen.getByLabelText(/Sell it at/), {
+      target: { value: "pro" },
+    });
     fireEvent.change(screen.getByLabelText(/^Reason/), {
       target: { value: "founding-client promotion" },
     });
     fireEvent.change(screen.getByLabelText(/Type the lot id to confirm/), {
       target: { value: LOT },
     });
-    fireEvent.click(screen.getByRole("button", { name: /^Re-price this lot$/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /^Re-price this lot$/ }),
+    );
 
     await waitFor(() => {
-      const write = calls.find((call) => call.method === "POST" && call.path.includes("/override"));
+      const write = calls.find(
+        (call) => call.method === "POST" && call.path.includes("/override"),
+      );
       expect(write).toBeDefined();
       expect(write?.body).toContain('"pack_id":"pro"');
-      expect(write?.headers["X-Confirm-Action"]).toBe(`override_lot_rates:${LOT}`);
+      expect(write?.headers["X-Confirm-Action"]).toBe(
+        `override_lot_rates:${LOT}`,
+      );
     });
   });
 
   it("holds the write until the lot's own id is typed, and clears it when the lot changes", async () => {
     await render({
-      [CREDITS_READ]: walletWithLots({ lots: [lot(), lot({ lot_id: `${LOT}9` })] }),
+      [CREDITS_READ]: walletWithLots({
+        lots: [lot(), lot({ lot_id: `${LOT}9` })],
+      }),
     });
 
     await screen.findByText("Sell a lot at another pack's rates");
     const button = () =>
-      screen.getByRole("button", { name: /^Re-price this lot$/ }) as HTMLButtonElement;
-    fireEvent.change(screen.getByLabelText(/Which lot/), { target: { value: LOT } });
-    fireEvent.change(screen.getByLabelText(/Sell it at/), { target: { value: "pro" } });
-    fireEvent.change(screen.getByLabelText(/^Reason/), { target: { value: "promo" } });
+      screen.getByRole("button", {
+        name: /^Re-price this lot$/,
+      }) as HTMLButtonElement;
+    fireEvent.change(screen.getByLabelText(/Which lot/), {
+      target: { value: LOT },
+    });
+    fireEvent.change(screen.getByLabelText(/Sell it at/), {
+      target: { value: "pro" },
+    });
+    fireEvent.change(screen.getByLabelText(/^Reason/), {
+      target: { value: "promo" },
+    });
     expect(button().disabled).toBe(true);
 
     fireEvent.change(screen.getByLabelText(/Type the lot id to confirm/), {
@@ -1159,9 +1360,12 @@ describe("selling a lot at another pack's rates", () => {
     // Changing the lot must CLEAR the confirmation, not merely fail to match it: a box
     // still holding another purchase's id, beside a dead button, reads as a bug in the
     // button rather than as a confirmation that no longer applies.
-    fireEvent.change(screen.getByLabelText(/Which lot/), { target: { value: `${LOT}9` } });
+    fireEvent.change(screen.getByLabelText(/Which lot/), {
+      target: { value: `${LOT}9` },
+    });
     expect(
-      (screen.getByLabelText(/Type the lot id to confirm/) as HTMLInputElement).value,
+      (screen.getByLabelText(/Type the lot id to confirm/) as HTMLInputElement)
+        .value,
     ).toBe("");
     expect(button().disabled).toBe(true);
   });
@@ -1172,7 +1376,11 @@ describe("selling a lot at another pack's rates", () => {
     });
 
     await screen.findByText("Credit lots — what the balance is made of");
-    expect(screen.queryByRole("button", { name: /^Re-price this lot$/ })).toBeNull();
-    expect(container.textContent).toContain("re-pricing a client's minutes blind");
+    expect(
+      screen.queryByRole("button", { name: /^Re-price this lot$/ }),
+    ).toBeNull();
+    expect(container.textContent).toContain(
+      "re-pricing a client's minutes blind",
+    );
   });
 });

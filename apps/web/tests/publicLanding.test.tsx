@@ -97,7 +97,10 @@ function routePaths(appDir: string): Set<string> {
     }
   };
   walk(appDir, "");
-  expect(routes.size, "no routes found — the guard is looking in the wrong place").toBeGreaterThan(0);
+  expect(
+    routes.size,
+    "no routes found — the guard is looking in the wrong place",
+  ).toBeGreaterThan(0);
   return routes;
 }
 
@@ -125,7 +128,9 @@ describe("the landing page's claims", () => {
   it("claims no customers, logos or testimonials", async () => {
     const { container } = render(await Home());
     const text = container.textContent ?? "";
-    expect(text).not.toMatch(/trusted by|customers use|businesses use|join \d/i);
+    expect(text).not.toMatch(
+      /trusted by|customers use|businesses use|join \d/i,
+    );
     expect(text).not.toMatch(/\d+\+?\s*(businesses|clients|companies)/i);
     // No third-party imagery either: a logo wall is a claim in picture form, and an
     // external image is also a request to a host we do not control (the reason
@@ -184,10 +189,16 @@ describe("the landing page's claims", () => {
   it("claims no data residency, storage location or certification", async () => {
     const { container } = render(await Home());
     const text = container.textContent ?? "";
-    expect(text).not.toMatch(/stays? in india|remains? in india|never leaves india/i);
-    expect(text).not.toMatch(/stored in india|hosted in india|kept in india|held in india/i);
+    expect(text).not.toMatch(
+      /stays? in india|remains? in india|never leaves india/i,
+    );
+    expect(text).not.toMatch(
+      /stored in india|hosted in india|kept in india|held in india/i,
+    );
     expect(text).not.toMatch(/data residency|data sovereignty|sovereign/i);
-    expect(text).not.toMatch(/soc\s?2|iso[\s-]?27001|hipaa|pci[\s-]?dss|certified|accredited/i);
+    expect(text).not.toMatch(
+      /soc\s?2|iso[\s-]?27001|hipaa|pci[\s-]?dss|certified|accredited/i,
+    );
     /*
      * THERE IS NO SURVIVING INDIA CLAIM ABOUT THE MODEL, and the two strings below are
      * what replaced the one there used to be (`The AI runs on Indian endpoints`).
@@ -208,9 +219,15 @@ describe("the landing page's claims", () => {
      * page now says the vendor being Indian is not a residency claim, and a future edit
      * that drops THAT qualification is the defect to catch.
      */
-    expect(text).toContain("Speech and the first reading of your transcript are Indian");
-    expect(text).toContain("Microsoft Azure OpenAI account in the United States");
-    expect(text).not.toMatch(/(recordings?|transcripts?|database|servers?)[^.]{0,40}\bin india\b/i);
+    expect(text).toContain(
+      "Speech and the first reading of your transcript are Indian",
+    );
+    expect(text).toContain(
+      "Microsoft Azure OpenAI account in the United States",
+    );
+    expect(text).not.toMatch(
+      /(recordings?|transcripts?|database|servers?)[^.]{0,40}\bin india\b/i,
+    );
 
     /*
      * AND IT MUST NOT CLAIM THE BUILD PROVES IT — the over-claim in the other
@@ -235,8 +252,12 @@ describe("the landing page's claims", () => {
     // `legal.test.tsx::claimsOutsideDenial` exists for — so this names the construction
     // the page actually had rather than the vocabulary around it.
     expect(text).not.toMatch(/\b(fails?|breaks?) (our|the) build\b/i);
-    expect(text).not.toMatch(/\b(our|the) build (fails|proves|guarantees|ensures)\b/i);
-    expect(text).not.toMatch(/\b(guarantee[sd]?|guaranteed|certified)\b[^.]{0,40}\bindia/i);
+    expect(text).not.toMatch(
+      /\b(our|the) build (fails|proves|guarantees|ensures)\b/i,
+    );
+    expect(text).not.toMatch(
+      /\b(guarantee[sd]?|guaranteed|certified)\b[^.]{0,40}\bindia/i,
+    );
     // And the correction is PINNED, not merely un-banned: the sentence has to keep
     // saying which half is machine-checked and which half a person confirms, because
     // deleting that clause is how the over-claim comes back looking like a tidy-up.
@@ -286,7 +307,9 @@ describe("the landing page's claims", () => {
     // overridden and names the thing it is about.
     expect(text).not.toMatch(/no (configuration|setting) that turns it off/i);
     expect(text).toContain("It never denies being an AI");
-    expect(text).toMatch(/whether it volunteers that line[^.]*is your setting/i);
+    expect(text).toMatch(
+      /whether it volunteers that line[^.]*is your setting/i,
+    );
   });
 
   it("does not advertise a self-serve door the deployment has switched off", async () => {
@@ -295,7 +318,9 @@ describe("the landing page's claims", () => {
     // page must say accounts are opened by hand. "Sign up free" over a closed door is
     // the exact shape this migration bans: a claim dressed as a button.
     expect(container.textContent).toContain("does not open accounts online");
-    expect(screen.queryByRole("link", { name: /Create a workspace/i })).toBeNull();
+    expect(
+      screen.queryByRole("link", { name: /Create a workspace/i }),
+    ).toBeNull();
     // The door is still a real destination — `/signup` explains and hands over the
     // contact address — so the link stays, honestly labelled.
     const link = screen.getByRole("link", { name: /How to get one/i });
@@ -345,7 +370,9 @@ describe("the landing page's claims", () => {
     expect(root).not.toBeNull();
     // And it must be the OUTERMOST element, because `:has()` on <html> only frees the
     // document when the marketing root is genuinely in this page's tree.
-    expect(container.firstElementChild?.hasAttribute("data-marketing-root")).toBe(true);
+    expect(
+      container.firstElementChild?.hasAttribute("data-marketing-root"),
+    ).toBe(true);
   });
 });
 
@@ -357,7 +384,10 @@ describe("the landing page's claims", () => {
  * seed's own labels rather than against a second copy in this file, which would only
  * move the drift one file along.
  */
-const SEED = readFileSync(resolve(process.cwd(), "..", "..", "scripts", "seed.py"), "utf8");
+const SEED = readFileSync(
+  resolve(process.cwd(), "..", "..", "scripts", "seed.py"),
+  "utf8",
+);
 
 /** Every `"label": "…"` inside one vertical's list in `VERTICAL_TEMPLATES`, in order. */
 function seedLabels(vertical: string): string[] {
@@ -365,7 +395,10 @@ function seedLabels(vertical: string): string[] {
   const start = templates.indexOf(`    "${vertical}": [`);
   expect(start, `seed.py has no ${vertical} template`).toBeGreaterThan(-1);
   // The list ends at the next entry's indentation — `    ],` on its own line.
-  const body = templates.slice(start, start + templates.slice(start).indexOf("\n    ],"));
+  const body = templates.slice(
+    start,
+    start + templates.slice(start).indexOf("\n    ],"),
+  );
   return [...body.matchAll(/"label": "([^"]+)"/g)].map((m) => m[1]);
 }
 
@@ -391,22 +424,27 @@ describe("the verticals section", () => {
   it.each(CARD_TO_SEED)(
     "shows %s the columns seed.py actually ships",
     async (card, vertical) => {
-    const { container } = render(await Home());
-    // NOT `getByRole("heading")`: three of the four panels carry the `hidden` attribute,
-    // which is exactly what removes them from the accessibility tree — the property the
-    // tabs pattern depends on, and the reason a role query cannot see them. Every panel is
-    // in the DOM, so the panel is found by its heading's text and the field list read out
-    // of it. That the tabs themselves are reachable is asserted in the a11y sweep.
-    const panels = [...container.querySelectorAll('[role="tabpanel"]')];
-    expect(panels.length).toBe(CARD_TO_SEED.length);
-    const panel = panels.find((p) => p.querySelector("h3")?.textContent === card);
-    expect(panel, `${card} has no tab panel`).toBeDefined();
-    expect(container.querySelectorAll('[role="tab"]').length).toBe(CARD_TO_SEED.length);
-    const chips = [...(panel?.querySelectorAll("[data-seed-fields] li") ?? [])].map(
-      (li) => li.textContent,
-    );
-    expect(chips).toEqual(seedLabels(vertical));
-  });
+      const { container } = render(await Home());
+      // NOT `getByRole("heading")`: three of the four panels carry the `hidden` attribute,
+      // which is exactly what removes them from the accessibility tree — the property the
+      // tabs pattern depends on, and the reason a role query cannot see them. Every panel is
+      // in the DOM, so the panel is found by its heading's text and the field list read out
+      // of it. That the tabs themselves are reachable is asserted in the a11y sweep.
+      const panels = [...container.querySelectorAll('[role="tabpanel"]')];
+      expect(panels.length).toBe(CARD_TO_SEED.length);
+      const panel = panels.find(
+        (p) => p.querySelector("h3")?.textContent === card,
+      );
+      expect(panel, `${card} has no tab panel`).toBeDefined();
+      expect(container.querySelectorAll('[role="tab"]').length).toBe(
+        CARD_TO_SEED.length,
+      );
+      const chips = [
+        ...(panel?.querySelectorAll("[data-seed-fields] li") ?? []),
+      ].map((li) => li.textContent);
+      expect(chips).toEqual(seedLabels(vertical));
+    },
+  );
 
   it("does not imply a tested scenario suite behind all four", async () => {
     const { container } = render(await Home());
@@ -414,8 +452,12 @@ describe("the verticals section", () => {
     // Only `cl_*` and `re_*` cases exist in `tests/fixtures/golden_transcripts.json`, so
     // exactly two cards may make the stronger claim and the other two must say plainly
     // that their test calls are not written.
-    expect(text.match(/with its own suite of test calls behind it/g)).toHaveLength(2);
-    expect(text.match(/the test calls for it are still being written/g)).toHaveLength(2);
+    expect(
+      text.match(/with its own suite of test calls behind it/g),
+    ).toHaveLength(2);
+    expect(
+      text.match(/the test calls for it are still being written/g),
+    ).toHaveLength(2);
   });
 });
 
@@ -451,8 +493,12 @@ describe("the qualification-layer section", () => {
     // conversion claim takes.)
     expect(text).not.toMatch(/\d+(\.\d+)?\s*%/);
     expect(text).not.toMatch(/\b\d+(\.\d+)?\s*x\b/i);
-    expect(text).not.toMatch(/stud(y|ies)|research|survey|report(s|ed)? that|on average/i);
-    expect(text).not.toMatch(/\b(more|higher|faster|better) (conversions?|conversion rate)/i);
+    expect(text).not.toMatch(
+      /stud(y|ies)|research|survey|report(s|ed)? that|on average/i,
+    );
+    expect(text).not.toMatch(
+      /\b(more|higher|faster|better) (conversions?|conversion rate)/i,
+    );
 
     // And no speed claim the product does not measure. "Instantly" is already banned over
     // the whole page; the shipped fact is that the gap is TIMED
@@ -531,7 +577,9 @@ describe("what the page promises the agent knows", () => {
       /\b(search(es|ing)?|looks? (it |them )?up|reads?|scans?|consults?)\b[^.]{0,40}\byour\b[^.]{0,30}\b(document|documents|files?|pdfs?|knowledge base|material)\b/i,
     );
     // The open-genre promises. None is backed, and the last one is unbackable by anything.
-    expect(text).not.toMatch(/\btrained on your\b|\blearns your\b|\bknows everything\b/i);
+    expect(text).not.toMatch(
+      /\btrained on your\b|\blearns your\b|\bknows everything\b/i,
+    );
     expect(text).not.toMatch(/\banswers? any question\b/i);
   });
 
@@ -688,7 +736,8 @@ describe("the page's structure asks for one thing, once", () => {
     expect(cta).not.toBeNull();
     // `compareDocumentPosition` reads DOM order, which is reading order.
     expect(
-      audience!.compareDocumentPosition(cta!) & Node.DOCUMENT_POSITION_FOLLOWING,
+      audience!.compareDocumentPosition(cta!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
       "the audience sentence must come BEFORE the hero's call to action",
     ).toBeTruthy();
   });
@@ -716,9 +765,9 @@ describe("the page's structure asks for one thing, once", () => {
    */
   it("makes its argument in one order, and that order is the DOM order", async () => {
     const { container } = render(await Home());
-    const bands = [...container.querySelectorAll("main section[data-band-weight]")].map(
-      (band) => band.id,
-    );
+    const bands = [
+      ...container.querySelectorAll("main section[data-band-weight]"),
+    ].map((band) => band.id);
     expect(bands).toEqual([
       // The problem, and its answer, on one ground.
       "problem",
@@ -743,17 +792,23 @@ describe("the page's structure asks for one thing, once", () => {
 
   it("does not shout every band at the same volume", async () => {
     const { container } = render(await Home());
-    const bands = [...container.querySelectorAll("main section[data-band-weight]")];
+    const bands = [
+      ...container.querySelectorAll("main section[data-band-weight]"),
+    ];
     const weights = bands.map((band) => band.getAttribute("data-band-weight"));
 
     // Three ranks, all used. Two would be a hierarchy with nothing quiet in it; one is the
     // defect this page had.
-    expect(new Set(weights).size, `only these weights are in use: ${[...new Set(weights)].join(", ")}`)
-      .toBe(3);
+    expect(
+      new Set(weights).size,
+      `only these weights are in use: ${[...new Set(weights)].join(", ")}`,
+    ).toBe(3);
 
     // The three the argument rests on, named. A redesign may re-rank the page — but it has
     // to say so here, rather than promoting bands until every one is an anchor again.
-    const anchors = bands.filter((b) => b.getAttribute("data-band-weight") === "anchor");
+    const anchors = bands.filter(
+      (b) => b.getAttribute("data-band-weight") === "anchor",
+    );
     expect(anchors.map((b) => b.id)).toEqual(["outcomes", "leads", "cost"]);
 
     /*
@@ -770,9 +825,14 @@ describe("the page's structure asks for one thing, once", () => {
     // `text-ink`, which is a legitimate difference in COLOUR on an inverted ground and is
     // not what this assertion is about — comparing whole class strings would fail on it and
     // teach the next reader to delete the check rather than fix the size.
-    const SIZE = /^(?:sm:|md:|lg:|xl:)?(?:text-(?:\[[^\]]+\]|xs|sm|base|lg|[2-9]?xl)|leading-)/;
+    const SIZE =
+      /^(?:sm:|md:|lg:|xl:)?(?:text-(?:\[[^\]]+\]|xs|sm|base|lg|[2-9]?xl)|leading-)/;
     const sizeOf = (heading: Element): string =>
-      heading.className.split(/\s+/).filter((token) => SIZE.test(token)).sort().join(" ");
+      heading.className
+        .split(/\s+/)
+        .filter((token) => SIZE.test(token))
+        .sort()
+        .join(" ");
 
     const classForWeight = new Map<string, Set<string>>();
     for (const band of bands) {
@@ -785,12 +845,19 @@ describe("the page's structure asks for one thing, once", () => {
     }
     // One treatment per rank — a rank spelled two ways is the drift that starts a second.
     for (const [weight, classes] of classForWeight) {
-      expect([...classes], `weight "${weight}" is spelled ${classes.size} different ways`)
-        .toHaveLength(1);
+      expect(
+        [...classes],
+        `weight "${weight}" is spelled ${classes.size} different ways`,
+      ).toHaveLength(1);
     }
     // And the three treatments differ from each other.
-    const treatments = new Set([...classForWeight.values()].map((set) => [...set][0]));
-    expect(treatments.size, "the three band weights render the same heading class").toBe(3);
+    const treatments = new Set(
+      [...classForWeight.values()].map((set) => [...set][0]),
+    );
+    expect(
+      treatments.size,
+      "the three band weights render the same heading class",
+    ).toBe(3);
   });
 
   /**
@@ -834,9 +901,10 @@ describe("the page's structure asks for one thing, once", () => {
         ),
       );
     for (const href of inNav('header nav[aria-label="Pages"]')) {
-      expect(inNav('footer nav[aria-label="Site"]'), `${href} is not in the footer`).toContain(
-        href,
-      );
+      expect(
+        inNav('footer nav[aria-label="Site"]'),
+        `${href} is not in the footer`,
+      ).toContain(href);
     }
   });
 
@@ -862,7 +930,9 @@ describe("the page's structure asks for one thing, once", () => {
     // And it may not reach for the thing it does not have. A guarantee, a refund, a
     // no-commitment claim and a trial are each a commercial term nobody has agreed;
     // "free" and "trial" are already banned page-wide by the price rule above.
-    expect(text).not.toMatch(/guarantee|money[- ]back|refund|no commitment|risk[- ]free/i);
+    expect(text).not.toMatch(
+      /guarantee|money[- ]back|refund|no commitment|risk[- ]free/i,
+    );
   });
 
   /**
@@ -876,9 +946,15 @@ describe("the page's structure asks for one thing, once", () => {
   it("manufactures no urgency or scarcity", async () => {
     const { container } = render(await Home());
     const text = container.textContent ?? "";
-    expect(text).not.toMatch(/limited (time|offer|places?|spots?)|only \d+ (left|spots?|places?)/i);
-    expect(text).not.toMatch(/act now|hurry|don'?t miss|last chance|ends (soon|today|in)/i);
-    expect(text).not.toMatch(/\bwait ?list\b|early bird|founding (member|client)s?/i);
+    expect(text).not.toMatch(
+      /limited (time|offer|places?|spots?)|only \d+ (left|spots?|places?)/i,
+    );
+    expect(text).not.toMatch(
+      /act now|hurry|don'?t miss|last chance|ends (soon|today|in)/i,
+    );
+    expect(text).not.toMatch(
+      /\bwait ?list\b|early bird|founding (member|client)s?/i,
+    );
   });
 });
 
@@ -924,11 +1000,15 @@ describe("nothing on this page lays out in columns a phone cannot hold", () => {
       "the marketing source walk found nothing — has the directory moved?",
     ).toBeGreaterThan(8);
     for (const file of MARKETING_SOURCES) {
-      const lines = readFileSync(resolve(process.cwd(), file), "utf8").split("\n");
+      const lines = readFileSync(resolve(process.cwd(), file), "utf8").split(
+        "\n",
+      );
       lines.forEach((line, i) => {
         // Comments talk about these utilities; only a class string applies one.
         if (/^\s*(\*|\/\/)/.test(line)) return;
-        for (const match of line.matchAll(/(^|[\s"'`(])(grid-cols-([2-9]|\[[^\]]+\]))/g)) {
+        for (const match of line.matchAll(
+          /(^|[\s"'`(])(grid-cols-([2-9]|\[[^\]]+\]))/g,
+        )) {
           const before = line.slice(0, match.index! + match[1].length);
           // `sm:grid-cols-3` and friends read as a `:` immediately before the utility.
           if (/[a-z0-9\]]:$/.test(before)) continue;
@@ -965,19 +1045,38 @@ describe("the landing page is set at reading size", () => {
   it("keeps its body copy on the named scale, well clear of console density", () => {
     // The tokens are asserted by NAME as well as by value: a rename that leaves the page
     // reading at 14px would otherwise pass by deleting the thing under test.
-    for (const key of ["chapter", "bandGap", "ledeGap", "contentGap", "body", "bodySm", "itemTitle", "itemGap", "panel"]) {
-      expect(Object.keys(HOME), `the scale lost its \`${key}\` step`).toContain(key);
+    for (const key of [
+      "chapter",
+      "bandGap",
+      "ledeGap",
+      "contentGap",
+      "body",
+      "bodySm",
+      "itemTitle",
+      "itemGap",
+      "panel",
+    ]) {
+      expect(Object.keys(HOME), `the scale lost its \`${key}\` step`).toContain(
+        key,
+      );
     }
     // `text-lg` is 18px and `text-base` is 16px. The console's density is `text-sm` (14px),
     // and this page may not be set in it — a scale that starts below these two is not a
     // smaller design, it is the defect this describe exists for.
-    expect(HOME.body, "body copy dropped below 18px").toMatch(/(^|\s)text-lg(\s|$)/);
-    expect(HOME.bodySm, "supporting copy dropped below 16px").toMatch(/(^|\s)text-base(\s|$)/);
-    expect(HOME.itemTitle, "an item title dropped below 20px").toMatch(/(^|\s)text-xl(\s|$)/);
+    expect(HOME.body, "body copy dropped below 18px").toMatch(
+      /(^|\s)text-lg(\s|$)/,
+    );
+    expect(HOME.bodySm, "supporting copy dropped below 16px").toMatch(
+      /(^|\s)text-base(\s|$)/,
+    );
+    expect(HOME.itemTitle, "an item title dropped below 20px").toMatch(
+      /(^|\s)text-xl(\s|$)/,
+    );
     for (const token of [HOME.body, HOME.bodySm, HOME.itemTitle]) {
-      expect(token, `\`${token}\` sets marketing prose at the console's size`).not.toMatch(
-        /(^|\s)text-(sm|xs)(\s|$)/,
-      );
+      expect(
+        token,
+        `\`${token}\` sets marketing prose at the console's size`,
+      ).not.toMatch(/(^|\s)text-(sm|xs)(\s|$)/);
     }
   });
 
@@ -993,10 +1092,18 @@ describe("the landing page is set at reading size", () => {
    * in the console too, and enlarging it would make it compete with the heading it labels.
    */
   it("sets no chapter's prose at the console's size", () => {
-    const dir = resolve(process.cwd(), "src", "components", "marketing", "home");
+    const dir = resolve(
+      process.cwd(),
+      "src",
+      "components",
+      "marketing",
+      "home",
+    );
     const files = tsSources(dir).map((file) => relPosix(process.cwd(), file));
-    expect(files.length, "the chapter walk found nothing — has the directory moved?")
-      .toBeGreaterThan(8);
+    expect(
+      files.length,
+      "the chapter walk found nothing — has the directory moved?",
+    ).toBeGreaterThan(8);
     const offenders: string[] = [];
     for (const file of files) {
       readFileSync(resolve(process.cwd(), file), "utf8")
@@ -1005,7 +1112,8 @@ describe("the landing page is set at reading size", () => {
           if (/^\s*(\*|\/\/)/.test(line)) return;
           if (!/<(p|li|dd|h3|h4)\b/.test(line)) return;
           if (/uppercase/.test(line)) return;
-          if (/text-(sm|xs)\b/.test(line)) offenders.push(`${file}:${i + 1} — ${line.trim()}`);
+          if (/text-(sm|xs)\b/.test(line))
+            offenders.push(`${file}:${i + 1} — ${line.trim()}`);
         });
     }
     expect(
@@ -1038,7 +1146,9 @@ describe("the landing page's document structure", () => {
 
   it("skips no heading level, anywhere down the page", async () => {
     const { container } = render(await Home());
-    const levels = [...container.querySelectorAll("h1, h2, h3, h4, h5, h6")].map((h) => ({
+    const levels = [
+      ...container.querySelectorAll("h1, h2, h3, h4, h5, h6"),
+    ].map((h) => ({
       level: Number(h.tagName[1]),
       text: (h.textContent ?? "").trim().slice(0, 60),
     }));
@@ -1058,10 +1168,15 @@ describe("the landing page's document structure", () => {
       if (index === 0) return;
       const previous = levels[index - 1];
       if (heading.level > previous.level + 1) {
-        skips.push(`h${previous.level} “${previous.text}” → h${heading.level} “${heading.text}”`);
+        skips.push(
+          `h${previous.level} “${previous.text}” → h${heading.level} “${heading.text}”`,
+        );
       }
     });
-    expect(skips, `these pairs skip a heading level:\n  ${skips.join("\n  ")}`).toEqual([]);
+    expect(
+      skips,
+      `these pairs skip a heading level:\n  ${skips.join("\n  ")}`,
+    ).toEqual([]);
   });
 
   it("asks for the one thing before it asks for anything else", async () => {
@@ -1102,9 +1217,15 @@ describe("the landing page's document structure", () => {
    */
   it("types no rupee figure into the homepage's own source", () => {
     const MONEY = /₹|\bRs\.?\s*\d|\brupees?\b|\bper minute\b|\bper month\b/i;
-    const offenders = copyUnder(["src/app/page.tsx", "src/components/marketing/home"])
+    const offenders = copyUnder([
+      "src/app/page.tsx",
+      "src/components/marketing/home",
+    ])
       .filter((entry) => MONEY.test(entry.text))
-      .map((entry) => `${entry.file}:${entry.line} — ${entry.text.trim().slice(0, 100)}`);
+      .map(
+        (entry) =>
+          `${entry.file}:${entry.line} — ${entry.text.trim().slice(0, 100)}`,
+      );
     expect(
       offenders,
       "every price on this site is SERVED (D-545): it arrives in GET /v1/public/rate-card " +
@@ -1214,12 +1335,19 @@ describe("the ROI calculator", () => {
     const disclosure = details.find((d) =>
       /assumptions/i.test(d.querySelector("summary")?.textContent ?? ""),
     );
-    expect(disclosure, "the assumptions disclosure did not render").toBeDefined();
+    expect(
+      disclosure,
+      "the assumptions disclosure did not render",
+    ).toBeDefined();
     expect(disclosure!.open).toBe(false);
-    expect(disclosure!.querySelector("summary")?.textContent).toMatch(/assumptions/i);
+    expect(disclosure!.querySelector("summary")?.textContent).toMatch(
+      /assumptions/i,
+    );
     // The honesty note the brief requires: the benchmarks are framed as illustrative and
     // adjustable, not asserted as fact.
-    expect(disclosure!.textContent).toMatch(/pre-filled with illustrative benchmarks/i);
+    expect(disclosure!.textContent).toMatch(
+      /pre-filled with illustrative benchmarks/i,
+    );
   });
 
   /**
@@ -1235,46 +1363,80 @@ describe("the ROI calculator", () => {
    * the verdict still admits a loss.
    */
   function chooseTwoStage() {
-    fireEvent.click(screen.getByRole("radio", { name: /Calevate calls first/i }));
+    fireEvent.click(
+      screen.getByRole("radio", { name: /Calevate calls first/i }),
+    );
   }
 
   it("defaults to the head-to-head comparison and offers the two-stage one", async () => {
     render(await Home());
-    const group = screen.getByRole("radiogroup", { name: "What you want Calevate to do" });
+    const group = screen.getByRole("radiogroup", {
+      name: "What you want Calevate to do",
+    });
     expect(group).not.toBeNull();
-    const answers = screen.getByRole("radio", { name: /Calevate answers the calls/i });
-    const qualifies = screen.getByRole("radio", { name: /Calevate calls first/i });
+    const answers = screen.getByRole("radio", {
+      name: /Calevate answers the calls/i,
+    });
+    const qualifies = screen.getByRole("radio", {
+      name: /Calevate calls first/i,
+    });
     expect(answers.getAttribute("aria-checked")).toBe("true");
     expect(qualifies.getAttribute("aria-checked")).toBe("false");
     // The two-stage inputs are progressive disclosure: absent until the mode is chosen, so
     // the everyday buyer is never handed five sliders they did not ask for.
-    expect(screen.queryByRole("spinbutton", { name: "Leads worth a real conversation" })).toBeNull();
-    expect(screen.queryByRole("spinbutton", { name: "Calevate's first call" })).toBeNull();
+    expect(
+      screen.queryByRole("spinbutton", {
+        name: "Leads worth a real conversation",
+      }),
+    ).toBeNull();
+    expect(
+      screen.queryByRole("spinbutton", { name: "Calevate's first call" }),
+    ).toBeNull();
   });
 
   it("reveals exactly two extra controls in the two-stage mode, both labelled", async () => {
     render(await Home());
     chooseTwoStage();
-    expect(screen.getByRole("radio", { name: /Calevate calls first/i }).getAttribute("aria-checked")).toBe("true");
+    expect(
+      screen
+        .getByRole("radio", { name: /Calevate calls first/i })
+        .getAttribute("aria-checked"),
+    ).toBe("true");
     // Labelled number field AND slider for each, the same pair every other input uses.
-    expect(screen.getByRole("spinbutton", { name: "Leads worth a real conversation" })).not.toBeNull();
-    expect(screen.getByRole("slider", { name: "Leads worth a real conversation" })).not.toBeNull();
-    expect(screen.getByRole("spinbutton", { name: "Calevate's first call" })).not.toBeNull();
-    expect(screen.getByRole("slider", { name: "Calevate's first call" })).not.toBeNull();
+    expect(
+      screen.getByRole("spinbutton", {
+        name: "Leads worth a real conversation",
+      }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("slider", { name: "Leads worth a real conversation" }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("spinbutton", { name: "Calevate's first call" }),
+    ).not.toBeNull();
+    expect(
+      screen.getByRole("slider", { name: "Calevate's first call" }),
+    ).not.toBeNull();
     // And the call-length control is renamed, because in this mode it is the SALESPERSON's
     // conversation rather than the agent's call — the same number meaning a different thing
     // is the bug this rename exists to prevent.
     expect(
-      screen.getByRole("spinbutton", { name: "How long a real sales conversation runs" }),
+      screen.getByRole("spinbutton", {
+        name: "How long a real sales conversation runs",
+      }),
     ).not.toBeNull();
-    expect(screen.queryByRole("spinbutton", { name: "Average call length" })).toBeNull();
+    expect(
+      screen.queryByRole("spinbutton", { name: "Average call length" }),
+    ).toBeNull();
   });
 
   it("shows the worked two-stage arithmetic at 200 calls a day and 6-minute conversations", async () => {
     const { container } = render(await Home());
     chooseTwoStage();
     fireEvent.change(
-      screen.getByRole("spinbutton", { name: "How long a real sales conversation runs" }),
+      screen.getByRole("spinbutton", {
+        name: "How long a real sales conversation runs",
+      }),
       { target: { value: "6" } },
     );
     const text = calc(container).textContent ?? "";
@@ -1301,10 +1463,17 @@ describe("the ROI calculator", () => {
     // Everything on the list worth a conversation = nothing for a first call to filter, so
     // it is an extra call on top of the same team. A calculator that cannot lose is a
     // brochure; this is the branch that proves it can.
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Leads worth a real conversation" }), {
-      target: { value: "100" },
-    });
-    expect(calc(container).textContent).toMatch(/costs\s*₹[\d,]+\.\d\d\s*more a month, not less/);
+    fireEvent.change(
+      screen.getByRole("spinbutton", {
+        name: "Leads worth a real conversation",
+      }),
+      {
+        target: { value: "100" },
+      },
+    );
+    expect(calc(container).textContent).toMatch(
+      /costs\s*₹[\d,]+\.\d\d\s*more a month, not less/,
+    );
   });
 
   it("points a long-call buyer at the two-stage mode instead of losing the argument", async () => {
@@ -1312,10 +1481,15 @@ describe("the ROI calculator", () => {
     // At six minutes the head-to-head comparison is not a comparison of alternatives. The
     // page must name that rather than quietly showing a losing number.
     expect(calc(container).textContent).not.toMatch(/is a sales conversation/);
-    fireEvent.change(screen.getByRole("spinbutton", { name: "Average call length" }), {
-      target: { value: "6" },
-    });
-    expect(calc(container).textContent).toMatch(/6-minute call is a\s*sales conversation/);
+    fireEvent.change(
+      screen.getByRole("spinbutton", { name: "Average call length" }),
+      {
+        target: { value: "6" },
+      },
+    );
+    expect(calc(container).textContent).toMatch(
+      /6-minute call is a\s*sales conversation/,
+    );
   });
 
   it("offers the missed-lead value as an opt-in, off by default", async () => {
@@ -1325,9 +1499,13 @@ describe("the ROI calculator", () => {
     });
     expect((toggle as HTMLInputElement).checked).toBe(false);
     // The conversion-rate input is only present once the option is turned on.
-    expect(screen.queryByRole("spinbutton", { name: "Conversion rate" })).toBeNull();
+    expect(
+      screen.queryByRole("spinbutton", { name: "Conversion rate" }),
+    ).toBeNull();
     fireEvent.click(toggle);
-    expect(screen.getByRole("spinbutton", { name: "Conversion rate" })).not.toBeNull();
+    expect(
+      screen.getByRole("spinbutton", { name: "Conversion rate" }),
+    ).not.toBeNull();
     expect(calc(container).textContent).toMatch(/converted-lead value/i);
   });
 });
@@ -1361,7 +1539,10 @@ describe("the ROI calculator", () => {
  * right, and would stop moving on the day the palette does.
  */
 describe("the marketing pages' decorative grid", () => {
-  const CSS = readFileSync(resolve(process.cwd(), "src", "app", "globals.css"), "utf8");
+  const CSS = readFileSync(
+    resolve(process.cwd(), "src", "app", "globals.css"),
+    "utf8",
+  );
 
   /** The body of one CSS rule, by selector. */
   function ruleBody(selector: string): string {
@@ -1372,7 +1553,10 @@ describe("the marketing pages' decorative grid", () => {
 
   it("draws its lines from `--line`, never from a literal colour", () => {
     const grid = ruleBody("[data-marketing-root] .mk-grid-lines");
-    const image = grid.slice(grid.indexOf("background-image"), grid.indexOf(";", grid.indexOf("background-image")));
+    const image = grid.slice(
+      grid.indexOf("background-image"),
+      grid.indexOf(";", grid.indexOf("background-image")),
+    );
     expect(image, "the lattice is not painted from `--mk-grid-line`").toContain(
       "var(--mk-grid-line)",
     );
@@ -1390,10 +1574,16 @@ describe("the marketing pages' decorative grid", () => {
     // Light and dark, because the dormant palette (D-471) is still held to the same
     // coherence — a token defined in one block only is the drift the `.dark` half exists
     // to prevent, and `tests/browser/` scans both.
-    for (const block of ["[data-marketing-root]", ".dark [data-marketing-root]"]) {
+    for (const block of [
+      "[data-marketing-root]",
+      ".dark [data-marketing-root]",
+    ]) {
       const body = ruleBody(block);
       const declaration = /--mk-grid-line:\s*([^;]+);/.exec(body)?.[1] ?? "";
-      expect(declaration, `\`${block}\` does not define --mk-grid-line`).not.toEqual("");
+      expect(
+        declaration,
+        `\`${block}\` does not define --mk-grid-line`,
+      ).not.toEqual("");
       expect(
         declaration,
         `\`${block}\` sets --mk-grid-line to \`${declaration}\` rather than deriving it ` +
@@ -1407,18 +1597,26 @@ describe("the marketing pages' decorative grid", () => {
     // "Migrate rather than accumulate" (CLAUDE.md): two decorative textures doing one job
     // in one visual system is the drift, and a stylesheet keeps dead classes silently.
     expect(CSS).not.toContain(".mk-grid-dots {");
-    const users = tsSources(resolve(process.cwd(), "src", "components", "marketing"))
+    const users = tsSources(
+      resolve(process.cwd(), "src", "components", "marketing"),
+    )
       .map((file) => relPosix(process.cwd(), file))
-      .filter((file) => /mk-grid-dots/.test(readFileSync(resolve(process.cwd(), file), "utf8")));
-    expect(users, `these still ask for the texture that was removed: ${users.join(", ")}`).toEqual(
-      [],
-    );
+      .filter((file) =>
+        /mk-grid-dots/.test(readFileSync(resolve(process.cwd(), file), "utf8")),
+      );
+    expect(
+      users,
+      `these still ask for the texture that was removed: ${users.join(", ")}`,
+    ).toEqual([]);
   });
 
   it("renders behind the hero, inside a stacking context, and never over the words", async () => {
     const { container } = render(await Home());
     const hero = container.querySelector("h1")?.closest("section");
-    expect(hero, "the hero section is not where the h1 lives any more").not.toBeNull();
+    expect(
+      hero,
+      "the hero section is not where the h1 lives any more",
+    ).not.toBeNull();
 
     const grid = hero!.querySelector(".mk-grid-lines");
     expect(grid, "the hero paints no grid").not.toBeNull();

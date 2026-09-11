@@ -1,11 +1,20 @@
-import { act, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import NewAgentPage from "@/app/c/[slug]/agents/new/page";
 import type { Agent } from "@/lib/api/agents";
 import type { Lanes } from "@/lib/api/publishing";
 
-import { useCopilotSurfaceHolder, type SurfaceHolder } from "@/lib/copilot/registry";
+import {
+  useCopilotSurfaceHolder,
+  type SurfaceHolder,
+} from "@/lib/copilot/registry";
 
 import { problem, renderClientPage, stillLoading } from "./harness";
 
@@ -35,14 +44,40 @@ const OWNER = {
   // `agents:write`, which is admin-only and which no client role holds.
   permissions: ["agents:read", "org:read", "org:manage"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  withheld_acts: [],
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
-/** An owner viewing their own account read-only: the D-22 operator following "view as". */
-const VIEWING_AS_ADMIN = { ...OWNER, impersonating: true };
+/**
+ * The operator following "view as client" — WRITABLE since D-587.
+ *
+ * `/v1/me` sends the EFFECTIVE permission set, and `org:manage` survives it: D-587 lists
+ * it in `rbac.VIEW_AS_MUTATIONS` with `None` as its ground, so building an agent for a
+ * client on a support call is the job the reversal exists for. No named act covers agent
+ * creation, so `withheld_acts` carries the six that ARE withheld and none of them bites
+ * here.
+ */
+const VIEWING_AS_ADMIN = {
+  ...OWNER,
+  impersonating: true,
+  withheld_acts: [
+    "billing.ai_assist",
+    "compliance.caller_memory_attestation",
+    "compliance.erasure_request",
+    "kb.self_approve",
+    "leads.saved_view",
+    "org.membership",
+  ],
+};
 
 const LANES: Lanes = {
-  precedence_rule: "Script decides content, rules decide conduct, voice only changes delivery.",
+  precedence_rule:
+    "Script decides content, rules decide conduct, voice only changes delivery.",
   lanes: [],
   call_cap_default_s: 600,
   call_cap_min_s: 60,
@@ -57,8 +92,10 @@ function created(over: Partial<Agent> = {}): Agent {
     status: "draft",
     archived_at: null,
     language_primary: "te-IN",
-    disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
-    ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+    disclosure_line:
+      "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+    ai_disclosure_line:
+      "Namaskaram, this is an AI assistant calling for Sri Clinic.",
     ai_disclosure_enabled: true,
     recording_notice_line: "This call is being recorded.",
     caller_memory_notice_line: "I keep a short note of what you ask about.",
@@ -174,7 +211,9 @@ describe("what the form promises about the agent it is about to build", () => {
     const { container } = await renderClientPage(page, routes());
 
     await screen.findByText("Build an agent");
-    const floor = screen.getByText("What it will say about itself").parentElement;
+    const floor = screen.getByText(
+      "What it will say about itself",
+    ).parentElement;
     expect(floor?.textContent).toContain("it is an AI assistant");
     expect(floor?.textContent).toContain("the call is being recorded");
     // The half that is not switchable by anyone. Every sentence in this panel is enforced
@@ -183,7 +222,9 @@ describe("what the form promises about the agent it is about to build", () => {
     expect(floor?.textContent).toContain("cannot be switched off");
     // …and it does not promise the notices are permanent, because they are two per-agent
     // toggles (D-163) and saying otherwise would be a trap of the opposite kind.
-    expect(container.textContent).toContain("switch either announcement off later");
+    expect(container.textContent).toContain(
+      "switch either announcement off later",
+    );
   });
 
   it("says the agent is built switched off, and does not celebrate a phone line that cannot ring", async () => {
@@ -212,7 +253,9 @@ describe("what the form promises about the agent it is about to build", () => {
     const open = screen.getByRole("link", { name: /Open Front desk/ });
     expect(open.getAttribute("href")).toBe("/c/acme/agents/agent-9");
     // The form is gone: a second press would build a second agent nobody asked for.
-    expect(screen.queryByRole("button", { name: /Build this agent/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Build this agent/ }),
+    ).toBeNull();
   });
 });
 
@@ -234,7 +277,9 @@ describe("the call cap is the server's, or it is not offered", () => {
     const field = screen.getByLabelText(/^Longest one call may run/);
     expect(field.getAttribute("min")).toBe("2");
     expect(field.getAttribute("max")).toBe("30");
-    expect(container.textContent).toContain("blank for the standard 15 minutes");
+    expect(container.textContent).toContain(
+      "blank for the standard 15 minutes",
+    );
     expect(container.textContent).not.toContain("10 minutes");
   });
 
@@ -256,7 +301,9 @@ describe("the call cap is the server's, or it is not offered", () => {
   it("renders the refusal when the bounds could not be read", async () => {
     const { container } = await renderClientPage(
       page,
-      routes({ "/v1/agents/lanes": problem(503, { title: "Service unavailable" }) }),
+      routes({
+        "/v1/agents/lanes": problem(503, { title: "Service unavailable" }),
+      }),
     );
 
     await screen.findByRole("alert");
@@ -285,17 +332,28 @@ describe("failure paths a person can act on", () => {
     });
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("New agents cannot be created on a closed account.");
-    expect(alert.textContent).toContain("Talk to your account manager about reopening it.");
+    expect(alert.textContent).toContain(
+      "New agents cannot be created on a closed account.",
+    );
+    expect(alert.textContent).toContain(
+      "Talk to your account manager about reopening it.",
+    );
     // The form stays, with what was typed in it: a refusal must not cost the client their
     // input.
-    expect((screen.getByLabelText(/^What do you want to call it/) as HTMLInputElement).value).toBe(
-      "Front desk",
-    );
+    expect(
+      (
+        screen.getByLabelText(
+          /^What do you want to call it/,
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("Front desk");
   });
 
   it("will not build an agent with no name, and says so in our words", async () => {
-    const { calls } = await renderClientPage(page, routes({ "POST /v1/agents": created() }));
+    const { calls } = await renderClientPage(
+      page,
+      routes({ "POST /v1/agents": created() }),
+    );
 
     await screen.findByText("Build an agent");
     // The button is LIVE and the press is refused with a sentence. It used to be dead
@@ -306,29 +364,43 @@ describe("failure paths a person can act on", () => {
       fireEvent.click(await pressable(/Build this agent/));
     });
 
-    const field = screen.getByLabelText(/^What do you want to call it/) as HTMLInputElement;
+    const field = screen.getByLabelText(
+      /^What do you want to call it/,
+    ) as HTMLInputElement;
     expect(await screen.findByText("Give this agent a name.")).toBeTruthy();
     expect(field.getAttribute("aria-invalid")).toBe("true");
     expect(document.activeElement).toBe(field);
     expect(calls.some((call) => call.method === "POST")).toBe(false);
   });
 
-  it("tells an operator viewing read-only why they cannot build one, rather than 403ing", async () => {
-    // D-22: every MUTATING permission is refused to an impersonating principal, so the
-    // control is dead before the click and says so. `org:manage` is in this fixture's
-    // permission list — the refusal comes from `impersonating`, which is the server's own
-    // answer, not from a role check this screen invented.
+  it("lets an operator in view-as build one, because D-587 made `org:manage` writable", async () => {
+    /**
+     * IT USED TO ASSERT THE OPPOSITE — "tells an operator viewing read-only why they
+     * cannot build one" — and the rule under it is gone. D-22 refused every mutating
+     * permission to an impersonating principal; D-587 reversed that on the ground D-22
+     * actually gave ("no dual attribution"), because every write now carries the
+     * operator's id, the tenant and the view-as grant's `jti`. `org:manage` is `None` in
+     * `rbac.VIEW_AS_MUTATIONS` and no named act covers creating an agent, so `/v1/me`
+     * sends the permission through and the form is live.
+     *
+     * What the screen still owes the operator is the ATTRIBUTION, and that is asserted
+     * here rather than the refusal: the shell's amber banner says every change is
+     * recorded against them (`app/c/[slug]/layout.tsx`).
+     */
     const { container } = await renderClientPage(
       page,
       routes({ "/v1/me": VIEWING_AS_ADMIN }),
     );
 
     await screen.findByText("Build an agent");
-    await waitFor(() =>
-      expect(container.textContent).toContain("You are viewing this account read-only"),
-    );
     const build = screen.getByRole("button", { name: /Build this agent/ });
-    expect(build.hasAttribute("disabled")).toBe(true);
+    await waitFor(() => expect(build.hasAttribute("disabled")).toBe(false));
+    // No refusal anywhere on the screen — neither the withdrawn sentence nor the one that
+    // replaced it.
+    expect(container.textContent).not.toContain(
+      "You are viewing this account read-only",
+    );
+    expect(container.textContent).not.toContain("stays with the client");
   });
 });
 
@@ -342,8 +414,12 @@ describe("the direction choice", () => {
     // Keyboard-operable and self-announcing: a styled `<div role="radio">` is what this
     // deliberately is not.
     const group = screen.getByText("What should it do?").parentElement;
-    expect(within(group as HTMLElement).getByLabelText(/^Answer calls/)).toBeTruthy();
-    expect(within(group as HTMLElement).getByLabelText(/^Make calls/)).toBeTruthy();
+    expect(
+      within(group as HTMLElement).getByLabelText(/^Answer calls/),
+    ).toBeTruthy();
+    expect(
+      within(group as HTMLElement).getByLabelText(/^Make calls/),
+    ).toBeTruthy();
     expect(within(group as HTMLElement).getByLabelText(/^Both/)).toBeTruthy();
   });
 
@@ -351,7 +427,10 @@ describe("the direction choice", () => {
     // The server defaults to `inbound` for the same reason (D-38: the receptionist is the
     // headline capability), and the two must not disagree — a form that defaulted to
     // outbound would send `outbound` explicitly and quietly override it.
-    const { calls } = await renderClientPage(page, routes({ "POST /v1/agents": created() }));
+    const { calls } = await renderClientPage(
+      page,
+      routes({ "POST /v1/agents": created() }),
+    );
 
     await screen.findByText("Build an agent");
     await fillName("Front desk");
@@ -359,12 +438,12 @@ describe("the direction choice", () => {
       fireEvent.click(await pressable(/Build this agent/));
     });
 
-    expect(JSON.parse(calls.find((c) => c.method === "POST")?.body ?? "{}").direction).toBe(
-      "inbound",
-    );
+    expect(
+      JSON.parse(calls.find((c) => c.method === "POST")?.body ?? "{}")
+        .direction,
+    ).toBe("inbound");
   });
 });
-
 
 describe("what the assistant is told about leaving this screen half-filled", () => {
   /**
@@ -377,7 +456,11 @@ describe("what the assistant is told about leaving this screen half-filled", () 
    * here, training people to click through the question) or stops tracking the form (the
    * work would be discarded silently, which is the defect).
    */
-  function Probe({ onHolder }: { onHolder: (holder: SurfaceHolder | null) => void }) {
+  function Probe({
+    onHolder,
+  }: {
+    onHolder: (holder: SurfaceHolder | null) => void;
+  }) {
     onHolder(useCopilotSurfaceHolder());
     return null;
   }

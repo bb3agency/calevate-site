@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { useState } from "react";
 import { describe, expect, it } from "vitest";
 
@@ -40,7 +46,13 @@ function unloadWasBlocked(): boolean {
 function Probe({ start }: { start: string }) {
   const [text, setText] = useState(start);
   useUnsavedGuard(text !== "");
-  return <input aria-label="draft" value={text} onChange={(e) => setText(e.target.value)} />;
+  return (
+    <input
+      aria-label="draft"
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+    />
+  );
 }
 
 describe("the unsaved-work guard", () => {
@@ -76,8 +88,10 @@ const AGENT: Agent = {
   status: "live",
   archived_at: null,
   language_primary: "te-IN",
-  disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
-  ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  ai_disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   ai_disclosure_enabled: true,
   recording_notice_line: "This call is being recorded.",
   caller_memory_notice_line: "I keep a short note of what you ask about.",
@@ -130,7 +144,9 @@ describe("an editor that has been touched", () => {
     // Nothing typed yet: the same screen must not ask.
     expect(unloadWasBlocked()).toBe(false);
 
-    fireEvent.change(screen.getByDisplayValue("Ravi"), { target: { value: "Ravi Kumar" } });
+    fireEvent.change(screen.getByDisplayValue("Ravi"), {
+      target: { value: "Ravi Kumar" },
+    });
     await waitFor(() => expect(unloadWasBlocked()).toBe(true));
   });
 });

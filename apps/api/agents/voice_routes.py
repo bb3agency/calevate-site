@@ -283,8 +283,10 @@ class VoiceCatalogueOut(Strict):
     #: See `OfferedVoiceOut` for why a shorter list would be the wrong answer.
     voices: list[OfferedVoiceOut]
     #: WHERE THESE VOICES CAME FROM — `"engine"` (a sync read them off the voice
-    #: platform account) or `"seed"` (no sync has ever succeeded on this process, so the
-    #: built-in fallback is answering). D-585: the catalogue is the ENGINE ACCOUNT's list,
+    #: platform account) or `"unsynced"` (no sync has ever succeeded on this process, so
+    #: there are none at all — D-588 deleted the built-in fallback that used to answer
+    #: here, and `"seed"` is no longer a value this field can take). D-585: the catalogue
+    #: is the ENGINE ACCOUNT's list,
     #: not a constant in our source, and an operator looking at a short picker has to be
     #: able to tell "this is what the platform offers" from "nobody has synced yet". It
     #: crosses the wire rather than being inferred from the row count for
@@ -296,26 +298,48 @@ class VoiceCatalogueOut(Strict):
     note: str
 
 
-def _catalogue_note(capability: VoiceSelectionCapability) -> str:
-    if capability.available and catalogue_source() == "seed":
-        # THE SEED IS A REAL STATE AND IT IS SAID OUT LOUD (D-585). It is a SHORT list of
-        # voices a live platform read returned, so nothing here will 400 on publish — but
-        # it is not the account's list, it holds no voice the founder has cloned, and the
-        # person who can fix that is the one reading this sentence.
+def _catalogue_note(capability: VoiceSelectionCapability, *, offerable: int) -> str:
+    """One sentence a UI prints verbatim, for each of the four states this read has.
+
+    ⚠ **THE "BUILT-IN STARTER LIST" SENTENCE IS GONE (D-588)** — there is no starter list
+    any more, so a deployment nobody has synced has NO voices rather than nine. That is
+    correct rather than broken (only what an operator enables is selectable), and it is why
+    two of the four sentences below exist: an empty picker has two completely different
+    causes, and the reader can only act on one of them at a time.
+
+    `offerable` is a COUNT and not a list: the rows travel beside this note with their own
+    per-voice verdicts, and a sentence that re-derived which ones are choosable would be a
+    second opinion about the same fact.
+    """
+    if not capability.available:
         return (
-            "Pick the voice this agent speaks in. This is the built-in starter list — the "
-            "voice platform's own catalogue has not been synced on this deployment yet, so "
-            "any voice added or cloned on the platform is missing. An administrator can "
-            "sync it from the ops console."
+            "The voice platform in use supplies its own voices, so a voice cannot be chosen "
+            "here. Nothing is wrong with this agent."
         )
-    if capability.available:
+    if catalogue_source() == "unsynced":
+        # NOBODY HAS SYNCED. The voices exist on the platform account; this deployment has
+        # never read them. The person who can fix it is an administrator, in two steps, and
+        # the sentence names both because doing only the first leaves the picker empty and
+        # reads like a failed fix.
         return (
-            "Pick the voice this agent speaks in. Entries marked unverified have not yet "
-            "been confirmed on the voice platform."
+            "No voice can be chosen yet. The voice platform's own catalogue has not been "
+            "read on this deployment, so there is nothing to choose from — an administrator "
+            "reads it on the admin console's Voices page and then enables the voices this "
+            "platform should offer."
+        )
+    if offerable == 0:
+        # SYNCED, AND NOTHING IS ENABLED. A different sentence from the one above on
+        # purpose: refreshing again changes nothing here, and telling an operator to sync
+        # would send them round a loop that cannot end.
+        return (
+            "No voice can be chosen yet. The voice platform's catalogue has been read, but "
+            "none of its voices has been enabled for this platform — an administrator "
+            "enables the ones it should offer on the admin console's Voices page. Reading "
+            "the catalogue again will not change that."
         )
     return (
-        "The voice platform in use supplies its own voices, so a voice cannot be chosen "
-        "here. Nothing is wrong with this agent."
+        "Pick the voice this agent speaks in. A voice shown as unavailable is one this "
+        "platform does not currently offer; the reason beside it says why."
     )
 
 
@@ -361,16 +385,18 @@ async def list_voices(principal: CatalogReader) -> VoiceCatalogueOut:
     `realm="any"`, so an admin (including one impersonating, since this is a read) gets
     the same answer — one catalog, no realm-specific truth.
 
-    Entries carry `verified: false` until the Bolna pilot confirms each string is
-    selectable (OPERATIONS §2 gate 3); render that, do not hide it.
+    ⚠ **"NO DB, NO NETWORK" USED TO BE THE FIRST LINE OF THIS DOCSTRING AND IS NOW WRONG
+    TWICE OVER, WHICH IS WHY IT SAYS SO.** The Cartesia agent cap (D-547 §0 Q10) is a count
+    of live Cartesia agents across every tenant, measured only when the two cheap grounds
+    have already passed and the catalogue actually holds a Cartesia voice. And since D-588
+    every render also reads the CURATION rows — one SELECT over a platform-scoped table of
+    tens of rows — because only the voices an operator has enabled may be offered, and that
+    is a decision somebody may have made ten seconds ago on the screen they are still
+    looking at. Neither read is on a call path.
 
-    ⚠ **"NO DB, NO NETWORK" USED TO BE THE FIRST LINE OF THIS DOCSTRING AND IS NO LONGER
-    TRUE, WHICH IS WHY IT SAYS SO.** The Cartesia agent cap (D-547 §0 Q10) is a count of
-    live Cartesia agents across every tenant, and a count is a query.
-    `voice_offer.offered_catalogue()` measures it ONLY when the two cheap grounds have
-    already passed and the catalogue actually holds a Cartesia voice — which today, with the
-    Cartesia entries empty (`voices.CARTESIA_CATALOG_SOURCE`), is never. So this endpoint is
-    still static in practice, and stops being so exactly when the cap starts mattering.
+    **AN EMPTY `voices` LIST IS A REAL AND CORRECT ANSWER.** A deployment nobody has synced,
+    or one where nobody has enabled anything, offers nothing — `note` says which of the two
+    it is and what to do. Do not render it as a failure.
 
     The capability read is the SAME selector `set_agent_voice` uses, and that is the whole
     point: this endpoint is what the picker is built from, so if the two could disagree
@@ -385,7 +411,7 @@ async def list_voices(principal: CatalogReader) -> VoiceCatalogueOut:
         selectable=capability.available,
         voices=[OfferedVoiceOut.of(row) for row in offered],
         source=catalogue_source(),
-        note=_catalogue_note(capability),
+        note=_catalogue_note(capability, offerable=sum(1 for row in offered if row.offerable)),
     )
 
 

@@ -2,7 +2,9 @@ import { render, act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import LegalIndexPage from "@/app/legal/page";
-import LegalDocumentRoute, { generateStaticParams } from "@/app/legal/[slug]/page";
+import LegalDocumentRoute, {
+  generateStaticParams,
+} from "@/app/legal/[slug]/page";
 import {
   LEGAL_DOCUMENTS,
   PENDING_LEGAL_REVIEW,
@@ -60,7 +62,9 @@ function vendorRowNames(doc: LegalDocument): string[] {
 async function renderDocument(slug: string): Promise<HTMLElement> {
   let container!: HTMLElement;
   await act(async () => {
-    const result = render(<LegalDocumentRoute params={Promise.resolve({ slug })} />);
+    const result = render(
+      <LegalDocumentRoute params={Promise.resolve({ slug })} />,
+    );
     container = result.container;
   });
   return container;
@@ -102,12 +106,14 @@ describe("the document set", () => {
         ids.push(section.id);
         for (const sub of section.subsections ?? []) ids.push(sub.id);
       }
-      expect(new Set(ids).size, `duplicate anchor in /legal/${doc.slug}: ${ids.join(", ")}`).toBe(
-        ids.length,
-      );
+      expect(
+        new Set(ids).size,
+        `duplicate anchor in /legal/${doc.slug}: ${ids.join(", ")}`,
+      ).toBe(ids.length);
       // An anchor is a citable URL fragment — clause references in a signed contract
       // point at them — so they must be URL-safe and they must not change casually.
-      for (const id of ids) expect(id, `/legal/${doc.slug}`).toMatch(/^[a-z0-9-]+$/);
+      for (const id of ids)
+        expect(id, `/legal/${doc.slug}`).toMatch(/^[a-z0-9-]+$/);
     }
   });
 
@@ -115,10 +121,12 @@ describe("the document set", () => {
     for (const doc of LEGAL_DOCUMENTS) {
       for (const section of doc.sections) {
         const filled =
-          (section.blocks ?? []).length > 0 || (section.subsections ?? []).length > 0;
-        expect(filled, `${doc.slug} § ${section.heading} is a heading with nothing under it`).toBe(
-          true,
-        );
+          (section.blocks ?? []).length > 0 ||
+          (section.subsections ?? []).length > 0;
+        expect(
+          filled,
+          `${doc.slug} § ${section.heading} is a heading with nothing under it`,
+        ).toBe(true);
       }
     }
   });
@@ -150,7 +158,9 @@ describe("the placeholders", () => {
   ]);
 
   it("declares every token that any document uses", () => {
-    const undeclared = [...used].filter((token) => !Object.hasOwn(PLACEHOLDERS, token));
+    const undeclared = [...used].filter(
+      (token) => !Object.hasOwn(PLACEHOLDERS, token),
+    );
     expect(
       undeclared,
       `these tokens appear in a document but are not declared in ` +
@@ -160,12 +170,15 @@ describe("the placeholders", () => {
   });
 
   it("uses every token it declares", () => {
-    const unused = Object.keys(PLACEHOLDERS).filter((token) => !used.has(token));
+    const unused = Object.keys(PLACEHOLDERS).filter(
+      (token) => !used.has(token),
+    );
     expect(
       unused,
       `these tokens are declared but appear in no document — either the fact got ` +
         `hard-coded somewhere (which is the defect this table exists to prevent) or the ` +
-        `entry is dead: ` + unused.join(", "),
+        `entry is dead: ` +
+        unused.join(", "),
     ).toEqual([]);
   });
 
@@ -189,7 +202,10 @@ describe("the placeholders", () => {
     for (const doc of LEGAL_DOCUMENTS) {
       const prose = textOf(doc);
       for (const [what, pattern] of patterns) {
-        expect(pattern.test(prose), `/legal/${doc.slug} appears to contain ${what}`).toBe(false);
+        expect(
+          pattern.test(prose),
+          `/legal/${doc.slug} appears to contain ${what}`,
+        ).toBe(false);
       }
     }
   });
@@ -204,7 +220,9 @@ describe("the placeholders", () => {
    * still blank throws.
    */
   it("substitutes a fact that has been decided, so it never renders as a blank", async () => {
-    const decided = Object.entries(PLACEHOLDERS).filter(([, entry]) => entry.value !== undefined);
+    const decided = Object.entries(PLACEHOLDERS).filter(
+      ([, entry]) => entry.value !== undefined,
+    );
     expect(
       decided.length,
       "no placeholder carries a value, so the substitution path is untested",
@@ -212,7 +230,9 @@ describe("the placeholders", () => {
 
     for (const doc of LEGAL_DOCUMENTS) {
       const container = await renderDocument(doc.slug);
-      const marked = [...container.querySelectorAll("mark")].map((node) => node.textContent);
+      const marked = [...container.querySelectorAll("mark")].map(
+        (node) => node.textContent,
+      );
       for (const [token] of decided) {
         expect(
           marked,
@@ -223,11 +243,16 @@ describe("the placeholders", () => {
 
     // And the value actually reaches the page, rather than the token merely vanishing.
     const hosting = PLACEHOLDERS.PRIMARY_HOSTING_LOCATION?.value ?? "";
-    expect(hosting.length, "PRIMARY_HOSTING_LOCATION carries no value").toBeGreaterThan(0);
+    expect(
+      hosting.length,
+      "PRIMARY_HOSTING_LOCATION carries no value",
+    ).toBeGreaterThan(0);
     const dpa = await renderDocument("dpa");
     expect(dpa.textContent ?? "").toContain(hosting);
     // The token stays in the SOURCE, which is what keeps the two-way audit above honest.
-    expect(textOf(legalDocument("dpa")!)).toContain("{{PRIMARY_HOSTING_LOCATION}}");
+    expect(textOf(legalDocument("dpa")!)).toContain(
+      "{{PRIMARY_HOSTING_LOCATION}}",
+    );
     // An undeclared token is left standing rather than swallowed: the audit above fails
     // on one, and quietly dropping it here would turn that failure into a hole in a page.
     expect(resolvePlaceholders("a {{NOT_A_DECLARED_TOKEN}} b")).toBe(
@@ -261,7 +286,9 @@ describe("the placeholders", () => {
     // reads the module's own registry, so the only way to test the throwing arm now is
     // to reproduce its rule — every declared entry with no `value` — which is what the
     // assertion above holds at zero for the real one.
-    const blanks = Object.entries(PLACEHOLDERS).filter(([, entry]) => entry.value === undefined);
+    const blanks = Object.entries(PLACEHOLDERS).filter(
+      ([, entry]) => entry.value === undefined,
+    );
     expect(blanks).toEqual([]);
   });
 
@@ -271,7 +298,9 @@ describe("the placeholders", () => {
     // renderer substitutes all of them and there is nothing left to mark. The marking
     // path itself is still exercised — on a token that is deliberately not declared,
     // which is the shape a ninth document with a new blank would arrive in.
-    const marks = [...container.querySelectorAll("mark")].map((node) => node.textContent);
+    const marks = [...container.querySelectorAll("mark")].map(
+      (node) => node.textContent,
+    );
     expect(marks).toEqual([]);
     expect(container.textContent ?? "").not.toContain("{{");
     // The marking path is not dead code — an undeclared token still survives
@@ -316,7 +345,9 @@ describe("the pending-review marker", () => {
 
   it("is off the index page too", async () => {
     const { container } = render(<LegalIndexPage />);
-    expect(container.textContent ?? "").not.toContain(PENDING_LEGAL_REVIEW_MARKER);
+    expect(container.textContent ?? "").not.toContain(
+      PENDING_LEGAL_REVIEW_MARKER,
+    );
   });
 });
 
@@ -335,7 +366,9 @@ describe("what each document must contain", () => {
     for (const slug of ["privacy", "grievance"]) {
       const prose = textOf(bySlug(slug));
       expect(prose, `/legal/${slug}`).toContain("{{GRIEVANCE_OFFICER_NAME}}");
-      expect(prose, `/legal/${slug}`).toContain("{{DATA_PROTECTION_CONTACT_EMAIL}}");
+      expect(prose, `/legal/${slug}`).toContain(
+        "{{DATA_PROTECTION_CONTACT_EMAIL}}",
+      );
     }
   });
 
@@ -357,7 +390,9 @@ describe("what each document must contain", () => {
     for (const slug of ["acceptable-use", "terms"]) {
       const prose = textOf(bySlug(slug));
       expect(prose, `/legal/${slug}`).toMatch(/outside India/i);
-      expect(prose, `/legal/${slug}`).toMatch(/India-only|non-Indian number|not an Indian/i);
+      expect(prose, `/legal/${slug}`).toMatch(
+        /India-only|non-Indian number|not an Indian/i,
+      );
     }
   });
 
@@ -376,7 +411,9 @@ describe("what each document must contain", () => {
       .filter((match) => {
         const at = match.index;
         const around = prose.slice(Math.max(0, at - 200), at + 120);
-        return !/\b(no|not|never|without|holds no|declines|overrides|intention)\b/i.test(around);
+        return !/\b(no|not|never|without|holds no|declines|overrides|intention)\b/i.test(
+          around,
+        );
       })
       .map((match) => match[0]);
 
@@ -384,7 +421,10 @@ describe("what each document must contain", () => {
     // The single most tempting sentence to add to a security section, and the one that
     // would be false. `docs/LEGAL-SURFACE.md` records that there is none.
     for (const doc of LEGAL_DOCUMENTS) {
-      const bare = claimsOutsideDenial(textOf(doc), /\b(ISO[\s/]?27001|SOC\s?2|PCI[-\s]?DSS)\b/);
+      const bare = claimsOutsideDenial(
+        textOf(doc),
+        /\b(ISO[\s/]?27001|SOC\s?2|PCI[-\s]?DSS)\b/,
+      );
       expect(
         bare,
         `/legal/${doc.slug} mentions ${bare.join(", ")} outside a denial — a ` +
@@ -435,14 +475,20 @@ describe("what each document must contain", () => {
         ? block.rows.filter((row) => (row[0] ?? "").startsWith("Bolna"))
         : [],
     );
-    expect(voiceRows, "the voice platform must have exactly one register row").toHaveLength(1);
+    expect(
+      voiceRows,
+      "the voice platform must have exactly one register row",
+    ).toHaveLength(1);
     const location = voiceRows[0]?.[3] ?? "";
     expect(location).toMatch(/United States/);
-    expect(location, "the Location cell may not place the voice platform in India").not.toMatch(
-      /India/,
-    );
+    expect(
+      location,
+      "the Location cell may not place the voice platform in India",
+    ).not.toMatch(/India/);
     for (const slug of ["subprocessors", "privacy", "dpa"]) {
-      expect(textOf(bySlug(slug)), `/legal/${slug}`).toMatch(/United States infrastructure/);
+      expect(textOf(bySlug(slug)), `/legal/${slug}`).toMatch(
+        /United States infrastructure/,
+      );
     }
   });
 
@@ -470,7 +516,10 @@ describe("what each document must contain", () => {
      * vendor added to or removed from the register moves through here automatically and
      * cannot be silently missed.
      */
-    expect(SUBPROCESSOR_NAMES.length, "the register exports no vendor names").toBeGreaterThan(0);
+    expect(
+      SUBPROCESSOR_NAMES.length,
+      "the register exports no vendor names",
+    ).toBeGreaterThan(0);
 
     /*
      * The DPA's Annex C must LINK rather than restate: two vendor lists is the drift the
@@ -512,9 +561,10 @@ describe("what each document must contain", () => {
      *    identity is "Google"). None may reappear as a canonical name — a re-introduction
      *    is exactly what those removals guard against.
      */
-    expect(SUBPROCESSOR_NAMES, "the US language-model vendor must be on the register").toContain(
-      "Microsoft",
-    );
+    expect(
+      SUBPROCESSOR_NAMES,
+      "the US language-model vendor must be on the register",
+    ).toContain("Microsoft");
     for (const gone of ["Clerk", "Vertex", "Gemini"]) {
       expect(
         SUBPROCESSOR_NAMES,
@@ -534,7 +584,9 @@ describe("what each document must contain", () => {
     // shape `tests/a11y.ts::assertScreenRendered` exists to refuse. The register is a
     // table of vendors; if it stops being one, this must fail rather than go quiet.
     expect(rows, "the register has no vendor rows to check").toContain("Bolna");
-    expect(rows, "a sub-processor table row still names Clerk").not.toContain("Clerk");
+    expect(rows, "a sub-processor table row still names Clerk").not.toContain(
+      "Clerk",
+    );
   });
 
   it("dates the cross-border clause and says section 16 is not yet in force", () => {
@@ -556,12 +608,14 @@ describe("what each document must contain", () => {
      * commencement date is the defect coming back.
      */
     const dpa = textOf(bySlug("dpa"));
-    expect(dpa, "the commencement date of the section the clause relies on").toContain(
-      "13 May 2027",
-    );
-    expect(dpa, "Rule 13(4) — the localisation power the clause used to omit").toMatch(
-      /Rule 13\(4\)/,
-    );
+    expect(
+      dpa,
+      "the commencement date of the section the clause relies on",
+    ).toContain("13 May 2027");
+    expect(
+      dpa,
+      "Rule 13(4) — the localisation power the clause used to omit",
+    ).toMatch(/Rule 13\(4\)/);
     expect(dpa, "the regime that is actually in force today").toMatch(
       /Information Technology Act 2000/,
     );
@@ -590,7 +644,9 @@ describe("what each document must contain", () => {
       ).not.toMatch(/\b1[0-9] May 2027\b/);
     }
     for (const slug of ["privacy", "grievance", "dpa"]) {
-      expect(textOf(bySlug(slug)), `/legal/${slug}`).toMatch(/middle of May 2027/);
+      expect(textOf(bySlug(slug)), `/legal/${slug}`).toMatch(
+        /middle of May 2027/,
+      );
     }
   });
 
@@ -623,13 +679,17 @@ describe("what each document must contain", () => {
      * pass a test that only checked the topic was present.
      */
     const dpa = textOf(bySlug("dpa"));
-    expect(dpa, "the 2011 definition that makes this a question at all").toMatch(
-      /voice patterns/i,
-    );
+    expect(
+      dpa,
+      "the 2011 definition that makes this a question at all",
+    ).toMatch(/voice patterns/i);
     expect(dpa, "the document must say the question is undecided").toMatch(
       /never been decided|has no settled answer/i,
     );
-    expect(dpa, "and that it is with counsel rather than answered by us").toMatch(/advocate/i);
+    expect(
+      dpa,
+      "and that it is with counsel rather than answered by us",
+    ).toMatch(/advocate/i);
     // The privacy notice must point at it too — a caller reading only that page should
     // not have to find the DPA to learn the question exists.
     expect(textOf(bySlug("privacy"))).toMatch(/voice patterns/i);
@@ -692,8 +752,12 @@ describe("what each document must contain", () => {
     // And the correction is PINNED, not merely un-banned: deleting the clause that says
     // WHICH resource is a setting is how the over-claim comes back looking like a trim.
     for (const slug of ["dpa", "privacy", "subprocessors"]) {
-      expect(textOf(bySlug(slug)), `/legal/${slug} no longer says the resource is ours to set`)
-        .toMatch(/resource[^.]{0,120}\b(operational setting|setting of ours|setting our own operators)\b/i);
+      expect(
+        textOf(bySlug(slug)),
+        `/legal/${slug} no longer says the resource is ours to set`,
+      ).toMatch(
+        /resource[^.]{0,120}\b(operational setting|setting of ours|setting our own operators)\b/i,
+      );
     }
   });
 
@@ -733,8 +797,12 @@ describe("what each document must contain", () => {
       }
     }
     // What replaced it, on the notice a caller reads and the policy a client reads.
-    expect(textOf(bySlug("privacy"))).toMatch(/Calls handled by a client's agent are recorded\./);
-    expect(textOf(bySlug("privacy"))).toMatch(/does not stop the recording|cannot do today/i);
+    expect(textOf(bySlug("privacy"))).toMatch(
+      /Calls handled by a client's agent are recorded\./,
+    );
+    expect(textOf(bySlug("privacy"))).toMatch(
+      /does not stop the recording|cannot do today/i,
+    );
     expect(textOf(bySlug("acceptable-use"))).toMatch(
       /does not stop the\s+recording|Nothing in the product can stop one/i,
     );
@@ -761,7 +829,9 @@ describe("what each document must contain", () => {
   it("prices the model choice as a plan term, and only as a plan term", () => {
     const terms = textOf(bySlug("terms"));
     expect(terms).toMatch(/changes what you pay only if your plan says so/);
-    expect(terms).toMatch(/no model\s+list, setting or screen can introduce or raise it/);
+    expect(terms).toMatch(
+      /no model\s+list, setting or screen can introduce or raise it/,
+    );
     expect(terms).toMatch(/model we choose for you\s+is never surcharged/);
     // The old promise must not survive anywhere: it is the sentence that goes false the
     // moment a number is set, and its return would be silent.
@@ -769,9 +839,10 @@ describe("what each document must contain", () => {
     // The DPA and the register point at that clause rather than restating the figure —
     // two statements of what a client pays is the drift clause 6.1 exists to prevent.
     for (const slug of ["dpa", "subprocessors"]) {
-      expect(textOf(bySlug(slug)), `/legal/${slug} does not point at the fees clause`).toMatch(
-        /clause 6\.1 of the\s+Terms of Service/i,
-      );
+      expect(
+        textOf(bySlug(slug)),
+        `/legal/${slug} does not point at the fees clause`,
+      ).toMatch(/clause 6\.1 of the\s+Terms of Service/i);
     }
   });
 
@@ -801,13 +872,16 @@ describe("what each document must contain", () => {
       "purchase's credit until it is spent, and a later change to our rate card does not " +
       "change them. Credit does not expire. Credit is spent oldest purchase first.";
     const terms = textOf(bySlug("terms")).replace(/\s+/g, " ");
-    expect(terms, "clause 6.1 no longer carries the approved credit-lot wording").toContain(
-      promise,
-    );
+    expect(
+      terms,
+      "clause 6.1 no longer carries the approved credit-lot wording",
+    ).toContain(promise);
 
     // Two rates, one per voice — the singular reading is the defect this replaced, and it
     // would read as a promise that a Studio minute costs a Clear minute's rate.
-    expect(terms).toMatch(/not the rates\s+your credit balance is drawn down at/);
+    expect(terms).toMatch(
+      /not the rates\s+your credit balance is drawn down at/,
+    );
     expect(terms, "the singular rate must not come back").not.toMatch(
       /not the rate your credit balance is drawn down at/,
     );
@@ -844,17 +918,25 @@ describe("what each document must contain", () => {
    */
   it("discloses the voice-synthesis vendor without inventing what is unknown about it", () => {
     const register = bySlug("subprocessors");
-    expect(SUBPROCESSOR_NAMES, "the voice-synthesis vendor must be on the register").toContain(
-      "Cartesia",
-    );
+    expect(
+      SUBPROCESSOR_NAMES,
+      "the voice-synthesis vendor must be on the register",
+    ).toContain("Cartesia");
 
     const rows = blocksOf(register).flatMap((block) =>
-      block.kind === "table" ? block.rows.filter((row) => (row[0] ?? "").startsWith("Cartesia")) : [],
+      block.kind === "table"
+        ? block.rows.filter((row) => (row[0] ?? "").startsWith("Cartesia"))
+        : [],
     );
     expect(rows.length, "the vendor's two roles are two rows").toBe(2);
 
-    const synthesis = rows.find((row) => (row[0] ?? "").includes("voice synthesis"));
-    expect(synthesis, "no row names the vendor's voice-synthesis role").toBeDefined();
+    const synthesis = rows.find((row) =>
+      (row[0] ?? "").includes("voice synthesis"),
+    );
+    expect(
+      synthesis,
+      "no row names the vendor's voice-synthesis role",
+    ).toBeDefined();
     // What it receives is the agent's words. The three things it must never be said to
     // receive are the three a reader would otherwise assume from "voice".
     expect(synthesis?.[2] ?? "").toMatch(/Not the caller's own audio/);
@@ -872,7 +954,9 @@ describe("what each document must contain", () => {
       /designed for users in the United States only and are not intended for users located outside the United States/,
     );
     // The three gaps stay gaps.
-    expect(prose).toMatch(/We have not established where this vendor processes/);
+    expect(prose).toMatch(
+      /We have not established where this vendor processes/,
+    );
   });
 
   /**
@@ -907,12 +991,14 @@ describe("what each document must contain", () => {
       ["dpa", dpa],
     ] as const) {
       // Its published training position, as the VENDOR'S and never as our finding.
-      expect(prose, `/legal/${slug} omits the vendor's training position`).toMatch(
-        /train and enhance the models behind its services/,
-      );
-      expect(prose, `/legal/${slug} omits that the opt-out is not retrospective`).toMatch(
-        /forward-only/,
-      );
+      expect(
+        prose,
+        `/legal/${slug} omits the vendor's training position`,
+      ).toMatch(/train and enhance the models behind its services/);
+      expect(
+        prose,
+        `/legal/${slug} omits that the opt-out is not retrospective`,
+      ).toMatch(/forward-only/);
       // The retention gap. "Enterprise only" without "and we do not know what applies to
       // us instead" would read as though the answer were settled.
       expect(prose, `/legal/${slug} omits the enterprise-only limit`).toMatch(
@@ -922,23 +1008,30 @@ describe("what each document must contain", () => {
         /we have not established what those periods are/,
       );
       // What it receives, and the three things it must never be read as receiving.
-      expect(prose, `/legal/${slug} does not say what the vendor receives`).toMatch(
+      expect(
+        prose,
+        `/legal/${slug} does not say what the vendor receives`,
+      ).toMatch(
         /words (?:the|your) agent is about to speak, (?:sent )?as text,? a turn at a time/,
       );
-      expect(prose, `/legal/${slug} does not exclude the caller's audio`).toMatch(
-        /(?:Not|never) (?:your own|the caller's) audio/,
-      );
+      expect(
+        prose,
+        `/legal/${slug} does not exclude the caller's audio`,
+      ).toMatch(/(?:Not|never) (?:your own|the caller's) audio/);
       // Nothing has been sent yet — ours, read off the code, and the one claim here that
       // is stated flatly.
-      expect(prose, `/legal/${slug} omits that nothing has been sent to it`).toMatch(
-        /[Nn]othing has been sent to it/,
-      );
+      expect(
+        prose,
+        `/legal/${slug} omits that nothing has been sent to it`,
+      ).toMatch(/[Nn]othing has been sent to it/);
     }
 
     // WHERE it processes is unknown in both, and neither resolves it to a country.
     expect(privacy).toMatch(/we have not established where it processes/);
     expect(privacy).toMatch(/will not fill that in with a plausible country/);
-    expect(dpa).toMatch(/where that company processes is a thing we have not established/);
+    expect(dpa).toMatch(
+      /where that company processes is a thing we have not established/,
+    );
 
     // The DPA's sub-processor warranty is narrowed for the row whose agreement nobody has
     // established can be entered. Without this the clause promises a contract we have not
@@ -955,7 +1048,9 @@ describe("what each document must contain", () => {
         prose,
         `/legal/${slug} puts voice synthesis wholly on the speech provider again — it ` +
           `runs there for the first voice quality only`,
-      ).not.toMatch(/[Ss]peech recognition,? (?:and )?voice synthesis and the first/);
+      ).not.toMatch(
+        /[Ss]peech recognition,? (?:and )?voice synthesis and the first/,
+      );
     }
     expect(
       privacy,
@@ -969,9 +1064,10 @@ describe("what each document must contain", () => {
     // The company's NAME stays on the register. A voice quality is a product choice, and
     // a vendor name in a product sentence is what `VOICE_TIER_LABELS` exists to prevent;
     // the DPA-wide ban is asserted above, so this is the notice's half.
-    expect(privacy, "the privacy notice names the voice-synthesis vendor").not.toMatch(
-      /Cartesia/,
-    );
+    expect(
+      privacy,
+      "the privacy notice names the voice-synthesis vendor",
+    ).not.toMatch(/Cartesia/);
   });
 
   /**
@@ -1006,7 +1102,9 @@ describe("what each document must contain", () => {
   it("says the in-app assistant persists, and never claims it acts alone", () => {
     const privacy = textOf(bySlug("privacy"));
     // The CATEGORY (privacy §3.2) — what is kept, and the limit of the redaction pass.
-    expect(privacy).toMatch(/keeps a record of what you asked it and what it answered/);
+    expect(privacy).toMatch(
+      /keeps a record of what you asked it and what it answered/,
+    );
     expect(privacy).toMatch(/recognises identifiers and\s+not names/i);
     // The PERIOD (privacy §9) — the number `scripts/seed.py` installs for `copilot_memory`,
     // stated in the same table as every other category rather than in a footnote.
@@ -1015,13 +1113,17 @@ describe("what each document must contain", () => {
     // The ERASURE LIMIT (privacy §12.4). Disclosed BEFORE the certificate carries it, and
     // marked as such — FOLLOW-UP-12 closes the mechanism half. If somebody adds the
     // `ERASURE_LIMITATIONS` entry, this assertion is what tells them to drop the marker.
-    expect(privacy).toMatch(/an erasure does not search what the in-app assistant remembers/);
+    expect(privacy).toMatch(
+      /an erasure does not search what the in-app assistant remembers/,
+    );
 
     // PROPOSES, NEVER PERFORMS — the promise the write tools have to keep, in the two
     // documents a client is bound by. `write_tools.confirm()` is the only code there that
     // mutates, and it runs the same gated service function a human's click runs.
     expect(textOf(bySlug("dpa"))).toMatch(/It never\s+makes one/);
-    expect(textOf(bySlug("terms"))).toMatch(/carries none of them out by itself/);
+    expect(textOf(bySlug("terms"))).toMatch(
+      /carries none of them out by itself/,
+    );
 
     // The store must never be described as absent again. This is the sentence the code
     // itself had to withdraw, so the document may not reintroduce it.
@@ -1029,7 +1131,9 @@ describe("what each document must contain", () => {
       expect(
         textOf(bySlug(slug)),
         `/legal/${slug} says the assistant stores nothing — it stores copilot_memories`,
-      ).not.toMatch(/assistant (?:never saves|saves nothing|stores nothing|keeps nothing)/i);
+      ).not.toMatch(
+        /assistant (?:never saves|saves nothing|stores nothing|keeps nothing)/i,
+      );
     }
   });
 
@@ -1046,16 +1150,20 @@ describe("what each document must contain", () => {
    */
   it("does not claim the unread-terms provider serves the in-app assistant", () => {
     const openAiRows = blocksOf(bySlug("subprocessors")).flatMap((block) =>
-      block.kind === "table" ? block.rows.filter((row) => (row[0] ?? "") === "OpenAI") : [],
+      block.kind === "table"
+        ? block.rows.filter((row) => (row[0] ?? "") === "OpenAI")
+        : [],
     );
     expect(openAiRows, "the OpenAI register row").toHaveLength(1);
     const row = openAiRows[0] as readonly string[];
-    expect(row[1] ?? "", "the OpenAI row must say it does not serve the assistant leg").toMatch(
-      /does NOT serve the in-app assistant/,
-    );
-    expect(row[2] ?? "", "the OpenAI row must not claim assistant content reaches it").toMatch(
-      /Nothing from the in-app assistant reaches it/,
-    );
+    expect(
+      row[1] ?? "",
+      "the OpenAI row must say it does not serve the assistant leg",
+    ).toMatch(/does NOT serve the in-app assistant/);
+    expect(
+      row[2] ?? "",
+      "the OpenAI row must not claim assistant content reaches it",
+    ).toMatch(/Nothing from the in-app assistant reaches it/);
 
     // And the page must state the general rule the bar comes from, so the next vendor
     // added is measured against it rather than against this one row.
@@ -1090,9 +1198,13 @@ describe("what each document must contain", () => {
      * ambiguous, and an unrecognised name resolves to the document doing the citing —
      * which is the reading a bare "clause 5" gets and the one that fails loudest.
      */
-    const titlesLongestFirst = [...byTitle.keys()].sort((a, b) => b.length - a.length);
+    const titlesLongestFirst = [...byTitle.keys()].sort(
+      (a, b) => b.length - a.length,
+    );
     const referenced = (rest: string, self: LegalDocument): LegalDocument => {
-      const title = titlesLongestFirst.find((candidate) => rest.startsWith(candidate));
+      const title = titlesLongestFirst.find((candidate) =>
+        rest.startsWith(candidate),
+      );
       return title === undefined ? self : (byTitle.get(title) as LegalDocument);
     };
 
@@ -1122,20 +1234,26 @@ describe("every legal screen is scanned by axe", () => {
     await expectNoA11yViolations(container, "legal/page.tsx");
   });
 
-  it.each(LEGAL_DOCUMENTS.map((doc) => [doc.slug] as const))("/legal/%s", async (slug) => {
-    const container = await renderDocument(slug);
-    await expectNoA11yViolations(container, `legal/[slug]/page.tsx::${slug}`);
-  });
+  it.each(LEGAL_DOCUMENTS.map((doc) => [doc.slug] as const))(
+    "/legal/%s",
+    async (slug) => {
+      const container = await renderDocument(slug);
+      await expectNoA11yViolations(container, `legal/[slug]/page.tsx::${slug}`);
+    },
+  );
 });
 
 describe("the rendered page's structure", () => {
   it("has one h1, and no heading level is skipped", async () => {
     for (const doc of LEGAL_DOCUMENTS) {
       const container = await renderDocument(doc.slug);
-      const levels = [...container.querySelectorAll("h1, h2, h3, h4, h5, h6")].map((node) =>
-        Number(node.tagName.slice(1)),
-      );
-      expect(levels.filter((level) => level === 1).length, `/legal/${doc.slug} h1 count`).toBe(1);
+      const levels = [
+        ...container.querySelectorAll("h1, h2, h3, h4, h5, h6"),
+      ].map((node) => Number(node.tagName.slice(1)));
+      expect(
+        levels.filter((level) => level === 1).length,
+        `/legal/${doc.slug} h1 count`,
+      ).toBe(1);
       expect(levels[0], `/legal/${doc.slug} starts below h1`).toBe(1);
       for (let i = 1; i < levels.length; i += 1) {
         expect(
@@ -1152,10 +1270,14 @@ describe("the rendered page's structure", () => {
       const toc = container.querySelector('nav[aria-label="On this page"]');
       expect(toc, `/legal/${doc.slug} has no table of contents`).not.toBeNull();
       const targets = new Set(
-        [...(toc?.querySelectorAll("a") ?? [])].map((a) => a.getAttribute("href")),
+        [...(toc?.querySelectorAll("a") ?? [])].map((a) =>
+          a.getAttribute("href"),
+        ),
       );
       for (const section of doc.sections) {
-        expect(targets, `/legal/${doc.slug} § ${section.heading}`).toContain(`#${section.id}`);
+        expect(targets, `/legal/${doc.slug} § ${section.heading}`).toContain(
+          `#${section.id}`,
+        );
         // And the anchor exists: a contents entry pointing at nothing is worse than none.
         expect(
           container.querySelector(`#${CSS.escape(section.id)}`),
@@ -1172,10 +1294,22 @@ describe("the rendered page's structure", () => {
       const container = await renderDocument(doc.slug);
       for (const table of container.querySelectorAll("table")) {
         const wrapper = table.parentElement;
-        expect(wrapper?.className, `/legal/${doc.slug} table wrapper`).toContain("overflow-x-auto");
-        expect(wrapper?.getAttribute("tabindex"), `/legal/${doc.slug} table wrapper`).toBe("0");
-        expect(wrapper?.getAttribute("aria-label"), `/legal/${doc.slug} table wrapper`).toBeTruthy();
-        expect(table.querySelector("caption"), `/legal/${doc.slug} table caption`).not.toBeNull();
+        expect(
+          wrapper?.className,
+          `/legal/${doc.slug} table wrapper`,
+        ).toContain("overflow-x-auto");
+        expect(
+          wrapper?.getAttribute("tabindex"),
+          `/legal/${doc.slug} table wrapper`,
+        ).toBe("0");
+        expect(
+          wrapper?.getAttribute("aria-label"),
+          `/legal/${doc.slug} table wrapper`,
+        ).toBeTruthy();
+        expect(
+          table.querySelector("caption"),
+          `/legal/${doc.slug} table caption`,
+        ).not.toBeNull();
       }
     }
   });
@@ -1183,12 +1317,15 @@ describe("the rendered page's structure", () => {
   it("links every other document from each document, so none is orphaned", async () => {
     for (const doc of LEGAL_DOCUMENTS) {
       const container = await renderDocument(doc.slug);
-      const hrefs = new Set([...container.querySelectorAll("a")].map((a) => a.getAttribute("href")));
+      const hrefs = new Set(
+        [...container.querySelectorAll("a")].map((a) => a.getAttribute("href")),
+      );
       for (const other of LEGAL_DOCUMENTS) {
         if (other.slug === doc.slug) continue;
-        expect(hrefs, `/legal/${doc.slug} does not link /legal/${other.slug}`).toContain(
-          `/legal/${other.slug}`,
-        );
+        expect(
+          hrefs,
+          `/legal/${doc.slug} does not link /legal/${other.slug}`,
+        ).toContain(`/legal/${other.slug}`);
       }
     }
   });

@@ -76,11 +76,11 @@ export function CallDetailScreen({ slug, callId }: { slug: string; callId: strin
   const eligibility = useCallbackEligibility(session, callId);
   const callback = useCallBack(session, callId);
   /**
-   * D-22 read-only. The eligibility QUERY is `leads:read` on purpose — the server made
-   * it a read so this button could render disabled with a reason — but the POST behind
-   * the button is `leads:dispatch`, which is mutating and refused while impersonating.
-   * Without this the eligibility check says "yes" to an operator and the click rings
-   * nobody, which is the exact failure the eligibility query was introduced to remove.
+   * The eligibility QUERY is `leads:read` on purpose — the server made it a read so this
+   * button could render disabled with a reason — while the POST behind the button is
+   * `leads:dispatch`, which `staff` does not hold. ⚠ IT ALSO SAID the POST is "refused
+   * while impersonating" (D-22): D-587 made `leads:dispatch` writable in a view-as
+   * session, so an operator now gets a working button and an audit row naming them.
    */
   const write = useWriteAccess(session, "leads:dispatch", "place a follow-up call");
 

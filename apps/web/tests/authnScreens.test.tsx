@@ -412,7 +412,9 @@ describe("§5.7 defect 9 — a dropped connection and a dead session are differe
 
   it("offers RETRY and claims nothing about the credential when unreachable", () => {
     const view = gate("unreachable");
-    expect(view.container.textContent).toContain("We could not check your session");
+    expect(view.container.textContent).toContain(
+      "We could not check your session",
+    );
     expect(view.container.textContent).toContain(
       "we do not know whether your session is still good",
     );
@@ -428,7 +430,9 @@ describe("§5.7 defect 9 — a dropped connection and a dead session are differe
   it("does not assert that the session survived, because it cannot know that", () => {
     const view = gate("unreachable");
     expect(view.container.textContent).not.toContain("has not been ended");
-    expect(view.container.textContent).toContain("Nothing on this screen has signed you out");
+    expect(view.container.textContent).toContain(
+      "Nothing on this screen has signed you out",
+    );
   });
 
   it("sends people to the door when signed out, instead of describing it", () => {
@@ -573,7 +577,8 @@ describe("the set-password forms carry the hasher's real bounds", () => {
   const BLOCKED = problem(422, {
     type: "urn:calevate:auth/password_unacceptable",
     title: "Choose a different password",
-    detail: "That password cannot be used. It is a straight run of keys along the keyboard.",
+    detail:
+      "That password cannot be used. It is a straight run of keys along the keyboard.",
     kind: "validation",
     fields: [
       {
@@ -585,16 +590,26 @@ describe("the set-password forms carry the hasher's real bounds", () => {
   });
 
   async function submitPassword(value: string) {
-    window.history.replaceState(null, "", "/auth/reset-password?token=" + "t".repeat(40));
+    window.history.replaceState(
+      null,
+      "",
+      "/auth/reset-password?token=" + "t".repeat(40),
+    );
     const view = await renderPage(<ClientResetPasswordPage />, {
       ...SIGNED_OUT,
       "POST /v1/auth/client/password/reset/confirm": BLOCKED,
     });
     await screen.findByLabelText("New password");
-    fireEvent.change(screen.getByLabelText("New password"), { target: { value } });
-    fireEvent.change(screen.getByLabelText("Type it again"), { target: { value } });
+    fireEvent.change(screen.getByLabelText("New password"), {
+      target: { value },
+    });
+    fireEvent.change(screen.getByLabelText("Type it again"), {
+      target: { value },
+    });
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Set my new password" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Set my new password" }),
+      );
     });
     return view;
   }
@@ -605,7 +620,9 @@ describe("the set-password forms carry the hasher's real bounds", () => {
     // The specific reason, not a generic stand-in — this is the sentence §3.1.1.2 asks
     // for, and no fixed client-side string could have produced it.
     expect(
-      await screen.findByText("It is a straight run of keys along the keyboard."),
+      await screen.findByText(
+        "It is a straight run of keys along the keyboard.",
+      ),
     ).toBeTruthy();
     // Attached to the field, announced, and marking the input invalid.
     const field = screen.getByLabelText("New password");
@@ -636,7 +653,9 @@ describe("the set-password forms carry the hasher's real bounds", () => {
         screen.queryByText("It is a straight run of keys along the keyboard."),
       ).toBeNull();
     });
-    expect(screen.getByLabelText("New password").getAttribute("aria-invalid")).toBeNull();
+    expect(
+      screen.getByLabelText("New password").getAttribute("aria-invalid"),
+    ).toBeNull();
   });
 });
 

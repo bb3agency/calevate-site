@@ -63,7 +63,9 @@ function row(over: Partial<ClientHealth> = {}): ClientHealth {
 describe("the client health board", () => {
   it("refuses to render a trend for an account too new to have a previous week", async () => {
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [row({ calls_basis: "too_new", calls_7d: 0, calls_prev_7d: 0 })],
+      [CLIENT_HEALTH_PATH]: [
+        row({ calls_basis: "too_new", calls_7d: 0, calls_prev_7d: 0 }),
+      ],
     });
 
     await screen.findByText("Sri Traders");
@@ -79,7 +81,9 @@ describe("the client health board", () => {
     // history that has already arrived is a different mistake from calling it a collapse,
     // and the copy has to distinguish them.
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: [row({ calls_basis: "no_baseline", calls_7d: 1, calls_prev_7d: 3 })],
+      [CLIENT_HEALTH_PATH]: [
+        row({ calls_basis: "no_baseline", calls_7d: 1, calls_prev_7d: 3 }),
+      ],
     });
 
     await screen.findByText("Sri Traders");
@@ -95,7 +99,14 @@ describe("the client health board", () => {
           calls_basis: "measured",
           calls_7d: 2,
           calls_prev_7d: 40,
-          signals: [signal({ rule: "calls_stopped", severity: "warn", count: 2, causes: [] })],
+          signals: [
+            signal({
+              rule: "calls_stopped",
+              severity: "warn",
+              count: 2,
+              causes: [],
+            }),
+          ],
         }),
       ],
     });
@@ -109,14 +120,22 @@ describe("the client health board", () => {
   it("keeps an account flagged on a signal this build cannot name, and offers a real destination", async () => {
     const { container } = renderAdminPage(<ClientHealthPage />, {
       [CLIENT_HEALTH_PATH]: [
-        row({ signals: [signal({ rule: "a_signal_added_after_this_build", count: null })] }),
+        row({
+          signals: [
+            signal({ rule: "a_signal_added_after_this_build", count: null }),
+          ],
+        }),
       ],
     });
 
     await screen.findByText("Sri Traders");
     expect(container.textContent).toContain("a_signal_added_after_this_build");
-    expect(container.textContent).toContain("This console does not know this signal");
-    expect(screen.getByRole("link", { name: "Open the account" })).toBeDefined();
+    expect(container.textContent).toContain(
+      "This console does not know this signal",
+    );
+    expect(
+      screen.getByRole("link", { name: "Open the account" }),
+    ).toBeDefined();
     expect(container.textContent).not.toContain("Every client looks healthy");
   });
 
@@ -142,11 +161,15 @@ describe("the client health board", () => {
 
     await screen.findByText("Sri Traders");
     expect(container.textContent).toContain("Identity not filed");
-    expect(container.textContent).toContain("No DLT Principal Entity registration");
+    expect(container.textContent).toContain(
+      "No DLT Principal Entity registration",
+    );
     // The hold's remedy is the hold queue's OWN destination and wording (`HOLD_RULES`),
     // not a second copy invented here; the DLT registration lives on the account.
     expect(screen.getByRole("link", { name: "Identity (KYC)" })).toBeDefined();
-    expect(screen.getByRole("link", { name: "Open the account" })).toBeDefined();
+    expect(
+      screen.getByRole("link", { name: "Open the account" }),
+    ).toBeDefined();
   });
 
   it("refuses to call a failed read a healthy estate", async () => {
@@ -161,11 +184,15 @@ describe("the client health board", () => {
     });
 
     await screen.findByText(/could not be read/);
-    expect(container.textContent).toContain("we cannot say whether any client is in trouble");
+    expect(container.textContent).toContain(
+      "we cannot say whether any client is in trouble",
+    );
     // The one sentence that must never appear on a failed load.
     expect(container.textContent).not.toContain("Every client looks healthy");
     // Nor the empty state's reassurance, which is the same claim in gentler words.
-    expect(container.textContent).not.toContain("This list fills up on its own");
+    expect(container.textContent).not.toContain(
+      "This list fills up on its own",
+    );
   });
 
   it("prints no headline count over a failed read", async () => {
@@ -174,7 +201,11 @@ describe("the client health board", () => {
     // dead token is the healthy-estate claim in its most trusted form — a figure — and a
     // figure is what an operator scans for before they read anything.
     const { container } = renderAdminPage(<ClientHealthPage />, {
-      [CLIENT_HEALTH_PATH]: problem(503, { title: "Unavailable", status: 503, retryable: true }),
+      [CLIENT_HEALTH_PATH]: problem(503, {
+        title: "Unavailable",
+        status: 503,
+        retryable: true,
+      }),
     });
 
     await screen.findByText(/could not be read/);
@@ -183,7 +214,9 @@ describe("the client health board", () => {
   });
 
   it("says every client is healthy, in words, when the board is empty", async () => {
-    const { container } = renderAdminPage(<ClientHealthPage />, { [CLIENT_HEALTH_PATH]: [] });
+    const { container } = renderAdminPage(<ClientHealthPage />, {
+      [CLIENT_HEALTH_PATH]: [],
+    });
 
     await screen.findByText("Every client looks healthy");
     expect(container.textContent).not.toContain("could not be read");
@@ -202,7 +235,9 @@ describe("the client health board", () => {
           tenant_id: "t-b",
           name: "Wobbling Co",
           severity: "warn",
-          signals: [signal({ rule: "knowledge_waiting", severity: "warn", count: 2 })],
+          signals: [
+            signal({ rule: "knowledge_waiting", severity: "warn", count: 2 }),
+          ],
         }),
       ],
     });
@@ -250,7 +285,9 @@ describe("the client health board", () => {
         row({
           spend_used_inr: "10159.0000",
           spend_cap_inr: "10160.0000",
-          signals: [signal({ rule: "spend_cap_near", severity: "warn", count: 99 })],
+          signals: [
+            signal({ rule: "spend_cap_near", severity: "warn", count: 99 }),
+          ],
         }),
       ],
     });
@@ -270,7 +307,9 @@ describe("the client health board", () => {
         row({
           spend_used_inr: "900.5000",
           spend_cap_inr: "1000.0000",
-          signals: [signal({ rule: "spend_cap_near", severity: "warn", count: 90 })],
+          signals: [
+            signal({ rule: "spend_cap_near", severity: "warn", count: 90 }),
+          ],
         }),
       ],
     });
@@ -292,7 +331,9 @@ describe("the client health board", () => {
         row({
           spend_used_inr: "900.5000",
           spend_cap_inr: null,
-          signals: [signal({ rule: "spend_cap_near", severity: "warn", count: 90 })],
+          signals: [
+            signal({ rule: "spend_cap_near", severity: "warn", count: 90 }),
+          ],
         }),
       ],
     });
@@ -358,5 +399,4 @@ describe("the client health board", () => {
     expect(container.textContent).toContain("The board could not be read");
     expect(container.textContent).toContain("This is not a healthy estate");
   });
-
 });

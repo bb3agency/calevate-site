@@ -105,13 +105,17 @@ describe("a refused signup", () => {
       }),
     });
 
-    expect(await screen.findByText("We could not create your workspace just now.")).toBeTruthy();
+    expect(
+      await screen.findByText("We could not create your workspace just now."),
+    ).toBeTruthy();
     // The three shapes a success would take. None of them may appear on a refusal.
     expect(pageText()).not.toContain("Sri Sai Dental Care is set up");
     expect(screen.queryByRole("link", { name: /^Open / })).toBeNull();
     expect(pageText()).not.toContain("/c/sri-sai-dental-care");
     // The form is still there to correct and resubmit — a refusal is not a dead end.
-    expect(screen.queryByRole("button", { name: "Create workspace" })).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Create workspace" }),
+    ).not.toBeNull();
   });
 
   it("shows the kill switch as a closed door, not as a fault, and offers no form", async () => {
@@ -126,10 +130,14 @@ describe("a refused signup", () => {
 
     expect(await screen.findByText("Signing up online is closed")).toBeTruthy();
     // The server's own remediation, not ours.
-    expect(pageText()).toContain("Ask your account manager to set your workspace up.");
+    expect(pageText()).toContain(
+      "Ask your account manager to set your workspace up.",
+    );
     // A form whose every submission is refused is a trap, so it is gone rather than
     // disabled — and there is certainly no success.
-    expect(screen.queryByRole("button", { name: "Create workspace" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Create workspace" }),
+    ).toBeNull();
     expect(pageText()).not.toContain("Sri Sai Dental Care is set up");
   });
 
@@ -150,18 +158,25 @@ describe("a refused signup", () => {
         type: "https://calevate.tech/problems/email_not_verified",
         title: "Confirm your email address first",
         detail: "Your email address has not been confirmed yet.",
-        remediation: "Open your account settings and enter the code we send you.",
+        remediation:
+          "Open your account settings and enter the code we send you.",
       }),
     });
 
-    expect(await screen.findByText("Confirm your email address first")).toBeTruthy();
+    expect(
+      await screen.findByText("Confirm your email address first"),
+    ).toBeTruthy();
     // The server's own instruction, not a second copy of the rule in this file.
-    expect(pageText()).toContain("Open your account settings and enter the code we send you.");
+    expect(pageText()).toContain(
+      "Open your account settings and enter the code we send you.",
+    );
     // The door, and the way back. Without the first this is a dead end; without the
     // second the person retypes five fields after verifying in another tab.
     const link = screen.getByRole("link", { name: /Confirm my address/ });
     expect(link.getAttribute("href")).toBe("/auth/account");
-    expect(screen.queryByRole("button", { name: "I have done that" })).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "I have done that" }),
+    ).not.toBeNull();
     // And it is not dressed as either of the other two closures, which have different
     // lifetimes and different instructions.
     expect(pageText()).not.toContain("Signing up online is closed");
@@ -192,11 +207,19 @@ describe("field-level refusals", () => {
         type: "https://calevate.tech/problems/validation_error",
         title: "Invalid",
         detail: "Check your answers.",
-        fields: [{ field: "slug", rule: "slug_taken", message: "That name is already taken." }],
+        fields: [
+          {
+            field: "slug",
+            rule: "slug_taken",
+            message: "That name is already taken.",
+          },
+        ],
       }),
     });
 
-    const input = (await screen.findByLabelText("Workspace URL")) as HTMLInputElement;
+    const input = (await screen.findByLabelText(
+      "Workspace URL",
+    )) as HTMLInputElement;
     expect(input.getAttribute("aria-invalid")).toBe("true");
     const describedBy = input.getAttribute("aria-describedby") ?? "";
     const described = describedBy
@@ -218,7 +241,11 @@ describe("field-level refusals", () => {
         title: "Invalid",
         detail: "Check your answers.",
         fields: [
-          { field: "plan_tier", rule: "not_self_assignable", message: "That tier is not open to you." },
+          {
+            field: "plan_tier",
+            rule: "not_self_assignable",
+            message: "That tier is not open to you.",
+          },
         ],
       }),
     });
@@ -226,7 +253,9 @@ describe("field-level refusals", () => {
     // `plan_tier` is sent by this form but has no control on it, so there is nowhere to
     // put the message except the summary — and a refusal the user never sees is worse
     // than one shown twice.
-    expect(await screen.findByText("That tier is not open to you.")).toBeTruthy();
+    expect(
+      await screen.findByText("That tier is not open to you."),
+    ).toBeTruthy();
     expect(pageText()).not.toContain("Sri Sai Dental Care is set up");
   });
 });
@@ -241,14 +270,20 @@ describe("what a prospect types", () => {
     // the URL of ANY request the screen made. A business name in a URL lands in access
     // logs, proxy logs and the next request's Referer.
     for (const made of calls) {
-      expect(made.url, "no request may carry typed input in its URL").not.toContain("?");
+      expect(
+        made.url,
+        "no request may carry typed input in its URL",
+      ).not.toContain("?");
       expect(made.url.toLowerCase()).not.toContain("sri-sai-dental");
       expect(made.url).not.toContain("owner@srisai.example");
       expect(made.url).not.toContain("Sri%20Sai");
     }
     // TWO calls: the realm's session restore on mount, then the signup. The restore is
     // named rather than counted away, so a THIRD call still fails this the way it should.
-    expect(calls.map((c) => c.path)).toEqual(["/v1/auth/client/session", SIGNUP]);
+    expect(calls.map((c) => c.path)).toEqual([
+      "/v1/auth/client/session",
+      SIGNUP,
+    ]);
     const call = calls[1];
     expect(call.method).toBe("POST");
     expect(call.path).toBe(SIGNUP);
@@ -271,7 +306,9 @@ describe("the success panel", () => {
   it("claims nothing the API did not send", async () => {
     await submit({ [SIGNUP]: { ...CREATED, next_steps: [] } });
 
-    expect(await screen.findByText("Sri Sai Dental Care is set up")).toBeTruthy();
+    expect(
+      await screen.findByText("Sri Sai Dental Care is set up"),
+    ).toBeTruthy();
     // An empty `next_steps` is the server saying there is nothing outstanding it wants to
     // name here. The screen must not invent the compliance list it happens to know about
     // — the wallet gate and the KYC requirement are the server's sentence (SURFACES §2c),
@@ -289,7 +326,9 @@ describe("the success panel", () => {
   it("prints the server's next steps verbatim", async () => {
     await submit({ [SIGNUP]: CREATED });
     expect(
-      await screen.findByText("Top up your wallet before any outbound call can go out."),
+      await screen.findByText(
+        "Top up your wallet before any outbound call can go out.",
+      ),
     ).toBeTruthy();
   });
 });

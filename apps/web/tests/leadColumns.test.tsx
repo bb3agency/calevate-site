@@ -28,9 +28,20 @@ const ME: Me = {
   user_id: "u1",
   realm: "client",
   role: "owner",
-  permissions: ["leads:read", "leads:write", "leads:dispatch", "calls:read_raw"],
+  permissions: [
+    "leads:read",
+    "leads:write",
+    "leads:dispatch",
+    "calls:read_raw",
+  ],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  withheld_acts: [],
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 const AGENT: Agent = {
@@ -42,12 +53,14 @@ const AGENT: Agent = {
   // Hard rule 5: an agent ALWAYS carries a non-null disclosure line. These fixtures had
   // none — `as unknown as Agent` is why nobody noticed.
   language_primary: "te-IN",
-  disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   // D-163 split the bundled line into two notices with two switches. The fixture keeps
   // both ON, which is what a new agent is born with, and carries the server-composed
   // `opening_line` rather than joining the two sentences here — the screens read that
   // field, so a fixture that computed it would be testing its own arithmetic.
-  ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  ai_disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   ai_disclosure_enabled: true,
   recording_notice_line: "This call is being recorded.",
   caller_memory_notice_line: "I keep a short note of what you ask about.",
@@ -76,7 +89,12 @@ const AGENT: Agent = {
 const COLUMNS = [
   { key: "name", label: "Name", kind: "fixed", type: "text" },
   { key: "phone", label: "Phone", kind: "fixed", type: "text" },
-  { key: "budget_band", label: "Budget band", kind: "extraction", type: "enum" },
+  {
+    key: "budget_band",
+    label: "Budget band",
+    kind: "extraction",
+    type: "enum",
+  },
   { key: "updated_at", label: "Updated", kind: "fixed", type: "date" },
 ];
 
@@ -106,7 +124,14 @@ function leadList(over: Record<string, unknown> = {}) {
     total: 1,
     limit: 100,
     offset: 0,
-    status_counts_matching_search: { new: 1, contacted: 0, interested: 0, hot: 0, won: 0, lost: 0 },
+    status_counts_matching_search: {
+      new: 1,
+      contacted: 0,
+      interested: 0,
+      hot: 0,
+      won: 0,
+      lost: 0,
+    },
     ...over,
   };
 }
@@ -167,13 +192,18 @@ async function lastCallTo(calls: ApiCall[], prefix: string): Promise<ApiCall> {
  * string. One helper, so the mirroring assertions below stay one comparison rather than
  * growing a second shape.
  */
-async function lensSentTo(calls: ApiCall[], prefix: string): Promise<Record<string, unknown>> {
+async function lensSentTo(
+  calls: ApiCall[],
+  prefix: string,
+): Promise<Record<string, unknown>> {
   const call = await lastCallTo(calls, prefix);
-  if (call.body !== null) return JSON.parse(call.body) as Record<string, unknown>;
+  if (call.body !== null)
+    return JSON.parse(call.body) as Record<string, unknown>;
   const params = new URLSearchParams(call.path.split("?")[1] ?? "");
   const out: Record<string, unknown> = {};
   for (const [key, value] of params) {
-    if (key === "f") ((out.f as string[] | undefined) ?? (out.f = [] as string[])).push(value);
+    if (key === "f")
+      ((out.f as string[] | undefined) ?? (out.f = [] as string[])).push(value);
     else out[key] = value;
   }
   return out;
@@ -182,13 +212,21 @@ async function lensSentTo(calls: ApiCall[], prefix: string): Promise<Record<stri
 describe("the column chooser reaches the table AND the file", () => {
   it("renders exactly the columns the server resolved, in its order", async () => {
     await renderClientPage(<LeadsPage />, routes());
-    const headers = (await screen.findAllByRole("columnheader")).map((h) => h.textContent);
+    const headers = (await screen.findAllByRole("columnheader")).map(
+      (h) => h.textContent,
+    );
     // The leading "Select" is the bulk-selection column (slice AE), not a data column:
     // it is a CONTROL the screen owns, so it is not part of the server's resolved list
     // and it is deliberately absent from the CSV. The assertion still pins that the
     // DATA columns are the server's, in the server's order, which is what this test is
     // about — the mirroring between the table and the file.
-    expect(headers).toEqual(["Select", "Name", "Phone", "Budget band", "Updated"]);
+    expect(headers).toEqual([
+      "Select",
+      "Name",
+      "Phone",
+      "Budget band",
+      "Updated",
+    ]);
   });
 
   it("sends a column choice to the list and the identical one to the export", async () => {
@@ -211,17 +249,25 @@ describe("the column chooser reaches the table AND the file", () => {
       columns: "name,phone",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Export this view as CSV/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Export this view as CSV/ }),
+    );
     // THE MIRRORING, at the seam: the file's columns are the table's columns.
-    expect(await lensSentTo(calls, "/v1/leads/export.csv")).toEqual({ columns: "name,phone" });
+    expect(await lensSentTo(calls, "/v1/leads/export.csv")).toEqual({
+      columns: "name,phone",
+    });
   });
 
   it("disables the chooser with a reason rather than showing an empty one when the list fails", async () => {
     await renderClientPage(
       <LeadsPage />,
-      routes({ "POST /v1/leads/search": problem(503, { title: "Service unavailable" }) }),
+      routes({
+        "POST /v1/leads/search": problem(503, { title: "Service unavailable" }),
+      }),
     );
-    const button = (await screen.findByRole("button", { name: /Columns/ })) as HTMLButtonElement;
+    const button = (await screen.findByRole("button", {
+      name: /Columns/,
+    })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(button.title).toContain("could not read this table's columns");
   });
@@ -235,7 +281,9 @@ describe("the facet rail is the extraction schema, and its filters reach the fil
     // column header both name the same extraction field. Asserted as "at least one"
     // rather than "exactly one", so the test does not forbid the table from showing a
     // column it is filtering on.
-    expect((await screen.findAllByText("Budget band")).length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Budget band")).length).toBeGreaterThan(
+      0,
+    );
     const chip = await screen.findByLabelText(/over_50l/);
     expect(chip).toBeTruthy();
     // A value the data holds and the capture list no longer declares is offered and
@@ -260,9 +308,13 @@ describe("the facet rail is the extraction schema, and its filters reach the fil
       limit: 100,
       f: ["budget_band:over_50l"],
     });
-    expect(await lensSentTo(calls, "/v1/leads/facets")).toEqual({ f: ["budget_band:over_50l"] });
+    expect(await lensSentTo(calls, "/v1/leads/facets")).toEqual({
+      f: ["budget_band:over_50l"],
+    });
 
-    fireEvent.click(screen.getByRole("button", { name: /Export this view as CSV/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Export this view as CSV/ }),
+    );
     expect(await lensSentTo(calls, "/v1/leads/export.csv")).toEqual({
       f: ["budget_band:over_50l"],
     });
@@ -273,10 +325,14 @@ describe("the facet rail is the extraction schema, and its filters reach the fil
     // filters" are different sentences, and only one of them is ours to make up.
     await renderClientPage(
       <LeadsPage />,
-      routes({ "/v1/leads/facets": problem(503, { title: "Service unavailable" }) }),
+      routes({
+        "/v1/leads/facets": problem(503, { title: "Service unavailable" }),
+      }),
     );
     const alerts = await screen.findAllByRole("alert");
-    expect(alerts.some((a) => a.textContent?.includes("Service unavailable"))).toBe(true);
+    expect(
+      alerts.some((a) => a.textContent?.includes("Service unavailable")),
+    ).toBe(true);
     expect(screen.queryByText("Filter by what your agent captured")).toBeNull();
   });
 });
@@ -292,7 +348,9 @@ describe("saved views", () => {
       }),
     );
 
-    fireEvent.change(await screen.findByLabelText("Saved view"), { target: { value: "view-1" } });
+    fireEvent.change(await screen.findByLabelText("Saved view"), {
+      target: { value: "view-1" },
+    });
 
     expect(await lensSentTo(calls, "/v1/leads/search")).toEqual({
       status: "hot",
@@ -307,14 +365,18 @@ describe("saved views", () => {
       "POST /v1/leads/views": VIEW,
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /Save this view/ }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Save this view/ }),
+    );
     fireEvent.change(await screen.findByLabelText("Name this view"), {
       target: { value: "My leads" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
 
     const posted = await vi.waitFor(() => {
-      const found = calls.find((c) => c.method === "POST" && c.path === "/v1/leads/views");
+      const found = calls.find(
+        (c) => c.method === "POST" && c.path === "/v1/leads/views",
+      );
       if (!found) throw new Error("the view was never saved");
       return found;
     });
@@ -330,24 +392,36 @@ describe("saved views", () => {
       <LeadsPage />,
       routes({
         "/v1/leads/views": {
-          items: [{ ...VIEW, stale_filter_keys: ["budget_band"], stale_column_keys: [] }],
+          items: [
+            {
+              ...VIEW,
+              stale_filter_keys: ["budget_band"],
+              stale_column_keys: [],
+            },
+          ],
         },
         "POST /v1/leads/search": leadList(),
         "/v1/leads/facets?status=hot": FACETS,
       }),
     );
 
-    fireEvent.change(await screen.findByLabelText("Saved view"), { target: { value: "view-1" } });
+    fireEvent.change(await screen.findByLabelText("Saved view"), {
+      target: { value: "view-1" },
+    });
     expect(await screen.findByText(/no longer has/)).toBeTruthy();
   });
 
   it("REFUSES rather than saying 'you have no saved views' when the list fails", async () => {
     await renderClientPage(
       <LeadsPage />,
-      routes({ "/v1/leads/views": problem(503, { title: "Service unavailable" }) }),
+      routes({
+        "/v1/leads/views": problem(503, { title: "Service unavailable" }),
+      }),
     );
     const alerts = await screen.findAllByRole("alert");
-    expect(alerts.some((a) => a.textContent?.includes("Service unavailable"))).toBe(true);
+    expect(
+      alerts.some((a) => a.textContent?.includes("Service unavailable")),
+    ).toBe(true);
     expect(screen.queryByLabelText("Saved view")).toBeNull();
   });
 });

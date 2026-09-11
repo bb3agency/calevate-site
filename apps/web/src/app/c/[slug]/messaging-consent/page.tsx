@@ -49,8 +49,13 @@ export default function MessagingConsentPage() {
    * person to be contacted, because an opt-in is exactly that decision: it is what
    * turns an exhausted campaign contact into a message. The LOOKUP is `leads:read`
    * and is deliberately not gated here: reading whether somebody may be messaged is
-   * not changing it, and it stays available inside a read-only "view as client"
-   * session (D-22), which is the whole reason the API put it on a read permission.
+   * not changing it, which is the whole reason the API put it on a read permission.
+   *
+   * ⚠ THIS SAID the lookup "stays available inside a read-only view as client session
+   * (D-22)" — true, but the contrast it drew is gone: D-587 makes `leads:dispatch`
+   * writable in a view-as session too, so an operator on a support call gets both halves
+   * of this screen and each record is attributed to them. The gate stays for `staff`,
+   * who hold neither.
    */
   const write = useWriteAccess(
     session,

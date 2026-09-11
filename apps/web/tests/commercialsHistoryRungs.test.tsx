@@ -4,7 +4,11 @@ import { describe, expect, it } from "vitest";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import CommercialsPage from "@/app/admin/tenants/[tenantId]/commercials/page";
 import type { TenantSummary } from "@/lib/api/admin";
-import { commercialTermsPath, type CommercialTerms, type PlanRow } from "@/lib/api/commercials";
+import {
+  commercialTermsPath,
+  type CommercialTerms,
+  type PlanRow,
+} from "@/lib/api/commercials";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 
@@ -95,9 +99,10 @@ function twoRungPlan(over: Partial<PlanRow> = {}): PlanRow {
       below_target_margin: [],
       min_gross_margin: "0.20",
       cost_floor_inr_per_min: "3.70",
-    // WHICH SPEAKING RATE THAT FLOOR IS STRUCK AT (D-557) — this panel is a REFUSAL
-    // surface, so it is deliberately the frozen assumed basis and says so.
-    cost_floor_basis: "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12)",
+      // WHICH SPEAKING RATE THAT FLOOR IS STRUCK AT (D-557) — this panel is a REFUSAL
+      // surface, so it is deliberately the frozen assumed basis and says so.
+      cost_floor_basis:
+        "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12)",
     },
     ...over,
   };
@@ -115,11 +120,14 @@ function terms(inEffect: PlanRow, history: PlanRow[]): CommercialTerms {
 
 /** `renderAdminRoute` is async (it awaits the Next 15 params promise inside `act`). */
 async function render(inEffect: PlanRow) {
-  return renderAdminRoute(<CommercialsPage params={routeParams({ tenantId: TENANT })} />, {
-    [TENANT_PATH]: tenant(),
-    [ADMIN_ME_PATH]: ME,
-    [TERMS_PATH]: terms(inEffect, [inEffect]),
-  });
+  return renderAdminRoute(
+    <CommercialsPage params={routeParams({ tenantId: TENANT })} />,
+    {
+      [TENANT_PATH]: tenant(),
+      [ADMIN_ME_PATH]: ME,
+      [TERMS_PATH]: terms(inEffect, [inEffect]),
+    },
+  );
 }
 
 /**
@@ -182,7 +190,12 @@ describe("the agreement history prints both rungs of the price", () => {
   it("prints an em dash for a rung a plan genuinely does not quote", async () => {
     // Unset is not zero, on either rung: "₹0/min" is free minutes and an absent rate is a
     // plan that quotes none. The dash is the only honest rendering of the second.
-    await render(twoRungPlan({ overage_rate_second_inr: null, overage_rate_value_inr: null }));
+    await render(
+      twoRungPlan({
+        overage_rate_second_inr: null,
+        overage_rate_value_inr: null,
+      }),
+    );
     const cells = await historyCells();
 
     expect(cells).toContain("₹8.0000");
@@ -210,7 +223,9 @@ describe("the agreement history prints both rungs of the price", () => {
    * nobody has agreed.
    */
   it("prints the model surcharge that was in effect, unrounded", async () => {
-    const { container } = await render(twoRungPlan({ llm_model_surcharge_inr: "1.5000" }));
+    const { container } = await render(
+      twoRungPlan({ llm_model_surcharge_inr: "1.5000" }),
+    );
     await screen.findByText("Every agreement, newest first");
 
     expect(container.textContent).toContain("Model surcharge / min");

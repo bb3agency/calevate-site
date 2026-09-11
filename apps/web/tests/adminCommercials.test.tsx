@@ -100,9 +100,10 @@ function plan(over: Partial<PlanRow> = {}): PlanRow {
       below_target_margin: [],
       min_gross_margin: "0.20",
       cost_floor_inr_per_min: "3.70",
-    // WHICH SPEAKING RATE THAT FLOOR IS STRUCK AT (D-557) — this panel is a REFUSAL
-    // surface, so it is deliberately the frozen assumed basis and says so.
-    cost_floor_basis: "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12)",
+      // WHICH SPEAKING RATE THAT FLOOR IS STRUCK AT (D-557) — this panel is a REFUSAL
+      // surface, so it is deliberately the frozen assumed basis and says so.
+      cost_floor_basis:
+        "assumed 540 chars/call-min (TRD 10.1, unmeasured - pilot gate 12)",
     },
     ...over,
   };
@@ -121,12 +122,15 @@ function terms(over: Partial<CommercialTerms> = {}): CommercialTerms {
 }
 
 function render(routes: Partial<Routes> = {}) {
-  return renderAdminRoute(<CommercialsPage params={routeParams({ tenantId: TENANT })} />, {
-    [TENANT_PATH]: tenant(),
-    [ADMIN_ME_PATH]: ME,
-    [TERMS_PATH]: terms(),
-    ...routes,
-  });
+  return renderAdminRoute(
+    <CommercialsPage params={routeParams({ tenantId: TENANT })} />,
+    {
+      [TENANT_PATH]: tenant(),
+      [ADMIN_ME_PATH]: ME,
+      [TERMS_PATH]: terms(),
+      ...routes,
+    },
+  );
 }
 
 describe("the commercials screen", () => {
@@ -139,8 +143,12 @@ describe("the commercials screen", () => {
       }),
     });
 
-    await screen.findByText("Cannot record terms while the current agreement is unreadable");
-    expect(screen.queryByRole("button", { name: /Record new terms/ })).toBeNull();
+    await screen.findByText(
+      "Cannot record terms while the current agreement is unreadable",
+    );
+    expect(
+      screen.queryByRole("button", { name: /Record new terms/ }),
+    ).toBeNull();
     // The one sentence that must NOT appear over a failed read: it is also a real state.
     expect(container.textContent).not.toContain("No commercial terms set");
     expect(container.textContent).not.toContain("₹0");
@@ -153,9 +161,13 @@ describe("the commercials screen", () => {
 
     await screen.findByText("No commercial terms set");
     expect(container.textContent).toContain("invoiced nothing");
-    expect(container.textContent).toContain("no spend ceiling stops their dialling");
+    expect(container.textContent).toContain(
+      "no spend ceiling stops their dialling",
+    );
     // The form is still offered — this is the screen that fixes it.
-    expect(screen.getByRole("button", { name: /Record new terms/ })).toBeDefined();
+    expect(
+      screen.getByRole("button", { name: /Record new terms/ }),
+    ).toBeDefined();
   });
 
   it("prints a lapsed window as a misconfiguration rather than as no terms", async () => {
@@ -168,7 +180,9 @@ describe("the commercials screen", () => {
     });
 
     await screen.findByText("Terms have lapsed");
-    expect(container.textContent).toContain("end date was set with no successor");
+    expect(container.textContent).toContain(
+      "end date was set with no successor",
+    );
   });
 
   it("formats a fee and leaves a rate unrounded", async () => {
@@ -186,33 +200,55 @@ describe("the commercials screen", () => {
     // "Second overage rate", not "Value-tier rate": the field is `overage_rate_value`, a
     // second agreed rate on the plan, and the old label both used excluded rung vocabulary
     // and claimed it priced a different voice (`tests/rung_naming_copy_test.py`).
-    const field = (await screen.findByLabelText(/Second overage rate/)) as HTMLInputElement;
+    const field = (await screen.findByLabelText(
+      /Second overage rate/,
+    )) as HTMLInputElement;
     expect(field.value).toBe("");
   });
 
   it("records a tightened ceiling with no confirmation header", async () => {
     const { calls } = await render({
-      [`POST ${TERMS_PATH}`]: { plan_id: "p", changed: true, superseded_plan_id: null, state: "set" },
+      [`POST ${TERMS_PATH}`]: {
+        plan_id: "p",
+        changed: true,
+        superseded_plan_id: null,
+        state: "set",
+      },
     });
 
-    const cap = (await screen.findByLabelText(/Spend ceiling/)) as HTMLInputElement;
+    const cap = (await screen.findByLabelText(
+      /Spend ceiling/,
+    )) as HTMLInputElement;
     fireEvent.change(cap, { target: { value: "10000.00" } });
     fireEvent.click(screen.getByRole("button", { name: /Record new terms/ }));
 
     await waitFor(() => {
-      expect(calls.some((call) => call.method === "POST" && call.path === TERMS_PATH)).toBe(true);
+      expect(
+        calls.some(
+          (call) => call.method === "POST" && call.path === TERMS_PATH,
+        ),
+      ).toBe(true);
     });
-    const post = calls.find((call) => call.method === "POST" && call.path === TERMS_PATH);
+    const post = calls.find(
+      (call) => call.method === "POST" && call.path === TERMS_PATH,
+    );
     expect(post?.headers["X-Confirm-Action"]).toBeUndefined();
     expect(JSON.parse(post?.body ?? "{}").hard_cap_spend_inr).toBe("10000.00");
   });
 
   it("warns before a raise and sends the confirmation bound to THIS tenant", async () => {
     const { calls, container } = await render({
-      [`POST ${TERMS_PATH}`]: { plan_id: "p", changed: true, superseded_plan_id: "q", state: "set" },
+      [`POST ${TERMS_PATH}`]: {
+        plan_id: "p",
+        changed: true,
+        superseded_plan_id: "q",
+        state: "set",
+      },
     });
 
-    const cap = (await screen.findByLabelText(/Spend ceiling/)) as HTMLInputElement;
+    const cap = (await screen.findByLabelText(
+      /Spend ceiling/,
+    )) as HTMLInputElement;
     fireEvent.change(cap, { target: { value: "90000.00" } });
 
     await waitFor(() => {
@@ -222,9 +258,15 @@ describe("the commercials screen", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Record new terms/ }));
     await waitFor(() => {
-      expect(calls.some((call) => call.method === "POST" && call.path === TERMS_PATH)).toBe(true);
+      expect(
+        calls.some(
+          (call) => call.method === "POST" && call.path === TERMS_PATH,
+        ),
+      ).toBe(true);
     });
-    const post = calls.find((call) => call.method === "POST" && call.path === TERMS_PATH);
+    const post = calls.find(
+      (call) => call.method === "POST" && call.path === TERMS_PATH,
+    );
     expect(post?.headers["X-Confirm-Action"]).toBe(CONFIRMATION);
     // The admin session, never the impersonating one: `admin:tenants` is a MUTATING
     // permission and D-22 refuses those to an acting-as session.
@@ -234,7 +276,9 @@ describe("the commercials screen", () => {
   it("treats REMOVING a ceiling as the same dangerous direction as raising it", async () => {
     const { container } = await render();
 
-    const cap = (await screen.findByLabelText(/Spend ceiling/)) as HTMLInputElement;
+    const cap = (await screen.findByLabelText(
+      /Spend ceiling/,
+    )) as HTMLInputElement;
     fireEvent.change(cap, { target: { value: "" } });
 
     await waitFor(() => {
@@ -252,7 +296,9 @@ describe("the commercials screen", () => {
       },
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /Record new terms/ }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Record new terms/ }),
+    );
 
     await waitFor(() => {
       expect(container.textContent).toContain("already the terms in effect");
@@ -299,17 +345,26 @@ describe("the commercials screen", () => {
         fireEvent.change(screen.getByLabelText(/Until/), {
           target: { value: "2026-12-31T23:59" },
         });
-        fireEvent.click(screen.getByRole("button", { name: /Record new terms/ }));
+        fireEvent.click(
+          screen.getByRole("button", { name: /Record new terms/ }),
+        );
 
         await waitFor(() => {
-          expect(calls.some((c) => c.method === "POST" && c.path === TERMS_PATH)).toBe(true);
+          expect(
+            calls.some((c) => c.method === "POST" && c.path === TERMS_PATH),
+          ).toBe(true);
         });
         const body = JSON.parse(
-          calls.find((c) => c.method === "POST" && c.path === TERMS_PATH)?.body ?? "{}",
+          calls.find((c) => c.method === "POST" && c.path === TERMS_PATH)
+            ?.body ?? "{}",
         );
         // 09:00 IST === 03:30Z, and 23:59 IST === 18:29Z the same day.
-        expect(body.effective_from, `effective_from in ${zone}`).toBe("2026-09-01T03:30:00.000Z");
-        expect(body.effective_to, `effective_to in ${zone}`).toBe("2026-12-31T18:29:00.000Z");
+        expect(body.effective_from, `effective_from in ${zone}`).toBe(
+          "2026-09-01T03:30:00.000Z",
+        );
+        expect(body.effective_to, `effective_to in ${zone}`).toBe(
+          "2026-12-31T18:29:00.000Z",
+        );
       }
     } finally {
       if (originalTz === undefined) delete process.env.TZ;

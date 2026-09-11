@@ -172,8 +172,12 @@ describe("the admin nav, once the console knows who it is", () => {
     );
 
     // Not a link — the click that only ever produced a 403 is no longer offered.
-    await waitFor(() => expect(operationsEntry(container)?.tagName).toBe("SPAN"));
-    expect(operationsEntry(container)?.getAttribute("aria-disabled")).toBe("true");
+    await waitFor(() =>
+      expect(operationsEntry(container)?.tagName).toBe("SPAN"),
+    );
+    expect(operationsEntry(container)?.getAttribute("aria-disabled")).toBe(
+      "true",
+    );
     expect(container.querySelector('a[href="/admin/ops"]')).toBeNull();
 
     // Dead AND explained, in the DOM rather than only in a `title` a mouse discovers:
@@ -194,10 +198,17 @@ describe("the admin nav, once the console knows who it is", () => {
       shell(),
     );
 
-    await waitFor(() => expect(operationsEntry(container)?.tagName).toBe("SPAN"));
+    await waitFor(() =>
+      expect(operationsEntry(container)?.tagName).toBe("SPAN"),
+    );
     expect(container.textContent).toContain("Operations");
     // And the entries this session CAN use are untouched — one refusal, not a blanket.
-    for (const label of ["Clients", "Client health", "Held accounts", "New client"]) {
+    for (const label of [
+      "Clients",
+      "Client health",
+      "Held accounts",
+      "New client",
+    ]) {
       const entry = Array.from(container.querySelectorAll("a")).find(
         (node) => node.textContent?.trim() === label,
       );
@@ -219,9 +230,9 @@ describe("the admin nav, once the console knows who it is", () => {
     await waitFor(() =>
       expect(navEntry(container, "Platform configuration")?.tagName).toBe("A"),
     );
-    expect(navEntry(container, "Platform configuration")?.getAttribute("href")).toBe(
-      "/admin/ops/config",
-    );
+    expect(
+      navEntry(container, "Platform configuration")?.getAttribute("href"),
+    ).toBe("/admin/ops/config");
   });
 
   it("does not show Platform configuration to an operator AT ALL — absent, not dead", async () => {
@@ -236,7 +247,9 @@ describe("the admin nav, once the console knows who it is", () => {
       shell(),
     );
 
-    await waitFor(() => expect(operationsEntry(container)?.tagName).toBe("SPAN"));
+    await waitFor(() =>
+      expect(operationsEntry(container)?.tagName).toBe("SPAN"),
+    );
     expect(navEntry(container, "Platform configuration")).toBeNull();
     expect(container.querySelector('a[href="/admin/ops/config"]')).toBeNull();
     // Not hidden AND explained — hidden means hidden. A leftover sentence naming the
@@ -283,7 +296,12 @@ describe("the admin nav, once the console knows who it is", () => {
       <AdminLayout>
         <p>screen</p>
       </AdminLayout>,
-      shell({ [ADMIN_ME_PATH]: problem(503, { title: "Service unavailable", retryable: true }) }),
+      shell({
+        [ADMIN_ME_PATH]: problem(503, {
+          title: "Service unavailable",
+          retryable: true,
+        }),
+      }),
     );
 
     await waitFor(() => expect(screen.getByText("Admin realm")).toBeDefined());
@@ -336,7 +354,10 @@ describe("the admin nav, once the console knows who it is", () => {
     const line = [...container.querySelectorAll("span")]
       .map((el) => el.textContent ?? "")
       .find((text) => text.startsWith("superadmin · "));
-    expect(line, "the identity line no longer names the role first").toBeTruthy();
+    expect(
+      line,
+      "the identity line no longer names the role first",
+    ).toBeTruthy();
     expect(line!.length).toBeLessThanOrEqual(IDENTITY_LINE_MAX_CHARS);
 
     // The no-role spelling is the same line with the same ceiling: it renders whenever
@@ -345,7 +366,12 @@ describe("the admin nav, once the console knows who it is", () => {
       <AdminLayout>
         <p>screen</p>
       </AdminLayout>,
-      shell({ [ADMIN_ME_PATH]: problem(503, { title: "Service unavailable", retryable: true }) }),
+      shell({
+        [ADMIN_ME_PATH]: problem(503, {
+          title: "Service unavailable",
+          retryable: true,
+        }),
+      }),
     );
     await waitFor(() => expect(blank.textContent).toContain("Admin realm"));
     const fallback = [...blank.querySelectorAll("span")]
@@ -363,7 +389,9 @@ describe("the admin nav, once the console knows who it is", () => {
       shell(),
     );
 
-    await waitFor(() => expect(operationsEntry(container)?.tagName).toBe("SPAN"));
+    await waitFor(() =>
+      expect(operationsEntry(container)?.tagName).toBe("SPAN"),
+    );
     const identity = calls.filter((call) => call.path === ADMIN_ME_PATH);
     // The sidebar and the identity footer both read it; one request answers both.
     expect(identity).toHaveLength(1);
@@ -411,7 +439,10 @@ describe("the client directory's create gate", () => {
     // slug collisions we cannot see, so the wizard stays shut whatever the role.
     const { container } = renderAdminPage(<AdminClientsPage />, {
       [ADMIN_ME_PATH]: OPERATOR,
-      [TENANTS_PATH]: problem(503, { title: "Service unavailable", retryable: false }),
+      [TENANTS_PATH]: problem(503, {
+        title: "Service unavailable",
+        retryable: false,
+      }),
     });
 
     await screen.findByText(/the directory could not be read/);

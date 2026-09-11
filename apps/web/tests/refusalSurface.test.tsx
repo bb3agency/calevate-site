@@ -104,7 +104,13 @@ describe("the server's prose, at the widths it is read at", () => {
       type: "urn:calevate:crm/endpoint_rejected",
       detail: `Your endpoint https://crm.example.co.in/${"a".repeat(240)}/inbound rejected the lead.`,
       remediation: `Check the address you gave us: https://crm.example.co.in/${"b".repeat(240)}`,
-      fields: [{ field: `payload.${"c".repeat(120)}`, rule: "required", message: "Missing." }],
+      fields: [
+        {
+          field: `payload.${"c".repeat(120)}`,
+          rule: "required",
+          message: "Missing.",
+        },
+      ],
       trace_id: "0199c4f0-1c2e-7a55-9f8b-6d0a5e2b71c4",
     });
     render(<ProblemNotice error={problem} />);
@@ -116,7 +122,8 @@ describe("the server's prose, at the widths it is read at", () => {
       const text = node.textContent ?? "";
       if (text.length < 40) continue;
       expect(
-        node.className.includes("break-words") || node.className.includes("break-all"),
+        node.className.includes("break-words") ||
+          node.className.includes("break-all"),
         `"${text.slice(0, 40)}…" has nowhere to wrap`,
       ).toBe(true);
     }
@@ -190,9 +197,13 @@ describe("what a refusal puts first, and what it leaves out", () => {
 
   it("names the field the way a person would, not the way the code spells it", () => {
     render(<ProblemNotice error={fieldRefusal} />);
-    expect(screen.getByRole("alert").textContent).toContain("Password: Use at least 12 characters.");
+    expect(screen.getByRole("alert").textContent).toContain(
+      "Password: Use at least 12 characters.",
+    );
     // The wire path is what the founder photographed. It is a schema's spelling, not a noun.
-    expect(screen.getByRole("alert").textContent).not.toContain("body.password");
+    expect(screen.getByRole("alert").textContent).not.toContain(
+      "body.password",
+    );
   });
 
   it("prints the sentence alone when the server named no noun for the answer", () => {
@@ -205,7 +216,11 @@ describe("what a refusal puts first, and what it leaves out", () => {
       kind: "validation",
       detail: "We could not use one of your answers.",
       fields: [
-        { field: "body.password", rule: "min_length", message: "Use at least 12 characters." },
+        {
+          field: "body.password",
+          rule: "min_length",
+          message: "Use at least 12 characters.",
+        },
       ],
     });
     render(<ProblemNotice error={unlabelled} />);
@@ -225,7 +240,9 @@ describe("what a refusal puts first, and what it leaves out", () => {
       trace_id: "9c83825c95f2495d87a4194ba0ef2849",
     });
     render(<ProblemNotice error={upstream} />);
-    expect(screen.getByRole("alert").textContent).toContain("9c83825c95f2495d87a4194ba0ef2849");
+    expect(screen.getByRole("alert").textContent).toContain(
+      "9c83825c95f2495d87a4194ba0ef2849",
+    );
   });
 
   it("keeps the support reference off a refusal the person can clear themselves", () => {
@@ -241,7 +258,9 @@ describe("what a refusal puts first, and what it leaves out", () => {
       trace_id: "9c83825c95f2495d87a4194ba0ef2849",
     });
     render(<ProblemNotice error={ourFault} />);
-    expect(screen.getByRole("alert").textContent).toContain("9c83825c95f2495d87a4194ba0ef2849");
+    expect(screen.getByRole("alert").textContent).toContain(
+      "9c83825c95f2495d87a4194ba0ef2849",
+    );
   });
 
   it("gives the sentence more weight than anything under it", () => {

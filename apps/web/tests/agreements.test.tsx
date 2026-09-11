@@ -51,7 +51,11 @@ function doc(over: Partial<LegalDocumentState> = {}): LegalDocumentState {
 const BLOCKING: LegalDocumentState[] = [
   doc({ slug: "privacy", title: "Privacy Policy", href: "/legal/privacy" }),
   doc(),
-  doc({ slug: "acceptable-use", title: "Acceptable Use", href: "/legal/acceptable-use" }),
+  doc({
+    slug: "acceptable-use",
+    title: "Acceptable Use",
+    href: "/legal/acceptable-use",
+  }),
   doc({ slug: "dpa", title: "Data Processing Addendum", href: "/legal/dpa" }),
 ];
 
@@ -64,7 +68,8 @@ const READABLE = doc({
   headline: "Published for you to read. There is nothing to accept.",
 });
 
-const STATEMENT = "I accept the Terms of Service, the Privacy Policy, the Data Processing Addendum and the Acceptable Use Policy on behalf of this business.";
+const STATEMENT =
+  "I accept the Terms of Service, the Privacy Policy, the Data Processing Addendum and the Acceptable Use Policy on behalf of this business.";
 
 function readiness(over: Partial<LegalReadiness> = {}): LegalReadiness {
   return {
@@ -85,7 +90,8 @@ function readiness(over: Partial<LegalReadiness> = {}): LegalReadiness {
         title: "Agreements not accepted",
         reason: "This account has not accepted its agreements yet.",
         actor: "client",
-        next_step: "The account owner reads each agreement and accepts it on this screen.",
+        next_step:
+          "The account owner reads each agreement and accepts it on this screen.",
       },
     ],
     ...over,
@@ -113,12 +119,16 @@ const READY = readiness({
 
 describe("the screen renders the server's verdict and never its own", () => {
   it("prints the outstanding verdict, every document's state, and whose move each blocker is", async () => {
-    await renderClientPage(<AgreementsPage />, { [READINESS_PATH]: readiness() });
+    await renderClientPage(<AgreementsPage />, {
+      [READINESS_PATH]: readiness(),
+    });
 
     await screen.findByText("Outgoing calls are blocked.");
     // The reassurance that has to survive every refusal on this screen: the receptionist
     // is still answering. `check_dispatch` is outbound-only, by design (D-38).
-    expect(screen.getAllByText(/Calls coming IN are unaffected/i).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByText(/Calls coming IN are unaffected/i).length,
+    ).toBeGreaterThan(0);
 
     // The server's own sentence, not a composed one.
     expect(screen.getByText(readiness().verdict)).toBeTruthy();
@@ -144,7 +154,9 @@ describe("the screen renders the server's verdict and never its own", () => {
     // `{{EFFECTIVE_DATE}}` is an unfilled placeholder in the bundle, so every document
     // carries no effective date. A reader who sees no row cannot tell that from a screen
     // that forgot to print one.
-    await renderClientPage(<AgreementsPage />, { [READINESS_PATH]: readiness() });
+    await renderClientPage(<AgreementsPage />, {
+      [READINESS_PATH]: readiness(),
+    });
     await screen.findByText("Outgoing calls are blocked.");
     expect(screen.getAllByText("not yet dated").length).toBeGreaterThan(0);
   });
@@ -162,7 +174,9 @@ describe("accepting", () => {
       [READINESS_PATH]: () => (accepted >= 4 ? READY : readiness()),
       [ACCEPTANCES_PATH]: () => {
         accepted += 1;
-        return accepted >= 4 ? READY : readiness({ outstanding_documents: 4 - accepted });
+        return accepted >= 4
+          ? READY
+          : readiness({ outstanding_documents: 4 - accepted });
       },
     });
 
@@ -173,7 +187,9 @@ describe("accepting", () => {
     expect(button.hasAttribute("disabled")).toBe(true);
 
     fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: /Accept 4 agreements/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Accept 4 agreements/i }),
+    );
 
     const posted = () => calls.filter((call) => call.path === ACCEPTANCES_PATH);
     await waitFor(() => expect(posted()).toHaveLength(4));
@@ -207,9 +223,13 @@ describe("accepting", () => {
 
     await screen.findByText("Outgoing calls are blocked.");
     fireEvent.click(screen.getByRole("checkbox"));
-    fireEvent.click(screen.getByRole("button", { name: /Accept 4 agreements/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Accept 4 agreements/i }),
+    );
 
-    await screen.findByText("The version of this document on your screen is out of date.");
+    await screen.findByText(
+      "The version of this document on your screen is out of date.",
+    );
     // Still blocked, and the screen says so: a refused write must not read as a success.
     expect(screen.getByText("Outgoing calls are blocked.")).toBeTruthy();
   });
@@ -220,7 +240,10 @@ describe("who may sign", () => {
     const reason =
       "Only the account owner can accept these agreements. You can read every document here.";
     await renderClientPage(<AgreementsPage />, {
-      [READINESS_PATH]: readiness({ can_accept: false, can_accept_reason: reason }),
+      [READINESS_PATH]: readiness({
+        can_accept: false,
+        can_accept_reason: reason,
+      }),
     });
 
     await screen.findByText("Outgoing calls are blocked.");
@@ -245,7 +268,9 @@ describe("when the read does not land", () => {
 
     await screen.findByRole("alert");
     expect(screen.queryByText(/Nothing is holding up/i)).toBeNull();
-    expect(screen.queryByText("This account is ready to make calls.")).toBeNull();
+    expect(
+      screen.queryByText("This account is ready to make calls."),
+    ).toBeNull();
     expect(screen.queryByText("Outgoing calls are blocked.")).toBeNull();
   });
 

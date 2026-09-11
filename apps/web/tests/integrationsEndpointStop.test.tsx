@@ -31,7 +31,13 @@ import { problem, renderClientPage } from "./harness";
  * "are you sure?" confirms intent; only one that prints the URL confirms target.
  */
 
-const PERMISSIONS = ["agents:read", "calls:read", "leads:read", "org:read", "org:manage"];
+const PERMISSIONS = [
+  "agents:read",
+  "calls:read",
+  "leads:read",
+  "org:read",
+  "org:manage",
+];
 
 const OWNER = {
   user_id: "u1",
@@ -39,7 +45,12 @@ const OWNER = {
   role: "owner",
   permissions: PERMISSIONS,
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 const URL_A = "https://crm.example/hook";
@@ -81,7 +92,10 @@ describe("stopping an endpoint is confirmed, named and explained", () => {
   it("says what it does, per row, rather than promising a switch", async () => {
     await renderClientPage(<IntegrationsPage />, {
       ...routes({
-        "/v1/integrations/endpoints": [endpoint(), endpoint({ id: "e2", url: URL_B })],
+        "/v1/integrations/endpoints": [
+          endpoint(),
+          endpoint({ id: "e2", url: URL_B }),
+        ],
       }),
     });
 
@@ -143,7 +157,9 @@ describe("stopping an endpoint is confirmed, named and explained", () => {
     await screen.findByText(URL_A);
     fireEvent.click(stopButtons()[0]);
     fireEvent.click(
-      within(await screen.findByRole("dialog")).getByRole("button", { name: "Keep sending" }),
+      within(await screen.findByRole("dialog")).getByRole("button", {
+        name: "Keep sending",
+      }),
     );
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
@@ -170,7 +186,9 @@ describe("stopping an endpoint is confirmed, named and explained", () => {
       }),
     );
 
-    await waitFor(() => expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(1));
+    await waitFor(() =>
+      expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(1),
+    );
     const dialog = await screen.findByRole("dialog");
     await waitFor(() =>
       expect(dialog.textContent).toContain("could not stop this endpoint"),
@@ -196,11 +214,15 @@ describe("stopping an endpoint is confirmed, named and explained", () => {
     // An `off` row used to carry nothing at all, which reads as a button that failed to
     // render rather than as a state with no way out.
     const { container } = await renderClientPage(<IntegrationsPage />, {
-      ...routes({ "/v1/integrations/endpoints": [endpoint({ active: false })] }),
+      ...routes({
+        "/v1/integrations/endpoints": [endpoint({ active: false })],
+      }),
     });
 
     await screen.findByText(URL_A);
-    expect(container.textContent).toContain("stopped — add a new endpoint to resume");
+    expect(container.textContent).toContain(
+      "stopped — add a new endpoint to resume",
+    );
     expect(stopButtons()).toHaveLength(0);
   });
 
@@ -208,7 +230,9 @@ describe("stopping an endpoint is confirmed, named and explained", () => {
     // The refusal is pre-empted, not discovered on click — `useWriteAccess`, the way the
     // rest of this console does it.
     await renderClientPage(<IntegrationsPage />, {
-      ...routes({ "/v1/me": { ...OWNER, role: "staff", permissions: ["org:read"] } }),
+      ...routes({
+        "/v1/me": { ...OWNER, role: "staff", permissions: ["org:read"] },
+      }),
     });
 
     await screen.findByText(URL_A);
@@ -238,8 +262,12 @@ describe("the integrations screen writes its ink in tokens", () => {
       .map((line, index) => ({ line, index }))
       .filter(
         ({ line }) =>
-          /(?<![-\w:])(?:dark:)?text-(?:slate|gray|zinc|neutral|stone)-\d{2,3}\b/.test(line) &&
-          !/(?<![-\w:])(?:dark:)?bg-(?:slate|gray|zinc|neutral|stone)-\d{2,3}\b/.test(line),
+          /(?<![-\w:])(?:dark:)?text-(?:slate|gray|zinc|neutral|stone)-\d{2,3}\b/.test(
+            line,
+          ) &&
+          !/(?<![-\w:])(?:dark:)?bg-(?:slate|gray|zinc|neutral|stone)-\d{2,3}\b/.test(
+            line,
+          ),
       )
       .map(({ index }) => index + 1);
     expect(

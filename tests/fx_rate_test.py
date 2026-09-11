@@ -49,8 +49,14 @@ from apps.api.ops.fx_rates import (
 )
 from apps.api.ops.fx_routes import _build
 from apps.workers.fx_pull import (
+    DEFAULT_RUNG,
+    FBIL_RUNG,
+    LADDER,
+    PREFERRED_RUNG,
     PULL_MINUTES,
+    FxFeedUnreachableError,
     FxPullError,
+    FxRung,
     fetch_published_rate,
     parse_rate_response,
     pull_fx_rate,
@@ -343,7 +349,7 @@ async def test_a_non_200_is_a_failed_pull_and_not_a_rate() -> None:
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     with pytest.raises(FxPullError):
-        await fetch_published_rate(client)
+        await fetch_published_rate(FBIL_RUNG, client)
     await client.aclose()
 
 
@@ -355,7 +361,7 @@ async def test_a_transport_failure_is_a_failed_pull() -> None:
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     with pytest.raises(FxPullError):
-        await fetch_published_rate(client)
+        await fetch_published_rate(FBIL_RUNG, client)
     await client.aclose()
 
 
@@ -371,7 +377,7 @@ async def test_the_request_asks_for_the_pair_and_the_provider_it_documents() -> 
         return httpx.Response(200, text=_body())
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    await fetch_published_rate(client)
+    await fetch_published_rate(FBIL_RUNG, client)
     await client.aclose()
     assert seen["url"] == "https://api.frankfurter.dev/v2/rate/USD/INR?providers=FBIL"
 
@@ -570,3 +576,335 @@ def test_the_rate_crosses_the_wire_as_a_string_and_the_server_decides_staleness(
 
     nothing = _build(None, now=now, fallback=str(FALLBACK), history=[])
     assert nothing.state == "never_pulled" and nothing.published_rate is None
+
+
+# --- 6. the source ladder (D-589) -----------------------------------------------------
+#
+# The defect these pin is the one measured on the live deployment on 11 Sep 2026: the
+# pull HEALTHY, the feed it was pinned to seven days behind, no alarm anywhere on the
+# pull path, and every vendor cost quietly converting at a constant typed a fortnight
+# earlier. What the ladder must now hold true, in order of what a failure costs:
+#
+# 1. **The preference is not weakened.** FBIL serves whenever it can, and when it can the
+#    lower rung is never even asked — a fallback that fires on a healthy day is a second
+#    source of truth nobody chose.
+# 2. **A fallback cannot route around the plausibility band.** The guard exists because a
+#    vendor's minor-unit assumption once metered every call at 1/100th of cost; a rung
+#    that skipped it would be that defect with a ladder to hide in.
+# 3. **Provenance is per-rung and permanent.** Hard rule 4: the row can never be
+#    annotated later, so the source string it carries is the only explanation there will
+#    ever be — and the two rungs must be distinguishable at a glance.
+# 4. **The three states are three alarms.** Degraded-but-published, everything-stale, and
+#    the puller itself failing used to be two codes, and two of them read identically.
+
+_LADDER_FBIL = FxRung(source="test:fbil", providers="FBIL", why="the preferred test rung")
+_LADDER_DEFAULT = FxRung(source="test:default", providers=None, why="the fallback test rung")
+
+# The two numbers the founder actually measured, which is why they are these and not round
+# ones: they are 0.9% apart, so the ladder's own descent can never be confused with the
+# plausibility band refusing a 10% move.
+FBIL_RATE = Decimal("94.4914")
+DEFAULT_RATE = Decimal("95.3900")
+
+
+def _stale_date() -> date:
+    """Seven days back — exactly the gap the live deployment was carrying."""
+    return date.today() - MAX_QUOTE_AGE - timedelta(days=2)
+
+
+def _install_ladder(
+    monkeypatch: pytest.MonkeyPatch, answers: dict[str, Any]
+) -> tuple[list[tuple[str, dict[str, str]]], list[str]]:
+    """Point the job at two TEST rungs and answer each from `answers`.
+
+    Test sources, not the real ones, for a blunt reason: `fx_rate_observations` is a
+    SHARED append-only table and `_purge` can only remove what it can recognise. A test
+    that wrote `frankfurter:FBIL` rows would leave them in the store for every later test
+    and for whoever runs the suite next. The rungs' real spellings are asserted directly
+    from the constants instead (`test_the_two_rungs_are_distinguishable_on_a_ledger_row`).
+
+    Returns `(alerts, fetched)` — every alarm raised by either module, and the rungs that
+    were actually asked, in order.
+    """
+    import apps.api.ops.fx_rates as store_module
+    import apps.workers.fx_pull as job_module
+
+    alerts: list[tuple[str, dict[str, str]]] = []
+    fetched: list[str] = []
+
+    async def fake_fetch(rung: FxRung, client: Any = None) -> tuple[Decimal, date]:
+        fetched.append(rung.source)
+        answer = answers[rung.source]
+        if isinstance(answer, Exception):
+            raise answer
+        return answer
+
+    def record(_stage: str, code: str, **kwargs: Any) -> None:
+        alerts.append((code, {k: str(v) for k, v in kwargs.items() if k != "detail"}))
+
+    monkeypatch.setattr(job_module, "LADDER", (_LADDER_FBIL, _LADDER_DEFAULT))
+    monkeypatch.setattr(job_module, "PREFERRED_RUNG", _LADDER_FBIL)
+    monkeypatch.setattr(job_module, "fetch_published_rate", fake_fetch)
+    monkeypatch.setattr(job_module, "alert", record)
+    monkeypatch.setattr(store_module, "alert", record)
+    return alerts, fetched
+
+
+def test_the_two_rungs_are_distinguishable_on_a_ledger_row() -> None:
+    """The source string is stamped on every `usage_events` row the rate converts, and
+    hard rule 4 means that row can never be annotated afterwards — so "which rung priced
+    this minute" has to be legible from the string alone, six months later."""
+    assert FBIL_RUNG.source == "frankfurter:FBIL"
+    assert DEFAULT_RUNG.source == "frankfurter:default"
+    assert FBIL_RUNG.source != DEFAULT_RUNG.source
+    assert LADDER == (FBIL_RUNG, DEFAULT_RUNG), "FBIL is preferred, and the order IS the rule"
+    assert PREFERRED_RUNG is FBIL_RUNG
+    # The URL stored on the row is the request an operator re-runs by hand, query string
+    # and all — it is not reconstructed by a reader, so rung 2 is reproducible too.
+    assert FBIL_RUNG.url == "https://api.frankfurter.dev/v2/rate/USD/INR?providers=FBIL"
+    assert DEFAULT_RUNG.url == "https://api.frankfurter.dev/v2/rate/USD/INR"
+    assert "providers" not in DEFAULT_RUNG.url, "rung 2 IS the unfiltered request"
+
+
+async def test_the_preferred_rung_serves_and_the_fallback_is_never_asked(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A healthy day: one request, one row, no alarm. The preference costs nothing and
+    the platform never learns a number it did not need."""
+    alerts, fetched = _install_ladder(
+        monkeypatch,
+        {
+            "test:fbil": (FBIL_RATE, date.today()),
+            "test:default": AssertionError("rung 2 must not be fetched while rung 1 serves"),
+        },
+    )
+    summary = json.loads(await pull_fx_rate({"job_try": 1}))
+    assert fetched == ["test:fbil"]
+    assert summary["serving"] == "preferred"
+    assert summary["source"] == "test:fbil"
+    assert summary["rate"] == "94.491400"
+    assert alerts == []
+    cost = _engine()._cost(_cost_payload())
+    assert cost is not None and cost.fx_source == "test:fbil" and cost.fx_rate == FBIL_RATE
+
+
+async def test_the_fallback_rung_serves_when_the_preferred_one_has_gone_quiet(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """THE MEASURED FAILURE, end to end. The benchmark is seven days behind and the API
+    around it is current: money converts at the fallback rung's published rate, the row
+    says which rung, and an operator is told the provenance moved."""
+    alerts, fetched = _install_ladder(
+        monkeypatch,
+        {
+            "test:fbil": (FBIL_RATE, _stale_date()),
+            "test:default": (DEFAULT_RATE, date.today()),
+        },
+    )
+    summary = json.loads(await pull_fx_rate({"job_try": 1}))
+    assert fetched == ["test:fbil", "test:default"], "the preferred rung is asked FIRST"
+    assert summary["serving"] == "fallback_source"
+    assert summary["source"] == "test:default"
+
+    # Both rungs are RECORDED — the stale benchmark row is evidence, not noise, and it is
+    # what makes "the feed was behind" re-derivable rather than inferred from a silence.
+    async with untenanted_session() as session:
+        stored = {row.source: row for row in await recent_observations(session, limit=50)}
+    assert set(stored) == {"test:fbil", "test:default"}
+    assert stored["test:fbil"].as_of == _stale_date()
+    assert stored["test:default"].source_url == _LADDER_DEFAULT.url
+
+    # STATE 1 OF 3: degraded. Published rate, moved provenance, not urgent.
+    assert [code for code, _ in alerts] == ["fx_source_degraded"]
+    assert alerts[0][1] == {
+        "source": "test:default",
+        "preferred_source": "test:fbil",
+        "reason": "stale_publication",
+    }
+
+    # And the conversion actually follows: `latest_observation` picks the newest
+    # publication, which is the serving rung, with no second spelling of the ladder in SQL.
+    cost = _engine()._cost(_cost_payload())
+    assert cost is not None
+    assert cost.fx_rate == DEFAULT_RATE
+    assert cost.fx_source == "test:default", "the ROW says which rung priced this minute"
+    assert cost.fx_as_of == date.today()
+
+
+async def test_a_preferred_rung_that_does_not_answer_still_reaches_the_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A quiet provider and an unreachable one are the same thing to the ladder and
+    different things to an operator, so the alarm carries WHICH."""
+    alerts, fetched = _install_ladder(
+        monkeypatch,
+        {
+            "test:fbil": FxFeedUnreachableError("the endpoint answered HTTP 503"),
+            "test:default": (DEFAULT_RATE, date.today()),
+        },
+    )
+    summary = json.loads(await pull_fx_rate({"job_try": 1}))
+    assert fetched == ["test:fbil", "test:default"]
+    assert summary["serving"] == "fallback_source"
+    assert alerts[0][0] == "fx_source_degraded"
+    assert alerts[0][1]["reason"] == "request_failed"
+
+
+async def test_a_response_the_parser_refuses_is_a_different_reason_than_a_quiet_one(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """`unusable_response` means the vendor's CONTRACT moved, which is the one refusal an
+    operator must read docs about rather than wait out. It may not be reported as
+    availability."""
+    alerts, _ = _install_ladder(
+        monkeypatch,
+        {
+            "test:fbil": FxPullError("the response carried no numeric `rate`"),
+            "test:default": (DEFAULT_RATE, date.today()),
+        },
+    )
+    await pull_fx_rate({"job_try": 1})
+    assert alerts[0][1]["reason"] == "unusable_response"
+
+
+async def test_the_typed_constant_serves_only_when_every_published_rung_is_stale(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """STATE 2 OF 3, and the one that used to be indistinguishable from state 1. Both
+    published rungs are behind the ceiling, so the operator's number is what money uses —
+    and `fx_rate_stale` now means exactly that about the WHOLE ladder."""
+    alerts, fetched = _install_ladder(
+        monkeypatch,
+        {
+            "test:fbil": (FBIL_RATE, _stale_date()),
+            "test:default": (DEFAULT_RATE, _stale_date()),
+        },
+    )
+    summary = json.loads(await pull_fx_rate({"job_try": 1}))
+    assert fetched == ["test:fbil", "test:default"], "every rung is tried before the constant"
+    assert summary["serving"] == "configured_fallback"
+    assert summary["source"] is None and summary["rate"] is None
+
+    codes = [code for code, _ in alerts]
+    assert "fx_rate_stale" in codes, "the bottom of the ladder is the alarm it always was"
+    assert "fx_source_degraded" not in codes, "nothing is degraded when nothing is serving"
+    assert "fx_pull_failed" not in codes, "the feeds answered — they are behind, not broken"
+
+    cost = _engine()._cost(_cost_payload())
+    assert cost is not None
+    assert cost.fx_rate == FALLBACK
+    assert cost.fx_source == "configured:usd_inr_rate"
+    assert cost.fx_as_of is None, "a typed number has no publication date"
+
+
+async def test_the_plausibility_band_applies_to_the_fallback_rung(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fallback that skipped the guard would be the 1/100th-of-cost defect with a ladder
+    to hide in. Rung 2 is written through the same door, so it is judged the same way."""
+    alerts, _ = _install_ladder(
+        monkeypatch,
+        {
+            "test:fbil": (FBIL_RATE, _stale_date()),
+            "test:default": (FBIL_RATE * 10, date.today()),
+        },
+    )
+    with pytest.raises(ImplausibleRateError):
+        await pull_fx_rate({"job_try": 1})
+    assert [code for code, _ in alerts] == ["fx_rate_implausible"]
+    assert alerts[0][1]["source"] == "test:default", "the alarm names the rung that produced it"
+    # The belief the platform already held survives — the refused number is not stored.
+    async with untenanted_session() as session:
+        assert {row.source for row in await recent_observations(session, limit=50)} == {"test:fbil"}
+
+
+async def test_the_ladder_does_not_descend_past_a_rate_it_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """ "The feed is quiet" is what the ladder is for. "The feed answered and we do not
+    believe it" is a human's problem from the first occurrence — descending would hand the
+    platform to another source without anybody looking at the first one."""
+    async with untenanted_session() as session:
+        await record_observation(
+            session, rate=FBIL_RATE, as_of=date.today(), source="test:seed", source_url="u"
+        )
+    alerts, fetched = _install_ladder(
+        monkeypatch,
+        {
+            "test:fbil": (FBIL_RATE * 10, date.today()),
+            "test:default": (DEFAULT_RATE, date.today()),
+        },
+    )
+    with pytest.raises(ImplausibleRateError):
+        await pull_fx_rate({"job_try": 1})
+    assert fetched == ["test:fbil"], "rung 2 is NEVER asked after a rate we refused"
+    assert [code for code, _ in alerts] == ["fx_rate_implausible"]
+    assert alerts[0][1]["source"] == "test:fbil"
+
+
+async def test_every_rung_failing_is_the_pull_failing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """STATE 3 OF 3, unchanged: nothing answered at all, so the retry ladder runs and the
+    last attempt pages. A rung that merely published something OLD must never land here —
+    that is the distinction `hard_failure` draws and the two states above assert."""
+    from arq import Retry
+
+    alerts, _ = _install_ladder(
+        monkeypatch,
+        {
+            "test:fbil": FxFeedUnreachableError("the endpoint answered HTTP 503"),
+            "test:default": FxFeedUnreachableError("the endpoint answered HTTP 503"),
+        },
+    )
+    with pytest.raises(Retry):
+        await pull_fx_rate({"job_try": 1})
+    assert alerts == [], "an early attempt must not page anybody"
+    with pytest.raises(FxPullError):
+        await pull_fx_rate({"job_try": 3})
+    assert [code for code, _ in alerts] == ["fx_pull_failed"]
+
+
+async def test_both_rungs_are_read_by_one_parser() -> None:
+    """Rung 2 is the same endpoint with one query parameter removed, so it has the same
+    landmines — a future `date` that would disable the staleness ceiling, a pair that is
+    not the one we asked for, a `rate` whose type changed. A second parser is a second
+    place those get fixed one at a time, so there is not one."""
+    import inspect
+
+    import apps.workers.fx_pull as job_module
+    import httpx
+
+    poisoned = _body(date=(date.today() + timedelta(days=30)).isoformat())
+    for rung in LADDER:
+        client = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _r: httpx.Response(200, text=poisoned))
+        )
+        with pytest.raises(FxPullError):
+            await fetch_published_rate(rung, client)
+        await client.aclose()
+
+    # Structural, not behavioural: the parse happens in exactly one place. A second
+    # `json.loads` in this module is a second contract to keep in step with the vendor's.
+    source = inspect.getsource(job_module)
+    assert source.count("json.loads(") == 1, "one parser, one place the vendor's shape lives"
+
+
+async def test_the_fallback_rung_asks_for_the_unfiltered_rate() -> None:
+    """The whole of rung 2 is the absence of one query parameter, so it is asserted rather
+    than trusted to a comment — a fallback that silently still filtered to the dead
+    provider would look healthy and fix nothing."""
+    import httpx
+
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, text=_body())
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    await fetch_published_rate(DEFAULT_RUNG, client)
+    await fetch_published_rate(FBIL_RUNG, client)
+    await client.aclose()
+    assert seen == [
+        "https://api.frankfurter.dev/v2/rate/USD/INR",
+        "https://api.frankfurter.dev/v2/rate/USD/INR?providers=FBIL",
+    ]

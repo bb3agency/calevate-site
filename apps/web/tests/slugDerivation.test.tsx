@@ -32,7 +32,9 @@ const TELUGU = "మా క్లినిక్";
 const HINDI = "नमस्ते क्लिनिक";
 
 function fillName(value: string) {
-  fireEvent.change(screen.getByPlaceholderText("Sunrise Clinic"), { target: { value } });
+  fireEvent.change(screen.getByPlaceholderText("Sunrise Clinic"), {
+    target: { value },
+  });
 }
 
 function slugInput(): HTMLInputElement {
@@ -93,7 +95,9 @@ describe("the new-client wizard", () => {
     fillName(TELUGU);
     fireEvent.change(slugInput(), { target: { value: "ma-clinic" } });
 
-    expect(container.textContent).not.toContain("We cannot build a web address");
+    expect(container.textContent).not.toContain(
+      "We cannot build a web address",
+    );
     expect(container.textContent).toContain("ma-clinic");
     expect(slugInput().required).toBe(false);
   });
@@ -106,7 +110,9 @@ describe("the new-client wizard", () => {
 
     // An empty form is not a form with a problem — the sentence appears when the operator
     // has typed a name we cannot use, not on arrival.
-    expect(container.textContent).not.toContain("We cannot build a web address");
+    expect(container.textContent).not.toContain(
+      "We cannot build a web address",
+    );
     expect(slugInput().required).toBe(false);
   });
 });

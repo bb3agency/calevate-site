@@ -21,7 +21,8 @@ vendor account, the refresh route covers the case where that person is us, and t
 staleness budget is an hour of a list nobody edited. `run_at_startup` is NOT set, for the
 reason `fx_pull` gives — a deploy of N workers would otherwise fire N simultaneous vendor
 requests for one list that none of them urgently needs, and a process with no cached rows
-serves `agents/voices.SEED_CATALOG` rather than nothing.
+offers NO voices and says so on every picker (D-588 deleted the compiled seed that used
+to answer here).
 
 IDEMPOTENT, KEYED, RETRIED (BACKEND-PATTERNS §4/§5)
 ---------------------------------------------------

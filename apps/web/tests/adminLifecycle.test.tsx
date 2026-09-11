@@ -63,12 +63,15 @@ const ME: AdminMe = {
 };
 
 function render(routes: Partial<Routes> = {}) {
-  return renderAdminRoute(<LifecyclePage params={routeParams({ tenantId: TENANT })} />, {
-    [TENANT_PATH]: tenant(),
-    [ADMIN_ME_PATH]: ME,
-    [ERASURE_PATH]: [],
-    ...routes,
-  });
+  return renderAdminRoute(
+    <LifecyclePage params={routeParams({ tenantId: TENANT })} />,
+    {
+      [TENANT_PATH]: tenant(),
+      [ADMIN_ME_PATH]: ME,
+      [ERASURE_PATH]: [],
+      ...routes,
+    },
+  );
 }
 
 /** A superadmin: `ops:manage` is what unlocks the erasure control (admin/routes.py). */
@@ -80,13 +83,20 @@ const SUPERADMIN: AdminMe = {
 
 /** The erasure panel only ever renders for a CLOSED account — the API 409s any other. */
 function renderClosed(routes: Partial<Routes> = {}) {
-  return render({ [TENANT_PATH]: tenant("churned"), [ADMIN_ME_PATH]: SUPERADMIN, ...routes });
+  return render({
+    [TENANT_PATH]: tenant("churned"),
+    [ADMIN_ME_PATH]: SUPERADMIN,
+    ...routes,
+  });
 }
 
 describe("the account state screen", () => {
   it("refuses to render a state it could not read", async () => {
     const { container } = await render({
-      [TENANT_PATH]: problem(503, { title: "Upstream unavailable", retryable: true }),
+      [TENANT_PATH]: problem(503, {
+        title: "Upstream unavailable",
+        retryable: true,
+      }),
     });
 
     await waitFor(() => {
@@ -99,31 +109,50 @@ describe("the account state screen", () => {
     const { container } = await render();
 
     await screen.findByRole("button", { name: /Suspend/ });
-    expect(container.textContent).toContain("Outbound dialling stops at the next dial");
-    expect(container.textContent).toContain("Inbound answering is deliberately unaffected");
+    expect(container.textContent).toContain(
+      "Outbound dialling stops at the next dial",
+    );
+    expect(container.textContent).toContain(
+      "Inbound answering is deliberately unaffected",
+    );
   });
 
   it("will not send a suspension with no reason", async () => {
     const { calls } = await render({
-      [`POST ${STATUS_PATH}`]: { tenant_id: TENANT, status: "suspended", changed: true },
+      [`POST ${STATUS_PATH}`]: {
+        tenant_id: TENANT,
+        status: "suspended",
+        changed: true,
+      },
     });
 
-    const button = (await screen.findByRole("button", { name: /Suspend/ })) as HTMLButtonElement;
+    const button = (await screen.findByRole("button", {
+      name: /Suspend/,
+    })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     fireEvent.click(button);
     expect(calls.some((call) => call.path === STATUS_PATH)).toBe(false);
 
-    fireEvent.change(screen.getByLabelText("Why"), { target: { value: "non-payment, 60 days" } });
+    fireEvent.change(screen.getByLabelText("Why"), {
+      target: { value: "non-payment, 60 days" },
+    });
     await waitFor(() => {
       expect(
-        (screen.getByRole("button", { name: /Suspend/ }) as HTMLButtonElement).disabled,
+        (screen.getByRole("button", { name: /Suspend/ }) as HTMLButtonElement)
+          .disabled,
       ).toBe(false);
     });
     fireEvent.click(screen.getByRole("button", { name: /Suspend/ }));
     await waitFor(() => {
-      expect(calls.some((call) => call.method === "POST" && call.path === STATUS_PATH)).toBe(true);
+      expect(
+        calls.some(
+          (call) => call.method === "POST" && call.path === STATUS_PATH,
+        ),
+      ).toBe(true);
     });
-    const post = calls.find((call) => call.method === "POST" && call.path === STATUS_PATH);
+    const post = calls.find(
+      (call) => call.method === "POST" && call.path === STATUS_PATH,
+    );
     expect(JSON.parse(post?.body ?? "{}")).toEqual({
       status: "suspended",
       reason: "non-payment, 60 days",
@@ -135,7 +164,11 @@ describe("the account state screen", () => {
   it("asks for no reason to reactivate — the state it moves to is the harmless one", async () => {
     const { calls } = await render({
       [TENANT_PATH]: tenant("suspended"),
-      [`POST ${STATUS_PATH}`]: { tenant_id: TENANT, status: "active", changed: true },
+      [`POST ${STATUS_PATH}`]: {
+        tenant_id: TENANT,
+        status: "active",
+        changed: true,
+      },
     });
 
     const button = (await screen.findByRole("button", {
@@ -145,10 +178,15 @@ describe("the account state screen", () => {
     fireEvent.click(button);
 
     await waitFor(() => {
-      expect(calls.some((call) => call.method === "POST" && call.path === STATUS_PATH)).toBe(true);
+      expect(
+        calls.some(
+          (call) => call.method === "POST" && call.path === STATUS_PATH,
+        ),
+      ).toBe(true);
     });
     expect(
-      JSON.parse(calls.find((call) => call.method === "POST")?.body ?? "{}").status,
+      JSON.parse(calls.find((call) => call.method === "POST")?.body ?? "{}")
+        .status,
     ).toBe("active");
   });
 
@@ -165,16 +203,24 @@ describe("the account state screen", () => {
     const links = screen.getAllByRole("link", { name: /Closing the account/ });
     expect(links.length).toBeGreaterThan(0);
     for (const link of links) {
-      expect(link.getAttribute("href")).toBe(`/admin/tenants/${TENANT}/closure`);
+      expect(link.getAttribute("href")).toBe(
+        `/admin/tenants/${TENANT}/closure`,
+      );
     }
   });
 
   it("reports an already-in-state result as unchanged", async () => {
     const { container } = await render({
-      [`POST ${STATUS_PATH}`]: { tenant_id: TENANT, status: "suspended", changed: false },
+      [`POST ${STATUS_PATH}`]: {
+        tenant_id: TENANT,
+        status: "suspended",
+        changed: false,
+      },
     });
 
-    fireEvent.change(await screen.findByLabelText("Why"), { target: { value: "chargeback" } });
+    fireEvent.change(await screen.findByLabelText("Why"), {
+      target: { value: "chargeback" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /Suspend/ }));
 
     await waitFor(() => {
@@ -196,23 +242,37 @@ describe("the account state screen", () => {
      */
     await render();
 
-    const select = (await screen.findByLabelText("New state")) as HTMLSelectElement;
+    const select = (await screen.findByLabelText(
+      "New state",
+    )) as HTMLSelectElement;
     const options = Array.from(select.options).map((option) => option.value);
     expect(options).toEqual(["active", "suspended"]);
-    expect(screen.queryByRole("button", { name: /Close the account/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Close the account/ }),
+    ).toBeNull();
     // The typed word went with the move it guarded; nothing left here is irreversible.
     expect(screen.queryByLabelText(/to confirm/)).toBeNull();
   });
 
   it("sends the suspend with no confirmation header — the header went with the close", async () => {
     const { calls } = await render({
-      [`POST ${STATUS_PATH}`]: { tenant_id: TENANT, status: "suspended", changed: true },
+      [`POST ${STATUS_PATH}`]: {
+        tenant_id: TENANT,
+        status: "suspended",
+        changed: true,
+      },
     });
 
-    fireEvent.change(await screen.findByLabelText("Why"), { target: { value: "non-payment" } });
+    fireEvent.change(await screen.findByLabelText("Why"), {
+      target: { value: "non-payment" },
+    });
     fireEvent.click(screen.getByRole("button", { name: /Suspend/ }));
     await waitFor(() => {
-      expect(calls.some((call) => call.method === "POST" && call.path === STATUS_PATH)).toBe(true);
+      expect(
+        calls.some(
+          (call) => call.method === "POST" && call.path === STATUS_PATH,
+        ),
+      ).toBe(true);
     });
     // A confirmation attached to a reversible act is a confirmation of nothing, and it
     // teaches an operator to clear the prompt without reading it.
@@ -230,7 +290,9 @@ describe("the account state screen", () => {
   it("disables the control, with its reason, for a session that may not use it", async () => {
     await render({ [ADMIN_ME_PATH]: { ...ME, permissions: ["org:read"] } });
 
-    const button = (await screen.findByRole("button", { name: /Suspend/ })) as HTMLButtonElement;
+    const button = (await screen.findByRole("button", {
+      name: /Suspend/,
+    })) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     expect(screen.getByText(/change an account's state/)).toBeDefined();
   });
@@ -252,7 +314,9 @@ describe("the account state screen", () => {
  */
 describe("the erasure panel", () => {
   it("shows a skeleton, and no erasure form, while the filed-erasures read is in flight", async () => {
-    const { container } = await renderClosed({ [ERASURE_PATH]: stillLoading() });
+    const { container } = await renderClosed({
+      [ERASURE_PATH]: stillLoading(),
+    });
 
     // The card is there and it is visibly waiting — `Skeleton` is the only thing in this
     // app that animates, and it is `aria-hidden`, so the class is how a test sees it.
@@ -269,7 +333,10 @@ describe("the erasure panel", () => {
 
   it("refuses, rather than offering an erasure it could not rule out", async () => {
     const { container } = await renderClosed({
-      [ERASURE_PATH]: problem(503, { title: "Upstream unavailable", retryable: true }),
+      [ERASURE_PATH]: problem(503, {
+        title: "Upstream unavailable",
+        retryable: true,
+      }),
     });
 
     // A refusal the operator can act on, naming WHY the form is closed — not a blank
@@ -278,11 +345,15 @@ describe("the erasure panel", () => {
     // too, so scoping off it would look at the skeleton and find no alert.
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("Upstream unavailable");
-    expect(alert.closest("section")?.querySelector("h2")?.textContent).toBe("Data erasure");
+    expect(alert.closest("section")?.querySelector("h2")?.textContent).toBe(
+      "Data erasure",
+    );
     expect(container.textContent).toContain(
       "we cannot tell you whether this client's data has already",
     );
-    expect(container.textContent).toContain("Filing a second one would start a destructive job");
+    expect(container.textContent).toContain(
+      "Filing a second one would start a destructive job",
+    );
     expect(screen.queryByRole("button", ERASE_BUTTON)).toBeNull();
   });
 
@@ -291,7 +362,10 @@ describe("the erasure panel", () => {
     // for the wrong reason and this file would be testing nothing at all.
     await renderClosed();
 
-    const button = (await screen.findByRole("button", ERASE_BUTTON)) as HTMLButtonElement;
+    const button = (await screen.findByRole(
+      "button",
+      ERASE_BUTTON,
+    )) as HTMLButtonElement;
     expect(button.disabled).toBe(true); // no reason typed yet
     // The most irreversible submit in the product is rose, never brand green (F-2).
     expect(button.className).toContain("bg-rose-600");
@@ -320,7 +394,9 @@ describe("the erasure panel", () => {
       ],
     });
 
-    await screen.findByText(/An erasure has been filed for this client and is running/);
+    await screen.findByText(
+      /An erasure has been filed for this client and is running/,
+    );
     expect(screen.queryByRole("button", ERASE_BUTTON)).toBeNull();
   });
 

@@ -25,10 +25,14 @@ describe("the gloss the reader gets", () => {
   it("prints the term and carries the map's words as its accessible name", () => {
     render(<Term id="dlt" />);
     const el = screen.getByText("DLT");
-    expect(el.getAttribute("aria-label")).toBe("DLT: India's telecom message registry");
+    expect(el.getAttribute("aria-label")).toBe(
+      "DLT: India's telecom message registry",
+    );
     // The gloss is drawn by CSS from `data-gloss`, so the rendered TEXT stays the term —
     // the property every `getByText` on every screen using a term depends on.
-    expect(el.getAttribute("data-gloss")).toBe("India's telecom message registry");
+    expect(el.getAttribute("data-gloss")).toBe(
+      "India's telecom message registry",
+    );
     expect(el.textContent).toBe("DLT");
   });
 
@@ -40,13 +44,17 @@ describe("the gloss the reader gets", () => {
 
   it("gives an operator the precise wording of the same term", () => {
     render(<Term id="kyc" audience="operator" />);
-    expect(screen.getByText("KYC").getAttribute("data-gloss")).toBe(GLOSSARY.kyc.operator);
+    expect(screen.getByText("KYC").getAttribute("data-gloss")).toBe(
+      GLOSSARY.kyc.operator,
+    );
     expect(GLOSSARY.kyc.operator).not.toBe(GLOSSARY.kyc.gloss);
   });
 
   it("falls back to the one wording for a term that has no operator variant", () => {
     render(<Term id="dlt" audience="operator" />);
-    expect(screen.getByText("DLT").getAttribute("data-gloss")).toBe(GLOSSARY.dlt.gloss);
+    expect(screen.getByText("DLT").getAttribute("data-gloss")).toBe(
+      GLOSSARY.dlt.gloss,
+    );
   });
 });
 
@@ -64,11 +72,16 @@ describe("the box is placed where it can be read", () => {
   it("keeps a box beside a term at the right-hand edge inside the viewport", () => {
     // The exact case the browser measured: a term in a right-aligned row at x=1194.
     const at = glossPosition({ top: 300, bottom: 316, left: 1194 }, VIEWPORT);
-    expect(Number.parseInt(at.left, 10) + 256).toBeLessThanOrEqual(VIEWPORT.width);
+    expect(Number.parseInt(at.left, 10) + 256).toBeLessThanOrEqual(
+      VIEWPORT.width,
+    );
   });
 
   it("does not drag a box off the LEFT edge to achieve that", () => {
-    const at = glossPosition({ top: 300, bottom: 316, left: 4 }, { width: 320, height: 640 });
+    const at = glossPosition(
+      { top: 300, bottom: 316, left: 4 },
+      { width: 320, height: 640 },
+    );
     expect(Number.parseInt(at.left, 10)).toBeGreaterThanOrEqual(0);
   });
 
@@ -206,14 +219,19 @@ describe("every screen that uses a term explains it", () => {
     for (const file of [...files].sort()) {
       const source = readFileSync(join(WEB_ROOT, file), "utf8");
       const strings = copy.filter((c) => c.file === file);
-      for (const [id, pattern] of Object.entries(PATTERNS) as [GlossaryId, RegExp][]) {
+      for (const [id, pattern] of Object.entries(PATTERNS) as [
+        GlossaryId,
+        RegExp,
+      ][]) {
         const hits = strings.filter((s) => pattern.test(s.text));
         if (hits.length === 0) continue;
         // The screen explains it if it glosses it anywhere — once per screen is the rule,
         // not once per sentence.
         if (new RegExp(`<Term\\s+id="${id}"`).test(source)) continue;
         if (Object.hasOwn(NO_GLOSS_NEEDED, `${file}:${id}`)) continue;
-        bare.push(`${file}:${hits[0].line} — "${id}" in: ${hits[0].text.trim().slice(0, 70)}`);
+        bare.push(
+          `${file}:${hits[0].line} — "${id}" in: ${hits[0].text.trim().slice(0, 70)}`,
+        );
       }
     }
     expect(
@@ -230,18 +248,24 @@ describe("every screen that uses a term explains it", () => {
     // `TermGloss` stays public — it is the mechanism, and a one-off term that belongs to a
     // single screen may still use it. What it may NOT do is give a glossary term a second
     // wording, which is the drift `lib/glossary` was written to end.
-    const owned = new Set(Object.values(GLOSSARY).map((e) => e.term.toLowerCase()));
+    const owned = new Set(
+      Object.values(GLOSSARY).map((e) => e.term.toLowerCase()),
+    );
     const rogue: string[] = [];
     for (const root of ROOTS) {
       for (const file of tsSources(join(WEB_ROOT, root))) {
         // Over the BLANKED source: `components/ui.tsx`'s own docstring shows
         // `<TermGloss term="DLT">…` as the example of the mechanism, and a guard that
         // reads its own documentation as the defect is the failure `sourceScan` exists for.
-        const source = blankComments(readFileSync(file, "utf8").split("\n")).join("\n");
+        const source = blankComments(
+          readFileSync(file, "utf8").split("\n"),
+        ).join("\n");
         for (const m of source.matchAll(/<TermGloss\s+term="([^"]+)"/g)) {
           const printed = m[1].toLowerCase();
           if ([...owned].some((t) => printed.includes(t))) {
-            rogue.push(`${file.slice(WEB_ROOT.length + 1)} — <TermGloss term="${m[1]}">`);
+            rogue.push(
+              `${file.slice(WEB_ROOT.length + 1)} — <TermGloss term="${m[1]}">`,
+            );
           }
         }
       }

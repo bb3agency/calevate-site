@@ -52,7 +52,6 @@ from apps.api.agents.models import CALL_CAP_DEFAULT_S
 from apps.api.agents.publishing_routes import router as publishing_router
 from apps.api.agents.routes import router as agents_router
 from apps.api.agents.voice_routes import router as voice_router
-from apps.api.agents.voices import DEFAULT_SPEAKER, DEFAULT_VOICE_ID
 from apps.api.core.errors import ProblemError, install_error_handlers
 from apps.api.core.rbac import (
     MUTATING_PERMISSIONS,
@@ -68,8 +67,9 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 from tests.conftest import accept_agreements
+from tests.voice_fixture import TEST_SPEAKER, TEST_VOICE_ID
 
-VOICE_ID = DEFAULT_VOICE_ID
+VOICE_ID = TEST_VOICE_ID
 #: A second valid cap, distinct from `CALL_CAP_DEFAULT_S`, so "the write moved it" and
 #: "the column was already that" are distinguishable.
 SHORTER_CAP_S = 300
@@ -266,7 +266,7 @@ async def test_an_owner_sets_the_voice_on_their_own_live_agent_and_it_reaches_th
     row = await _row(tenant_id, agent_id)
     assert (row[0], row[1], row[2]) == (VOICE_ID, "sarvam", VOICE_ID)
     config = await _engine_config(engine, tenant_id, agent_id)
-    assert config.models.tts_voice == DEFAULT_SPEAKER
+    assert config.models.tts_voice == TEST_SPEAKER
 
 
 # --- 2. the failure path ---------------------------------------------------------------
@@ -372,7 +372,7 @@ async def test_two_simultaneous_voice_writes_serialize_and_the_engine_ends_up_ag
     row = await _row(tenant_id, agent_id)
     assert row[0] == VOICE_ID
     assert row[2] == row[0], "the mirror must name the voice the row holds"
-    assert (await _engine_config(engine, tenant_id, agent_id)).models.tts_voice == DEFAULT_SPEAKER
+    assert (await _engine_config(engine, tenant_id, agent_id)).models.tts_voice == TEST_SPEAKER
 
 
 async def test_one_audit_row_per_decision_not_per_click() -> None:

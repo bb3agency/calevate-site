@@ -5,7 +5,10 @@ import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import LlmModelPage from "@/app/admin/tenants/[tenantId]/llm-model/page";
 import type { TenantSummary } from "@/lib/api/admin";
 import { adminLlmDefaultsPath } from "@/lib/api/llmDefaults";
-import type { LlmModelOption, OrganizationLlmDefaults } from "@/lib/api/llmModels";
+import type {
+  LlmModelOption,
+  OrganizationLlmDefaults,
+} from "@/lib/api/llmModels";
 
 import { renderAdminRoute, routeParams } from "./adminRoute";
 import { problem, type Routes } from "./harness";
@@ -128,7 +131,9 @@ const UNDEPLOYED = option({
 });
 
 /** The client on OUR default: no choice of their own. */
-function inheriting(over: Partial<OrganizationLlmDefaults> = {}): OrganizationLlmDefaults {
+function inheriting(
+  over: Partial<OrganizationLlmDefaults> = {},
+): OrganizationLlmDefaults {
   return {
     default_llm_model: null,
     effective_default: PLATFORM.model,
@@ -148,7 +153,9 @@ function pinned(): OrganizationLlmDefaults {
 
 /** The save control, typed — this suite has no jest-dom, so `disabled` is read directly. */
 function saveButton(): HTMLButtonElement {
-  return screen.getByRole("button", { name: "Save this model" }) as HTMLButtonElement;
+  return screen.getByRole("button", {
+    name: "Save this model",
+  }) as HTMLButtonElement;
 }
 
 function confirmField(name: string): HTMLInputElement {
@@ -156,12 +163,15 @@ function confirmField(name: string): HTMLInputElement {
 }
 
 function render(routes: Partial<Routes> = {}) {
-  return renderAdminRoute(<LlmModelPage params={routeParams({ tenantId: TENANT })} />, {
-    [TENANT_PATH]: tenant(),
-    [ADMIN_ME_PATH]: OPERATOR,
-    [DEFAULTS_PATH]: inheriting(),
-    ...routes,
-  });
+  return renderAdminRoute(
+    <LlmModelPage params={routeParams({ tenantId: TENANT })} />,
+    {
+      [TENANT_PATH]: tenant(),
+      [ADMIN_ME_PATH]: OPERATOR,
+      [DEFAULTS_PATH]: inheriting(),
+      ...routes,
+    },
+  );
 }
 
 describe("the per-client language-model screen", () => {
@@ -174,12 +184,16 @@ describe("the per-client language-model screen", () => {
       }),
     });
 
-    await screen.findByText("Cannot change the model while the current one is unreadable");
+    await screen.findByText(
+      "Cannot change the model while the current one is unreadable",
+    );
 
     // Not a disabled radio and not an empty form: no choice control exists at all,
     // because a blind write here replaces a colleague's change AND re-prices the client.
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
-    expect(screen.queryByRole("button", { name: /Save this model/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Save this model/ }),
+    ).toBeNull();
     // And nothing on screen states a model, or a price, that we do not know.
     expect(container.textContent).not.toContain("In effect");
     // No figure either: the top notice explains that this control moves OUR cost,
@@ -200,7 +214,9 @@ describe("the per-client language-model screen", () => {
     const { container } = await render({ [DEFAULTS_PATH]: pinned() });
 
     await screen.findByText(/from this client's own choice/);
-    expect(container.textContent).not.toContain("None — follows the platform default");
+    expect(container.textContent).not.toContain(
+      "None — follows the platform default",
+    );
   });
 
   it("prices every option on BOTH sides of the margin, and says which way each moves", async () => {
@@ -211,8 +227,12 @@ describe("the per-client language-model screen", () => {
     // printed at the precision the server sent it — NOT `formatINR`'s two decimals, which
     // would round ₹0.4830 to ₹0.48 on a field an invoice multiplies by.
     await screen.findByText(new RegExp(`₹${PREMIUM_RATE} per minute to us`));
-    expect(container.textContent).toContain(`₹${DEFAULT_RATE} per minute to us`);
-    expect(container.textContent).toContain(`+₹${PREMIUM_SURCHARGE} per minute to them`);
+    expect(container.textContent).toContain(
+      `₹${DEFAULT_RATE} per minute to us`,
+    );
+    expect(container.textContent).toContain(
+      `+₹${PREMIUM_SURCHARGE} per minute to them`,
+    );
     // A plan quoting no surcharge for the base model says so in words, on the operator's
     // screen as on the client's: "₹0.0000" is a rupee amount of nothing.
     expect(container.textContent).toContain("no extra charge to them");
@@ -220,7 +240,9 @@ describe("the per-client language-model screen", () => {
     // an operator is moving on their behalf — what they will be CHARGED — and both
     // deltas appear in the summary above the button, where the decision is confirmed.
     // The difference is the exact decimal, which a float subtraction cannot produce.
-    expect(container.textContent).toContain(`₹${PREMIUM_SURCHARGE} per minute more than now`);
+    expect(container.textContent).toContain(
+      `₹${PREMIUM_SURCHARGE} per minute more than now`,
+    );
     expect(container.textContent).not.toContain("0.24300000000000002");
   });
 
@@ -228,7 +250,9 @@ describe("the per-client language-model screen", () => {
     const { container } = await render();
 
     fireEvent.click(await screen.findByRole("radio", { name: "gpt-4.1-mini" }));
-    expect(container.textContent).toContain("This will record, against Sri Traders");
+    expect(container.textContent).toContain(
+      "This will record, against Sri Traders",
+    );
     // What the client pays, and what it costs us, as two lines. One line could only ever
     // be one of the two, and the screen's own prose contradicted itself about which for
     // as long as there was only one figure.
@@ -248,10 +272,14 @@ describe("the per-client language-model screen", () => {
     await screen.findByText(/type gpt-4\.1-mini in the field above/);
 
     // A near miss is still a miss: the field is the double-key on which model was meant.
-    fireEvent.change(confirmField(PREMIUM.model), { target: { value: "gpt-4.1" } });
+    fireEvent.change(confirmField(PREMIUM.model), {
+      target: { value: "gpt-4.1" },
+    });
     expect(saveButton().disabled).toBe(true);
 
-    fireEvent.change(confirmField(PREMIUM.model), { target: { value: PREMIUM.model } });
+    fireEvent.change(confirmField(PREMIUM.model), {
+      target: { value: PREMIUM.model },
+    });
     expect(saveButton().disabled).toBe(false);
   });
 
@@ -259,12 +287,16 @@ describe("the per-client language-model screen", () => {
     await render({ [DEFAULTS_PATH]: pinned() });
 
     fireEvent.click(await screen.findByRole("radio", { name: "gpt-4o-mini" }));
-    fireEvent.change(confirmField(PLATFORM.model), { target: { value: PLATFORM.model } });
+    fireEvent.change(confirmField(PLATFORM.model), {
+      target: { value: PLATFORM.model },
+    });
     expect(saveButton().disabled).toBe(false);
 
     // Same outcome model, a different ROUTE to it — the confirmation must not carry over,
     // or a phrase typed for one row would confirm a change made on another.
-    fireEvent.click(screen.getByRole("radio", { name: "Follow the platform default" }));
+    fireEvent.click(
+      screen.getByRole("radio", { name: "Follow the platform default" }),
+    );
     expect(confirmField(PLATFORM.model).value).toBe("");
     expect(saveButton().disabled).toBe(true);
   });
@@ -273,14 +305,18 @@ describe("the per-client language-model screen", () => {
     const { calls } = await render({ [`PUT ${DEFAULTS_PATH}`]: {} });
 
     fireEvent.click(await screen.findByRole("radio", { name: "gpt-4.1-mini" }));
-    fireEvent.change(confirmField(PREMIUM.model), { target: { value: PREMIUM.model } });
+    fireEvent.change(confirmField(PREMIUM.model), {
+      target: { value: PREMIUM.model },
+    });
     fireEvent.click(saveButton());
 
     await screen.findByText(/agents default to/);
     const write = calls.find((call) => call.method === "PUT");
     expect(write, "the screen must send the change").toBeTruthy();
     expect(write!.path).toBe(DEFAULTS_PATH);
-    expect(JSON.parse(write!.body ?? "{}")).toEqual({ default_llm_model: PREMIUM.model });
+    expect(JSON.parse(write!.body ?? "{}")).toEqual({
+      default_llm_model: PREMIUM.model,
+    });
     // The route publishes no confirmation string, and a header the API ignores is a
     // confirmation of nothing — the typed field above is what confirms this write.
     expect(write!.headers["X-Confirm-Action"]).toBeUndefined();
@@ -292,15 +328,21 @@ describe("the per-client language-model screen", () => {
       [`PUT ${DEFAULTS_PATH}`]: {},
     });
 
-    fireEvent.click(await screen.findByRole("radio", { name: "Follow the platform default" }));
+    fireEvent.click(
+      await screen.findByRole("radio", { name: "Follow the platform default" }),
+    );
     // The confirmation is the model they FALL BACK ONTO, not the word "inherit".
-    fireEvent.change(confirmField(PLATFORM.model), { target: { value: PLATFORM.model } });
+    fireEvent.change(confirmField(PLATFORM.model), {
+      target: { value: PLATFORM.model },
+    });
     fireEvent.click(saveButton());
 
     await screen.findByText(/follows the platform default again/);
     const write = calls.find((call) => call.method === "PUT");
     expect(write, "the screen must send the clear").toBeTruthy();
-    expect(JSON.parse(write!.body ?? "{}")).toEqual({ default_llm_model: null });
+    expect(JSON.parse(write!.body ?? "{}")).toEqual({
+      default_llm_model: null,
+    });
   });
 
   it("refuses to clear a choice this client does not have", async () => {
@@ -325,7 +367,9 @@ describe("the per-client language-model screen", () => {
       },
     });
 
-    await screen.findByText("This client is pinned to a model the platform no longer offers");
+    await screen.findByText(
+      "This client is pinned to a model the platform no longer offers",
+    );
     // The retired id is shown rather than hidden — a hidden pin is how a client stays on
     // something nobody can see — and no price is invented for it.
     expect(container.textContent).toContain("sarvam-105b");
@@ -340,11 +384,12 @@ describe("the per-client language-model screen", () => {
       },
     });
 
-    fireEvent.click(await screen.findByRole("radio", { name: "Follow the platform default" }));
+    fireEvent.click(
+      await screen.findByRole("radio", { name: "Follow the platform default" }),
+    );
     await screen.findByText(/names no default model/);
     expect(saveButton().disabled).toBe(true);
   });
-
 
   it("names each option by its model id, and puts the money in the description", async () => {
     /**
@@ -361,13 +406,23 @@ describe("the per-client language-model screen", () => {
      * the row, rendered through `providerLabel`, so the row's description is money only and
      * the wire token never reaches the screen.
      */
-    await render({ [DEFAULTS_PATH]: inheriting({ available: [PLATFORM, PREMIUM] }) });
+    await render({
+      [DEFAULTS_PATH]: inheriting({ available: [PLATFORM, PREMIUM] }),
+    });
 
-    const row = (await screen.findByRole("radio", { name: "gpt-4o-mini" })) as HTMLInputElement;
+    const row = (await screen.findByRole("radio", {
+      name: "gpt-4o-mini",
+    })) as HTMLInputElement;
     const describedBy = row.getAttribute("aria-describedby");
-    expect(describedBy, "the row's detail must be a DESCRIPTION, not part of the name").toBeTruthy();
+    expect(
+      describedBy,
+      "the row's detail must be a DESCRIPTION, not part of the name",
+    ).toBeTruthy();
     const detail = document.getElementById(describedBy!);
-    expect(detail, "aria-describedby must point at an element that exists").toBeTruthy();
+    expect(
+      detail,
+      "aria-describedby must point at an element that exists",
+    ).toBeTruthy();
     // The money is the row's description; the provider is not — it labels the group.
     expect(detail!.textContent).toContain(`₹${DEFAULT_RATE} per minute`);
     expect(detail!.textContent).not.toContain("azure_openai");
@@ -391,7 +446,9 @@ describe("the per-client language-model screen", () => {
       is_platform_default: false,
     });
     await render({
-      [DEFAULTS_PATH]: inheriting({ available: [PLATFORM, PREMIUM, openaiModel, geminiModel] }),
+      [DEFAULTS_PATH]: inheriting({
+        available: [PLATFORM, PREMIUM, openaiModel, geminiModel],
+      }),
     });
 
     await screen.findByRole("radio", { name: "gpt-4o-mini" });
@@ -402,21 +459,29 @@ describe("the per-client language-model screen", () => {
         `provider ${label} must head its own group`,
       ).toBeTruthy();
     }
-    expect(screen.getByRole("group", { name: "OpenAI" }).textContent).toContain("gpt-5-mini");
-    expect(screen.getByRole("group", { name: "Google Gemini" }).textContent).toContain(
-      "gemini-2.5-flash",
+    expect(screen.getByRole("group", { name: "OpenAI" }).textContent).toContain(
+      "gpt-5-mini",
     );
+    expect(
+      screen.getByRole("group", { name: "Google Gemini" }).textContent,
+    ).toContain("gemini-2.5-flash");
   });
 
   it("shows a model with no deployment behind it, disabled, with the server's reason", async () => {
     const { container } = await render({
-      [DEFAULTS_PATH]: inheriting({ available: [PLATFORM, PREMIUM, UNDEPLOYED] }),
+      [DEFAULTS_PATH]: inheriting({
+        available: [PLATFORM, PREMIUM, UNDEPLOYED],
+      }),
     });
 
-    const row = (await screen.findByRole("radio", { name: "gpt-4o" })) as HTMLInputElement;
+    const row = (await screen.findByRole("radio", {
+      name: "gpt-4o",
+    })) as HTMLInputElement;
     // SHOWN, not hidden: an operator must be able to see what is left to configure.
     expect(row.disabled).toBe(true);
-    expect(container.textContent).toContain("No Azure deployment for gpt-4o on this platform yet.");
+    expect(container.textContent).toContain(
+      "No Azure deployment for gpt-4o on this platform yet.",
+    );
   });
 
   it("never disables a row on an API build that does not report availability", async () => {
@@ -443,7 +508,9 @@ describe("the per-client language-model screen", () => {
 
     await render({ [DEFAULTS_PATH]: older });
 
-    const row = (await screen.findByRole("radio", { name: "gpt-4o" })) as HTMLInputElement;
+    const row = (await screen.findByRole("radio", {
+      name: "gpt-4o",
+    })) as HTMLInputElement;
     expect(row.disabled).toBe(false);
   });
 
@@ -451,13 +518,16 @@ describe("the per-client language-model screen", () => {
     await render({
       [`PUT ${DEFAULTS_PATH}`]: problem(409, {
         title: "Changed concurrently",
-        detail: "This client's default model was changed by someone else a moment ago.",
+        detail:
+          "This client's default model was changed by someone else a moment ago.",
         remediation: "Re-read the model and send the change again.",
       }),
     });
 
     fireEvent.click(await screen.findByRole("radio", { name: "gpt-4.1-mini" }));
-    fireEvent.change(confirmField(PREMIUM.model), { target: { value: PREMIUM.model } });
+    fireEvent.change(confirmField(PREMIUM.model), {
+      target: { value: PREMIUM.model },
+    });
     fireEvent.click(saveButton());
 
     await screen.findByText(/changed by someone else a moment ago/);

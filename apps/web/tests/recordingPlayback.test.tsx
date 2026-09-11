@@ -38,7 +38,9 @@ import { renderClientPage } from "./harness";
 
 // The route page reads its `params` as a promise (React 19 `use()`), so the harness
 // takes a rendered ELEMENT rather than the component.
-const page = <CallDetailPage params={Promise.resolve({ slug: "acme", callId: "c1" })} />;
+const page = (
+  <CallDetailPage params={Promise.resolve({ slug: "acme", callId: "c1" })} />
+);
 const REC_PATH = "/v1/calls/c1/recording";
 
 function me(over: Partial<Me> = {}): Me {
@@ -48,7 +50,13 @@ function me(over: Partial<Me> = {}): Me {
     role: "owner",
     permissions: ["calls:read", "leads:read"],
     impersonating: false,
-    organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+    withheld_acts: [],
+    organization: {
+      id: "o1",
+      name: "Sri Clinic",
+      slug: "acme",
+      status: "active",
+    },
     ...over,
   };
 }
@@ -73,9 +81,27 @@ function detail(over: Partial<CallDetail> = {}): CallDetail {
     disclosure_played: true,
     moments: [],
     transcript: [
-      { idx: 0, speaker: "agent", text: "Namaskaram.", redacted: true, start_ms: 0 },
-      { idx: 1, speaker: "caller", text: "I need an appointment.", redacted: true, start_ms: 8000 },
-      { idx: 2, speaker: "agent", text: "Tuesday at four?", redacted: true, start_ms: 21000 },
+      {
+        idx: 0,
+        speaker: "agent",
+        text: "Namaskaram.",
+        redacted: true,
+        start_ms: 0,
+      },
+      {
+        idx: 1,
+        speaker: "caller",
+        text: "I need an appointment.",
+        redacted: true,
+        start_ms: 8000,
+      },
+      {
+        idx: 2,
+        speaker: "agent",
+        text: "Tuesday at four?",
+        redacted: true,
+        start_ms: 21000,
+      },
     ],
     ...over,
   };
@@ -85,12 +111,20 @@ function routes(d: CallDetail, extra: Record<string, unknown> = {}) {
   return {
     "/v1/me": me(),
     "/v1/calls/c1": d,
-    "/v1/calls/c1/callback": { eligible: false, reason: "This call was answered.", rule: null },
+    "/v1/calls/c1/callback": {
+      eligible: false,
+      reason: "This call was answered.",
+      rule: null,
+    },
     ...extra,
   };
 }
 
-const LINK = { url: "https://cdn.example.test/rec.mp3?sig=one", expires_in_s: 2400, duration_s: 1200 };
+const LINK = {
+  url: "https://cdn.example.test/rec.mp3?sig=one",
+  expires_in_s: 2400,
+  duration_s: 1200,
+};
 
 /**
  * jsdom has no media stack. Give `HTMLMediaElement` just enough to be driven: a `play`
@@ -120,9 +154,17 @@ beforeEach(() => {
   });
 });
 
-async function openPlayer(extra: Record<string, unknown> = {}, d: CallDetail = detail()) {
-  const rendered = await renderClientPage(page, routes(d, { [REC_PATH]: LINK, ...extra }));
-  fireEvent.click(await screen.findByRole("button", { name: /listen to this call/i }));
+async function openPlayer(
+  extra: Record<string, unknown> = {},
+  d: CallDetail = detail(),
+) {
+  const rendered = await renderClientPage(
+    page,
+    routes(d, { [REC_PATH]: LINK, ...extra }),
+  );
+  fireEvent.click(
+    await screen.findByRole("button", { name: /listen to this call/i }),
+  );
   await screen.findByRole("button", { name: /play recording/i });
   return rendered;
 }
@@ -134,18 +176,30 @@ describe("the recording player", () => {
     // The three the native element cannot give a call reviewer: speed (the most-used
     // control when someone checks twenty calls), skip, and a seek bar its siblings can
     // drive. Asserted by accessible name so this fails if they become icon-only.
-    expect(screen.getByRole("button", { name: /playback speed/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /back 10 seconds/i })).toBeTruthy();
-    expect(screen.getByRole("button", { name: /forward 10 seconds/i })).toBeTruthy();
-    expect(screen.getByRole("slider", { name: /seek within the recording/i })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /playback speed/i }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /back 10 seconds/i }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /forward 10 seconds/i }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("slider", { name: /seek within the recording/i }),
+    ).toBeTruthy();
     // `controls` would give the user TWO transports for one element, and the native one
     // is the one without the speed control.
-    expect(container.querySelector("audio")?.hasAttribute("controls")).toBe(false);
+    expect(container.querySelector("audio")?.hasAttribute("controls")).toBe(
+      false,
+    );
   });
 
   it("draws the seek bar from the call's metered length before the audio reports one", async () => {
     await openPlayer();
-    const slider = screen.getByRole("slider", { name: /seek within the recording/i });
+    const slider = screen.getByRole("slider", {
+      name: /seek within the recording/i,
+    });
     // 1200 s. `<audio>.duration` is NaN until enough of the file has been fetched, and a
     // scrubber whose maximum arrives a second late is one people click through.
     expect(slider.getAttribute("max")).toBe("1200");
@@ -157,7 +211,9 @@ describe("the recording player", () => {
     const speed = screen.getByRole("button", { name: /playback speed/i });
     expect(speed.textContent).toContain("1×");
     fireEvent.click(speed);
-    expect(screen.getByRole("button", { name: /playback speed/i }).textContent).toContain("1.25×");
+    expect(
+      screen.getByRole("button", { name: /playback speed/i }).textContent,
+    ).toContain("1.25×");
   });
 
   it("seeks to a turn when the transcript is clicked", async () => {
@@ -176,7 +232,9 @@ describe("the recording player", () => {
     // be a control that silently does nothing — worse than no control.
     await renderClientPage(page, routes(detail(), { [REC_PATH]: LINK }));
     await screen.findByText("I need an appointment.");
-    expect(screen.queryByRole("button", { name: /play from 0:08/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /play from 0:08/i }),
+    ).toBeNull();
   });
 
   it("leaves a turn as plain text when that turn carries no timestamp", async () => {
@@ -186,12 +244,25 @@ describe("the recording player", () => {
       {},
       detail({
         transcript: [
-          { idx: 0, speaker: "agent", text: "Namaskaram.", redacted: true, start_ms: 0 },
-          { idx: 1, speaker: "caller", text: "No offsets here.", redacted: true },
+          {
+            idx: 0,
+            speaker: "agent",
+            text: "Namaskaram.",
+            redacted: true,
+            start_ms: 0,
+          },
+          {
+            idx: 1,
+            speaker: "caller",
+            text: "No offsets here.",
+            redacted: true,
+          },
         ],
       }),
     );
-    expect(screen.getByRole("button", { name: /play from 0:00/i })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /play from 0:00/i }),
+    ).toBeTruthy();
     const untimed = screen.getByText("No offsets here.");
     expect(untimed.closest("button")).toBeNull();
   });
@@ -236,27 +307,50 @@ describe("the recording player", () => {
     // signing-request generator against our own bucket, and the person waiting is told
     // in words instead of watching a control that never starts.
     expect(minted()).toBe(2);
-    expect(screen.getByRole("alert").textContent).toMatch(/could not be reloaded/i);
+    expect(screen.getByRole("alert").textContent).toMatch(
+      /could not be reloaded/i,
+    );
   });
 });
 
 describe("key points in the call", () => {
   const MOMENTS = [
-    { at_ms: 8_000, kind: "field_captured", label: "Appointment slot captured", source: "derived" },
-    { at_ms: 21_000, kind: "highlight", label: "Caller asked about price", source: "model" },
-    { at_ms: 34_000, kind: "opt_out", label: "Caller asked not to be called again", source: "derived" },
+    {
+      at_ms: 8_000,
+      kind: "field_captured",
+      label: "Appointment slot captured",
+      source: "derived",
+    },
+    {
+      at_ms: 21_000,
+      kind: "highlight",
+      label: "Caller asked about price",
+      source: "model",
+    },
+    {
+      at_ms: 34_000,
+      kind: "opt_out",
+      label: "Caller asked not to be called again",
+      source: "derived",
+    },
   ] satisfies CallDetail["moments"];
 
   it("is not rendered at all when the call has none", async () => {
     // An always-present "Key points" heading over an empty box on every short call is a
     // heading people learn to skip — and then miss on the call that has six.
-    await renderClientPage(page, routes(detail({ moments: [] }), { [REC_PATH]: LINK }));
+    await renderClientPage(
+      page,
+      routes(detail({ moments: [] }), { [REC_PATH]: LINK }),
+    );
     await screen.findByText("I need an appointment.");
     expect(screen.queryByText(/key points in this call/i)).toBeNull();
   });
 
   it("lists each moment with its timestamp, in time order", async () => {
-    await renderClientPage(page, routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }));
+    await renderClientPage(
+      page,
+      routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }),
+    );
     await screen.findByText(/key points in this call/i);
     // Scoped to the panel's own rows: "0:08" also appears on the transcript turn at that
     // offset, which is the two halves agreeing rather than a duplicate to deduplicate.
@@ -276,11 +370,16 @@ describe("key points in the call", () => {
     // transcript's own offsets and cannot be at the wrong second; a model one is a
     // sentence from an unmeasured model (D-36). Rendering them identically would force a
     // reader to distrust both, which wastes the half that is exact.
-    await renderClientPage(page, routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }));
+    await renderClientPage(
+      page,
+      routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }),
+    );
     await screen.findByText(/key points in this call/i);
     const badges = screen.getAllByText("AI");
     expect(badges).toHaveLength(1);
-    expect(badges[0].closest("li")?.textContent).toContain("Caller asked about price");
+    expect(badges[0].closest("li")?.textContent).toContain(
+      "Caller asked about price",
+    );
   });
 
   it("seeks the recording when a moment is clicked", async () => {
@@ -293,10 +392,17 @@ describe("key points in the call", () => {
     // Same rule as the transcript turns: a control that silently does nothing is worse
     // than no control. The list still has value unopened — an owner scanning for "did
     // they ask about price" does not always want to listen.
-    await renderClientPage(page, routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }));
+    await renderClientPage(
+      page,
+      routes(detail({ moments: MOMENTS }), { [REC_PATH]: LINK }),
+    );
     await screen.findByText(/key points in this call/i);
-    expect(screen.queryByRole("button", { name: /play from 0:34/i })).toBeNull();
-    expect(screen.getByText("Caller asked not to be called again")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /play from 0:34/i }),
+    ).toBeNull();
+    expect(
+      screen.getByText("Caller asked not to be called again"),
+    ).toBeTruthy();
     expect(screen.getByText(/open the recording above to jump/i)).toBeTruthy();
   });
 });

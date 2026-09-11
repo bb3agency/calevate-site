@@ -47,20 +47,47 @@ So the voices in force now come from `agents/voice_sync.py`, which reads the eng
 two-step voice-config API (`VoiceEngine.list_voices`), caches the rows in
 `platform_voice_catalog`, and installs them here as a process snapshot
 (`install_voice_catalogue`). **`catalogue()` — never a constant — is what a reader asks.**
-`SEED_CATALOG` below is the documented fallback for the window before the first sync, and
-it is built from the nine voices a live engine read actually returned, NOT from the 44.
 
-`SPEAKERS` and the `Speaker` Literal survive as the MODEL VENDOR's enum, which is still the
-right type for a seed entry (it cannot name a persona Sarvam does not ship) and still the
-provenance of `DEFAULT_SPEAKER`. They are no longer a claim about what the engine accepts.
+⚠ **AND THE LAST COMPILED VOICE IS GONE TOO (D-588, 11 Sep 2026).** D-585 left a SEED
+behind — nine speaker names a live engine read had returned — as the fallback for the
+window before the first sync, plus the vendor's 44-name `Speaker` Literal it was typed
+from. Both are deleted. The founder's requirement is that **only the voices an operator has
+ENABLED in the console are selectable by anyone**, and a compiled fallback is by
+construction a list nobody enabled: it put voices in front of a client that no operator had
+ever looked at, on precisely the deployments (a fresh one, a broken credential) where
+nobody was watching. So a process that has never synced offers NOTHING — `catalogue()` is
+`()` and `catalogue_source()` is `"unsynced"` — and every surface that renders a picker
+says what to do about it in a sentence. That is the correct answer, not an outage.
+
+**CURATION IS NOT IN THIS MODULE, AND THAT IS DELIBERATE.** `catalogue()` answers "what ids
+exist and what does each one mean" — it is the LOOKUP layer, and it is on the publish path
+(`speech_for_voice_id`, `get_voice`). Whether a voice may be OFFERED to somebody is
+`agents/voice_offer.py`'s fourth ground. Filtering the disabled out of here instead would
+make an operator's console click un-resolve the id a LIVE agent is already speaking:
+`speech_for_voice_id` would stop recognising it, pass the whole `bulbul:v3:priya` string
+through in the speaker slot, and the next republish or drift sweep would send the engine a
+speaker no vendor has ever heard of. The vocabulary a curation state is written in lives
+here (`CurationState`) because it is a fact about a voice; the verdict does not.
+
+WHERE A NEW VOICE COMES FROM, WHICH IS NOT HERE AND NOT AN API
+--------------------------------------------------------------
+**BOLNA'S VOICE API IS READ-ONLY.** Their entire published API surface has exactly two
+voice routes and both are GET: `GET /api/v1/voice-config/tts` (providers and their models)
+and `GET /api/v1/voice-config/tts/voices` (paginated voices for a provider + model). There
+is no create, no update and no delete for a voice anywhere in it (VERIFIED-VENDOR-DOCS,
+hash-pinned mirror, every page enumerated 11 Sep 2026:
+`bolna-findings/mirror/pages/api-reference/voice/overview.md:17-18`, and the method sweep
+over `pages/api-reference/` returns those two lines and nothing else).
+
+ADDING a voice is therefore a DASHBOARD act, in their Playground, and it is one of two:
+IMPORT by voice id (`pages/import-voices.md`, with an optional connected-account toggle for
+a voice cloned on your own provider account) or CLONE from a 1-2 minute audio sample
+(`pages/clone-voices.md`, which names **ElevenLabs or Cartesia** as the cloning providers).
+Nothing in this repository can do either, and no amount of console is going to change that
+— which is why the admin console's Voices page is a CURATION surface and says so.
 
 WHAT IS GROUNDED, AND WHERE
 ---------------------------
-- **The 44 speaker ids are the MODEL VENDOR's own closed enum** — a fact about Sarvam's
-  API, not about the engine's provider (see above). VERIFIED-VENDOR-SDK:
-  sarvamai==0.1.31 (PyPI wheel), `types/text_to_speech_speaker.py`, read 27 Aug 2026 —
-  `TextToSpeechSpeaker` is a `Literal` of exactly 44 lowercase names, and `SPEAKERS` below
-  is that list, in that order, with nothing added.
 - **The model string is `bulbul:v3`.** VERIFIED-VENDOR-SDK: same wheel,
   `types/text_to_speech_model.py` (`Literal["bulbul:v2", "bulbul:v3"]`), and Bolna's own
   example posts it (VERIFIED-VENDOR-REPO, `bolna-ai/skills@28b24aa`,
@@ -92,37 +119,36 @@ have to know how we spell an id (hard rule 2). `speech_for_voice_id()` is the sp
 
 WHAT IS STILL PROVISIONAL (read this before quoting the catalog at anyone)
 --------------------------------------------------------------------------
-1. **`verified` is still False on every entry**, and that is not pedantry. The speaker enum
-   is Sarvam's, for Sarvam's own TTS API; what BOLNA's Sarvam provider accepts is their
-   business, and the confirming read is `GET /me/voices` on a live account. OPERATIONS §2
-   gate 3 owns it. Nothing here claims a speaker was heard.
-2. **The SDK does not split the speaker list by model.** `TextToSpeechSpeaker` is one enum
-   for a request that takes `model` and `speaker` as independent fields, so "all 44 work on
-   `bulbul:v3`" is the strongest reading available and is not a vendor statement. Gate 3
-   settles it; a speaker the engine rejects is one line removed from `SPEAKERS`.
-3. **Which speaker sounds best in Telugu is an EAR TEST, not a spec fact** (docs/BRD.md:242
-   R-10, docs/TRD.md:478). `DEFAULT_SPEAKER` below is a PLACEHOLDER pending that test — it
-   is `ashutosh` because that is the speaker the vendor's own worked example uses, which is
-   the only non-invented basis available. It is not a measurement and must not be quoted as
-   one.
-4. **`gender` is `None` on every entry, on purpose.** The SDK carries NO gender metadata for
+1. **`verified` is True on every entry now, and it means one narrow thing**: the ENGINE's
+   own voice-config API listed this voice for a model we offer, on our own account. It is
+   not an ear test and not a claim that anybody has heard it. Nothing here can be
+   `verified=False` any more, because nothing here is typed by hand.
+2. **Which speaker sounds best in Telugu is an EAR TEST, not a spec fact** (docs/BRD.md:242
+   R-10, docs/TRD.md:478), and this module no longer has an opinion about it. There is no
+   `DEFAULT_SPEAKER` and no `is_default`: the voices on offer are the ones an operator
+   enabled, in the engine's own picker order, and which of them a screen pre-selects is a
+   rendering choice rather than a platform constant. A placeholder default named in source
+   was the last hardcoded persona in this tree.
+3. **`gender` is `None` on every entry, on purpose.** The SDK carries NO gender metadata for
    speakers — the field is a bare name Literal — and a name is not evidence of a voice. The
    persona field stays because a future vendor enumeration may carry it; guessing "female"
    from "priya" would be exactly the laundering hard rule 11 forbids.
 
-THE CARTESIA HALF: A SHAPE WITH NO ENTRIES YET, AND WHY (D-547 §0 Q1)
-------------------------------------------------------------------------
+THE CARTESIA HALF: NO SHAPE HERE EITHER, AND THAT IS THE FIX (D-547 §0 Q1, D-588)
+----------------------------------------------------------------------------------
 Cartesia's voice library is behind a login (`play.cartesia.ai/voices`, egress-blocked
-here), so no voice id can be typed into this file without inventing one — and an
-invented id publishes an agent that 422s on a client's phone. The founder's answer is
-that the catalogue is BUILT FROM CARTESIA'S OWN VOICES API (`GET /voices`, the endpoint
-`ops/secret_probes.py` already hits), filtered to Telugu / Hindi / Indian English, and
-the exact field names come from a research report not yet delivered. So this module
-ships the SHAPE: `CartesiaVoiceRecord` is the record that report's API output is
-dropped into, `CARTESIA_CATALOG_SOURCE` is the (empty) list of them, and
-`_cartesia_entry` builds a `Voice` from one. The import-time assertions hold with zero
-Cartesia entries, and the offerability seam (`agents/voice_offer.py`) already refuses a
-Cartesia voice for the three reasons that will still apply when entries exist.
+here), so no voice id can be typed into this file without inventing one — and an invented
+id publishes an agent that 422s on a client's phone. This module used to ship the SHAPE of
+a hand-loaded Cartesia list (`CartesiaVoiceRecord`, an empty `CARTESIA_CATALOG_SOURCE`,
+`_cartesia_entry`, `cartesia_catalogue`) waiting for a research report to fill it in.
+
+**That whole apparatus is deleted, because the engine already enumerates Cartesia.** Its
+voice-config API answers for EVERY provider its account carries, keyed on a `model_id`
+string (VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/api-reference/voice/
+get_providers.md`, read 11 Sep 2026), so a Cartesia voice reaches the catalogue through the
+same sync as a Sarvam one, with ids somebody READ. A second loader over Cartesia's own API
+would be a second way to do one thing — the defect this repo treats as real even when both
+halves work — and it was the one that could put an invented id on a phone line.
 
 **`sonic-3` IS DELIBERATELY ABSENT, AND NOW FOR TWO REASONS RATHER THAN ONE.** Bolna
 lists three Cartesia models and says which to run: *"use `sonic-3.5` for production
@@ -239,74 +265,36 @@ VoiceTier = VoiceProvider
 
 Gender = Literal["female", "male", "neutral"]
 
-# THE VENDOR'S OWN SPEAKER ENUM, COPIED AND NOT CURATED.
-#
-# VERIFIED-VENDOR-SDK: sarvamai==0.1.31 (PyPI wheel), `types/text_to_speech_speaker.py`,
-# read 27 Aug 2026 — `TextToSpeechSpeaker` is a `Literal` of exactly these 44 lowercase
-# names, in this order. Order is preserved because it is the vendor's, and inventing a
-# ranking (alphabetical, "best first") would be a recommendation this file is not entitled
-# to make: which speaker sounds best in Telugu is an ear test (gate 3, BRD R-10).
-#
-# A `Literal` rather than a `frozenset[str]` for `TtsModel`'s reason: a persona entry that
-# names a speaker the vendor does not ship should not type-check.
-Speaker = Literal[
-    "anushka",
-    "abhilash",
-    "manisha",
-    "vidya",
-    "arya",
-    "karun",
-    "hitesh",
-    "aditya",
-    "ritu",
-    "priya",
-    "neha",
-    "rahul",
-    "pooja",
-    "rohan",
-    "simran",
-    "kavya",
-    "amit",
-    "dev",
-    "ishita",
-    "shreya",
-    "ratan",
-    "varun",
-    "manan",
-    "sumit",
-    "roopa",
-    "kabir",
-    "aayan",
-    "shubh",
-    "ashutosh",
-    "advait",
-    "anand",
-    "tanya",
-    "tarun",
-    "sunny",
-    "mani",
-    "gokul",
-    "vijay",
-    "shruti",
-    "suhani",
-    "mohit",
-    "kavitha",
-    "rehan",
-    "soham",
-    "rupali",
-]
+#: WHAT A CURATED VOICE'S STATE IS, in the vocabulary the console writes and the offer
+#: seam reads (D-588). It lives here rather than in `voice_offer.py` because it is a fact
+#: ABOUT A VOICE — stored on `platform_voice_catalog`, checked by a DB constraint, rendered
+#: in a table — while the VERDICT it feeds is the offer seam's.
+#:
+#: * `enabled`   — an operator has chosen to offer this voice. The ONLY offerable state.
+#: * `disabled`  — synced and known, deliberately not offered. The state a voice ARRIVES in
+#:                 (the column default), so a voice the vendor adds to their platform never
+#:                 reaches a client without somebody deciding.
+#: * `archived`  — retired by an operator: not offered, and filed away from the working
+#:                 list. It is not a delete, because the row is also what stops a returning
+#:                 voice re-arriving as a fresh un-curated one.
+#:
+#: **`archived` AND `disabled` DIFFER TO A HUMAN AND NOT TO THE OFFER SEAM.** Neither is
+#: offerable; the distinction is which list an operator finds it in and which sentence they
+#: read. Collapsing them to a boolean was the first shape and it lost the only thing the
+#: founder asked for beyond on/off — a way to put a voice away without it cluttering the
+#: screen every time the vendor's list is re-read.
+CurationState = Literal["enabled", "disabled", "archived"]
 
-#: The 44, as data, so the catalogue is BUILT from the vendor's enum rather than typed a
-#: second time beside it. `get_args` rather than a hand-copied tuple: two spellings of one
-#: list is the drift this repo treats as a defect even when both are right today.
-SPEAKERS: Final[tuple[Speaker, ...]] = get_args(Speaker)
+#: The state a NEWLY SYNCED voice arrives in. Named once so the column default, the sync's
+#: reasoning and the console's empty state cannot come to disagree about it.
+#:
+#: DISABLED, and this is the whole of the founder's requirement in one constant: *only the
+#: voices they add there are selectable*. A voice defaulting to `enabled` would mean the
+#: vendor adding a persona to their platform silently puts it in front of every client of
+#: every tenant, with no operator in the loop — the failure direction that cannot be undone
+#: by noticing it later, because by then somebody's agent is speaking it.
+ARRIVAL_CURATION_STATE: Final[CurationState] = "disabled"
 
-#: THE PLACEHOLDER DEFAULT PERSONA — pending the Telugu ear test (gate 3), NOT a
-#: measurement of ours and not to be quoted as one. It is `ashutosh` for the one
-#: non-invented reason available: it is the speaker in the vendor's own worked example
-#: (VERIFIED-VENDOR-REPO, `bolna-ai/skills@28b24aa`, `create-agent/SKILL.md`), so it is the
-#: single speaker id for which we have seen an end-to-end Bolna request that names it.
-DEFAULT_SPEAKER: Final[Speaker] = "ashutosh"
 
 #: The model every SARVAM persona runs on, and the default voice's model. Named so
 #: `voice_id_for` and the migration's backfill cannot disagree about which model the
@@ -318,12 +306,8 @@ DEFAULT_TTS_MODEL: Final[TtsModel] = "bulbul:v3"
 #: The one Cartesia model this product offers — see `TtsModel` for why not `sonic-3`.
 CARTESIA_TTS_MODEL: Final[TtsModel] = "sonic-3.5"
 
+
 #: The id the migration backfills a bare `bulbul:v3` row to, and the one the picker
-#: pre-selects where the engine still offers it (`_with_one_default`). Named so the two
-#: cannot disagree.
-DEFAULT_VOICE_ID: Final = f"{DEFAULT_TTS_MODEL}:{DEFAULT_SPEAKER}"
-
-
 def voice_id_for(tts_model: str, speaker: str) -> str:
     """THE id spelling, in one place: `<tts_model>:<speaker>`.
 
@@ -412,10 +396,11 @@ class Voice(BaseModel):
     # THE SPEAKER, which is the half that was missing and the whole of D-358's second
     # defect: the model string used to be sent in the vendor's speaker slot.
     #
-    # `str` rather than `Speaker`, because the two providers name a voice differently: a
-    # Sarvam speaker is one of the vendor's 44 enum names, a Cartesia voice is the id its
-    # voices API returns. The enum guarantee is kept where it can be typed — `_entry`
-    # takes a `Speaker` — and re-asserted at import below for every Sarvam entry.
+    # A BARE `str`, and it is the honest type. The two providers name a voice
+    # differently — a Sarvam speaker is a persona name, a Cartesia voice is a generated id,
+    # a CLONE is whatever the founder called it — and none of the three is a set this
+    # repository is entitled to enumerate. It was a `Literal` of the model vendor's 44
+    # names until D-588; that Literal was the defect, not the guarantee.
     speaker: str
     # Telugu first. The three languages the product offers, a subset of the vendor's own
     # 11-code TTS enum — not a claim about the other eight.
@@ -424,11 +409,11 @@ class Voice(BaseModel):
     # name Literal carrying NO gender metadata, so there is nothing to state and a name is
     # not evidence. The field stays for the day a vendor enumeration carries one.
     gender: Gender | None = None
-    # The picker's default persona. A PLACEHOLDER pending the Telugu ear test (gate 3,
-    # BRD R-10) — see `DEFAULT_SPEAKER` — never a measurement.
-    is_default: bool = False
-    # False until the Bolna pilot confirms the string is selectable (OPERATIONS §2
-    # gate 3). Shipped as data so the admin UI can label the choice honestly.
+    # TRUE ON EVERY ENTRY NOW, AND IT MEANS ONE NARROW THING: the ENGINE's own
+    # voice-config API listed this voice, on our own account, for a model we offer. It is
+    # not an ear test. The field survives the seed's deletion because it is the only place
+    # that distinction is stated on the wire, and because an entry that is ever built from
+    # anything other than a live listing must be able to say so.
     verified: bool = False
     # One line an operator can read in a dropdown, with the cost consequence in it.
     note: str
@@ -472,177 +457,26 @@ _CARTESIA_NOTE: Final = (
 )
 
 
-#: THE SEED SPEAKERS — NOT SARVAM'S 44, AND THE DIFFERENCE IS A LIVE 400 (D-585).
-#:
-#: `SPEAKERS` above is the MODEL VENDOR's enum. We do not publish to Sarvam; we publish
-#: through the ENGINE, whose Sarvam provider offers a different subset — proved on
-#: 11 Sep 2026 by a live publish that came back `400 POST /v2/agent`: *"Provided voice:
-#: Anushka is not available for the provider: sarvam"*. `anushka` is the FIRST name in the
-#: vendor enum. So seeding the catalogue from all 44 would ship a picker that offers at
-#: least one voice known to fail on a real client's phone line.
-#:
-#: These nine are the ones a live `GET /api/v1/voice-config/tts/voices` against the
-#: founder's own engine account returned for provider `sarvam` / model `bulbul:v3`, each
-#: `source: platform`. EVIDENCE CLASS: **VENDOR-PUBLISHED (live API read by the founder,
-#: 11 Sep 2026, relayed)** — `api.bolna.ai` is unreachable from this container, so it was
-#: not read here.
-#:
-#: ⚠ **IT IS A PARTIAL SAMPLE AND MUST NEVER BE READ AS THE COMPLETE LIST.** That response
-#: was truncated at about ten of N. This tuple is therefore a FLOOR — the voices we know
-#: the engine accepts — and never a ceiling: the complete list is whatever
-#: `agents/voice_sync.py` reads from the engine, which is why the seed exists only for the
-#: window before the first sync (`catalogue()`).
-SEED_SPEAKERS: Final[tuple[Speaker, ...]] = (
-    "shubh",
-    "priya",
-    "suhani",
-    "ashutosh",
-    "ritu",
-    "amit",
-    "sumit",
-    "pooja",
-    "manan",
-)
-
-
 def catalogue_note(provider: VoiceProvider) -> str:
     """THE one line an operator or client reads beside a voice, per provider.
 
-    Public because `agents/voice_sync.py` builds catalogue entries from the ENGINE's rows
-    and needs the same sentence the seed entries carry — a second string composed there
-    would be the copy that drifts the day the tier labels change, which is the whole reason
-    `_NOTE` is composed from `voice_tier_label` rather than typed.
+    Public because `agents/voice_sync.py` builds every catalogue entry from the ENGINE's
+    rows and needs one sentence per provider — a second string composed there would be the
+    copy that drifts the day the tier labels change, which is the whole reason `_NOTE` is
+    composed from `voice_tier_label` rather than typed.
     """
     return _NOTE if provider == "sarvam" else _CARTESIA_NOTE
 
 
-def _entry(speaker: Speaker) -> Voice:
-    """One seed persona from one speaker id. Built rather than typed for `SPEAKERS`'
-    reason: every field except the name is identical across them, so writing them out
-    would be a further place for the language tuple and the note to drift."""
-    return Voice(
-        id=voice_id_for(DEFAULT_TTS_MODEL, speaker),
-        # `.capitalize()`, matching the live read's own `shubh`/`Shubh` pairing and the
-        # vendor's worked example (`"voice": "Ashutosh"` / `"voice_id": "ashutosh"`). A
-        # display rule that holds for a Sarvam PERSONA and for nothing else — a cloned
-        # voice's name has no derivable relationship to its id, which is exactly why the
-        # synced catalogue carries the engine's own `name` instead of deriving one.
-        label=speaker.capitalize(),
-        provider="sarvam",
-        tts_model=DEFAULT_TTS_MODEL,
-        speaker=speaker,
-        languages=("te-IN", "hi-IN", "en-IN"),
-        gender=None,
-        is_default=speaker == DEFAULT_SPEAKER,
-        verified=False,
-        note=_NOTE,
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class CartesiaVoiceRecord:
-    """ONE ROW OF CARTESIA'S `GET /voices` RESPONSE, in the four facts the catalogue needs.
-
-    ⚠ **SUPERSEDED AS THE ROUTE TO A CARTESIA CATALOGUE (D-585), AND KEPT AS A TYPE.** The
-    engine's own voice-config API enumerates EVERY provider it supports, not only Sarvam —
-    its documented example answers with ElevenLabs and Sarvam side by side and keys the
-    voice fetch on a `model_id` string (VERIFIED-VENDOR-DOCS,
-    `bolna-findings/mirror/pages/api-reference/voice/get_providers.md`, read 11 Sep 2026).
-    So if the engine account carries Cartesia with `sonic-3.5`, `agents/voice_sync.py`
-    fills the Cartesia half of the catalogue with ids somebody READ, through the same seam
-    that fills the Sarvam half — which closes the gap this record was shaped to wait for
-    without anybody typing a voice id they had not seen.
-
-    The type survives because the gap is not closed until a sync has actually returned
-    Cartesia rows, and because Cartesia's own API remains the fallback route if the engine
-    does not enumerate that provider for our account. Its translation notes are unchanged
-    and still govern any loader built over that API:
-
-    * **LANGUAGE COMES FROM `accents[].locale`, NOT FROM `language`** — the vendor marks the
-      top-level `language` field DEPRECATED in its own schema, "prefer accents[].locale".
-      ⚠ Telugu's ONLY documented accent id is `telangana`.
-    * **`archived` IS FILTERED, NOT STORED** (`status` is `active | archived`).
-    * **GENDER IS OURS, TRANSLATED UPSTREAM** — their enum is
-      `masculine | feminine | gender_neutral`.
-
-    (VERIFIED-VENDOR-DOCS, `docs.cartesia.ai/api-reference/voices/list`, read 7 Sep 2026,
-    relayed in `docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md` ADDENDUM 3 §3.4; that host is
-    egress-blocked from this container and was not read here.)
-    """
-
-    id: str
-    name: str
-    #: The product languages this voice serves, mapped from `accents[].locale`.
-    languages: tuple[Language, ...]
-    gender: Gender | None = None
-    #: `status == "archived"` on the vendor's row. An archived voice is never offered.
-    archived: bool = False
-
-
-#: THE CARTESIA SEED — EMPTY, AND NOW EMPTY FOR A BETTER REASON THAN BEFORE. Nobody here
-#: has read a Cartesia voice id, and an id nobody read is an id somebody invented. What
-#: changed on 11 Sep 2026 is that it no longer has to be typed at all: the engine's
-#: voice-config API enumerates its own providers, so a Cartesia voice reaches the catalogue
-#: through `agents/voice_sync.py` the moment the engine account offers one. This stays ()
-#: because a SEED is what answers before any sync has run, and before any sync has run we
-#: know no Cartesia id.
-CARTESIA_CATALOG_SOURCE: Final[tuple[CartesiaVoiceRecord, ...]] = ()
-
-
-def _cartesia_entry(record: CartesiaVoiceRecord) -> Voice:
-    """One catalogue entry from one vendor voice record. `verified=False` for `_entry`'s
-    reason: a listed voice is not a voice the engine's Cartesia provider has been seen to
-    accept (OPERATIONS §2 gate 52)."""
-    return Voice(
-        id=voice_id_for(CARTESIA_TTS_MODEL, record.id),
-        label=record.name,
-        provider="cartesia",
-        tts_model=CARTESIA_TTS_MODEL,
-        speaker=record.id,
-        languages=record.languages,
-        gender=record.gender,
-        is_default=False,
-        verified=False,
-        note=_CARTESIA_NOTE,
-    )
-
-
-def cartesia_catalogue(
-    records: tuple[CartesiaVoiceRecord, ...] = CARTESIA_CATALOG_SOURCE,
-) -> tuple[Voice, ...]:
-    """The Cartesia half of the SEED, from vendor records — THE one filter, in one place.
-
-    An ARCHIVED voice is dropped here rather than at every reader: the vendor's list
-    endpoint already omits them by default, so a record marked archived arrived through a
-    wider fetch somebody made deliberately, and offering it would put a client on a voice
-    the vendor has withdrawn from its own library.
-    """
-    return tuple(_cartesia_entry(record) for record in records if not record.archived)
-
-
-#: WHAT THE PRODUCT OFFERS BEFORE ANY SYNC HAS RUN — the documented fallback, and the
-#: answer to "what happens when the cache is empty" (D-585).
-#:
-#: **THE PRODUCT MUST NOT BECOME UNPUBLISHABLE BECAUSE A BACKGROUND JOB HAS NEVER RUN.**
-#: The alternative considered was refusing with a named error until a sync lands; it was
-#: rejected because the first thing a fresh deployment does is create an agent, the voice
-#: picker is on that screen, and a product that cannot make a voice agent until an operator
-#: finds an ops route is a half-wired seam by another name.
-#:
-#: What makes the fallback safe is WHAT IS IN IT: only voices a live engine read returned
-#: (`SEED_SPEAKERS`), never the model vendor's wider enum. So the empty-cache state offers
-#: a SHORT list of voices the engine is known to accept rather than a long list containing
-#: at least one it rejects. `catalogue_source()` reports which of the two is in force, and
-#: every surface that renders the picker says so (`GET /v1/agents/voices`).
-SEED_CATALOG: Final[tuple[Voice, ...]] = (
-    tuple(_entry(speaker) for speaker in SEED_SPEAKERS) + cartesia_catalogue()
-)
-
 #: Where the voices currently in force came from. `"engine"` means a sync read them off the
-#: engine account; `"seed"` means no sync has ever succeeded on this process and
-#: `SEED_CATALOG` is answering. Carried on the API response so an operator reading a short
-#: picker is told which of those two they are looking at, instead of guessing.
-CatalogueSource = Literal["seed", "engine"]
+#: engine account; `"unsynced"` means no sync has ever succeeded on this process, so there
+#: are NO voices and nobody can be offered one. Carried on the API response so an operator
+#: or a client reading an empty picker is told which of those two they are looking at,
+#: instead of guessing at a bug.
+#:
+#: ⚠ **THE THIRD VALUE, `"seed"`, IS GONE (D-588)** — there is no compiled fallback any
+#: more. A surface that still branches on it is reading a state this process cannot be in.
+CatalogueSource = Literal["unsynced", "engine"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -664,14 +498,16 @@ def _snapshot_of(voices: tuple[Voice, ...], source: CatalogueSource) -> _Snapsho
     return _Snapshot(voices=voices, by_id={voice.id: voice for voice in voices}, source=source)
 
 
-_SEED_SNAPSHOT: Final = _snapshot_of(SEED_CATALOG, "seed")
+#: NO VOICES, BECAUSE NOBODY HAS SYNCED. The state a process boots in and the state it
+#: returns to when the cache is empty — not an error, and not a shorter list.
+_UNSYNCED_SNAPSHOT: Final = _snapshot_of((), "unsynced")
 
 #: THE CATALOGUE IN FORCE. Rebound by `install_voice_catalogue`; never mutated in place.
-_snapshot: _Snapshot = _SEED_SNAPSHOT
+_snapshot: _Snapshot = _UNSYNCED_SNAPSHOT
 
 
 def install_voice_catalogue(voices: tuple[Voice, ...] | None) -> None:
-    """Install the synced catalogue for this process; `None` restores the seed.
+    """Install the synced catalogue for this process. `None` or `()` means "none in force".
 
     THE SAME SHAPE AS EVERY OTHER PLATFORM-SCOPED FACT THIS TREE SERVES OFF A SNAPSHOT —
     `voice_offer.install_tts_price_reader`, `billing/rates.install_llm_price_attestations`,
@@ -682,86 +518,49 @@ def install_voice_catalogue(voices: tuple[Voice, ...] | None) -> None:
     that change when an operator presses a button would be a database round trip on every
     agent publish for a value that moves monthly.
 
-    `agents/voice_catalogue.py::load_voice_catalogue` is the one caller in production (at
-    API and worker startup, and after every sync); tests drive it directly and restore the
-    seed with `None`.
+    `agents/voice_sync.load_voice_catalogue` is the one caller in production (at API and
+    worker startup, and after every sync); tests drive it directly and reset with `None`.
 
-    **AN EMPTY TUPLE IS NOT A CATALOGUE AND IS REFUSED.** Installing `()` would take the
-    voice picker to zero entries and make every agent's configured voice read as "no longer
-    offered" — which is what a sync that read nothing successfully looks like. The caller
-    that has nothing to install must leave the previous answer standing.
+    ⚠ **AN EMPTY TUPLE USED TO RAISE, AND NOW INSTALLS.** The refusal existed to protect a
+    SEED — "a picker with no voices is indistinguishable from a platform with no voices" was
+    true only while a compiled fallback meant the second could not happen. D-588 deleted the
+    seed, so "no voices in force" became a real, correct and reachable state: a deployment
+    where nobody has synced. Refusing it would leave a process serving whatever it happened
+    to load last, forever, with no way to observe that the cache behind it is empty.
+
+    **What the refusal actually protected has NOT moved and has NOT weakened.** A SYNC that
+    reads nothing is still refused at the place that can tell the difference —
+    `voice_sync.sync_voice_catalogue` alerts (`voice_catalogue_empty`) and writes nothing, so
+    a revoked credential or a moved route leaves the TABLE standing and this function is
+    never called with `()` on that path. Only an honestly empty table reaches here.
     """
     global _snapshot
-    if voices is None:
-        _snapshot = _SEED_SNAPSHOT
-        return
     if not voices:
-        raise ValueError(
-            "refusing to install an empty voice catalogue: a picker with no voices is "
-            "indistinguishable from a platform with no voices, and every configured "
-            "agent would read as speaking a withdrawn one. Leave the previous catalogue "
-            "standing and alert instead."
-        )
-    _snapshot = _snapshot_of(_with_one_default(voices), "engine")
-
-
-def _with_one_default(voices: tuple[Voice, ...]) -> tuple[Voice, ...]:
-    """Exactly one `is_default` voice, chosen the same way every time.
-
-    The seed's default is an import-time assertion; a SYNCED catalogue cannot have one,
-    because whether the engine account still offers `DEFAULT_SPEAKER` is the engine's
-    business and not ours. So the flag is (re)stamped here: the configured default id if
-    the engine offers it, else the first Sarvam voice it does offer, else the first voice.
-
-    Never zero and never two: the picker pre-selects the default and
-    `default_voice()` is called by the agent-create path, so a catalogue with none would
-    500 a screen and one with two would pre-select whichever happened to be first.
-    """
-    preferred = next(
-        (voice for voice in voices if voice.id == DEFAULT_VOICE_ID),
-        # Cartesia is chosen, never inherited (plan §0 Q9): a default that costs the
-        # client more per minute must be a choice they made, so a deployment whose engine
-        # no longer offers our configured persona falls to another SARVAM voice first.
-        next((voice for voice in voices if voice.provider == "sarvam"), voices[0]),
-    )
-    return tuple(
-        voice.model_copy(update={"is_default": voice.id == preferred.id}) for voice in voices
-    )
+        _snapshot = _UNSYNCED_SNAPSHOT
+        return
+    _snapshot = _snapshot_of(voices, "engine")
 
 
 def catalogue() -> tuple[Voice, ...]:
-    """THE voices in force — synced from the engine, or the seed until one lands.
+    """THE voices in force — synced from the engine, or EMPTY until one lands.
 
     Every reader goes through here rather than through a module constant, because the
-    catalogue is now DATA THAT MOVES: an operator clones a voice and refreshes, and the
-    picker has to show it without a deploy.
+    catalogue is now DATA THAT MOVES: an operator clones a voice on the voice platform,
+    refreshes, enables it, and the picker has to show it without a deploy.
+
+    ⚠ **THIS IS THE LOOKUP LAYER, NOT THE OFFER LAYER.** It answers with every voice the
+    engine account lists, INCLUDING ones an operator has disabled or archived, because its
+    callers are `get_voice`, `speech_for_voice_id` and the publish path — which must keep
+    resolving the id a live agent is already speaking however the console has been clicked
+    since. Who may be offered what is `agents/voice_offer.offered_catalogue`.
     """
     return _snapshot.voices
 
 
 def catalogue_source() -> CatalogueSource:
-    """`"seed"` or `"engine"` — see `SEED_CATALOG` for why a caller must be able to say."""
+    """`"unsynced"` or `"engine"` — see `CatalogueSource` for why a caller must be able to
+    tell an empty picker on a fresh deployment from a broken one."""
     return _snapshot.source
-
-
-def default_voice_provider() -> VoiceProvider:
-    """The provider of the one default persona. Sarvam wherever the engine offers one
-    (`_with_one_default`), and asserted Sarvam on the seed at import (Q9)."""
-    return default_voice().provider
-
-
-# Cheap enough to assert at import rather than hope for, and now asserted over the SEED
-# alone — the synced catalogue is checked where it is built (`_with_one_default`,
-# `agents/voice_sync.py`), because a vendor's own list is not something an assertion in our
-# source gets to veto at import time.
-assert len(_SEED_SNAPSHOT.by_id) == len(SEED_CATALOG), "duplicate voice id in SEED_CATALOG"
-assert sum(1 for voice in SEED_CATALOG if voice.is_default) == 1, "exactly one default persona"
-assert all(voice.speaker in SPEAKERS for voice in SEED_CATALOG if voice.provider == "sarvam"), (
-    "a Sarvam seed entry names a speaker outside the vendor's enum"
-)
-assert all(
-    voice.provider == "cartesia" for voice in SEED_CATALOG if voice.tts_model == CARTESIA_TTS_MODEL
-), "a Cartesia model is served by a seed entry that does not name the Cartesia provider"
 
 
 def get_voice(voice_id: str) -> Voice | None:
@@ -783,27 +582,6 @@ def is_supported_voice(voice_id: str) -> bool:
 def voice_ids() -> tuple[str, ...]:
     """Every id we accept, in catalog order — for error remediation text and tests."""
     return tuple(_snapshot.by_id)
-
-
-def default_voice() -> Voice:
-    """The default persona. Exactly one exists in either catalogue: the seed asserts it at
-    import, and `_with_one_default` re-stamps it on every synced catalogue."""
-    return next(voice for voice in catalogue() if voice.is_default)
-
-
-# THE Q9 MONEY INVARIANT, AND IT LOST ITS GUARD IN THE MOVE TO A DERIVED CATALOGUE.
-# `default_voice_provider`'s docstring still said "asserted Sarvam on the seed at import
-# (Q9)" while the assertion that did the asserting had been dropped — which also left the
-# function referenced by nothing, so `scripts/check_half_wired` caught the orphan without
-# being able to see the invariant underneath it.
-#
-# It is worth keeping rather than deleting the function, because it is a claim about MONEY:
-# Cartesia is the dearer tier per minute, and plan §0 Q9 says it is CHOSEN, never inherited
-# — a client must not arrive on it because a catalogue happened to order itself that way.
-# `_with_one_default` re-stamps the synced catalogue with the same preference, so this
-# assertion pins the SEED (the floor every deployment starts from) and that function pins
-# the rest.
-assert default_voice_provider() == "sarvam", "the default seed voice is Sarvam by decision (Q9)"
 
 
 def provider_of_tts_model(tts_model: str) -> VoiceProvider | None:
@@ -931,31 +709,22 @@ def voice_selection_capability(engine: VoiceEngine | None = None) -> VoiceSelect
 
 
 __all__ = [
-    "CARTESIA_CATALOG_SOURCE",
+    "ARRIVAL_CURATION_STATE",
     "CARTESIA_TTS_MODEL",
-    "DEFAULT_SPEAKER",
     "DEFAULT_TTS_MODEL",
-    "DEFAULT_VOICE_ID",
     "ENGINE_DICTATES_TTS_REASON",
-    "SEED_CATALOG",
-    "SEED_SPEAKERS",
-    "SPEAKERS",
-    "CartesiaVoiceRecord",
     "CatalogueSource",
+    "CurationState",
     "Gender",
     "Language",
-    "Speaker",
     "TtsModel",
     "Voice",
     "VoiceProvider",
     "VoiceSelectionCapability",
     "VoiceTier",
-    "cartesia_catalogue",
     "catalogue",
     "catalogue_note",
     "catalogue_source",
-    "default_voice",
-    "default_voice_provider",
     "get_voice",
     "install_voice_catalogue",
     "is_supported_voice",

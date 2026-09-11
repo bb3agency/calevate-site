@@ -539,7 +539,7 @@ CRON_JOBS = [
     #
     # `run_at_startup` deliberately NOT set, for `pull_fx_rate`'s reason: a deploy of N
     # workers would fire N simultaneous vendor requests for one list none of them urgently
-    # needs, and a process with no cached rows serves `agents/voices.SEED_CATALOG`.
+    # needs, and a process with no cached rows offers no voices at all (D-588).
     #
     # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1 and
     # `WorkerSettings.max_tries` does not reach a function carrying its own — and the

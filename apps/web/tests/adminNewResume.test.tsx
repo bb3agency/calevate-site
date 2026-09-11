@@ -4,9 +4,19 @@ import { describe, expect, it } from "vitest";
 import NewClientPage from "@/app/admin/new/page";
 import type { AdminMe } from "@/app/admin/access";
 import type { CreateOrgOut } from "@/lib/api/admin";
-import { intakeFieldId, type IntakeState, type UnfinishedOnboarding } from "@/lib/api/intake";
+import {
+  intakeFieldId,
+  type IntakeState,
+  type UnfinishedOnboarding,
+} from "@/lib/api/intake";
 
-import { problem, renderAdminPage, stubApi, type ApiCall, type Routes } from "./harness";
+import {
+  problem,
+  renderAdminPage,
+  stubApi,
+  type ApiCall,
+  type Routes,
+} from "./harness";
 
 /**
  * Draft, and resume — FLOWS §1's "draft state saved at every step (resume anytime)".
@@ -75,7 +85,12 @@ function me(permissions: string[]): AdminMe {
   };
 }
 
-const OPERATOR = me(["org:read", "agents:read", "agents:write", "admin:tenants"]);
+const OPERATOR = me([
+  "org:read",
+  "agents:read",
+  "agents:write",
+  "admin:tenants",
+]);
 
 const NO_INTAKE: IntakeState = {
   business_hours: {},
@@ -114,7 +129,10 @@ const HALF_ANSWERED: IntakeState = {
   owner_present: false,
 };
 
-const DRAFT_SAVED = { agent_id: ABANDONED.agent_id, blockers: ABANDONED.blockers };
+const DRAFT_SAVED = {
+  agent_id: ABANDONED.agent_id,
+  blockers: ABANDONED.blockers,
+};
 
 function control(path: string): HTMLElement {
   const element = document.getElementById(intakeFieldId(path));
@@ -172,15 +190,22 @@ describe("saving a draft", () => {
     type("services.0.name", "Root canal");
     type("services.0.price_inr", "8000");
 
-    const submit = screen.getByRole("button", { name: "Submit intake" }) as HTMLButtonElement;
-    const save = screen.getByRole("button", { name: "Save draft" }) as HTMLButtonElement;
+    const submit = screen.getByRole("button", {
+      name: "Submit intake",
+    }) as HTMLButtonElement;
+    const save = screen.getByRole("button", {
+      name: "Save draft",
+    }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
     // THE ASSERTION THIS SLICE EXISTS FOR: incompleteness withholds the submit and must
     // not withhold the save, because a partial sheet is the only thing a draft is for.
     expect(save.disabled).toBe(false);
 
     const calls = stubApi({
-      [DRAFT]: { agent_id: CREATED.agent_id, blockers: ["business_hours_missing"] },
+      [DRAFT]: {
+        agent_id: CREATED.agent_id,
+        blockers: ["business_hours_missing"],
+      },
       [ADMIN_ME]: OPERATOR,
       [UNFINISHED]: [],
       [INTAKE]: NO_INTAKE,
@@ -194,14 +219,20 @@ describe("saving a draft", () => {
     // the missing feature wearing a button.
     expect(postsTo(calls, INTAKE)).toHaveLength(0);
     const body = JSON.parse(post[0]!.body ?? "{}");
-    expect(body.branches).toEqual([{ label: "Main", address: "12 MG Road, Hyderabad 500016" }]);
-    expect(body.services).toEqual([{ name: "Root canal", price_inr: "8000", notes: null }]);
+    expect(body.branches).toEqual([
+      { label: "Main", address: "12 MG Road, Hyderabad 500016" },
+    ]);
+    expect(body.services).toEqual([
+      { name: "Root canal", price_inr: "8000", notes: null },
+    ]);
     expect(body.business_hours).toEqual([]);
     expect(body.escalation_contacts).toEqual([]);
 
     // And it does not overclaim: nothing is compiled, and the count of what is still
     // missing comes from the SERVER's answer.
-    expect(screen.getByText(/Nothing has been built into the agent yet/)).toBeTruthy();
+    expect(
+      screen.getByText(/Nothing has been built into the agent yet/),
+    ).toBeTruthy();
     expect(screen.getByText(/1 answer still needed/)).toBeTruthy();
   });
 
@@ -225,7 +256,9 @@ describe("saving a draft", () => {
     // The server's own words, and the action the operator can take. A silent failure
     // here is the worst outcome available: it teaches them the answers are safe.
     await screen.findByText("The draft could not be saved right now.");
-    expect(screen.getByText("Try again in a minute — keep this tab open.")).toBeTruthy();
+    expect(
+      screen.getByText("Try again in a minute — keep this tab open."),
+    ).toBeTruthy();
     expect(screen.queryByText("Draft saved")).toBeNull();
   });
 
@@ -289,7 +322,9 @@ describe("resuming an unfinished onboarding", () => {
     await screen.findByText("Lakeview Dental");
     expect(container.textContent).toContain("/c/lakeview-dental");
     // The row's own evidence for the word "unfinished", in the server's codes.
-    expect(container.textContent).toContain("A transfer during a call has nowhere to go");
+    expect(container.textContent).toContain(
+      "A transfer during a call has nowhere to go",
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /Resume/ }));
     await screen.findByText("Business hours");
@@ -310,7 +345,9 @@ describe("resuming an unfinished onboarding", () => {
     const hindi = screen.getByLabelText(/Hindi/) as HTMLInputElement;
     expect(hindi.checked).toBe(true);
     expect(hindi.disabled).toBe(true);
-    expect(container.textContent).toContain("Primary — the agent's own language");
+    expect(container.textContent).toContain(
+      "Primary — the agent's own language",
+    );
     // The stored EXTRA came back ticked and editable.
     const english = screen.getByLabelText(/English/) as HTMLInputElement;
     expect(english.checked).toBe(true);
@@ -343,7 +380,9 @@ describe("resuming an unfinished onboarding", () => {
     const { container } = await reachByResuming();
     expect(container.textContent).toContain("Draft on file from");
     // And not the sentence for a client with nothing stored.
-    expect(container.textContent).not.toContain("Nothing here is stored until you save");
+    expect(container.textContent).not.toContain(
+      "Nothing here is stored until you save",
+    );
   });
 });
 
@@ -362,7 +401,9 @@ describe("when the resume list cannot be read", () => {
     await screen.findByText("The onboarding list could not be read.");
     // THE ASSERTION: no empty state, no zero, no silence. An operator told "none" here
     // creates the client a second time, under a slug the first attempt already holds.
-    expect(container.textContent).toContain("this list is not saying there are none");
+    expect(container.textContent).toContain(
+      "this list is not saying there are none",
+    );
     expect(screen.queryByRole("button", { name: /Resume/ })).toBeNull();
     // And the screen is not a dead end — step 1 is still there.
     expect(screen.getByRole("button", { name: "Create client" })).toBeTruthy();
@@ -378,7 +419,9 @@ describe("when the resume list cannot be read", () => {
     // nothing about how many onboardings are unfinished.
     expect(container.textContent).toContain("Unfinished onboardings");
     expect(screen.queryByRole("button", { name: /Resume/ })).toBeNull();
-    expect(container.textContent).not.toContain("Accounts created but never through step 3");
+    expect(container.textContent).not.toContain(
+      "Accounts created but never through step 3",
+    );
     await screen.findByText("Lakeview Dental");
   });
 });

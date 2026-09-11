@@ -33,7 +33,10 @@ import { problem, stubApi, type Routes } from "./harness";
  *    go red at once; this file makes the property the subject rather than an inference.
  */
 
-const OPERATOR = { role: "operator", permissions: ["admin:read", "admin:impersonate"] };
+const OPERATOR = {
+  role: "operator",
+  permissions: ["admin:read", "admin:impersonate"],
+};
 
 /** What a restored, fully authenticated operator session looks like on the wire. */
 const LIVE_SESSION = {
@@ -74,7 +77,9 @@ describe("the console behind a live operator session", () => {
 
     expect(container.textContent).toContain("console body");
     // The shell's own furniture, so this cannot pass by rendering a bare fragment.
-    expect(container.textContent).toContain("Cross-client · every action is audited");
+    expect(container.textContent).toContain(
+      "Cross-client · every action is audited",
+    );
   });
 
   it("keeps speaking the admin realm's credential, never the client realm's", async () => {
@@ -90,7 +95,9 @@ describe("the console behind a live operator session", () => {
     expect(paths).toContain(HOLDS_PATH);
     for (const call of calls) {
       if (call.path === SESSION_PATH) continue;
-      expect(call.headers.Authorization, call.path).toMatch(/^Bearer dev:admin:/);
+      expect(call.headers.Authorization, call.path).toMatch(
+        /^Bearer dev:admin:/,
+      );
     }
   });
 });
@@ -116,7 +123,9 @@ describe("the console with no session", () => {
     await act(async () => {});
 
     expect(container.textContent).not.toContain("console body");
-    expect(container.textContent).not.toContain("Cross-client · every action is audited");
+    expect(container.textContent).not.toContain(
+      "Cross-client · every action is audited",
+    );
     // The restore itself, and nothing behind it.
     expect(calls.map((c) => c.path)).toEqual([SESSION_PATH]);
   });

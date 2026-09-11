@@ -5,7 +5,12 @@ import KnowledgePage from "@/app/c/[slug]/knowledge/page";
 import type { Me } from "@/lib/api/client";
 import type { KbUpload } from "@/lib/api/kb";
 
-import { problem, renderClientPage, stillLoading, type Routes } from "./harness";
+import {
+  problem,
+  renderClientPage,
+  stillLoading,
+  type Routes,
+} from "./harness";
 
 /**
  * DOCUMENTS, PHOTOGRAPHS AND LINKS on the client's knowledge screen (D-534) — the states,
@@ -43,6 +48,7 @@ const SOURCE_ID = "0192f0aa-8888-7000-8000-000000000001";
 
 const ME: Me = {
   impersonating: false,
+  withheld_acts: [],
   permissions: ["agents:read", "kb:write"],
   realm: "client",
   role: "owner",
@@ -74,7 +80,10 @@ function upload(over: Partial<KbUpload> = {}): KbUpload {
   };
 }
 
-async function renderKnowledge(uploads: KbUpload[] | ReturnType<typeof problem>, over: Routes = {}) {
+async function renderKnowledge(
+  uploads: KbUpload[] | ReturnType<typeof problem>,
+  over: Routes = {},
+) {
   return await renderClientPage(<KnowledgePage />, {
     "/v1/me": ME,
     "/v1/agents": [AGENT],
@@ -145,7 +154,9 @@ class StubXhr {
   getResponseHeader(name: string): string | null {
     return name.toLowerCase() === "content-type"
       ? (xhrAnswer.contentType ??
-          (xhrAnswer.status >= 400 ? "application/problem+json" : "application/json"))
+          (xhrAnswer.status >= 400
+            ? "application/problem+json"
+            : "application/json"))
       : null;
   }
 
@@ -158,7 +169,12 @@ class StubXhr {
   }
 
   send(form: FormData): void {
-    xhrCalls.push({ method: this.method, url: this.url, headers: { ...this.headers }, form });
+    xhrCalls.push({
+      method: this.method,
+      url: this.url,
+      headers: { ...this.headers },
+      form,
+    });
     const complete = () => {
       this.status = xhrAnswer.status;
       this.responseText = JSON.stringify(xhrAnswer.body);
@@ -204,7 +220,9 @@ async function ready(): Promise<void> {
 
 /** The drop zone's real control — found the way assistive technology finds it. */
 function filePicker(): HTMLInputElement {
-  return screen.getByLabelText(/choose a file, or drag one here/i) as HTMLInputElement;
+  return screen.getByLabelText(
+    /choose a file, or drag one here/i,
+  ) as HTMLInputElement;
 }
 
 /** Choose a file, the way the browser hands one over. */
@@ -272,7 +290,9 @@ describe("the control the founder could not find", () => {
     await ready();
     choose("menu.pdf", 2048);
 
-    const bar = await screen.findByRole("progressbar", { name: /sending your file/i });
+    const bar = await screen.findByRole("progressbar", {
+      name: /sending your file/i,
+    });
     await waitFor(() => expect(bar.getAttribute("aria-valuenow")).toBe("25"));
     expect(screen.getByText(/Sending menu\.pdf/)).toBeTruthy();
 
@@ -289,7 +309,8 @@ describe("the control the founder could not find", () => {
         type: "urn:calevate:validation/kb_upload_too_large",
         title: "That file is too large",
         detail: "We can take files up to 20 MB and this one is 34 MB.",
-        remediation: "Split it into smaller documents, or send the price list on its own.",
+        remediation:
+          "Split it into smaller documents, or send the price list on its own.",
         kind: "validation",
       },
     };
@@ -298,7 +319,9 @@ describe("the control the founder could not find", () => {
     choose("huge.pdf");
 
     expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(container.textContent).toContain("We can take files up to 20 MB and this one is 34 MB.");
+    expect(container.textContent).toContain(
+      "We can take files up to 20 MB and this one is 34 MB.",
+    );
     expect(container.textContent).toContain("Split it into smaller documents");
     // The machine code never reaches the screen, and neither does a bar left at 100%
     // under a refusal — which would read as "it arrived".
@@ -322,7 +345,9 @@ describe("the control the founder could not find", () => {
     choose("old.doc");
 
     expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(container.textContent).toContain("Open it and choose Save as, then pick .docx.");
+    expect(container.textContent).toContain(
+      "Open it and choose Save as, then pick .docx.",
+    );
     expect(container.textContent).not.toContain("kb_upload_kind_unsupported");
   });
 
@@ -343,7 +368,9 @@ describe("the control the founder could not find", () => {
     fireEvent.click(screen.getByRole("button", { name: /add page/i }));
 
     expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(container.textContent).toContain("Give us a page on your own website");
+    expect(container.textContent).toContain(
+      "Give us a page on your own website",
+    );
     expect(container.textContent).not.toContain("kb_link_refused");
   });
 
@@ -352,14 +379,21 @@ describe("the control the founder could not find", () => {
     await ready();
     fireEvent.click(screen.getByRole("button", { name: /add page/i }));
 
-    expect(await screen.findByText(/give us the full web address/i)).toBeTruthy();
+    expect(
+      await screen.findByText(/give us the full web address/i),
+    ).toBeTruthy();
   });
 });
 
 describe("what each state means to the person who sent the file", () => {
   it("never prints the machinery's own word for a state", async () => {
     const { container } = await renderKnowledge([
-      upload({ id: "u1", ingest_status: "processing", review_state: "approved", is_live: false }),
+      upload({
+        id: "u1",
+        ingest_status: "processing",
+        review_state: "approved",
+        is_live: false,
+      }),
       upload({
         id: "u2",
         name: "Old leaflet.docx",
@@ -393,7 +427,11 @@ describe("what each state means to the person who sent the file", () => {
 
   it("says we are reading a file that has just arrived, and how long that takes", async () => {
     const { container } = await renderKnowledge([
-      upload({ ingest_status: "received", review_state: "pending_approval", is_live: false }),
+      upload({
+        ingest_status: "received",
+        review_state: "pending_approval",
+        is_live: false,
+      }),
     ]);
 
     await screen.findByText("Price list.pdf");
@@ -409,7 +447,8 @@ describe("what each state means to the person who sent the file", () => {
       upload({
         name: "Scan.pdf",
         ingest_status: "conversion_failed",
-        ingest_detail: "There was no text in that file, only pictures. Send a photo of each page instead.",
+        ingest_detail:
+          "There was no text in that file, only pictures. Send a photo of each page instead.",
         review_state: "pending_approval",
         is_live: false,
       }),
@@ -419,7 +458,9 @@ describe("what each state means to the person who sent the file", () => {
     expect(container.textContent).toContain("Could not be read");
     expect(container.textContent).toContain("only pictures");
     expect(container.textContent).not.toContain("Waiting for review");
-    expect(screen.queryByRole("button", { name: /read it and confirm/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /read it and confirm/i }),
+    ).toBeNull();
   });
 
   it("does not report an empty list when it could not read one", async () => {
@@ -427,7 +468,10 @@ describe("what each state means to the person who sent the file", () => {
     // a request that never answered tells a client the file they sent this morning was
     // never received, and they send it again.
     const { container } = await renderKnowledge(
-      problem(503, { title: "Service unavailable", detail: "We could not read your documents." }),
+      problem(503, {
+        title: "Service unavailable",
+        detail: "We could not read your documents.",
+      }),
     );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
@@ -446,7 +490,9 @@ describe("text a machine read is confirmed by a person before a caller hears it"
     is_live: false,
   });
 
-  const CHUNKS = [{ idx: 0, content: "Haircut ₹280. Shave ₹120.", gloss: null }];
+  const CHUNKS = [
+    { idx: 0, content: "Haircut ₹280. Shave ₹120.", gloss: null },
+  ];
 
   it("asks the client to read what was read off their photo, and labels whose reading it is", async () => {
     const { container } = await renderKnowledge([photo], {
@@ -455,13 +501,53 @@ describe("text a machine read is confirmed by a person before a caller hears it"
 
     await screen.findByText("Rates board");
     expect(container.textContent).toContain("Check what we read");
-    fireEvent.click(screen.getByRole("button", { name: /read it and confirm/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /read it and confirm/i }),
+    );
 
     expect(await screen.findByText(/Haircut ₹280/)).toBeTruthy();
     // The label is the feature, not decoration: a fluent transcription that says ₹260
     // where the board says ₹280 looks exactly like a correct one.
-    expect(container.textContent).toContain("what our computer read off your photo");
+    expect(container.textContent).toContain(
+      "what our computer read off your photo",
+    );
     expect(container.textContent).toContain("check the numbers");
+  });
+
+  it("refuses the publish to a view-as operator, by NAMED ACT rather than by permission", async () => {
+    /**
+     * `kb.self_approve` is one of the six acts D-587 withholds from a view-as session even
+     * though the permission is held: `kb:write` comes through `/v1/me`, so the operator may
+     * ADD knowledge (it goes for review), and `POST /v1/kb/uploads/{id}/confirm` then
+     * refuses them at `apps/api/kb/uploads.py:722` — publishing under the client's own name
+     * is the client's approval to give, and the operator console's queue records that WE
+     * approved it. The button asked only the permission, so the console offered a publish
+     * the API would not honour; it asks `useActAccess` now.
+     */
+    const { container, calls } = await renderKnowledge([photo], {
+      "/v1/me": {
+        ...ME,
+        impersonating: true,
+        withheld_acts: ["kb.self_approve"],
+      },
+      [`/v1/kb/sources/${SOURCE_ID}/preview`]: CHUNKS,
+    });
+
+    await screen.findByText("Rates board");
+    fireEvent.click(
+      screen.getByRole("button", { name: /read it and confirm/i }),
+    );
+    await screen.findByText(/Haircut ₹280/);
+
+    const publish = screen.getByRole("button", {
+      name: /yes, this is right/i,
+    }) as HTMLButtonElement;
+    await waitFor(() => expect(publish.disabled).toBe(true));
+    // The ground beside the control, not only in a `title` a keyboard never meets.
+    expect(container.textContent).toContain("stays with the client");
+    expect(
+      calls.some((c) => c.path.endsWith(`/uploads/${UPLOAD_ID}/confirm`)),
+    ).toBe(false);
   });
 
   it("publishes it only when the client says the reading is right", async () => {
@@ -476,13 +562,21 @@ describe("text a machine read is confirmed by a person before a caller hears it"
     });
 
     await screen.findByText("Rates board");
-    fireEvent.click(screen.getByRole("button", { name: /read it and confirm/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /read it and confirm/i }),
+    );
     await screen.findByText(/Haircut ₹280/);
-    fireEvent.click(screen.getByRole("button", { name: /yes, this is right/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /yes, this is right/i }),
+    );
 
     await waitFor(() =>
       expect(
-        calls.some((c) => c.method === "POST" && c.path === `/v1/kb/uploads/${UPLOAD_ID}/confirm`),
+        calls.some(
+          (c) =>
+            c.method === "POST" &&
+            c.path === `/v1/kb/uploads/${UPLOAD_ID}/confirm`,
+        ),
       ).toBe(true),
     );
   });
@@ -494,7 +588,9 @@ describe("text a machine read is confirmed by a person before a caller hears it"
     });
 
     await screen.findByText("Rates board");
-    fireEvent.click(screen.getByRole("button", { name: /read it and confirm/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /read it and confirm/i }),
+    );
     await screen.findByText(/Haircut ₹280/);
     fireEvent.click(screen.getByRole("button", { name: /throw this away/i }));
 
@@ -505,7 +601,10 @@ describe("text a machine read is confirmed by a person before a caller hears it"
 
     await waitFor(() =>
       expect(
-        calls.some((c) => c.method === "DELETE" && c.path === `/v1/kb/uploads/${UPLOAD_ID}`),
+        calls.some(
+          (c) =>
+            c.method === "DELETE" && c.path === `/v1/kb/uploads/${UPLOAD_ID}`,
+        ),
       ).toBe(true),
     );
   });
@@ -515,11 +614,18 @@ describe("text a machine read is confirmed by a person before a caller hears it"
     // have not started" and "we have finished and are waiting for you". Confirming the
     // first would 409 `kb_upload_not_ready` against a document nobody has read.
     await renderKnowledge([
-      upload({ ingest_status: "received", text_provenance: null, review_state: "pending_approval", is_live: false }),
+      upload({
+        ingest_status: "received",
+        text_provenance: null,
+        review_state: "pending_approval",
+        is_live: false,
+      }),
     ]);
 
     await screen.findByText("Price list.pdf");
-    expect(screen.queryByRole("button", { name: /read it and confirm/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /read it and confirm/i }),
+    ).toBeNull();
   });
 });
 
@@ -528,18 +634,32 @@ describe("a row that moves on its own", () => {
     // The row's own watch is left in flight (`stillLoading`), which is what the first few
     // seconds after an upload look like: the list's answer is all the screen has.
     const { container } = await renderKnowledge(
-      [upload({ ingest_status: "processing", review_state: "approved", is_live: false })],
+      [
+        upload({
+          ingest_status: "processing",
+          review_state: "approved",
+          is_live: false,
+        }),
+      ],
       { [`/v1/kb/uploads/${UPLOAD_ID}`]: stillLoading() },
     );
 
     await screen.findByText("Price list.pdf");
     expect(container.textContent).toContain("Going to your agent");
-    expect(container.textContent).toContain("Your agent is being given this now");
+    expect(container.textContent).toContain(
+      "Your agent is being given this now",
+    );
   });
 
   it("follows one item from being processed to in use, without re-reading the list", async () => {
     const { calls, container } = await renderKnowledge(
-      [upload({ ingest_status: "processing", review_state: "approved", is_live: false })],
+      [
+        upload({
+          ingest_status: "processing",
+          review_state: "approved",
+          is_live: false,
+        }),
+      ],
       {
         [`/v1/kb/uploads/${UPLOAD_ID}`]: upload({
           ingest_status: "processed",
@@ -550,7 +670,9 @@ describe("a row that moves on its own", () => {
     );
 
     await screen.findByText("Price list.pdf");
-    await waitFor(() => expect(container.textContent).toContain("Your agent is using this now"));
+    await waitFor(() =>
+      expect(container.textContent).toContain("Your agent is using this now"),
+    );
     // ONE item was watched, not the list. A whole-list poll on a four-second timer to see
     // one row change is the shape this deliberately is not.
     expect(calls.filter((c) => c.path === "/v1/kb/uploads").length).toBe(1);
@@ -560,7 +682,9 @@ describe("a row that moves on its own", () => {
     const { calls } = await renderKnowledge([upload({ is_live: true })]);
 
     await screen.findByText("Price list.pdf");
-    expect(calls.some((c) => c.path === `/v1/kb/uploads/${UPLOAD_ID}`)).toBe(false);
+    expect(calls.some((c) => c.path === `/v1/kb/uploads/${UPLOAD_ID}`)).toBe(
+      false,
+    );
   });
 
   it("stops asking about a photograph that is resting on a person", async () => {
@@ -577,7 +701,9 @@ describe("a row that moves on its own", () => {
     ]);
 
     await screen.findByText("Price list.pdf");
-    expect(calls.some((c) => c.path === `/v1/kb/uploads/${UPLOAD_ID}`)).toBe(false);
+    expect(calls.some((c) => c.path === `/v1/kb/uploads/${UPLOAD_ID}`)).toBe(
+      false,
+    );
   });
 });
 
@@ -591,12 +717,17 @@ describe("removing a document, and reading the original", () => {
     fireEvent.click(screen.getByRole("button", { name: /^remove$/i }));
 
     const dialog = await screen.findByRole("dialog");
-    expect(dialog.textContent).toContain("Your agent stops using this straight away");
+    expect(dialog.textContent).toContain(
+      "Your agent stops using this straight away",
+    );
     fireEvent.click(screen.getByRole("button", { name: /remove it/i }));
 
     await waitFor(() =>
       expect(
-        calls.some((c) => c.method === "DELETE" && c.path === `/v1/kb/uploads/${UPLOAD_ID}`),
+        calls.some(
+          (c) =>
+            c.method === "DELETE" && c.path === `/v1/kb/uploads/${UPLOAD_ID}`,
+        ),
       ).toBe(true),
     );
   });
@@ -616,7 +747,9 @@ describe("removing a document, and reading the original", () => {
     // link on the review step reads as "your document is gone".
     expect(calls.some((c) => c.path.endsWith("/original"))).toBe(false);
 
-    fireEvent.click(screen.getByRole("button", { name: /open the file you sent/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /open the file you sent/i }),
+    );
     await waitFor(() => expect(opened).toHaveBeenCalled());
     expect(opened.mock.calls[0][0]).toContain("signature=abc");
   });
@@ -635,7 +768,9 @@ describe("removing a document, and reading the original", () => {
 
     const link = await screen.findByRole("link", { name: /open the page/i });
     expect(link.getAttribute("href")).toBe("https://clinic.example/prices");
-    expect(screen.queryByRole("button", { name: /open the file you sent/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /open the file you sent/i }),
+    ).toBeNull();
   });
 });
 
@@ -657,7 +792,11 @@ describe("who may add, and what happens to what they add", () => {
 
     await screen.findByText(/Add a file or a web page/i);
     expect(filePicker().disabled).toBe(true);
-    expect(container.textContent).toContain("reviewed before your agent starts using it");
-    expect(container.textContent).toContain("Only an account owner can add knowledge to this account.");
+    expect(container.textContent).toContain(
+      "reviewed before your agent starts using it",
+    );
+    expect(container.textContent).toContain(
+      "Only an account owner can add knowledge to this account.",
+    );
   });
 });

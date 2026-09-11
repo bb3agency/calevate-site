@@ -50,9 +50,16 @@ export function OrganizationDefault({
   const { toast } = useToast();
   /**
    * `org:manage` — the owner's own permission, the one that already governs the account's
-   * settings and its spending limit, and the one no admin or impersonating session holds
-   * against a tenant (D-22). NOT `agents:write`, which is admin-only and which neither
-   * client role holds: gating this on it would disable it for the owner it was built for.
+   * settings and its spending limit. NOT `agents:write`, which is admin-only and which
+   * neither client role holds: gating this on it would disable it for the owner it was
+   * built for.
+   *
+   * ⚠ THIS SAID "the one no admin or impersonating session holds against a tenant (D-22)"
+   * AND D-587 REVERSED IT — the founder's stated want, which the test for this screen used
+   * to record as a flagged gap: an operator in view-as now holds `org:manage`, no named act
+   * covers the model choice, and the change is attributed to them. Nothing here had to
+   * change for that; the gate reads the server's EFFECTIVE permission set, which is
+   * precisely why the carve-out landed without touching this file.
    */
   const write = useWriteAccess(session, "org:manage", "change which AI model your agents use");
 

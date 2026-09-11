@@ -78,7 +78,9 @@ const NO_INTAKE = {
 };
 
 function fillName(value = "Sunrise Clinic") {
-  fireEvent.change(screen.getByPlaceholderText("Sunrise Clinic"), { target: { value } });
+  fireEvent.change(screen.getByPlaceholderText("Sunrise Clinic"), {
+    target: { value },
+  });
 }
 
 describe("creating the account", () => {
@@ -102,7 +104,11 @@ describe("creating the account", () => {
     expect(container.textContent).toContain("Step 1 of 3");
     // The refusal is answerable, so the control must stay live to answer it.
     expect(
-      (screen.getByRole("button", { name: "Create client" }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: "Create client",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(false);
   });
 
@@ -138,7 +144,9 @@ describe("creating the account", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create client" }));
 
     await screen.findByText("You do not have permission to do this.");
-    const button = screen.getByRole("button", { name: "Create client" }) as HTMLButtonElement;
+    const button = screen.getByRole("button", {
+      name: "Create client",
+    }) as HTMLButtonElement;
     // A permission refusal will not change on the second click, so the button says so
     // rather than inviting an identical 403.
     await waitFor(() => expect(button.disabled).toBe(true));
@@ -165,13 +173,21 @@ describe("the owner invite", () => {
     await screen.findByText("Account created");
     // `findBy`, not `getBy`: the intake step is a skeleton until its prefill lands, and
     // the control that leaves it does not exist while it is one.
-    fireEvent.click(await screen.findByRole("button", { name: /Continue to the owner invite/ }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /Continue to the owner invite/,
+      }),
+    );
     return render;
   }
 
   it("confirms the address it was sent to, and never renders a credential", async () => {
     const { container } = await reachTheInvite({
-      [INVITATIONS]: { id: INVITE_ID, delivery: "queued", expires_in_hours: 72 },
+      [INVITATIONS]: {
+        id: INVITE_ID,
+        delivery: "queued",
+        expires_in_hours: 72,
+      },
     });
 
     fireEvent.change(screen.getByPlaceholderText("owner@business.com"), {
@@ -188,7 +204,13 @@ describe("the owner invite", () => {
   });
 
   it("clears the previous confirmation before a second attempt, so no refusal sits over another address's mail", async () => {
-    await reachTheInvite({ [INVITATIONS]: { id: INVITE_ID, delivery: "queued", expires_in_hours: 72 } });
+    await reachTheInvite({
+      [INVITATIONS]: {
+        id: INVITE_ID,
+        delivery: "queued",
+        expires_in_hours: 72,
+      },
+    });
 
     const emailBox = screen.getByPlaceholderText("owner@business.com");
     fireEvent.change(emailBox, { target: { value: "owner@sunrise.example" } });
@@ -217,7 +239,11 @@ describe("the owner invite", () => {
 
   it("mints nothing for an address nobody typed", async () => {
     const { calls } = await reachTheInvite({
-      [INVITATIONS]: { id: INVITE_ID, delivery: "queued", expires_in_hours: 72 },
+      [INVITATIONS]: {
+        id: INVITE_ID,
+        delivery: "queued",
+        expires_in_hours: 72,
+      },
     });
 
     // The billing email was left blank in step 1, so the invite opens empty — and an empty
@@ -225,7 +251,9 @@ describe("the owner invite", () => {
     //
     // The button is LIVE and the press is refused at the field, which is the change: a
     // dead button beside an empty box told the operator nothing about which box or why.
-    const button = screen.getByRole("button", { name: "Create invite" }) as HTMLButtonElement;
+    const button = screen.getByRole("button", {
+      name: "Create invite",
+    }) as HTMLButtonElement;
     fireEvent.click(button);
     await screen.findByText("Enter the owner's email address.");
     expect(calls.some((c) => c.path === INVITATIONS)).toBe(false);
@@ -260,14 +288,20 @@ describe("cancelling an invite the wizard already issued", () => {
     fillName();
     fireEvent.click(screen.getByRole("button", { name: "Create client" }));
     await screen.findByText("Account created");
-    fireEvent.click(await screen.findByRole("button", { name: /Continue to the owner invite/ }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: /Continue to the owner invite/,
+      }),
+    );
     return render;
   }
 
   it("offers no cancel until an invite has actually been minted", async () => {
     await reachTheInvite({ [INVITATIONS]: MINTED });
 
-    expect(screen.queryByRole("button", { name: /Cancel the unused invite/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Cancel the unused invite/ }),
+    ).toBeNull();
   });
 
   it("offers the cancel only when the server refused a duplicate, and deletes the row it holds", async () => {
@@ -278,7 +312,9 @@ describe("cancelling an invite the wizard already issued", () => {
     fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
     await screen.findByText("Invitation sent");
     // No cancel yet: a successful mint is not a reason to offer to undo it.
-    expect(screen.queryByRole("button", { name: /Cancel the unused invite/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Cancel the unused invite/ }),
+    ).toBeNull();
 
     // Re-stubbing replaces the network AND the call log, so the new log is the one that
     // can see the DELETE.
@@ -292,9 +328,13 @@ describe("cancelling an invite the wizard already issued", () => {
       [`DELETE ${REVOKE}`]: null,
     });
     fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
-    await screen.findByText("There is already an unused invitation for that address.");
+    await screen.findByText(
+      "There is already an unused invitation for that address.",
+    );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Cancel the unused invite/ }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Cancel the unused invite/ }),
+    );
 
     await waitFor(() => {
       const deleted = calls.find((c) => c.method === "DELETE");
@@ -324,7 +364,9 @@ describe("cancelling an invite the wizard already issued", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
     await screen.findByText("Already pending.");
-    fireEvent.click(await screen.findByRole("button", { name: /Cancel the unused invite/ }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Cancel the unused invite/ }),
+    );
 
     // The server's sentence, not a reassuring one of ours — and the duplicate refusal
     // stays on screen, because nothing about it stopped being true.
@@ -358,10 +400,14 @@ describe("cancelling an invite the wizard already issued", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
 
-    await screen.findByText("There is already an unused invitation for that address.");
+    await screen.findByText(
+      "There is already an unused invitation for that address.",
+    );
     // The masked address is what an operator recognises; the raw one is never printed.
     await screen.findByText("owner@sunrise.example");
-    expect(screen.getByRole("button", { name: "Cancel this invite" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Cancel this invite" }),
+    ).toBeTruthy();
   });
 
   it("re-sends the link the wizard issued, and says the old one has stopped working", async () => {
@@ -397,12 +443,18 @@ describe("cancelling an invite the wizard already issued", () => {
       },
     });
     fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
-    await screen.findByText("There is already an unused invitation for that address.");
+    await screen.findByText(
+      "There is already an unused invitation for that address.",
+    );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Send it again" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Send it again" }),
+    );
 
     await waitFor(() => {
-      const sent = calls.find((c) => c.method === "POST" && c.path.endsWith("/resend"));
+      const sent = calls.find(
+        (c) => c.method === "POST" && c.path.endsWith("/resend"),
+      );
       expect(sent?.path).toBe(`${REVOKE}/resend`);
     });
     // The rotation kills the previous link, so the screen has to say so — an operator who
@@ -429,9 +481,13 @@ describe("cancelling an invite the wizard already issued", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Create invite" }));
 
-    await screen.findByText("We could not read the invitations for this account.");
+    await screen.findByText(
+      "We could not read the invitations for this account.",
+    );
     // Never a cancel control built from an absent list, and never silence: the operator
     // is stuck either way, and only one of those two says so.
-    expect(screen.queryByRole("button", { name: "Cancel this invite" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Cancel this invite" }),
+    ).toBeNull();
   });
 });

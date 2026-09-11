@@ -1,12 +1,22 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CopilotPanel } from "@/components/copilot/CopilotPanel";
 import { API_BASE, type Session } from "@/lib/api/client";
 import { useConversation } from "@/lib/copilot/conversation";
-import { useCopilotSurface, useCopilotSurfaceHolder } from "@/lib/copilot/registry";
+import {
+  useCopilotSurface,
+  useCopilotSurfaceHolder,
+} from "@/lib/copilot/registry";
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/",
@@ -63,7 +73,9 @@ function PanelMount() {
 }
 
 function withQuery(node: ReactNode) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return <QueryClientProvider client={client}>{node}</QueryClientProvider>;
 }
 
@@ -79,7 +91,10 @@ function stubGrowingConversation(pages: { role: string; content: string }[][]) {
     "fetch",
     vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input).replace(API_BASE, "");
-      if (path.startsWith("/v1/copilot/conversation") && (init?.method ?? "GET") === "GET") {
+      if (
+        path.startsWith("/v1/copilot/conversation") &&
+        (init?.method ?? "GET") === "GET"
+      ) {
         gets.push(path);
         const turns = pages[Math.min(read, pages.length - 1)];
         read += 1;
@@ -142,17 +157,23 @@ describe("coming back to the tab", () => {
     await waitFor(() => {
       expect(screen.getByText("how many leads came in today")).toBeTruthy();
     });
-    expect(screen.queryByText("and on the phone I asked about refunds")).toBeNull();
+    expect(
+      screen.queryByText("and on the phone I asked about refunds"),
+    ).toBeNull();
 
     await returnToTheTab();
 
     await waitFor(() => {
-      expect(screen.getByText("and on the phone I asked about refunds")).toBeTruthy();
+      expect(
+        screen.getByText("and on the phone I asked about refunds"),
+      ).toBeTruthy();
     });
   });
 
   it("DOES NOT REFETCH WHILE AN ANSWER IS STREAMING — the one rule the sync has", async () => {
-    const gets = stubGrowingConversation([[{ role: "user", content: "anything" }]]);
+    const gets = stubGrowingConversation([
+      [{ role: "user", content: "anything" }],
+    ]);
     let streaming = true;
 
     const { result } = renderHook(
@@ -205,11 +226,12 @@ describe("coming back to the tab", () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/earlier messages could not be loaded/i)).toBeTruthy();
+      expect(
+        screen.getByText(/earlier messages could not be loaded/i),
+      ).toBeTruthy();
     });
   });
 });
-
 
 /** A `text/event-stream` response with these frames — `copilot.test.tsx`'s own shape. */
 function sse(chunks: string[]): Response {
@@ -273,7 +295,9 @@ async function askOnScreen(question: string) {
     target: { value: question },
   });
   await act(async () => {
-    fireEvent.submit(screen.getByRole("button", { name: "Ask" }).closest("form")!);
+    fireEvent.submit(
+      screen.getByRole("button", { name: "Ask" }).closest("form")!,
+    );
   });
 }
 
@@ -319,8 +343,16 @@ describe("the refresh after an exchange", () => {
     stubAskAndConversation("Eleven.", [
       [],
       [
-        { id: "0198f000-0000-7000-8000-000000000001", role: "user", content: "how many leads" },
-        { id: "0198f000-0000-7000-8000-000000000002", role: "assistant", content: "Eleven." },
+        {
+          id: "0198f000-0000-7000-8000-000000000001",
+          role: "user",
+          content: "how many leads",
+        },
+        {
+          id: "0198f000-0000-7000-8000-000000000002",
+          role: "assistant",
+          content: "Eleven.",
+        },
       ],
     ]);
 
@@ -362,12 +394,28 @@ describe("the transcript's keys", () => {
   function stubTrimmedConversation() {
     const pages = [
       [
-        { id: "0198f000-0000-7000-8000-0000000000a1", role: "user", content: "how many leads" },
-        { id: "0198f000-0000-7000-8000-0000000000a2", role: "assistant", content: "Eleven." },
+        {
+          id: "0198f000-0000-7000-8000-0000000000a1",
+          role: "user",
+          content: "how many leads",
+        },
+        {
+          id: "0198f000-0000-7000-8000-0000000000a2",
+          role: "assistant",
+          content: "Eleven.",
+        },
       ],
       [
-        { id: "0198f000-0000-7000-8000-0000000000a2", role: "assistant", content: "Eleven." },
-        { id: "0198f000-0000-7000-8000-0000000000a3", role: "user", content: "and refunds" },
+        {
+          id: "0198f000-0000-7000-8000-0000000000a2",
+          role: "assistant",
+          content: "Eleven.",
+        },
+        {
+          id: "0198f000-0000-7000-8000-0000000000a3",
+          role: "user",
+          content: "and refunds",
+        },
       ],
     ];
     let read = 0;
@@ -375,7 +423,10 @@ describe("the transcript's keys", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
         const path = String(input).replace(API_BASE, "");
-        if (path.startsWith("/v1/copilot/conversation") && (init?.method ?? "GET") === "GET") {
+        if (
+          path.startsWith("/v1/copilot/conversation") &&
+          (init?.method ?? "GET") === "GET"
+        ) {
           const turns = pages[Math.min(read, pages.length - 1)];
           read += 1;
           return new Response(
@@ -410,7 +461,9 @@ describe("the transcript's keys", () => {
         ),
       );
     });
-    await waitFor(() => expect(screen.getByText("how many leads")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("how many leads")).toBeTruthy(),
+    );
     const before = screen.getByText("Eleven.");
 
     await returnToTheTab();
@@ -439,8 +492,12 @@ describe("the transcript's keys", () => {
           return new Response(
             new ReadableStream<Uint8Array>({
               start(controller) {
-                controller.enqueue(encoder.encode('event: text\ndata: {"delta":"Eleven."}\n\n'));
-                controller.enqueue(encoder.encode('event: done\ndata: {"metered":true}\n\n'));
+                controller.enqueue(
+                  encoder.encode('event: text\ndata: {"delta":"Eleven."}\n\n'),
+                );
+                controller.enqueue(
+                  encoder.encode('event: done\ndata: {"metered":true}\n\n'),
+                );
                 controller.close();
               },
             }),
@@ -468,7 +525,9 @@ describe("the transcript's keys", () => {
     for (const question of ["how many leads", "and refunds"]) {
       fireEvent.change(box, { target: { value: question } });
       await act(async () => {
-        fireEvent.submit(screen.getByRole("button", { name: "Ask" }).closest("form")!);
+        fireEvent.submit(
+          screen.getByRole("button", { name: "Ask" }).closest("form")!,
+        );
       });
     }
 

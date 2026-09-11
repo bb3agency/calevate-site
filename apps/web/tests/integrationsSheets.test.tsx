@@ -35,9 +35,10 @@ import { problem, renderClientPage, type Routes } from "./harness";
  *    rule, and the copy is what drifts.
  * 5. **Other Sheets refusals keep the form.** An unparseable document reference is
  *    something the client can fix in the field they are looking at.
- * 6. **D-22.** Creating either kind is `org:manage`, which is mutating, so an impersonating
- *    operator gets the reason beside the disabled control rather than a 403 after the
- *    click.
+ * 6. **D-587.** Creating either kind is `org:manage`, which a view-as operator now HOLDS —
+ *    this list used to say the opposite under D-22, and the test at the foot of this file
+ *    records the reversal. `staff`, who hold neither form, still get the reason beside the
+ *    disabled control rather than a 403 after the click.
  */
 
 const EVENTS_PATH = "/v1/integrations/events";
@@ -49,7 +50,13 @@ const OWNER = {
   role: "owner",
   permissions: ["org:read", "org:manage", "calls:read_raw"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  withheld_acts: [],
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 /**
@@ -59,7 +66,12 @@ const OWNER = {
  * state every account is in.
  */
 const OPTIONS = {
-  events: ["lead.created", "lead.updated", "call.completed", "campaign.completed"],
+  events: [
+    "lead.created",
+    "lead.updated",
+    "call.completed",
+    "campaign.completed",
+  ],
   sheets_delivery_available: true,
 };
 
@@ -81,7 +93,9 @@ function render(over: Partial<Routes> = {}) {
 describe("the event catalogue", () => {
   it("builds both forms from the server's list rather than a local copy", async () => {
     const { container, calls } = await render({
-      [EVENTS_PATH]: options({ events: ["lead.created", "campaign.completed"] }),
+      [EVENTS_PATH]: options({
+        events: ["lead.created", "campaign.completed"],
+      }),
     });
 
     await screen.findByText("Send events to a Google Sheet");
@@ -90,7 +104,9 @@ describe("the event catalogue", () => {
     // still be showing `lead.updated` and `call.completed` here. Plus the webhook form's
     // three `call.completed` opt-in checkboxes (recording / transcript / raw transcript),
     // which live only on that form: 2 + 2 + 3 = 7.
-    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(7);
+    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(
+      7,
+    );
     expect(container.textContent).not.toContain("lead.updated");
     expect(container.textContent).not.toContain("call.completed");
   });
@@ -108,13 +124,17 @@ describe("the event catalogue", () => {
 
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("The list of events did not load.");
-    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(
+      0,
+    );
     expect(screen.queryByRole("button", { name: "Add endpoint" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Add sheet" })).toBeNull();
     // And NOT the capability card either. A failed read is not a `false` capability, and
     // "Sheets is not switched on for your account" is a STATE — the exact substitution
     // §52 exists to stop. It renders only inside the success arm.
-    expect(container.textContent).not.toContain("not switched on for your account");
+    expect(container.textContent).not.toContain(
+      "not switched on for your account",
+    );
   });
 
   it("treats a 200 whose body it cannot read as a failed read, not an empty catalogue", async () => {
@@ -129,8 +149,12 @@ describe("the event catalogue", () => {
     const { container } = await render({ [EVENTS_PATH]: { not_events: [] } });
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("did not arrive in a shape we understand");
-    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(0);
+    expect(alert.textContent).toContain(
+      "did not arrive in a shape we understand",
+    );
+    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(
+      0,
+    );
   });
 
   it("refuses rather than reading a missing capability as 'Sheets is switched off'", async () => {
@@ -143,8 +167,12 @@ describe("the event catalogue", () => {
     });
 
     const alert = await screen.findByRole("alert");
-    expect(alert.textContent).toContain("did not arrive in a shape we understand");
-    expect(container.textContent).not.toContain("not switched on for your account");
+    expect(alert.textContent).toContain(
+      "did not arrive in a shape we understand",
+    );
+    expect(container.textContent).not.toContain(
+      "not switched on for your account",
+    );
     expect(screen.queryByRole("button", { name: "Add sheet" })).toBeNull();
   });
 
@@ -160,7 +188,9 @@ describe("the event catalogue", () => {
     // One recognised event (`lead.created`) as a checkbox on each form, and NOT
     // `call.transferred` — plus the webhook form's three `call.completed` opt-ins:
     // 1 + 1 + 3 = 5. A faked checkbox for the unknown event would push this to 6.
-    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(5);
+    expect(container.querySelectorAll('input[type="checkbox"]')).toHaveLength(
+      5,
+    );
     expect(container.textContent).toContain("call.transferred");
     expect(container.textContent).toContain("cannot subscribe to yet");
   });
@@ -204,7 +234,9 @@ describe("the Sheets capability", () => {
     });
 
     await screen.findByText("Send events to a Google Sheet");
-    expect(container.textContent).toContain("Set up a delivery to your own system above instead");
+    expect(container.textContent).toContain(
+      "Set up a delivery to your own system above instead",
+    );
     // The webhook form is the remediation, so it must still be there and still usable.
     // (Its submit is disabled until a URL is typed — that is the form's own rule, not a
     // permission — so the INPUT is what "usable" means here.)
@@ -218,12 +250,16 @@ describe("the Sheets capability", () => {
   it("offers the form where the deployment can deliver", async () => {
     // The other direction, and the reason a hardcoded "hide it" would have been wrong:
     // the day Sheets is enabled the form has to appear on its own.
-    await render({ [EVENTS_PATH]: options({ sheets_delivery_available: true }) });
+    await render({
+      [EVENTS_PATH]: options({ sheets_delivery_available: true }),
+    });
 
     expect(await screen.findByLabelText("Which sheet?")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Add sheet" })).toBeTruthy();
     expect(
-      screen.queryByText("Google Sheets delivery is not switched on for your account."),
+      screen.queryByText(
+        "Google Sheets delivery is not switched on for your account.",
+      ),
     ).toBeNull();
   });
 });
@@ -244,14 +280,20 @@ describe("registering a Google Sheet", () => {
 
     const sheet = await screen.findByLabelText("Which sheet?");
     fireEvent.change(sheet, {
-      target: { value: "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit" },
+      target: {
+        value:
+          "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit",
+      },
     });
     fireEvent.click(screen.getByRole("button", { name: "Add sheet" }));
 
-    await waitFor(() => expect(calls.some((c) => c.path === SHEETS_PATH)).toBe(true));
+    await waitFor(() =>
+      expect(calls.some((c) => c.path === SHEETS_PATH)).toBe(true),
+    );
     const sent = JSON.parse(calls.find((c) => c.path === SHEETS_PATH)!.body!);
     expect(sent).toEqual({
-      spreadsheet: "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit",
+      spreadsheet:
+        "https://docs.google.com/spreadsheets/d/1AbCdEfGhIjKlMnOpQrStUvWxYz/edit",
       events: ["lead.created"],
       // An untouched optional tab is null, not "": the server would strip a blank anyway,
       // and sending null says what we mean.
@@ -263,7 +305,9 @@ describe("registering a Google Sheet", () => {
     // create — a client cannot supply the Google credential — and the screen says so
     // rather than implying the sheet is live.
     await waitFor(() =>
-      expect(container.textContent).toContain("We haven't connected to Google yet"),
+      expect(container.textContent).toContain(
+        "We haven't connected to Google yet",
+      ),
     );
   });
 
@@ -285,14 +329,20 @@ describe("registering a Google Sheet", () => {
     });
 
     const sheet = await screen.findByLabelText("Which sheet?");
-    fireEvent.change(sheet, { target: { value: "1AbCdEfGhIjKlMnOpQrStUvWxYz" } });
+    fireEvent.change(sheet, {
+      target: { value: "1AbCdEfGhIjKlMnOpQrStUvWxYz" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "Add sheet" }));
 
-    await screen.findByText("This account cannot deliver leads to Google Sheets yet.");
+    await screen.findByText(
+      "This account cannot deliver leads to Google Sheets yet.",
+    );
     expect(container.textContent).toContain(
       "Register a webhook endpoint instead, or contact support to have Google Sheets enabled",
     );
-    expect(container.textContent).toContain("Nothing was created, so there is nothing to undo.");
+    expect(container.textContent).toContain(
+      "Nothing was created, so there is nothing to undo.",
+    );
     // Not an error panel: `role="alert"` is the rose ProblemNotice, and "try again" is not
     // the remediation for a capability the deployment does not have.
     expect(screen.queryByRole("alert")).toBeNull();
@@ -311,7 +361,8 @@ describe("registering a Google Sheet", () => {
         type: "urn:calevate:validation/invalid_spreadsheet_ref",
         title: "Not a Google Sheets document",
         detail: "That is not a Google Sheets link or document id.",
-        remediation: "Paste the URL from your browser's address bar while the sheet is open.",
+        remediation:
+          "Paste the URL from your browser's address bar while the sheet is open.",
         kind: "validation",
       }),
     });
@@ -322,7 +373,9 @@ describe("registering a Google Sheet", () => {
 
     await screen.findByText("That is not a Google Sheets link or document id.");
     expect(screen.getByRole("button", { name: "Add sheet" })).toBeTruthy();
-    expect(container.textContent).toContain("Paste the URL from your browser's address bar");
+    expect(container.textContent).toContain(
+      "Paste the URL from your browser's address bar",
+    );
   });
 
   it("labels every field persistently, not with a placeholder", async () => {
@@ -336,20 +389,50 @@ describe("registering a Google Sheet", () => {
   });
 });
 
-describe("D-22 on the create paths", () => {
-  it("disables both forms with the reason rather than letting the click 403", async () => {
+describe("D-587 on the create paths", () => {
+  it("leaves both forms live for a view-as operator, who may now change this", async () => {
+    /**
+     * IT USED TO ASSERT BOTH FORMS DEAD — "D-22 on the create paths > disables both forms
+     * with the reason rather than letting the click 403", with every input disabled and
+     * "viewing this account read-only" on the page. D-587 reversed the rule: `org:manage`
+     * is `None` in `rbac.VIEW_AS_MUTATIONS`, no named act covers an integration, and
+     * `/v1/me` sends the permission through. Fixing a client's broken delivery while they
+     * are on the phone is precisely the support job the reversal was made for, and the
+     * audit row names the operator.
+     *
+     * The disabled-form shape is NOT lost with it: the tests above hold it for `staff`,
+     * who hold neither permission, which is the viewer it was really about.
+     */
     const { container } = await render({
-      "/v1/me": { ...OWNER, impersonating: true },
+      "/v1/me": { ...OWNER, impersonating: true, withheld_acts: [] },
     });
 
-    await screen.findByText(/viewing this account read-only/);
-    expect(screen.getByRole("button", { name: "Add sheet" })).toHaveProperty("disabled", true);
-    expect(screen.getByRole("button", { name: "Add endpoint" })).toHaveProperty("disabled", true);
-    // Every input too — a form that accepts typing and refuses the submit wastes the
-    // operator's time twice.
-    for (const input of container.querySelectorAll("form input")) {
-      expect(input).toHaveProperty("disabled", true);
+    await screen.findByRole("button", { name: "Add sheet" });
+    // THE INPUTS ARE THE PROBE, NOT THE SUBMIT BUTTON — and that is a correctness point
+    // rather than a convenience. Both submits carry ordinary validation alongside the
+    // permission (`!spreadsheet || events.length === 0` in `SheetsForm`, the same shape in
+    // `WebhookForm`), so on a freshly rendered EMPTY form they are disabled for a reason
+    // that has nothing to do with view-as. Asserting them enabled here would be asserting
+    // that an empty form can be submitted — a defect, passing only if somebody deleted the
+    // validation. What this clause is about is that nothing is GATED, and the inputs say
+    // that exactly.
+    // …AND THE PROBE EXCLUDES THE ONE INPUT WITH A COMPLIANCE GATE ON IT. `WebhookForm`
+    // disables the RAW-transcript checkbox as `!write.allowed || !includeTranscript` —
+    // raw is unavailable until the redacted transcript is on, and turning redacted off
+    // clears raw too (hard rule 5's shape: the narrower disclosure cannot be chosen
+    // without the wider one). On a fresh form `includeTranscript` is off, so that box is
+    // correctly disabled for a reason this clause is not about. Asserting it enabled
+    // would demand that a view-as session be handed raw transcripts by default, which is
+    // the opposite of what anybody wants.
+    const gated = container.querySelectorAll("form input:disabled");
+    expect(gated.length, "more than the raw-transcript box is gated").toBe(1);
+    for (const input of container.querySelectorAll(
+      "form input:not(:disabled)",
+    )) {
+      expect(input).toHaveProperty("disabled", false);
     }
+    expect(container.textContent).not.toContain("read-only");
+    expect(container.textContent).not.toContain("stays with the client");
   });
 
   it("tells a member of staff who may do it instead", async () => {
@@ -357,7 +440,12 @@ describe("D-22 on the create paths", () => {
       "/v1/me": { ...OWNER, role: "staff", permissions: ["org:read"] },
     });
 
-    await screen.findByText(/Only an account owner can change where events are sent/);
-    expect(screen.getByRole("button", { name: "Add sheet" })).toHaveProperty("disabled", true);
+    await screen.findByText(
+      /Only an account owner can change where events are sent/,
+    );
+    expect(screen.getByRole("button", { name: "Add sheet" })).toHaveProperty(
+      "disabled",
+      true,
+    );
   });
 });

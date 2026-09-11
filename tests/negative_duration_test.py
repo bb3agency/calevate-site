@@ -53,12 +53,12 @@ from tests.spend_caps_test import _bill, _call_row, _plan, _snapshot, _spend_sta
 async def _premium_voice(tenant_id: UUID, agent_id: UUID) -> None:
     """One voice quality now (the single-tier voice decision); the meter stamps the base
     rung on every call, so the fixture just sets the one voice."""
-    from apps.api.agents.voices import default_voice
+    from tests.voice_fixture import TEST_VOICE_ID
 
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text("UPDATE agents SET tts_voice = :v WHERE id = :i"),
-            {"v": default_voice().id, "i": agent_id},
+            {"v": TEST_VOICE_ID, "i": agent_id},
         )
 
 

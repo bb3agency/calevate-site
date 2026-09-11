@@ -29,6 +29,7 @@ import HeldAccountsPage from "@/app/admin/holds/page";
 import NewClientPage from "@/app/admin/new/page";
 import GlobalDncPage from "@/app/admin/ops/dnc/page";
 import EngineLatencyPage from "@/app/admin/ops/engine-latency/page";
+import VoicesPage from "@/app/admin/ops/voices/page";
 import OperatorsPage from "@/app/admin/operators/page";
 import OpsConfigPage from "@/app/admin/ops/config/page";
 import OpsPage from "@/app/admin/ops/page";
@@ -643,7 +644,8 @@ const KNOWLEDGE_GAP = {
   agent_id: "agent-1",
   agent_name: "Front desk",
   call_count: 3,
-  example_answer: "I'm not certain about that — let me have the team call you back.",
+  example_answer:
+    "I'm not certain about that — let me have the team call you back.",
   example_question: "Do you do root canal treatment?",
   first_seen_at: "2026-08-10T06:00:00Z",
   last_seen_at: "2026-08-13T04:30:00Z",
@@ -735,7 +737,8 @@ const LEGAL_READINESS = {
     "Your agreements have not been accepted, so this account cannot make outgoing calls or publish an agent yet.",
   outstanding_documents: 2,
   pending_legal_review: true,
-  provisional_notice: "These documents are drafts and have not been through legal review.",
+  provisional_notice:
+    "These documents are drafts and have not been through legal review.",
   acceptance_statement:
     "I accept the Terms of Service and the Privacy Policy on behalf of this business.",
   acceptance_statement_version: "1+pre-review",
@@ -1088,7 +1091,9 @@ const OPS_RATE_CARD = {
         tts_concurrency: 3,
       },
     ],
-    ladder: [{ call_minutes: "200", plan_id: "pro", cost_inr_per_min: "4.9299" }],
+    ladder: [
+      { call_minutes: "200", plan_id: "pro", cost_inr_per_min: "4.9299" },
+    ],
   },
 };
 
@@ -1836,7 +1841,8 @@ const CLIENT_SCREENS: Screen[] = [
             id: "attempt-1",
             member: "Reception desk",
             outcome: "connected",
-            explanation: "The caller asked for a person and Reception desk answered.",
+            explanation:
+              "The caller asked for a person and Reception desk answered.",
             started_at: "2026-09-05T04:30:00Z",
             duration_s: 84,
             callback_id: null,
@@ -1902,7 +1908,13 @@ const CLIENT_SCREENS: Screen[] = [
             pre_call_message: "One moment while I check.",
             credential_id: null,
             params: [
-              { name: "order_id", source: "ai", type: "string", description: "the order id", required: true },
+              {
+                name: "order_id",
+                source: "ai",
+                type: "string",
+                description: "the order id",
+                required: true,
+              },
             ],
             config: { method: "GET", url: "https://api.example.com/orders" },
           },
@@ -2813,7 +2825,11 @@ const ADMIN_SCREENS: Screen[] = [
     routes: {
       "/v1/admin/me": {
         ...ADMIN_ME,
-        permissions: [...ADMIN_ME.permissions, "platform:config", "platform:secrets"],
+        permissions: [
+          ...ADMIN_ME.permissions,
+          "platform:config",
+          "platform:secrets",
+        ],
       },
       "/v1/ops/config": OPS_CONFIG,
       // POPULATED, so the twelve-cell rate card renders its TABLE here rather than its
@@ -2998,6 +3014,82 @@ const ADMIN_SCREENS: Screen[] = [
                 unit_verified: false,
               },
             ],
+          },
+        ],
+      },
+    },
+  },
+  {
+    // EVERY ROW SHAPE THIS TABLE HAS, because each one renders different markup and the
+    // ones that matter are the unhappy ones: an enabled stock voice with live agents on it
+    // (the reassurance sentence), a DISABLED clone that nobody has reviewed (the origin
+    // cell, the "never reviewed" line), and one the voice platform has WITHDRAWN (the amber
+    // caveat paragraph). The `offered: 0` fixture also renders the warning banner above the
+    // table, which is a different element from the empty state and would otherwise go
+    // unscanned on a screen that is never empty in that state.
+    file: "admin/ops/voices/page.tsx",
+    realm: "admin",
+    element: () => <VoicesPage />,
+    routes: {
+      // `ops:manage`, for `admin/ops/engine-latency`'s reason: this screen withholds its
+      // whole table from a session the server has refused, so the shared fixture would
+      // sweep one sentence and none of the markup this entry exists for.
+      "/v1/admin/me": {
+        ...ADMIN_ME,
+        permissions: [...ADMIN_ME.permissions, "ops:manage"],
+      },
+      "/v1/ops/voices": {
+        source: "engine",
+        offered: 0,
+        note: "The catalogue has been read, but no voice is enabled for this platform.",
+        voices: [
+          {
+            voice_id: "bulbul:v3:ashutosh",
+            label: "Ashutosh",
+            provider: "sarvam",
+            tier_label: "Clear",
+            tts_model: "bulbul:v3",
+            engine_voice_id: "ashutosh",
+            languages: ["te-IN", "hi-IN", "en-IN"],
+            source: "platform",
+            state: "enabled",
+            offered: true,
+            synced_at: "2026-09-11T04:30:00Z",
+            curated_at: "2026-09-11T05:00:00Z",
+            withdrawn_at: null,
+            live_agents: 3,
+          },
+          {
+            voice_id: "sonic-3.5:cloned-one",
+            label: "Cloned Anita",
+            provider: "cartesia",
+            tier_label: "Studio",
+            tts_model: "sonic-3.5",
+            engine_voice_id: "cloned-one",
+            languages: ["te-IN"],
+            source: "custom",
+            state: "disabled",
+            offered: false,
+            synced_at: "2026-09-11T04:30:00Z",
+            curated_at: null,
+            withdrawn_at: null,
+            live_agents: 0,
+          },
+          {
+            voice_id: "bulbul:v3:withdrawn",
+            label: "Withdrawn One",
+            provider: "sarvam",
+            tier_label: "Clear",
+            tts_model: "bulbul:v3",
+            engine_voice_id: "withdrawn",
+            languages: ["hi-IN"],
+            source: "platform",
+            state: "archived",
+            offered: false,
+            synced_at: "2026-09-10T04:30:00Z",
+            curated_at: "2026-09-10T06:00:00Z",
+            withdrawn_at: "2026-09-11T04:30:00Z",
+            live_agents: 0,
           },
         ],
       },
@@ -3226,7 +3318,10 @@ const ADMIN_SCREENS: Screen[] = [
     file: "admin/tenants/[tenantId]/closure/page.tsx",
     realm: "admin",
     element: () => <TenantClosurePage params={tenant} />,
-    routes: { ...TENANT_ROUTES, "/v1/admin/tenants/t1/closure": CLOSED_ACCOUNT },
+    routes: {
+      ...TENANT_ROUTES,
+      "/v1/admin/tenants/t1/closure": CLOSED_ACCOUNT,
+    },
   },
   {
     // The form's RESTING shape: three controls, the frozen slug row, and the vertical
@@ -3236,7 +3331,10 @@ const ADMIN_SCREENS: Screen[] = [
     file: "admin/tenants/[tenantId]/profile/page.tsx",
     realm: "admin",
     element: () => <TenantProfilePage params={tenant} />,
-    routes: { ...TENANT_ROUTES, "/v1/admin/tenants/t1/profile": TENANT_PROFILE },
+    routes: {
+      ...TENANT_ROUTES,
+      "/v1/admin/tenants/t1/profile": TENANT_PROFILE,
+    },
   },
   {
     // TWO invitations on purpose — one freshly minted and one that has been re-sent four
@@ -3245,7 +3343,10 @@ const ADMIN_SCREENS: Screen[] = [
     file: "admin/tenants/[tenantId]/invitations/page.tsx",
     realm: "admin",
     element: () => <TenantInvitationsPage params={tenant} />,
-    routes: { ...TENANT_ROUTES, "/v1/admin/tenants/t1/invitations": PENDING_INVITATIONS },
+    routes: {
+      ...TENANT_ROUTES,
+      "/v1/admin/tenants/t1/invitations": PENDING_INVITATIONS,
+    },
   },
   {
     file: "admin/tenants/[tenantId]/kyc/page.tsx",
@@ -3357,7 +3458,6 @@ const ADMIN_SCREENS: Screen[] = [
           gender: "female",
           languages: ["te-IN", "hi-IN", "en-IN"],
           note: "Warm, unhurried; the default for Telugu receptionists.",
-          is_default: true,
           verified: false,
         },
       ],

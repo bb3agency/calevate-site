@@ -73,12 +73,17 @@ export function BuildAgent({ slug }: { slug: string }) {
   const create = useCreateAgent(session);
 
   /**
-   * D-22 read-only, and the permission is the one the ROUTE requires — `org:manage`, the
-   * OWNER's. `agents:write` is the neighbouring name and is the wrong one: it is admin-only
-   * and neither client role holds it, so gating on it would disable this button for exactly
-   * the person it was built for. An operator who followed "view as client" holds every read
-   * on this screen and no write, so the button is disabled WITH the reason rather than left
-   * to answer 403 after the click.
+   * The permission is the one the ROUTE requires — `org:manage`, the OWNER's.
+   * `agents:write` is the neighbouring name and is the wrong one: it is admin-only and
+   * neither client role holds it, so gating on it would disable this button for exactly
+   * the person it was built for.
+   *
+   * ⚠ THIS COMMENT SAID "an operator who followed view as client holds every read on this
+   * screen and no write" AND THAT IS NO LONGER TRUE (D-587): `org:manage` is writable in a
+   * view-as session and no named act covers creating an agent, so `/v1/me` sends the
+   * permission through and this form is live for an operator — which is the support job
+   * the reversal exists for. The gate stays because `staff` still does not hold it, and a
+   * failed `/v1/me` must still close the button WITH a sentence rather than silently.
    */
   const write = useWriteAccess(session, "org:manage", "create an agent");
 

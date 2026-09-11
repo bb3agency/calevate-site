@@ -65,9 +65,9 @@ describe("the request deadline", () => {
     // ONE MILLISECOND SHORT. This is the half that fails if someone lowers the ceiling:
     // a 30s cap would already have fired here, taking the informative nginx error with it.
     await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS - 1);
-    expect(await Promise.race([outcome, Promise.resolve("still waiting")])).toBe(
-      "still waiting",
-    );
+    expect(
+      await Promise.race([outcome, Promise.resolve("still waiting")]),
+    ).toBe("still waiting");
 
     await vi.advanceTimersByTimeAsync(1);
     expect(await outcome).toBeInstanceOf(TimeoutProblem);
@@ -91,9 +91,9 @@ describe("the request deadline", () => {
 
     // Real timers and a tiny budget: the override is the mechanism a measured route would
     // use, and exercising it here is what keeps it from rotting unused.
-    await expect(apiRequest(SESSION, "/v1/dashboard", { timeoutMs: 5 })).rejects.toBeInstanceOf(
-      TimeoutProblem,
-    );
+    await expect(
+      apiRequest(SESSION, "/v1/dashboard", { timeoutMs: 5 }),
+    ).rejects.toBeInstanceOf(TimeoutProblem);
   });
 
   it("reaches the screen as a sentence with a remediation and a way forward", async () => {
@@ -102,7 +102,9 @@ describe("the request deadline", () => {
     vi.useFakeTimers();
     stubApi({ "/v1/dashboard": stillLoading() });
 
-    const pending = apiRequest(SESSION, "/v1/dashboard").catch((cause: unknown) => cause);
+    const pending = apiRequest(SESSION, "/v1/dashboard").catch(
+      (cause: unknown) => cause,
+    );
     await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS);
     const error = await pending;
 
@@ -119,13 +121,19 @@ describe("the request deadline", () => {
     render(<ProblemNotice error={error} onRetry={() => {}} />);
     // The sentence a person can act on — the seconds waited, said in words, not an
     // `AbortError` and not "Something went wrong".
-    expect(screen.getByRole("alert").textContent).toContain("did not answer within 70 seconds");
-    expect(screen.getByText("Check your connection and try again.")).toBeTruthy();
+    expect(screen.getByRole("alert").textContent).toContain(
+      "did not answer within 70 seconds",
+    );
+    expect(
+      screen.getByText("Check your connection and try again."),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: /^Try again$/ })).toBeTruthy();
     // WHAT IT MUST NOT SAY. We stopped listening; we did not stop the server. A POST that
     // timed out may have been completed and charged for — which is exactly why
     // `useCallAssist` holds its `Idempotency-Key` across the retry this button offers.
-    expect(screen.getByRole("alert").textContent).not.toContain("nothing was submitted");
+    expect(screen.getByRole("alert").textContent).not.toContain(
+      "nothing was submitted",
+    );
 
     // AND THE SAME RULE ON THE SIGN-IN SURFACES, which have their own copy ladder. A
     // timeout is `isUnreachable` (both are `status: 0`), so without an explicit arm it
@@ -135,23 +143,25 @@ describe("the request deadline", () => {
     expect(signInMessage(error)).toBeNull();
     // The neighbouring case still gets its sentence, so this is an exception and not a
     // hole: a connection that never opened really did submit nothing.
-    expect(signInMessage(new AuthProblem("authn_unreachable", "d", "r"))).toContain(
-      "nothing was submitted",
-    );
+    expect(
+      signInMessage(new AuthProblem("authn_unreachable", "d", "r")),
+    ).toContain("nothing was submitted");
   });
 
   it("reports a caller's own cancellation as theirs, never as a timeout", async () => {
     stubApi({ "/v1/dashboard": stillLoading() });
 
     const canceller = new AbortController();
-    const pending = apiRequest(SESSION, "/v1/dashboard", { signal: canceller.signal });
+    const pending = apiRequest(SESSION, "/v1/dashboard", {
+      signal: canceller.signal,
+    });
     const outcome = pending.catch((cause: unknown) => cause);
     canceller.abort();
 
     // A cancelled request is not a failed one. Rendering it as a refusal would put an
     // error on a screen the person has already left.
     expect(await outcome).not.toBeInstanceOf(TimeoutProblem);
-    expect((await outcome as Error).name).toBe("AbortError");
+    expect(((await outcome) as Error).name).toBe("AbortError");
   });
 
   it("covers the auth transport too, where a hang is the whole console", async () => {
@@ -160,7 +170,9 @@ describe("the request deadline", () => {
 
     // The SAME constant, which is the point: one deadline for the app, not one per
     // transport. `authnRequest` takes no budget of its own — it shares `client.ts`'s.
-    const outcome = authnRequest("/v1/auth/client/session").catch((cause: unknown) => cause);
+    const outcome = authnRequest("/v1/auth/client/session").catch(
+      (cause: unknown) => cause,
+    );
     await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS);
 
     // Without the deadline this promise never settles at all, which is the state a session

@@ -30,7 +30,8 @@ import { expectTextCount, problem, renderClientPage } from "./harness";
  * mitigation exists to avoid creating.
  */
 
-const NOTE = "The contact list has no consent evidence. Send us where it came from.";
+const NOTE =
+  "The contact list has no consent evidence. Send us where it came from.";
 
 /** How `first_campaign_rejected_reason` composes it: our sentence plus the note. */
 const COMPOSED = `The first campaign on this account was reviewed and refused: ${NOTE}`;
@@ -49,7 +50,9 @@ function hold(over: Partial<FirstCampaignHold> = {}): FirstCampaignHold {
 }
 
 async function renderWith(data: FirstCampaignHold) {
-  return await renderClientPage(<CampaignReviewPage />, { [FIRST_CAMPAIGN_REVIEW_PATH]: data });
+  return await renderClientPage(<CampaignReviewPage />, {
+    [FIRST_CAMPAIGN_REVIEW_PATH]: data,
+  });
 }
 
 describe("campaign review screen", () => {
@@ -78,7 +81,11 @@ describe("campaign review screen", () => {
     // case that cannot happen — and if it ever does, an unexplained refusal is worse
     // than a clumsy sentence, so the fallback is the server's own words, not silence.
     const { container } = await renderWith(
-      hold({ rule: FIRST_CAMPAIGN_REVIEW_REJECTED, status: "rejected", reason: COMPOSED }),
+      hold({
+        rule: FIRST_CAMPAIGN_REVIEW_REJECTED,
+        status: "rejected",
+        reason: COMPOSED,
+      }),
     );
 
     await screen.findByText(/did not release it for campaign calling/);
@@ -89,7 +96,10 @@ describe("campaign review screen", () => {
     // The fail-closed default, seen from the client's side. A future gate name must not
     // render as "cleared for campaign calling", and must not get invented next steps.
     const { container } = await renderWith(
-      hold({ rule: "a_gate_this_build_predates", reason: "Held pending a compliance check." }),
+      hold({
+        rule: "a_gate_this_build_predates",
+        reason: "Held pending a compliance check.",
+      }),
     );
 
     await screen.findByText("Your campaigns are held for review.");
@@ -106,7 +116,13 @@ describe("campaign review screen", () => {
 
   it("keeps a released account clear even though its status row still exists", async () => {
     const { container } = await renderWith(
-      hold({ held: false, rule: null, reason: null, status: "approved", decision_note: NOTE }),
+      hold({
+        held: false,
+        rule: null,
+        reason: null,
+        status: "approved",
+        decision_note: NOTE,
+      }),
     );
 
     await screen.findByText("Your account is cleared for campaign calling.");
@@ -133,9 +149,13 @@ describe("campaign review screen", () => {
     );
 
     await screen.findByText("This review does not apply to your account.");
-    expect(screen.queryByText("What is being held, and for how long")).toBeNull();
+    expect(
+      screen.queryByText("What is being held, and for how long"),
+    ).toBeNull();
     expect(screen.queryByText("What you can do meanwhile")).toBeNull();
-    expect(container.textContent).not.toContain("every campaign on the account is held");
+    expect(container.textContent).not.toContain(
+      "every campaign on the account is held",
+    );
     expect(container.textContent).not.toContain("with our compliance team");
   });
 
@@ -155,11 +175,15 @@ describe("campaign review screen", () => {
 
     const alert = await screen.findByRole("alert");
     expect(container.textContent).not.toContain("cleared for campaign calling");
-    expect(container.textContent).not.toContain("does not apply to your account");
+    expect(container.textContent).not.toContain(
+      "does not apply to your account",
+    );
     expect(container.textContent).not.toContain("with our compliance team");
     expect(container.textContent).not.toContain("held for review");
     // Not a dead end: the screen has to pass `onRetry` for this to exist.
-    expect(within(alert).getByRole("button", { name: /try again/i })).toBeTruthy();
+    expect(
+      within(alert).getByRole("button", { name: /try again/i }),
+    ).toBeTruthy();
   });
 
   it("offers no control that would release the account", async () => {

@@ -14,7 +14,7 @@ import {
 import { AcceptChargeDialog, extraUnavailableSentence } from "@/components/aiExtraDialog";
 import { ApiProblem, type Session } from "@/lib/api/client";
 import { useAiQuota, useBuyAiExtra } from "@/lib/api/aiQuota";
-import { useCallAssist, useWriteAccess } from "@/lib/api/hooks";
+import { useActAccess, useCallAssist } from "@/lib/api/hooks";
 
 /**
  * "Re-summarise this call" — the one place a client can spend the dashboard-AI allowance
@@ -54,13 +54,21 @@ import { useCallAssist, useWriteAccess } from "@/lib/api/hooks";
 export function AssistCard({ session, callId }: { session: Session; callId: string }) {
   const assist = useCallAssist(session, callId);
   /**
-   * D-22 read-only, and the permission is the route's own. `POST /v1/calls/{id}/assist`
-   * is `org:manage` — the same permission the purchase takes, because the AI surface is
-   * owner-scoped throughout (SEC-COMP §5: spend is an owner's business) — and
-   * `useWriteAccess` refuses it to an impersonating operator for free, which is right
-   * here: an operator on a support call must not spend a client's allowance.
+   * TWO questions, and the second is what D-587 left behind. The permission is the
+   * route's own — `POST /v1/calls/{id}/assist` is `org:manage`, because the AI surface is
+   * owner-scoped throughout (SEC-COMP §5: spend is an owner's business) — and `org:manage`
+   * is now WRITABLE in a view-as session, so the permission alone stopped refusing this.
+   * The refusal it used to give for free is now the named act `billing.ai_assist`
+   * (`crm/routes.py:303`): running the assistant over this call spends the CLIENT'S own
+   * allowance, and the founder's rule is that support work is never billed to the client.
+   * `useWriteAccess` alone would have offered an operator a button the server refuses.
    */
-  const write = useWriteAccess(session, "org:manage", "use AI help on this call");
+  const write = useActAccess(
+    session,
+    "org:manage",
+    "billing.ai_assist",
+    "use AI help on this call",
+  );
 
   const atCeiling = assist.error instanceof ApiProblem && assist.error.code === "ai_quota_exceeded";
   const quota = useAiQuota(session, { enabled: atCeiling });

@@ -1,4 +1,11 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import ClientAccountPage from "@/app/(auth)/auth/account/page";
@@ -45,7 +52,10 @@ const ME = {
   },
 };
 
-async function renderPage(ui: React.ReactElement, routes: Routes): Promise<ApiCall[]> {
+async function renderPage(
+  ui: React.ReactElement,
+  routes: Routes,
+): Promise<ApiCall[]> {
   const calls = stubApi({ "/v1/me": ME, ...routes });
   await act(async () => {
     render(ui);
@@ -58,8 +68,12 @@ async function fillAndSubmit(next = NEXT): Promise<void> {
   fireEvent.change(await screen.findByLabelText("Current password"), {
     target: { value: CURRENT },
   });
-  fireEvent.change(screen.getByLabelText("New password"), { target: { value: next } });
-  fireEvent.change(screen.getByLabelText("Type it again"), { target: { value: next } });
+  fireEvent.change(screen.getByLabelText("New password"), {
+    target: { value: next },
+  });
+  fireEvent.change(screen.getByLabelText("Type it again"), {
+    target: { value: next },
+  });
   await act(async () => {
     fireEvent.click(screen.getByRole("button", { name: "Change password" }));
   });
@@ -94,7 +108,9 @@ describe("the client realm's account screen", () => {
     await renderPage(<ClientAccountPage />, {});
     // The person whose phone is about to be signed out has to be told while they can
     // still decide not to — a warning after the click is an explanation, not a choice.
-    expect(await screen.findByText(/ends every other session on this account/)).toBeTruthy();
+    expect(
+      await screen.findByText(/ends every other session on this account/),
+    ).toBeTruthy();
   });
 
   it("sends both passwords and says how many devices were signed out", async () => {
@@ -103,14 +119,18 @@ describe("the client realm's account screen", () => {
     });
     await fillAndSubmit();
 
-    const change = calls.find((c) => c.path === "/v1/auth/client/password/change");
+    const change = calls.find(
+      (c) => c.path === "/v1/auth/client/password/change",
+    );
     expect(change?.method).toBe("POST");
     expect(JSON.parse(change?.body ?? "{}")).toEqual({
       current_password: CURRENT,
       new_password: NEXT,
     });
     const status = await screen.findByRole("status");
-    expect(status.textContent).toContain("We signed you out of 2 other devices.");
+    expect(status.textContent).toContain(
+      "We signed you out of 2 other devices.",
+    );
     expect(status.textContent).toContain("You are still signed in here");
   });
 
@@ -120,7 +140,8 @@ describe("the client realm's account screen", () => {
         kind: "auth",
         type: "urn:calevate:auth/invalid_current_password",
         title: "That is not your current password",
-        detail: "The current password you entered does not match the one on your account.",
+        detail:
+          "The current password you entered does not match the one on your account.",
       }),
     });
     await fillAndSubmit();
@@ -146,7 +167,9 @@ describe("the client realm's account screen", () => {
     await fillAndSubmit();
 
     await waitFor(() =>
-      expect(fieldMessage("New password")).toContain("That is the password you already have"),
+      expect(fieldMessage("New password")).toContain(
+        "That is the password you already have",
+      ),
     );
     expect(screen.queryByText(AUTH)).toBeNull();
   });
@@ -159,7 +182,11 @@ describe("the client realm's account screen", () => {
         title: "Choose a different password",
         detail: "That password is too easy to guess.",
         fields: [
-          { field: "password", rule: "blocklist", message: "it is a run of keyboard keys" },
+          {
+            field: "password",
+            rule: "blocklist",
+            message: "it is a run of keyboard keys",
+          },
         ],
       }),
     });
@@ -168,7 +195,9 @@ describe("the client realm's account screen", () => {
     // NIST SP 800-63B-4 §3.1.1.2 requires the REASON to reach the person, and the reason
     // is composed from the string they typed — no fixed local sentence could name it.
     await waitFor(() =>
-      expect(fieldMessage("New password")).toContain("it is a run of keyboard keys"),
+      expect(fieldMessage("New password")).toContain(
+        "it is a run of keyboard keys",
+      ),
     );
   });
 
@@ -179,7 +208,11 @@ describe("the client realm's account screen", () => {
     // form showing the wrong realm's number is the §5.7 defect 8 shape one level up.
     await fillAndSubmit("fourteen chars");
     expect(
-      (screen.getByRole("button", { name: "Change password" }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: "Change password",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
     expect(calls.some((c) => c.path.endsWith("/password/change"))).toBe(false);
     expect(screen.getByText(/At least 15 characters/)).toBeTruthy();
@@ -199,7 +232,9 @@ describe("the client realm's account screen", () => {
     // No field is at fault, so there is no field to hang it under.
     expect(await screen.findByText(AUTH)).toBeTruthy();
     expect(
-      screen.getByText("Too many attempts. Wait a few minutes before trying again."),
+      screen.getByText(
+        "Too many attempts. Wait a few minutes before trying again.",
+      ),
     ).toBeTruthy();
   });
 
@@ -208,10 +243,18 @@ describe("the client realm's account screen", () => {
     fireEvent.change(await screen.findByLabelText("Current password"), {
       target: { value: CURRENT },
     });
-    fireEvent.change(screen.getByLabelText("New password"), { target: { value: NEXT } });
-    fireEvent.change(screen.getByLabelText("Type it again"), { target: { value: `${NEXT}x` } });
+    fireEvent.change(screen.getByLabelText("New password"), {
+      target: { value: NEXT },
+    });
+    fireEvent.change(screen.getByLabelText("Type it again"), {
+      target: { value: `${NEXT}x` },
+    });
     expect(
-      (screen.getByRole("button", { name: "Change password" }) as HTMLButtonElement).disabled,
+      (
+        screen.getByRole("button", {
+          name: "Change password",
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
     expect(screen.getByText("These two do not match.")).toBeTruthy();
   });
@@ -220,7 +263,11 @@ describe("the client realm's account screen", () => {
     await renderPage(<ClientAccountPage />, {});
     // The founder's decision is that every password field can be revealed; the a11y
     // requirement is that a screen-reader user listing the buttons can tell them apart.
-    for (const name of ["Show current password", "Show new password", "Show the repeated password"]) {
+    for (const name of [
+      "Show current password",
+      "Show new password",
+      "Show the repeated password",
+    ]) {
       const toggle = await screen.findByRole("button", { name });
       expect(toggle.getAttribute("aria-pressed")).toBe("false");
       fireEvent.click(toggle);
@@ -236,8 +283,12 @@ describe("the admin realm's account screen", () => {
     });
     await fillAndSubmit();
 
-    expect(calls.some((c) => c.path === "/v1/auth/admin/password/change")).toBe(true);
-    expect(calls.some((c) => c.path === "/v1/auth/client/password/change")).toBe(false);
+    expect(calls.some((c) => c.path === "/v1/auth/admin/password/change")).toBe(
+      true,
+    );
+    expect(
+      calls.some((c) => c.path === "/v1/auth/client/password/change"),
+    ).toBe(false);
     expect((await screen.findByRole("status")).textContent).toContain(
       "There were no other sessions to sign out.",
     );
@@ -271,10 +322,14 @@ describe("the admin realm's account screen", () => {
     // The refusal opens the ONE prompt this console has, rather than a dead end telling
     // an operator to run two curls (`authn/stepup.reauthentication_required`).
     const dialog = await screen.findByRole("alertdialog");
-    expect(within(dialog).getByText(/Changing your operator password/)).toBeTruthy();
+    expect(
+      within(dialog).getByText(/Changing your operator password/),
+    ).toBeTruthy();
 
     await act(async () => {
-      fireEvent.click(within(dialog).getByRole("button", { name: "Email me a code" }));
+      fireEvent.click(
+        within(dialog).getByRole("button", { name: "Email me a code" }),
+      );
     });
     fireEvent.change(within(dialog).getByLabelText("Six-digit code"), {
       target: { value: "123456" },
@@ -321,7 +376,10 @@ describe("the rotation barrier holds for a password change, exactly as for a ref
         const url = String(input);
         return new Promise<Response>((resolve, reject) => {
           const signal = init?.signal;
-          if (signal) signal.addEventListener("abort", () => reject(signal.reason), { once: true });
+          if (signal)
+            signal.addEventListener("abort", () => reject(signal.reason), {
+              once: true,
+            });
           pending.push({
             path: url.replace(/^.*\/v1/, "/v1"),
             resolve: (body) =>
@@ -351,7 +409,10 @@ describe("the rotation barrier holds for a password change, exactly as for a ref
     // shared across the whole process and this case needs an isolated one.
     const authn = createRealmAuthn("admin");
 
-    const changing = authn.changePassword({ currentPassword: "a", newPassword: "b" });
+    const changing = authn.changePassword({
+      currentPassword: "a",
+      newPassword: "b",
+    });
     expect(pending).toHaveLength(1);
 
     const read = authn.readSession();
@@ -385,7 +446,9 @@ describe("the rotation barrier holds for a password change, exactly as for a ref
 
 describe("the revocation count, said in words", () => {
   it("counts none, one and many", () => {
-    expect(revokedSentence(0)).toBe("There were no other sessions to sign out.");
+    expect(revokedSentence(0)).toBe(
+      "There were no other sessions to sign out.",
+    );
     expect(revokedSentence(1)).toBe("We signed you out of 1 other device.");
     expect(revokedSentence(5)).toBe("We signed you out of 5 other devices.");
   });

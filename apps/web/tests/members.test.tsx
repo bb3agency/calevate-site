@@ -27,6 +27,7 @@ import { problem, renderClientPage } from "./harness";
 
 const ME: Me = {
   impersonating: false,
+  withheld_acts: [],
   permissions: ["org:read", "org:manage", "leads:read"],
   realm: "client",
   role: "owner",
@@ -35,13 +36,42 @@ const ME: Me = {
 };
 
 /** A viewer who may look at the team and change nothing (`staff`). */
-const STAFF_ME: Me = { ...ME, permissions: ["org:read", "leads:read"], role: "staff" };
+const STAFF_ME: Me = {
+  ...ME,
+  permissions: ["org:read", "leads:read"],
+  role: "staff",
+};
 
 /** A support engineer inside "view as client" — D-22 read-only. */
-const IMPERSONATING_ME: Me = { ...ME, impersonating: true };
+const IMPERSONATING_ME: Me = {
+  ...ME,
+  impersonating: true,
+  // WHAT THE SERVER SENDS A VIEW-AS SESSION (D-587). `/v1/me` filters withheld
+  // PERMISSIONS out of `permissions` and reports withheld ACTS here, because the two are
+  // not the same shape: `org:manage` and `kb:write` are both writable in view-as, and
+  // `org.membership` and `kb.self_approve` are refused INSIDE them. A fixture that left
+  // this empty described a session the server never issues, and the screen under test
+  // would render controls the API refuses.
+  withheld_acts: [
+    "billing.ai_assist",
+    "compliance.caller_memory_attestation",
+    "compliance.erasure_request",
+    "kb.self_approve",
+    "leads.saved_view",
+    "org.membership",
+  ],
+};
 
-const OWNER: Member = { id: ME.user_id as string, name: "Anita", role: "owner" };
-const STAFF: Member = { id: "0192f0aa-2222-7000-8000-000000000002", name: "Priya", role: "staff" };
+const OWNER: Member = {
+  id: ME.user_id as string,
+  name: "Anita",
+  role: "owner",
+};
+const STAFF: Member = {
+  id: "0192f0aa-2222-7000-8000-000000000002",
+  name: "Priya",
+  role: "staff",
+};
 
 const INVITE: PendingInvitation = {
   id: "0192f0aa-3333-7000-8000-000000000003",
@@ -76,7 +106,9 @@ describe("who may change the team", () => {
     expect(
       screen.getByRole("button", { name: "Remove Priya from this account" }),
     ).toBeTruthy();
-    expect(screen.getByRole("combobox", { name: /Role for Priya/ })).toBeTruthy();
+    expect(
+      screen.getByRole("combobox", { name: /Role for Priya/ }),
+    ).toBeTruthy();
   });
 
   it("offers a staff member no controls, and says why where they would be", async () => {
@@ -91,15 +123,19 @@ describe("who may change the team", () => {
     expect(container.textContent).not.toContain("Invite a colleague");
   });
 
-  it("refuses an impersonating operator the controls while keeping the list", async () => {
+  it("refuses an impersonating operator the controls — org.membership is a withheld act (D-587)", async () => {
     const { container } = await renderTeam({ me: IMPERSONATING_ME });
 
     // D-22: support must be able to SEE who has access.
     await screen.findByText("Priya");
     await screen.findByText("Anita");
     expect(screen.queryByRole("button", { name: /^Remove / })).toBeNull();
-    expect(container.textContent).toContain("read-only");
-    expect(container.textContent).toContain("admin console");
+    // THE SENTENCE MOVED WITH THE RULE (D-587). It read "viewing this account read-only"
+    // because view-as refused every mutation; the refusal is now per-permission and
+    // per-ACT, and the copy says which way out — the operator console, or asking the
+    // account.
+    expect(container.textContent).toContain("stays with the client");
+    expect(container.textContent).toContain("operator console");
   });
 
   it("never offers a control on your own row, and explains that too", async () => {
@@ -107,8 +143,12 @@ describe("who may change the team", () => {
 
     await screen.findByText("Anita");
     expect(screen.queryByRole("button", { name: /Remove Anita/ })).toBeNull();
-    expect(screen.queryByRole("combobox", { name: /Role for Anita/ })).toBeNull();
-    expect(container.textContent).toContain("You cannot change your own access");
+    expect(
+      screen.queryByRole("combobox", { name: /Role for Anita/ }),
+    ).toBeNull();
+    expect(container.textContent).toContain(
+      "You cannot change your own access",
+    );
   });
 
   /**
@@ -133,10 +173,14 @@ describe("who may change the team", () => {
     await screen.findByText("Anita");
     expect(screen.queryByRole("button", { name: /^Remove / })).toBeNull();
     expect(screen.queryByRole("combobox", { name: /Role for/ })).toBeNull();
-    expect(container.textContent).toContain("We could not check whether you can");
+    expect(container.textContent).toContain(
+      "We could not check whether you can",
+    );
     // …and the screen does not claim to know which row is you, either way round.
     expect(container.textContent).not.toContain("(you)");
-    expect(container.textContent).not.toContain("You cannot change your own access");
+    expect(container.textContent).not.toContain(
+      "You cannot change your own access",
+    );
   });
 });
 
@@ -151,7 +195,9 @@ describe("what a click actually sends", () => {
     // The dropdown STAGES the change now (TEAM-1): a stray scroll wheel over a focused
     // select used to grant `org:manage` outright. The write is the named second press.
     expect(calls.filter((c) => c.method === "PATCH")).toEqual([]);
-    fireEvent.click(screen.getByRole("button", { name: "Save Priya as Owner" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save Priya as Owner" }),
+    );
 
     await waitFor(() => {
       const patch = calls.find((c) => c.method === "PATCH");
@@ -173,7 +219,8 @@ describe("what a click actually sends", () => {
       "/v1/invitations": [],
       [`/v1/members/${STAFF.id}`]: problem(422, {
         title: "Request rejected by a business rule",
-        detail: "This is the only owner on the account, so their access cannot be reduced.",
+        detail:
+          "This is the only owner on the account, so their access cannot be reduced.",
         remediation: "Make someone else an owner first",
         kind: "business_rule",
       }),
@@ -183,7 +230,9 @@ describe("what a click actually sends", () => {
     fireEvent.change(screen.getByRole("combobox", { name: /Role for Priya/ }), {
       target: { value: "owner" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Save Priya as Owner" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Save Priya as Owner" }),
+    );
 
     await waitFor(() =>
       expect(container.textContent).toContain("only owner on the account"),
@@ -203,7 +252,9 @@ describe("what a click actually sends", () => {
     });
 
     await screen.findByText("Priya");
-    fireEvent.click(screen.getByRole("button", { name: "Remove Priya from this account" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove Priya from this account" }),
+    );
     // Removal is confirmed now (TEAM-1). The dialog is the second press; the assertion
     // that the FIRST press sent nothing lives in its own test below.
     fireEvent.click(
@@ -214,17 +265,25 @@ describe("what a click actually sends", () => {
 
     // Removing somebody does not unassign their work, so a screen that said nothing
     // would leave four leads quietly belonging to a person who can no longer sign in.
-    await waitFor(() => expect(container.textContent).toContain("4 leads are still assigned"));
+    await waitFor(() =>
+      expect(container.textContent).toContain("4 leads are still assigned"),
+    );
   });
 });
 
 describe("failure is never an empty state", () => {
   it("does not say the account has nobody on it when the list failed", async () => {
-    const { container } = await renderTeam({ members: problem(503, { detail: "database down" }) });
+    const { container } = await renderTeam({
+      members: problem(503, { detail: "database down" }),
+    });
 
     // The refusal itself, from the server's problem+json — not a generic apology.
-    await waitFor(() => expect(container.textContent).toContain("database down"));
-    expect(container.textContent).not.toContain("Nobody is on this account yet");
+    await waitFor(() =>
+      expect(container.textContent).toContain("database down"),
+    );
+    expect(container.textContent).not.toContain(
+      "Nobody is on this account yet",
+    );
     // Nor a count invented from a list that never arrived.
     expect(container.textContent).not.toContain("0 people");
     expect(container.textContent).not.toContain("1 person");
@@ -269,9 +328,12 @@ describe("what the invite flow shows", () => {
     });
 
     await screen.findByText("Anita");
-    fireEvent.change(screen.getByRole("textbox", { name: "Email address to invite" }), {
-      target: { value: "priya@clinic.example" },
-    });
+    fireEvent.change(
+      screen.getByRole("textbox", { name: "Email address to invite" }),
+      {
+        target: { value: "priya@clinic.example" },
+      },
+    );
     fireEvent.click(screen.getByRole("button", { name: /Create invite link/ }));
 
     await waitFor(() => {
@@ -280,14 +342,18 @@ describe("what the invite flow shows", () => {
     });
     // D-190: the token is not in the response and is therefore not on the screen. This
     // assertion used to be `toContain(created.token)` — the inversion is the fix.
-    await waitFor(() => expect(container.textContent).toContain("Invitation sent to"));
+    await waitFor(() =>
+      expect(container.textContent).toContain("Invitation sent to"),
+    );
     expect(container.textContent).not.toContain("tok_");
     // WAS `not.toContain("priya@clinic.example")` beside a masked-form assertion.
     // D-436: the owner who just typed the address is the one person who has to be able
     // to check it — a typo in an invitation is a key mailed to a stranger. The TOKEN
     // assertion above is the one that matters here and is untouched.
     expect(container.textContent).toContain("priya@clinic.example");
-    expect(container.textContent).toContain("We cannot show or re-send the link");
+    expect(container.textContent).toContain(
+      "We cannot show or re-send the link",
+    );
   });
 
   it("lists a pending invitation with its address and a revoke control for an owner", async () => {
@@ -295,7 +361,9 @@ describe("what the invite flow shows", () => {
 
     await screen.findByText(INVITE.email);
     expect(
-      screen.getByRole("button", { name: `Revoke the invitation for ${INVITE.email}` }),
+      screen.getByRole("button", {
+        name: `Revoke the invitation for ${INVITE.email}`,
+      }),
     ).toBeTruthy();
     expect(container.textContent).toContain("1 unused link");
   });
@@ -339,7 +407,9 @@ describe("no colleague's access changes on one unconfirmed press", () => {
     // The consequence, in capabilities the owner recognises — including the one that
     // makes this irreversible from their side.
     expect(container.textContent).toContain("including you");
-    expect(screen.getByRole("button", { name: "Save Priya as Owner" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Save Priya as Owner" }),
+    ).toBeTruthy();
   });
 
   it("lets a mis-selection be put back with nothing sent", async () => {
@@ -360,7 +430,9 @@ describe("no colleague's access changes on one unconfirmed press", () => {
     const { calls } = await renderTeam();
 
     await screen.findByText("Priya");
-    fireEvent.click(screen.getByRole("button", { name: "Remove Priya from this account" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove Priya from this account" }),
+    );
 
     const dialog = await screen.findByRole("dialog");
     expect(calls.filter((c) => c.method === "DELETE")).toEqual([]);
@@ -369,15 +441,21 @@ describe("no colleague's access changes on one unconfirmed press", () => {
     expect(dialog.textContent).toContain("Priya");
     expect(dialog.textContent).toContain("stay assigned to them");
 
-    fireEvent.click(within(dialog).getByRole("button", { name: "Remove their access" }));
-    await waitFor(() => expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(1));
+    fireEvent.click(
+      within(dialog).getByRole("button", { name: "Remove their access" }),
+    );
+    await waitFor(() =>
+      expect(calls.filter((c) => c.method === "DELETE")).toHaveLength(1),
+    );
   });
 
   it("keeps the colleague when the owner backs out", async () => {
     const { calls } = await renderTeam();
 
     await screen.findByText("Priya");
-    fireEvent.click(screen.getByRole("button", { name: "Remove Priya from this account" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Remove Priya from this account" }),
+    );
     fireEvent.click(
       within(await screen.findByRole("dialog")).getByRole("button", {
         name: "Keep their access",
@@ -386,6 +464,8 @@ describe("no colleague's access changes on one unconfirmed press", () => {
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
     expect(calls.filter((c) => c.method === "DELETE")).toEqual([]);
-    expect(screen.getByRole("button", { name: "Remove Priya from this account" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Remove Priya from this account" }),
+    ).toBeTruthy();
   });
 });

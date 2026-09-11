@@ -49,7 +49,13 @@ function routes(): Routes {
       realm: "admin",
       user_id: "0192f0aa-7777-7000-8000-0000000000cc",
       role: "operator",
-      permissions: ["org:read", "billing:read", "agents:read", "kb:write", "admin:tenants"],
+      permissions: [
+        "org:read",
+        "billing:read",
+        "agents:read",
+        "kb:write",
+        "admin:tenants",
+      ],
     },
     [TENANT_PATH]: {
       id: TENANT,
@@ -124,12 +130,14 @@ function page() {
  */
 async function settled(calls: { path: string }[]): Promise<void> {
   await vi.waitFor(() => {
-    expect(calls.some((call) => call.path === IMPERSONATION_GRANT_PATH)).toBe(true);
+    expect(calls.some((call) => call.path === IMPERSONATION_GRANT_PATH)).toBe(
+      true,
+    );
   });
   await vi.waitFor(() => {
-    expect(calls.filter((call) => IMPERSONATED.includes(call.path))).toHaveLength(
-      IMPERSONATED.length,
-    );
+    expect(
+      calls.filter((call) => IMPERSONATED.includes(call.path)),
+    ).toHaveLength(IMPERSONATED.length);
   });
 }
 
@@ -138,15 +146,21 @@ describe("view-as sends a grant, and mints it once", () => {
     const { calls } = await renderAdminRoute(page(), routes());
     await settled(calls);
 
-    const impersonated = calls.filter((call) => call.headers["X-Impersonate-Org"]);
-    expect(impersonated.length, "this screen reads through impersonation").toBeGreaterThan(0);
+    const impersonated = calls.filter(
+      (call) => call.headers["X-Impersonate-Org"],
+    );
+    expect(
+      impersonated.length,
+      "this screen reads through impersonation",
+    ).toBeGreaterThan(0);
     for (const call of impersonated) {
       expect(call.headers["X-Impersonate-Org"]).toBe(SLUG);
       // The pair travels together or not at all: the org header is ADDRESSING and the
       // grant is AUTHORISATION, and the API refuses the first without the second.
-      expect(call.headers["X-Impersonation-Grant"], `${call.path} carried no grant`).toBe(
-        "stub-view-as-grant",
-      );
+      expect(
+        call.headers["X-Impersonation-Grant"],
+        `${call.path} carried no grant`,
+      ).toBe("stub-view-as-grant");
     }
     expect(new Set(impersonated.map((call) => call.path))).toEqual(
       new Set(IMPERSONATED.map((path) => path)),
@@ -154,9 +168,14 @@ describe("view-as sends a grant, and mints it once", () => {
 
     // The admin realm's own reads are NOT impersonated and must not carry a grant —
     // they are cross-tenant, and attaching one would be claiming a scope they do not use.
-    const adminRealm = calls.filter((call) => !call.headers["X-Impersonate-Org"]);
+    const adminRealm = calls.filter(
+      (call) => !call.headers["X-Impersonate-Org"],
+    );
     for (const call of adminRealm) {
-      expect(call.headers["X-Impersonation-Grant"], `${call.path} carried a grant`).toBeUndefined();
+      expect(
+        call.headers["X-Impersonation-Grant"],
+        `${call.path} carried a grant`,
+      ).toBeUndefined();
     }
   });
 
@@ -164,7 +183,9 @@ describe("view-as sends a grant, and mints it once", () => {
     const { calls } = await renderAdminRoute(page(), routes());
     await settled(calls);
 
-    const mints = calls.filter((call) => call.path === IMPERSONATION_GRANT_PATH);
+    const mints = calls.filter(
+      (call) => call.path === IMPERSONATION_GRANT_PATH,
+    );
     // The ledger reason, not a performance one: every mint writes an
     // `admin.impersonation_started` row into an INSERT-ONLY table, so a mint per query
     // would put six rows in the audit log for one operator opening one page. The promise
@@ -191,13 +212,16 @@ describe("view-as sends a grant, and mints it once", () => {
     });
 
     await vi.waitFor(() => {
-      expect(calls.some((call) => call.path === IMPERSONATION_GRANT_PATH)).toBe(true);
+      expect(calls.some((call) => call.path === IMPERSONATION_GRANT_PATH)).toBe(
+        true,
+      );
     });
     for (const call of calls) {
       if (call.headers["X-Impersonate-Org"]) {
-        expect(call.headers["X-Impersonation-Grant"], `${call.path} read without a grant`).toBe(
-          undefined,
-        );
+        expect(
+          call.headers["X-Impersonation-Grant"],
+          `${call.path} read without a grant`,
+        ).toBe(undefined);
       }
     }
     // The screen says something rather than rendering empty panels, which is the whole
@@ -215,7 +239,11 @@ describe("a session that names a tenant with no grant source", () => {
     // interpret as "the API is down".
     stubApi({});
     clearImpersonationGrants();
-    const broken: Session = { token: () => "dev:admin:me", orgSlug: SLUG, impersonateOrg: SLUG };
+    const broken: Session = {
+      token: () => "dev:admin:me",
+      orgSlug: SLUG,
+      impersonateOrg: SLUG,
+    };
 
     await expect(apiRequest(broken, "/v1/agents")).rejects.toMatchObject({
       code: "impersonation_grant_missing",

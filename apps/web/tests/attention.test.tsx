@@ -37,7 +37,13 @@ const ME: Me = {
   role: "staff",
   permissions: ["calls:read", "leads:read"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  withheld_acts: [],
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 /** A blocked lead with no captured name: the API composes the title from its number. */
@@ -45,7 +51,8 @@ const BLOCKED: AttentionItem = {
   kind: "lead_blocked",
   id: "0192f0aa-1111-7000-8000-000000000001",
   title: "+919876543210 was not called",
-  detail: "This person asked not to be called. Nothing to do — we will not dial them.",
+  detail:
+    "This person asked not to be called. Nothing to do — we will not dial them.",
   rule: "dnc",
   occurred_at: "2026-08-13T04:30:00Z",
   href: "/leads",
@@ -82,7 +89,9 @@ describe("the needs-attention queue", () => {
 
     // WAS `not.toContain("+919876543210")`. D-436 reversed it: a to-do whose subject
     // cannot be dialled is a to-do nobody can do.
-    expect(await screen.findByText("+919876543210 was not called")).toBeTruthy();
+    expect(
+      await screen.findByText("+919876543210 was not called"),
+    ).toBeTruthy();
     // The half that did NOT change: URLs reach logs, referrers and history.
     for (const link of Array.from(container.querySelectorAll("a"))) {
       expect(link.getAttribute("href") ?? "").not.toMatch(/\d{10}/);
@@ -106,7 +115,10 @@ describe("the needs-attention queue", () => {
     expect(container.textContent).not.toContain("Nothing needs you right now");
     // The empty panel says it too. A Card with nothing in it, under a notice, reads as a
     // queue with nothing in it.
-    expect(container.querySelector("section"), "no panel without data to put in it").toBeNull();
+    expect(
+      container.querySelector("section"),
+      "no panel without data to put in it",
+    ).toBeNull();
   });
 
   it("says the queue is empty only when the server said so", async () => {
@@ -149,7 +161,10 @@ describe("the needs-attention queue", () => {
     const summary = screen.getByRole("group", { name: "Queue summary" });
     expect(summary.textContent).toContain("40");
     expect(summary.textContent).toContain("38");
-    expect(container.querySelectorAll("li").length, "one row per item, no more").toBe(2);
+    expect(
+      container.querySelectorAll("li").length,
+      "one row per item, no more",
+    ).toBe(2);
   });
 
   it("does not claim a shortfall when the whole queue is on screen", async () => {
@@ -191,7 +206,9 @@ describe("the needs-attention queue", () => {
     // Fails VISIBLE: the row is there and the unfamiliar kind is printed in place of the
     // copy we have not written yet. Hiding it would be this screen failing at its one job.
     expect(container.textContent).toContain("number suspended");
-    expect(container.textContent).toContain("Your telecom operator suspended the line.");
+    expect(container.textContent).toContain(
+      "Your telecom operator suspended the line.",
+    );
   });
 
   it("counts the chips from the server's own tally, not from the rows on screen", async () => {
@@ -200,7 +217,10 @@ describe("the needs-attention queue", () => {
     const { container } = await renderClientPage(
       page,
       routes({
-        "/v1/attention": queue({ total: 43, counts: { lead_blocked: 41, campaign_stalled: 2 } }),
+        "/v1/attention": queue({
+          total: 43,
+          counts: { lead_blocked: 41, campaign_stalled: 2 },
+        }),
       }),
     );
 
@@ -222,7 +242,10 @@ describe("the needs-attention queue", () => {
     });
 
     await screen.findByText(/needs permission to read leads/);
-    expect(screen.queryByRole("alert"), "a permission is not a fault").toBeNull();
+    expect(
+      screen.queryByRole("alert"),
+      "a permission is not a fault",
+    ).toBeNull();
     expect(container.textContent).not.toContain("Nothing needs you right now");
   });
 });

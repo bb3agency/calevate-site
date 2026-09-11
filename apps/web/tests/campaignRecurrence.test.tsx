@@ -3,7 +3,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import CampaignsPage from "@/app/c/[slug]/campaigns/page";
 import type { Agent } from "@/lib/api/agents";
-import type { CampaignProgress, CampaignSummary, LaunchCheck } from "@/lib/api/campaigns";
+import type {
+  CampaignProgress,
+  CampaignSummary,
+  LaunchCheck,
+} from "@/lib/api/campaigns";
 import type { Me } from "@/lib/api/client";
 
 import { problem, renderClientPage, type Routes } from "./harness";
@@ -34,6 +38,7 @@ const AGENT_ID = "0192f0aa-4444-7000-8000-000000000002";
 
 const ME: Me = {
   impersonating: false,
+  withheld_acts: [],
   permissions: ["leads:read", "leads:dispatch"],
   realm: "client",
   role: "owner",
@@ -50,12 +55,14 @@ const AGENT: Agent = {
   // Hard rule 5: an agent ALWAYS carries a non-null disclosure line, and an outbound
   // campaign agent is the case the rule exists for. This fixture omitted it entirely —
   // `as unknown as Agent` is why nobody noticed.
-  disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   // D-163 split the bundled line into two notices with two switches. The fixture keeps
   // both ON, which is what a new agent is born with, and carries the server-composed
   // `opening_line` rather than joining the two sentences here — the screens read that
   // field, so a fixture that computed it would be testing its own arithmetic.
-  ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  ai_disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   ai_disclosure_enabled: true,
   recording_notice_line: "This call is being recorded.",
   caller_memory_notice_line: "I keep a short note of what you ask about.",
@@ -137,7 +144,10 @@ function routes(progress: unknown, extra: Routes = {}): Routes {
 }
 
 async function openCampaign(progress: unknown, extra: Routes = {}) {
-  const rendered = await renderClientPage(<CampaignsPage />, routes(progress, extra));
+  const rendered = await renderClientPage(
+    <CampaignsPage />,
+    routes(progress, extra),
+  );
   fireEvent.click(await screen.findByRole("button", { name: CAMPAIGN.name }));
   return rendered;
 }
@@ -172,8 +182,12 @@ describe("a campaign that repeats", () => {
     const { container } = await openCampaign(skipped);
 
     await screen.findByText("Repeats");
-    expect(container.textContent).toContain("We skipped the run due Tuesday, 11 Aug");
-    expect(container.textContent).toContain("calling people at a different time of day");
+    expect(container.textContent).toContain(
+      "We skipped the run due Tuesday, 11 Aug",
+    );
+    expect(container.textContent).toContain(
+      "calling people at a different time of day",
+    );
     // The server's enum is never rendered: "missed" is our vocabulary, not a sentence.
     expect(container.textContent).not.toContain("last_skipped_reason");
   });
@@ -184,9 +198,14 @@ describe("a campaign that repeats", () => {
     const stop = await screen.findByRole("button", { name: "Stop repeating" });
     expect((stop as HTMLButtonElement).disabled).toBe(false);
     // The half a client would otherwise assume: stopping a repeat is not a pause.
-    expect(container.textContent).toContain("Calls already going out are not affected");
+    expect(container.textContent).toContain(
+      "Calls already going out are not affected",
+    );
     for (const button of container.querySelectorAll("button")) {
-      expect(button.textContent?.trim(), "a control was rendered with no label").not.toBe("");
+      expect(
+        button.textContent?.trim(),
+        "a control was rendered with no label",
+      ).not.toBe("");
     }
   });
 
@@ -194,7 +213,11 @@ describe("a campaign that repeats", () => {
     // A one-time start is spent when it fires; a repeat is not. A client watching a
     // running campaign needs to know it will do this again — and needs the stop button
     // there, rather than only on a screen they can no longer reach.
-    const running = { ...REPEATING, status: "running", launched_at: NEXT_TUESDAY };
+    const running = {
+      ...REPEATING,
+      status: "running",
+      launched_at: NEXT_TUESDAY,
+    };
     const { container } = await openCampaign(running);
 
     await screen.findByText("Repeats");
@@ -234,16 +257,19 @@ describe("setting a repeat", () => {
     const { container } = await openCampaign(DRAFT);
 
     await screen.findByText("Or repeat it every week");
-    const set = screen.getByRole("button", { name: "Set repeat" }) as HTMLButtonElement;
+    const set = screen.getByRole("button", {
+      name: "Set repeat",
+    }) as HTMLButtonElement;
     expect(set.disabled).toBe(true);
     expect(container.textContent).toContain("Choose at least one day");
 
     // Every day toggle is reachable by its full name, not by a three-letter abbreviation
     // a screen reader spells out.
     fireEvent.click(screen.getByRole("checkbox", { name: "Tuesday" }));
-    expect((screen.getByRole("button", { name: "Set repeat" }) as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+    expect(
+      (screen.getByRole("button", { name: "Set repeat" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(false);
   });
 
   it("sends ISO weekday numbers and an IST wall-clock time", async () => {
@@ -269,7 +295,9 @@ describe("setting a repeat", () => {
     fireEvent.click(screen.getByRole("button", { name: "Set repeat" }));
 
     const posted = await vi.waitFor(() => {
-      const call = calls.find((c) => c.path.endsWith("/recurrence") && c.method === "POST");
+      const call = calls.find(
+        (c) => c.path.endsWith("/recurrence") && c.method === "POST",
+      );
       expect(call, "the repeat was never sent").toBeTruthy();
       return call!;
     });

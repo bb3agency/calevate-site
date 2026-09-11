@@ -108,11 +108,15 @@ describe("the first-campaign review", () => {
       }),
     });
 
-    await screen.findByText("Cannot decide while the current state is unreadable");
+    await screen.findByText(
+      "Cannot decide while the current state is unreadable",
+    );
 
     // Not a disabled button and not an empty form: no decision control exists at all,
     // because a blind write here can reverse a colleague's refusal invisibly.
-    expect(screen.queryByRole("button", { name: /Record decision/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Record decision/ }),
+    ).toBeNull();
     expect(screen.queryAllByRole("radio")).toHaveLength(0);
     expect(container.textContent).not.toContain("Released");
   });
@@ -130,12 +134,18 @@ describe("the first-campaign review", () => {
     // Fails CLOSED, and prints the server's own sentence rather than inventing a next
     // step this build cannot know.
     expect(container.textContent).toContain("Held by a newer compliance rule.");
-    expect(container.textContent).not.toContain("Released — cleared for campaign calling.");
+    expect(container.textContent).not.toContain(
+      "Released — cleared for campaign calling.",
+    );
   });
 
   it("does not read an exempt account as a released one", async () => {
     const { container } = await render({
-      [FIRST_CAMPAIGN_REVIEW_PATH]: hold({ held: false, status: null, reason: null }),
+      [FIRST_CAMPAIGN_REVIEW_PATH]: hold({
+        held: false,
+        status: null,
+        reason: null,
+      }),
     });
 
     await screen.findByText("This rule does not apply to this account.");
@@ -143,8 +153,12 @@ describe("the first-campaign review", () => {
     // The client's own screen says the same thing from the same predicate. "Released"
     // here would tell an operator a decision had been made about an account nobody has
     // ever reviewed.
-    expect(container.textContent).not.toContain("Released — cleared for campaign calling.");
-    expect(container.textContent).toContain("changes nothing about their calling");
+    expect(container.textContent).not.toContain(
+      "Released — cleared for campaign calling.",
+    );
+    expect(container.textContent).toContain(
+      "changes nothing about their calling",
+    );
   });
 
   it("shows a refusal as the words the client is reading", async () => {
@@ -152,14 +166,17 @@ describe("the first-campaign review", () => {
       [FIRST_CAMPAIGN_REVIEW_PATH]: hold({
         rule: "first_campaign_review_rejected",
         status: "rejected",
-        decision_note: "The contact list is a purchased list declared as opt-in.",
+        decision_note:
+          "The contact list is a purchased list declared as opt-in.",
         decided_at: "2026-08-11T06:00:00Z",
       }),
     });
 
     await screen.findByText("Held — a reviewer refused this account.");
 
-    expect(container.textContent).toContain("this is what the client is reading now");
+    expect(container.textContent).toContain(
+      "this is what the client is reading now",
+    );
     expect(container.textContent).toContain(
       "The contact list is a purchased list declared as opt-in.",
     );
@@ -178,10 +195,18 @@ describe("the first-campaign review", () => {
     for (const radio of screen.getAllByRole("radio")) {
       expect((radio as HTMLInputElement).disabled).toBe(true);
     }
-    expect((screen.getByRole("textbox") as HTMLTextAreaElement).disabled).toBe(true);
-    expect((screen.getByLabelText(/Campaign read/) as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByRole("textbox") as HTMLTextAreaElement).disabled).toBe(
+      true,
+    );
     expect(
-      (screen.getByRole("button", { name: /Record decision/ }) as HTMLButtonElement).disabled,
+      (screen.getByLabelText(/Campaign read/) as HTMLSelectElement).disabled,
+    ).toBe(true);
+    expect(
+      (
+        screen.getByRole("button", {
+          name: /Record decision/,
+        }) as HTMLButtonElement
+      ).disabled,
     ).toBe(true);
   });
 
@@ -204,13 +229,17 @@ describe("the first-campaign review", () => {
     // And the preview says what the write will contain, before it is made — including
     // the two fields the operator cannot supply (the deciding admin and the timestamp),
     // which is why this form has no "decided on" date picker.
-    expect(screen.getByText(/Taken from your session, not from this form/)).toBeDefined();
+    expect(
+      screen.getByText(/Taken from your session, not from this form/),
+    ).toBeDefined();
   });
 
   it("refuses an empty decision before the click rather than after it", async () => {
     await render();
 
-    const record = await screen.findByRole("button", { name: /Record decision/ });
+    const record = await screen.findByRole("button", {
+      name: /Record decision/,
+    });
 
     // Nothing chosen yet: the button is dead and says why, rather than posting a body the
     // route answers with a 422 and the CHECK constraint underneath it with a 500.
@@ -231,15 +260,21 @@ describe("the first-campaign review", () => {
 
     // "This account has no campaigns yet" is a premise a reviewer would release an
     // account on. It must come from a 200, never from a failure.
-    expect(container.textContent).not.toContain("This account has no campaigns yet");
+    expect(container.textContent).not.toContain(
+      "This account has no campaigns yet",
+    );
   });
 
   it("keeps the client's read-only view one click away, and says it is read-only", async () => {
     await render();
 
-    const link = await screen.findByRole("link", { name: /What the client sees \(read-only\)/ });
+    const link = await screen.findByRole("link", {
+      name: /What the client sees \(read-only\)/,
+    });
     // D-22: the marker selects the impersonating credential; the view grants nothing and
     // every page view of it is audited.
-    expect(link.getAttribute("href")).toBe(`/c/${SLUG}/campaign-review?view=admin`);
+    expect(link.getAttribute("href")).toBe(
+      `/c/${SLUG}/campaign-review?view=admin`,
+    );
   });
 });

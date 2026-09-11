@@ -7,6 +7,35 @@ it will recognise. It is the voice twin of `agents/llm_models.offerable_models()
 `_operator_unofferable_reason()`, and it is deliberately the same shape: a pure predicate
 per entry, grounds ordered by whose problem they are, `None` meaning offerable.
 
+GROUND ZERO, WHICH APPLIES TO EVERY VOICE: HAS AN OPERATOR OFFERED IT? (D-588)
+-------------------------------------------------------------------------------
+The founder's requirement is that **only the voices they enable in the admin console are
+selectable** — by a client for their own agent, and by an admin for anyone's. That is a
+FOURTH ground, it is the one that applies to both providers, and it is checked FIRST
+because it outranks the other three by ownership: whether a Cartesia key is installed is
+not a question worth answering about a voice nobody has decided to sell.
+
+It has three ways to fail, and they are three different sentences because they send an
+operator to three different places:
+
+* **`disabled`** — synced, known, switched off here. One click on the Voices page.
+* **`archived`** — retired here. One click, from the archived list.
+* **not curated at all** — the voice is in this process's catalogue snapshot but has no
+  live row: it has been WITHDRAWN from the voice platform's own list (or the snapshot is
+  older than the table). Nothing in this console fixes that; it is the vendor's statement
+  about their account.
+
+**IT IS MEASURED, NOT SNAPSHOTTED, AND THAT IS DELIBERATE.** Grounds 1-3 sit in in-process
+snapshots refreshed on a 30-second poll. Curation is a row an operator changed ten seconds
+ago on the screen they are still looking at, so it is read per request — one SELECT against
+a platform-scoped table of tens of rows, on a picker render and a voice write, never on a
+call path. An operator who enables a voice and cannot see it for half a minute reports a
+bug; the poll bought nothing here.
+
+**THE FOUR GROUNDS COMPOSE, AND NOTHING MASKS ANYTHING.** A voice can be enabled and still
+unofferable because its price is unattested, and the reason a client reads is the one that
+is actually deciding. `_deciding_ground` below is the single ordering.
+
 THE THREE GROUNDS FOR THE CARTESIA TIER, AND THEIR THREE OWNERS (D-547 §4.C.2)
 --------------------------------------------------------------------------------
 1. **No Cartesia key installed** — the founder pastes one into the ops console
@@ -28,8 +57,10 @@ THE THREE GROUNDS FOR THE CARTESIA TIER, AND THEIR THREE OWNERS (D-547 §4.C.2)
    raises it in the console after deciding to.
 
 A Sarvam voice fails none of these: the key is the engine's own leg today, the price is on
-the card, and there is no cap. So `offerable_voices()` with zero Cartesia entries — the state
-this ships in — returns the whole catalogue offerable, which is what it returned before.
+the card, and there is no cap. What it does NOT escape is ground zero: a Sarvam voice
+nobody has enabled is not offered either, which is the whole point of the founder's
+requirement and the reason the curation check sits above the `provider == "sarvam"`
+short-circuit rather than inside the Cartesia arm.
 
 THE THREE SENTENCES ARE FOR AN OPERATOR, AND THE ROUTE IS CLIENT-READABLE
 -------------------------------------------------------------------------
@@ -73,7 +104,8 @@ from uuid import UUID
 from sqlalchemy import text
 
 from apps.api.agents.llm_models import LlmReasonAudience
-from apps.api.agents.voices import Voice, VoiceProvider, catalogue
+from apps.api.agents.voice_curation import VoiceCuration, read_curation
+from apps.api.agents.voices import CurationState, Voice, VoiceProvider, catalogue
 from apps.api.billing.rates import voice_tier_label
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, tenant_session
@@ -165,6 +197,53 @@ NO_ATTESTED_TTS_PRICE_REASON: Final = (
 )
 
 
+DISABLED_REASON: Final = (
+    "this voice is switched off for the whole platform — enable it on the admin console's "
+    "Voices page if it should be offered"
+)
+ARCHIVED_REASON: Final = (
+    "this voice has been archived for the whole platform — restore it from the archived "
+    "list on the admin console's Voices page if it should be offered again"
+)
+NOT_CURATED_REASON: Final = (
+    "the voice platform no longer lists this voice on our account, so a call on it would "
+    "be refused — it was removed or renamed there, and nothing in this console restores it"
+)
+
+#: What the CLIENT reads when curation is the deciding ground. It deliberately does NOT go
+#: through `client_unofferable_reason`: that sentence names the tier ("the Studio voice is
+#: not available on your account yet"), which is a claim about their PLAN, and it would be
+#: simply false about a single persona an operator switched off. Names no vendor, no
+#: setting and no console — the three things a client-readable route may not print.
+CLIENT_NOT_OFFERED_REASON: Final = (
+    "this voice is not one of the voices offered on your account — pick another from the "
+    "list, or ask your account manager"
+)
+
+
+def curation_unofferable_reason(state: CurationState | None) -> str | None:
+    """Ground zero, in one place: the OPERATOR's sentence for a voice nobody offers, or
+    `None` when an operator has enabled it.
+
+    `None` for `state` is not "unknown" and must not be softened into one — it is a voice
+    the catalogue snapshot holds and the live table does not, which is what a withdrawal
+    upstream looks like from here (`voice_sync.read_cached_catalogue` drops withdrawn rows,
+    so the two disagree for exactly as long as one process's snapshot is stale, and forever
+    if a client's agent is on a voice the vendor has removed).
+
+    Failing CLOSED on the unknown is the safe direction and the only defensible one: the
+    live `400` proving it — *"Provided voice: Anushka is not available for the provider:
+    sarvam"* — is what happens when we offer a voice the platform does not have.
+    """
+    if state is None:
+        return NOT_CURATED_REASON
+    if state == "disabled":
+        return DISABLED_REASON
+    if state == "archived":
+        return ARCHIVED_REASON
+    return None
+
+
 def client_unofferable_reason(voice: Voice) -> str:
     """THE ONE SENTENCE A CLIENT SEES for any unofferable voice, whichever ground failed.
 
@@ -214,19 +293,31 @@ class OfferedVoice:
         return self.reason is None
 
 
-def _operator_unofferable_reason(voice: Voice, *, cartesia_live_agents: int) -> str | None:
-    """The OPERATOR ground — which of the three conditions failed, named so an operator can
+def _operator_unofferable_reason(
+    voice: Voice, *, cartesia_live_agents: int, curation: VoiceCuration
+) -> str | None:
+    """The OPERATOR ground — which of the FOUR conditions failed, named so an operator can
     act on it. `unofferable_reason` is the audience-aware wrapper; this is its truth.
 
-    **THE ONE PLACE THE THREE GROUNDS ARE ORDERED**, by whose problem it is, exactly as
+    **THE ONE PLACE THE FOUR GROUNDS ARE ORDERED**, by whose problem it is, exactly as
     `llm_models._operator_unofferable_reason` orders its three: a tier with no key cannot
     be fixed by attesting a price, so the key is reported first and the reader is sent to
     one action at a time. A voice failing two grounds gets the earlier sentence.
 
-    `cartesia_live_agents` is the platform-wide count of LIVE agents on the Cartesia tier,
-    measured by `count_live_cartesia_agents` — passed in rather than read here so this
-    stays a pure function a test can drive through every arm without a database.
+    **CURATION IS FIRST AND IS ABOVE THE `sarvam` SHORT-CIRCUIT (D-588).** It is the only
+    ground that applies to both providers, and it outranks the rest by ownership: whether a
+    Cartesia key is installed is not worth telling anybody about a voice this platform has
+    not decided to sell. Putting it below the short-circuit would have exempted every Sarvam
+    voice from the founder's one requirement.
+
+    Both facts are PASSED IN rather than read here — `cartesia_live_agents` from
+    `count_live_cartesia_agents`, `curation` from `read_curation` — so this stays a pure
+    function a test can drive through every arm without a database, which is what lets the
+    picker and the write backstop provably ask the same question.
     """
+    curated = curation_unofferable_reason(curation.get(voice.id))
+    if curated is not None:
+        return curated
     if voice.provider == "sarvam":
         return None
     if not cartesia_credential_installed():
@@ -240,7 +331,11 @@ def _operator_unofferable_reason(voice: Voice, *, cartesia_live_agents: int) -> 
 
 
 def unofferable_reason(
-    voice: Voice, *, cartesia_live_agents: int, audience: VoiceReasonAudience = "operator"
+    voice: Voice,
+    *,
+    cartesia_live_agents: int,
+    curation: VoiceCuration,
+    audience: VoiceReasonAudience = "operator",
 ) -> str | None:
     """Why `voice` cannot be offered here, or `None` when it can — in the AUDIENCE's language.
 
@@ -253,16 +348,29 @@ def unofferable_reason(
 
     Default `"operator"` so every existing caller — the write backstop, the tests — keeps its
     behaviour unchanged; the client realm opts in, at the route, by realm.
+
+    **THE CLIENT SENTENCE FORKS ON WHICH GROUND DECIDED (D-588).** For the three priced
+    grounds it is `client_unofferable_reason`, which names the TIER and sends them to their
+    account manager. For curation it is `CLIENT_NOT_OFFERED_REASON`, because the tier
+    sentence would be false about a single persona an operator switched off — it would tell
+    a client their plan lacks a quality they are already paying for. The None-ness is still
+    audience-independent, which is what keeps `OfferedVoice.offerable` derivable from the
+    reason for either reader.
     """
-    reason = _operator_unofferable_reason(voice, cartesia_live_agents=cartesia_live_agents)
+    reason = _operator_unofferable_reason(
+        voice, cartesia_live_agents=cartesia_live_agents, curation=curation
+    )
     if reason is None or audience == "operator":
         return reason
+    if curation_unofferable_reason(curation.get(voice.id)) is not None:
+        return CLIENT_NOT_OFFERED_REASON
     return client_unofferable_reason(voice)
 
 
 def offerable_voices(
     *,
     cartesia_live_agents: int,
+    curation: VoiceCuration,
     voices: tuple[Voice, ...] | None = None,
     audience: VoiceReasonAudience = "operator",
 ) -> tuple[OfferedVoice, ...]:
@@ -283,7 +391,10 @@ def offerable_voices(
         OfferedVoice(
             voice=voice,
             reason=unofferable_reason(
-                voice, cartesia_live_agents=cartesia_live_agents, audience=audience
+                voice,
+                cartesia_live_agents=cartesia_live_agents,
+                curation=curation,
+                audience=audience,
             ),
         )
         for voice in voices
@@ -373,28 +484,38 @@ async def offered_catalogue(
     sentence — the route picks it from the caller's realm.
     """
     voices = catalogue() if voices is None else voices
+    curation = await read_curation()
     needs_count = cartesia_tier_could_be_offered() and any(
         voice.provider == "cartesia" for voice in voices
     )
     live = await count_live_cartesia_agents(exclude_agent_id=exclude_agent_id) if needs_count else 0
-    return offerable_voices(cartesia_live_agents=live, voices=voices, audience=audience)
+    return offerable_voices(
+        cartesia_live_agents=live, curation=curation, voices=voices, audience=audience
+    )
 
 
 __all__ = [
+    "ARCHIVED_REASON",
+    "CLIENT_NOT_OFFERED_REASON",
+    "DISABLED_REASON",
+    "NOT_CURATED_REASON",
     "NO_ATTESTED_TTS_PRICE_REASON",
     "NO_CARTESIA_CREDENTIAL_REASON",
     "OfferedVoice",
     "TtsPriceReader",
+    "VoiceCuration",
     "VoiceReasonAudience",
     "cartesia_cap_reached_reason",
     "cartesia_credential_installed",
     "cartesia_tier_could_be_offered",
     "client_unofferable_reason",
     "count_live_cartesia_agents",
+    "curation_unofferable_reason",
     "default_tts_price_is_billable",
     "install_tts_price_reader",
     "offerable_voices",
     "offered_catalogue",
+    "read_curation",
     "tts_price_is_billable",
     "unofferable_reason",
 ]

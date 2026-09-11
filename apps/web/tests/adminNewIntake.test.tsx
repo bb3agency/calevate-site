@@ -6,7 +6,13 @@ import type { AdminMe } from "@/app/admin/access";
 import type { CreateOrgOut } from "@/lib/api/admin";
 import { intakeFieldId, type IntakeState } from "@/lib/api/intake";
 
-import { problem, renderAdminPage, stubApi, type ApiCall, type Routes } from "./harness";
+import {
+  problem,
+  renderAdminPage,
+  stubApi,
+  type ApiCall,
+  type Routes,
+} from "./harness";
 
 /**
  * The wizard's intake step — FLOWS §1 step 3 (`/admin/new`, `IntakeStep`).
@@ -67,7 +73,12 @@ function me(permissions: string[]): AdminMe {
 }
 
 /** What `core/rbac.py` gives an `operator` — `agents:write` among them. */
-const OPERATOR = me(["org:read", "agents:read", "agents:write", "admin:tenants"]);
+const OPERATOR = me([
+  "org:read",
+  "agents:read",
+  "agents:write",
+  "admin:tenants",
+]);
 
 /** A brand-new agent: the API answers 200 with everything empty, never a 404. */
 const NO_INTAKE: IntakeState = {
@@ -153,7 +164,11 @@ function fillTheMinimum(): void {
 
 /** Press submit against a freshly stubbed network, and return ITS call log. */
 function submitAgainst(answer: unknown): ApiCall[] {
-  const calls = stubApi({ [INTAKE]: answer, [ADMIN_ME]: OPERATOR, [UNFINISHED]: [] });
+  const calls = stubApi({
+    [INTAKE]: answer,
+    [ADMIN_ME]: OPERATOR,
+    [UNFINISHED]: [],
+  });
   fireEvent.click(screen.getByRole("button", { name: "Submit intake" }));
   return calls;
 }
@@ -169,11 +184,15 @@ const posts = (calls: ApiCall[]) =>
  */
 const STORED: IntakeState = {
   business_hours: { mon: { opens: "10:00", closes: "19:00" }, sun: null },
-  escalation_contacts: [{ name: "Dr Prasad", phone_e164: "+919812345678", hours: "Mon-Sat" }],
+  escalation_contacts: [
+    { name: "Dr Prasad", phone_e164: "+919812345678", hours: "Mon-Sat" },
+  ],
   languages: ["hi-IN"],
   prose_answers: {
     branches: [{ label: "Banjara Hills", address: "3 Road No 12" }],
-    services: [{ name: "Root canal", price_inr: "4500.50", notes: "Two sittings" }],
+    services: [
+      { name: "Root canal", price_inr: "4500.50", notes: "Two sittings" },
+    ],
     faqs: [{ question: "Do you take walk-ins?", answer: "Yes, before 11am." }],
     staff: [{ name: "Dr Prasad", pronunciation: "pra-SAAD", role: "Dentist" }],
     booking_rules: "Slots every 20 minutes.",
@@ -213,8 +232,12 @@ describe("submitting the intake", () => {
       // Only the day that was answered. The six blanks are absent rather than sent as
       // half-empty rows — "nobody filled Saturday in" is not "Saturday is closed", and a
       // day with one time is the `business_hours_incomplete` blocker.
-      business_hours: [{ day: "mon", closed: false, opens: "09:00", closes: "18:00" }],
-      branches: [{ label: "Main branch", address: "12 Necklace Road, Hyderabad 500003" }],
+      business_hours: [
+        { day: "mon", closed: false, opens: "09:00", closes: "18:00" },
+      ],
+      branches: [
+        { label: "Main branch", address: "12 Necklace Road, Hyderabad 500003" },
+      ],
       // `price_inr` is the STRING the operator typed (hard rule 7) and `notes` is `null`
       // rather than `""` — the API's pattern refuses an empty string where `null` means
       // "not answered".
@@ -222,7 +245,9 @@ describe("submitting the intake", () => {
       faqs: [],
       staff: [],
       booking_rules: null,
-      escalation_contacts: [{ name: "Front desk", phone_e164: "+919876543210", hours: null }],
+      escalation_contacts: [
+        { name: "Front desk", phone_e164: "+919876543210", hours: null },
+      ],
       // The primary from step 1, which the server drops on the way in (`languages_extra`
       // means the OTHERS) — sending it is what makes the round trip stable.
       languages: ["te-IN"],
@@ -236,7 +261,9 @@ describe("submitting the intake", () => {
 
     await screen.findByText("Intake recorded");
     expect(screen.getByText(/prompt version/).textContent).toContain("2");
-    expect(screen.getByText(/queued in the knowledge base awaiting approval/)).toBeTruthy();
+    expect(
+      screen.getByText(/queued in the knowledge base awaiting approval/),
+    ).toBeTruthy();
   });
 
   it("does not dress the idempotent answer as a failure", async () => {
@@ -244,10 +271,17 @@ describe("submitting the intake", () => {
     fillTheMinimum();
     // `regenerated: false` is what reopening the step and saving it unchanged returns —
     // FLOWS §1's "every step idempotent", and a success.
-    submitAgainst({ ...RECORDED, prompt_version: 1, regenerated: false, kb_source_id: null });
+    submitAgainst({
+      ...RECORDED,
+      prompt_version: 1,
+      regenerated: false,
+      kb_source_id: null,
+    });
 
     await screen.findByText("Intake recorded");
-    expect(screen.getByText(/already match what the agent carries/)).toBeTruthy();
+    expect(
+      screen.getByText(/already match what the agent carries/),
+    ).toBeTruthy();
   });
 
   it("refuses to send a body the server's own gate would reject", async () => {
@@ -257,13 +291,21 @@ describe("submitting the intake", () => {
     type("branches.0.label", "Main branch");
     type("branches.0.address", "12 Necklace Road");
 
-    const submit = screen.getByRole("button", { name: "Submit intake" }) as HTMLButtonElement;
+    const submit = screen.getByRole("button", {
+      name: "Submit intake",
+    }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
     // Each blocker names what downstream cannot work without it, in the server's terms —
     // and the one the operator HAS answered is absent from the list.
-    expect(container.textContent).toContain("The agent uses these hours to handle after-hours calls");
-    expect(container.textContent).toContain("A transfer during a call has nowhere to go");
-    expect(container.textContent).toContain("The price list is both what the agent answers from");
+    expect(container.textContent).toContain(
+      "The agent uses these hours to handle after-hours calls",
+    );
+    expect(container.textContent).toContain(
+      "A transfer during a call has nowhere to go",
+    );
+    expect(container.textContent).toContain(
+      "The price list is both what the agent answers from",
+    );
     expect(container.textContent).not.toContain("No address.");
 
     fireEvent.click(submit);
@@ -279,9 +321,13 @@ describe("reopening the step", () => {
     expect(valueOf("business_hours.mon.closes")).toBe("19:00");
     // `null` IS the closed day (`_hours_map`), and it must not come back as an
     // unanswered one — the agent says different things about the two.
-    expect((control("business_hours.sun.closes") as HTMLInputElement).disabled).toBe(true);
+    expect(
+      (control("business_hours.sun.closes") as HTMLInputElement).disabled,
+    ).toBe(true);
     expect(valueOf("business_hours.tue.opens")).toBe("");
-    expect((control("business_hours.tue.closes") as HTMLInputElement).disabled).toBe(false);
+    expect(
+      (control("business_hours.tue.closes") as HTMLInputElement).disabled,
+    ).toBe(false);
 
     expect(valueOf("branches.0.label")).toBe("Banjara Hills");
     expect(valueOf("services.0.price_inr")).toBe("4500.50");
@@ -294,8 +340,12 @@ describe("reopening the step", () => {
     expect(valueOf("escalation_contacts.0.hours")).toBe("Mon-Sat");
 
     // The stored EXTRA language came back ticked, and the primary is ticked and fixed.
-    expect((screen.getByLabelText(/Hindi/) as HTMLInputElement).checked).toBe(true);
-    expect(container.textContent).toContain("Primary — the agent's own language");
+    expect((screen.getByLabelText(/Hindi/) as HTMLInputElement).checked).toBe(
+      true,
+    );
+    expect(container.textContent).toContain(
+      "Primary — the agent's own language",
+    );
     // The server's own stamp, not a claim this screen made.
     expect(container.textContent).toContain("Last submitted");
 
@@ -323,9 +373,13 @@ describe("reopening the step", () => {
 
   it("explains an org whose prose predates the column that holds it", async () => {
     // `prose_answers: null` WITH stored evidence — a pre-migration org, not a new agent.
-    const { container } = await reachIntake({ [INTAKE]: { ...STORED, prose_answers: null } });
+    const { container } = await reachIntake({
+      [INTAKE]: { ...STORED, prose_answers: null },
+    });
 
-    expect(container.textContent).toContain("Only the summary we build for the agent is kept");
+    expect(container.textContent).toContain(
+      "Only the summary we build for the agent is kept",
+    );
     // The block is printed so the operator can retype from it, rather than parsed back
     // into fields this form would then be asserting a price it had itself written.
     expect(container.textContent).toContain("[T0 FACTS]");
@@ -338,7 +392,9 @@ describe("reopening the step", () => {
     // The same `prose_answers: null`, with nothing else stored. A brand-new agent must
     // not be told its answers were lost.
     const { container } = await reachIntake();
-    expect(container.textContent).not.toContain("Only the summary we build for the agent is kept");
+    expect(container.textContent).not.toContain(
+      "Only the summary we build for the agent is kept",
+    );
   });
 
   it("withdraws the owner invite once somebody has accepted, and says why", async () => {
@@ -353,17 +409,23 @@ describe("reopening the step", () => {
        should hide this control. The other two are exactly when it is still needed. */
     await reachIntake({ [INTAKE]: { ...STORED, owner_present: true } });
 
-    expect(screen.queryByRole("button", { name: /Continue to the owner invite/ })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Continue to the owner invite/ }),
+    ).toBeNull();
     // Withdrawn WITH a reason: a control that vanishes silently sends an operator
     // hunting for a button they remember.
-    expect(screen.getByText(/already accepted into this account/i)).toBeTruthy();
+    expect(
+      screen.getByText(/already accepted into this account/i),
+    ).toBeTruthy();
   });
 
   it("still offers it while nobody has accepted — invited, expired or never sent", async () => {
     // `owner_present: false` is all three of those states, which is the point of using it.
     await reachIntake({ [INTAKE]: { ...STORED, owner_present: false } });
     expect(
-      await screen.findByRole("button", { name: /Continue to the owner invite/ }),
+      await screen.findByRole("button", {
+        name: /Continue to the owner invite/,
+      }),
     ).toBeTruthy();
   });
 
@@ -371,12 +433,16 @@ describe("reopening the step", () => {
     await reachIntake();
 
     type("branches.0.address", "12 Necklace Road, Hyderabad 500003");
-    fireEvent.click(screen.getByRole("button", { name: /Continue to the owner invite/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Continue to the owner invite/ }),
+    );
     await screen.findByText("Invite the owner");
     fireEvent.click(screen.getByRole("button", { name: /Back to the intake/ }));
 
     await screen.findByText("Business hours");
-    expect(valueOf("branches.0.address")).toBe("12 Necklace Road, Hyderabad 500003");
+    expect(valueOf("branches.0.address")).toBe(
+      "12 Necklace Road, Hyderabad 500003",
+    );
   });
 });
 
@@ -406,15 +472,23 @@ describe("when the prefill cannot be read", () => {
 
     // THE ASSERTION THIS FILE EXISTS FOR: no form, not an empty form. A blank sheet here
     // invites the operator to retype the answers and POST them over what is stored.
-    expect(document.getElementById(intakeFieldId("branches.0.label"))).toBeNull();
-    expect(document.getElementById(intakeFieldId("business_hours.mon.opens"))).toBeNull();
+    expect(
+      document.getElementById(intakeFieldId("branches.0.label")),
+    ).toBeNull();
+    expect(
+      document.getElementById(intakeFieldId("business_hours.mon.opens")),
+    ).toBeNull();
     expect(screen.queryByRole("button", { name: "Submit intake" })).toBeNull();
     // Nothing about the emptiness reads as a fact about the client.
     expect(render.container.textContent).not.toContain("None yet");
-    expect(render.container.textContent).not.toContain("Still needed before this can be submitted");
+    expect(render.container.textContent).not.toContain(
+      "Still needed before this can be submitted",
+    );
 
     // The wizard is not a dead end: the operator can still reach the owner invite.
-    expect(screen.getByRole("button", { name: /Skip to the owner invite/ })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /Skip to the owner invite/ }),
+    ).toBeTruthy();
   });
 });
 
@@ -448,7 +522,9 @@ describe("a refusal about one answer", () => {
 
     // The summary points at the field rather than repeating its sentence.
     expect(screen.getByText("Check the answers marked below.")).toBeTruthy();
-    expect(screen.queryAllByText(/String should match pattern/)).toHaveLength(1);
+    expect(screen.queryAllByText(/String should match pattern/)).toHaveLength(
+      1,
+    );
   });
 
   it("withdraws the refusal the moment the answer is edited", async () => {
@@ -459,7 +535,11 @@ describe("a refusal about one answer", () => {
       problem(422, {
         title: "Request validation failed",
         fields: [
-          { field: "services.0.price_inr", rule: "string_pattern_mismatch", message: "Bad price" },
+          {
+            field: "services.0.price_inr",
+            rule: "string_pattern_mismatch",
+            message: "Bad price",
+          },
         ],
       }),
     );
@@ -470,7 +550,9 @@ describe("a refusal about one answer", () => {
     // could outlive the request it belongs to and point at a different row.
     type("services.0.price_inr", "500");
     expect(screen.queryByText("Bad price")).toBeNull();
-    expect(control("services.0.price_inr").getAttribute("aria-invalid")).toBeNull();
+    expect(
+      control("services.0.price_inr").getAttribute("aria-invalid"),
+    ).toBeNull();
   });
 
   it("keeps the refusal on the right row after blank rows are dropped", async () => {
@@ -489,7 +571,11 @@ describe("a refusal about one answer", () => {
       problem(422, {
         title: "Request validation failed",
         fields: [
-          { field: "services.0.price_inr", rule: "string_pattern_mismatch", message: "Bad price" },
+          {
+            field: "services.0.price_inr",
+            rule: "string_pattern_mismatch",
+            message: "Bad price",
+          },
         ],
       }),
     );
@@ -498,8 +584,12 @@ describe("a refusal about one answer", () => {
     // The surviving row IS row 0 now — on screen and on the wire — and it is the one
     // wearing the refusal.
     expect(valueOf("services.0.name")).toBe("Whitening");
-    expect(control("services.0.price_inr").getAttribute("aria-invalid")).toBe("true");
-    expect(document.getElementById(intakeFieldId("services.1.price_inr"))).toBeNull();
+    expect(control("services.0.price_inr").getAttribute("aria-invalid")).toBe(
+      "true",
+    );
+    expect(
+      document.getElementById(intakeFieldId("services.1.price_inr")),
+    ).toBeNull();
   });
 
   it("resolves a day-level refusal by day rather than by position", async () => {
@@ -526,10 +616,16 @@ describe("a refusal about one answer", () => {
     );
 
     const message = await screen.findByText("Not a time of day");
-    expect(message.id).toBe(`${intakeFieldId("business_hours.wed.opens")}-error`);
-    expect(control("business_hours.wed.opens").getAttribute("aria-invalid")).toBe("true");
+    expect(message.id).toBe(
+      `${intakeFieldId("business_hours.wed.opens")}-error`,
+    );
+    expect(
+      control("business_hours.wed.opens").getAttribute("aria-invalid"),
+    ).toBe("true");
     // And emphatically not on Monday, which is `business_hours.0`.
-    expect(control("business_hours.mon.opens").getAttribute("aria-invalid")).toBeNull();
+    expect(
+      control("business_hours.mon.opens").getAttribute("aria-invalid"),
+    ).toBeNull();
   });
 
   it("puts a message about a field this form has no input for in the summary", async () => {
@@ -542,7 +638,9 @@ describe("a refusal about one answer", () => {
         detail: "One or more fields are invalid.",
         // A path this build renders no control for — an API that grew a ninth answer, or
         // a shape nobody predicted. Dropping it would be the worst outcome of the three.
-        fields: [{ field: "loyalty_tier", rule: "missing", message: "Field required" }],
+        fields: [
+          { field: "loyalty_tier", rule: "missing", message: "Field required" },
+        ],
       }),
     );
 
@@ -562,14 +660,20 @@ describe("a refusal about one answer", () => {
       problem(422, {
         type: "urn:calevate:business_rule/intake_incomplete",
         title: "Intake incomplete",
-        detail: "The intake is missing answers the agent needs: service_missing.",
-        remediation: "Save the step as a draft, finish these answers, then submit.",
+        detail:
+          "The intake is missing answers the agent needs: service_missing.",
+        remediation:
+          "Save the step as a draft, finish these answers, then submit.",
       }),
     );
 
-    await screen.findByText("The intake is missing answers the agent needs: service_missing.");
+    await screen.findByText(
+      "The intake is missing answers the agent needs: service_missing.",
+    );
     expect(
-      screen.getByText("Save the step as a draft, finish these answers, then submit."),
+      screen.getByText(
+        "Save the step as a draft, finish these answers, then submit.",
+      ),
     ).toBeTruthy();
     expect(screen.queryByText("Check the answers marked below.")).toBeNull();
   });
@@ -587,18 +691,26 @@ describe("the permission gate", () => {
       [ADMIN_ME]: me(["org:read", "agents:read", "admin:tenants"]),
       [INTAKE]: STORED,
     });
-    expect(screen.queryByText("Still needed before this can be submitted:")).toBeNull();
+    expect(
+      screen.queryByText("Still needed before this can be submitted:"),
+    ).toBeNull();
 
     // TWICE, deliberately: once at the head of the form where the first disabled input
     // is, once beside the submit at the foot of it. A dead control with no sentence is a
     // support ticket, and forty controls is too far to carry an explanation.
-    expect(await screen.findAllByText(/does not have permission to/)).toHaveLength(2);
-    const submit = screen.getByRole("button", { name: "Submit intake" }) as HTMLButtonElement;
+    expect(
+      await screen.findAllByText(/does not have permission to/),
+    ).toHaveLength(2);
+    const submit = screen.getByRole("button", {
+      name: "Submit intake",
+    }) as HTMLButtonElement;
     expect(submit.disabled).toBe(true);
     expect(submit.title).toContain("record this client's intake");
     expect(container.textContent).toContain("Ask a superadmin");
     // The inputs go with it — filling forty boxes that cannot be submitted is waste.
-    expect((control("branches.0.label") as HTMLInputElement).disabled).toBe(true);
+    expect((control("branches.0.label") as HTMLInputElement).disabled).toBe(
+      true,
+    );
 
     fireEvent.click(submit);
     expect(posts(calls)).toHaveLength(0);
@@ -609,11 +721,16 @@ describe("the permission gate", () => {
     // still withheld (a control fails closed) but the sentence must not accuse a role of
     // lacking a permission nobody checked.
     const { container } = await reachIntake({
-      [ADMIN_ME]: problem(503, { title: "Service unavailable", detail: "Identity unavailable." }),
+      [ADMIN_ME]: problem(503, {
+        title: "Service unavailable",
+        detail: "Identity unavailable.",
+      }),
     });
 
     expect(
-      await screen.findAllByText(/We could not check whether you may record this client's intake/),
+      await screen.findAllByText(
+        /We could not check whether you may record this client's intake/,
+      ),
     ).toHaveLength(2);
     expect(container.textContent).not.toContain("does not have permission to");
   });

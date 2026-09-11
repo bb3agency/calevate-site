@@ -14,7 +14,7 @@ import { useToast } from "@/components/interior/toaster";
 import { canDialOut } from "@/lib/agentState";
 import { useAgents } from "@/lib/api/agents";
 import { useClientRealm } from "@/lib/api/session";
-import { useCallLead, useMe, useWriteAccess } from "@/lib/api/hooks";
+import { useActAccess, useCallLead, useMe, useWriteAccess } from "@/lib/api/hooks";
 import {
   useBulkLeads,
   useExportLeads,
@@ -244,12 +244,22 @@ export function LeadsScreen() {
    * answer is still coming. tests/surfaceStatesGuard.test.ts keeps this shape out.
    */
   /**
-   * May this session SAVE a view? `leads:write`, which the API asks for — and which an
-   * impersonating operator is refused (D-22), so the Save control is disabled with the
-   * sentence rather than clicking into a 403. Reading views needs no such check: an
-   * operator simply has none.
+   * May this session SAVE a view? TWO questions, because since D-587 the permission is
+   * not the whole answer: `leads:write` IS writable in a view-as session, and the server
+   * then refuses the named act `leads.saved_view` inside it — a saved view is a row owned
+   * by a `users.id`, and a view-as session has none (`crm/routes.py::_view_owner`, which
+   * would otherwise reach a foreign-key violation on a support call).
+   *
+   * `useWriteAccess` alone asked only the permission, so it enabled Save for an operator
+   * and let the click become a 403. Reading views still needs no check: an operator
+   * simply has none.
    */
-  const mayApplyView = useWriteAccess(session, "leads:write", "save a view");
+  const mayApplyView = useActAccess(
+    session,
+    "leads:write",
+    "leads.saved_view",
+    "save a view",
+  );
   const exportAccess = useWriteAccess(session, "calls:read_raw", "export leads");
   const mayExport = exportAccess.allowed;
   /**

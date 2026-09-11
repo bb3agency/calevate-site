@@ -54,9 +54,20 @@ const ME: Me = {
   role: "owner",
   // An OWNER, which is the only client role holding `calls:read_raw` — the
   // permission the CSV export route requires (core/rbac.py).
-  permissions: ["leads:read", "leads:write", "leads:dispatch", "calls:read_raw"],
+  permissions: [
+    "leads:read",
+    "leads:write",
+    "leads:dispatch",
+    "calls:read_raw",
+  ],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  withheld_acts: [],
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 /** Published, live and able to dial out — the three things `canDial` asks for. */
@@ -69,12 +80,14 @@ const DIALER: Agent = {
   // Hard rule 5: an agent ALWAYS carries a non-null disclosure line. These fixtures had
   // none — `as unknown as Agent` is why nobody noticed.
   language_primary: "te-IN",
-  disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   // D-163 split the bundled line into two notices with two switches. The fixture keeps
   // both ON, which is what a new agent is born with, and carries the server-composed
   // `opening_line` rather than joining the two sentences here — the screens read that
   // field, so a fixture that computed it would be testing its own arithmetic.
-  ai_disclosure_line: "Namaskaram, this is an AI assistant calling for Sri Clinic.",
+  ai_disclosure_line:
+    "Namaskaram, this is an AI assistant calling for Sri Clinic.",
   ai_disclosure_enabled: true,
   recording_notice_line: "This call is being recorded.",
   caller_memory_notice_line: "I keep a short note of what you ask about.",
@@ -161,7 +174,14 @@ function leadList(items: Lead[], over: Partial<LeadList> = {}): LeadList {
     total: items.length,
     limit: 100,
     offset: 0,
-    status_counts_matching_search: { new: 0, contacted: 0, interested: 0, hot: 0, won: 0, lost: 0 },
+    status_counts_matching_search: {
+      new: 0,
+      contacted: 0,
+      interested: 0,
+      hot: 0,
+      won: 0,
+      lost: 0,
+    },
     // FALSE by default because the ordinary page is not a ranking: `semantic_truncated`
     // is only ever true under a semantic question (D-504), and a fixture that defaulted
     // it true would make every filtered page claim there might be more.
@@ -208,7 +228,11 @@ const QUEUED: CallLeadResult = {
  */
 describe("the CSV export offers itself only to a session that may use it", () => {
   it("disables the button for a role without calls:read_raw", async () => {
-    const staff = { ...ME, role: "staff", permissions: ["leads:read", "leads:write"] };
+    const staff = {
+      ...ME,
+      role: "staff",
+      permissions: ["leads:read", "leads:write"],
+    };
     await renderClientPage(<LeadsPage />, routes({ "/v1/me": staff }));
 
     const button = (await screen.findByRole("button", {
@@ -272,7 +296,9 @@ describe("what the screen says when it could not read the leads", () => {
     // pipeline drawn from a request that never landed.
     const { container } = await renderClientPage(
       <LeadsPage />,
-      routes({ "POST /v1/leads/search": problem(503, { title: "Service unavailable" }) }),
+      routes({
+        "POST /v1/leads/search": problem(503, { title: "Service unavailable" }),
+      }),
     );
 
     await screen.findByRole("alert");
@@ -292,7 +318,14 @@ describe("the number on the row", () => {
       <LeadsPage />,
       routes({
         "POST /v1/leads/search": leadList([lead()], {
-          status_counts_matching_search: { new: 1, contacted: 0, interested: 0, hot: 0, won: 0, lost: 0 },
+          status_counts_matching_search: {
+            new: 1,
+            contacted: 0,
+            interested: 0,
+            hot: 0,
+            won: 0,
+            lost: 0,
+          },
         }),
       }),
     );
@@ -306,9 +339,10 @@ describe("the number on the row", () => {
     // Not merely "the `+91…` string is absent from the URL": the ten digits in sequence
     // are what identify the person, and a query string carrying them is a log entry.
     for (const call of calls) {
-      expect(call.url, `${call.method} ${call.path} carries a phone number`).not.toContain(
-        PHONE_A_DIGITS,
-      );
+      expect(
+        call.url,
+        `${call.method} ${call.path} carries a phone number`,
+      ).not.toContain(PHONE_A_DIGITS);
     }
   });
 
@@ -352,20 +386,26 @@ describe("the D-21 dispatch verdict, per lead", () => {
       }),
     );
 
-    const buttons = await screen.findAllByRole("button", { name: /Call with AI/ });
+    const buttons = await screen.findAllByRole("button", {
+      name: /Call with AI/,
+    });
     expect(buttons).toHaveLength(2);
 
     fireEvent.click(buttons[0]);
     // ONE lead was called, so one verdict may exist. A shared slot puts it on both rows
     // here, before the second click has even happened.
     const firstVerdict = await screen.findAllByText(/do-not-call list/);
-    expect(firstVerdict, "one call placed, one verdict on screen").toHaveLength(1);
+    expect(firstVerdict, "one call placed, one verdict on screen").toHaveLength(
+      1,
+    );
 
     // Priya's row is still callable, and calling her must not disturb Ramesh's answer.
     fireEvent.click(screen.getByRole("button", { name: /Call with AI/ }));
     await screen.findByText("Calling now");
 
-    expect(row(PHONE_A).textContent).toContain("This number is on your do-not-call list.");
+    expect(row(PHONE_A).textContent).toContain(
+      "This number is on your do-not-call list.",
+    );
     expect(row(PHONE_A).textContent).not.toContain("Calling now");
     expect(row(PHONE_B).textContent).toContain("Calling now");
     expect(row(PHONE_B).textContent).not.toContain("do-not-call");
@@ -385,7 +425,9 @@ describe("the D-21 dispatch verdict, per lead", () => {
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Call with AI/ }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Call with AI/ }),
+    );
 
     expect(await screen.findByText(/do-not-call list/)).toBeTruthy();
     /*
@@ -423,7 +465,9 @@ describe("the D-21 dispatch verdict, per lead", () => {
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: /Call with AI/ }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Call with AI/ }),
+    );
 
     await screen.findByText(/no calling credit left/);
     expect(container.textContent).not.toContain("still get through");
@@ -440,7 +484,12 @@ describe("the counts come from the server or are not shown", () => {
   const HOT_PAGE = leadList(
     [
       lead({ status: "hot" }),
-      lead({ id: "lead-b", name: "Priya Nair", phone_e164: PHONE_B, status: "hot" }),
+      lead({
+        id: "lead-b",
+        name: "Priya Nair",
+        phone_e164: PHONE_B,
+        status: "hot",
+      }),
     ],
     {
       total: 2,
@@ -480,9 +529,11 @@ describe("the counts come from the server or are not shown", () => {
     // Awaited for the reason the search case is: a positive assertion about a REQUEST
     // cannot be read synchronously off a list the request may not have reached yet.
     await vi.waitFor(() => {
-      expect(calls.some((c) => c.path === "/v1/leads/search" && lensOf(c).status === "hot")).toBe(
-        true,
-      );
+      expect(
+        calls.some(
+          (c) => c.path === "/v1/leads/search" && lensOf(c).status === "hot",
+        ),
+      ).toBe(true);
     });
 
     // AWAITED, for the same reason the request assertion above is: the tally re-renders
@@ -491,7 +542,9 @@ describe("the counts come from the server or are not shown", () => {
     // a single read then asserts about the unfiltered render — a flake that only appears
     // in CI, which is the worst place to diagnose one.
     await vi.waitFor(() => {
-      expect(screen.getByText(/by stage/).parentElement?.textContent).toContain("new12");
+      expect(screen.getByText(/by stage/).parentElement?.textContent).toContain(
+        "new12",
+      );
     });
     const tally = screen.getByText(/by stage/).parentElement;
 
@@ -513,7 +566,9 @@ describe("the counts come from the server or are not shown", () => {
     // the assertion below raced the fetch and failed only on a slow box. It failed in CI
     // and passed locally, which is the shape the sibling test above already warns about.
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("The CSV export contains these 2 leads");
+      expect(container.textContent).toContain(
+        "The CSV export contains these 2 leads",
+      );
     });
     // **This assertion is the inverse of the one it replaces.** The export used to
     // ignore the status chip, so the sentence had to name the WHOLE account (22) and
@@ -521,8 +576,12 @@ describe("the counts come from the server or are not shown", () => {
     // same lens as the list, so the file holds the 2 hot leads on screen and the copy
     // says so. A sentence claiming otherwise would teach a client to distrust a control
     // that works — the more dangerous of the two wrong sentences.
-    expect(container.textContent).toContain("The CSV export contains these 2 leads");
-    expect(container.textContent).not.toContain("the export ignores this filter");
+    expect(container.textContent).toContain(
+      "The CSV export contains these 2 leads",
+    );
+    expect(container.textContent).not.toContain(
+      "the export ignores this filter",
+    );
     expect(container.textContent).not.toContain("every lead in the account");
   });
 
@@ -533,7 +592,9 @@ describe("the counts come from the server or are not shown", () => {
     const { calls } = await filterToHot();
     await screen.findByText(/by stage/);
 
-    fireEvent.click(screen.getByRole("button", { name: /Export this view as CSV/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Export this view as CSV/ }),
+    );
     const exportCall = await vi.waitFor(() => {
       const found = calls.find((c) => c.path === "/v1/leads/export.csv");
       if (!found) throw new Error("the export was never requested");
@@ -568,17 +629,23 @@ describe("the counts come from the server or are not shown", () => {
     );
 
     await screen.findByText(/by stage/);
-    fireEvent.change(screen.getByLabelText("Search leads"), { target: { value: NUMBER } });
+    fireEvent.change(screen.getByLabelText("Search leads"), {
+      target: { value: NUMBER },
+    });
 
     // The term reached the server — otherwise the sweep below passes on a screen that
     // simply never searched, which is the vacuous form of this assertion.
     await vi.waitFor(() => {
       expect(
-        calls.some((c) => c.path === "/v1/leads/search" && lensOf(c).search === NUMBER),
+        calls.some(
+          (c) => c.path === "/v1/leads/search" && lensOf(c).search === NUMBER,
+        ),
       ).toBe(true);
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /Export this view as CSV/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Export this view as CSV/ }),
+    );
     await vi.waitFor(() => {
       expect(calls.some((c) => c.path === "/v1/leads/export.csv")).toBe(true);
     });
@@ -586,9 +653,10 @@ describe("the counts come from the server or are not shown", () => {
     // Digits, not the formatted string: `+` and the country code survive encoding
     // differently from the rest, and it is the ten digits that identify a person.
     for (const call of calls) {
-      expect(call.url, `${call.method} ${call.path} carries the number`).not.toContain(
-        "9876543210",
-      );
+      expect(
+        call.url,
+        `${call.method} ${call.path} carries the number`,
+      ).not.toContain("9876543210");
       expect(call.url).not.toContain("search=");
     }
   });
@@ -615,7 +683,9 @@ describe("the counts come from the server or are not shown", () => {
       }),
     );
 
-    fireEvent.change(screen.getByLabelText("Search leads"), { target: { value: "ram" } });
+    fireEvent.change(screen.getByLabelText("Search leads"), {
+      target: { value: "ram" },
+    });
     // The box is debounced by 300ms, so this also asserts the debounce still fires — and
     // that the search is a SERVER-side filter rather than a slice of a capped page.
     // WAIT FOR THE REQUEST, not for a sentence that renders near it. This awaited the
@@ -631,9 +701,11 @@ describe("the counts come from the server or are not shown", () => {
       // that can carry a customer's phone number, and the whole point of the change is
       // that it is no longer in the request line. `path` carrying no `search=` is
       // asserted separately below, over every call the screen made.
-      expect(calls.some((c) => c.path === "/v1/leads/search" && lensOf(c).search === "ram")).toBe(
-        true,
-      );
+      expect(
+        calls.some(
+          (c) => c.path === "/v1/leads/search" && lensOf(c).search === "ram",
+        ),
+      ).toBe(true);
     });
     // WAS `/matching your search/`. The header count and the stage tally now name the
     // FILTERS rather than the search alone, and that is the fix rather than a reword:
@@ -649,7 +721,9 @@ describe("the counts come from the server or are not shown", () => {
     expect(container.textContent).not.toContain("every lead in the account");
     // The searched population is still stated — as the search's own count, where it is
     // true — so dropping the account figure does not leave the client with nothing.
-    expect(container.textContent).toContain("Matching these filters, by stage:");
+    expect(container.textContent).toContain(
+      "Matching these filters, by stage:",
+    );
   });
 
   it("does not count the assignee filter off the page either", async () => {
@@ -673,7 +747,9 @@ describe("the counts come from the server or are not shown", () => {
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Assigned to me" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Assigned to me" }),
+    );
     // `keepPreviousData` leaves the OLD page on screen while the filtered one is in
     // flight — which is the point of it — so the assertion has to wait for the new
     // answer rather than reading whatever is there the moment the chip is clicked.
@@ -681,7 +757,9 @@ describe("the counts come from the server or are not shown", () => {
       expect(container.textContent).toContain("Showing 1 of 1 lead");
     });
     expect(
-      calls.some((c) => c.path === "/v1/leads/search" && lensOf(c).assigned_to === "u1"),
+      calls.some(
+        (c) => c.path === "/v1/leads/search" && lensOf(c).assigned_to === "u1",
+      ),
     ).toBe(true);
   });
 
@@ -706,7 +784,11 @@ describe("the counts come from the server or are not shown", () => {
 describe("the way past row 100 (ux-audit L1)", () => {
   const PAGE_ONE = leadList(
     Array.from({ length: 100 }, (_, i) =>
-      lead({ id: `lead-${i}`, name: `Lead ${i}`, phone_e164: `+9198765${String(43000 + i)}` }),
+      lead({
+        id: `lead-${i}`,
+        name: `Lead ${i}`,
+        phone_e164: `+9198765${String(43000 + i)}`,
+      }),
     ),
     { total: 150 },
   );
@@ -736,7 +818,9 @@ describe("the way past row 100 (ux-audit L1)", () => {
     expect(container.textContent).toContain("Showing 101–150 of 150");
     await vi.waitFor(() => {
       expect(
-        calls.some((c) => c.path === "/v1/leads/search" && lensOf(c).offset === 100),
+        calls.some(
+          (c) => c.path === "/v1/leads/search" && lensOf(c).offset === 100,
+        ),
       ).toBe(true);
     });
   });
@@ -752,17 +836,32 @@ describe("the way past row 100 (ux-audit L1)", () => {
 });
 
 describe("who owns a lead", () => {
-  const ASSIGNED = leadList([lead({ assigned_to: "u2", assigned_to_name: "Kiran Babu" })], {
-    total: 1,
-    status_counts_matching_search: { new: 1, contacted: 0, interested: 0, hot: 0, won: 0, lost: 0 },
-  });
+  const ASSIGNED = leadList(
+    [lead({ assigned_to: "u2", assigned_to_name: "Kiran Babu" })],
+    {
+      total: 1,
+      status_counts_matching_search: {
+        new: 1,
+        contacted: 0,
+        interested: 0,
+        hot: 0,
+        won: 0,
+        lost: 0,
+      },
+    },
+  );
 
   it("offers the account's team, and shows the current owner as the selected one", async () => {
-    await renderClientPage(<LeadsPage />, routes({ "POST /v1/leads/search": ASSIGNED }));
+    await renderClientPage(
+      <LeadsPage />,
+      routes({ "POST /v1/leads/search": ASSIGNED }),
+    );
 
     const select = await screen.findByLabelText("Owner of Ramesh Kumar");
     expect((select as HTMLSelectElement).value).toBe("u2");
-    const options = Array.from((select as HTMLSelectElement).options).map((o) => o.textContent);
+    const options = Array.from((select as HTMLSelectElement).options).map(
+      (o) => o.textContent,
+    );
     expect(options).toEqual(["Unassigned", "Priya Nair", "Kiran Babu"]);
   });
 
@@ -781,7 +880,10 @@ describe("who owns a lead", () => {
             lost: 0,
           },
         }),
-        "/v1/leads/lead-a": lead({ assigned_to: "u2", assigned_to_name: "Kiran Babu" }),
+        "/v1/leads/lead-a": lead({
+          assigned_to: "u2",
+          assigned_to_name: "Kiran Babu",
+        }),
       }),
     );
 
@@ -790,7 +892,9 @@ describe("who owns a lead", () => {
     });
 
     await vi.waitFor(() => {
-      const patch = calls.find((c) => c.method === "PATCH" && c.path === "/v1/leads/lead-a");
+      const patch = calls.find(
+        (c) => c.method === "PATCH" && c.path === "/v1/leads/lead-a",
+      );
       expect(patch, "no PATCH reached the server").toBeTruthy();
       expect(JSON.parse(patch!.body ?? "{}")).toEqual({ assigned_to: "u2" });
     });
@@ -813,7 +917,9 @@ describe("who owns a lead", () => {
     });
 
     await vi.waitFor(() => {
-      const patch = calls.find((c) => c.method === "PATCH" && c.path === "/v1/leads/lead-a");
+      const patch = calls.find(
+        (c) => c.method === "PATCH" && c.path === "/v1/leads/lead-a",
+      );
       expect(patch).toBeTruthy();
       // Parsed, not string-matched: `"assigned_to":null` and an absent key both render
       // as "no owner" on screen and only one of them reaches the column.
@@ -830,33 +936,46 @@ describe("who owns a lead", () => {
     await renderClientPage(
       <LeadsPage />,
       routes({
-        "POST /v1/leads/search": leadList([lead({ assigned_to: "u9", assigned_to_name: null })], {
-          total: 1,
-          status_counts_matching_search: {
-            new: 1,
-            contacted: 0,
-            interested: 0,
-            hot: 0,
-            won: 0,
-            lost: 0,
+        "POST /v1/leads/search": leadList(
+          [lead({ assigned_to: "u9", assigned_to_name: null })],
+          {
+            total: 1,
+            status_counts_matching_search: {
+              new: 1,
+              contacted: 0,
+              interested: 0,
+              hot: 0,
+              won: 0,
+              lost: 0,
+            },
           },
-        }),
+        ),
       }),
     );
 
-    const select = (await screen.findByLabelText("Owner of Ramesh Kumar")) as HTMLSelectElement;
+    const select = (await screen.findByLabelText(
+      "Owner of Ramesh Kumar",
+    )) as HTMLSelectElement;
     expect(select.value).toBe("u9");
-    expect(select.selectedOptions[0].textContent).toContain("No longer on this account");
+    expect(select.selectedOptions[0].textContent).toContain(
+      "No longer on this account",
+    );
   });
 
   it("disables the control WITH the reason for a role that may not assign", async () => {
-    const staff = { ...ME, role: "staff", permissions: ["leads:read", "calls:read"] };
+    const staff = {
+      ...ME,
+      role: "staff",
+      permissions: ["leads:read", "calls:read"],
+    };
     const { container } = await renderClientPage(
       <LeadsPage />,
       routes({ "/v1/me": staff, "POST /v1/leads/search": ASSIGNED }),
     );
 
-    const select = (await screen.findByLabelText("Owner of Ramesh Kumar")) as HTMLSelectElement;
+    const select = (await screen.findByLabelText(
+      "Owner of Ramesh Kumar",
+    )) as HTMLSelectElement;
     expect(select.disabled).toBe(true);
     // The reason is ON the control, and also said once above the table — a refusal a
     // screenful away from the dead control is the defect §52 records.
@@ -865,10 +984,13 @@ describe("who owns a lead", () => {
     // owner select and the status select. The second one used to be gated on a separate
     // `Boolean(me.data?.impersonating)`, which read a failed `/v1/me` as "not read-only"
     // and left it open to a 403 — and two gates on one permission is where the drift was.
-    expect(container.textContent).toContain("Only an account owner can edit a lead");
+    expect(container.textContent).toContain(
+      "Only an account owner can edit a lead",
+    );
     // The status select is dead for the same reason and under the same sentence.
     expect(
-      (screen.getByLabelText(/Status for Ramesh Kumar/) as HTMLSelectElement).disabled,
+      (screen.getByLabelText(/Status for Ramesh Kumar/) as HTMLSelectElement)
+        .disabled,
     ).toBe(true);
   });
 
@@ -922,11 +1044,16 @@ describe("who owns a lead", () => {
       }),
     );
 
-    fireEvent.click(await screen.findByRole("button", { name: "Assigned to me" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Assigned to me" }),
+    );
 
     await vi.waitFor(() => {
       expect(
-        calls.some((c) => c.path === "/v1/leads/search" && lensOf(c).assigned_to === "u1"),
+        calls.some(
+          (c) =>
+            c.path === "/v1/leads/search" && lensOf(c).assigned_to === "u1",
+        ),
       ).toBe(true);
     });
     // …and clicking it again clears the filter, rather than leaving the client stuck in
@@ -935,7 +1062,9 @@ describe("who owns a lead", () => {
     await vi.waitFor(() => {
       expect(
         calls.filter(
-          (c) => c.path === "/v1/leads/search" && lensOf(c).assigned_to === undefined,
+          (c) =>
+            c.path === "/v1/leads/search" &&
+            lensOf(c).assigned_to === undefined,
         ).length,
         "the unfiltered list was asked for again",
       ).toBeGreaterThan(1);
@@ -960,7 +1089,9 @@ describe("who owns a lead", () => {
       routes({ "POST /v1/leads/search": leadList([lead()]) }),
     );
 
-    const link = (await screen.findByRole("link", { name: /Ramesh Kumar/ })) as HTMLAnchorElement;
+    const link = (await screen.findByRole("link", {
+      name: /Ramesh Kumar/,
+    })) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("/c/acme/leads/lead-a");
     // A URL reaches browser history, referrers and access logs — hard rule 6 is stricter
     // for a link than for text.
@@ -988,34 +1119,50 @@ describe("dispatching a call from the table, when a read did not answer", () => 
     const { container } = await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/agents": problem(503, { title: "Service unavailable", retryable: true }),
+        "/v1/agents": problem(503, {
+          title: "Service unavailable",
+          retryable: true,
+        }),
         "POST /v1/leads/search": leadList([lead()]),
       }),
     );
 
     await screen.findByRole("link", { name: /Ramesh Kumar/ });
-    expect(container.textContent).toContain("We could not read your agents just now");
-    expect(container.textContent).toContain("no call can be placed from this table");
+    expect(container.textContent).toContain(
+      "We could not read your agents just now",
+    );
+    expect(container.textContent).toContain(
+      "no call can be placed from this table",
+    );
     expect(screen.queryByRole("button", { name: /Call with AI/ })).toBeNull();
-    expect(container.textContent).not.toContain("Calls from this table are placed by");
+    expect(container.textContent).not.toContain(
+      "Calls from this table are placed by",
+    );
   });
 
   it("says why when /v1/me fails, and does not read a dead permission check as a refusal", async () => {
     const { container } = await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/me": problem(503, { title: "Service unavailable", retryable: true }),
+        "/v1/me": problem(503, {
+          title: "Service unavailable",
+          retryable: true,
+        }),
         "POST /v1/leads/search": leadList([lead()]),
       }),
     );
 
     await screen.findByRole("link", { name: /Ramesh Kumar/ });
-    expect(container.textContent).toContain("We could not check who you are signed in as");
+    expect(container.textContent).toContain(
+      "We could not check who you are signed in as",
+    );
     expect(screen.queryByRole("button", { name: /Call with AI/ })).toBeNull();
     // The owner filter goes with it, and the same sentence covers it — the chip used to
     // vanish on its own, which reads as "there is no such filter".
     expect(screen.queryByRole("button", { name: "Assigned to me" })).toBeNull();
-    expect(container.textContent).toContain("“Assigned to me” filter are closed");
+    expect(container.textContent).toContain(
+      "“Assigned to me” filter are closed",
+    );
   });
 
   it("still offers the control when both reads answered", async () => {
@@ -1026,9 +1173,15 @@ describe("dispatching a call from the table, when a read did not answer", () => 
       routes({ "POST /v1/leads/search": leadList([lead()]) }),
     );
 
-    expect(await screen.findByRole("button", { name: /Call with AI/ })).toBeDefined();
-    expect(container.textContent).toContain("Calls from this table are placed by");
-    expect(container.textContent).not.toContain("We could not read your agents just now");
+    expect(
+      await screen.findByRole("button", { name: /Call with AI/ }),
+    ).toBeDefined();
+    expect(container.textContent).toContain(
+      "Calls from this table are placed by",
+    );
+    expect(container.textContent).not.toContain(
+      "We could not read your agents just now",
+    );
   });
 
   it("keeps the status select shut, not open, when the permission read fails", async () => {
@@ -1038,13 +1191,20 @@ describe("dispatching a call from the table, when a read did not answer", () => 
     await renderClientPage(
       <LeadsPage />,
       routes({
-        "/v1/me": problem(503, { title: "Service unavailable", retryable: true }),
+        "/v1/me": problem(503, {
+          title: "Service unavailable",
+          retryable: true,
+        }),
         "POST /v1/leads/search": leadList([lead()]),
       }),
     );
 
-    const select = (await screen.findByLabelText(/Status for Ramesh Kumar/)) as HTMLSelectElement;
+    const select = (await screen.findByLabelText(
+      /Status for Ramesh Kumar/,
+    )) as HTMLSelectElement;
     expect(select.disabled).toBe(true);
-    expect(screen.getByText(/We could not check whether you can edit a lead/)).toBeDefined();
+    expect(
+      screen.getByText(/We could not check whether you can edit a lead/),
+    ).toBeDefined();
   });
 });

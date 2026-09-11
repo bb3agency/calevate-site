@@ -37,10 +37,12 @@ import { SOURCE_OPTIONS } from "./sources";
  *
  * Adding and removing both need `leads:dispatch` — the same authority that lets someone
  * cause a call, because suppressing a number is that decision in the other direction.
- * `staff` does not hold it, and an impersonating operator is refused every mutating
- * permission (D-22). Checking a number is `leads:read`, so it is deliberately NOT gated:
- * it is the question people arrive with, and it stays answerable inside a read-only
- * support session, which is exactly when someone is asking it.
+ * `staff` does not hold it. ⚠ THIS SAID "an impersonating operator is refused every
+ * mutating permission (D-22)" AND THAT IS REVERSED: `leads:dispatch` is writable in a
+ * view-as session, so support can suppress a number while the client is on the phone and
+ * the audit row names the operator. Checking a number is `leads:read`, so it is
+ * deliberately NOT gated: it is the question people arrive with, and it stays answerable
+ * to every viewer, which is exactly when someone is asking it.
  *
  * A failed `/v1/me` once silently deleted the Add form and said nothing — the permission
  * test was hand-rolled, so "we could not find out" and "you may not" rendered identically,

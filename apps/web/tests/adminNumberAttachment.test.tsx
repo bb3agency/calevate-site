@@ -122,7 +122,10 @@ function healthy(numbers: TenantNumberCost[]): Routes {
 }
 
 function render(routes: Routes) {
-  return renderAdminRoute(<TenantNumbersPage params={routeParams({ tenantId: TENANT })} />, routes);
+  return renderAdminRoute(
+    <TenantNumbersPage params={routeParams({ tenantId: TENANT })} />,
+    routes,
+  );
 }
 
 describe("a number nobody answers says so, and the fix is on the row", () => {
@@ -134,18 +137,24 @@ describe("a number nobody answers says so, and the fix is on the row", () => {
     ).toBeTruthy();
     // The consequence, not just the state — this is the sentence whose absence let a
     // publish report success over a phone that does not ring.
-    expect(screen.getByText(/publishing an agent will report success/)).toBeTruthy();
+    expect(
+      screen.getByText(/publishing an agent will report success/),
+    ).toBeTruthy();
   });
 
   it("offers only agents that ANSWER incoming calls, plus the detach choice", async () => {
     await render(healthy([number()]));
 
-    const picker = (await screen.findByLabelText("Answered by")) as HTMLSelectElement;
+    const picker = (await screen.findByLabelText(
+      "Answered by",
+    )) as HTMLSelectElement;
     const options = [...picker.options].map((option) => option.textContent);
     expect(options).toContain("Front desk");
     // An outbound-only agent would be refused by the server (`agent_does_not_answer_
     // inbound`), so offering it here would be a choice whose only outcome is a refusal.
-    expect(options.some((label) => label?.includes("Outbound dialler"))).toBe(false);
+    expect(options.some((label) => label?.includes("Outbound dialler"))).toBe(
+      false,
+    );
     // DETACH IS AN ORDINARY CHOICE, not a hidden one: it is the only way out of a wrong
     // attachment, and before D-576 there was none at all.
     expect(options[0]).toMatch(/Nobody/);
@@ -173,7 +182,9 @@ describe("a number nobody answers says so, and the fix is on the row", () => {
 
     await waitFor(() => expect(calls).toEqual([{ agent_id: AGENT }]));
     expect(
-      await screen.findByText(/the voice platform now answers this number with that agent/),
+      await screen.findByText(
+        /the voice platform now answers this number with that agent/,
+      ),
     ).toBeTruthy();
   });
 
@@ -200,11 +211,15 @@ describe("a number nobody answers says so, and the fix is on the row", () => {
     // here raced the fetch and failed on a row that was about to be correct. The sibling
     // attach case already awaited it; this one did not, and only the full-suite timing
     // made the difference visible.
-    fireEvent.change(await screen.findByLabelText("Answered by"), { target: { value: "" } });
+    fireEvent.change(await screen.findByLabelText("Answered by"), {
+      target: { value: "" },
+    });
 
     await waitFor(() => expect(calls).toEqual([{ agent_id: null }]));
     expect(
-      await screen.findByText(/the voice platform no longer answers this number/),
+      await screen.findByText(
+        /the voice platform no longer answers this number/,
+      ),
     ).toBeTruthy();
   });
 
@@ -221,7 +236,9 @@ describe("a number nobody answers says so, and the fix is on the row", () => {
       },
     });
 
-    fireEvent.change(await screen.findByLabelText("Answered by"), { target: { value: AGENT } });
+    fireEvent.change(await screen.findByLabelText("Answered by"), {
+      target: { value: AGENT },
+    });
 
     expect(
       await screen.findByText(/the voice platform refused the routing/),
@@ -241,7 +258,9 @@ describe("recording a number is on the numbers screen, not on a campaign screen"
     // small control beside the buy form goes red rather than merely looking different.
     expect(submit.className).toContain("px-5 py-3");
 
-    const series = (await screen.findByLabelText("Series")) as HTMLSelectElement;
+    const series = (await screen.findByLabelText(
+      "Series",
+    )) as HTMLSelectElement;
     expect(series.value).toBe("standard");
   });
 
@@ -251,7 +270,12 @@ describe("recording a number is on the numbers screen, not on a campaign screen"
       ...healthy([]),
       [RECORD_PATH]: (call: { body: string | null }) => {
         calls.push(JSON.parse(call.body ?? "null"));
-        return { id: NUMBER, e164: "+918041234567", series: "standard", dlt_status: "pending" };
+        return {
+          id: NUMBER,
+          e164: "+918041234567",
+          series: "standard",
+          dlt_status: "pending",
+        };
       },
     });
 
