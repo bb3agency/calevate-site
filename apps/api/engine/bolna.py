@@ -717,7 +717,23 @@ def _synthesizer_config(models: ModelConfig, language: str) -> dict[str, Any]:
     if models.tts_model is not None:
         config["model"] = models.tts_model
     if models.tts_voice is not None:
-        config["voice"] = models.tts_voice.capitalize()
+        # `voice_id` ALONE, LOWERCASE — the `voice` key is NOT sent (D-581).
+        #
+        # This used to send BOTH, capitalising the speaker for `voice`, on the argument
+        # that their skills-repo example carries three keys and that guessing which one
+        # their provider reads was the guess to avoid. A live publish settled it:
+        #
+        #   400 POST /v2/agent — "Provided voice: Anushka is not available for the
+        #   provider: sarvam"
+        #
+        # They read `voice`, and they reject the capitalised form. Their own API
+        # reference carries `voice_id` and `model` and NO `voice` key, in five places
+        # (VERIFIED-VENDOR-DOCS: `api-reference/agent/v2/{create,get,update,get_all}.md`
+        # and `customizations/multilingual-config-reference.md:76`), every one of them
+        # lowercase. Sending a key their schema does not document, in a casing their
+        # validator refuses, is two mistakes the read-back could never have caught —
+        # `_read_speaker` prefers `voice_id` precisely because it is the one we can
+        # compare untouched.
         config["voice_id"] = models.tts_voice
     return config
 

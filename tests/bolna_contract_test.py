@@ -1560,3 +1560,33 @@ async def test_a_cartesia_voice_with_no_id_is_refused_by_name_rather_than_half_s
         assert "Sarvam" in (raised.value.remediation or ""), "what they can do TODAY"
         assert "GET /voices" in (raised.value.remediation or ""), "and what closes it"
     assert requests == [], "a half-built body must never reach the vendor, not even once"
+
+
+async def test_the_sarvam_speaker_is_sent_as_voice_id_alone_and_lowercase() -> None:
+    """THE SECOND REFUSAL A LIVE PUBLISH GAVE US (D-581), after the language one.
+
+        400 POST /v2/agent — "Provided voice: Anushka is not available for the
+        provider: sarvam"
+
+    So they DO read a `voice` key, and they refuse the capitalised speaker we put in it.
+    Their own API reference carries `voice_id` and `model` and no `voice` at all, in five
+    places — `api-reference/agent/v2/{create,get,update,get_all}.md` and
+    `customizations/multilingual-config-reference.md:76` — every one lowercase.
+
+    Pinned as an ABSENCE as well as a presence, because the defect was the extra key: a
+    future reader adding `voice` back "for compatibility" reintroduces a live 400 that no
+    unit test would otherwise notice, since our own read-back prefers `voice_id`.
+    """
+    config = (await _created_body())["agent_config"]["tasks"][0]["tools_config"]["synthesizer"][
+        "provider_config"
+    ]
+
+    assert "voice" not in config, (
+        "the `voice` key is back: their validator reads it and refuses the speaker, and "
+        "their schema documents only `voice_id`"
+    )
+    speaker = config.get("voice_id")
+    assert speaker, "no speaker reached the wire; the vendor picks its own and the client "
+    assert speaker == speaker.lower(), (
+        f"the speaker went out as {speaker!r}; their reference spells every one lowercase"
+    )
