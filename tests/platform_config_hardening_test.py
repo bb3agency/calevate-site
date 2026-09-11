@@ -1121,3 +1121,72 @@ def test_a_sigterm_mid_request_drains_it_instead_of_aborting_it(tmp_path) -> Non
         "a request already in flight was aborted by SIGTERM instead of being answered:\n"
         + output[-2000:]
     )
+
+
+def test_a_reader_already_inside_the_builder_cannot_resurrect_the_old_settings() -> None:
+    """A refresh must survive a reader that entered the builder BEFORE it.
+
+    **THIS WAS A LIVE DEFECT AND IT COST A RED CI NOBODY COULD READ.** `lru_cache` fills
+    its slot when the call RETURNS, so a thread that started building `Settings` before
+    `cache_clear()` — carrying the old environment and the old override layer — inserted
+    its stale answer *after* the clear, and every read from then on was served that stale
+    answer. In production the poller cleared again within ~5s, so it looked like a console
+    change that took one cycle too long. In a test process nothing clears again, so it was
+    permanent: `tests/call_optout_test.py` went red under `make coverage-ratchet` and
+    nowhere else, because the concurrent reader is the alerting daemon thread and it only
+    lands inside a fixture's window when the box is loaded enough to widen it.
+
+    The reader here is a real second thread rather than a faked cache, because the defect
+    IS the interleaving. `Settings.__init__` reads the environment and THEN lingers, which
+    is the only shape that matters — a builder that lingers before reading picks up the new
+    value on its own and would pass against the broken implementation too.
+
+    Asserted on the allowlist because that is the field the defect actually broke, and it
+    is the one whose staleness is a security control rather than a price.
+    """
+    import threading
+    import time
+
+    from apps.api.core import settings as settings_mod
+
+    real = settings_mod.Settings
+
+    class _LingeringSettings(real):  # type: ignore[valid-type,misc]
+        """Reads the environment like any `Settings`, then stays inside the cached call."""
+
+        def __init__(self, *args: object, **kwargs: object) -> None:
+            super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+            time.sleep(0.3)
+
+    key = "BOLNA_WEBHOOK_SOURCE_IPS"
+    before = os.environ.get(key)
+    try:
+        os.environ[key] = "198.51.100.1"
+        get_settings.cache_clear()
+        assert get_settings().bolna_webhook_source_ips == "198.51.100.1"
+
+        settings_mod.Settings = _LingeringSettings  # type: ignore[misc]
+        get_settings.cache_clear()
+        reader = threading.Thread(target=settings_mod._current_settings)
+        reader.start()
+        time.sleep(0.05)  # the reader is now inside the builder, holding the old value
+
+        os.environ[key] = "198.51.100.7"
+        settings_mod.Settings = real  # type: ignore[misc]
+        get_settings.cache_clear()  # the refresh
+        reader.join()  # the stale insert lands HERE, after the clear
+
+        observed = get_settings().bolna_webhook_source_ips
+    finally:
+        settings_mod.Settings = real  # type: ignore[misc]
+        if before is None:
+            os.environ.pop(key, None)
+        else:
+            os.environ[key] = before
+        get_settings.cache_clear()
+
+    assert observed == "198.51.100.7", (
+        f"a refresh was undone by a reader that had entered the builder before it: "
+        f"{observed!r}. The cache must be keyed on a generation the refresh moves, so a "
+        "late insert lands under the key it was computed for."
+    )

@@ -9,6 +9,7 @@ optional model key.
 
 from __future__ import annotations
 
+import itertools
 import os
 from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
@@ -301,12 +302,50 @@ def apply_platform_overrides(values: Mapping[str, object]) -> None:
     # configuration it started with even though the process has moved on. That is the
     # in-flight guarantee, and it is a consequence of holding the object rather than a
     # second mechanism to keep in step.
-    _current_settings.cache_clear()
+    _invalidate()
+
+
+#: The refresh counter, and the CACHE KEY. See `_invalidate` — a plain `cache_clear()`
+#: was not enough, and the gap was demonstrable rather than theoretical.
+_generation = itertools.count()
+_current_generation = next(_generation)
+
+
+def _invalidate() -> None:
+    """Retire the cached `Settings` so the next read rebuilds it. Race-free, unlike a
+    bare `cache_clear()`, and that distinction is a measured defect rather than caution.
+
+    `functools.lru_cache` fills its slot when the CALL RETURNS, not when it starts. So a
+    reader that entered the builder BEFORE a refresh — having already read the old
+    environment and the old override layer — inserts its stale answer AFTER the clear,
+    and every subsequent read is served that stale answer until something clears again.
+    Reproduced directly: set a value, clear, read, and get the pre-clear value back.
+
+    In production the refresh poller clears again within ~5s, so the window was bounded
+    and the symptom was a console change that "didn't take" for one cycle. In a test
+    process there is no poller and nothing clears again, so it is permanent: it turned
+    `tests/call_optout_test.py` red under `make coverage-ratchet` and nowhere else,
+    because the concurrent reader is the alerting daemon thread — which only runs when a
+    previous test has actually fired an alarm, and only lands inside the fixture's window
+    when the box is loaded enough to widen it.
+
+    BUMPING A KEY RATHER THAN EMPTYING A SLOT is what closes it. The stale insert lands
+    under the generation it was computed for, where nobody will ask for it again;
+    `maxsize=1` then evicts it on the next miss. A late writer can cost one rebuild. It
+    can no longer publish a value from before the refresh that retired it.
+    """
+    global _current_generation
+    # `itertools.count()` rather than `+= 1`: a read-modify-write of a module global from
+    # two threads can lose an increment, and a lost increment is exactly the stale read
+    # this exists to prevent. `next()` on a count is a single atomic C call.
+    _current_generation = next(_generation)
+    _settings_at.cache_clear()
 
 
 @lru_cache(maxsize=1)
-def _current_settings() -> Settings:
-    """The process's settings as of the last refresh. The unpinned answer.
+def _settings_at(generation: int) -> Settings:
+    """Build the process's settings for one generation. The `generation` argument is
+    never read: it is the cache key, and `_invalidate` moving it is the invalidation.
 
     `lru_cache`d and O(1) with no IO, which is what keeps `get_settings()` legal on
     voice-runtime's request path (hard rule 3): the store's contribution arrives through
@@ -334,6 +373,11 @@ def _current_settings() -> Settings:
     """
     base = Settings()  # values come from env/.env
     return base.model_copy(update=dict(_platform_overrides)) if _platform_overrides else base
+
+
+def _current_settings() -> Settings:
+    """The unpinned answer, at the current generation."""
+    return _settings_at(_current_generation)
 
 
 #: The `Settings` pinned for the unit of work running on this task, if any.
@@ -398,7 +442,7 @@ def get_settings() -> Settings:
     module import — it returns the current answer, which is what it has always done.
     Still O(1) and still IO-free either way (hard rule 3).
     """
-    return _pinned.get() or _current_settings()
+    return _pinned.get() or _settings_at(_current_generation)
 
 
 #: `get_settings.cache_clear()` still works, because thirteen call sites in four test
@@ -414,7 +458,7 @@ def get_settings() -> Settings:
 #:
 #: `cache_info` is deliberately NOT forwarded: nothing in this repo calls it, and a shim
 #: nobody uses is a maintenance cost pretending to be an API.
-get_settings.cache_clear = _current_settings.cache_clear  # type: ignore[attr-defined]
+get_settings.cache_clear = _invalidate  # type: ignore[attr-defined]
 
 
 def effective_env() -> Mapping[str, str]:
