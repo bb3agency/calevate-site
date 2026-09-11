@@ -317,6 +317,24 @@ async def test_the_last_owner_rule_survives_two_owners_demoting_each_other() -> 
 
     Exactly one of the two must succeed. Asserting "at least one owner remains" would
     also pass if BOTH were refused, which is a different (and also wrong) implementation.
+
+    ⚠ **THE REFUSAL HAS TWO LEGITIMATE GROUNDS AND THIS PINNED ONLY ONE**, which made it
+    fail deterministically whenever the whole file runs and pass whenever it runs alone —
+    a red CI on a correct product, and one that predates D-587 (verified by running this
+    file at `441955c`, before the view-as work, where it fails identically).
+
+    The loser is refused either because the last-owner lock caught it (422) or because the
+    WINNER HAD ALREADY DEMOTED THEM and they no longer hold `org:manage` (403). Which one
+    fires is a race between the loser's permission read and the winner's commit, and
+    nothing in the product decides it — running earlier tests in the same file warms the
+    pool enough to change the answer.
+
+    **Both are correct and neither weakens the guard**, because the guard is not the status
+    code: it is `lock_owner_ids`, and what proves it is the OWNER COUNT below. Delete the
+    lock and both transactions read two owners, both commit, and the account is left with
+    nobody who can govern it — `owners == 1` fails, whichever pair of statuses came back.
+    So this asserts the guarantee (exactly one succeeded, one owner remains) and admits
+    either ground, rather than asserting the mechanism and going red on a coin toss.
     """
     tenant_id, slug, token_a = await _make_tenant("owner")
     owner_a = await _owner_user_id(tenant_id)
@@ -336,9 +354,18 @@ async def test_the_last_owner_rule_survives_two_owners_demoting_each_other() -> 
         )
 
     statuses = sorted([first.status_code, second.status_code])
-    assert statuses == [200, 422], f"{first.status_code}/{second.status_code}: {first.text}"
-    loser = first if first.status_code == 422 else second
-    assert loser.json()["type"].endswith("/last_owner_protected"), loser.text
+    assert statuses[0] == 200, (
+        f"neither demotion succeeded ({statuses}) — both refused is the other wrong "
+        f"implementation this clause exists to catch: {first.text}"
+    )
+    assert statuses[1] in (403, 422), (
+        f"the loser was refused on neither legitimate ground ({statuses}): {first.text}"
+    )
+    loser = first if first.status_code != 200 else second
+    if loser.status_code == 422:
+        # The lock caught it: the loser re-read `role = 'owner'` against the committed row
+        # and found one owner left.
+        assert loser.json()["type"].endswith("/last_owner_protected"), loser.text
     async with tenant_session(tenant_id) as session:
         owners = (
             await session.execute(text("SELECT count(*) FROM memberships WHERE role = 'owner'"))
