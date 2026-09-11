@@ -91,6 +91,7 @@ from apps.workers.account_closure import (
 )
 from apps.workers.account_closure import notify_account_closed, sweep_due_erasures
 from apps.workers.action_audit import record_action_invocation
+from apps.workers.alerts import sweep_alert_clears
 from apps.workers.auth_email import deliver_auth_email
 from apps.workers.billing import issue_one_time_charges
 from apps.workers.callbacks import book_requested_callback, cancel_requested_callback
@@ -764,6 +765,22 @@ CRON_JOBS = [
     # promise of a side effect, and pruning promises before the sweep that may still be
     # making them is an ordering nobody would be able to reason about at 03:00.
     # `max_tries` EXPLICIT for the reason its neighbour above spells out at length.
+    # THE ALARM EPISODE CLOSER (D-591). Ten-minutely, because a clear notice an hour late
+    # is a clear notice nobody connects to the incident it ends — and because the episode
+    # has to be CLOSED before the same condition recurring can mail again, so the lag here
+    # is the lag on "it broke, then it broke again". Off the :00/:05 minutes the poller
+    # and the stall reporter hold.
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1 and
+    # `WorkerSettings.max_tries` does not reach a function carrying its own. Retrying is
+    # safe — the close is a single `UPDATE ... RETURNING ... FOR UPDATE SKIP LOCKED`, so a
+    # retried tick announces only the episodes it actually closed.
+    _cron(
+        traced_job(sweep_alert_clears),
+        walk=bounded("one untenanted session, one bounded batch of alert episodes"),
+        minute={2, 12, 22, 32, 42, 52},
+        max_tries=WORKER_MAX_TRIES,
+    ),
     _cron(
         traced_job(prune_reliability_tables),
         walk=bounded("one untenanted session, batched deletes"),

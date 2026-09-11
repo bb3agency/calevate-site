@@ -32,6 +32,7 @@ from sqlalchemy import (
     Date,
     ForeignKey,
     Identity,
+    Index,
     Integer,
     LargeBinary,
     Numeric,
@@ -664,6 +665,91 @@ class PlatformMaintenanceWindow(PKMixin, Base):
     )
 
 
+class PlatformAlert(PKMixin, Base):
+    """One EPISODE of one alarm — the console half of `core/alerting.py` (D-591).
+
+    **A ROW IS AN EPISODE, NOT AN OCCURRENCE.** `fx_rate_stale` fires on every cost
+    conversion while a vendor feed is down; twenty-six of them are one condition, and the
+    thing an operator needs to read is "this started at 19:04, it is still going, it has
+    happened 2,140 times". So the natural key is the alert FINGERPRINT (`stage:code`, the
+    same string the delivery path deduplicates on) scoped to the episode that is still
+    OPEN: `uq_platform_alerts_open_fingerprint` is a partial unique index on
+    `fingerprint WHERE cleared_at IS NULL`, which is both the upsert target and the reason
+    at most one episode of a code can be open at a time.
+
+    That partial index is also what makes the EMAIL decision a transition rather than a
+    poll: `INSERT ... ON CONFLICT ... RETURNING (xmax = 0)` says whether this occurrence
+    OPENED the episode, and only an opening one is allowed to mail (`alert_records.py`).
+
+    **NOT tenant-scoped, and registered as such.** An alarm is about this platform's own
+    machinery — a backup chain, an outbox, a vendor feed — and a great many of them fire
+    with no tenant in scope at all (the SIGTERM handler, the unauthenticated webhook edge,
+    the host backup relay). See `db/registry.RLS_EXEMPT_TENANT_COLUMNS` for the written
+    reason. A `tenant_id` here would be decorative on most rows and wrong on the rest.
+
+    **NOT append-only**, deliberately: `occurrences`, `last_seen_at` and `cleared_at` are
+    the whole point, and a ledger of 2,140 identical rows is the inbox this table exists
+    to replace. Every figure in it is re-derivable from the ERROR log lines `alert()`
+    writes first and unconditionally, which is the property `APPEND_ONLY_TABLES` protects
+    elsewhere and the reason this table does not need to be in it.
+
+    **HARD RULE 6, BY CONSTRUCTION.** `detail` and `ids` are written through
+    `core/logging.redact_mapping` — the SAME function the alert email body uses — before
+    they reach this table, so a phone number in a call site's kwarg is masked in the row
+    as well as in the mail. `detail` is additionally capped. The column comments say so in
+    the migration, and `tests/alert_severity_test.py` pins it.
+    """
+
+    __tablename__ = "platform_alerts"
+    __table_args__ = (
+        CheckConstraint(
+            "severity IN ('page', 'attention', 'record')",
+            name="severity",
+        ),
+        CheckConstraint("occurrences >= 1", name="occurrences_positive"),
+        Index(
+            "uq_platform_alerts_open_fingerprint",
+            "fingerprint",
+            unique=True,
+            postgresql_where=text("cleared_at IS NULL"),
+        ),
+        Index(
+            "ix_platform_alerts_last_seen",
+            text("last_seen_at DESC"),
+        ),
+    )
+
+    #: `stage:code` — the alert fingerprint, and the deduplication key `core/alerting.py`
+    #: already keys its repeat window on. Stored rather than derived so the unique index
+    #: has one column to sit on.
+    fingerprint: Mapped[str] = mapped_column(Text, nullable=False)
+    code: Mapped[str] = mapped_column(Text, nullable=False)
+    stage: Mapped[str] = mapped_column(Text, nullable=False)
+    #: `page` / `attention` / `record`, as `core/alarm_severity.py` had it AT THE TIME.
+    #: Recorded on the row and not looked up on read, so a re-classification does not
+    #: rewrite the history of what was actually mailed.
+    severity: Mapped[str] = mapped_column(Text, nullable=False)
+    #: `api`, `voice-runtime` or `workers` — the first question an operator asks.
+    service: Mapped[str] = mapped_column(Text, nullable=False)
+    #: REDACTED, and capped. See the class docstring.
+    detail: Mapped[str | None] = mapped_column(Text)
+    #: The `**ids` the call site passed, REDACTED by the same function. Ids only.
+    ids: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    first_seen_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    #: Every occurrence in this episode, including the ones the repeat window withheld
+    #: from delivery — which is why the count can run far ahead of the emails.
+    occurrences: Mapped[int] = mapped_column(BigInteger, nullable=False, server_default=text("1"))
+    #: Did this episode leave the building. False on every `attention` and `record` row by
+    #: construction, and on a `page` row whose transport failed.
+    emailed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    emailed_at: Mapped[datetime | None] = mapped_column()
+    #: When the condition went quiet for `ALERT_CLEAR_AFTER_S` and `sweep_alert_clears`
+    #: closed the episode. NULL means "still happening", which is what the console's
+    #: "Open" filter reads and what the partial unique index above keys on.
+    cleared_at: Mapped[datetime | None] = mapped_column()
+
+
 __all__ = [
     "DEFAULT_MAX_DRAIN_MINUTES",
     "FX_RATE",
@@ -671,6 +757,7 @@ __all__ = [
     "MAINTENANCE_STATES",
     "USD_PER_MTOK",
     "FxRateObservation",
+    "PlatformAlert",
     "PlatformConfigVersion",
     "PlatformDashboardDataUse",
     "PlatformEngineHealth",

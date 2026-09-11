@@ -1,12 +1,23 @@
 """WHICH SYNCED VOICES THIS PLATFORM ACTUALLY OFFERS — the curation half of D-588.
 
-WHY THIS MODULE EXISTS, AND WHY IT IS NOT AN "ADD A VOICE" MODULE
+⚠ **THE "ADD" HALF WAS BUILT AFTER ALL — IT IS `agents/voice_admission.py` (D-590), AND THE
+PARAGRAPHS BELOW SAYING IT CANNOT BE ARE SUPERSEDED.** Their premise is still true and their
+conclusion was wrong: adding a voice to the VOICE PLATFORM needs a write they do not offer,
+and adding a voice to THIS PRODUCT'S catalogue needs only the operator's facts and one read
+to check them. This module is now the half that moves an EXISTING row between states —
+enable, disable, archive, restore — and `voice_admission.py` is the half that creates one.
+The founder does not want to curate 418 vendor personas; they want to add the handful they
+cloned, which is why the console now opens on the rows somebody DECIDED about
+(`list_curated_voices(scope="decided")`) rather than on the vendor's whole list.
+
+WHY THIS MODULE EXISTS, AND WHY IT USED TO BE THE ONLY ANSWER
 ------------------------------------------------------------------
 The founder asked for a Voices section in the admin console where they can add, delete and
 archive voices end to end, and where **only the voices they add there are selectable** by
 clients for their own agents and by admins for anyone's.
 
-**THE "ADD" HALF CANNOT BE BUILT, AND THE REASON IS THE VENDOR'S API, NOT OUR TIME.**
+**THE "ADD" HALF CANNOT BE BUILT [SUPERSEDED — see above], AND THE REASON IS THE VENDOR'S
+API, NOT OUR TIME.**
 Bolna's published API has exactly two voice routes and both are GET — `/api/v1/voice-config
 /tts` and `/api/v1/voice-config/tts/voices` (VERIFIED-VENDOR-DOCS, hash-pinned mirror,
 `bolna-findings/mirror/pages/api-reference/voice/overview.md:17-18`; every documented method
@@ -74,14 +85,19 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Final, cast
+from typing import Final, Literal, cast
 
-from sqlalchemy import func, select, text, update
+from sqlalchemy import Select, func, or_, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents.models import PlatformVoiceCatalogEntry
 from apps.api.agents.voice_sync import voice_from_row
-from apps.api.agents.voices import CurationState, Voice
+from apps.api.agents.voices import (
+    ARRIVAL_CURATION_STATE,
+    CurationState,
+    Voice,
+    VoiceOrigin,
+)
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import admin_session, tenant_session
 
@@ -90,6 +106,18 @@ from apps.api.db.session import admin_session, tenant_session
 #: what `voice_offer.curation_unofferable_reason` reads as "the platform no longer lists
 #: this", and why that function fails closed on a missing key.
 VoiceCuration = Mapping[str, CurationState]
+
+#: WHICH ROWS THE CONSOLE IS ASKING FOR (D-590).
+#:
+#: * `decided` — rows somebody has made a decision about: every operator-ADDED voice, plus
+#:   any synced voice an operator moved off the arrival state. This is the DEFAULT and it is
+#:   the whole of the founder's correction to D-588: a screen that opens with 418 vendor
+#:   personas and 414 switches to flip is a chore, not a product.
+#: * `all` — every cached row, the undecided ones included. Kept, and reachable from the
+#:   console behind one control, because "the platform lists 418 voices and I have added 3"
+#:   is a fact an operator occasionally needs — and because a legacy row somebody enabled
+#:   under D-588 must never become invisible while it is still being offered.
+VoiceScope = Literal["decided", "all"]
 
 
 @dataclass(frozen=True, slots=True)
@@ -117,6 +145,10 @@ class CuratedVoice:
     curated_at: datetime | None
     #: When the voice platform stopped listing this voice, or None while it still does.
     withdrawn_at: datetime | None
+    #: WHY THIS ROW EXISTS (D-590) — `voices.VoiceOrigin`. `operator` means somebody typed
+    #: this voice's facts and the voice platform confirmed them; `synced` means a sync read
+    #: it off that platform's list and nobody has attested anything about it.
+    origin: VoiceOrigin
     #: LIVE agents across every tenant whose configured or published voice is this one.
     #: Shown beside the archive control so the decision is made with the number in view —
     #: see the module docstring for why it is information rather than a veto.
@@ -239,21 +271,64 @@ async def count_offered_voices(session: AsyncSession) -> int:
     )
 
 
-async def list_curated_voices(session: AsyncSession) -> tuple[CuratedVoice, ...]:
-    """EVERY cached voice, withdrawn ones included, in the console's reading order.
+#: The SQL predicate for `scope="decided"` — an operator-added row, or a synced row an
+#: operator moved off the arrival state. Spelled once, from the two constants that define
+#: those words, so it cannot come to mean something different from `VoiceScope`'s docstring.
+def _decided(
+    statement: Select[tuple[PlatformVoiceCatalogEntry]],
+) -> Select[tuple[PlatformVoiceCatalogEntry]]:
+    return statement.where(
+        or_(
+            PlatformVoiceCatalogEntry.origin == "operator",
+            PlatformVoiceCatalogEntry.curation_state != ARRIVAL_CURATION_STATE,
+        )
+    )
 
-    **NEVER A FILTERED LIST**, for `voice_offer.offerable_voices`' reason one layer down: a
-    voice missing from this response is indistinguishable from a voice the platform does not
-    have, and the operator's whole job on this screen is telling those two apart. Withdrawn
-    rows are LAST rather than absent, because they are the ones whose presence needs
-    explaining.
+
+async def count_cached_voices(session: AsyncSession) -> int:
+    """How many voices are in the cache ALTOGETHER, whatever anybody decided about them.
+
+    The number beside the `decided` table, so an operator reading three rows is told the
+    voice platform lists four hundred and can open them if they want. Reported rather than
+    rendered, for the same reason every other count on this screen is composed on the server:
+    a browser subtracting two lists is a browser that can be wrong about what it is not
+    showing.
+    """
+    return int(
+        (
+            await session.execute(select(func.count()).select_from(PlatformVoiceCatalogEntry))
+        ).scalar_one()
+    )
+
+
+async def list_curated_voices(
+    session: AsyncSession, *, scope: VoiceScope = "decided"
+) -> tuple[CuratedVoice, ...]:
+    """The cached voices this console is asking about, withdrawn ones included, in reading
+    order.
+
+    **WITHIN A SCOPE IT IS NEVER A FILTERED LIST**, for `voice_offer.offerable_voices`'
+    reason one layer down: a voice missing from the answer is indistinguishable from a voice
+    the platform does not have, and telling those two apart is the operator's whole job here.
+    Withdrawn rows are LAST rather than absent, because they are the ones whose presence
+    needs explaining.
+
+    ⚠ **THE SCOPE ITSELF IS A FILTER, AND THAT IS NOT A CONTRADICTION OF THE ABOVE** (D-590).
+    `decided` hides only rows nobody has said anything about — never a row that is being
+    OFFERED, never an added row, never a withdrawn row that somebody had decided about. The
+    count of what it hides is reported beside the table (`count_cached_voices`), so the
+    operator is told the vendor's list is larger rather than shown a shorter list that
+    pretends to be the whole one.
 
     Order: still-listed before withdrawn, then the cheaper tier first (Sarvam, the default
     tier — plan §0 Q9), then label. The same key `voice_sync._ordered` uses for the picker,
     extended by the one column the picker has no rows for, so the operator's table and the
     client's picker do not sort one voice into two different places.
     """
-    rows = (await session.execute(select(PlatformVoiceCatalogEntry))).scalars().all()
+    statement = select(PlatformVoiceCatalogEntry)
+    if scope == "decided":
+        statement = _decided(statement)
+    rows = (await session.execute(statement)).scalars().all()
     live = await count_live_agents_by_voice()
     curated: list[CuratedVoice] = []
     for row in rows:
@@ -266,17 +341,7 @@ async def list_curated_voices(session: AsyncSession) -> tuple[CuratedVoice, ...]
             # the sync drops such rows on the way in — and survives as the second gate for
             # a row an older build wrote.
             continue
-        curated.append(
-            CuratedVoice(
-                voice=voice,
-                state=cast("CurationState", row.curation_state),
-                is_custom=row.is_custom,
-                synced_at=row.synced_at,
-                curated_at=row.curated_at,
-                withdrawn_at=row.withdrawn_at,
-                live_agents=live.get(row.voice_id, 0),
-            )
-        )
+        curated.append(_curated(row, live_agents=live.get(row.voice_id, 0)))
     return tuple(
         sorted(
             curated,
@@ -326,6 +391,42 @@ async def set_curation_state(
         # different action from anything the three buttons do.
         raise ProblemError.not_found("Voice")
 
+    return await read_one_curated_voice(session, voice_id=voice_id)
+
+
+def _curated(row: PlatformVoiceCatalogEntry, *, live_agents: int) -> CuratedVoice:
+    """ONE ROW -> ONE `CuratedVoice`, given a voice this build can place.
+
+    Extracted so the table, the curation write and the add write all describe a voice the
+    same way — three copies of this constructor is three places a new column gets forgotten
+    in two of them. The `cast`s are the database's CHECK constraints (migrations
+    `e4b7a10c92d6` and `b8c3e50d4917`), which is where those two vocabularies are actually
+    enforced; re-validating here would be a second, weaker copy of them.
+    """
+    voice = voice_from_row(row)
+    if voice is None:  # pragma: no cover - callers narrow first
+        raise ProblemError.not_found("Voice", row.voice_id)
+    return CuratedVoice(
+        voice=voice,
+        state=cast("CurationState", row.curation_state),
+        is_custom=row.is_custom,
+        synced_at=row.synced_at,
+        curated_at=row.curated_at,
+        withdrawn_at=row.withdrawn_at,
+        origin=cast("VoiceOrigin", row.origin),
+        live_agents=live_agents,
+    )
+
+
+async def read_one_curated_voice(session: AsyncSession, *, voice_id: str) -> CuratedVoice:
+    """The console's row for ONE voice, as it now stands — what a write answers with.
+
+    Shared by `set_curation_state` and `voice_admission.admit_voice` so a voice that was just
+    added and a voice that was just enabled come back in the same shape, through the same
+    translation, with the same cross-tenant live count. It re-reads the row rather than
+    echoing what was written, which is the property that makes it honest about the columns
+    the caller did not set.
+    """
     row = (
         await session.execute(
             select(PlatformVoiceCatalogEntry).where(PlatformVoiceCatalogEntry.voice_id == voice_id)
@@ -351,23 +452,18 @@ async def set_curation_state(
             remediation="Refresh the voice catalogue, then try again.",
         )
     live = await count_live_agents_by_voice()
-    return CuratedVoice(
-        voice=voice,
-        state=cast("CurationState", row.curation_state),
-        is_custom=row.is_custom,
-        synced_at=row.synced_at,
-        curated_at=row.curated_at,
-        withdrawn_at=row.withdrawn_at,
-        live_agents=live.get(row.voice_id, 0),
-    )
+    return _curated(row, live_agents=live.get(row.voice_id, 0))
 
 
 __all__ = [
     "CuratedVoice",
     "VoiceCuration",
+    "VoiceScope",
+    "count_cached_voices",
     "count_live_agents_by_voice",
     "count_offered_voices",
     "list_curated_voices",
     "read_curation",
+    "read_one_curated_voice",
     "set_curation_state",
 ]

@@ -401,6 +401,32 @@ def offerable_voices(
     )
 
 
+async def offerability_of(voice: Voice, *, state: CurationState) -> str | None:
+    """The OPERATOR's verdict for ONE voice whose curation state the caller already knows —
+    `None` when it may be offered.
+
+    **IT EXISTS FOR THE WRITE THAT HAS NOT COMMITTED YET** (D-590). `offered_catalogue`
+    measures curation with `read_curation()`, which opens its own session and therefore
+    cannot see the row `voice_admission.admit_voice` just wrote inside the request's
+    transaction — so an operator adding their first Cartesia voice would be told it was
+    unofferable because "the platform no longer lists it", which is both wrong and alarming.
+    The state is passed in instead, and everything else goes through the SAME four-ground
+    ordering the picker uses, so the sentence on the add response and the sentence in the
+    picker cannot come to disagree.
+
+    **THIS IS WHERE THE CARTESIA CAP GETS ITS NAME SAID OUT LOUD.** If every agent ends up on
+    a cloned — therefore Cartesia — voice, every agent is on the dearer tier and the third
+    live one meets `Settings.cartesia_agent_cap`. `cartesia_cap_reached_reason` prints the
+    cap, the live count and what raising it commits the platform to, so the refusal reads as
+    a decision somebody made rather than as a bug.
+    """
+    needs_count = voice.provider == "cartesia" and cartesia_tier_could_be_offered()
+    live = await count_live_cartesia_agents() if needs_count else 0
+    return unofferable_reason(
+        voice, cartesia_live_agents=live, curation={voice.id: state}, audience="operator"
+    )
+
+
 def cartesia_tier_could_be_offered() -> bool:
     """Would ground 3 be the deciding ground for a Cartesia voice? True when the two cheap
     grounds pass — which is when, and only when, the count is worth measuring."""
@@ -513,6 +539,7 @@ __all__ = [
     "curation_unofferable_reason",
     "default_tts_price_is_billable",
     "install_tts_price_reader",
+    "offerability_of",
     "offerable_voices",
     "offered_catalogue",
     "read_curation",

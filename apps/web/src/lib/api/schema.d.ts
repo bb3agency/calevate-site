@@ -5623,6 +5623,38 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/alerts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every alarm this platform has raised, loudest and still-open first
+         * @description THE SCREEN THE FOUNDER ASKED FOR (D-590): *"failures in admin panel only"*.
+         *
+         *     **`GlobalSession` AND NOT `AdminSession`**, unlike the latency report two routes down.
+         *     `platform_alerts` carries no `tenant_id` and no policy at all — it is platform
+         *     machinery, registered in `db/registry.RLS_EXEMPT_TENANT_COLUMNS` — so there is no
+         *     tenant to be inside and no widened policy to need. Asking for the admin-widened
+         *     session here would be taking a privilege this read has no use for.
+         *
+         *     **NO STEP-UP CONFIRMATION AND NO AUDIT ROW**, for `read_engine_latency`'s two reasons
+         *     unchanged: it writes nothing, and it is a page an operator refreshes while watching an
+         *     incident — an audit chain that grows a row per refresh stops being readable. Nothing
+         *     in the payload belongs to a client: `detail` and `ids` were redacted at the write
+         *     (`core/alert_records.py`, hard rule 6) and no row here is attributable to a tenant.
+         */
+        get: operations["read_alerts_v1_ops_alerts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/audit/verify": {
         parameters: {
             query?: never;
@@ -6268,14 +6300,24 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Every synced voice, with its curation state (admin realm)
-         * @description The voices the voice platform lists for our account, as of the last refresh — including ones it has since stopped listing, which are shown last and marked. Only `enabled` voices can be chosen for an agent, by a client or by an admin.
+         * The voices this platform has added (admin realm)
+         * @description By default, the voices somebody has decided about: every voice added here, plus any voice a sync cached that an operator moved off the arrival state. Voices the platform has since stopped listing are shown last and marked.
          *
-         *     A NEW voice cannot be added here: the voice platform's API is read-only. Import or clone one in its Playground, then press Refresh.
+         *     Only `enabled` voices can be chosen for an agent, by a client or by an admin. `cached` says how many voices are in the cache altogether; `?scope=all` returns them, which is a reference list rather than a to-do list — a voice does not have to be cached before it can be added.
          */
         get: operations["list_voices_v1_ops_voices_get"];
         put?: never;
-        post?: never;
+        /**
+         * Add one voice by its facts, verified against the voice platform (audited)
+         * @description Adds ONE voice — normally one cloned in the voice platform's Voice Lab — by the facts its synthesizer block needs: the provider, the model, the voice id that platform knows it by, the name it shows there, and which of this product's languages it serves.
+         *
+         *     **Every fact is checked against the voice platform's own list before the voice is accepted.** An id that platform does not list is refused by name, because publishing an agent on it would fail at create time with "not available for the provider" — on a client's phone line rather than on this screen. If that list cannot be read, the add is REFUSED and retryable: an unverified voice is the exact failure this check exists to prevent.
+         *
+         *     An added voice arrives ENABLED — typing its facts is the decision to offer it. It can still be unofferable for a separate reason (an unattested price, a missing vendor key, the Cartesia agent cap), and the response says which.
+         *
+         *     Idempotent: adding a voice already in the cache adopts it — the row becomes an operator-attested, enabled one, and any withdrawal stamp is cleared.
+         */
+        post: operations["add_voice_v1_ops_voices_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6526,6 +6568,60 @@ export interface components {
             already_suppressed: number;
             /** Malformed */
             malformed: number;
+        };
+        /**
+         * AddVoiceFormOut
+         * @description EVERYTHING THE ADD FORM NEEDS, from the server.
+         *
+         *     The browser composes none of it. Which providers exist, which models run on them, which
+         *     languages this product sells and why ElevenLabs is refused are all facts with a single
+         *     source in `agents/voices.py` and `agents/voice_admission.py`, and a second copy in
+         *     TypeScript is the copy that goes stale the day a model changes.
+         */
+        AddVoiceFormOut: {
+            /** Languages */
+            languages: ("te-IN" | "hi-IN" | "en-IN")[];
+            /** Providers */
+            providers: components["schemas"]["VoiceProviderOptionOut"][];
+            /** Voice Lab Url */
+            voice_lab_url: string;
+        };
+        /**
+         * AddVoiceIn
+         * @description THE FACTS FOR ONE CLONED VOICE, as an operator types them.
+         *
+         *     Every field is BOUNDED here and VERIFIED in `agents/voice_admission.py`: this layer stops
+         *     a megabyte of junk reaching a vendor call, and that layer decides whether the voice
+         *     platform agrees. `provider` and `tts_model` are bare strings rather than Literals on
+         *     purpose — a Literal would make an ElevenLabs choice a 422 from the framework with a
+         *     schema dump for a body, and the whole point is that it is refused with a SENTENCE.
+         */
+        AddVoiceIn: {
+            /** Engine Voice Id */
+            engine_voice_id: string;
+            /** Label */
+            label: string;
+            /** Languages */
+            languages: ("te-IN" | "hi-IN" | "en-IN")[];
+            /** Provider */
+            provider: string;
+            /** Tts Model */
+            tts_model: string;
+        };
+        /**
+         * AddVoiceOut
+         * @description The voice as it now stands, and whether anybody can actually be put on it yet.
+         */
+        AddVoiceOut: {
+            /** Next Step */
+            next_step: string;
+            /** Offerable */
+            offerable: boolean;
+            /** Offered */
+            offered: number;
+            /** Unofferable Reason */
+            unofferable_reason: string | null;
+            voice: components["schemas"]["CuratedVoiceOut"];
         };
         /**
          * AdjustmentIn
@@ -6959,6 +7055,52 @@ export interface components {
             used_inr: string;
         };
         /**
+         * AlertEpisode
+         * @description One episode of one alarm, exactly as the row holds it.
+         */
+        AlertEpisode: {
+            /** Cleared At */
+            cleared_at?: string | null;
+            /** Code */
+            code: string;
+            /** Detail */
+            detail?: string | null;
+            /** Emailed */
+            emailed: boolean;
+            /** Emailed At */
+            emailed_at?: string | null;
+            /**
+             * First Seen At
+             * Format: date-time
+             */
+            first_seen_at: string;
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Ids */
+            ids?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Last Seen At
+             * Format: date-time
+             */
+            last_seen_at: string;
+            /** Occurrences */
+            occurrences: number;
+            /** Service */
+            service: string;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "page" | "attention" | "record";
+            /** Stage */
+            stage: string;
+        };
+        /**
          * AlertOptInOut
          * @description Never the number. `status: "none"` means this person has never been asked, which
          *     is a 200 and the normal state of the world, not a 404.
@@ -6982,6 +7124,24 @@ export interface components {
             notice_version: string | null;
             /** Status */
             status: string;
+        };
+        /**
+         * AlertReport
+         * @description The screen's whole payload: the rows, and the counts that answer the question.
+         */
+        AlertReport: {
+            /** Complete */
+            complete: boolean;
+            /** Episodes */
+            episodes: components["schemas"]["AlertEpisode"][];
+            /** Open By Severity */
+            open_by_severity: {
+                [key: string]: number;
+            };
+            /** Open Unmailed Pages */
+            open_unmailed_pages: number;
+            /** Window Days */
+            window_days: number;
         };
         /**
          * ApplyIn
@@ -8903,6 +9063,11 @@ export interface components {
             live_agents: number;
             /** Offered */
             offered: boolean;
+            /**
+             * Origin
+             * @enum {string}
+             */
+            origin: "synced" | "operator";
             /** Provider */
             provider: string;
             /** Source */
@@ -8935,10 +9100,18 @@ export interface components {
          *     must be able to trust rather than treat as falsy when absent.
          */
         CuratedVoicesOut: {
+            /** Cached */
+            cached: number;
+            form: components["schemas"]["AddVoiceFormOut"];
             /** Note */
             note: string;
             /** Offered */
             offered: number;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "decided" | "all";
             /** Source */
             source: string;
             /** Voices */
@@ -16729,6 +16902,29 @@ export interface components {
             seen: number;
             /** Written */
             written: number;
+        };
+        /**
+         * VoiceProviderOptionOut
+         * @description ONE PROVIDER THE ADD FORM OFFERS — including the ones it offers only to REFUSE.
+         *
+         *     **ELEVENLABS IS ON THIS LIST ON PURPOSE, WITH `selectable: false` AND ITS REASON.** The
+         *     voice platform clones on ElevenLabs or Cartesia; this product runs Sarvam and Cartesia.
+         *     An operator who has just spent a voice sample cloning on ElevenLabs and finds no such
+         *     option concludes the console is broken and tries again; an operator who finds it greyed
+         *     out with a sentence learns, in the one place it matters, that the clone has to be redone
+         *     on Cartesia. Omitting it would be the silent failure, not the tidy one.
+         */
+        VoiceProviderOptionOut: {
+            /** Models */
+            models: ("bulbul:v3" | "sonic-3.5")[];
+            /** Provider */
+            provider: string;
+            /** Selectable */
+            selectable: boolean;
+            /** Tier Label */
+            tier_label: string | null;
+            /** Unavailable Reason */
+            unavailable_reason: string | null;
         };
         /**
          * VoiceStateOut
@@ -26332,6 +26528,40 @@ export interface operations {
             };
         };
     };
+    read_alerts_v1_ops_alerts_get: {
+        parameters: {
+            query?: {
+                /** @description How many days of alert episodes to include. */
+                days?: number;
+                /** @description How many episodes to return. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AlertReport"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     verify_audit_chain_v1_ops_audit_verify_get: {
         parameters: {
             query?: never;
@@ -27424,7 +27654,10 @@ export interface operations {
     };
     list_voices_v1_ops_voices_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description `decided` (default) or `all` — see the response's `scope`. */
+                scope?: "decided" | "all";
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -27438,6 +27671,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CuratedVoicesOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    add_voice_v1_ops_voices_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddVoiceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AddVoiceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

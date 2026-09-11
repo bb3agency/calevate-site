@@ -282,6 +282,24 @@ ACKNOWLEDGED_PASSTHROUGH: dict[str, str] = {
         "the external system's reply to a TEST invocation the operator ran with their own "
         "sample values, returned to that same operator — not a live call's data."
     ),
+    # D-591: the alarm episodes on `/admin/ops/alerts`. Free-form by NECESSITY — `alert()`
+    # takes `**ids`, so the key set is whatever the call site names (`call_id`,
+    # `tenant_id`, `execution_id`, `endpoint_id`, …) and a fixed schema would either drop
+    # the ids an operator needs or become a union of every alarm's kwargs.
+    #
+    # WHAT MAKES IT SAFE IS THE WRITE, NOT THE READ. `core/alert_records.record()` passes
+    # `detail` and every id through `core/logging.redact_mapping` — the SAME call
+    # `alerting._body` makes before an alert email leaves the building — BEFORE the row is
+    # composed, so a phone-shaped run is masked and a PII-shaped key is blanked in the
+    # column itself. There is no unredacted version of this field anywhere to leak. The
+    # route is admin-realm behind `ops:manage`, and nothing in the table is attributable to
+    # a tenant (`platform_alerts` carries no `tenant_id`). Pinned by
+    # `tests/alert_severity_test.py::TestHardRuleSix`.
+    "AlertEpisode.ids": (
+        "the `**ids` an `alert()` call site passed, already through `redact_mapping` at "
+        "the write (core/alert_records.py) — the same redaction the alert email uses. "
+        "Ids only, never a payload; admin realm behind `ops:manage`."
+    ),
 }
 
 _METHODS = ("get", "post", "patch", "put", "delete")

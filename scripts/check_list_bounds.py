@@ -93,7 +93,20 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
             "offering'. A page size would let the answer be computed over a subset, which "
             "is the one thing a list you are auditing may never do. The upstream bound is "
             "the vendor's, and `agents/voice_sync.sync_voice_catalogue` refuses to apply a "
-            "listing it could not read completely rather than silently shortening this."
+            "listing it could not read completely rather than silently shortening this. "
+            "⚠ SINCE D-590 THE DEFAULT `scope` IS NARROWER STILL — the voices somebody "
+            "DECIDED about, which is a handful — and `scope=all` is the same cached table "
+            "this paragraph already bounds. `scope` is a lens, not a page: neither value "
+            "returns part of an answer."
+        )
+    ),
+    "POST /v1/ops/voices": BoundedByConstruction(
+        by=(
+            "`voice.languages` on the ONE voice this call added — `agents/voices.Language`, "
+            "three codes — exactly as the PATCH below. There is no collection of anybody's "
+            "rows in the response at all: an add answers with the row it wrote, two counts "
+            "and two sentences, and a `limit` on it would mean returning fewer languages "
+            "than the voice speaks, which is a wrong answer rather than a shorter one."
         )
     ),
     "PATCH /v1/ops/voices": BoundedByConstruction(

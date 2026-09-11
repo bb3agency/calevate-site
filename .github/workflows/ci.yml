@@ -285,6 +285,12 @@ jobs:
         # OPERATIONS §4 promised three alarms nothing raised, and 44 alarms that can page
         # a human appeared in no document at all. Derived from the tree rather than from
         # a list, and it REFUSES when it matches nothing. No database needed.
+        #
+        # SINCE D-591 IT ALSO ENFORCES THE SEVERITY, which is the same defect one step
+        # over: an alarm added without a rung in `core/alarm_severity.py` falls to the
+        # `page` default — the safe direction, but not a decision anybody took — and an
+        # index row whose Severity column disagrees with the Python promises an operator
+        # a mail that is not coming. Both fail here.
         run: uv run python -m scripts.check_alarm_wiring
       - name: "Guardrail: nothing half-wired in the background fleet (D-199)"
         if: ${{ !cancelled() }}

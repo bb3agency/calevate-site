@@ -28,6 +28,7 @@ import TenantInvitationsPage from "@/app/admin/tenants/[tenantId]/invitations/pa
 import HeldAccountsPage from "@/app/admin/holds/page";
 import NewClientPage from "@/app/admin/new/page";
 import GlobalDncPage from "@/app/admin/ops/dnc/page";
+import OpsAlertsPage from "@/app/admin/ops/alerts/page";
 import EngineLatencyPage from "@/app/admin/ops/engine-latency/page";
 import VoicesPage from "@/app/admin/ops/voices/page";
 import OperatorsPage from "@/app/admin/operators/page";
@@ -2870,6 +2871,80 @@ const ADMIN_SCREENS: Screen[] = [
           removable: false,
         },
       ],
+    },
+  },
+  {
+    // EVERY ROW SHAPE AND EVERY BANNER, because each is different markup and the ones
+    // that matter are the unhappy ones: a `page` still happening that NEVER MAILED (the
+    // red banner above the table plus the "not sent" cell — the two pieces of this screen
+    // that exist for the founder's worst case), an `attention` that is open and correctly
+    // un-mailed, and a `record` that has CLEARED (the "stopped" line and the cleared-at
+    // stamp, which no open row renders). `complete: false` also paints the truncation
+    // sentence in the window tile, a different element from the empty state.
+    file: "admin/ops/alerts/page.tsx",
+    realm: "admin",
+    element: () => <OpsAlertsPage />,
+    routes: {
+      // `ops:manage`, for `admin/ops/engine-latency`'s reason: this screen withholds its
+      // whole board from a session the server has refused, so the shared fixture would
+      // sweep one sentence and none of the markup this entry exists for.
+      "/v1/admin/me": {
+        ...ADMIN_ME,
+        permissions: [...ADMIN_ME.permissions, "ops:manage"],
+      },
+      "/v1/ops/alerts?days=7": {
+        window_days: 7,
+        complete: false,
+        open_by_severity: { page: 1, attention: 1 },
+        open_unmailed_pages: 1,
+        episodes: [
+          {
+            id: "019f0000-0000-7000-8000-000000000001",
+            code: "razorpay_money_unapplied",
+            stage: "ROUTE_HANDLER",
+            severity: "page",
+            service: "api",
+            detail: "capture event verified and could not be applied",
+            ids: { tenant_id: "019f-abc", event_id: "019f-evt" },
+            first_seen_at: "2026-09-11T03:12:00Z",
+            last_seen_at: "2026-09-11T04:40:00Z",
+            occurrences: 4,
+            emailed: false,
+            emailed_at: null,
+            cleared_at: null,
+          },
+          {
+            id: "019f0000-0000-7000-8000-000000000002",
+            code: "fx_rate_stale",
+            stage: "CORE_LOGIC",
+            severity: "attention",
+            service: "workers",
+            detail: "every published source is older than five days",
+            ids: {},
+            first_seen_at: "2026-09-10T19:04:00Z",
+            last_seen_at: "2026-09-11T04:52:00Z",
+            occurrences: 2140,
+            emailed: false,
+            emailed_at: null,
+            cleared_at: null,
+          },
+          {
+            id: "019f0000-0000-7000-8000-000000000003",
+            code: "signal_received",
+            stage: "PROCESS_RESTART",
+            severity: "record",
+            service: "voice-runtime",
+            detail: "SIGTERM",
+            ids: {},
+            first_seen_at: "2026-09-11T02:00:00Z",
+            last_seen_at: "2026-09-11T02:00:00Z",
+            occurrences: 4,
+            emailed: false,
+            emailed_at: null,
+            cleared_at: "2026-09-11T03:00:00Z",
+          },
+        ],
+      },
     },
   },
   {

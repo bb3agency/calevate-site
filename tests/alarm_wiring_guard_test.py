@@ -22,7 +22,8 @@ import pytest
 from scripts import check_alarm_wiring as guard
 
 INDEX_HEADER = (
-    "## Alarm codes\n\n| Code | Stage | What it means | What to do |\n| --- | --- | --- | --- |\n"
+    "## Alarm codes\n\n| Code | Stage | Severity | What it means | What to do |\n"
+    "| --- | --- | --- | --- | --- |\n"
 )
 METRIC_HEADER = (
     "## Metric names\n\n| Name | What it measures | Read it when |\n| --- | --- | --- |\n"
@@ -56,13 +57,23 @@ def sandbox(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Any:
         monkeypatch.setattr(guard, "RUNBOOKS", tmp_path / "runbooks")
         monkeypatch.setattr(guard, "CODE_ROOTS", (tmp_path / "apps",))
         monkeypatch.setattr(guard, "DYNAMIC_ALERT_SITES", {})
+        # THE SEVERITY REGISTRY IS A PATH CONSTANT LIKE THE REST (D-591). Every code this
+        # miniature tree raises is classified `page` — the default an unclassified code
+        # gets anyway — so these controls keep asserting the question each of them was
+        # written for, and the severity check has its OWN controls at the bottom of this
+        # file rather than leaking into all of them.
+        monkeypatch.setattr(
+            guard,
+            "CLASSIFIED",
+            {"thing_broke": "page", "host_thing": "page"},
+        )
 
     return _use
 
 
 _ONE_ALARM = 'from x import alert\n\n\ndef go() -> None:\n    alert("CORE_LOGIC", "thing_broke")\n'
-_ROW = "| `thing_broke` | CORE_LOGIC | it broke | fix it |\n"
-_HOST_ROW = "| `host_thing` | HOST_BACKUP | a host alarm | look at the host |\n"
+_ROW = "| `thing_broke` | CORE_LOGIC | page | it broke | fix it |\n"
+_HOST_ROW = "| `host_thing` | HOST_BACKUP | page | a host alarm | look at the host |\n"
 _METRIC = 'def _record(name: str, value: float) -> None:\n    pass\n\n\n_record("things", 1)\n'
 _METRIC_ROW = "| `things` | how many things | always |\n"
 
@@ -87,7 +98,7 @@ def test_a_documented_alarm_with_no_call_site_fails(sandbox: Any, tmp_path: Path
     _tree(
         tmp_path,
         alarms=_ONE_ALARM + _METRIC,
-        index_rows=_ROW + _HOST_ROW + "| `never_fires` | CORE_LOGIC | nothing | nothing |\n",
+        index_rows=_ROW + _HOST_ROW + "| `never_fires` | CORE_LOGIC | page | nothing | nothing |\n",
         metrics=_METRIC_ROW,
     )
     failures = guard.evaluate()
@@ -186,7 +197,7 @@ def test_a_broken_runbook_pointer_fails(sandbox: Any, tmp_path: Path) -> None:
     _tree(
         tmp_path,
         alarms=_ONE_ALARM + _METRIC,
-        index_rows="| `thing_broke` | CORE_LOGIC | it broke | see runbooks/nowhere.md |\n"
+        index_rows="| `thing_broke` | CORE_LOGIC | page | it broke | see runbooks/nowhere.md |\n"
         + _HOST_ROW,
         metrics=_METRIC_ROW,
     )
@@ -228,7 +239,7 @@ def test_a_row_whose_stage_disagrees_with_the_call_fails(sandbox: Any, tmp_path:
     _tree(
         tmp_path,
         alarms=_ONE_ALARM + _METRIC,
-        index_rows="| `thing_broke` | WORKER_STALL | it broke | fix it |\n" + _HOST_ROW,
+        index_rows="| `thing_broke` | WORKER_STALL | page | it broke | fix it |\n" + _HOST_ROW,
         metrics=_METRIC_ROW,
     )
     failures = guard.evaluate()
@@ -264,7 +275,7 @@ def test_a_row_with_no_readable_stage_fails(sandbox: Any, tmp_path: Path) -> Non
     _tree(
         tmp_path,
         alarms=_ONE_ALARM + _METRIC,
-        index_rows="| `thing_broke` |  | it broke | fix it |\n" + _HOST_ROW,
+        index_rows="| `thing_broke` |  | page | it broke | fix it |\n" + _HOST_ROW,
         metrics=_METRIC_ROW,
     )
     failures = guard.evaluate()
@@ -287,8 +298,13 @@ def test_the_stage_scan_still_reads_the_real_tree(sandbox: Any, tmp_path: Path) 
 
 def test_the_exemption_reverifies_itself(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """`DYNAMIC_ALERT_SITES` is the one place this guard could be lied to. An entry
-    claiming a code the file no longer contains would keep an index row alive for a page
-    nobody can receive, so every claimed code must still be a literal in that file."""
+    claiming a code nothing raises any more would keep an index row alive for a page
+    nobody can receive, so every claimed code must still be a literal SOMEWHERE.
+
+    Tree-wide rather than in the raising file, because a FACTORY's codes live at its
+    callers: `core/settings.py::_unusable_hmac_key` is one refusal shared by four key
+    resolutions, each passing its own literal from the module that needs the key. The
+    property is unchanged — a rename still breaks the build — only its radius moved."""
     monkeypatch.setattr(guard, "REPO_ROOT", tmp_path)
     (tmp_path / "apps").mkdir()
     (tmp_path / "apps" / "mod.py").write_text('alert("CORE_LOGIC", code)\n')
@@ -303,7 +319,7 @@ def test_the_exemption_reverifies_itself(monkeypatch: pytest.MonkeyPatch, tmp_pa
         },
     )
     failures = guard.dynamic_site_failures()
-    assert any("'renamed_away'" in f and "no longer in the file" in f for f in failures)
+    assert any("'renamed_away'" in f and "nowhere in the tree" in f for f in failures)
 
 
 def test_a_thin_exemption_reason_is_refused(
@@ -321,3 +337,33 @@ def test_the_real_tree_is_clean() -> None:
     now. It is the same call `make guardrails` and CI make, kept here so a targeted test
     run cannot pass while the gate is red."""
     assert guard.evaluate() == []
+
+
+def test_an_unclassified_alarm_fails(sandbox: Any, tmp_path: Path) -> None:
+    """D-591's half of the contract: you cannot add an alarm without choosing how loud it
+    is. Unclassified codes fall to the `page` default, which is the SAFE direction but not
+    a decision anybody took — so the build says so rather than the founder's phone."""
+    sandbox()
+    _tree(
+        tmp_path,
+        alarms=_ONE_ALARM + _METRIC + '\nalert("CORE_LOGIC", "brand_new_alarm")\n',
+        index_rows=_ROW + _HOST_ROW + "| `brand_new_alarm` | CORE_LOGIC | page | new | fix it |\n",
+        metrics=_METRIC_ROW,
+    )
+    failures = guard.evaluate()
+    assert any("UNCLASSIFIED: `brand_new_alarm`" in f for f in failures)
+
+
+def test_an_index_row_that_promises_the_wrong_loudness_fails(sandbox: Any, tmp_path: Path) -> None:
+    """The row an operator reads at 3am must not tell them a comfortable lie. `alert()`
+    obeys the Python; a Severity column saying `page` over a code that is recorded only
+    would have somebody waiting for an email that was never going to arrive."""
+    sandbox()
+    _tree(
+        tmp_path,
+        alarms=_ONE_ALARM + _METRIC,
+        index_rows="| `thing_broke` | CORE_LOGIC | record | it broke | fix it |\n" + _HOST_ROW,
+        metrics=_METRIC_ROW,
+    )
+    failures = guard.evaluate()
+    assert any("SEVERITY DISAGREES: the alarm index says `thing_broke`" in f for f in failures)

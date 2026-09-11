@@ -601,6 +601,28 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "counter and not a ledger — every figure is re-derivable from the `usage_events` "
         "rows that produced it, which is how migration f7c2a94e18b3 backfills it."
     ),
+    "platform_alerts": (
+        "platform-scoped, admin realm only (D-591). ONE EPISODE OF ONE ALARM: what "
+        "`core/alerting.py` raised, how loud it was, when it started, when it was last "
+        "seen, how many times, and whether it was mailed. It carries no tenant_id because "
+        "an alarm is about this PLATFORM'S machinery and not about a client's data — the "
+        "backup chain, the outbox dispatcher, a vendor's FX feed — and a great many alarms "
+        "fire with no tenant in scope to write down at all: the SIGTERM handler, the "
+        "unauthenticated webhook edge, the host backup relay via `scripts/host_alert.py`. "
+        "A decorative tenant_id would be NULL on most rows, arbitrary on the rest (one "
+        "`postcall_pipeline_stalled` covers every tenant at once), and would invite a "
+        "policy letting a client's session read the platform's incident history.\n\n"
+        "WHAT KEEPS IT FROM BEING A LEAK: `detail` and `ids` are written through "
+        "`core/logging.redact_mapping` — the same function the alert EMAIL body uses — "
+        "before the row is composed, so a phone number in a call site's kwarg is masked "
+        "here exactly as it is in the mail (hard rule 6). No payload, no transcript text, "
+        "no free-text column an upstream error string reaches unredacted.\n\n"
+        "NOT append-only, and the reason is in the model docstring: `occurrences`, "
+        "`last_seen_at` and `cleared_at` are the columns the table exists for, and every "
+        "figure in it is re-derivable from the ERROR log line `alert()` writes first and "
+        "unconditionally. Pruned with the other never-tenant-scoped infra tables by "
+        "`workers/retention.prune_reliability_tables`."
+    ),
     "webhook_deliveries": (
         "THE ONE THAT WAS MISSING AND MATTERED (P4.6). Forensic trail for every webhook "
         "in and out (SEC-COMP §4). No tenant_id and no policy, and both are deliberate: "

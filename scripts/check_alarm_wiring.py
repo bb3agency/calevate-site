@@ -73,6 +73,10 @@ import sys
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 
+from apps.api.core.alarm_severity import ALARM_SEVERITY as _ALARM_SEVERITY
+from apps.api.core.alarm_severity import ALARM_SEVERITY_FAMILIES as _FAMILIES
+from apps.api.core.alarm_severity import SEVERITIES
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 PY_ROOTS = (REPO_ROOT / "apps", REPO_ROOT / "packages", REPO_ROOT / "scripts")
 SHELL_ROOT = REPO_ROOT / "scripts" / "backup"
@@ -105,6 +109,22 @@ _FENCED = re.compile(r"```.*?```", re.DOTALL)
 #: fails this guard instead of silently emptying the index. Same contract as
 #: `check_compliance_invariants`'s named engine reaches.
 DYNAMIC_ALERT_SITES: dict[str, tuple[tuple[str, ...], str]] = {
+    "apps/api/core/settings.py": (
+        (
+            "audit_chain_not_configured",
+            "idempotency_not_configured",
+            "copilot_proposals_not_configured",
+            "impersonation_not_configured",
+        ),
+        "`_unusable_hmac_key` is ONE refusal shared by four HMAC key resolutions, and the "
+        "code is the CALLER's — `resolve_hmac_key(code=...)` is passed a literal at each "
+        "of `compliance/audit.py`, `reliability/service.py`, `copilot/write_tools.py` and "
+        "`core/impersonation.py`. Folding them into one code would tell an operator that "
+        "a key is unusable without saying WHICH subsystem stopped, and these four stop "
+        "very different things (the tamper-proof audit chain, idempotency, copilot write "
+        "proposals, view-as grants). The factory is the right shape and the four literals "
+        "are re-verified below, so a rename breaks the build rather than the index.",
+    ),
     "apps/api/billing/ai_quota.py": (
         ("ai_platform_brake_tripped", "ai_platform_brake_near"),
         "the two platform-AI headroom lines are walked as a tuple of "
@@ -161,6 +181,13 @@ _INDEX_ROW = re.compile(r"^\|\s*`([a-z][a-z0-9_]*)`\s*\|", re.MULTILINE)
 #: a typo in column 2 into "DOCUMENTED, NEVER RAISED" in column 1 — an error message
 #: pointing at the wrong half of the row.
 _INDEX_ROW_STAGE = re.compile(r"^\|\s*`([a-z][a-z0-9_]*)`\s*\|\s*([A-Z][A-Z_]*)\s*\|", re.MULTILINE)
+#: The same row read for its THIRD column, the severity (D-591). A third pattern rather
+#: than one that captures all three, for `_INDEX_ROW_STAGE`'s stated reason: the three
+#: questions fail differently, and a malformed severity cell must report itself as a
+#: missing severity rather than as a missing stage or a missing row.
+_INDEX_ROW_SEVERITY = re.compile(
+    r"^\|\s*`([a-z][a-z0-9_]*)`\s*\|\s*[A-Z][A-Z_]*\s*\|\s*([a-z]+)\s*\|", re.MULTILINE
+)
 #: A row of the metric index, which uses the same shape under its own heading.
 _METRIC_ROW = re.compile(r"^\|\s*`([a-z][a-z0-9_]*)`\s*\|", re.MULTILINE)
 _ALARM_HEADING = "## Alarm codes"
@@ -169,6 +196,24 @@ _METRIC_HEADING = "## Metric names"
 _RUNBOOK_CITATION = re.compile(r"runbooks/([a-z0-9-]+\.md)")
 _BACKTICKED = re.compile(r"`([^`\n]+)`")
 _SNAKE = re.compile(r"^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$")
+
+
+#: The `ErrorKind`s `core/errors.py` maps to a 5xx — and therefore the ones whose
+#: `ProblemError` reaches `alert()`. A 4xx refusal (validation, not_found, forbidden,
+#: conflict, auth) is an answer to a caller and alarms nobody.
+_ALARMING_KINDS: frozenset[str] = frozenset({"dependency", "transient", "internal"})
+
+
+def _literal_anywhere(code: str) -> bool:
+    """Is `code` a quoted literal in any scanned source? See its one caller for why the
+    search is tree-wide rather than per-file."""
+    needle = f'"{code}"'
+    return any(
+        needle in path.read_text(encoding="utf-8")
+        for root in PY_ROOTS
+        for path in root.rglob("*.py")
+        if "__pycache__" not in path.as_posix()
+    )
 
 
 def _python_files() -> Iterator[Path]:
@@ -284,17 +329,47 @@ def raised_codes() -> tuple[dict[str, set[str]], dict[str, set[str]], list[str]]
             # `core/errors.install_error_handlers`, so its `code` IS an alarm code.
             if isinstance(node.func, ast.Name) and node.func.id == "ProblemError":
                 keywords = {kw.arg: kw.value for kw in node.keywords}
-                if "failure_stage" not in keywords:
+                # ⚠ **AN OMITTED `failure_stage` IS NOT AN OMITTED ALARM, AND THIS SCAN
+                # USED TO ASSUME IT WAS.** `ProblemError.__init__` DEFAULTS the stage to
+                # `ROUTE_HANDLER`, so a refusal that never names one still reaches
+                # `alert()` through the same relay — provided its `kind` is a 5xx. That
+                # left 44 codes invisible here, unclassified in `alarm_severity.py`, and
+                # therefore `page` by its fail-loud default: `rate_limited` on every
+                # throttled request, `too_many_attempts` on every throttled login,
+                # `service_load_shed` and `platform_maintenance` on every shed one. The
+                # founder's inbox found this, which is the wrong instrument.
+                #
+                # So the KIND decides, not the presence of a keyword. A 4xx refusal is a
+                # conversation with a caller and alarms nobody; the three 5xx kinds are
+                # alarms whether or not the call site says so. A kind this scan cannot
+                # resolve is treated as alarming, for `DEFAULT_SEVERITY`'s reason: an
+                # over-classified code costs one line in a registry, and a missed one
+                # costs the outage it was written for.
+                kind = resolve(keywords.get("kind"))
+                alarms = "failure_stage" in keywords or kind is None or kind in _ALARMING_KINDS
+                if not alarms:
                     continue
                 code = resolve(keywords.get("code"))
                 if code is not None:
                     # `install_error_handlers` relays `alert(exc.failure_stage, exc.code)`
                     # verbatim, so the keyword IS the stage an operator will read.
                     record(code, path, resolve(keywords.get("failure_stage")))
+                elif rel in DYNAMIC_ALERT_SITES:
+                    # THE SAME ESCAPE HATCH SHAPE (2) HAS, because it is the same problem.
+                    # A `ProblemError` whose code is a PARAMETER is as unresolvable as an
+                    # `alert()` whose code is — `core/settings.py::_unusable_hmac_key` is
+                    # one refusal shared by four key resolutions, each passing its own
+                    # literal — and having the hatch on only one of the two scans meant
+                    # the other could only fail. Registering the site is still a diff that
+                    # names the codes and the reason, and they are re-verified below.
+                    for named in DYNAMIC_ALERT_SITES[rel][0]:
+                        record(named, path)
                 else:
                     failures.append(
                         f"{rel}:{node.lineno}: a ProblemError carries a failure_stage — "
-                        "so it pages somebody — with a code this scan cannot resolve."
+                        "so it pages somebody — with a code this scan cannot resolve. Use "
+                        "a literal, or add the site to DYNAMIC_ALERT_SITES with the codes "
+                        "it can raise and why."
                     )
         # (4) the ack-budget meters: a `*_code` literal on a frozen dataclass rather than
         # on the call. Matched by the KEYWORD NAME, so a third such field is picked up
@@ -353,6 +428,94 @@ def documented_stages() -> dict[str, str]:
     """
     section = _section(INDEX.read_text(encoding="utf-8"), _ALARM_HEADING)
     return {m.group(1): m.group(2) for m in _INDEX_ROW_STAGE.finditer(section)}
+
+
+def documented_severities() -> dict[str, str]:
+    """`{code: the severity its index row claims}`, from the index's THIRD column."""
+    section = _section(INDEX.read_text(encoding="utf-8"), _ALARM_HEADING)
+    return {m.group(1): m.group(2) for m in _INDEX_ROW_SEVERITY.finditer(section)}
+
+
+#: The severity registry, bound at module scope like every path constant above and for the
+#: same reason: `tests/alarm_wiring_guard_test.py` drives DOCTORED trees through these
+#: functions, and a registry reached by a hard-coded import inside the check would be the
+#: one input the sandbox could not repoint — so the guard's own negative controls would
+#: have to assert against the real 224 codes.
+CLASSIFIED: dict[str, str] = dict(_ALARM_SEVERITY)
+#: The prefix families, read from the same module the runtime reads.
+FAMILIES: dict[str, str] = dict(_FAMILIES)
+
+
+def severity_failures(
+    raised: dict[str, set[str]] | None = None,
+    classified: dict[str, str] | None = None,
+) -> list[str]:
+    """Every raised code is classified, and the index agrees with the classification.
+
+    WHY THIS IS THIS GUARD'S JOB AND NOT A SECOND ONE. The founder's inbox filled up
+    because `alert()` treated every code as equally worth an email (D-591), and the fix is
+    a severity on every code. A severity list that anybody can forget to extend is the
+    same defect one step over from the one this file already exists for: a code raised in
+    the tree and absent from the document. So the contract is the same contract — you
+    cannot add an alarm without classifying it — and it is enforced in the same sweep,
+    against the same derived-from-the-tree vocabulary.
+
+    TWO DIRECTIONS, AND A THIRD CHECK BETWEEN THEM:
+
+    * a code the tree can raise and `core/alarm_severity.ALARM_SEVERITY` does not name —
+      it would fall to the `page` default, which is the SAFE direction but not a decision
+      anybody took;
+    * a code the registry names that nothing raises — a dead classification, which reads
+      to the next person as evidence that an alarm exists;
+    * and the registry against the INDEX ROW, because `runbooks/alarm-index.md` is what an
+      operator reads at 3am and "did this page me, or is it sitting on a console screen?"
+      is the first thing they need from it. The PYTHON IS THE SOURCE OF TRUTH — `alert()`
+      reads it on the SIGTERM path and inside voice-runtime's 500ms ack budget, where
+      parsing a markdown table is not available at any price — and the document is checked
+      against it, never the reverse.
+    """
+    raised = raised_codes()[0] if raised is None else raised
+    registry = CLASSIFIED if classified is None else classified
+    documented = documented_severities()
+    failures: list[str] = []
+
+    # A FAMILY ENTRY COVERS ITS MEMBERS. Two call sites compose a code at runtime
+    # (`http_{status}`, `assist_{reason}`), so this scan resolves only their literal
+    # PREFIX and an exact-match registry could never satisfy it — see
+    # `alarm_severity.ALARM_SEVERITY_FAMILIES`. Asked the same way `severity_of` asks, so
+    # the gate and the runtime cannot disagree about what is covered.
+    def _covered(code: str) -> bool:
+        return code in registry or any(code.startswith(p) for p in FAMILIES)
+
+    for code in sorted(c for c in set(raised) if not _covered(c)):
+        failures.append(
+            f"UNCLASSIFIED: `{code}` can reach somebody and has no entry in "
+            "apps/api/core/alarm_severity.ALARM_SEVERITY. Every alarm has to choose: "
+            f"{', '.join(SEVERITIES)}. Unclassified codes default to `page`, so the build "
+            "fails here rather than the founder's phone buzzing for it."
+        )
+    for code in sorted(
+        c for c in set(registry) - set(raised) if not any(c.startswith(p) for p in FAMILIES)
+    ):
+        failures.append(
+            f"CLASSIFIED, NEVER RAISED: ALARM_SEVERITY names `{code}` and nothing in the "
+            "tree raises it. A dead classification reads as evidence that an alarm exists."
+        )
+    for code, severity in sorted(registry.items()):
+        claimed = documented.get(code)
+        if claimed is None and code in documented_codes():
+            failures.append(
+                f"NO SEVERITY: the alarm index row for `{code}` has no readable severity "
+                "in its third column. An operator reading this row cannot tell whether "
+                "silence means nothing is wrong or means it did not mail."
+            )
+        elif claimed is not None and claimed != severity:
+            failures.append(
+                f"SEVERITY DISAGREES: the alarm index says `{code}` is `{claimed}`; "
+                f"alarm_severity.py routes it as `{severity}`. The Python is what "
+                "`alert()` obeys, so the row is telling an operator a comfortable lie."
+            )
+    return failures
 
 
 def documented_metrics() -> set[str]:
@@ -470,10 +633,21 @@ def dynamic_site_failures() -> list[str]:
             failures.append(f"DYNAMIC_ALERT_SITES[{rel}] has no reason a reviewer can weigh.")
         body = path.read_text(encoding="utf-8")
         for code in claimed:
-            if f'"{code}"' not in body:
+            # SEARCHED IN THE TREE, NOT ONLY IN THE RAISING FILE — because a FACTORY's
+            # codes live at its callers. `core/settings.py::_unusable_hmac_key` is one
+            # refusal shared by four key resolutions, and each literal sits in the module
+            # that needs the key (`compliance/audit.py`, `reliability/service.py`,
+            # `copilot/write_tools.py`, `core/impersonation.py`). Requiring the string in
+            # the raising file would have forced either four copies of one refusal or a
+            # single vague code that cannot say WHICH subsystem stopped.
+            #
+            # The property this check exists for is unchanged: the string must still be a
+            # literal SOMEWHERE, so a rename still breaks the build rather than quietly
+            # leaving the index describing an alarm nobody can receive.
+            if f'"{code}"' not in body and not _literal_anywhere(code):
                 failures.append(
                     f"DYNAMIC_ALERT_SITES claims {rel} raises '{code}', and that string "
-                    "is no longer in the file. Renamed, or moved — either way the index "
+                    "is nowhere in the tree. Renamed, or moved — either way the index "
                     "is now describing an alarm nobody can receive."
                 )
     return failures
@@ -588,6 +762,7 @@ def evaluate() -> list[str]:
         failures.append(f"RECORDED, UNDOCUMENTED: metric `{name}` is in no index row.")
 
     failures.extend(stage_disagreements(stages, documented_stages()))
+    failures.extend(severity_failures(codes, CLASSIFIED))
     failures.extend(broken_runbook_citations())
     failures.extend(dangling_names({*codes, *documented, *metrics, *documented_metric_names}))
     return failures

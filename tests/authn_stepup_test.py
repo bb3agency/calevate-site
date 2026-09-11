@@ -445,6 +445,20 @@ _OPS_WRITES_WITHOUT_STEP_UP = {
         "on a harmless lever, which is what makes them worthless on `outbox/replay`, "
         "where the blast radius is other people's customer data arriving twice."
     ),
+    ("apps/api/ops/voice_curation_routes.py", "add_voice"): (
+        "adds ONE voice to the platform's catalogue from facts an operator typed, after "
+        "verifying every one of them against the voice platform's own list (D-590). It "
+        "cannot reach a call: it writes no agent row, moves no agent, and its only vendor "
+        "call is a READ of that list. Its widening direction cannot bypass money either — "
+        "an added voice clears offerability ground zero and leaves the credential, "
+        "attested-price and Cartesia-cap grounds exactly where they were (hard rule 7), so "
+        "an unpriced Cartesia minute is still refused by `voice_offer.py` and the add "
+        "response says so in the same breath. It is reversible in one click (archive), and "
+        "it is the PRIMARY action of the screen: gating the thing an operator came to the "
+        "page to do teaches them to type confirmations, which is what makes the gate "
+        "worthless on `outbox/replay`, where the blast radius is other people's customer "
+        "data arriving twice."
+    ),
     ("apps/api/ops/voice_curation_routes.py", "set_voice_curation"): (
         "moves ONE voice between enabled/disabled/archived for the platform (D-588), and "
         "it cannot reach a call. It writes no agent row, calls no vendor, and cannot move "

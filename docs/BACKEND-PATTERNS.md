@@ -292,10 +292,15 @@ call site passes it. It exists as a member rather than being mislabelled as
 `WORKER_TERMINAL` to make it fit, because a wrong
 stage on the one alarm that says the database is unrecoverable is the wrong place to be
 tidy. **`alert()` DELIVERS** as well as logs (D-49): the ERROR log line first and
-unconditionally, then email off the request path, with per-fingerprint suppression and a
-global hourly bucket. It is the one side effect in this document that deliberately does
-NOT go through the outbox of §4 — the alarms that matter most are the ones saying the
-outbox is broken, so it touches no database and no Redis. Every call site passes a STABLE
+unconditionally, then a row in `platform_alerts` for every alarm, then email **only for
+the `page` rung** (D-591 — `core/alarm_severity.py` classifies every code, and
+`scripts/check_alarm_wiring.py` refuses one that is unclassified; everything else is read
+on `/admin/ops/alerts`), with per-fingerprint suppression and a global hourly bucket. It
+is the one side effect in this document that deliberately does NOT go through the outbox
+of §4 — the alarms that matter most are the ones saying the outbox is broken, so it
+touches no Redis, and the one database write it does make can only SUPPRESS A REPEAT: the
+episode lookup that decides onset from continuation fails OPEN, so an unreachable database
+costs duplicate mail and never a missed page. Every call site passes a STABLE
 code rather than a formatted string, because the code is the deduplication key.
 Metrics are **named domain recorders** (`record_pipeline_lag`,
 `record_webhook_ack_ms`, `record_extraction_failure`, `record_outbox_lag`), not

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState, type ComponentType } from "react";
 import {
   AudioLines,
+  BellRing,
   CalendarClock,
   Building2,
   ClipboardCheck,
@@ -239,7 +240,8 @@ const NAV: NavGroup[] = [
         hideUnlessAllowed: true,
       },
       {
-        // WHICH VOICES THIS PLATFORM OFFERS (D-588). Its own entry rather than a panel on
+        // WHICH VOICES THIS PLATFORM OFFERS (D-588, and the ADD form that replaced its
+        // curation screen — D-590). Its own entry rather than a panel on
         // Operations, for the two rows below's reason — discovery — and one of its own.
         // The founder asked for a "Voices section" by name; and the operator who has just
         // cloned a voice on the voice platform is looking for the place that makes it
@@ -253,7 +255,7 @@ const NAV: NavGroup[] = [
         label: "Voices",
         icon: AudioLines,
         permission: "ops:manage",
-        action: "choose which voices this platform offers",
+        action: "add and manage the voices this platform offers",
       },
       {
         // PLANNED MAINTENANCE. Its own entry rather than a panel on Operations, for the
@@ -283,6 +285,24 @@ const NAV: NavGroup[] = [
         icon: PhoneOff,
         permission: "ops:manage",
         action: "change the platform-wide do-not-call list",
+      },
+      {
+        // THE ALERT BOARD (D-591). Its own entry, and this one is not a convenience: until
+        // it existed the ONLY place an alarm had ever been readable was the founder's
+        // inbox, every code mailed, and an inbox cannot answer "is anything broken right
+        // now" — it sorts by arrival. Now only the loudest rung emails and every other
+        // alarm is here and nowhere else, so an entry buried inside Operations would be a
+        // screen nobody could find holding the only copy of most of what goes wrong.
+        //
+        // ABOVE the read-only reports below it, because it is the one an operator opens
+        // when something is wrong rather than when they are curious.
+        //
+        // `ops:manage` is the permission the route carries (`apps/api/ops/routes.py`).
+        href: "/admin/ops/alerts",
+        label: "Alerts",
+        icon: BellRing,
+        permission: "ops:manage",
+        action: "read what the platform has raised alarms about",
       },
       {
         // Same argument as the row above, and the two documents that need it say so in

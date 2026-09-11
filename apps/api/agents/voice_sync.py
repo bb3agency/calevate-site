@@ -308,6 +308,12 @@ async def sync_voice_catalogue(
                 "languages": statement.excluded.languages,
                 "is_custom": statement.excluded.is_custom,
                 "synced_at": statement.excluded.synced_at,
+                # `origin` IS ABSENT FOR THE SAME REASON `curation_state` IS (D-590). A
+                # row an operator TYPED and we verified is an attestation, not a cache
+                # line; re-reading the vendor's list is not entitled to reclassify it as
+                # one. The column's server default (`synced`) is therefore what a genuinely
+                # new row gets, and an adopted row keeps `operator` forever.
+                #
                 # A RETURNING VOICE IS UN-WITHDRAWN, AND KEEPS THE STATE IT WAS PUT AWAY
                 # WITH. `curation_state` is deliberately absent from this list — see the
                 # module docstring: a sync reports what the platform has and never decides

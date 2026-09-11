@@ -3355,8 +3355,33 @@ DELETE FROM webhook_inbox_events WHERE id IN (
 """
 
 
+#: Alarm episodes that have been CLOSED for the same floor. An episode is closed by
+#: `workers/alerts.sweep_alert_clears` once the condition has been quiet for an hour, and
+#: from then on it is history — read on `/admin/ops/alerts` while somebody is still asking
+#: "what happened last week", and re-derivable after that from the ERROR log lines
+#: `alert()` writes first and unconditionally. AN OPEN EPISODE IS NEVER PRUNED whatever its
+#: age, and that is not an oversight: `cleared_at IS NULL` means the condition is still
+#: happening, and the partial unique index that keeps at most one open episode per code
+#: makes deleting one equivalent to letting the next occurrence re-mail a condition nobody
+#: fixed. The same shape as the `status <> 'published'` and `status <> 'processed'`
+#: exclusions above — a row that still has a job to do is not old, it is outstanding.
+_PRUNE_ALERTS_SQL = """
+DELETE FROM platform_alerts WHERE id IN (
+    SELECT id FROM platform_alerts
+    WHERE cleared_at IS NOT NULL AND cleared_at < :cutoff
+    ORDER BY cleared_at LIMIT :batch
+)
+"""
+
+
 async def prune_reliability_tables(ctx: dict[str, Any]) -> str:
     """Nightly. Forget the completed infra rows nobody can reach any more (P6.7).
+
+    THREE TABLES SINCE D-591: the outbox, the inbox and `platform_alerts`. The third is
+    here rather than in a retention sweep of its own for this function's founding reason —
+    it is a platform table with no `tenant_id` to sweep inside, on the same floor, in the
+    same untenanted session. A second nightly job for one `DELETE` would be the second way
+    of doing one thing that the quality bar refuses.
 
     Runs in an `untenanted_session` and not a tenant one: neither table has a
     `tenant_id`, so there is no tenant to be inside, and the RLS-exempt read this needs
@@ -3376,10 +3401,14 @@ async def prune_reliability_tables(ctx: dict[str, Any]) -> str:
         inbox, inbox_deferred = await _sweep_in_batches(
             session, _PRUNE_INBOX_SQL, {"cutoff": cutoff}
         )
+        alerts, alerts_deferred = await _sweep_in_batches(
+            session, _PRUNE_ALERTS_SQL, {"cutoff": cutoff}
+        )
     totals = {
         "outbox_pruned": outbox,
         "inbox_pruned": inbox,
-        "deferred": int(outbox_deferred or inbox_deferred),
+        "alerts_pruned": alerts,
+        "deferred": int(outbox_deferred or inbox_deferred or alerts_deferred),
     }
     log.info("reliability_prune", extra=totals)
     return json.dumps(totals)

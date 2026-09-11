@@ -183,6 +183,136 @@
         "title": "AddNumbersOut",
         "type": "object"
       },
+      "AddVoiceFormOut": {
+        "additionalProperties": false,
+        "description": "EVERYTHING THE ADD FORM NEEDS, from the server.\n\nThe browser composes none of it. Which providers exist, which models run on them, which\nlanguages this product sells and why ElevenLabs is refused are all facts with a single\nsource in `agents/voices.py` and `agents/voice_admission.py`, and a second copy in\nTypeScript is the copy that goes stale the day a model changes.",
+        "properties": {
+          "languages": {
+            "items": {
+              "enum": [
+                "te-IN",
+                "hi-IN",
+                "en-IN"
+              ],
+              "type": "string"
+            },
+            "title": "Languages",
+            "type": "array"
+          },
+          "providers": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceProviderOptionOut"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "voice_lab_url": {
+            "title": "Voice Lab Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "providers",
+          "languages",
+          "voice_lab_url"
+        ],
+        "title": "AddVoiceFormOut",
+        "type": "object"
+      },
+      "AddVoiceIn": {
+        "additionalProperties": false,
+        "description": "THE FACTS FOR ONE CLONED VOICE, as an operator types them.\n\nEvery field is BOUNDED here and VERIFIED in `agents/voice_admission.py`: this layer stops\na megabyte of junk reaching a vendor call, and that layer decides whether the voice\nplatform agrees. `provider` and `tts_model` are bare strings rather than Literals on\npurpose \u2014 a Literal would make an ElevenLabs choice a 422 from the framework with a\nschema dump for a body, and the whole point is that it is refused with a SENTENCE.",
+        "properties": {
+          "engine_voice_id": {
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Engine Voice Id",
+            "type": "string"
+          },
+          "label": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Label",
+            "type": "string"
+          },
+          "languages": {
+            "items": {
+              "enum": [
+                "te-IN",
+                "hi-IN",
+                "en-IN"
+              ],
+              "type": "string"
+            },
+            "maxItems": 8,
+            "minItems": 1,
+            "title": "Languages",
+            "type": "array"
+          },
+          "provider": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Provider",
+            "type": "string"
+          },
+          "tts_model": {
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Tts Model",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "tts_model",
+          "engine_voice_id",
+          "label",
+          "languages"
+        ],
+        "title": "AddVoiceIn",
+        "type": "object"
+      },
+      "AddVoiceOut": {
+        "additionalProperties": false,
+        "description": "The voice as it now stands, and whether anybody can actually be put on it yet.",
+        "properties": {
+          "next_step": {
+            "title": "Next Step",
+            "type": "string"
+          },
+          "offerable": {
+            "title": "Offerable",
+            "type": "boolean"
+          },
+          "offered": {
+            "title": "Offered",
+            "type": "integer"
+          },
+          "unofferable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unofferable Reason"
+          },
+          "voice": {
+            "$ref": "#/components/schemas/CuratedVoiceOut"
+          }
+        },
+        "required": [
+          "voice",
+          "offered",
+          "offerable",
+          "unofferable_reason",
+          "next_step"
+        ],
+        "title": "AddVoiceOut",
+        "type": "object"
+      },
       "AdjustmentIn": {
         "additionalProperties": false,
         "description": "A compensating entry, described by what it corrects rather than by what it moves.\n\n`amount_inr` is a POSITIVE magnitude \u2014 how much of the named entry to take back. The\ndirection is derived from that entry (`CorrectableEntry.compensating_delta`), so the\none thing a form here cannot get wrong is the sign.",
@@ -1036,6 +1166,108 @@
         "title": "AiQuotaOut",
         "type": "object"
       },
+      "AlertEpisode": {
+        "description": "One episode of one alarm, exactly as the row holds it.",
+        "properties": {
+          "cleared_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cleared At"
+          },
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          },
+          "emailed": {
+            "title": "Emailed",
+            "type": "boolean"
+          },
+          "emailed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Emailed At"
+          },
+          "first_seen_at": {
+            "format": "date-time",
+            "title": "First Seen At",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "ids": {
+            "additionalProperties": true,
+            "title": "Ids",
+            "type": "object"
+          },
+          "last_seen_at": {
+            "format": "date-time",
+            "title": "Last Seen At",
+            "type": "string"
+          },
+          "occurrences": {
+            "title": "Occurrences",
+            "type": "integer"
+          },
+          "service": {
+            "title": "Service",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "page",
+              "attention",
+              "record"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "code",
+          "stage",
+          "severity",
+          "service",
+          "first_seen_at",
+          "last_seen_at",
+          "occurrences",
+          "emailed"
+        ],
+        "title": "AlertEpisode",
+        "type": "object"
+      },
       "AlertOptInOut": {
         "additionalProperties": false,
         "description": "Never the number. `status: \"none\"` means this person has never been asked, which\nis a 200 and the normal state of the world, not a 404.",
@@ -1118,6 +1350,46 @@
           "delivery_unavailable_reason"
         ],
         "title": "AlertOptInOut",
+        "type": "object"
+      },
+      "AlertReport": {
+        "description": "The screen's whole payload: the rows, and the counts that answer the question.",
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "episodes": {
+            "items": {
+              "$ref": "#/components/schemas/AlertEpisode"
+            },
+            "title": "Episodes",
+            "type": "array"
+          },
+          "open_by_severity": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Open By Severity",
+            "type": "object"
+          },
+          "open_unmailed_pages": {
+            "title": "Open Unmailed Pages",
+            "type": "integer"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_days",
+          "episodes",
+          "open_by_severity",
+          "open_unmailed_pages",
+          "complete"
+        ],
+        "title": "AlertReport",
         "type": "object"
       },
       "ApplyIn": {
@@ -5646,6 +5918,14 @@
             "title": "Offered",
             "type": "boolean"
           },
+          "origin": {
+            "enum": [
+              "synced",
+              "operator"
+            ],
+            "title": "Origin",
+            "type": "string"
+          },
           "provider": {
             "title": "Provider",
             "type": "string"
@@ -5703,6 +5983,7 @@
           "languages",
           "source",
           "state",
+          "origin",
           "offered",
           "synced_at",
           "curated_at",
@@ -5716,6 +5997,13 @@
         "additionalProperties": false,
         "description": "The whole cached catalogue AND what an operator needs to read it.\n\nNO FIELD HAS A DEFAULT, for `VoiceCatalogueOut`'s reason: a Pydantic default makes the\nfield optional in the generated TypeScript, and every one of these is a fact the console\nmust be able to trust rather than treat as falsy when absent.",
         "properties": {
+          "cached": {
+            "title": "Cached",
+            "type": "integer"
+          },
+          "form": {
+            "$ref": "#/components/schemas/AddVoiceFormOut"
+          },
           "note": {
             "title": "Note",
             "type": "string"
@@ -5723,6 +6011,14 @@
           "offered": {
             "title": "Offered",
             "type": "integer"
+          },
+          "scope": {
+            "enum": [
+              "decided",
+              "all"
+            ],
+            "title": "Scope",
+            "type": "string"
           },
           "source": {
             "title": "Source",
@@ -5740,7 +6036,10 @@
           "voices",
           "source",
           "offered",
-          "note"
+          "scope",
+          "cached",
+          "note",
+          "form"
         ],
         "title": "CuratedVoicesOut",
         "type": "object"
@@ -23594,6 +23893,62 @@
         "title": "VoiceCatalogueRefreshOut",
         "type": "object"
       },
+      "VoiceProviderOptionOut": {
+        "additionalProperties": false,
+        "description": "ONE PROVIDER THE ADD FORM OFFERS \u2014 including the ones it offers only to REFUSE.\n\n**ELEVENLABS IS ON THIS LIST ON PURPOSE, WITH `selectable: false` AND ITS REASON.** The\nvoice platform clones on ElevenLabs or Cartesia; this product runs Sarvam and Cartesia.\nAn operator who has just spent a voice sample cloning on ElevenLabs and finds no such\noption concludes the console is broken and tries again; an operator who finds it greyed\nout with a sentence learns, in the one place it matters, that the clone has to be redone\non Cartesia. Omitting it would be the silent failure, not the tidy one.",
+        "properties": {
+          "models": {
+            "items": {
+              "enum": [
+                "bulbul:v3",
+                "sonic-3.5"
+              ],
+              "type": "string"
+            },
+            "title": "Models",
+            "type": "array"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "selectable": {
+            "title": "Selectable",
+            "type": "boolean"
+          },
+          "tier_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tier Label"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          }
+        },
+        "required": [
+          "provider",
+          "tier_label",
+          "models",
+          "selectable",
+          "unavailable_reason"
+        ],
+        "title": "VoiceProviderOptionOut",
+        "type": "object"
+      },
       "VoiceStateOut": {
         "additionalProperties": false,
         "description": "The voice CONFIGURED on the agent and the voice the engine was last SENT.\n\nTwo fields because they are two facts. `PATCH .../agents/{aid}/voice` writes our row\nand stops there, so a live agent keeps its old voice until the next publish \u2014 one\nvalue labelled \"the voice\" would be a claim about a client's phone line that nobody\nchecked.\n\n`live` is null when nothing is recorded as sent, which reads two ways and is\ndisambiguated by `PendingOut.published`: an unpublished agent has nothing live, and\na published one was published before the mirror existed (or with no voice set). Both\nresolve to `republish_required` when a voice is configured, because a sync we cannot\nprove is not a sync.",
@@ -37428,6 +37783,65 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/ops/alerts": {
+      "get": {
+        "description": "THE SCREEN THE FOUNDER ASKED FOR (D-590): *\"failures in admin panel only\"*.\n\n**`GlobalSession` AND NOT `AdminSession`**, unlike the latency report two routes down.\n`platform_alerts` carries no `tenant_id` and no policy at all \u2014 it is platform\nmachinery, registered in `db/registry.RLS_EXEMPT_TENANT_COLUMNS` \u2014 so there is no\ntenant to be inside and no widened policy to need. Asking for the admin-widened\nsession here would be taking a privilege this read has no use for.\n\n**NO STEP-UP CONFIRMATION AND NO AUDIT ROW**, for `read_engine_latency`'s two reasons\nunchanged: it writes nothing, and it is a page an operator refreshes while watching an\nincident \u2014 an audit chain that grows a row per refresh stops being readable. Nothing\nin the payload belongs to a client: `detail` and `ids` were redacted at the write\n(`core/alert_records.py`, hard rule 6) and no row here is attributable to a tenant.",
+        "operationId": "read_alerts_v1_ops_alerts_get",
+        "parameters": [
+          {
+            "description": "How many days of alert episodes to include.",
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 7,
+              "description": "How many days of alert episodes to include.",
+              "maximum": 90,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "How many episodes to return.",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "description": "How many episodes to return.",
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Every alarm this platform has raised, loudest and still-open first",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      }
+    },
     "/v1/ops/audit/verify": {
       "get": {
         "operationId": "verify_audit_chain_v1_ops_audit_verify_get",
@@ -39117,8 +39531,26 @@
     },
     "/v1/ops/voices": {
       "get": {
-        "description": "The voices the voice platform lists for our account, as of the last refresh \u2014 including ones it has since stopped listing, which are shown last and marked. Only `enabled` voices can be chosen for an agent, by a client or by an admin.\n\nA NEW voice cannot be added here: the voice platform's API is read-only. Import or clone one in its Playground, then press Refresh.",
+        "description": "By default, the voices somebody has decided about: every voice added here, plus any voice a sync cached that an operator moved off the arrival state. Voices the platform has since stopped listing are shown last and marked.\n\nOnly `enabled` voices can be chosen for an agent, by a client or by an admin. `cached` says how many voices are in the cache altogether; `?scope=all` returns them, which is a reference list rather than a to-do list \u2014 a voice does not have to be cached before it can be added.",
         "operationId": "list_voices_v1_ops_voices_get",
+        "parameters": [
+          {
+            "description": "`decided` (default) or `all` \u2014 see the response's `scope`.",
+            "in": "query",
+            "name": "scope",
+            "required": false,
+            "schema": {
+              "default": "decided",
+              "description": "`decided` (default) or `all` \u2014 see the response's `scope`.",
+              "enum": [
+                "decided",
+                "all"
+              ],
+              "title": "Scope",
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -39137,7 +39569,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Every synced voice, with its curation state (admin realm)",
+        "summary": "The voices this platform has added (admin realm)",
         "tags": [
           "ops"
         ],
@@ -39175,6 +39607,43 @@
           }
         },
         "summary": "Enable, disable or archive one voice for the whole platform (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
+      },
+      "post": {
+        "description": "Adds ONE voice \u2014 normally one cloned in the voice platform's Voice Lab \u2014 by the facts its synthesizer block needs: the provider, the model, the voice id that platform knows it by, the name it shows there, and which of this product's languages it serves.\n\n**Every fact is checked against the voice platform's own list before the voice is accepted.** An id that platform does not list is refused by name, because publishing an agent on it would fail at create time with \"not available for the provider\" \u2014 on a client's phone line rather than on this screen. If that list cannot be read, the add is REFUSED and retryable: an unverified voice is the exact failure this check exists to prevent.\n\nAn added voice arrives ENABLED \u2014 typing its facts is the decision to offer it. It can still be unofferable for a separate reason (an unattested price, a missing vendor key, the Cartesia agent cap), and the response says which.\n\nIdempotent: adding a voice already in the cache adopts it \u2014 the row becomes an operator-attested, enabled one, and any withdrawal stamp is cleared.",
+        "operationId": "add_voice_v1_ops_voices_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AddVoiceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AddVoiceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Add one voice by its facts, verified against the voice platform (audited)",
         "tags": [
           "ops"
         ],

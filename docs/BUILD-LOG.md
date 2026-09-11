@@ -1016,9 +1016,11 @@ the docs already promised*, which the docs-vs-code audit in this same round foun
   record carrying the number.
 - **Voice catalog** (`agents/voices.py`, `voice_routes.py`, 10 tests) — ⚠ **SUPERSEDED, AND
   EVERY CLAIM IN THIS ENTRY IS NOW HISTORY**: the ladder went (D-547, two providers), the
-  compiled catalogue went (D-585, read from the voice platform account), and the last
+  compiled catalogue went (D-585, read from the voice platform account), the last
   hardcoded voice went with it (D-588, operator curation — only enabled voices are
-  offered). Kept as the dated record it is. It was grounded in
+  offered), and the console's curation screen was replaced by an ADD form whose every
+  field is verified against the voice platform before the row is written (D-590). Kept as
+  the dated record it is. It was grounded in
   D-36/D-35 (Bulbul v3 default, v2 the ₹15/10k value tier) and honest about its limits:
   the docs name **no speakers**, so the catalog offers a choice of MODEL and invents no
   speaker ids, every entry ships `verified: false` until pilot gate 3 confirms the

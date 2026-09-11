@@ -476,6 +476,11 @@ class TestRlsCoverage:
         """
         assert set(RLS_EXEMPT_TENANT_COLUMNS) == {
             "audit_log",
+            # D-591: one episode of one alarm, for `/admin/ops/alerts`. Platform
+            # machinery, not client data — and most alarms (the SIGTERM handler, the
+            # unauthenticated webhook edge, the host backup relay) fire with no tenant in
+            # scope to write down at all.
+            "platform_alerts",
             # D-475: the pulled USD/INR rate. Platform state — one exchange rate for the
             # whole deployment at an instant, so there is no tenant whose row it could be —
             # and read only behind `platform:config` in the admin realm.
@@ -1113,6 +1118,9 @@ class TestRedactionExposure:
             "SubjectExportCallOut.summary",
         }
         assert set(check_redaction_exposure.ACKNOWLEDGED_PASSTHROUGH) == {
+            # D-591: the `**ids` on an alert episode, redacted at the write by the same
+            # function the alert email body uses.
+            "AlertEpisode.ids",
             # ACTIONS feature: operator-authored tool config, a saved credential's
             # non-secret metadata, and the reply to an operator-run test invocation — all
             # free-form by necessity, none from a live call. See check_redaction_exposure.py.

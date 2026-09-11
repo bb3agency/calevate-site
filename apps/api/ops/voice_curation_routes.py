@@ -1,24 +1,30 @@
-"""The Voices panel's API — which synced voices this platform offers (D-588).
+"""The Voices panel's API — the voices this platform has ADDED, and their states (D-590).
 
-    GET   /v1/ops/voices          every voice the voice platform lists for our account,
-                                   with its curation state, whether we cloned it, when it
-                                   was last seen, and how many live agents are on it
+    GET   /v1/ops/voices          the voices somebody decided about (`?scope=all` for every
+                                   cached row), each with its state, its provenance, when it
+                                   was last seen and how many live agents are on it
+    POST  /v1/ops/voices          ADD ONE VOICE by typing its facts — verified against the
+                                   voice platform's own list before it is accepted (audited)
     PATCH /v1/ops/voices          move ONE voice to enabled | disabled | archived (audited)
 
 The refresh that fills the cache is `POST /v1/ops/voices/refresh`
-(`apps/api/ops/routes.py`), which already existed and is unchanged — the console's Refresh
-button calls it and then re-reads this list.
+(`apps/api/ops/routes.py`), which already existed and is unchanged.
 
-WHY THIS IS A CURATION PANEL AND NOT AN "ADD VOICE" PANEL
-----------------------------------------------------------
-**Bolna's voice API is READ-ONLY** — two GET routes and no create, update or delete
-anywhere in their published API (VERIFIED-VENDOR-DOCS, hash-pinned mirror,
-`bolna-findings/mirror/pages/api-reference/voice/overview.md:17-18`, enumerated 11 Sep
-2026). A voice is ADDED in their Playground, by importing a voice id or cloning a 1-2
-minute sample (`pages/import-voices.md`, `pages/clone-voices.md`). So this panel cannot
-offer an Add button, and the honest thing — the thing that stops an operator hunting for
-one — is to say where the button actually is. `apps/api/agents/voice_curation.py` carries
-the full argument; the console prints it above the table.
+⚠ **THIS PANEL USED TO BE A CURATION SCREEN AND IS NOW AN ADD SCREEN (D-590, superseding the
+console half of D-588).** D-588 opened with "Offered 4 of 418" and 414 vendor personas to
+switch off. The founder's answer: *"these are too much. we will not actually be using any
+voices provided by either sarvam or cartesia and will only be using cloned voices … I should
+be able to add voices … where I can provide you everything that you need a voice to be added
+and working."*
+
+**Bolna's voice API is READ-ONLY** — two GET routes and no create, update or delete anywhere
+in their published API (VERIFIED-VENDOR-DOCS, hash-pinned mirror,
+`bolna-findings/mirror/pages/api-reference/voice/overview.md:10-18`, enumerated 11 Sep 2026)
+— and that premise is unchanged. What changed is the conclusion drawn from it: a voice is
+CLONED in their Playground's Voice Lab, and then ADDED HERE by typing the facts the
+synthesizer block needs, which we CHECK against their own list before writing the row
+(`apps/api/agents/voice_admission.py` carries the full argument, including why an unreadable
+platform is a refusal rather than an unverified row).
 
 WHY `ops:manage` AND NOT `platform:config` OR `admin:tenants`
 ---------------------------------------------------------------
@@ -70,25 +76,46 @@ typed confirmation becomes a reflex and stops meaning anything on `outbox/replay
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, get_args
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.voice_admission import (
+    OUR_PROVIDERS,
+    UNPUBLISHABLE_CLONING_PROVIDERS,
+    VOICE_LAB_URL,
+    VoiceFacts,
+    admit_voice,
+    unpublishable_provider_reason,
+)
 from apps.api.agents.voice_curation import (
     CuratedVoice,
+    VoiceScope,
+    count_cached_voices,
     count_offered_voices,
     list_curated_voices,
     set_curation_state,
 )
-from apps.api.agents.voices import CurationState, Voice, catalogue_source
+from apps.api.agents.voice_offer import offerability_of
+from apps.api.agents.voice_sync import load_voice_catalogue
+from apps.api.agents.voices import (
+    CurationState,
+    Language,
+    TtsModel,
+    Voice,
+    VoiceOrigin,
+    catalogue_source,
+    tts_models_for_provider,
+)
 from apps.api.billing.rates import voice_tier_label
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import global_db
 from apps.api.core.rbac import permission_meta
+from apps.api.engine import get_engine
 
 router = APIRouter(prefix="/v1/ops/voices", tags=["ops"])
 
@@ -130,6 +157,11 @@ class CuratedVoiceOut(Strict):
     source: str
     #: `enabled` | `disabled` | `archived` — `voices.CurationState`.
     state: CurationState
+    #: `operator` (somebody typed this voice's facts here and the platform confirmed them) or
+    #: `synced` (a sync read it off the platform's list and nobody has attested it) —
+    #: `voices.VoiceOrigin`. The console groups on it: added voices are the product, cached
+    #: ones are the substrate.
+    origin: VoiceOrigin
     #: Would this voice clear offerability GROUND ZERO? `state == "enabled"` and still
     #: listed by the platform. NOT the whole verdict: a Cartesia voice can be enabled and
     #: still unofferable for an unattested price, which `GET /v1/agents/voices` answers per
@@ -164,6 +196,7 @@ class CuratedVoiceOut(Strict):
             languages=list(voice.languages),
             source="custom" if row.is_custom else "platform",
             state=row.state,
+            origin=row.origin,
             offered=row.offered,
             synced_at=row.synced_at,
             curated_at=row.curated_at,
@@ -191,8 +224,138 @@ class CuratedVoicesOut(Strict):
     #: zero. Zero with `source: "engine"` means "synced, nothing enabled" — a different
     #: state from "never synced", and the one a Refresh will not fix.
     offered: int
+    #: Which rows `voices` holds — `decided` (the default: added voices plus any synced voice
+    #: somebody moved off the arrival state) or `all`.
+    scope: VoiceScope
+    #: How many voices are in the cache ALTOGETHER. Reported beside a `decided` list so an
+    #: operator reading three rows is TOLD the platform lists four hundred rather than shown
+    #: a short list pretending to be the whole one (D-590).
+    cached: int
     #: One sentence the console prints verbatim, saying which of those states this is.
     note: str
+    #: Everything the Add-a-voice form needs, from the server — see `AddVoiceFormOut`. On the
+    #: LIST response rather than on a route of its own because the page renders the form and
+    #: the table together, and two round trips for one screen is two chances to render half
+    #: of it.
+    form: AddVoiceFormOut
+
+
+class VoiceProviderOptionOut(Strict):
+    """ONE PROVIDER THE ADD FORM OFFERS — including the ones it offers only to REFUSE.
+
+    **ELEVENLABS IS ON THIS LIST ON PURPOSE, WITH `selectable: false` AND ITS REASON.** The
+    voice platform clones on ElevenLabs or Cartesia; this product runs Sarvam and Cartesia.
+    An operator who has just spent a voice sample cloning on ElevenLabs and finds no such
+    option concludes the console is broken and tries again; an operator who finds it greyed
+    out with a sentence learns, in the one place it matters, that the clone has to be redone
+    on Cartesia. Omitting it would be the silent failure, not the tidy one.
+    """
+
+    provider: str
+    #: What a CLIENT is told this quality is called, or null for a provider we do not run
+    #: (there is no tier, which is precisely why we cannot publish it).
+    tier_label: str | None
+    #: The TTS models this product runs on this provider, in catalogue order. Empty for a
+    #: provider we do not run.
+    models: list[TtsModel]
+    selectable: bool
+    #: Non-null exactly when `selectable` is false — the sentence the form prints beside the
+    #: disabled option.
+    unavailable_reason: str | None
+
+
+class AddVoiceFormOut(Strict):
+    """EVERYTHING THE ADD FORM NEEDS, from the server.
+
+    The browser composes none of it. Which providers exist, which models run on them, which
+    languages this product sells and why ElevenLabs is refused are all facts with a single
+    source in `agents/voices.py` and `agents/voice_admission.py`, and a second copy in
+    TypeScript is the copy that goes stale the day a model changes.
+    """
+
+    providers: list[VoiceProviderOptionOut]
+    #: The product's languages, Telugu first — `voices.Language`, in picker order.
+    languages: list[Language]
+    #: Where the operator gets the voice id and the name. A URL in server-composed copy
+    #: rather than in the page, so it is stated once.
+    voice_lab_url: str
+
+
+def _form() -> AddVoiceFormOut:
+    """The form's options, derived from the catalogue rather than typed.
+
+    `OUR_PROVIDERS` comes from the model registry and `UNPUBLISHABLE_CLONING_PROVIDERS` from
+    the cloning-provider reading, so this function adds no fact of its own — it only decides
+    the ORDER, which is ours: what you can pick first, what you cannot pick last.
+    """
+    return AddVoiceFormOut(
+        providers=[
+            VoiceProviderOptionOut(
+                provider=provider,
+                tier_label=voice_tier_label(provider),
+                models=list(tts_models_for_provider(provider)),
+                selectable=True,
+                unavailable_reason=None,
+            )
+            for provider in OUR_PROVIDERS
+        ]
+        + [
+            VoiceProviderOptionOut(
+                provider=provider,
+                tier_label=None,
+                models=[],
+                selectable=False,
+                unavailable_reason=unpublishable_provider_reason(provider),
+            )
+            for provider in sorted(UNPUBLISHABLE_CLONING_PROVIDERS)
+        ],
+        languages=list(get_args(Language)),
+        voice_lab_url=VOICE_LAB_URL,
+    )
+
+
+class AddVoiceIn(Strict):
+    """THE FACTS FOR ONE CLONED VOICE, as an operator types them.
+
+    Every field is BOUNDED here and VERIFIED in `agents/voice_admission.py`: this layer stops
+    a megabyte of junk reaching a vendor call, and that layer decides whether the voice
+    platform agrees. `provider` and `tts_model` are bare strings rather than Literals on
+    purpose — a Literal would make an ElevenLabs choice a 422 from the framework with a
+    schema dump for a body, and the whole point is that it is refused with a SENTENCE.
+    """
+
+    #: Who synthesises the voice. Cross-checked against `tts_model`, then discarded — the
+    #: billing tier is derived from the voice id's model prefix and nothing else (hard
+    #: rule 7, `voices.voice_tier`).
+    provider: str = Field(min_length=1, max_length=64)
+    #: The model the voice runs on — the vendor's `model` key.
+    tts_model: str = Field(min_length=1, max_length=64)
+    #: The id the voice platform knows it by — their `voice_id`, the provider-specific
+    #: identifier, NOT the name. Opaque: never parsed, never normalised.
+    engine_voice_id: str = Field(min_length=1, max_length=128)
+    #: The name the voice platform shows. A WIRE value as well as a human one — it travels
+    #: in the vendor's required `voice` key on every publish — so it is checked against the
+    #: platform's own spelling rather than accepted.
+    label: str = Field(min_length=1, max_length=200)
+    #: Which of this product's languages the voice serves. At least one, or the voice appears
+    #: on no picker at all; each is checked against the languages the platform lists it under.
+    languages: list[Language] = Field(min_length=1, max_length=8)
+
+
+class AddVoiceOut(Strict):
+    """The voice as it now stands, and whether anybody can actually be put on it yet."""
+
+    voice: CuratedVoiceOut
+    #: How many voices this platform offers AFTER the add.
+    offered: int
+    #: Can an agent be put on this voice right now? Adding it clears offerability ground zero
+    #: and nothing else, so a Cartesia voice can be added and still refused for an unattested
+    #: price, a missing key, or the Cartesia agent cap.
+    offerable: bool
+    #: Non-null exactly when `offerable` is false: the OPERATOR's ground, naming what to fix.
+    unofferable_reason: str | None
+    #: One sentence the console prints verbatim — what this add did, and what is left.
+    next_step: str
 
 
 class SetCurationIn(Strict):
@@ -224,24 +387,32 @@ class SetCurationOut(Strict):
     next_step: str
 
 
-def _note(*, source: str, offered: int) -> str:
+def _note(*, offered: int, shown: int) -> str:
     """The Voices page's own state sentence. Composed here, never in the browser, for the
-    reason every `note` in this tree is: a screen that paraphrases "synced but nothing
-    enabled" as "no voices" is how a working platform gets reported as broken."""
-    if source == "unsynced":
+    reason every `note` in this tree is: a screen that paraphrases "added but not offerable"
+    as "no voices" is how a working platform gets reported as broken.
+
+    **IT NO LONGER BRANCHES ON `catalogue_source` (D-590).** "Nobody has synced" used to be
+    the interesting empty state, because a sync was the only way a voice could exist. Adding
+    a voice needs no sync — the operator types the facts and we verify them live — so the
+    empty state now has exactly one cause and one action, and telling an operator to press
+    Refresh would send them to the wrong button.
+    """
+    if shown == 0:
         return (
-            "This platform has never read the voice platform's catalogue. Press Refresh to "
-            "read it, then enable the voices clients should be able to choose."
+            "No voice has been added yet, so no client and no admin can choose a voice for "
+            "any agent. Add the voices you have cloned on the voice platform — you will "
+            "need the voice id and the name it shows there."
         )
     if offered == 0:
         return (
-            "The catalogue has been read, but no voice is enabled — so no client and no "
-            "admin can choose a voice for any agent. Enable the ones this platform should "
-            "offer."
+            "Voices have been added, but none can currently be offered — the picker says "
+            "why for each one. A voice can be added and still unofferable for a separate "
+            "reason: an unattested price, a missing vendor key, or the Cartesia agent cap."
         )
     return (
-        "These are every voice the voice platform lists for our account. Only the enabled "
-        "ones can be chosen for an agent, in either console."
+        "These are the voices this platform has added. Only these can be chosen for an "
+        "agent, by a client for their own or by an admin for anyone's."
     )
 
 
@@ -279,30 +450,146 @@ def _next_step(row: CuratedVoice) -> str:
     "",
     response_model=CuratedVoicesOut,
     openapi_extra=permission_meta("ops:manage"),
-    summary="Every synced voice, with its curation state (admin realm)",
+    summary="The voices this platform has added (admin realm)",
     description=(
-        "The voices the voice platform lists for our account, as of the last refresh — "
-        "including ones it has since stopped listing, which are shown last and marked. "
-        "Only `enabled` voices can be chosen for an agent, by a client or by an admin.\n\n"
-        "A NEW voice cannot be added here: the voice platform's API is read-only. Import "
-        "or clone one in its Playground, then press Refresh."
+        "By default, the voices somebody has decided about: every voice added here, plus "
+        "any voice a sync cached that an operator moved off the arrival state. Voices the "
+        "platform has since stopped listing are shown last and marked.\n\n"
+        "Only `enabled` voices can be chosen for an agent, by a client or by an admin. "
+        "`cached` says how many voices are in the cache altogether; `?scope=all` returns "
+        "them, which is a reference list rather than a to-do list — a voice does not have "
+        "to be cached before it can be added."
     ),
 )
-async def list_voices(session: GlobalSession, _: VoiceCurator) -> CuratedVoicesOut:
+async def list_voices(
+    session: GlobalSession,
+    _: VoiceCurator,
+    scope: Annotated[
+        VoiceScope,
+        Query(description="`decided` (default) or `all` — see the response's `scope`."),
+    ] = "decided",
+) -> CuratedVoicesOut:
     """The table. One read of the cache, plus one live-agent count per tenant.
 
     The count is the only expensive part and it is bounded by the tenant directory, which
     is this product's client list. It runs on an operator's page load and nowhere else —
     never on a picker render, never on a call path.
     """
-    rows = await list_curated_voices(session)
-    source = catalogue_source()
+    rows = await list_curated_voices(session, scope=scope)
     offered = sum(1 for row in rows if row.offered)
     return CuratedVoicesOut(
         voices=[CuratedVoiceOut.of(row) for row in rows],
-        source=source,
+        source=catalogue_source(),
         offered=offered,
-        note=_note(source=source, offered=offered),
+        scope=scope,
+        cached=await count_cached_voices(session),
+        note=_note(offered=offered, shown=len(rows)),
+        form=_form(),
+    )
+
+
+def _added_next_step(row: CuratedVoice, *, reason: str | None) -> str:
+    """What the add did, in one sentence, INCLUDING what is still in the way.
+
+    The unofferable case is the one that earns this function. An operator who has just added
+    their third cloned voice and is told only "saved" will go looking for the agent picker
+    and find nothing — the Cartesia agent cap, an unattested price or a missing key is the
+    actual state, and it is a decision somebody has to make rather than a fault. So the
+    ground is printed here, in the same breath as the confirmation.
+    """
+    if reason is not None:
+        return (
+            f"{row.voice.label} was added and verified against the voice platform, but no "
+            f"agent can be put on it yet: {reason}."
+        )
+    return (
+        f"{row.voice.label} was added, verified against the voice platform, and can now be "
+        "chosen for an agent — by a client for their own, or by an admin for anyone's."
+    )
+
+
+@router.post(
+    "",
+    response_model=AddVoiceOut,
+    status_code=201,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Add one voice by its facts, verified against the voice platform (audited)",
+    description=(
+        "Adds ONE voice — normally one cloned in the voice platform's Voice Lab — by the "
+        "facts its synthesizer block needs: the provider, the model, the voice id that "
+        "platform knows it by, the name it shows there, and which of this product's "
+        "languages it serves.\n\n"
+        "**Every fact is checked against the voice platform's own list before the voice is "
+        "accepted.** An id that platform does not list is refused by name, because "
+        'publishing an agent on it would fail at create time with "not available for the '
+        "provider\" — on a client's phone line rather than on this screen. If that list "
+        "cannot be read, the add is REFUSED and retryable: an unverified voice is the exact "
+        "failure this check exists to prevent.\n\n"
+        "An added voice arrives ENABLED — typing its facts is the decision to offer it. It "
+        "can still be unofferable for a separate reason (an unattested price, a missing "
+        "vendor key, the Cartesia agent cap), and the response says which.\n\n"
+        "Idempotent: adding a voice already in the cache adopts it — the row becomes an "
+        "operator-attested, enabled one, and any withdrawal stamp is cleared."
+    ),
+)
+async def add_voice(
+    payload: AddVoiceIn,
+    session: GlobalSession,
+    request: Request,
+    principal: VoiceCurator,
+) -> AddVoiceOut:
+    """The add. Verify, write the row, audit it, then install the new catalogue.
+
+    **THE SNAPSHOT IS RELOADED HERE AND DELIBERATELY IS NOT IN `set_voice_curation`**, and
+    the asymmetry is the point rather than an oversight. Curation changes no voice's
+    EXISTENCE — `voices.catalogue()` is the lookup layer and keeps resolving a disabled id so
+    a live agent goes on publishing — and offerability reads curation from the table on every
+    render, so that write needs no install. This one adds a row the snapshot does not have,
+    and until the snapshot has it `speech_for_voice_id` cannot split the id and the picker
+    cannot render it. `load_voice_catalogue` reads back inside this transaction, exactly as
+    `refresh_voice_catalogue_route` does; other API processes pick it up within one poll of
+    `ops/pricing_snapshot`'s refresher.
+
+    **THE AUDIT ROW IS IN THE SAME TRANSACTION AS THE WRITE** (BACKEND-PATTERNS §4). The
+    provenance of a typed row is the one fact in this table that re-running the sync cannot
+    reconstruct, and a row claiming an operator attested a voice with no record of which
+    operator would be worse than no row at all.
+    """
+    row = await admit_voice(
+        session,
+        get_engine(),
+        VoiceFacts(
+            provider=payload.provider.strip(),
+            tts_model=payload.tts_model.strip(),
+            engine_voice_id=payload.engine_voice_id.strip(),
+            label=payload.label.strip(),
+            languages=tuple(payload.languages),
+        ),
+    )
+    await load_voice_catalogue(session)
+    await write_audit(
+        session,
+        action="ops.voice_added",
+        actor=principal,
+        object_type="platform_voice_catalog",
+        object_id=row.voice.id,
+        ip=client_request_ip(request),
+        # Ids, a model and a provider. No client detail and no tenant (hard rule 6) — this
+        # is a platform-wide row and names nobody.
+        summary={
+            "voice_id": row.voice.id,
+            "tts_model": row.voice.tts_model,
+            "provider": row.voice.provider,
+            "is_custom": row.is_custom,
+        },
+    )
+    reason = await offerability_of(row.voice, state=row.state)
+    return AddVoiceOut(
+        voice=CuratedVoiceOut.of(row),
+        offered=await count_offered_voices(session),
+        offerable=reason is None,
+        unofferable_reason=reason,
+        next_step=_added_next_step(row, reason=reason),
     )
 
 
@@ -376,4 +663,14 @@ async def set_voice_curation(
     )
 
 
-__all__ = ["CuratedVoiceOut", "CuratedVoicesOut", "SetCurationIn", "SetCurationOut", "router"]
+__all__ = [
+    "AddVoiceFormOut",
+    "AddVoiceIn",
+    "AddVoiceOut",
+    "CuratedVoiceOut",
+    "CuratedVoicesOut",
+    "SetCurationIn",
+    "SetCurationOut",
+    "VoiceProviderOptionOut",
+    "router",
+]

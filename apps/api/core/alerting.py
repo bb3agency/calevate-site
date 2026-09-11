@@ -3,6 +3,25 @@
 The point of the enum: "where in the pipeline did this die" must be answerable from
 the alert alone, without reading code.
 
+**NOT EVERY ALERT HAS TO REACH A PHONE, AND THAT IS D-591.** For as long as this file
+had a delivery path it mailed EVERY code, so four ordinary deploys' `signal_received`, a
+visitor's browser extension tripping `csp_violation` and twenty-six observations of one
+already-diagnosed `fx_rate_stale` arrived looking exactly like the one operational failure
+in the same evening that was worth reading. The throttling was never the defect — the
+bounds below work — the defect was treating every code as equally worth an email. Three
+things now stand between `alert()` and a message:
+
+1. **A SEVERITY** (`core/alarm_severity.py`), mandatory for every code and checked in both
+   directions by `scripts/check_alarm_wiring.py`. Only `page` mails. `attention` and
+   `record` are recorded and read on `/admin/ops/alerts`, which is what the founder asked
+   for in those words: *"failures in admin panel only"*.
+2. **THE ONSET TRANSITION** (`core/alert_records.py`). Even a `page` mails on the
+   occurrence that OPENS an episode and not on the ones that continue it, so an ongoing
+   condition is one message however long it lasts. It fails OPEN: if the database cannot
+   say whether this is new, the mail goes.
+3. **A CLEAR NOTICE** (`workers/alerts.sweep_alert_clears`), because a condition ending is
+   worth one line too, and because an episode that never closes could never mail again.
+
 **An alert has to reach a person.** OPERATIONS §4 promises "alerts (WhatsApp/email to
 Sri)" and §8 makes "alerts firing to Sri's phone" a pre-launch gate. Until this file
 grew a delivery path, `alert()` wrote an ERROR log line and stopped — so an exhausted
@@ -89,9 +108,13 @@ import queue
 import threading
 import time
 from dataclasses import dataclass, replace
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
+from apps.api.core.alarm_severity import Severity, is_emailed, severity_of
 from apps.api.core.logging import get_logger, redact_mapping
+
+if TYPE_CHECKING:  # `alert_records` imports psycopg; keep it off the ack path's imports.
+    from apps.api.core.alert_records import RecordOutcome
 
 log = get_logger("calevate.alert")
 metrics_log = get_logger("calevate.metric")
@@ -141,10 +164,27 @@ def alert(stage: FailureStage, code: str, *, detail: str | None = None, **ids: s
     Returns as soon as the log record is written and the notice is queued. Never
     raises: this is called from an exception handler and from a signal handler, and
     failing on top of the failure being reported helps nobody.
+
+    THE SEVERITY IS LOOKED UP, NOT PASSED. A call site that could choose its own loudness
+    would be a call site that can quietly demote an alarm, and nobody reviewing that diff
+    would see the alarm index change. `core/alarm_severity.ALARM_SEVERITY` is the one
+    place the decision is made and `scripts/check_alarm_wiring.py` refuses a code that is
+    missing from it — so adding an alarm forces the choice, in a file whose whole content
+    is those choices side by side. Unknown codes default to `page`: loud, not closed.
     """
-    log.error("alert", extra={"failure_stage": stage, "code": code, "detail": detail, **ids})
+    severity = severity_of(code)
+    log.error(
+        "alert",
+        extra={
+            "failure_stage": stage,
+            "code": code,
+            "severity": severity,
+            "detail": detail,
+            **ids,
+        },
+    )
     try:
-        _dispatch(stage, code, detail, ids)
+        _dispatch(stage, code, severity, detail, ids)
     except Exception as exc:
         log.error("alert_dispatch_failed", extra={"code": code, "reason": type(exc).__name__})
 
@@ -153,9 +193,30 @@ def alert(stage: FailureStage, code: str, *, detail: str | None = None, **ids: s
 
 # Per-fingerprint repeat suppression (Alertmanager's `repeat_interval`, tightened —
 # see the module docstring for why 15 minutes and not 4 hours).
+#
+# SINCE D-591 THIS IS THE *RECORDING* CADENCE AND NOT THE EMAIL CADENCE, and the
+# distinction is the whole fix for the 26-message thread. Every fifteen minutes an
+# ongoing fingerprint flushes one notice to the delivery thread carrying the count of
+# everything suppressed since the last one, which keeps `/admin/ops/alerts` current and
+# keeps the queue bounded at one notice per code per window. Whether that notice becomes
+# an EMAIL is then a separate question with a different answer: only a `page`, and only
+# on the occurrence that OPENS the episode (`core/alert_records.py`).
 ALERT_REPEAT_INTERVAL_S = 900.0
-# The global bound. Six in a burst is enough for "several things broke at once" to be
-# legible on a phone; twenty an hour is more than one person can act on anyway.
+# How long a fingerprint must stay QUIET before `workers/alerts.sweep_alert_clears` calls
+# the episode over. Four flush windows: an ongoing condition refreshes `last_seen_at`
+# every fifteen minutes, so an hour of silence is four missed refreshes and not a jitter.
+# Closing the episode is what lets the SAME condition mail again when it genuinely
+# recurs — without it, one onset would silence a code forever.
+ALERT_CLEAR_AFTER_S = 3600.0
+# The global bound, and SINCE D-591 IT APPLIES ONLY TO CODES THAT CAN MAIL. It is drawn
+# against a phone's attention, and a code that never reaches a phone is not spending that
+# — while leaving `record` and `attention` on the same bucket had a real cost this file
+# already names: `webhook_source_rejected` and `razorpay_webhook_bad_signature` fire from
+# anywhere on the internet with no credential, so a stranger could empty the burst at a
+# moment of their choosing and, now that the bucket also gates RECORDING, would have been
+# able to delete a `page` from the console as well as from the inbox. Both are `record`
+# today, and both are now bounded by the per-fingerprint window alone — one notice per
+# code per fifteen minutes, 224 codes, which is a hard ceiling the queue can absorb.
 ALERT_BURST = 6
 ALERT_BUDGET_PER_HOUR = 20.0
 # Bounded on purpose: an unbounded queue in front of a 15-second SMTP timeout is a
@@ -179,6 +240,9 @@ class AlertNotice:
 
     stage: FailureStage
     code: str
+    #: From `core/alarm_severity.py`, resolved at fire time so a re-classification cannot
+    #: rewrite what a notice already in the queue was.
+    severity: Severity
     detail: str | None
     ids: dict[str, str]
     suppressed: int
@@ -224,22 +288,34 @@ def _recipient() -> str | None:
     return get_settings().alerts_email or None
 
 
-def _dispatch(stage: FailureStage, code: str, detail: str | None, ids: dict[str, str]) -> None:
+def _dispatch(
+    stage: FailureStage,
+    code: str,
+    severity: Severity,
+    detail: str | None,
+    ids: dict[str, str],
+) -> None:
+    """Admit, then queue. NOTHING here decides whether an email is sent.
+
+    THE UNCONFIGURED-RECIPIENT CHECK IS GONE FROM THIS PATH (D-591) and the reason is the
+    new half of the job. It used to return early when `alerts_email` was unset, which was
+    right while the only outcome was a mail; now a notice also becomes a row on
+    `/admin/ops/alerts`, and a deployment with no alert mailbox is exactly the one whose
+    operator needs the console. The warning still fires once, from the delivery thread,
+    where the recipient is read.
+    """
     if getattr(_local, "delivering", False):
         # Reached from inside the delivery path. The log line above already happened;
         # queueing here is how a broken transport becomes an infinite loop.
         return
-    recipient = _recipient()
-    if not recipient:
-        _warn_unconfigured_once()
-        return
-    verdict = _admit(f"{stage}:{code}", code)
+    verdict = _admit(f"{stage}:{code}", code, severity)
     if verdict is None:
         return
     suppressed, rate_limited, rate_limited_codes = verdict
     notice = AlertNotice(
         stage=stage,
         code=code,
+        severity=severity,
         detail=detail,
         ids=dict(ids),
         suppressed=suppressed,
@@ -264,8 +340,16 @@ def _warn_unconfigured_once() -> None:
     log.warning("alert_delivery_unconfigured", extra={"service": _service})
 
 
-def _admit(fingerprint: str, code: str) -> tuple[int, int, tuple[tuple[str, int], ...]] | None:
+def _admit(
+    fingerprint: str, code: str, severity: Severity
+) -> tuple[int, int, tuple[tuple[str, int], ...]] | None:
     """The two bounds. Returns (suppressed, rate_limited, dropped_codes), or None to drop.
+
+    THE TOKEN BUCKET IS ASKED ONLY OF CODES THAT CAN MAIL (D-591) — see `ALERT_BURST`.
+    The per-fingerprint window is asked of everything, because it is what keeps the
+    bounded queue bounded, and what it withholds is COUNTED rather than lost: the
+    suppressed total rides the next flush into `platform_alerts.occurrences`, so a
+    console row reads "2,140 times" even though the delivery thread saw four notices.
 
     The lock is taken NON-BLOCKING on purpose. `apps/api/core/bootstrap.py` installs a
     SIGTERM handler that calls `alert()`, and a signal handler runs on the main thread
@@ -283,7 +367,7 @@ def _admit(fingerprint: str, code: str) -> tuple[int, int, tuple[tuple[str, int]
         if last is not None and now - last < ALERT_REPEAT_INTERVAL_S:
             _suppressed[fingerprint] = _suppressed.get(fingerprint, 0) + 1
             return None
-        if not _take_token(now):
+        if is_emailed(severity) and not _take_token(now):
             _rate_limited += 1
             # Named, not just counted — and only up to the cap, so a storm of distinct
             # codes cannot grow this dict without bound. Once the cap is reached the
@@ -398,10 +482,7 @@ def _drain() -> None:
         try:
             if notice is None:
                 return
-            admitted = _admit_shared(notice)
-            if admitted is None:
-                continue
-            _deliver(admitted)
+            _handle(notice)
         except Exception as exc:
             log.error(
                 "alert_delivery_crashed",
@@ -411,8 +492,72 @@ def _drain() -> None:
             _queue.task_done()
 
 
-def _deliver(notice: AlertNotice) -> None:
-    """Runs ONLY on the delivery thread.
+def _handle(notice: AlertNotice) -> None:
+    """Record the episode, then mail it if it is both LOUD and NEW. Delivery thread only.
+
+    THE ORDER IS THE DESIGN. Recording comes first because the record is what answers
+    "is this condition already known" — `record()` returns `opened=True` only for the
+    occurrence that opened the episode, which is the onset transition D-591 replaced the
+    repeat window with. Recording first also means a `page` whose transport then fails is
+    already on `/admin/ops/alerts` with `emailed = false`, which is the row an operator
+    most needs and the one a mail-first order would never write.
+
+    THE CROSS-PROCESS GATE IS ASKED ONLY OF MAILS. `_admit_shared` exists so four
+    voice-runtime workers do not send four copies of one alarm; it has nothing to say
+    about recording, because the upsert SUMS across processes by construction and a
+    notice dropped there would be occurrences silently missing from the count. So a
+    `record`/`attention` notice goes straight to the row.
+
+    FAIL OPEN, ABSOLUTELY, and this is the sentence that keeps the module docstring true:
+    `outcome is None` means the database could not tell us whether this is new, and a
+    `page` is sent on that. The only thing this path may do is SUPPRESS A REPEAT.
+    """
+    outcome = _record_alert(notice)
+    if not is_emailed(notice.severity):
+        return
+    if outcome is not None and not outcome.opened and outcome.already_emailed:
+        # The condition is already open AND somebody has already been told. This is the
+        # 26-message thread. `already_emailed` is in that condition rather than assumed:
+        # an episode opened by a `page` whose transport then failed twice is an alarm
+        # nobody has heard of, and withholding its next occurrence would let one SMTP blip
+        # swallow the incident — the exact property `_forget` exists to protect.
+        log.info(
+            "alert_email_withheld_ongoing",
+            extra={"code": notice.code, "severity": notice.severity},
+        )
+        return
+    if _admit_shared(notice) is None:
+        return
+    if _deliver(notice) and outcome is not None:
+        from apps.api.core.alert_records import mark_emailed
+
+        mark_emailed(outcome.alert_id)
+
+
+def _record_alert(notice: AlertNotice) -> RecordOutcome | None:
+    """One row per episode, best effort. Imported here for `_deliver`'s reason.
+
+    `apps/voice-runtime` imports this module and may not hold `apps.workers`
+    (tests/voice_runtime_import_surface_test.py, hard rule 3), and nothing on the 500ms
+    ack path has any business importing psycopg at module scope.
+    """
+    from apps.api.core.alert_records import record
+
+    return record(
+        stage=notice.stage,
+        code=notice.code,
+        severity=notice.severity,
+        service=_service,
+        detail=notice.detail,
+        ids=notice.ids,
+        # +1 for this occurrence: `suppressed` counts only the ones withheld since the
+        # last flush, and the flush itself is an occurrence too.
+        occurrences=notice.suppressed + 1,
+    )
+
+
+def _deliver(notice: AlertNotice) -> bool:
+    """Send one alert email. Returns whether it landed. Runs ONLY on the delivery thread.
 
     The transport import is here rather than at module scope for two reasons that
     happen to agree: `apps/voice-runtime` imports this module and is forbidden to hold
@@ -423,7 +568,10 @@ def _deliver(notice: AlertNotice) -> None:
     """
     recipient = _recipient()
     if recipient is None:
-        return
+        # No mailbox configured. Said once, HERE rather than in `_dispatch`, because since
+        # D-591 the notice still became a console row and only the email is missing.
+        _warn_unconfigured_once()
+        return False
     _local.delivering = True
     try:
         from apps.api.core.transport import get_transport
@@ -443,7 +591,7 @@ def _deliver(notice: AlertNotice) -> None:
                     "alert_delivered",
                     extra={"code": notice.code, "transport": transport.name, "attempts": attempt},
                 )
-                return
+                return True
             if attempt == 1 and DELIVERY_RETRY_DELAY_S:
                 time.sleep(DELIVERY_RETRY_DELAY_S)
         log.error(
@@ -455,6 +603,7 @@ def _deliver(notice: AlertNotice) -> None:
             },
         )
         _forget(f"{notice.stage}:{notice.code}")
+        return False
     finally:
         _local.delivering = False
 
@@ -479,6 +628,11 @@ def _body(notice: AlertNotice) -> str:
     lines = [
         f"stage:   {notice.stage}",
         f"code:    {notice.code}",
+        # Printed even though only `page` is ever mailed: the reader is meant to be able
+        # to tell, from the message alone, that this arrived because somebody decided it
+        # was worth waking them for — and to know where to go to argue with that
+        # decision (`apps/api/core/alarm_severity.py`).
+        f"severity: {notice.severity}",
         f"service: {_service}",
     ]
     if detail:
@@ -520,8 +674,13 @@ def reset_alerts() -> None:
     and stopping it would race a test that is already inside one."""
     global _rate_limited, _tokens, _tokens_refilled_at, _unconfigured_warned
     from apps.api.core.alert_admission import reset_admission
+    from apps.api.core.alert_records import forget_all
 
     flush_alerts(timeout=5.0)
+    # The THIRD piece of admission state since D-591: the open EPISODE, which decides
+    # whether a `page` is an onset or a repeat. Leaving it would make a test's first
+    # alert silently a continuation of the previous test's.
+    forget_all()
     # The shared half too, or a test that resets alerting still inherits the previous
     # test's window from Redis and watches its alert vanish for reasons nothing in the
     # test file explains.
@@ -729,6 +888,7 @@ def record_compliance_block(*, rule: str) -> None:
 __all__ = [
     "ALERT_BUDGET_PER_HOUR",
     "ALERT_BURST",
+    "ALERT_CLEAR_AFTER_S",
     "ALERT_DROPPED_CODES_MAX",
     "ALERT_QUEUE_MAX",
     "ALERT_REPEAT_INTERVAL_S",

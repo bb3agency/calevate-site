@@ -199,6 +199,14 @@ ALLOWED_APPS_MODULES: frozenset[str] = frozenset(
         # library, not a deploy coupling — but the list is pinned so "library" cannot
         # quietly grow into "the monolith".
         "apps.api.core",
+        # D-591. `alerting` reads it on every `alert()` call to decide whether the alarm
+        # mails — a frozen dict of 224 strings and three pure functions, with no import of
+        # its own beyond `typing`. Library code by every test this list applies: it holds
+        # no product behaviour, touches no database and cannot fail. It is here rather than
+        # inlined in `alerting` because the file's whole content is the CLASSIFICATION
+        # ARGUMENT, one code at a time, and burying that in a delivery module is how it
+        # stops being reviewed.
+        "apps.api.core.alarm_severity",
         "apps.api.core.alerting",
         "apps.api.core.bootstrap",
         "apps.api.core.context",
@@ -626,6 +634,51 @@ INTENDED_RUNTIME_IMPORTS_ON_THE_ALERT_THREAD: dict[str, str] = {
         "the cross-process alert suppression gate (D-160). Lazy, delivery thread only, "
         "no new distribution, 0.5s bounded, fails open. Intended — this does not close."
     ),
+    # D-591. `alerting._handle` writes one row per alarm EPISODE, which is both the whole
+    # of `/admin/ops/alerts` and the thing that decides whether a `page` is an onset or a
+    # repeat. It satisfies hard rule 3 on the same three terms as its two neighbours and
+    # one more that matters here specifically:
+    #
+    #   * LAZY AND ON THE DELIVERY THREAD. `alerting` imports it under `TYPE_CHECKING`
+    #     only; the runtime import happens inside `_handle`, which the ack path reaches
+    #     through a `put_nowait` on a bounded queue and never waits for.
+    #   * NO NEW DISTRIBUTION. `psycopg` does not appear in the measured delta because
+    #     SQLAlchemy's async engine already holds it at boot — THIS TEST IS THE PROOF, the
+    #     same proof it gives for `redis` one entry up.
+    #   * BOUNDED AND FAILS OPEN. One short-lived connection with `connect_timeout` and a
+    #     libpq-level `statement_timeout`, both `RECORD_TIMEOUT_S` (3s), and a failure
+    #     returns `None` — which `_handle` reads as "I cannot tell whether this is new" and
+    #     MAILS. So the database can only ever suppress a repeat, never an alarm.
+    #   * IT DOES NOT MAKE THE ALERT PATH DEPEND ON THE THING IT REPORTS ON. That is the
+    #     module docstring's founding argument for keeping this off the outbox, and the
+    #     line above is what keeps it true one component over.
+    # AND THE DRIVER IT PULLS WITH IT, declared separately because it is a DISTRIBUTION
+    # and not one of our modules. In production this costs the alert thread NOTHING: this
+    # service's webhook receiver already imports `apps.api.db.session` at boot and writes
+    # the minimal event row hard rule 3 allows it, so `postgresql+psycopg` is resident long
+    # before any alarm fires — the probe only sees it because it alerts on a freshly booted
+    # process that has not yet opened a connection. The worst case is therefore a
+    # first-alarm-before-first-webhook import on a DAEMON thread, which no ack waits on.
+    # The compiled half of the same distribution (`psycopg[binary]`, the extra this repo
+    # pins). Its own top-level name, so it needs its own row; the argument is the row
+    # above's, word for word.
+    "psycopg_binary": (
+        "the compiled half of `psycopg[binary]`, pulled by the row below and covered by "
+        "the same argument: already this service's own driver, daemon thread, never the "
+        "ack path."
+    ),
+    "psycopg": (
+        "the database driver `alert_records` connects through, covering its submodules. "
+        "Already this service's own driver (`apps/api/db/session.py`, "
+        "`postgresql+psycopg`), so in production it is resident before the first alarm; "
+        "the delta here is a freshly booted probe. Daemon thread, never the ack path."
+    ),
+    "apps.api.core.alert_records": (
+        "the alert EPISODE recorder (D-591) — one row per alarm, and the onset/repeat "
+        "answer that decides whether a `page` mails. Lazy, delivery thread only, no new "
+        "distribution (psycopg is already resident), 3s bounded, fails OPEN so it can "
+        "only suppress a repeat. Intended — this does not close."
+    ),
 }
 
 _ALERT_PROBE = """
@@ -697,12 +750,24 @@ def test_the_alert_delivery_thread_acquires_only_the_recorded_exception() -> Non
         "ALERTS_EMAIL still selects a recipient and the console transport still reports "
         "success"
     )
+    # A DECLARED NAME COVERS ITS SUBMODULES, which stdlib already got for free one line
+    # up (`module.split(".")[0] not in sys.stdlib_module_names`). `psycopg` brings forty
+    # private submodules in one `import psycopg`; listing each would make the declaration
+    # unreadable and would say nothing the top-level entry does not — the question this
+    # test asks is "what DISTRIBUTION did the delivery thread reach for", and forty rows
+    # for one answer is how a pinned set stops being read. Anything not under a declared
+    # name is still reported by its full path.
+    declared = set(INTENDED_RUNTIME_IMPORTS_ON_THE_ALERT_THREAD)
     acquired = {
         module
         for module in set(measured["after"]) - set(measured["before"])
         if module.split(".")[0] not in sys.stdlib_module_names and not module.startswith("_")
     }
-    expected = set(INTENDED_RUNTIME_IMPORTS_ON_THE_ALERT_THREAD)
+    acquired = {
+        next((name for name in declared if module == name or module.startswith(f"{name}.")), module)
+        for module in acquired
+    }
+    expected = declared
     assert acquired == expected, (
         "delivering one alert changed what this latency-critical process holds:\n"
         + "\n".join(f"  - {module}" for module in sorted(acquired))

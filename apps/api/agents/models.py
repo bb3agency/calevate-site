@@ -846,3 +846,15 @@ class PlatformVoiceCatalogEntry(Base):
     #: `read_cached_catalogue` drops a withdrawn row from the catalogue entirely, so it
     #: leaves the picker exactly as a deleted row used to.
     withdrawn_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    #: WHY THIS ROW EXISTS (D-590) — `agents/voices.VoiceOrigin`. `synced` means a sync read
+    #: it off the voice platform's list; `operator` means somebody typed its facts into the
+    #: admin console's Add-a-voice form and they were verified against that list before the
+    #: row was written.
+    #:
+    #: The two kinds of row are otherwise IDENTICAL on purpose — one shape, one `Voice`, one
+    #: picker, so nothing downstream has to branch — and this column is the only thing that
+    #: tells them apart. It is what lets the console open with the voices an operator added
+    #: rather than with 418 vendor personas to curate, and it is deliberately NOT written by
+    #: `sync_voice_catalogue`'s upsert: a re-read of the vendor's list reports what the
+    #: platform has and can neither create nor revoke an operator's attestation.
+    origin: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'synced'"))

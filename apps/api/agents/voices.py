@@ -69,8 +69,22 @@ through in the speaker slot, and the next republish or drift sweep would send th
 speaker no vendor has ever heard of. The vocabulary a curation state is written in lives
 here (`CurationState`) because it is a fact about a voice; the verdict does not.
 
-WHERE A NEW VOICE COMES FROM, WHICH IS NOT HERE AND NOT AN API
---------------------------------------------------------------
+WHERE A NEW VOICE COMES FROM: AN OPERATOR TYPES IT, AND WE CHECK IT (D-590)
+----------------------------------------------------------------------------
+⚠ **THE PARAGRAPH BELOW USED TO CONCLUDE "so the admin console's Voices page is a CURATION
+surface and says so". THAT CONCLUSION IS SUPERSEDED; ITS PREMISE IS NOT.** Bolna's voice
+API really is read-only, and nothing in this repository can clone or import a voice on their
+platform. What D-588 got wrong is that adding a voice to *their* platform and adding a voice
+to *this product's catalogue* are two different acts, and only the first needs a write they
+do not offer. The second needs a read.
+
+So `agents/voice_admission.py` takes the facts an operator types for ONE cloned voice — the
+provider, the model, the id the platform knows it by, the name it shows, and which of our
+three languages it serves — VERIFIES every one of them against the platform's own listing,
+and writes the row itself (`origin="operator"`, arriving ENABLED, because typing a voice's
+facts IS the decision to offer it). A synced row and an added row are the same shape and the
+same `Voice`; `VoiceOrigin` is the only thing that tells them apart.
+
 **BOLNA'S VOICE API IS READ-ONLY.** Their entire published API surface has exactly two
 voice routes and both are GET: `GET /api/v1/voice-config/tts` (providers and their models)
 and `GET /api/v1/voice-config/tts/voices` (paginated voices for a provider + model). There
@@ -79,12 +93,15 @@ hash-pinned mirror, every page enumerated 11 Sep 2026:
 `bolna-findings/mirror/pages/api-reference/voice/overview.md:17-18`, and the method sweep
 over `pages/api-reference/` returns those two lines and nothing else).
 
-ADDING a voice is therefore a DASHBOARD act, in their Playground, and it is one of two:
+ADDING a voice ON THEIR PLATFORM is therefore a DASHBOARD act, in their Playground (Voice
+Lab, `https://platform.bolna.ai/voices` — VERIFIED-VENDOR-DOCS,
+`bolna-findings/mirror/pages/clone-voices.md:86`), and it is one of two:
 IMPORT by voice id (`pages/import-voices.md`, with an optional connected-account toggle for
 a voice cloned on your own provider account) or CLONE from a 1-2 minute audio sample
 (`pages/clone-voices.md`, which names **ElevenLabs or Cartesia** as the cloning providers).
-Nothing in this repository can do either, and no amount of console is going to change that
-— which is why the admin console's Voices page is a CURATION surface and says so.
+Nothing in this repository can do either, and no amount of console is going to change that.
+What our console does is the step AFTER it: the operator brings back the id and the name,
+and we admit the voice to this catalogue once the platform's own list confirms both.
 
 WHAT IS GROUNDED, AND WHERE
 ---------------------------
@@ -294,6 +311,29 @@ CurationState = Literal["enabled", "disabled", "archived"]
 #: every tenant, with no operator in the loop — the failure direction that cannot be undone
 #: by noticing it later, because by then somebody's agent is speaking it.
 ARRIVAL_CURATION_STATE: Final[CurationState] = "disabled"
+
+#: The state a voice an OPERATOR TYPED arrives in (D-590). ENABLED, and the asymmetry with
+#: `ARRIVAL_CURATION_STATE` above is the whole point rather than an inconsistency.
+#:
+#: A SYNCED row arrives because the vendor listed it; nobody asked for it, so it arrives off.
+#: An ADDED row arrives because a person filled in five fields about one cloned voice and the
+#: platform confirmed every one of them — the act IS the decision to offer it, and making
+#: them press Enable afterwards would be a second confirmation of the thing they just did.
+ADDED_CURATION_STATE: Final[CurationState] = "enabled"
+
+#: WHY A CATALOGUE ROW EXISTS (D-590). `synced` — a sync read it off the voice platform's
+#: list; `operator` — somebody typed its facts and they were verified against that list.
+#:
+#: The two are IDENTICAL everywhere else on purpose: one row shape, one `Voice`, one picker,
+#: one publish path, so nothing downstream branches on provenance. What it buys is the two
+#: things provenance is actually needed for — a console that opens with the voices an
+#: operator added rather than with the vendor's whole catalogue, and a sync that cannot
+#: reclassify a typed row as a cache line it may overwrite.
+VoiceOrigin = Literal["synced", "operator"]
+
+#: The provenance a row gets when nothing says otherwise — the column default, and what the
+#: sync produces. Named so the migration, the model and the sync cannot disagree.
+DEFAULT_VOICE_ORIGIN: Final[VoiceOrigin] = "synced"
 
 
 #: The model every SARVAM persona runs on, and the default voice's model. Named so
@@ -597,6 +637,22 @@ def provider_of_tts_model(tts_model: str) -> VoiceProvider | None:
     return row.provider if row is not None else None
 
 
+def tts_models_for_provider(provider: str) -> tuple[TtsModel, ...]:
+    """Every model WE OFFER on this provider, in `TtsModel` order — the inverse of
+    `provider_of_tts_model`, and derived from the same one registry.
+
+    The add form (D-590) asks an operator for a provider AND a model and then cross-checks
+    the pair, so it needs to be able to say "this provider runs `sonic-3.5` here" without a
+    second mapping beside `TTS_MODEL_LIFECYCLE`. Today each provider has exactly one model,
+    which is a fact about our catalogue and not a fact this function is allowed to assume:
+    it answers with a tuple so a second Sarvam model reaches the form by existing.
+
+    Returns `()` for a provider this product does not have — which is a real answer and is
+    what `voice_admission.py` turns into the ElevenLabs refusal.
+    """
+    return tuple(model for model in get_args(TtsModel) if provider_of_tts_model(model) == provider)
+
+
 def tts_model_of_voice_id(voice_id: str | None) -> TtsModel | None:
     """The MODEL half of a stored voice id, read from the id ITSELF — no catalogue.
 
@@ -709,9 +765,11 @@ def voice_selection_capability(engine: VoiceEngine | None = None) -> VoiceSelect
 
 
 __all__ = [
+    "ADDED_CURATION_STATE",
     "ARRIVAL_CURATION_STATE",
     "CARTESIA_TTS_MODEL",
     "DEFAULT_TTS_MODEL",
+    "DEFAULT_VOICE_ORIGIN",
     "ENGINE_DICTATES_TTS_REASON",
     "CatalogueSource",
     "CurationState",
@@ -719,6 +777,7 @@ __all__ = [
     "Language",
     "TtsModel",
     "Voice",
+    "VoiceOrigin",
     "VoiceProvider",
     "VoiceSelectionCapability",
     "VoiceTier",
@@ -731,6 +790,7 @@ __all__ = [
     "provider_of_tts_model",
     "speech_for_voice_id",
     "tts_model_of_voice_id",
+    "tts_models_for_provider",
     "voice_id_for",
     "voice_id_of",
     "voice_ids",

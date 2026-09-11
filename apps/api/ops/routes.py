@@ -116,6 +116,22 @@ from apps.api.core.stepup import StepUpGate
 from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine
 from apps.api.kb.reconciliation import read_kb_drift
+from apps.api.ops.alerts_service import (
+    DEFAULT_LIMIT as ALERTS_DEFAULT_LIMIT,
+)
+from apps.api.ops.alerts_service import (
+    DEFAULT_WINDOW_DAYS as ALERTS_DEFAULT_WINDOW_DAYS,
+)
+from apps.api.ops.alerts_service import (
+    MAX_LIMIT as ALERTS_MAX_LIMIT,
+)
+from apps.api.ops.alerts_service import (
+    MAX_WINDOW_DAYS as ALERTS_MAX_WINDOW_DAYS,
+)
+from apps.api.ops.alerts_service import (
+    AlertReport,
+    alert_report,
+)
 from apps.api.ops.engine_latency import (
     DEFAULT_WINDOW_DAYS,
     MAX_WINDOW_DAYS,
@@ -1251,6 +1267,45 @@ async def read_engine_latency(
     per-client version waits with its blocker written down.
     """
     return await engine_latency_report(session, days=days)
+
+
+@router.get(
+    "/alerts",
+    response_model=AlertReport,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Every alarm this platform has raised, loudest and still-open first",
+)
+async def read_alerts(
+    session: GlobalSession,
+    days: int = Query(
+        ALERTS_DEFAULT_WINDOW_DAYS,
+        ge=1,
+        le=ALERTS_MAX_WINDOW_DAYS,
+        description="How many days of alert episodes to include.",
+    ),
+    limit: int = Query(
+        ALERTS_DEFAULT_LIMIT,
+        ge=1,
+        le=ALERTS_MAX_LIMIT,
+        description="How many episodes to return.",
+    ),
+    _: Principal = Depends(requires("ops:manage", realm="admin")),
+) -> AlertReport:
+    """THE SCREEN THE FOUNDER ASKED FOR (D-591): *"failures in admin panel only"*.
+
+    **`GlobalSession` AND NOT `AdminSession`**, unlike the latency report two routes down.
+    `platform_alerts` carries no `tenant_id` and no policy at all — it is platform
+    machinery, registered in `db/registry.RLS_EXEMPT_TENANT_COLUMNS` — so there is no
+    tenant to be inside and no widened policy to need. Asking for the admin-widened
+    session here would be taking a privilege this read has no use for.
+
+    **NO STEP-UP CONFIRMATION AND NO AUDIT ROW**, for `read_engine_latency`'s two reasons
+    unchanged: it writes nothing, and it is a page an operator refreshes while watching an
+    incident — an audit chain that grows a row per refresh stops being readable. Nothing
+    in the payload belongs to a client: `detail` and `ids` were redacted at the write
+    (`core/alert_records.py`, hard rule 6) and no row here is attributable to a tenant.
+    """
+    return await alert_report(session, days=days, limit=limit)
 
 
 __all__ = [

@@ -71,7 +71,17 @@ def transport(monkeypatch: pytest.MonkeyPatch) -> RecordingTransport:
     alerting.reset_alerts()
 
 
-def _fire(code: str = "outbound_webhook_exhausted", **ids: str) -> None:
+#: A `page` code, and it has to be one since D-591: only that rung leaves the building
+#: (`core/alarm_severity.py`), and a file whose whole subject is "does an alarm reach a
+#: human" must fire an alarm that is meant to. `auth_email_exhausted` is WORKER_DELIVERY
+#: like the `outbound_webhook_exhausted` that used to be here, and it pages for a reason
+#: this file can appreciate: nobody can sign in, over the same transport these alerts use.
+#: The tests that deliberately fire MADE-UP codes below are unchanged and are now also
+#: negative controls for the `page` default an unclassified code gets.
+PAGING_CODE = "auth_email_exhausted"
+
+
+def _fire(code: str = PAGING_CODE, **ids: str) -> None:
     alerting.alert("WORKER_DELIVERY", code, detail="delivery ladder exhausted", **ids)
 
 
@@ -90,7 +100,7 @@ def test_an_alert_is_delivered_to_the_operator(transport: RecordingTransport) ->
     (message,) = _delivered(transport)
     assert message["to"] == OPERATOR
     # The subject is what a phone shows on the lock screen: the code has to be in it.
-    assert "outbound_webhook_exhausted" in message["subject"]
+    assert PAGING_CODE in message["subject"]
     assert "WORKER_DELIVERY" in message["body"]
     assert "019f-abc" in message["body"]
     assert "019f-def" in message["body"]
@@ -170,7 +180,7 @@ def test_repeat_occurrences_inside_the_window_collapse_into_one_delivery(
         _fire(tenant_id="019f-abc")
 
     (message,) = _delivered(transport)
-    assert "outbound_webhook_exhausted" in message["subject"]
+    assert PAGING_CODE in message["subject"]
 
 
 def _freeze_clock(monkeypatch: pytest.MonkeyPatch, start: float = 1_000.0) -> dict[str, float]:
@@ -193,29 +203,40 @@ def _freeze_clock(monkeypatch: pytest.MonkeyPatch, start: float = 1_000.0) -> di
     return clock
 
 
-def test_the_next_delivery_after_the_window_reports_what_was_suppressed(
+def test_an_ongoing_condition_mails_once_however_long_it_lasts(
     transport: RecordingTransport, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Alertmanager's `repeat_interval` shape: the alarm re-notifies once the window
-    passes, and the count of what was swallowed is part of the message — otherwise
-    "still broken, 199 times" reads identically to "happened once"."""
+    """THE 26-MESSAGE THREAD (D-591), and this test used to assert the opposite.
+
+    It was written to Alertmanager's `repeat_interval` shape — "the alarm re-notifies
+    once the window passes" — and that is precisely the behaviour that put twenty-six
+    copies of one already-diagnosed `fx_rate_stale` in the founder's inbox in an evening.
+    An ongoing condition answers "have I mailed this in the last fifteen minutes?" with
+    "no" four times an hour, forever.
+
+    The question is now "is this condition already known", answered by the open EPISODE in
+    `platform_alerts` (`core/alert_records.py`). So: one email at onset, and the repeats
+    are COUNTED — 200 occurrences reach the row, not the inbox. The count that used to
+    ride the second message rides `/admin/ops/alerts` instead, where it is legible next to
+    when the condition started.
+
+    `tests/alert_severity_test.py` pins the count on the row and the clear notice that
+    ends the episode; what this file pins is that the second email does not happen.
+    """
     clock = _freeze_clock(monkeypatch)
 
     for _ in range(200):
         _fire()
     # DRAIN BEFORE MOVING TIME. The two windows are stamped at different moments: the
     # in-process one when `alert()` is called, the shared one when the delivery thread
-    # actually sends (D-160) — "a human has been told" is true at send time, not at queue
-    # time. So a clock advanced while a notice is still queued lands BOTH stamps on the
-    # same instant and the second alert reads as a repeat. Flushing first makes the test
-    # assert the window rather than the scheduler.
+    # actually sends (D-160) — so a clock advanced while a notice is still queued lands
+    # both stamps on one instant and the test asserts the scheduler instead of the window.
     assert alerting.flush_alerts(timeout=5.0)
     clock["t"] += alerting.ALERT_REPEAT_INTERVAL_S + 1
     _fire()
 
-    first, second = _delivered(transport, expected=2)
-    assert "suppressed" not in first["body"]
-    assert "199" in second["body"]
+    (only,) = _delivered(transport, expected=1)
+    assert "suppressed" not in only["body"]
 
 
 def test_a_storm_of_distinct_codes_is_capped_by_the_rate_limit(
@@ -412,7 +433,7 @@ def test_a_planted_phone_number_does_not_survive_into_a_delivered_alert(
     passed."""
     alerting.alert(
         "WORKER_TERMINAL",
-        "hot_lead_no_channel",
+        "post_call_abandoned",
         detail=f"could not reach {PLANTED_PHONE}",
         tenant_id="019f-abc",
         caller_phone=PLANTED_PHONE,
