@@ -6,9 +6,10 @@ four decisions of its own.
 **THE PERMISSION IS `admin:tenants`, NOT A NEW ONE.** Putting a client on a trial is
 support work of the same family as recording a payment, a DLT status or a client's number,
 all of which are `admin:tenants` — and `credit_routes.py` already records why no
-`billing:write` was invented for the same shape. It is in `MUTATING_PERMISSIONS`, so an
-impersonating admin cannot reach it (D-22): a read-only "view as client" session must not be
-able to give the client it is viewing a fortnight of free calling. The READ declares
+`billing:write` was invented for the same shape. `admin:tenants` is withheld from a
+view-as session (D-587), so an operator cannot give the client they are VIEWING a
+fortnight of free calling from inside that client's own console — they grant it from the
+operator console, where the record reads as ours. The READ declares
 `billing:read`, which is looser on purpose for `tenant_erasure_routes.py`'s reason — an
 operator who may not START a trial should still be able to see what one is costing.
 

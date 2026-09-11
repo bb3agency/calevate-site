@@ -147,18 +147,21 @@ export function TenantNav({ tenantId, slug }: { tenantId: string; slug: string }
           session (admin token + X-Impersonate-Org) instead of a client one — see
           lib/api/session.tsx. Without it the link handed over a client token the
           operator does not have, so `me.impersonating` was always false and the
-          read-only banner never appeared. The marker selects a credential; it
+          view-as banner never appeared. The marker selects a credential; it
           grants nothing, and the API verifies the admin identity regardless.
 
-          "read-only" is now IN THE LABEL rather than only in a `title` a mouse has
-          to find and a keyboard never will. D-22 is the promise this link makes, and
-          a promise that only appears on hover is not one the operator has read. */}
+          THE LABEL SAID "(read-only)" UNTIL D-587 AND MUST NOT SAY IT AGAIN: a view-as
+          session can now change the account, and a label promising otherwise is the one
+          an operator would rely on. What belongs in the label is the part that is still
+          true and still worth reading before clicking — this is recorded, and recorded
+          against you. Said in the label rather than only in a `title` a mouse has to find
+          and a keyboard never will. */}
       <NavLink
         href={viewAsHref(slug)}
         icon={<Eye className="h-4 w-4" />}
-        title="Read-only. Every page view is recorded in the audit log."
+        title="Everything you view and everything you change is recorded against you in the audit log."
       >
-        View as client (read-only)
+        View as client (logged)
       </NavLink>
     </div>
   );

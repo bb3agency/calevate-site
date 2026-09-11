@@ -26,8 +26,27 @@ const NEXT = "seven league boots wander";
 
 const AUTH = "That did not work";
 
+/**
+ * The client account page reads `/v1/me` for the account block at the top of it. None of
+ * these tests is about that block, so it is answered here rather than in each table — an
+ * unanswered route is a refusal arm rendering over the form under test.
+ */
+const ME = {
+  user_id: "u1",
+  realm: "client",
+  role: "owner",
+  permissions: ["org:read", "org:manage"],
+  impersonating: false,
+  organization: {
+    id: "0192f0aa-0000-7000-8000-0000000000d1",
+    name: "Sri Lakshmi Dental",
+    slug: "sri-lakshmi-dental",
+    status: "active",
+  },
+};
+
 async function renderPage(ui: React.ReactElement, routes: Routes): Promise<ApiCall[]> {
-  const calls = stubApi(routes);
+  const calls = stubApi({ "/v1/me": ME, ...routes });
   await act(async () => {
     render(ui);
   });

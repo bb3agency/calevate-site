@@ -77,7 +77,8 @@ import { useAdminAccess } from "@/app/admin/access";
  * **Two sessions, deliberately.** The state is READ through impersonation (`org:read`,
  * non-mutating, the only read of a tenant's review that exists) and the decision is
  * WRITTEN through the admin surface with the tenant in the path (`admin:tenants`, which
- * an impersonating principal is refused). That is D-22 working; `admin.ts` builds both.
+ * a view-as session is refused: D-587 kept `admin:tenants` withheld, because acting on a
+ * client's record is an operator-console act). `admin.ts` builds both sessions.
  * The Record button is gated on that same `admin:tenants` and disabled with its reason,
  * so the refusal arrives before the click rather than as a 403 that reads like a fault.
  *
@@ -429,7 +430,7 @@ function DecisionForm({
           if (draft !== null) decide.mutate(draft);
         }}
       >
-        {/* The permission this route requires, answered before the click (D-22 note in
+        {/* The permission this route requires, answered before the click (the note in
             ../../access.ts: the WRITE is admin-realm, so `impersonating` is not the
             question here — the role's `admin:tenants` is). */}
         <RestrictionNote reason={write.reason} />

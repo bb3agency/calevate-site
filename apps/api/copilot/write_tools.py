@@ -111,6 +111,7 @@ from apps.api.copilot.actions import (
     WriteRefusedError,
     action_schema,
     actor_for,
+    assistant_closed_to,
     may_act,
     parse_args,
 )
@@ -1010,6 +1011,14 @@ async def plan_write(
         # is a row). It is still the FIRST thing that happens under the session and still
         # runs before `tool.plan` reads anything, so the order the refusals arrive in is
         # unchanged — only where the connection is opened moved.
+        shut = assistant_closed_to(actor)
+        if shut is not None:
+            # The assistant itself is withheld from a view-as session (D-587: it spends the
+            # CLIENT'S allowance). Refused BEFORE the permission, because the permission
+            # would now say yes and the honest reason is the other one.
+            raise WriteRefusedError(
+                f"this assistant is not available in a view-as session, so do not offer `{name}`"
+            )
         if not await may_act(session, actor, tool.permission):
             raise WriteRefusedError(
                 f"this person's role may not do what `{name}` proposes, so do not offer it"
@@ -1223,6 +1232,12 @@ async def run_immediate(
         raise WriteRefusedError("the tool call was not an object")
 
     async with tenant_session(actor.tenant_id) as session:
+        shut = assistant_closed_to(actor)
+        if shut is not None:
+            raise WriteRefusedError(
+                f"this assistant is not available in a view-as session, so `{name}` cannot "
+                "be applied from here"
+            )
         if not await may_act(session, actor, tool.permission):
             raise WriteRefusedError(
                 f"this person's role may not do what `{name}` does, so tell them rather "
@@ -1550,13 +1565,26 @@ async def confirm(
             "Sign in to the account the suggestion was made for.",
         )
     proposal = _verify(token, actor=actor)
+    shut = assistant_closed_to(actor)
+    if shut is not None:
+        # THE ASSISTANT, NOT THE ACT (D-587). An operator in a view-as session may well be
+        # allowed to make this change — from the button. What they may not do is spend the
+        # client's AI allowance asking for it, and a card produced outside that rule must
+        # not be applied through it either. The ground is `rbac.VIEW_AS_MUTATIONS`'s own
+        # sentence, so the person reads the same reason the route would have given them.
+        raise ProblemError(
+            kind="permission",
+            code="forbidden",
+            title="Forbidden",
+            detail=shut,
+            remediation="Make the change from the controls on this screen instead.",
+        )
     if not await may_act(session, actor, proposal.tool.permission):
         # `ProblemError.forbidden` carries NO `remediation`, and every failure a person can
-        # reach owes them one (BACKEND-PATTERNS §3). This one is reachable by two ordinary
-        # routes — a member demoted while the assistant was talking, and a D-22 view-as
-        # session — and "you do not have permission" with no next step leaves somebody
-        # staring at a card they cannot act on. Same kind, same code, same 403: only the
-        # sentence is added.
+        # reach owes them one (BACKEND-PATTERNS §3). This one is reachable by an ordinary
+        # route — a member demoted while the assistant was talking — and "you do not have
+        # permission" with no next step leaves somebody staring at a card they cannot act
+        # on. Same kind, same code, same 403: only the sentence is added.
         raise ProblemError(
             kind="permission",
             code="forbidden",

@@ -41,7 +41,13 @@ import {
 import { AdminCopilotDock } from "@/components/copilot/CopilotDock";
 import { OfflineBanner } from "@/components/offline";
 import { ADMIN_REALM_IDENTITY_CLASS } from "@/components/realmChrome";
-import { MAIN_CONTENT_ID, NOTICE_TONES, NoticeBox, SkipLink } from "@/components/ui";
+import {
+  MAIN_CONTENT_ID,
+  NOTICE_TONES,
+  NoticeBox,
+  SHELL_RAIL_CLASS,
+  SkipLink,
+} from "@/components/ui";
 import { useHeldTenants } from "@/lib/api/admin";
 import { ApiProblem } from "@/lib/api/client";
 import { currentNavItem } from "@/lib/nav";
@@ -613,33 +619,37 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
   const pathname = usePathname();
 
   return (
-    <header className="sticky top-0 z-10 flex h-[72px] shrink-0 items-center justify-between border-b border-line bg-surface px-4 lg:px-8">
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={onMenuToggle}
-          aria-label="Open navigation"
-          className="flex h-9 w-9 items-center justify-center rounded-md text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
-        >
-          <Menu className="h-5 w-5" />
-        </button>
-        {/* The screens themselves carry no `<h1>`: the title lives here, derived from the
-            nav, so it cannot say one thing in the sidebar and another on the page. */}
-        <h1 className="text-xl font-bold tracking-tight text-ink lg:text-2xl">
-          {currentItem(pathname)?.label ?? "Clients"}
-        </h1>
-      </div>
+    // Same rail as the client shell's header, for the same reason and in the same place —
+    // see `SHELL_RAIL_CLASS`. The strip is the window's; its contents are the page's.
+    <header className="sticky top-0 z-10 flex h-[72px] shrink-0 items-center border-b border-line bg-surface px-4 lg:px-8">
+      <div className={`${SHELL_RAIL_CLASS} flex items-center justify-between gap-3`}>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onMenuToggle}
+            aria-label="Open navigation"
+            className="flex h-9 w-9 items-center justify-center rounded-md text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          {/* The screens themselves carry no `<h1>`: the title lives here, derived from the
+              nav, so it cannot say one thing in the sidebar and another on the page. */}
+          <h1 className="text-xl font-bold tracking-tight text-ink lg:text-2xl">
+            {currentItem(pathname)?.label ?? "Clients"}
+          </h1>
+        </div>
 
-      <div className="flex items-center gap-2 lg:gap-4">
-        {/* The marker, at every route. Not a `NoticeBox`: that component is a verdict about
-            something the reader must act on, and this is a standing statement about the
-            session. It borrows the same warn palette so the two never disagree on tone. */}
-        <span
-          className={`hidden rounded-full border px-3 py-1 text-[11px] font-semibold sm:inline-block ${NOTICE_TONES.warn}`}
-        >
-          Cross-client · every action is audited
-        </span>
-        <HeldCount />
+        <div className="flex items-center gap-2 lg:gap-4">
+          {/* The marker, at every route. Not a `NoticeBox`: that component is a verdict about
+              something the reader must act on, and this is a standing statement about the
+              session. It borrows the same warn palette so the two never disagree on tone. */}
+          <span
+            className={`hidden rounded-full border px-3 py-1 text-[11px] font-semibold sm:inline-block ${NOTICE_TONES.warn}`}
+          >
+            Cross-client · every action is audited
+          </span>
+          <HeldCount />
+        </div>
       </div>
     </header>
   );
@@ -804,7 +814,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                     tabIndex={-1}
                     className="relative flex-1 overflow-y-auto px-4 py-4 lg:px-8 lg:py-6"
                   >
-                    <div className="mx-auto max-w-[1280px]">{children}</div>
+                    <div className={SHELL_RAIL_CLASS}>{children}</div>
                   </main>
                 </div>
               </div>

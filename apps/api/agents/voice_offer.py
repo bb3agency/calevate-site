@@ -73,7 +73,7 @@ from uuid import UUID
 from sqlalchemy import text
 
 from apps.api.agents.llm_models import LlmReasonAudience
-from apps.api.agents.voices import CATALOG, Voice, VoiceProvider
+from apps.api.agents.voices import Voice, VoiceProvider, catalogue
 from apps.api.billing.rates import voice_tier_label
 from apps.api.core.settings import get_settings
 from apps.api.db.session import admin_session, tenant_session
@@ -263,16 +263,22 @@ def unofferable_reason(
 def offerable_voices(
     *,
     cartesia_live_agents: int,
-    voices: tuple[Voice, ...] = CATALOG,
+    voices: tuple[Voice, ...] | None = None,
     audience: VoiceReasonAudience = "operator",
 ) -> tuple[OfferedVoice, ...]:
     """EVERY catalogue voice with its verdict — never a shorter list.
+
+    `voices=None` means "whatever is in force NOW" and is resolved in the body, never as a
+    default argument: the catalogue is synced from the engine (D-585), so a module-level
+    default would freeze whatever was installed at IMPORT and serve it for the life of the
+    process — the picker would silently stop seeing a voice the operator cloned an hour ago.
 
     A picker that received only the offerable voices would render a Cartesia tier that
     silently does not exist on this deployment, and the operator who installed the key an
     hour ago would have no way to see that the price is what is still missing. The reason
     per voice is the product; the filtering is the caller's, if they want it.
     """
+    voices = catalogue() if voices is None else voices
     return tuple(
         OfferedVoice(
             voice=voice,
@@ -352,7 +358,7 @@ async def count_live_cartesia_agents(*, exclude_agent_id: UUID | None = None) ->
 async def offered_catalogue(
     *,
     exclude_agent_id: UUID | None = None,
-    voices: tuple[Voice, ...] = CATALOG,
+    voices: tuple[Voice, ...] | None = None,
     audience: VoiceReasonAudience = "operator",
 ) -> tuple[OfferedVoice, ...]:
     """The catalogue with its live verdicts — what `GET /v1/agents/voices` and the voice
@@ -366,6 +372,7 @@ async def offered_catalogue(
     realms read the same catalogue, get the same verdicts, and differ in exactly one
     sentence — the route picks it from the caller's realm.
     """
+    voices = catalogue() if voices is None else voices
     needs_count = cartesia_tier_could_be_offered() and any(
         voice.provider == "cartesia" for voice in voices
     )

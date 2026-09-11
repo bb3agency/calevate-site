@@ -149,15 +149,22 @@ certificate hands the client a number and names the manual step, which is a task
 than the shrug "not searched" was. `tests/kb_retention_test.py` holds all of it.
 
 **Permission: `org:manage`.** Owner-only in the client realm, operator/superadmin in the
-admin realm, and — the part that matters — a member of `MUTATING_PERMISSIONS`, so D-22
-refuses it to an impersonating admin. That refusal is the point. The subject-access
-export next door explicitly rejected `org:manage` *because* being mutating would block
-an impersonating admin from a harmless read; erasure is the mirror image, and an admin
+admin realm. It is a member of `MUTATING_PERMISSIONS`, and until D-587 that ALSO meant an
+impersonating admin was refused it — which was the point. The subject-access export next
+door explicitly rejected `org:manage` *because* being mutating would block an
+impersonating admin from a harmless read; erasure is the mirror image, and an admin
 "viewing as client" triggering an irreversible destruction of that client's records is
-precisely what read-only impersonation exists to prevent. `calls:read_raw` (the export's
-permission) is disqualified for the same reason in reverse: it is not mutating, so it
-would let an impersonating admin erase. `staff` holds neither and should not — deleting
-the client's records is not a shift-worker decision.
+precisely what read-only impersonation existed to prevent.
+
+⚠ **D-587 MADE `org:manage` WRITABLE IN A VIEW-AS SESSION, SO THAT REFUSAL NO LONGER
+FOLLOWS FROM THE PERMISSION AND IS NOW ITS OWN LOCK**: `deletion_routes.request_erasure`
+calls `core/auth.assert_view_as_may(principal, "compliance.erasure_request")`, whose
+ground is recorded in `rbac.VIEW_AS_WITHHELD_ACTS`. The argument above is unchanged and is
+why the act is on that list; what changed is that it had to be written down as a rule
+rather than inherited from one. `calls:read_raw` (the export's permission) is still
+disqualified for the mirror reason: it is not mutating, so gating erasure on it would put
+an irreversible act behind a permission every reader holds. `staff` holds neither and
+should not — deleting the client's records is not a shift-worker decision.
 
 Reading a status is `org:read` instead, deliberately looser: the response carries no
 personal data (a `subject_ref` hash, timestamps, and a proof made of hashes and counts),

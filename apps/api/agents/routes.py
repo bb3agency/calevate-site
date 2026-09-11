@@ -24,18 +24,19 @@ live app, not reasoned about:
 - WITHOUT `X-Impersonate-Org`: 401. Its `Depends(db)` resolves through `tenant_of` ->
   `current_any`, which without the impersonation header falls through to the CLIENT
   verifier and rejects an admin token ("not valid for this realm").
-- WITH the header: 403. The principal resolves, but D-22 makes impersonation READ-ONLY
-  and `requires()` refuses every `MUTATING_PERMISSIONS` entry — `agents:write`
-  included — whenever that header is present.
+- WITH the header: 403, AT THE TIME. The principal resolved, but D-22 made impersonation
+  READ-ONLY and `requires()` refused every `MUTATING_PERMISSIONS` entry — `agents:write`
+  included — whenever that header was present. ⚠ D-587 reversed that half, so this route
+  IS now reachable with the header; the fix below was never about the refusal and does
+  not change.
 
 So its `assert principal.tenant_id is not None` was unreachable code guarding a door
-nobody could reach. The two ways an admin principal can carry a tenant are mutually
-exclusive with mutating, which is why the fix is NOT to loosen D-22 but to stop
-inferring the tenant: name it in the path and enter its RLS scope explicitly, exactly
-as `admin/routes.py` does above `approve_kb` ("an admin reaching a tenant does so by
-impersonation, and impersonation is read-only. The tenant is therefore named in the
-path rather than inferred from a session, which also makes every approval
-self-documenting in the audit log") and as `agents/prompt_routes.py` already does at
+nobody could reach. The fix was NOT to loosen the rule but to stop inferring the tenant:
+name it in the path and enter its RLS scope explicitly, which is what makes the act
+self-documenting whichever session the operator happens to be holding — exactly as
+`admin/routes.py` does above `approve_kb` ("the tenant is named in the PATH rather than
+inferred from a session, which makes every approval self-documenting in the audit log")
+and as `agents/prompt_routes.py` already does at
 `/v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt`. Publish now sits beside it.
 
 ⚠ The path changed, so the OpenAPI snapshot and the generated TS client are stale
@@ -79,7 +80,7 @@ from apps.api.agents.service import publish_agent
 from apps.api.agents.voices import Language
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.disclosure import TRUTHFUL_ANSWER_PROMISE
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import admin_db, db
 from apps.api.core.errors import ProblemError
@@ -276,9 +277,11 @@ async def get_agent(
 # owner builds and trains; the calls it makes go out under THEIR DLT Principal Entity and
 # their identity, and whether their receptionist is on the line at 6pm on a Sunday is not a
 # support ticket. `agents:write` would have been the neighbouring choice and is wrong here
-# for the same two reasons it was wrong for the disclosure toggles: it is admin-only, so we
-# would be deciding a client's roster for them, and D-22 makes impersonation read-only so
-# an operator could not do it on their behalf either.
+# for the same reason it was wrong for the disclosure toggles: it is admin-only, so we
+# would be deciding a client's roster for them and could not show them the control.
+# (It used to carry a second reason — impersonation was read-only, so an operator could
+# not do it on their behalf either. D-587 removed that half: an operator CAN change these
+# on a support call, recorded as themselves.)
 #
 # WHAT DOES NOT MOVE TO THE CLIENT. The extraction schema stays admin-only (D-21's
 # managed-service moat: a schema change regenerates prompt hints and needs a regression
@@ -703,9 +706,10 @@ async def _audited_move(
     summary="Create/update the agent on the engine and record its routing (admin realm, D-21)",
     description=(
         "The tenant is named in the path because an admin principal has no tenant of "
-        "its own and the one way it could get one — impersonation — is read-only by "
-        "D-22. Sending `X-Impersonate-Org` to this endpoint is still refused; publish "
-        "from the admin console instead."
+        "its own, and a publish should record the account it acted on rather than the "
+        "one a header happened to resolve. Sending `X-Impersonate-Org` alongside is "
+        "accepted since D-587 and changes nothing about which agent is published — the "
+        "path decides that — except that the audit row also names the view-as session."
     ),
     tags=["admin"],
 )
@@ -817,10 +821,14 @@ async def set_disclosure(
     neighbouring choice and is wrong here: it is admin-only, so we would be deciding a
     client's compliance posture for them and being unable to show them the switch.
 
-    Two consequences of `org:manage` being in `MUTATING_PERMISSIONS`, both intended: an
-    admin-realm token without `X-Impersonate-Org` is refused by the client verifier, and
-    an impersonating operator is refused by D-22's read-only rule. Nobody but the client
-    flips these, which is exactly the accountability this decision rests on.
+    An admin-realm token without `X-Impersonate-Org` is refused by the client verifier,
+    so nobody flips these from the operator console. ⚠ **AN OPERATOR IN A VIEW-AS SESSION
+    CAN FLIP THEM (D-587)**, and this paragraph used to say the opposite. The
+    accountability the decision rests on is unchanged and is now carried by the row rather
+    than by the refusal: every flip writes an `audit_log` entry whose ACTION names the
+    toggle and the direction, and an operator's flip additionally carries their
+    `admin_users.id` and the view-as grant — so "who turned this off" is never answered
+    with the client's name for an act that was ours.
 
     THE AUDIT ROW NAMES THE TOGGLE AND THE VALUE IN ITS `action`, not in a summary:
     `write_audit` does not persist summaries (BACKEND-PATTERNS §7 — they go to the log
@@ -955,6 +963,15 @@ async def set_caller_memory_route(
     that actually moved — a re-assertion of the state the agent is already in writes none.
     """
     assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    if payload.accept:
+        # THE ONE ACT ON THIS ROUTER A VIEW-AS SESSION MAY NOT PERFORM (D-587). Flipping a
+        # setting for a client is what the reversal is for; ATTESTING on their behalf is
+        # not — `organizations.caller_memory_attested_by` is a `users.id` and the row says a
+        # named person of that account read the sentence and accepted it. An operator has
+        # no such row, and an attestation stored against nobody is worse than no
+        # attestation. Refused before anything is written, with the ground in `rbac.
+        # VIEW_AS_WITHHELD_ACTS`.
+        assert_view_as_may(principal, "compliance.caller_memory_attestation")
     result = await set_caller_memory(
         tenant_id=principal.tenant_id,
         agent_id=agent_id,
@@ -963,7 +980,11 @@ async def set_caller_memory_route(
         # record an attestation for a client who never saw the sentence — the request
         # that switches memory on WITHOUT `accept` is exactly the one that must be
         # refused so the screen can show it to them.
-        attested_by=principal.user_id if payload.accept else None,
+        #
+        # `client_user_id`, so the column can only ever hold a `users.id`. The guard above
+        # already refuses the only principal for which the two differ; this is the belt,
+        # and it is what makes the FK unreachable rather than merely unreached.
+        attested_by=principal.client_user_id if payload.accept else None,
     )
     if not result.unchanged:
         await write_audit(

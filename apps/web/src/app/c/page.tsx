@@ -29,21 +29,13 @@
 
 import { useEffect } from "react";
 
-import { useQuery } from "@tanstack/react-query";
-
 import { Providers } from "@/app/providers";
 import { AuthPageFrame } from "@/components/authPage";
 import { AuthProblemNotice } from "@/components/authn/fields";
 import { Card, Skeleton } from "@/components/ui";
-import { apiRequest } from "@/lib/api/client";
+import { useUnscopedMe } from "@/lib/api/hooks";
 import { CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { ClientSessionGate, ClientSessionProvider } from "@/lib/authn/clientSession";
-import { unscopedClientSession } from "@/lib/authn/realmSessions";
-
-/** The one field this page needs off `/v1/me`; everything else is the console's business. */
-interface Whoami {
-  organization?: { slug?: string | null } | null;
-}
 
 export default function ClientConsoleJunction() {
   return (
@@ -60,14 +52,10 @@ export default function ClientConsoleJunction() {
 }
 
 function Resolve() {
-  // Its OWN query key rather than the console's `["me", slug]`: that one is keyed by the
-  // slug this page does not have yet, and sharing it would seed the console's cache under
-  // the wrong key (`tests/queryKeys.test.ts` is the guard for exactly that class).
-  const me = useQuery({
-    queryKey: ["me", "unscoped"],
-    queryFn: () => apiRequest<Whoami>(unscopedClientSession(), "/v1/me"),
-    retry: false,
-  });
+  // `useUnscopedMe` (lib/api/hooks.ts) — the same read `/auth/account` makes, from the
+  // same place, under its own key. It used to be written out here; the day a second page
+  // needed "who am I, without a slug" the read moved rather than being copied.
+  const me = useUnscopedMe();
   const slug = me.data?.organization?.slug ?? null;
 
   useEffect(() => {

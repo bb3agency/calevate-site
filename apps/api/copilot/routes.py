@@ -207,9 +207,10 @@ async def ask_copilot(
     `realm="any"`, and `current_any` resolves the admin realm only when an impersonation
     header is present, so an operator on `/admin/ops` is invisible to it. An operator
     INSIDE a view-as session still reaches this line and is still refused here —
-    `copilot:use` is in `MUTATING_PERMISSIONS` and is deliberately NOT in
-    `rbac.IMPERSONATION_PERMITTED_MUTATIONS` — because a client's own allowance is what
-    this route spends. Their assistant is the admin one, on the admin route, on our money.
+    `copilot:use` is in `MUTATING_PERMISSIONS` and `rbac.VIEW_AS_MUTATIONS` withholds it
+    (D-587 widened what a view-as session may do and left this one exactly where D-22 had
+    it) — because a client's own allowance is what this route spends. Their assistant is
+    the admin one, on the admin route, on our money.
 
     **NO `Idempotency-Key`, WHERE `assist_call` REQUIRES ONE, AND THE DIFFERENCE IS WHAT A
     REPLAY WOULD HAVE TO BE.** That route's key works because its answer is one JSON object

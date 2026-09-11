@@ -10,13 +10,20 @@
  *   GET   /v1/agents/{agent_id}/pending                     client realm, `agents:read`
  *   POST  /v1/admin/tenants/{tid}/agents/{aid}/apply        ADMIN realm, `agents:write`
  *   POST  /v1/admin/tenants/{tid}/agents/{aid}/undo         ADMIN realm
- *   PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-cap     ADMIN realm
+ *   PATCH /v1/agents/{agent_id}/call-cap                    client realm, `agents:write`
+ *   PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-cap     ADMIN realm (onboarding)
  *
  * A client can SEE that a script is waiting; only an operator can apply it, because
  * only an operator can author it (`publishing_routes.py` states the argument at
  * length). So there is deliberately NO client-realm apply hook here — the same rule
  * `agents.ts` and `kb.ts` already follow: a button that could only ever 403 is worse
  * than no button, and the client screen says who does apply it instead.
+ *
+ * ⚠ **THE CALL CAP IS NO LONGER ON THAT SIDE OF THE LINE (D-586) AND THIS LIST USED TO
+ * SHOW ONLY ITS ADMIN PATH.** The apply argument never covered it: a cap is not a script,
+ * it cannot change one word the agent says, and the money it bounds is the client's. It has
+ * two doors onto one writer now — `useSetMyCallCap` for the account, `useSetCallCap` for
+ * the onboarding console.
  *
  * The admin console reads the two GETs through IMPERSONATION (`viewAsSession`) and
  * writes through its own admin session — the D-22 split `admin.ts::useTenantKbQueue`
@@ -163,6 +170,46 @@ export function usePendingChanges(
   agentId: string,
 ): UseQueryResult<PendingState> {
   return useQuery(pendingOptions(session, agentId));
+}
+
+/**
+ * "Longest one call may run", from the client's own screen (D-586).
+ *
+ * ## Why there is a client hook at all, and why it took a decision
+ *
+ * The cap always applied immediately — `set_call_cap` re-publishes a live agent in the
+ * same transaction — but its only door was admin-realm, so an owner could READ their own
+ * worst-case runaway cost on `/pending` (the `Fact` two panels down renders it) and had to
+ * raise a support ticket to change it. D-586 gave it a client door on `agents:write`, held
+ * by `owner` and `staff`, and left the admin path in place for the onboarding wizard.
+ *
+ * `null` restores the platform default and never means unlimited. Out-of-range values are
+ * refused server-side with `call_cap_out_of_range`; the bounds are published by
+ * `GET /v1/agents/lanes` so a form hints them without hardcoding a second copy.
+ *
+ * The awaited invalidation covers BOTH reads this moves, for `useAfterPublish`'s reason:
+ * `pending` carries the cap and the worst-case figure struck from it, and the roster row
+ * carries the agent's published state, which a failed push can leave a screen wrong about.
+ */
+export function useSetMyCallCap(
+  session: Session,
+  agentId: string,
+): UseMutationResult<CallCapOut, Error, SetCallCapIn> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: SetCallCapIn) =>
+      apiRequest<CallCapOut>(session, `/v1/agents/${agentId}/call-cap`, {
+        method: "PATCH",
+        body: payload,
+      }),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({
+          queryKey: publishingKeys.pending(session.orgSlug, agentId),
+        }),
+        client.invalidateQueries({ queryKey: ["agents", session.orgSlug] }),
+      ]),
+  });
 }
 
 /* ------------------------------------------------------------------- admin realm */

@@ -990,6 +990,15 @@ class AuditLogEntry(PKMixin, Base):
         # declaration for the row comparison to be an index qual rather than a filter).
         # Declared ASC for that reason; a LIMIT 1 costs the same in either direction.
         Index("ix_audit_log_chain", "at", "id"),
+        # "Everything that happened inside view-as session G". PARTIAL, and declared with
+        # its predicate so autogenerate cannot diff it (the migration `d7a4c2e91b83` is the
+        # source of truth for its existence): almost every row is NULL, and an index that
+        # carried them would be paid for on the hottest INSERT path in this module.
+        Index(
+            "ix_audit_log_via_grant",
+            "via_grant_id",
+            postgresql_where=text("via_grant_id IS NOT NULL"),
+        ),
     )
 
     actor_type: Mapped[str] = mapped_column(String, nullable=False)
@@ -1001,6 +1010,19 @@ class AuditLogEntry(PKMixin, Base):
     object_type: Mapped[str | None] = mapped_column(Text)
     object_id: Mapped[str | None] = mapped_column(Text)
     ip: Mapped[str | None] = mapped_column(Text)
+    #: The view-as grant this act came through, or NULL (D-587, supersedes D-22).
+    #:
+    #: NOT an FK: grants are signed tokens with no table (`core/impersonation.py` argues
+    #: why there is none), so this is the `jti` and it joins to the
+    #: `admin.impersonation_started` row that carries the same id in its log summary. With
+    #: `actor_id` (the operator) and `tenant_id` (the client) it is the third field of
+    #: "admin A, acting as tenant B, in session G" — the sentence D-22 kept true by
+    #: refusing the write and D-587 keeps true by recording it.
+    #:
+    #: IN THE HASH when present, absent from it when NULL, so every row written before this
+    #: column existed still verifies under the payload shape it was signed with
+    #: (`compliance/audit.py::write_audit`).
+    via_grant_id: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     # Tamper-evident chain (BACKEND-PATTERNS §7)
     prev_hash: Mapped[str | None] = mapped_column(Text)

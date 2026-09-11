@@ -1670,6 +1670,17 @@ _VENDOR_ONLY_KEYS = frozenset(
         # ours, the spelling is theirs, and `direction` appearing outside the adapter is
         # normal while `call_type` appearing there would be a vendor shape that escaped.
         "call_type",
+        # THE VOICE-CONFIG LOOKUP'S OWN TWO NOUNS (D-585). Bolna's
+        # `GET /api/v1/voice-config/tts` marks each provider and each model
+        # `is_supported`, and addresses a model by an opaque `model_id` UUID that is NOT
+        # the model string — `bulbul:v3` is the `model_id` field's sibling, not its value
+        # (`bolna-findings/mirror/pages/api-reference/voice/get_all.md:44-59`). Both are
+        # vendor-only: we have no `is_supported` anywhere (our equivalent question is
+        # `Voice.verified` and `voice_offer.unofferable_reason`), and we address a model by
+        # its STRING through `TtsModel`, never by a vendor UUID. Either appearing outside
+        # the adapter would be the vendor's provider table leaking into our catalogue.
+        "is_supported",
+        "model_id",
         # THE PER-TURN TIMING BLOCK AND ITS TWO COMPOUND NOUNS. `latency_data`,
         # `time_to_first_audio` and `turn_latency` are Bolna's spellings for things we now
         # carry under our own names (`CallLatency`, `time_to_first_audio_ms`, and a plain
@@ -1848,6 +1859,19 @@ _VENDOR_ONLY_KEYS = frozenset(
 #: vocabulary is a guard somebody switches off.
 _SHARED_PAYLOAD_KEYS = frozenset(
     {
+        # THE VOICE-CONFIG LISTING'S FOUR SHARED WORDS (D-585). `items` is Bolna's
+        # pagination envelope, `providers` their top-level array and `models` the array on
+        # each provider row — and every one is a word this product already uses in its own
+        # right (`items` in 72 shipped places, `models` as `AgentConfig.models`,
+        # `providers` on `DashboardDataUseOut` and in `fx_pull`'s own query string). So
+        # none of them proves where a payload came from, which is the whole test this set
+        # exists to keep honest. `source` is the same and stronger: Bolna's
+        # `platform | custom` enum shares a spelling with our lead source, our FX rate
+        # source and `voices.catalogue_source`, across 144 shipped places.
+        "items",
+        "models",
+        "providers",
+        "source",
         "agent",
         "agent_id",
         "agent_ref",

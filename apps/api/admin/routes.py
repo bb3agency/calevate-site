@@ -4,8 +4,14 @@ Every route here is `realm="admin"`, so a client token cannot reach any of them 
 if it somehow carried the permission — the realms are separate credential domains and
 `verify_token` will not accept one realm's token for the other.
 
-Impersonation (D-22) is READ-ONLY and audited on both halves, and both halves are now
-real. `POST /v1/admin/impersonation-grants` here MINTS the short-lived, tenant-bound
+Impersonation (D-22) is audited on both halves, and both halves are now real. ⚠ It is no
+longer READ-ONLY — D-587 lets a view-as session perform the mutations
+`rbac.VIEW_AS_MUTATIONS` classifies as writable, each of them attributed to the operator
+and to the grant (`audit_log.via_grant_id`). The admin-realm twins below did NOT become
+redundant: the authorities they carry (`admin:tenants` among them) are exactly the ones
+D-587 withholds from a view-as session, because they are platform acts rather than acts
+inside a client's account. `POST /v1/admin/impersonation-grants` here MINTS the
+short-lived, tenant-bound
 grant without which `core/auth.py` refuses every impersonated request, and writes
 `admin.impersonation_started` in the same transaction — so "authority was issued to
 operator X for tenant Y at T" cannot be missing for a session that happened.
@@ -126,7 +132,7 @@ async def admin_me(
     from their own route's 403 instead: three workarounds for one missing endpoint.
 
     **`org:read`, not `admin:tenants`.** The rule first: D-22 forbids gating a GET on a
-    permission read-only impersonation refuses, `admin:tenants` is in
+    permission a view-as session is refused, `admin:tenants` is in
     `MUTATING_PERMISSIONS`, and `tests/impersonation_reads_test.py` walks the live route
     table for exactly that mistake — the same choice `holds_routes.py` and
     `health_routes.py` argue, and this route does not inherit the exemption list the
@@ -626,7 +632,7 @@ async def read_tenant_profile(
 ) -> TenantProfileOut:
     """`org:read`, not `admin:tenants`, and `list_tenant_invitations` above states why.
 
-    D-22 forbids gating a GET on a permission read-only impersonation refuses, and
+    D-22 forbids gating a GET on a permission a view-as session is refused, and
     `admin:tenants` is in `MUTATING_PERMISSIONS` — so gating this read on it would hide
     "what address do we have for this client" from the support session whose job is to
     read it back to them over the telephone. The PATCH keeps `admin:tenants`, because
@@ -815,7 +821,7 @@ async def list_tenant_invitations(
 ) -> list[PendingInviteOut]:
     """`org:read`, NOT `admin:tenants`, and `tests/impersonation_reads_test.py` is why.
 
-    D-22 forbids gating a GET on a permission read-only impersonation refuses, and
+    D-22 forbids gating a GET on a permission a view-as session is refused, and
     `admin:tenants` is in `MUTATING_PERMISSIONS` — so gating this read on it would hide
     "who currently holds a key to this account" from a support session looking at exactly
     that. `list_unfinished_onboardings` above states the same rule for the same reason;
@@ -879,8 +885,10 @@ async def revoke_tenant_invitation(
     """The admin half of `DELETE /v1/invitations/{id}`, which is client-realm.
 
     It has to exist HERE rather than being reached by impersonation for two reasons that
-    both come from decisions already made: D-22 makes an impersonating session read-only,
-    so a revoke is refused through it; and the account this matters most for has no
+    both come from decisions already made: the membership surface is withheld from a
+    view-as session (`rbac.VIEW_AS_WITHHELD_ACTS["org.membership"]` — an invitation is an
+    access grant that outlives the grant authorising it, and D-587 kept that with the
+    client); and the account this matters most for has no
     member yet — the wizard's owner invite is minted before anybody can sign in, so the
     client-realm control has nobody to press it.
 
@@ -1343,7 +1351,7 @@ async def list_unfinished_onboardings(
     work list with its own rule codes) for the same reason.
 
     **`org:read`, not `admin:tenants`.** D-22 forbids gating a GET on a permission
-    read-only impersonation refuses, and this is a read. Resuming still requires
+    a view-as session is refused, and this is a read. Resuming still requires
     `agents:write` at the routes that write.
     """
     del principal  # the dependency IS the authorization; the identity is not needed
@@ -1419,15 +1427,19 @@ class ImpersonationGrantOut(BaseModel):
 @router.post(
     "/impersonation-grants",
     openapi_extra=permission_meta("admin:impersonate"),
-    summary="Mint the short-lived grant a READ-ONLY view-as session needs (D-22)",
+    summary="Mint the short-lived grant a view-as session needs (D-22, D-587)",
     description=(
-        "Begins a read-only 'view as client' session and returns the grant that "
+        "Begins a 'view as client' session and returns the grant that "
         f"authorises it. Send it as `{IMPERSONATION_GRANT_HEADER}` alongside "
         f"`{IMPERSONATE_HEADER}: <slug>` on every request into that account; without it "
-        "the request is refused. The grant is bound to this operator and this tenant, "
-        "expires in minutes, and never authorises a mutation — an impersonating session "
-        "is read-only, and writes go through the admin surfaces with the tenant in the "
-        "path.\n\n"
+        "the request is refused. The grant is bound to this operator and this tenant and "
+        "expires in minutes.\n\n"
+        "The session may CHANGE the account, not only read it, and every change is "
+        "recorded against you: the audit row names your operator id, the client, and "
+        "this grant. What it may not do is spend the client's money or AI allowance, "
+        "grant anyone access to their account, give a consent, accept an agreement or "
+        "file an erasure — those stay with the client, and the platform surfaces stay in "
+        "the operator console.\n\n"
         "STARTING a view-as session needs step-up: a second factor proved in the last "
         # Interpolated, never typed: this is a PUBLIC description of a control, and it
         # said "five minutes" for as long as the constant said five. D-473 moved the
@@ -1571,10 +1583,14 @@ async def mint_impersonation_grant(
 
 
 # --- Knowledge base: the MUTATING half (FLOWS §7) ------------------------------
-# These live on the admin router, not the client one, because of D-22: an admin
-# reaching a tenant does so by impersonation, and impersonation is read-only. The
-# tenant is therefore named in the path rather than inferred from a session, which
-# also makes every approval self-documenting in the audit log.
+# These live on the admin router, not the client one, because approving a client's
+# knowledge is OUR act and not theirs: the tenant is named in the PATH rather than
+# inferred from a session, which makes every approval self-documenting in the audit log.
+# (The original reason was D-22 — an admin reached a tenant only by impersonation, and
+# impersonation was read-only. D-587 removed that constraint and did not move these
+# routes: a curated approval performed as ourselves, on a path that names the tenant, is
+# the clearer record, and `kb/curation.py`'s staff-switch argument depends on the
+# approval never being an inherited client authority.)
 
 
 class RejectIn(BaseModel):
@@ -2984,8 +3000,8 @@ async def read_commercial_terms(
 ) -> CommercialTermsOut:
     """`billing:read`, matching the margin route — commercial terms are the same class
     of fact and an operator who may see one may see the other. It is not
-    `admin:tenants`: D-22 forbids gating a GET on a permission read-only impersonation
-    refuses, and this is a read.
+    `admin:tenants`: D-22 forbids gating a GET on a permission a view-as session
+    is refused, and this is a read.
 
     **WHY ONBOARDING DOES NOT SEED A PLAN ROW, AND THIS STATE EXISTS INSTEAD.**
     `admin.service.create_organization` writes `organizations.plan_tier` and stops, so a

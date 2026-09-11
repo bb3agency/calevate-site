@@ -205,7 +205,8 @@ def test_an_operator_can_never_spend_a_clients_ai_allowance() -> None:
     Asking the client assistant is metered against the ACCOUNT's allowance
     (`billing/ai_quota`), so it is a mutation of that account's balance however read-only an
     answer looks. `copilot:use` is therefore in `MUTATING_PERMISSIONS` and NOT in
-    `IMPERSONATION_PERMITTED_MUTATIONS`, which means `core/auth.requires` refuses
+    `IMPERSONATION_PERMITTED_MUTATIONS` (D-587 widened that set and deliberately left this
+    permission out of it), which means `core/auth.requires` refuses
     `POST /v1/copilot/ask` and `POST /v1/copilot/confirm` outright inside a view-as session
     — the request never reaches the meter at all, rather than being re-pointed at the
     platform's ledger.

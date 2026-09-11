@@ -25,6 +25,7 @@ from something that changes when the code changes rather than from a list someon
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
@@ -38,8 +39,21 @@ from starlette.middleware.cors import CORSMiddleware
 
 ORIGIN = DEFAULT_CORS_ORIGINS[0]
 
-CLIENT_TS = (
-    Path(__file__).resolve().parents[1] / "apps" / "web" / "src" / "lib" / "api" / "client.ts"
+_WEB_SRC = Path(__file__).resolve().parents[1] / "apps" / "web" / "src"
+CLIENT_TS = _WEB_SRC / "lib" / "api" / "client.ts"
+
+#: EVERY browser sender, not just the main one — and the list is a fact about the repo,
+#: pinned by `apps/web/tests/transportGuard.test.ts`, which is what bans a fourth.
+#:
+#: THE SCAN USED TO READ `client.ts` ALONE, and that was a hole with two live tenants in
+#: it: `lib/authn/transport.ts` (the `/v1/auth/**` fetch every console screen sits behind)
+#: and `lib/copilot/stream.ts` (the SSE fetch) each set request headers of their own. A
+#: header added in one of those would be sent by the browser, refused by the preflight and
+#: invisible to curl — the exact failure this file was written for, one file to the left.
+BROWSER_SENDERS = (
+    CLIENT_TS,
+    _WEB_SRC / "lib" / "authn" / "transport.ts",
+    _WEB_SRC / "lib" / "copilot" / "stream.ts",
 )
 
 #: Headers a browser may always send without listing them in `Access-Control-Allow-Headers`
@@ -72,14 +86,14 @@ def _allowed_headers() -> set[str]:
 
 
 def _client_ts_request_headers() -> set[str]:
-    """Every header name `client.ts` puts on a request.
+    """Every header name the browser senders put on a request.
 
     Two shapes, because the file uses both: the object literal it builds the headers
     with (`Authorization: ...`, `"X-Org-Slug": ...`) and the conditional assignments
     below it (`headers["If-Match"] = ifMatch`). A regex over the source rather than a
     hand-kept list — the point of this test is to notice a header nobody told us about.
     """
-    source = CLIENT_TS.read_text(encoding="utf-8")
+    source = "\n".join(path.read_text(encoding="utf-8") for path in BROWSER_SENDERS)
     assigned = set(re.findall(r'headers\[\s*"([A-Za-z0-9-]+)"\s*\]\s*=', source))
     # THE LITERAL MAY BE EMPTY, AND REQUIRING IT WAS ASSERTING STYLE RATHER THAN
     # BEHAVIOUR. `client.ts` now opens with `= {}` and sets every header conditionally
@@ -89,8 +103,8 @@ def _client_ts_request_headers() -> set[str]:
     # a body; its absence is not a failure. What must never pass quietly is a scan that
     # finds nothing at all, and the `authorization` assertion below is what catches
     # that — the parser's own anti-vacuum check, which is the half worth keeping.
-    literal_block = re.search(r"const headers: Record<string, string> = \{(.*?)\};", source, re.S)
-    inner = literal_block.group(1) if literal_block else ""
+    literals = re.findall(r"const headers: Record<string, string> = \{(.*?)\};", source, re.S)
+    inner = "\n".join(literals)
     quoted = set(re.findall(r'"([A-Za-z0-9-]+)"\s*:', inner))
     bare = set(re.findall(r"^\s*([A-Za-z][A-Za-z0-9-]*)\s*:", inner, re.M))
     found = {h.lower() for h in assigned | quoted | bare}
@@ -269,3 +283,79 @@ def test_the_csrf_allowlist_and_the_cors_allowlist_are_the_same_function() -> No
         "DEFAULT_CORS_ORIGINS"
         not in text.split("def cross_site_refusal")[0].split("allowed = ")[-1]
     )
+
+
+# --- a crash the browser can READ ------------------------------------------------------
+#
+# THE HOLE THESE CLOSE, measured before it was fixed (11 Sep 2026): a handler that raised
+# answered 500 with `content-type` and `content-length` and NOTHING ELSE — no ACAO, no
+# security headers, no `X-Correlation-Id` — because Starlette gives the `Exception`
+# handler to `ServerErrorMiddleware`, which sits OUTSIDE every middleware installed here.
+# A cross-origin response with no ACAO is one the browser will not hand to the page, so
+# `fetch` REJECTED and the console could not tell a bug in a handler from a dead network:
+# the problem body, its `trace_id` and the whole "something went wrong at our end"
+# sentence were discarded unread.
+#
+# Everything else in this file asserts the CONFIGURATION. These assert the one property a
+# configuration cannot give you — that the answer to a crash survives the way out.
+
+
+@pytest.fixture
+def crashing_route() -> Iterator[str]:
+    """A route on the REAL app that raises, removed again afterwards.
+
+    On `apps.api.main.app` rather than on a probe: the property under test is a property
+    of the assembled stack (which middleware wraps which), and a hand-built app would be
+    asserting this test's own assembly instead of the product's.
+    """
+    path = "/_cors_contract_crash"
+
+    @app.post(path)
+    async def _crash() -> None:
+        raise RuntimeError("a handler that did not survive its own request")
+
+    try:
+        yield path
+    finally:
+        app.router.routes[:] = [
+            route for route in app.router.routes if getattr(route, "path", None) != path
+        ]
+
+
+@pytest.mark.parametrize("origin", DEFAULT_CORS_ORIGINS)
+async def test_a_crash_is_readable_by_the_console_that_caused_it(
+    crashing_route: str, origin: str
+) -> None:
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://api"
+    ) as http:
+        response = await http.post(crashing_route, headers={"Origin": origin})
+
+    assert response.status_code == 500
+    # THE ASSERTION THAT MATTERS. Without this header the browser discards the body below
+    # and the page sees a transport failure instead of a server error.
+    assert response.headers["access-control-allow-origin"] == origin
+    assert response.headers["access-control-allow-credentials"] == "true"
+    # …and the rest of the way out ran too, which is how an operator joins the red box on
+    # the screen to the traceback in the log.
+    assert response.headers["x-correlation-id"]
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert response.json()["type"].endswith("/internal_error")
+    assert response.json()["trace_id"] == response.headers["x-correlation-id"]
+
+
+async def test_a_crash_still_says_what_it_always_said(crashing_route: str) -> None:
+    """The control on the fix: catching the exception inside the stack must not change
+    WHAT we answer, only who gets to dress it. A same-origin caller (no `Origin` header,
+    so the CORS layer passes straight through) must see the identical refusal."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://api"
+    ) as http:
+        response = await http.post(crashing_route)
+
+    assert response.status_code == 500
+    body = response.json()
+    assert body["kind"] == "internal"
+    assert body["type"].endswith("/internal_error")
+    # NOT the exception's own words: a traceback's message is server-side only.
+    assert "did not survive" not in response.text

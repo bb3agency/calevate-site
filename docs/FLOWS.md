@@ -100,7 +100,9 @@ Trigger: Sri opens Admin → New Client. Draft state saved at every step (resume
    - Because the refusal is real, the console has the exit: `GET`/`DELETE
      /v1/admin/tenants/{id}/invitations[/{id}]` list and cancel the unredeemed links
      (addresses in full, D-436, so an operator on the phone can read one back). It cannot
-     be done by impersonation — D-22 makes that read-only —
+     be done by impersonation — the invitation surface is `admin:tenants`, which D-587
+     leaves withheld from a view-as session because it is an operator-console authority
+     rather than something inside the client's account —
      and the client-realm revoke has nobody to press it, since the owner invite is issued
      before anyone can sign in. A cancel that races an acceptance is refused (404): the
      person is a member now, and removing them is a different act.

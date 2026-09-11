@@ -59,7 +59,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.compliance import deletion, deletion_proof
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.subject_phone import SubjectPhone
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
@@ -283,6 +283,15 @@ async def request_erasure(
     they are entitled to be able to give in writing.
     """
     assert principal.tenant_id is not None  # guaranteed by the tenant-scoped session
+    # NOT REACHABLE FROM A VIEW-AS SESSION, and this is the one line that keeps it so.
+    # D-587 made `org:manage` writable for an operator inside a client's account, which is
+    # right for a setting and wrong for this: an erasure destroys that client's records
+    # about a third party irreversibly, and `compliance/deletion.py` chose this permission
+    # ON THE STRENGTH of D-22's read-only rule ("an admin 'viewing as client' triggering an
+    # irreversible destruction of that client's records is precisely what read-only
+    # impersonation exists to prevent"). That argument did not go away when the rule did,
+    # so it is stated here as its own lock instead of resting on one.
+    assert_view_as_may(principal, "compliance.erasure_request")
 
     record = await deletion.request_erasure(
         session, tenant_id=principal.tenant_id, phone_e164=payload.phone

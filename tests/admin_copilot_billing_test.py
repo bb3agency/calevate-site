@@ -50,6 +50,7 @@ from apps.api.core.rbac import (
     MUTATING_PERMISSIONS,
     ROLE_PERMISSIONS,
     role_has,
+    withheld_from_view_as,
 )
 from apps.api.crm.assist import ASSIST_FEATURE_ADMIN_COPILOT, ASSIST_FEATURE_COPILOT
 from apps.api.db.registry import APPEND_ONLY_TABLES, RLS_EXEMPT_TENANT_COLUMNS
@@ -341,27 +342,35 @@ async def test_the_admin_realm_was_refused_outright_and_is_not_any_more() -> Non
     assert role_has("superadmin", "copilot:admin")
 
 
-async def test_asking_is_still_a_mutation_and_the_impersonation_exemption_is_narrow() -> None:
-    """D-22's line, and the ONE hole in it, both pinned.
+async def test_asking_is_still_a_mutation_and_the_clients_allowance_is_still_theirs() -> None:
+    """The line that matters for MONEY, pinned on both permissions.
 
-    `copilot:admin` is mutating (it spends real money on an append-only ledger) and is
-    exempted from the impersonation refusal — because its spend can only land on the
-    PLATFORM's ledger, so there is no client balance a view-as session could move.
-    `copilot:use` is NOT exempted and must never be: that permission spends the client's own
-    included allowance, which is the exact hazard the listing exists for.
+    `copilot:admin` is mutating (it spends real money on an append-only ledger) and a
+    view-as session may exercise it — because its spend can only land on the PLATFORM's
+    ledger, so there is no client balance to move. `copilot:use` is mutating for the
+    mirror reason and is WITHHELD, and must never stop being: that permission spends the
+    client's own included allowance, which is the exact hazard the ruling exists for.
 
-    FAILS IF: somebody widens the exemption set, or drops either permission from
-    `MUTATING_PERMISSIONS` (which would silently unguard `POST /v1/copilot/confirm`).
+    ⚠ THE SHAPE OF THIS TEST CHANGED WITH D-587 AND ITS SUBJECT DID NOT. It used to assert
+    that the exemption set was exactly `{copilot:admin}` and that every write tool's
+    permission stayed refused. Six permissions are writable in a view-as session now, on
+    purpose — an operator fixing a client's leads is the reversal working — so the
+    remaining assertion is the one about whose money is spent. What keeps the client
+    ASSISTANT shut to an operator is `copilot:use` below, not the write tools' own
+    permissions (`copilot/actions.assistant_closed_to`).
+
+    FAILS IF: `copilot:use` is ever classified writable, or either permission is dropped
+    from `MUTATING_PERMISSIONS` (which would silently unguard `POST /v1/copilot/confirm`).
     """
     assert "copilot:admin" in MUTATING_PERMISSIONS
     assert "copilot:use" in MUTATING_PERMISSIONS
-    assert frozenset({"copilot:admin"}) == IMPERSONATION_PERMITTED_MUTATIONS
+    assert "copilot:admin" in IMPERSONATION_PERMITTED_MUTATIONS
     assert "copilot:use" not in IMPERSONATION_PERMITTED_MUTATIONS
-    # Every write tool's permission stays refused under impersonation, which is what keeps
-    # a view-as operator unable to CHANGE anything through the assistant.
-    for permission in ("leads:write", "leads:dispatch", "org:manage", "kb:write"):
-        assert permission in MUTATING_PERMISSIONS
-        assert permission not in IMPERSONATION_PERMITTED_MUTATIONS
+    assert withheld_from_view_as("copilot:use") is not None
+    assert "allowance" in str(withheld_from_view_as("copilot:use")), (
+        "the ground has to name the payer — it is the sentence an operator reads instead "
+        "of the assistant they came for"
+    )
 
 
 async def test_the_operator_tier_holds_the_admin_copilot_and_the_client_tiers_do_not() -> None:

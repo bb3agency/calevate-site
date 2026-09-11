@@ -152,8 +152,10 @@ export function PublishingPanel({ agent }: { agent: Agent }) {
  * **Why a client sees this at all.** There are TWO voice qualities now (D-547) at two
  * different per-minute rates, so the voice IS a price lever again — and an owner is
  * entitled to know both which persona their agent speaks in and what a minute of it costs
- * them. Changing it is still ours (D-21), which is why there is no control here, only the
- * facts and who moves them.
+ * them. ⚠ **CHANGING IT USED TO BE OURS (D-21) AND THIS PARAGRAPH SAID SO** — "which is why
+ * there is no control here, only the facts and who moves them". D-586 gave it to the
+ * account, and the control lives in `panels/delivery.tsx` directly below this card. This
+ * panel stays a READ: its subject is the state, not the decision.
  *
  * **The quality is named, the vendor never is.** "Clear" and "Studio" are the API's words
  * (`billing/rates.py::VOICE_TIER_LABELS`); which company synthesises each is our business
@@ -202,9 +204,9 @@ function VoiceFacts({
         icon={<Volume2 className="h-3.5 w-3.5" />}
         hint={
           state.live
-            ? "The voice the calling system is speaking in right now."
+            ? "The voice the calling system is speaking in right now. Change it below."
             : published
-              ? "The calling system has a voice for this agent; we have no record of which one. Your account manager can confirm it."
+              ? "The calling system has a voice for this agent; we have no record of which one. Choosing one below will settle it."
               : "Nothing is on the calling system yet, so no caller hears a voice at all."
         }
       >

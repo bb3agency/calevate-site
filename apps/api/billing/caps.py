@@ -94,8 +94,8 @@ which is the guarantee the shared expression was being asked to provide and coul
 THE OPS WRITER EXISTS BECAUSE THE OTHER TWO CANNOT REACH THE CASE
 ------------------------------------------------------------------
 A capped tenant meters nothing, so the meter can never clear what it armed; and the
-client's route needs `org:manage`, which is in `MUTATING_PERMISSIONS`, so an
-impersonating admin (D-22) cannot press that button for them. Raising
+client's route is `realm="client"`, which a view-as session cannot reach at all, so an
+operator cannot press that button for them. Raising
 `plans.hard_cap_*` on the audited admin path therefore left a capped OUTBOUND-ONLY
 tenant blocked until the client acted or the IST month rolled over —
 `runbooks/calls-stopped.md` §2 documents the incident that found it. The ops route is

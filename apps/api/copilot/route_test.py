@@ -366,10 +366,11 @@ async def test_the_assistant_still_costs_a_mutating_permission(
     """THE PROPERTY THAT HAD TO SURVIVE WIDENING THE POPULATION.
 
     A role holding none of the client permissions reaches nothing, and — the half that
-    matters — `copilot:use` is in `MUTATING_PERMISSIONS`, so a D-22 read-only view-as
-    session cannot burn a client's included allowance from the client's own screen. The
-    view-as half is driven end to end by `realm_boundary_test::test_no_route_declaring_a_
-    mutating_permission_is_reachable_while_impersonating`, which walks the live route table
+    matters — `copilot:use` is in `MUTATING_PERMISSIONS` and `VIEW_AS_MUTATIONS` withholds
+    it, so a view-as session cannot burn a client's included allowance from the client's
+    own screen (D-587 left this one exactly where D-22 had it). The view-as half is driven
+    end to end by `realm_boundary_test::test_no_route_on_a_withheld_permission_is_
+    reachable_while_impersonating`, which walks the live route table
     and therefore picked this route up automatically the moment its permission changed;
     what is asserted HERE is the registry fact that sweep depends on, because a future
     edit that quietly dropped `copilot:use` from the list would make that sweep stop

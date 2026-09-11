@@ -96,6 +96,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin.service import tenant_exists
 from apps.api.agents.reconciliation import read_engine_drift
+from apps.api.agents.voice_sync import (
+    VoiceSyncResult,
+    load_voice_catalogue,
+    sync_voice_catalogue,
+)
 from apps.api.billing.caps import read_caps, read_spend_counters, recompute_capped
 from apps.api.billing.service import current_billing_month, to_paise
 from apps.api.compliance.audit import verify_chain, write_audit
@@ -1062,6 +1067,120 @@ async def replay_outbox(
         summary={"replayed": count, "job": job},
     )
     return ReplayOut(replayed=count, job=job)
+
+
+class VoiceCatalogueRefreshOut(BaseModel):
+    """What one operator-triggered voice sync did.
+
+    `pruned is None` is not zero: the engine's listing was INCOMPLETE and pruning was
+    deliberately skipped, so a voice the platform has withdrawn is still in the cache. That
+    is a different fact from "nothing needed removing" and the console must be able to say
+    which — see `agents/voice_sync.VoiceSyncResult`.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Voices the voice platform returned, before we filtered to the models we offer.
+    seen: int
+    #: Rows written to the cache. ZERO means the sync read nothing offerable and was
+    #: REFUSED rather than applied — the previous catalogue is still standing.
+    written: int
+    pruned: int | None
+    complete: bool
+    #: How many voices this process is now offering. `0` means the built-in seed is in
+    #: force (`agents/voices.SEED_CATALOG`).
+    in_force: int
+    #: One sentence an operator reads verbatim.
+    note: str
+
+
+@router.post(
+    "/voices/refresh",
+    response_model=VoiceCatalogueRefreshOut,
+    openapi_extra=permission_meta("ops:manage"),
+    summary="Re-read the voice catalogue from the voice platform (audited)",
+    description=(
+        "Reads the voice platform account's own TTS voice list and replaces the cached "
+        "catalogue every client's voice picker is built from. Use it after cloning or "
+        "adding a voice on the platform — the hourly job would otherwise take up to an "
+        "hour to notice. It changes no agent and no call: an agent already speaking a "
+        "voice keeps speaking it whatever this returns. A sync that reads nothing is "
+        "refused rather than applied, so a bad credential cannot empty the picker."
+    ),
+)
+async def refresh_voice_catalogue_route(
+    session: GlobalSession,
+    request: Request,
+    principal: Principal = Depends(requires("ops:manage", realm="admin")),
+) -> VoiceCatalogueRefreshOut:
+    """The operator's own trigger for the catalogue sync (D-585).
+
+    **NO STEP-UP, AND THE ASYMMETRY WITH `replay_outbox` IS DELIBERATE.** That route's
+    blast radius is other people's customer data arriving a second time in other people's
+    systems. This one re-reads a list from a vendor and replaces a cache: it sends nothing,
+    changes no agent row, cannot move an agent off its voice, and its worst outcome — a
+    voice disappearing from the picker — is the vendor's own statement about their account
+    and is undone by running it again. Requiring a confirmation header for a read-and-cache
+    would train operators to type confirmations, which is what makes them worthless where
+    they matter.
+
+    **IT SYNCS INLINE RATHER THAN ENQUEUEING.** The operator pressing this is standing in
+    front of the picker asking "is my cloned voice there yet"; a `202 queued` answers a
+    different question. The vendor call is one listing, off a request the operator chose to
+    make. Other API processes pick the new cache up within one poll of
+    `ops/pricing_snapshot`'s refresher, which is where this process's own snapshot comes
+    from too — so nothing here special-cases "the process that served the request".
+    """
+    engine = get_engine()
+    result = await sync_voice_catalogue(session, engine)
+    in_force = await load_voice_catalogue(session)
+    # BACKEND-PATTERNS §4: a write an operator triggered leaves a record of who triggered
+    # it. The cache itself carries no history — it is refreshed whole — so this audit row
+    # is the only place "the catalogue changed at 14:02 because Sri pressed refresh" exists.
+    await write_audit(
+        session,
+        action="ops.voice_catalogue_refresh",
+        actor=principal,
+        object_type="platform_voice_catalog",
+        ip=client_request_ip(request),
+        summary={
+            "seen": result.seen,
+            "written": result.written,
+            "pruned": result.pruned,
+            "complete": result.complete,
+        },
+    )
+    return VoiceCatalogueRefreshOut(
+        seen=result.seen,
+        written=result.written,
+        pruned=result.pruned,
+        complete=result.complete,
+        in_force=in_force,
+        note=_voice_refresh_note(result, in_force=in_force),
+    )
+
+
+def _voice_refresh_note(result: VoiceSyncResult, *, in_force: int) -> str:
+    """The one sentence the console prints. Composed here rather than in the browser for
+    the reason every other `note` in this tree is: a screen that paraphrases a partial sync
+    is how "the catalogue is up to date" becomes a support ticket."""
+    if result.written == 0:
+        return (
+            "The voice platform returned no usable voices, so nothing was changed and the "
+            f"previous catalogue ({in_force or 'the built-in starter'} list) is still being "
+            "offered. Check the voice platform credential in the ops console, then try again."
+        )
+    if not result.complete:
+        return (
+            f"{result.written} voice(s) cached, but the platform's listing was incomplete "
+            f"({result.incomplete_reason}), so nothing was removed — a voice withdrawn on "
+            "the platform may still appear. Run this again; if it keeps reporting an "
+            "incomplete listing, the account has more voices than one listing returns."
+        )
+    return (
+        f"{result.written} voice(s) cached and {result.pruned or 0} removed. "
+        f"{in_force} voice(s) are now offered."
+    )
 
 
 @router.get(

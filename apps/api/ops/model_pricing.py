@@ -160,9 +160,17 @@ async def _stored_credential_keys(session: AsyncSession) -> frozenset[str]:
     signal that they have installed one — and counting a `.env`-declared key would make
     offerability diverge between a dev machine that carries one in `.env` and CI that does
     not (the exact local-vs-CI trap `_no_ambient_credentials` exists for, which cannot help
-    here because `env_declares` reads the `.env` FILE). Azure's own key is env-injected from
-    the secrets manager in production rather than stored here, but its leg is always usable
-    anyway (see `installed_llm_legs`), so this stored-only rule never hides Azure.
+    here because `env_declares` reads the `.env` FILE).
+
+    ⚠ **THIS USED TO END "Azure's own key is env-injected … but its leg is always usable
+    anyway (see `installed_llm_legs`), so this stored-only rule never hides Azure." THAT
+    RULE IS GONE AND THE SENTENCE IS FALSE.** `installed_llm_legs` below admits
+    `azure_openai` only when `azure_credentials()` answers with all three of resource, key
+    and deployment. The stored-only rule genuinely does not hide Azure — but the reason is
+    that Azure's leg is decided by `azure_credentials()` rather than by this set at all,
+    NOT that the leg is always usable. Keeping the old wording would tell the next reader
+    that an Azure model can never be un-offered, which is the defect the credential check
+    was added to fix.
     """
     return frozenset(r.key for r in await read_secrets(session) if r.version > 0)
 

@@ -680,9 +680,12 @@ async def test_an_admin_can_publish_an_agent() -> None:
     endpoint was un-callable in both configurations.
 
     The fix names the tenant in the path, the house pattern every other admin mutation
-    already used — so the assertion for the impersonating call FLIPS rather than
-    relaxing: a 403 there is now the correct answer, not the defect. D-22 was never the
-    thing standing in the way; inferring the tenant was.
+    already used. D-22 was never the thing standing in the way; inferring the tenant was —
+    which is why the second call below now SUCCEEDS: D-587 classifies `agents:write` as
+    writable in a view-as session, so an operator who still has the client's console open
+    publishes from where they are, and the audit row names them and the grant. The
+    property the old 403 protected (an act of ours never reads as the client's) is the
+    ledger's job now, and `tests/impersonation_writes_test.py` is where it is driven.
     """
     token = await _make_admin()
     org = await _make_org()
@@ -712,12 +715,15 @@ async def test_an_admin_can_publish_an_agent() -> None:
 
     async with _client() as http:
         plain = await http.post(path, headers={"Authorization": f"Bearer {token}"})
-        # A REAL grant, so the 403 below is D-22's read-only rule rather than the
-        # grant check refusing before that rule is reached.
+        # A REAL grant, so the answer below is the view-as ruling rather than the grant
+        # check refusing before that rule is reached.
         viewing = await http.post(
             path, headers=await view_as_headers(http, token, str(org["slug"]))
         )
     assert plain.status_code == 200, plain.text
     assert plain.json()["agent_id"] == str(org["agent_id"])
-    # Still read-only inside a "view as client" session (D-22) — unchanged, on purpose.
-    assert viewing.status_code == 403, viewing.text
+    # Reachable from inside a view-as session too (D-587). Not a 403, and not a 401 or a
+    # 404 either — those would mean the header had changed which tenant the route acts on,
+    # which the path is there to decide.
+    assert viewing.status_code == 200, viewing.text
+    assert viewing.json()["agent_id"] == str(org["agent_id"])

@@ -15,7 +15,7 @@ What is asserted here, in the order it matters:
    source in the first place — is refused. The client does not approve their own
    knowledge; that is the whole point of a review queue (`admin/routes.py:878`).
 2. **D-22 is NOT re-asserted here.** All three mutate, and
-   `realm_boundary_test::test_no_route_declaring_a_mutating_permission_is_reachable_while_impersonating`
+   `realm_boundary_test::test_no_route_on_a_withheld_permission_is_reachable_while_impersonating`
    already DRIVES every route in the live table that declares a mutating permission
    under a real minted grant and requires a refusal — these three included. A
    per-route copy would be a second way to answer one question, which this repo counts

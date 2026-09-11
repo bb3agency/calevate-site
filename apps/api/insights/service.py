@@ -422,14 +422,21 @@ async def dismiss_gap(
 ) -> KnowledgeGapOut:
     """Mark a gap dismissed. It drops off the urgent surface but its occurrences stay, so
     the count keeps climbing if the question keeps being asked — a client who dismissed it
-    can still see it was not really solved."""
+    can still see it was not really solved.
+
+    `resolved_by` is `client_user_id` rather than `user_id`: the column is an FK to `users`,
+    and since D-587 an OPERATOR can reach this write inside a view-as session. "Which person
+    of this account resolved it" has no answer then, and NULL is the honest one — who
+    actually did it is in `audit_log`, named as the operator, with the view-as grant beside
+    them (`compliance/audit.py::write_audit`). Storing the operator's id here would be an
+    id-space mixture the FK would refuse anyway."""
     await _load_gap(session, gap_id)  # 404s if not this tenant's, before we write
     await session.execute(
         text(
             "UPDATE knowledge_gaps SET status = 'dismissed', resolution = :reason, "
             "  resolved_by = :by, resolved_at = now(), updated_at = now() WHERE id = :id"
         ),
-        {"id": gap_id, "reason": reason, "by": principal.user_id},
+        {"id": gap_id, "reason": reason, "by": principal.client_user_id},
     )
     return await get_gap(session, gap_id)
 
@@ -471,7 +478,12 @@ async def teach_gap(
             "  resolved_by = :by, resolved_at = now(), kb_source_id = :kb, updated_at = now() "
             "WHERE id = :id"
         ),
-        {"id": gap_id, "answer": payload.answer, "by": principal.user_id, "kb": kb_source_id},
+        {
+            "id": gap_id,
+            "answer": payload.answer,
+            "by": principal.client_user_id,
+            "kb": kb_source_id,
+        },
     )
     return await get_gap(session, gap_id)
 

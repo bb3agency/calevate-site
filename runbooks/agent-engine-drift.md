@@ -60,7 +60,7 @@ dashboard edit nobody noticed.
 ## 2. Read what actually differs, per agent
 
 `GET /v1/agents/{agent_id}/engine-state` (client realm, the tenant's own scope — an
-admin uses D-22 view-as). It performs the same read on demand and returns the
+admin uses view-as). It performs the same read on demand and returns the
 operator-readable sentence plus the per-property verdicts (`prompt_applied`,
 `disclosure_applied`, `truthful_answer_applied`, `voice_applied`).
 

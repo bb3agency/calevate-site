@@ -321,6 +321,102 @@ def _bolna_handler(*, listing_rows: int = 1) -> Callable[[httpx.Request], httpx.
                 # be shown to have removed anything.
                 return httpx.Response(404, json={"error": "unknown knowledgebase"})
             return httpx.Response(200, json={"message": "success", "state": "deleted"})
+        if path == "/api/v1/voice-config/tts" and request.method == "GET":
+            # THE TWO-STEP LOOKUP'S FIRST STEP, shaped from their own example
+            # (VERIFIED-VENDOR-DOCS, `api-reference/voice/get_providers.md`, read 11 Sep
+            # 2026): providers[] each with models[], the ids being the PLATFORM's UUIDs
+            # while the strings we know (`sarvam`, `bulbul:v3`) are `name`/`model_id`. The
+            # UNSUPPORTED provider is in the stub deliberately — `is_supported: false` is
+            # "available for your account", so a voice under it would 400 at publish, and
+            # an adapter that ignored the flag passes every other fixture.
+            return httpx.Response(
+                200,
+                json={
+                    "language": request.url.params.get("language"),
+                    "providers": [
+                        {
+                            "id": "9e675bdf-00e5-5bd5-b858-f1b088a48dbd",
+                            "name": "Sarvam",
+                            "is_supported": True,
+                            "models": [
+                                {
+                                    "id": "5d82c5f4-458f-5ff6-ae2b-a5e692b77a2c",
+                                    "model_id": "bulbul:v3",
+                                    "display_name": "Bulbul v3",
+                                    "is_supported": True,
+                                    "default": False,
+                                }
+                            ],
+                        },
+                        {
+                            "id": "7a3f4573-7548-5b34-80f9-5edf23bed79b",
+                            "name": "ElevenLabs",
+                            "is_supported": True,
+                            # A provider we do not offer: no `TtsModel` names it, so every
+                            # voice under it must be absent from the listing.
+                            "models": [
+                                {
+                                    "id": "f1b5c9cc-72e1-56a4-be8c-f3ee37d38309",
+                                    "model_id": "eleven_turbo_v2_5",
+                                    "is_supported": True,
+                                }
+                            ],
+                        },
+                        {
+                            "id": "1c0de0de-0000-0000-0000-000000000000",
+                            "name": "Cartesia",
+                            "is_supported": False,
+                            "models": [
+                                {
+                                    "id": "2c0de0de-0000-0000-0000-000000000000",
+                                    "model_id": "sonic-3.5",
+                                    "is_supported": True,
+                                }
+                            ],
+                        },
+                    ],
+                    "custom_voices": {},
+                    "default": None,
+                },
+            )
+        if path == "/api/v1/voice-config/tts/voices" and request.method == "GET":
+            params = request.url.params
+            if params.get("model_id") != "5d82c5f4-458f-5ff6-ae2b-a5e692b77a2c":
+                # Any other (provider, model) pair is not one we offer; answering rows here
+                # would let an adapter that ignores the filter pass.
+                return httpx.Response(200, json={"items": []})
+            if params.get("page") not in (None, "1"):
+                return httpx.Response(200, json={"items": []})
+            return httpx.Response(
+                200,
+                json={
+                    "items": [
+                        {
+                            "id": "21d4333d-39f9-5894-8987-f957a664b456",
+                            "provider_id": "9e675bdf-00e5-5bd5-b858-f1b088a48dbd",
+                            # THE PUBLISHABLE ID IS `voice_id`, NOT `id` — an adapter that
+                            # read `id` would send the internal UUID and 400 at CREATE.
+                            "voice_id": "ashutosh",
+                            "name": "Ashutosh",
+                            "gender": "male",
+                            "is_native": True,
+                            "source": "platform",
+                        },
+                        {
+                            "id": "fc092b1c-0f6e-4900-8468-e11133fd95b2",
+                            "provider_id": "9e675bdf-00e5-5bd5-b858-f1b088a48dbd",
+                            # THEIR OWN documented custom row (`get_all.md:102-112`): the
+                            # name is unrecoverable from the id, which is the whole reason
+                            # the label crosses the boundary as data.
+                            "voice_id": "sXlZ9Juk5Ji8sZiFjRUV",
+                            "name": "my-custom-voice",
+                            "gender": None,
+                            "is_native": False,
+                            "source": "custom",
+                        },
+                    ]
+                },
+            )
         if path == "/providers" and request.method == "GET":
             # `provider_value` comes back MASKED, exactly as their `Provider` schema shows
             # (`example: xxxxxxxaz`). Modelling the mask is the point: an adapter that

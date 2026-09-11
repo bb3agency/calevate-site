@@ -67,12 +67,16 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.copilot.prompt import function_tool
 from apps.api.core.context import Principal
-from apps.api.core.rbac import MUTATING_PERMISSIONS, Permission, role_has
+from apps.api.core.rbac import Permission, role_has, withheld_from_view_as
 
 # The one predicate for "may this person curate knowledge" — the role table PLUS the
 # owner's per-account switch. Imported rather than re-derived so the assistant and the
 # Add-Knowledge form cannot come to disagree about one person (see `may_act`).
 from apps.api.kb.curation import CURATE_PERMISSION, may_curate_knowledge
+
+#: The permission the CLIENT assistant's four routes declare. Named here because
+#: `assistant_closed_to` asks the view-as registry about it from a non-route caller.
+COPILOT_PERMISSION: Permission = "copilot:use"
 
 #: WHICH GATE AN ACTION STANDS BEHIND. See the module docstring — required on every tool,
 #: no default, and the only thing `service.py` dispatches on.
@@ -154,13 +158,37 @@ def actor_realm(actor: ToolActor) -> str:
     return "admin" if actor.impersonating else "client"
 
 
+def assistant_closed_to(actor: ToolActor) -> str | None:
+    """Why the CLIENT assistant is shut to this actor, or `None` if it is open.
+
+    A SECOND QUESTION FROM `may_act`, AND THE SPLIT IS D-587's. `may_act` answers "may this
+    person do this THING", and for an operator in a view-as session the honest answer is
+    now "yes" for `leads:write` and its siblings — the buttons beside the assistant do
+    exactly that. What is shut is the ASSISTANT, all four of its routes, because asking it
+    spends the CLIENT'S AI allowance (`copilot:use` is withheld — `rbac.VIEW_AS_MUTATIONS`
+    carries the ground). The route gate already refuses them; this is the same refusal
+    asked from inside, so a tool can never be planned or applied for an actor who could not
+    legitimately have reached the assistant at all.
+
+    WHY BOTH LAYERS. `plan_write`/`confirm` are reachable from `run_copilot`, which tests
+    and future callers reach without a route. Before D-587 the permission check happened to
+    cover this case; now it does not, and a defence that exists only because of an
+    accidental overlap is a defence that disappears the day the overlap does.
+    """
+    if not actor.impersonating:
+        return None
+    return withheld_from_view_as(COPILOT_PERMISSION)
+
+
 async def may_act(session: AsyncSession, actor: ToolActor, permission: Permission) -> bool:
     """`core/auth.requires`'s ladder, in a form a non-route caller can ask.
 
-    NOT a re-derivation: the role table is `rbac.role_has` and the D-22 clause is
-    `MUTATING_PERMISSIONS`, both imported. A second copy of either would be a second answer
-    to "may this person do this", and the two would diverge on the day one of them was
-    updated.
+    NOT a re-derivation: the role table is `rbac.role_has` and the view-as clause is
+    `rbac.withheld_from_view_as`, both imported. A second copy of either would be a second
+    answer to "may this person do this", and the two would diverge on the day one of them
+    was updated — which is exactly what D-587 would have caused had this file still spelled
+    the rule as `impersonating and permission in MUTATING_PERMISSIONS`: the assistant would
+    have kept refusing what the buttons beside it had started allowing.
 
     **AND `kb:write` IS DELEGATED RATHER THAN ANSWERED HERE, FOR THAT SAME REASON.** Since
     the founder's "give the staff perms allowing option to owner", who may curate knowledge
@@ -181,7 +209,7 @@ async def may_act(session: AsyncSession, actor: ToolActor, permission: Permissio
         )
     if not role_has(actor.role, permission):
         return False
-    return not (actor.impersonating and permission in MUTATING_PERMISSIONS)
+    return not (actor.impersonating and withheld_from_view_as(permission) is not None)
 
 
 @dataclass(frozen=True, slots=True)

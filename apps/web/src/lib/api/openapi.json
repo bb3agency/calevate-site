@@ -18519,6 +18519,10 @@
             "title": "Agent Status",
             "type": "string"
           },
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
           "engine_synced": {
             "title": "Engine Synced",
             "type": "boolean"
@@ -18558,6 +18562,7 @@
           "engine_synced",
           "live_voice_id",
           "republish_required",
+          "changed",
           "next_step"
         ],
         "title": "SetVoiceOut",
@@ -23333,6 +23338,10 @@
             "title": "Selectable",
             "type": "boolean"
           },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
           "voices": {
             "items": {
               "$ref": "#/components/schemas/OfferedVoiceOut"
@@ -23345,9 +23354,57 @@
           "control",
           "selectable",
           "voices",
+          "source",
           "note"
         ],
         "title": "VoiceCatalogueOut",
+        "type": "object"
+      },
+      "VoiceCatalogueRefreshOut": {
+        "additionalProperties": false,
+        "description": "What one operator-triggered voice sync did.\n\n`pruned is None` is not zero: the engine's listing was INCOMPLETE and pruning was\ndeliberately skipped, so a voice the platform has withdrawn is still in the cache. That\nis a different fact from \"nothing needed removing\" and the console must be able to say\nwhich \u2014 see `agents/voice_sync.VoiceSyncResult`.",
+        "properties": {
+          "complete": {
+            "title": "Complete",
+            "type": "boolean"
+          },
+          "in_force": {
+            "title": "In Force",
+            "type": "integer"
+          },
+          "note": {
+            "title": "Note",
+            "type": "string"
+          },
+          "pruned": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pruned"
+          },
+          "seen": {
+            "title": "Seen",
+            "type": "integer"
+          },
+          "written": {
+            "title": "Written",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "seen",
+          "written",
+          "pruned",
+          "complete",
+          "in_force",
+          "note"
+        ],
+        "title": "VoiceCatalogueRefreshOut",
         "type": "object"
       },
       "VoiceStateOut": {
@@ -26010,7 +26067,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-cap": {
       "patch": {
-        "description": "Applies immediately: a live agent is re-published in the same transaction, so a cap that only lands in our table cannot be displayed as if it were enforced. `null` restores the platform default; it never means unlimited. Out-of-range values are refused with `call_cap_out_of_range`.",
+        "description": "The operator's door onto the same write, for onboarding and for support acting as themselves. A client sets their own agent's cap on `PATCH /v1/agents/{agent_id}/call-cap`.\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, so a cap that only lands in our table cannot be displayed as if it were enforced. If that push fails nothing is saved. It binds the NEXT call \u2014 a call already in progress runs to its own cap.\n\n`null` restores the platform default; it never means unlimited. Out-of-range values are refused with `call_cap_out_of_range`.",
         "operationId": "set_call_cap_v1_admin_tenants__tenant_id__agents__agent_id__call_cap_patch",
         "parameters": [
           {
@@ -26717,7 +26774,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice": {
       "patch": {
-        "description": "Writes `agents.tts_voice` (and the matching `tts_provider`) and audits it. The tenant is named in the path because an admin principal has no tenant of its own and the one way it could get one \u2014 impersonation \u2014 is read-only by D-22; sending `X-Impersonate-Org` here is still refused. It does NOT reach the voice engine: `publish_agent` re-reads both columns, so a live agent keeps its old voice until the next publish \u2014 see `republish_required` in the response. An id outside the catalog is refused with `unknown_voice`.",
+        "description": "The operator's door onto the same write, for the onboarding wizard and for support acting as themselves: the tenant is named in the path because an admin principal has no tenant of its own, which also makes the audit row self-documenting. A client edits their own agent's voice on `PATCH /v1/agents/{agent_id}/voice` instead.\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a voice the platform is not speaking. If that push fails nothing is saved. Callers hear it from the NEXT call \u2014 a call already in progress is not disturbed.\n\nA draft or paused agent is not published by this: there is nothing live to update, and the next publish carries the voice. `engine_synced` says which happened.\n\nAn id outside the catalog is refused with `unknown_voice`. A catalogue voice this deployment cannot put a client on \u2014 no vendor key, no attested price, the platform-wide cap reached \u2014 is refused with `voice_not_available`, and the detail names the actual ground.",
         "operationId": "set_agent_voice_v1_admin_tenants__tenant_id__agents__agent_id__voice_patch",
         "parameters": [
           {
@@ -26769,7 +26826,7 @@
             "description": "RFC-9457 problem+json"
           }
         },
-        "summary": "Set an agent's voice from the catalog (admin realm, D-21)",
+        "summary": "Set an agent's voice from the catalog (admin realm \u2014 onboarding)",
         "tags": [
           "agents",
           "admin"
@@ -28702,7 +28759,7 @@
     },
     "/v1/admin/tenants/{tenant_id}/plan-tier": {
       "post": {
-        "description": "Sets `organizations.plan_tier`. `prepaid` is the default every account is created on (D-521): its calling is paid from a credit balance and `compliance.check_dispatch` refuses `no_credits` when that balance is empty. `managed` is for a client genuinely billed on a plan retainer \u2014 it has no wallet, the credits screen says so, and nothing stops their dialling for want of credit. **Setting `prepaid` on an account with no credit stops its OUTBOUND calling at the next dial**, and since D-551 it also stops its agents ANSWERING incoming calls \u2014 not from here, which moves no ledger entry, but from the next reconciliation edge (`workers/inbound_cutover.py`, reached from the next metered call or the next publish). Moving back to `managed` reverses both. Idempotent: setting the tier an account is already on returns 200, `changed: false`, and writes no audit row. 404 means no such client.",
+        "description": "Sets `organizations.plan_tier`. `prepaid` is the default every account is created on (D-521): its calling is paid from a credit balance and `compliance.check_dispatch` refuses `no_credits` when that balance is empty. `managed` is for a client genuinely billed on a plan retainer \u2014 it has no wallet, the credits screen says so, and nothing stops their dialling for want of credit. **Setting `prepaid` on an account with no credit stops its OUTBOUND calling at the next dial**, and since D-551 it also stops its agents ANSWERING incoming calls. **Moving back to `managed` reverses both.** Neither direction waits for anything: a change of tier publishes the inbound-answering reconciliation (`workers/inbound_cutover.py`) in the same transaction as the column write (D-579), so the engine is told as soon as the outbox drains \u2014 seconds, not whenever an agent is next republished. Idempotent: setting the tier an account is already on returns 200, `changed: false`, writes no audit row and publishes nothing. 404 means no such client.",
         "operationId": "set_tenant_plan_tier_v1_admin_tenants__tenant_id__plan_tier_post",
         "parameters": [
           {
@@ -29963,6 +30020,57 @@
         "x-calevate-permission": "org:manage"
       }
     },
+    "/v1/agents/{agent_id}/call-cap": {
+      "patch": {
+        "description": "The cost-runaway guard on one of your own agents \u2014 the screen's \"Longest one call may run\". `worst_case_call_cost_inr` on the response is what one call that runs the whole cap costs YOU, struck at the dearest minute this account can be charged.\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, so a cap that only lands in our table cannot be displayed as if it were enforced. If that push fails nothing is saved. It binds the NEXT call \u2014 a call already in progress runs to its own cap.\n\n`null` restores the platform default; it never means unlimited. Out-of-range values are refused with `call_cap_out_of_range`.",
+        "operationId": "set_my_agent_call_cap_v1_agents__agent_id__call_cap_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetCallCapIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallCapOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "How long one of your calls may run before it is ended (D-586)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:write"
+      }
+    },
     "/v1/agents/{agent_id}/caller-memory": {
       "patch": {
         "description": "Two abilities, always on or off together. Your agents remember the people they have spoken to and can greet a returning caller with what they asked about last time; and when someone asks to be called back at a particular time, that follow-up is booked for exactly then and dials with everything already learned.\n\nOff unless you switch it on. Switched on, the agent says at the start of every call that a short note is kept \u2014 that sentence cannot be switched off separately.\n\nWhat is kept is a short note of what the caller wanted, what happened, and any preference they stated, such as the language they like or when they prefer to be called. It is used only for that person's own future calls with you, is never shared, and is deleted after 180 days or sooner if they ask.\n\nThe first time anyone in your account switches this on you are asked to confirm what these calls collect. Some kinds of business cannot use it at all.\n\nApplies immediately: a live agent is updated on the voice platform in the same transaction, so the screen never claims something the phone line is not doing.",
@@ -30726,6 +30834,57 @@
           "agents"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/agents/{agent_id}/voice": {
+      "patch": {
+        "description": "Sets the voice on one of your own agents. Hear the options first with `GET /v1/agents/voices`; a voice returned there with `offerable: false` is refused here, with the same sentence that read said.\n\nApplies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a voice the platform is not speaking. If that push fails nothing is saved. Callers hear it from the NEXT call \u2014 a call already in progress is not disturbed.\n\nA draft or paused agent is not published by this: there is nothing live to update, and the next publish carries the voice. `engine_synced` says which happened.\n\nAn id outside the catalog is refused with `unknown_voice`. A catalogue voice this deployment cannot put a client on \u2014 no vendor key, no attested price, the platform-wide cap reached \u2014 is refused with `voice_not_available`, and the detail names the actual ground.",
+        "operationId": "set_my_agent_voice_v1_agents__agent_id__voice_patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "agent_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Agent Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetVoiceIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SetVoiceOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Choose the voice this agent speaks in (D-586)",
+        "tags": [
+          "agents"
+        ],
+        "x-calevate-permission": "agents:write"
       }
     },
     "/v1/attention": {
@@ -38767,6 +38926,35 @@
           "ops"
         ],
         "x-calevate-permission": "platform:config"
+      }
+    },
+    "/v1/ops/voices/refresh": {
+      "post": {
+        "description": "Reads the voice platform account's own TTS voice list and replaces the cached catalogue every client's voice picker is built from. Use it after cloning or adding a voice on the platform \u2014 the hourly job would otherwise take up to an hour to notice. It changes no agent and no call: an agent already speaking a voice keeps speaking it whatever this returns. A sync that reads nothing is refused rather than applied, so a bad credential cannot empty the picker.",
+        "operationId": "refresh_voice_catalogue_route_v1_ops_voices_refresh_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VoiceCatalogueRefreshOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Re-read the voice catalogue from the voice platform (audited)",
+        "tags": [
+          "ops"
+        ],
+        "x-calevate-permission": "ops:manage"
       }
     },
     "/v1/organization/llm-defaults": {

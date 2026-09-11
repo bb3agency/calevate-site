@@ -255,13 +255,28 @@ async def test_an_admin_publishes_an_agent_on_the_tenant_path() -> None:
     assert body["engine_agent_ref"], "publishing must record the engine's ref"
 
 
-async def test_publishing_is_still_refused_while_impersonating() -> None:
-    """D-22 is NOT what was relaxed to make the endpoint work.
+async def test_publishing_from_inside_a_view_as_session_is_attributed_not_refused() -> None:
+    """⚠ THIS TEST ASSERTED A 403 UNTIL D-587, AND THE INVERSION IS THE POINT.
 
-    An admin who sends `X-Impersonate-Org` is still refused every mutation, this one
-    included. The route became reachable by removing the need to impersonate, not by
-    permitting a write inside a "view as client" session — if this ever returns 200,
-    the fix was made the wrong way.
+    It was written to prove that the publish endpoint was made reachable by removing the
+    need to impersonate — not by permitting a write inside a "view as client" session. The
+    first half is unchanged and is what the previous test drives: the route is admin-realm
+    with the tenant in the PATH, and an operator reaches it as themselves.
+
+    What changed is the answer when the operator happens to still be carrying the view-as
+    header. D-587 replaced D-22's blanket refusal with a ruling per permission plus
+    attribution, and `agents:write` is writable — so the request now lands, and the thing
+    that used to be guaranteed by refusing is guaranteed by the ledger instead. Making it
+    refuse again would mean an operator mid-support-call has to leave the client's console
+    to press a button they are already allowed to press, which buys nothing: they could
+    drop one header and do it anyway.
+
+    THE PROPERTY THAT REPLACES THE 403 is that the request REACHES THE HANDLER and is then
+    judged on its merits — here a 422, because this agent has no script yet, which is the
+    same answer the operator would get outside view-as. That the write is ATTRIBUTED once
+    it lands is asserted where it belongs, on a route that does land:
+    `tests/impersonation_writes_test.py`. Asserting it twice would mean setting up a
+    publishable agent here to re-prove a property that file already drives.
     """
     token = await _make_admin()
     org = await _make_org()
@@ -269,22 +284,29 @@ async def test_publishing_is_still_refused_while_impersonating() -> None:
     async with _client() as http:
         response = await http.post(
             f"/v1/admin/tenants/{org['id']}/agents/{org['agent_id']}/publish",
-            # A REAL grant, so the refusal is D-22's read-only rule and not the grant
-            # check standing in front of it. A 403 for the wrong reason would let this
-            # test survive the exact regression it names.
+            # A REAL grant: the request must be a genuine view-as session, or this asserts
+            # nothing about what one may do.
             headers=await view_as_headers(http, token, str(org["slug"])),
         )
 
-    assert response.status_code == 403, response.text
-    assert response.json()["kind"] == "permission"
-    assert "read-only" in response.json()["detail"].lower(), response.text
-    assert "read-only" in response.json()["detail"].lower()
+    assert response.status_code == 422, response.text
+    assert response.json()["type"].endswith("/agent_has_no_script"), (
+        "the answer must come from the HANDLER (this agent has no script), not from the "
+        "view-as gate — a 403 here means the ruling refused a permission it classifies as "
+        "writable, which is the regression D-587 would take back"
+    )
 
 
 async def test_a_client_token_cannot_reach_the_publish_endpoint() -> None:
-    """`realm="admin"` still means admin: an owner — who holds no `agents:write` —
-    cannot publish their own agent by discovering the new path. D-21's control
-    boundary survived the move."""
+    """`realm="admin"` still means admin: an owner cannot publish their own agent by
+    discovering the new path. D-21's control boundary survived the move.
+
+    ⚠ This used to read "an owner — who holds no `agents:write`", and since D-586 an owner
+    DOES hold it. The 401 below is stronger for that, not weaker: it is the client
+    verifier refusing an admin-path route to a client session, which is the mechanism
+    `core/rbac.py` says is the one that keeps a tenant out of the console. The permission
+    was never what was doing the work here, and now the test cannot be read as if it
+    were."""
     org = await _make_org()
     tenant_id = uuid.UUID(str(org["id"]))
     token = await _make_member(tenant_id, role="owner")
@@ -566,9 +588,27 @@ async def test_the_voice_write_moved_and_the_old_path_is_gone() -> None:
     client generated from this schema, so there is no third party to strand. An alias
     would keep the copyable wrong shape live on the wrong limiter — the defect the move
     exists to delete. Same call as `POST /v1/agents/{agent_id}/publish` above.
+
+    ⚠ **`PATCH /v1/agents/{agent_id}/voice` IS LIVE AGAIN (D-586) AND THIS TEST USED TO
+    ASSERT IT WAS ABSENT.** It is not the old route restored, and the rule the move
+    established is untouched: the rule was "no ADMIN-realm route in the client path
+    space", not "nothing may ever live at that path". The route there now is CLIENT-realm
+    and names no tenant at all — the tenant is the caller's own session — so none of the
+    four mechanisms that made the old shape wrong applies to it. The general assertion
+    above (`test_no_admin_realm_route_lives_outside_the_admin_path_space`) is what
+    actually guards the rule, and it walks the whole table; this case is the instance,
+    and the instance is now BOTH halves being where they belong.
     """
     paths = {route.path for route in iter_api_routes(app)}
-    assert "/v1/agents/{agent_id}/voice" not in paths
+    client_voice = next(
+        route for route in iter_api_routes(app) if route.path == "/v1/agents/{agent_id}/voice"
+    )
+    assert client_voice.methods == {"PATCH"}
+    assert "tenant_id" not in {param.name for param in client_voice.dependant.path_params}
+    assert ("agents:write", "any") in _enforced(client_voice), (
+        'the client door must stay realm-agnostic: `realm="client"` would lock out the '
+        "view-as operator the founder asked for"
+    )
     voice = next(
         route
         for route in iter_api_routes(app)
@@ -578,6 +618,9 @@ async def test_the_voice_write_moved_and_the_old_path_is_gone() -> None:
     assert "tenant_id" in {param.name for param in voice.dependant.path_params}
     assert not _depends_on(voice, tenant_of)
     assert ("agents:write", "admin") in _enforced(voice)
+    assert "/v1/agents/{agent_id}/call-cap" in paths, (
+        "the cap's client door ships beside the voice's — one decision, both settings"
+    )
     # The client-realm READ that shares this router kept its path: a client may still
     # hear what their agent sounds like (D-21), it is only the write that moved.
     assert "/v1/agents/voices" in paths

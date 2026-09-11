@@ -45,7 +45,7 @@ audited: it carries ids, timings and tags and is the page a reviewer refreshes.
 PERMISSIONS
 ------------
 * list — `org:read`. Reading a work list is not acting on it, and D-22 forbids gating a
-  GET on a permission read-only impersonation refuses (`holds_routes.py` makes this
+  GET on a permission a view-as session is refused (`holds_routes.py` makes this
   argument in full). Both admin roles hold it.
 * detail — `calls:read`. It discloses a redacted call, which is precisely what that
   permission means in the client realm; using the same name for the same disclosure
@@ -55,7 +55,9 @@ PERMISSIONS
   unredacted text — the surface that serves that is `/v1/calls/{id}/transcript/raw`,
   which writes its own audit row for the person who opened it.
 * review — `admin:tenants`. Recording a verdict is a mutation, so it carries a mutating
-  permission and an impersonating admin is refused it (D-22, no acting-as).
+  permission — and `admin:tenants` is one D-587 withholds from a view-as session, because
+  acting on a client's record is an operator-console act. A QA verdict is ours, not the
+  client's, and it is recorded as ours.
 """
 
 from __future__ import annotations

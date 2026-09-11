@@ -22,7 +22,9 @@ those are the two facts that decide what a client must go and buy if they take t
 self-supply route — the series decides what the connection may lawfully dial, and
 Exotel-class operators require the KYC address proof to match the city the number is
 issued in. `org:manage` is the permission because this is the shape of a request that
-spends money, which also makes D-22 refuse it to an impersonating admin.
+spends money. (That used to make D-22 refuse it to an impersonating admin; since D-587
+`org:manage` is writable in a view-as session, and nothing is lost — see the next
+paragraph, this route always refuses and never spends.)
 
 **It writes nothing on either refusal.** No allocation, no intent row, no reservation.
 There is no half-provisioned state to reconcile because there is no state. The route that

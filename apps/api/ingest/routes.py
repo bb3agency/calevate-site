@@ -978,7 +978,9 @@ async def meta_redrive(
     have two implementations. Nothing here is a bypass and there is no flag for one.
 
     **`org:manage`, audited, and no `db` session.** The permission matches every other
-    write on this router (`staff` is out, an impersonating operator is refused — D-22).
+    write on this router (`staff` is out). ⚠ An impersonating operator IS admitted since
+    D-587 — recovering a client's stuck leads is support work — and the audit row names
+    them and the view-as session rather than the account.
     The audit row and the candidate read share ONE transaction that commits BEFORE any
     Graph call, so the request never holds a pooled connection across somebody else's
     network — the boundary `_absorb_leadgen`'s docstring draws, applied to its caller.
@@ -1284,7 +1286,11 @@ async def create_lead_source(
     Creating a lead source mints a credential that dials this tenant's customers on
     arrival, which puts it in the same class as the outbound endpoint that ships their
     leads elsewhere: an account-level decision, not a lead-handling one, so `staff` is
-    out (SEC-COMP §5) and an impersonating operator is refused (D-22).
+    out (SEC-COMP §5). An OPERATOR in a view-as session may create one since D-587 —
+    wiring a client's lead source up for them is the archetypal support call — and the
+    credential is minted under an audit row naming the operator and the grant. It is not
+    an access grant to the ACCOUNT (`rbac.VIEW_AS_WITHHELD_ACTS["org.membership"]` is
+    that), it is a webhook credential the client can rotate and see.
 
     The audit summary carries IDS AND THE SOURCE NAME AND NOTHING ELSE — no secret, no
     fingerprint. `write_audit`'s summary is written to the log stream, and a fingerprint

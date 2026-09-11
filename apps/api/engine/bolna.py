@@ -135,6 +135,8 @@ from calevate_shared.engine import (
     EngineAgentRef,
     EngineCapabilities,
     EngineKBRef,
+    EngineVoice,
+    EngineVoiceListing,
     ExecutionListing,
     ExecutionSnapshot,
     HandoffLeg,
@@ -156,6 +158,7 @@ from calevate_shared.engine import (
     render_caller_memory,
 )
 from calevate_shared.events import CallEvent, CallStatus, Speaker, TranscriptTurn
+from calevate_shared.model_lifecycle import TTS_MODEL_LIFECYCLE
 from pydantic import ValidationError
 
 from apps.api.core.alerting import alert
@@ -2061,6 +2064,100 @@ def _optional_bool(value: Any) -> bool | None:
     as unknown.
     """
     return value if isinstance(value, bool) else None
+
+
+# --- the voice catalogue: their two-step lookup, in our vocabulary (D-585) -----------
+#
+# VERIFIED-VENDOR-DOCS, hash-pinned mirror, read 11 Sep 2026:
+# `bolna-findings/mirror/pages/api-reference/voice/overview.md` (the flow),
+# `.../get_providers.md` (providers[] -> models[], the UUIDs), `.../get_all.md` (items[],
+# `VoiceItem`, the `platform | custom` source enum).
+
+_VOICE_CONFIG_PATH: Final = "/api/v1/voice-config/tts"
+_VOICE_LIST_PATH: Final = "/api/v1/voice-config/tts/voices"
+
+#: THEIR bare BCP-47 filter -> OUR product language code. Their parameter takes `en`, `hi`,
+#: `ta` (`get_providers.md`); `agents/voices.Language` spells the three the product sells
+#: as `te-IN`, `hi-IN`, `en-IN`. Telugu first, because that is the order a picker renders
+#: (BRD §1) and the order the union below preserves.
+_VOICE_LANGUAGES: Final[dict[str, str]] = {"te": "te-IN", "hi": "hi-IN", "en": "en-IN"}
+
+#: Their own documented default, and their example's value (`get_all.md`). Not
+#: `_LISTING_PAGE_SIZE` (50): that constant is the AGENT/knowledge-base routes' documented
+#: cap ("You can request up to `50`"), which is a different route's rule.
+_VOICE_PAGE_SIZE: Final = 100
+
+#: Our own bound on a listing with no `has_more` and no `total`. Twenty pages of 100 is two
+#: thousand voices; past that the walk reports `page_cap_reached` rather than claiming to
+#: have seen the account.
+_VOICE_MAX_PAGES: Final = 20
+
+
+def _offered_tts_models(config: dict[str, Any]) -> list[tuple[str, str, str]]:
+    """`(provider_id, model_uuid, model_id)` for every model in THEIR providers response
+    that OUR catalogue offers.
+
+    The filter is `TTS_MODEL_LIFECYCLE`, whose keys are exactly `agents/voices.TtsModel`
+    (`scripts/check_model_lifecycle` holds the two together), so this is provider-generic
+    by construction: Sarvam's `bulbul:v3` and Cartesia's `sonic-3.5` are matched by the
+    same line, and a provider we do not price is skipped without naming it here.
+
+    `is_supported` is honoured on BOTH levels — it is "Whether this provider is available
+    for your account" — because a model the account cannot use is a voice the publish would
+    reject, which is the exact failure this whole seam exists to remove.
+    """
+    offered: list[tuple[str, str, str]] = []
+    providers = config.get("providers")
+    for provider in providers if isinstance(providers, list) else []:
+        if not isinstance(provider, dict) or provider.get("is_supported") is False:
+            continue
+        provider_id = provider.get("id")
+        if not isinstance(provider_id, str) or not provider_id:
+            continue
+        models = provider.get("models")
+        for model in models if isinstance(models, list) else []:
+            if not isinstance(model, dict) or model.get("is_supported") is False:
+                continue
+            model_uuid, model_id = model.get("id"), model.get("model_id")
+            if not isinstance(model_uuid, str) or not isinstance(model_id, str):
+                continue
+            if model_id in TTS_MODEL_LIFECYCLE:
+                offered.append((provider_id, model_uuid, model_id))
+    return offered
+
+
+def _engine_voice(row: dict[str, Any], *, tts_model: str, language: str) -> EngineVoice | None:
+    """One `VoiceItem` -> one `EngineVoice`, or None for a row we cannot publish.
+
+    **`voice_id` IS THE FIELD, NOT `id`.** Their row carries both: `id` is the "Internal
+    voice UUID" and `voice_id` is the "Provider-specific voice identifier (use this in
+    agent config)" (`get_all.md:140`). Sending the internal UUID is the same class of
+    defect as sending a display label — it would 400 at agent CREATE, which is where this
+    whole feature started.
+
+    **A ROW WITH NO `name` IS DROPPED RATHER THAN LABELLED.** Their synthesizer block
+    requires `voice` beside `voice_id`, `voice` is that name, and a cloned voice's name has
+    no derivable relationship to its id (their own example pairs `sXlZ9Juk5Ji8sZiFjRUV`
+    with `my-custom-voice`, :102-112). Inventing one from the id would put a generated
+    string in front of a client AND on the wire; dropping the row loses one voice and
+    nothing else.
+    """
+    voice_id, name = row.get("voice_id"), row.get("name")
+    if not isinstance(voice_id, str) or not voice_id.strip():
+        return None
+    if not isinstance(name, str) or not name.strip():
+        return None
+    return EngineVoice(
+        voice_id=voice_id.strip(),
+        label=name.strip(),
+        tts_model=tts_model,
+        languages=(_VOICE_LANGUAGES[language],),
+        # `source` is the enum; `is_native` is a different fact (platform curation) and is
+        # deliberately not read as a synonym for it. An absent or unrecognised `source` is
+        # NOT a clone — treating the unknown as custom would label stock personas as the
+        # founder's own on the picker.
+        is_custom=row.get("source") == "custom",
+    )
 
 
 def _listing_rows(payload: dict[str, Any]) -> list[dict[str, Any]]:
@@ -5537,6 +5634,142 @@ class BolnaEngine:
             for row in rows
         ]
         return AccountKBListing(objects=objects, complete=reason is None, incomplete_reason=reason)
+
+    async def list_voices(self) -> EngineVoiceListing:
+        """Every TTS voice THIS ACCOUNT can publish, for the models our catalogue offers.
+
+        **THE TWO-STEP LOOKUP, EXACTLY AS THEIR OWN OVERVIEW DESCRIBES IT**
+        (VERIFIED-VENDOR-DOCS, hash-pinned mirror, read 11 Sep 2026):
+
+            `bolna-findings/mirror/pages/api-reference/voice/overview.md` — "GET
+            /api/v1/voice-config/tts?language=hi -> returns providers[] each with
+            models[]; Pick a provider.id and a model.id; GET
+            /api/v1/voice-config/tts/voices?language=hi&provider_id=<id>&model_id=<id>
+            &page=1&page_size=100 -> returns items[] of voices".
+
+        `provider_id` and `model_id` are **UUIDs of the platform's own rows**, not the
+        vendor names — `TTSProvider.id` is "Provider UUID (use as `provider_id` when
+        fetching voices)" and `TTSModel.id` is the "Internal model UUID"
+        (`get_providers.md`). The strings we know (`sarvam`, `bulbul:v3`) appear as
+        `name` and `model_id`, which is why step one cannot be skipped and why nothing
+        here hard-codes a UUID: their example shows `9e675bdf-…` for Sarvam and
+        `5d82c5f4-…` for `bulbul:v3`, and an example id is not an account's id.
+
+        **THE MODEL FILTER IS OUR CATALOGUE, WHICH IS WHAT MAKES THIS SERVE CARTESIA TOO.**
+        Their example answers with ElevenLabs and Sarvam side by side, so this route is
+        provider-generic: we match `model.model_id` against the models we actually offer
+        (`TTS_MODEL_LIFECYCLE`, whose keys are exactly `agents/voices.TtsModel`). If the
+        account carries Cartesia with `sonic-3.5`, its voices arrive through this one seam
+        with ids somebody READ — which is how the empty Cartesia half of the catalogue gets
+        filled without anybody inventing a voice id (D-585).
+
+        **CUSTOM (CLONED) VOICES NEED NO SECOND FETCH.** The listing's own description says
+        it: "Voices include both platform-curated voices and any custom voices created by
+        your account" (`get_all.md`), and each row carries `source`, an enum
+        `platform | custom` where custom is "cloned/added by your account" (:172-179). The
+        providers response ALSO carries a `custom_voices` map, and it is deliberately not
+        read: it is keyed by provider with no model, so folding it in would mean guessing
+        which of that provider's models a clone belongs to — and it would duplicate rows
+        the listing already returns.
+
+        **LANGUAGE IS ASKED THREE TIMES BECAUSE THE FILTER IS THE VENDOR'S.** Their
+        parameter is a bare code (`en`, `hi`, `ta`) and ours are `te-IN`/`hi-IN`/`en-IN`, so
+        each product language is one pass and a voice returned under more than one has the
+        union of them. A voice the account holds for none of the three is not in this
+        product's catalogue, and asking without a language would put it there.
+
+        `complete` is reported and not assumed: an incomplete listing must not be allowed to
+        PRUNE the cache (`agents/voice_sync.py`), because a page we failed to read looks
+        exactly like a shorter catalogue.
+
+        ⚠ **NO BYTE OF A LIVE RESPONSE OF THESE TWO ROUTES HAS BEEN SEEN FROM THIS TREE.**
+        `api.bolna.ai` is egress-blocked from this container; this is written against the
+        pinned mirror's OpenAPI blocks plus ONE live read the founder made and relayed on
+        11 Sep 2026. OPERATIONS §2 gate 3 is what closes it.
+        """
+        require_capability("tts", engine=self)
+        found: dict[tuple[str, str], EngineVoice] = {}
+        reason: ListingIncompleteReason | None = None
+        for bare in _VOICE_LANGUAGES:
+            config = await self._request("GET", _VOICE_CONFIG_PATH, params={"language": bare})
+            for provider_id, model_uuid, model_id in _offered_tts_models(config):
+                page_reason = await self._collect_voices(
+                    found,
+                    language=bare,
+                    provider_id=provider_id,
+                    model_uuid=model_uuid,
+                    tts_model=model_id,
+                )
+                reason = reason or page_reason
+        return EngineVoiceListing(
+            voices=sorted(found.values(), key=lambda voice: (voice.tts_model, voice.voice_id)),
+            complete=reason is None,
+            incomplete_reason=reason,
+        )
+
+    async def _collect_voices(
+        self,
+        found: dict[tuple[str, str], EngineVoice],
+        *,
+        language: str,
+        provider_id: str,
+        model_uuid: str,
+        tts_model: str,
+    ) -> ListingIncompleteReason | None:
+        """One (provider, model, language) walked to the end of its pages, merged into
+        `found`.
+
+        Merging rather than appending is what makes the three language passes one
+        catalogue: the same voice comes back under `hi` and under `en`, and the row we keep
+        carries both codes. Keyed on `(tts_model, voice_id)` because the same persona name
+        can legitimately exist under two models and is two selectable voices then.
+
+        `page` is 1-indexed and `page_size` defaults to 100 (`get_all.md`). The listing
+        declares NO `has_more` and no `total`, so the same three exits `_kb_account_rows`
+        uses apply and for the same reasons: a short page ends it and cannot be hiding
+        anything; a full page that added nothing new means the platform ignored `page`; our
+        own cap is the third.
+        """
+        page = 1
+        while True:
+            payload = await self._request(
+                "GET",
+                _VOICE_LIST_PATH,
+                params={
+                    "language": language,
+                    "provider_id": provider_id,
+                    "model_id": model_uuid,
+                    "page": page,
+                    "page_size": _VOICE_PAGE_SIZE,
+                },
+            )
+            items = payload.get("items")
+            rows = (
+                [row for row in items if isinstance(row, dict)] if isinstance(items, list) else []
+            )
+            added = 0
+            for row in rows:
+                voice = _engine_voice(row, tts_model=tts_model, language=language)
+                if voice is None:
+                    continue
+                key = (voice.tts_model, voice.voice_id)
+                previous = found.get(key)
+                if previous is None:
+                    found[key] = voice
+                    added += 1
+                    continue
+                # The union of the languages, and the FIRST label wins. A vendor that
+                # returned two spellings of one voice's name would otherwise make the
+                # catalogue depend on which language we happened to ask about last.
+                merged = tuple(dict.fromkeys(previous.languages + voice.languages))
+                found[key] = previous.model_copy(update={"languages": merged})
+            if len(rows) < _VOICE_PAGE_SIZE:
+                return None
+            if added == 0:
+                return "next_link_no_progress"
+            if page >= _VOICE_MAX_PAGES:
+                return "page_cap_reached"
+            page += 1
 
     async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
         """The vector ids this AGENT references -- one `GET /v2/agent/{id}`.

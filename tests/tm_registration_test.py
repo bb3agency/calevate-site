@@ -748,14 +748,17 @@ async def test_the_admin_registration_route_is_refused_while_impersonating() -> 
     async with _client() as http:
         response = await http.post(
             f"/v1/admin/tenants/{org['id']}/dlt-registration",
-            # A REAL grant, so the 403 is the read-only rule rather than a missing one.
+            # A REAL grant, so the 403 is the view-as ruling rather than a missing one.
             headers=await view_as_headers(http, token, str(org["slug"])),
             json={"status": "submitted", "tm_link_status": "pending"},
         )
 
     assert response.status_code == 403, response.text
     assert response.json()["kind"] == "permission"
-    assert "read-only" in response.json()["detail"].lower(), response.text
+    assert "operator-console act" in response.json()["detail"], (
+        "`admin:tenants` is withheld from a view-as session (D-587) because acting on a "
+        f"client's record is a platform act; the refusal must say so: {response.text}"
+    )
 
 
 async def test_both_new_routes_sit_where_the_house_pattern_puts_them() -> None:

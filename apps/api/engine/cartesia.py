@@ -135,6 +135,7 @@ from calevate_shared.engine import (
     EngineAgentRef,
     EngineCapabilities,
     EngineKBRef,
+    EngineVoiceListing,
     ExecutionListing,
     ExecutionSnapshot,
     KBSourceRef,
@@ -153,6 +154,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.engine.capabilities import (
     NO_CREDENTIALS_REASON,
+    engine_lacks,
     engine_not_configured,
     require_call_compliance_floor,
     require_capability,
@@ -1032,6 +1034,27 @@ class CartesiaEngine:
                 if handle:
                     handles.append(handle)
         return handles
+
+    async def list_voices(self) -> EngineVoiceListing:
+        """REFUSES, and the refusal is the honest answer on this engine (D-585).
+
+        This vendor's TTS leg is its own — `speech_control("tts")` is `engine` here — so
+        our catalogue addresses nothing on it and there is no list of OURS to read back. An
+        empty listing would be a positive claim that the account offers no voices, which a
+        picker would render as a screen that lies; `require_capability` says "that question
+        does not apply on this engine" instead, which is the sentence
+        `agents/voices.voice_selection_capability` already knows how to show calmly.
+
+        ⚠ NOT a statement that this vendor has no voices API — it plainly does, and
+        `ops/secret_probes.py` calls `GET /voices` on it. What it has no notion of is a
+        voice WE choose for an agent it dictates the speech of, and that is what this
+        method is for.
+        """
+        # `engine_lacks` rather than `require_capability`, which is the shape every other
+        # refusal here uses: this leg is `engine` in the descriptor by construction on this
+        # adapter, so a conditional check would leave an unreachable success branch behind
+        # it — a line no test can cover and a lie about what this method can return.
+        raise engine_lacks("tts", engine=self.name)
 
     async def list_account_kb(self) -> AccountKBListing:
         """The account's documents, assembled by walking its agents.

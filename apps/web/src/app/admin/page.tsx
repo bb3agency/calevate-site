@@ -298,7 +298,7 @@ export default function AdminClientsPage() {
                       <Link
                         href={viewAsHref(tenant.slug)}
                         className="inline-flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-xs font-medium text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
-                        title="Read-only view as this client — every page view is logged"
+                        title="Open this client's console as an operator — every view and every change is logged against you"
                       >
                         <Eye className="h-3.5 w-3.5" />
                         View as

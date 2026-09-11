@@ -31,7 +31,7 @@ What is asserted here:
    with `undone: false` and no second row.
 
 D-22 is not re-asserted: both mutating routes declare `agents:write`, and
-`realm_boundary_test::test_no_route_declaring_a_mutating_permission_is_reachable_while_impersonating`
+`realm_boundary_test::test_no_route_on_a_withheld_permission_is_reachable_while_impersonating`
 already drives every such route under a real grant.
 
 CONCURRENCY: every case mints its own tenant and asserts only on rows it created.

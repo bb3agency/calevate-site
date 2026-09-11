@@ -47,6 +47,7 @@ from apps.api.core.rbac import (
     SUPERADMIN_PERMISSIONS,
     SUPERADMIN_ROLE,
     role_has,
+    withheld_from_view_as,
 )
 from apps.api.db.session import credential_session, untenanted_session
 from apps.api.main import app
@@ -177,13 +178,17 @@ def test_the_tier_boundary_is_exactly_the_four_and_nothing_else() -> None:
 
 
 def test_managing_operators_is_a_mutating_permission() -> None:
-    """D-22: a read-only view-as session must not be able to hand somebody an account.
+    """A view-as session must not be able to hand somebody an admin account.
 
-    Listed in `MUTATING_PERMISSIONS`, which also hides `GET /v1/admin/operators` from
-    impersonation — `tests/impersonation_reads_test.ADMIN_CONSOLE_GETS` carries the reason
-    that is correct.
+    TWO FACTS, AND SINCE D-587 THEY ARE SEPARATE ONES. `MUTATING_PERMISSIONS` says the
+    permission WRITES, which is what hides `GET /v1/admin/operators` from impersonation
+    (`tests/impersonation_reads_test.ADMIN_CONSOLE_GETS` carries the reason that is
+    correct). `VIEW_AS_MUTATIONS` is what says a view-as session may not exercise it, and
+    its ground is that deciding who may act on the platform is not something any client's
+    account contains.
     """
     assert "admin:operators" in MUTATING_PERMISSIONS
+    assert withheld_from_view_as("admin:operators") is not None
 
 
 def test_the_role_names_the_literal_admits_are_the_role_names_the_table_uses() -> None:
@@ -771,7 +776,11 @@ async def test_a_view_as_session_cannot_manage_operators_even_as_a_superadmin() 
         )
         listed = await http.get("/v1/admin/operators", headers=headers)
     assert created.status_code == 403, created.text
-    assert "Impersonation is read-only" in created.json()["detail"], created.text
+    assert "admin account" in created.json()["detail"], (
+        "the refusal must name WHY this authority stays in the operator console — "
+        "`admin:operators` is withheld from a view-as session (D-587), and a generic "
+        f"403 would read as a role problem: {created.text}"
+    )
     assert listed.status_code == 403, listed.text
 
 

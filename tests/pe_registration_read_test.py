@@ -23,7 +23,7 @@ Three properties are load-bearing here and each has a test below:
    from a broken route or a lost permission at the fetch layer.
 2. **Hard rule 1.** The read goes through the RLS-scoped session, and tenant B asking
    for the registration sees their own absence — never tenant A's PE id.
-3. **D-22.** It is a GET, so it must not require a permission read-only impersonation
+3. **D-22.** It is a GET, so it must not require a permission a view-as session is
    refuses. `org:read` is the permission `staff`, `owner` and `operator` all hold and
    `MUTATING_PERMISSIONS` does not contain.
 

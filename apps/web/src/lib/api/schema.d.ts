@@ -884,7 +884,11 @@ export interface paths {
         head?: never;
         /**
          * Set the per-agent max call length — the cost-runaway guard (§2b:107)
-         * @description Applies immediately: a live agent is re-published in the same transaction, so a cap that only lands in our table cannot be displayed as if it were enforced. `null` restores the platform default; it never means unlimited. Out-of-range values are refused with `call_cap_out_of_range`.
+         * @description The operator's door onto the same write, for onboarding and for support acting as themselves. A client sets their own agent's cap on `PATCH /v1/agents/{agent_id}/call-cap`.
+         *
+         *     Applies immediately: a live agent is re-published to the voice platform in the same transaction, so a cap that only lands in our table cannot be displayed as if it were enforced. If that push fails nothing is saved. It binds the NEXT call — a call already in progress runs to its own cap.
+         *
+         *     `null` restores the platform default; it never means unlimited. Out-of-range values are refused with `call_cap_out_of_range`.
          */
         patch: operations["set_call_cap_v1_admin_tenants__tenant_id__agents__agent_id__call_cap_patch"];
         trace?: never;
@@ -1093,8 +1097,14 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Set an agent's voice from the catalog (admin realm, D-21)
-         * @description Writes `agents.tts_voice` (and the matching `tts_provider`) and audits it. The tenant is named in the path because an admin principal has no tenant of its own and the one way it could get one — impersonation — is read-only by D-22; sending `X-Impersonate-Org` here is still refused. It does NOT reach the voice engine: `publish_agent` re-reads both columns, so a live agent keeps its old voice until the next publish — see `republish_required` in the response. An id outside the catalog is refused with `unknown_voice`.
+         * Set an agent's voice from the catalog (admin realm — onboarding)
+         * @description The operator's door onto the same write, for the onboarding wizard and for support acting as themselves: the tenant is named in the path because an admin principal has no tenant of its own, which also makes the audit row self-documenting. A client edits their own agent's voice on `PATCH /v1/agents/{agent_id}/voice` instead.
+         *
+         *     Applies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a voice the platform is not speaking. If that push fails nothing is saved. Callers hear it from the NEXT call — a call already in progress is not disturbed.
+         *
+         *     A draft or paused agent is not published by this: there is nothing live to update, and the next publish carries the voice. `engine_synced` says which happened.
+         *
+         *     An id outside the catalog is refused with `unknown_voice`. A catalogue voice this deployment cannot put a client on — no vendor key, no attested price, the platform-wide cap reached — is refused with `voice_not_available`, and the detail names the actual ground.
          */
         patch: operations["set_agent_voice_v1_admin_tenants__tenant_id__agents__agent_id__voice_patch"];
         trace?: never;
@@ -1752,7 +1762,7 @@ export interface paths {
         put?: never;
         /**
          * Move a client between billing motions — prepaid credit or invoiced retainer
-         * @description Sets `organizations.plan_tier`. `prepaid` is the default every account is created on (D-521): its calling is paid from a credit balance and `compliance.check_dispatch` refuses `no_credits` when that balance is empty. `managed` is for a client genuinely billed on a plan retainer — it has no wallet, the credits screen says so, and nothing stops their dialling for want of credit. **Setting `prepaid` on an account with no credit stops its OUTBOUND calling at the next dial**, and since D-551 it also stops its agents ANSWERING incoming calls — not from here, which moves no ledger entry, but from the next reconciliation edge (`workers/inbound_cutover.py`, reached from the next metered call or the next publish). Moving back to `managed` reverses both. Idempotent: setting the tier an account is already on returns 200, `changed: false`, and writes no audit row. 404 means no such client.
+         * @description Sets `organizations.plan_tier`. `prepaid` is the default every account is created on (D-521): its calling is paid from a credit balance and `compliance.check_dispatch` refuses `no_credits` when that balance is empty. `managed` is for a client genuinely billed on a plan retainer — it has no wallet, the credits screen says so, and nothing stops their dialling for want of credit. **Setting `prepaid` on an account with no credit stops its OUTBOUND calling at the next dial**, and since D-551 it also stops its agents ANSWERING incoming calls. **Moving back to `managed` reverses both.** Neither direction waits for anything: a change of tier publishes the inbound-answering reconciliation (`workers/inbound_cutover.py`) in the same transaction as the column write (D-579), so the engine is told as soon as the outbox drains — seconds, not whenever an agent is next republished. Idempotent: setting the tier an account is already on returns 200, `changed: false`, writes no audit row and publishes nothing. 404 means no such client.
          */
         post: operations["set_tenant_plan_tier_v1_admin_tenants__tenant_id__plan_tier_post"];
         delete?: never;
@@ -2214,6 +2224,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/agents/{agent_id}/call-cap": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * How long one of your calls may run before it is ended (D-586)
+         * @description The cost-runaway guard on one of your own agents — the screen's "Longest one call may run". `worst_case_call_cost_inr` on the response is what one call that runs the whole cap costs YOU, struck at the dearest minute this account can be charged.
+         *
+         *     Applies immediately: a live agent is re-published to the voice platform in the same transaction, so a cap that only lands in our table cannot be displayed as if it were enforced. If that push fails nothing is saved. It binds the NEXT call — a call already in progress runs to its own cap.
+         *
+         *     `null` restores the platform default; it never means unlimited. Out-of-range values are refused with `call_cap_out_of_range`.
+         */
+        patch: operations["set_my_agent_call_cap_v1_agents__agent_id__call_cap_patch"];
+        trace?: never;
+    };
     "/v1/agents/{agent_id}/caller-memory": {
         parameters: {
             query?: never;
@@ -2535,6 +2569,32 @@ export interface paths {
         options?: never;
         head?: never;
         patch?: never;
+        trace?: never;
+    };
+    "/v1/agents/{agent_id}/voice": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Choose the voice this agent speaks in (D-586)
+         * @description Sets the voice on one of your own agents. Hear the options first with `GET /v1/agents/voices`; a voice returned there with `offerable: false` is refused here, with the same sentence that read said.
+         *
+         *     Applies immediately: a live agent is re-published to the voice platform in the same transaction, so the screen never claims a voice the platform is not speaking. If that push fails nothing is saved. Callers hear it from the NEXT call — a call already in progress is not disturbed.
+         *
+         *     A draft or paused agent is not published by this: there is nothing live to update, and the next publish carries the voice. `engine_synced` says which happened.
+         *
+         *     An id outside the catalog is refused with `unknown_voice`. A catalogue voice this deployment cannot put a client on — no vendor key, no attested price, the platform-wide cap reached — is refused with `voice_not_available`, and the detail names the actual ground.
+         */
+        patch: operations["set_my_agent_voice_v1_agents__agent_id__voice_patch"];
         trace?: never;
     };
     "/v1/attention": {
@@ -6190,6 +6250,26 @@ export interface paths {
          * @description Records the MONTHLY PLAN FEE a voice vendor invoiced this account, read off that invoice, as a NEW dated row for one IST billing month — a correction is a later attestation for the same month, never an edit, so the record of what we believed we were billed survives the correction that superseded it. Requires `X-Confirm-Action: attest_tts_plan_fee:<provider>:<month>`, bound to both so a header captured for one month cannot restate another. The figure is rupees for the whole month as a decimal string, quoted to the paisa. It is NOT the per-character price beside it and is never an input to what a call is metered at: it is published on the spend board against what our own meter attributed, and their difference is the allotment nobody spoke into. Only vendors billed as a monthly plan can be attested — a vendor whose synthesizer leg the engine buys and reports on every call has no invoice of ours to divide.
          */
         post: operations["attest_voice_plan_fee_v1_ops_tts_prices__provider__plan_fee_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/ops/voices/refresh": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Re-read the voice catalogue from the voice platform (audited)
+         * @description Reads the voice platform account's own TTS voice list and replaces the cached catalogue every client's voice picker is built from. Use it after cloning or adding a voice on the platform — the hourly job would otherwise take up to an hour to notice. It changes no agent and no call: an agent already speaking a voice keeps speaking it whatever this returns. A sync that reads nothing is refused rather than applied, so a bad credential cannot empty the picker.
+         */
+        post: operations["refresh_voice_catalogue_route_v1_ops_voices_refresh_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -14454,6 +14534,8 @@ export interface components {
             agent_id: string;
             /** Agent Status */
             agent_status: string;
+            /** Changed */
+            changed: boolean;
             /** Engine Synced */
             engine_synced: boolean;
             /** Live Voice Id */
@@ -16498,8 +16580,33 @@ export interface components {
             note: string;
             /** Selectable */
             selectable: boolean;
+            /** Source */
+            source: string;
             /** Voices */
             voices: components["schemas"]["OfferedVoiceOut"][];
+        };
+        /**
+         * VoiceCatalogueRefreshOut
+         * @description What one operator-triggered voice sync did.
+         *
+         *     `pruned is None` is not zero: the engine's listing was INCOMPLETE and pruning was
+         *     deliberately skipped, so a voice the platform has withdrawn is still in the cache. That
+         *     is a different fact from "nothing needed removing" and the console must be able to say
+         *     which — see `agents/voice_sync.VoiceSyncResult`.
+         */
+        VoiceCatalogueRefreshOut: {
+            /** Complete */
+            complete: boolean;
+            /** In Force */
+            in_force: number;
+            /** Note */
+            note: string;
+            /** Pruned */
+            pruned: number | null;
+            /** Seen */
+            seen: number;
+            /** Written */
+            written: number;
         };
         /**
          * VoiceStateOut
@@ -20626,6 +20733,41 @@ export interface operations {
             };
         };
     };
+    set_my_agent_call_cap_v1_agents__agent_id__call_cap_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetCallCapIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CallCapOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     set_caller_memory_route_v1_agents__agent_id__caller_memory_patch: {
         parameters: {
             query?: never;
@@ -21172,6 +21314,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UndoScriptOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_my_agent_voice_v1_agents__agent_id__voice_patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                agent_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetVoiceIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SetVoiceOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
@@ -27110,6 +27287,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["TtsPlanFeeWriteOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    refresh_voice_catalogue_route_v1_ops_voices_refresh_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoiceCatalogueRefreshOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

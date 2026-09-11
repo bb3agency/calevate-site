@@ -20,9 +20,12 @@ PERMISSIONS
 - `GET` is `billing:read` — an owner's business, not staff's (SEC-COMP §5), and the
   same permission the usage panel already uses so the two screens cannot disagree about
   who may see them.
-- `PUT` is `org:manage`. Changing what a client is allowed to spend is not a read, and
-  `org:manage` is in `MUTATING_PERMISSIONS`, so an impersonating admin (D-22) cannot
-  set a client's cap from a client screen. There is no `billing:write` in the registry
+- `PUT` is `org:manage`, `realm="client"`. Changing what a client is allowed to spend is
+  not a read, and the REALM declaration is what keeps an operator out of it: a view-as
+  session is refused a `realm="client"` route before any permission is read, and that is
+  unchanged by D-587 (which made `org:manage` itself writable in such a session). The
+  ceiling on a client's own spending stays the client's to move. There is no
+  `billing:write` in the registry
   and inventing one for one route was not worth it — the same call `credit_routes.py`
   and `payment_routes.py` both made.
 

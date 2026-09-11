@@ -61,7 +61,8 @@ NORMAL admin tier gets it, and that decision is one line in one dict.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
+from types import MappingProxyType
 from typing import Final, Literal, cast, get_args
 
 from fastapi import FastAPI
@@ -91,9 +92,11 @@ Permission = Literal[
     # the same reason it was refused for the assistant.
     #
     # IT IS NOT IN `MUTATING_PERMISSIONS`, and that is not an oversight. It reads; the
-    # purchase is `org:manage` on `POST /v1/billing/topups/intent`, which IS mutating, so
-    # a D-22 view-as operator can see a client's wallet on the support call and can never
-    # spend from it. That split is the whole permission model of this screen.
+    # purchase is `org:manage` on `POST /v1/billing/topups/intent`, which IS mutating. A
+    # view-as operator sees a client's wallet on the support call and still cannot spend
+    # from it — since D-587 that second half is `VIEW_AS_WITHHELD_ACTS["billing.topup"]`
+    # rather than a consequence of this membership, because `org:manage` itself is now
+    # writable under view-as. That split is the whole permission model of this screen.
     "wallet:read",
     "org:read",
     "org:manage",
@@ -271,6 +274,27 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
     "staff": frozenset(
         {
             "agents:read",
+            # EDITING AN AGENT'S SETTINGS — its voice and how long one call may run (D-587),
+            # and whatever else joins that class. The founder's decision: a client's own team
+            # runs its own phone line, and the person who notices a call stuck at nine
+            # minutes is as likely to be staff as the owner.
+            #
+            # A GRANT OF AN EXISTING PERMISSION, NOT A NEW ONE, and not a widening of
+            # `org:manage` — which is the shape this could have taken and the wrong one. Both
+            # settings already had a permission that names exactly this authority;
+            # `org:manage` names billing, members and every account setting, and granting it
+            # to staff to unlock a voice picker would be the largest possible widening for
+            # the narrowest possible ask — the refusal `copilot:use` and `wallet:read` are
+            # both here for.
+            #
+            # IT OPENS NO ADMIN SURFACE. Every OTHER route declaring `agents:write` — publish,
+            # apply, undo, the prompt writer, the script experiments, the onboarding wizard —
+            # is `realm="admin"`, and the realm, never the permission, is what keeps a client
+            # out of the console (this module's docstring says so, naming `agents:write` as
+            # the example). `tests/agent_settings_live_edit_test.py` walks the live route
+            # table and asserts that, so a future client-realm route declaring it has to be
+            # a deliberate act rather than an inherited one.
+            "agents:write",
             "calls:read",
             "copilot:use",
             "leads:read",
@@ -288,6 +312,9 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
     "owner": frozenset(
         {
             "agents:read",
+            # D-587 — see the note on `staff` above, which carries the whole argument. The
+            # owner holds it for the obvious reason and staff for the decided one.
+            "agents:write",
             "calls:read",
             "calls:read_raw",
             "copilot:use",
@@ -371,8 +398,15 @@ ROLE_PERMISSIONS: dict[str, frozenset[Permission]] = {
     SUPERADMIN_ROLE: SUPERADMIN_PERMISSIONS,
 }
 
-# Permissions that mutate. An impersonating admin (D-22, read-only "view as client")
-# is refused these even though its role grants them — no acting-as, ever.
+# Permissions that mutate.
+#
+# ⚠ **THIS SET IS NO LONGER "WHAT A VIEW-AS SESSION IS REFUSED" (D-587, supersedes D-22).**
+# It used to be both facts at once — "this permission writes" and "an impersonating admin
+# may not have it" — and the second half moved out to `VIEW_AS_MUTATIONS` below, which
+# classifies every member of this set individually. Membership here still means exactly one
+# thing: the permission WRITES, so a GET may never be gated on it (a read hidden from a
+# support session is the bug `tests/impersonation_reads_test.py` exists for) and
+# `guard_agent_write` runs before it.
 MUTATING_PERMISSIONS: frozenset[Permission] = frozenset(
     {
         "agents:write",
@@ -383,76 +417,221 @@ MUTATING_PERMISSIONS: frozenset[Permission] = frozenset(
         # ASKING THE ASSISTANT SPENDS THE ACCOUNT'S AI ALLOWANCE, so it is a mutation of
         # the balance however read-only the answer looks. Listed here for exactly the
         # property `org:manage` was carrying on those two routes before `copilot:use`
-        # replaced it: an operator in a D-22 read-only view-as session must not be able to
-        # burn a client's included allowance from the client's own screen. Dropping the
-        # route from a mutating permission to a non-mutating one would have removed that
-        # refusal silently — the route would still have looked guarded, and the only
-        # visible symptom would have been a client's bill.
+        # replaced it: an operator must not be able to burn a client's included allowance
+        # from the client's own screen. Dropping the route from a mutating permission to a
+        # non-mutating one would have removed that refusal silently — the route would still
+        # have looked guarded, and the only visible symptom would have been a client's bill.
+        # That refusal now lives in `VIEW_AS_MUTATIONS`, where it is a sentence rather than
+        # an inference from this membership.
         "copilot:use",
         # ASKING THE ADMIN ASSISTANT SPENDS OUR OWN AI CREDENTIAL — `platform_ai_usage` is
         # an append-only money row and the platform brake moves — so it is a mutation for
         # the same reason `copilot:use` is, and the sweep over the route table
         # (`tests/authz_audit_test.py`) states that rule rather than trusting a habit.
-        # It is then named in `IMPERSONATION_PERMITTED_MUTATIONS`, which is where the D-22
-        # question is answered for it; read that constant before reading this line as a
-        # licence to act inside a client's session.
         "copilot:admin",
         "ops:manage",
         "admin:tenants",
-        # Creating, promoting, demoting and revoking an operator account. Listed for the
-        # same reason `platform:secrets` is, one step further in: a read-only view-as
-        # session must never be able to hand somebody an admin account. It makes
-        # `GET /v1/admin/operators` invisible under impersonation too, which is correct —
-        # the operator directory is an admin-console read with no client-realm
-        # counterpart, so it is listed in `ADMIN_CONSOLE_GETS`.
+        # Creating, promoting, demoting and revoking an operator account.
         "admin:operators",
-        # An impersonating admin (D-22, read-only "view as client") is refused this even
-        # though `superadmin` grants it. A view-as session exists to SEE a client's
-        # screens; nothing about that job needs to change what engine the platform dials
-        # on. `GET /v1/ops/config` therefore also becomes invisible under impersonation,
-        # which is correct and is why it is listed in `ADMIN_CONSOLE_GETS`
-        # (tests/impersonation_reads_test.py): it is an admin-console read that
-        # impersonation never reaches, not a view a client's screen depends on.
         "platform:config",
-        # Same rule, higher stakes: a read-only "view as client" session must never be
-        # able to install a vendor credential. `GET /v1/ops/secrets` returns no plaintext
-        # at all, so hiding it from impersonation costs a support person nothing.
         "platform:secrets",
     }
 )
 
 
-# THE ONE HOLE IN THE D-22 LINE, NAMED RATHER THAN LEFT AS AN `or` IN `requires()` (D-499).
+# ══════════════════════════════════════════════════════════════════════════════════════
+# WHAT A "VIEW AS CLIENT" SESSION MAY WRITE — THE REGISTRY, NOT A MEMORY (D-587).
 #
-# `requires()` refuses an impersonating principal every permission in `MUTATING_PERMISSIONS`
-# — "no acting-as, ever". That rule is unchanged and this set does not weaken it, because
-# what it exempts is not an ACT inside the client's account: it is the operator asking their
-# OWN assistant a question while a client's screen is on the monitor.
+# D-22 made impersonation READ-ONLY and gave one reason: "no dual attribution" — an audit
+# trail that could not say whether the client or an operator wearing their face had acted.
+# D-587 reverses it because that reason was answered rather than accepted: every audited
+# write now carries the operator's `admin_users.id` AS THE ACTOR, the tenant it landed in,
+# and the `jti` of the view-as grant that authorised it (`compliance/audit.py::write_audit`,
+# `audit_log.via_grant_id`), which joins the write to the `admin.impersonation_started` row
+# naming who entered and when. The attribution is now BETTER than an admin-realm write's,
+# not worse: an admin-realm row names the operator; these name the operator, the client and
+# the session. What D-22 actually bought — an unambiguous ledger — is what this preserves;
+# what it cost was an operator who could see a client's broken screen and not fix it.
 #
-# WHY IT IS SAFE IS A PROPERTY, NOT A PROMISE, and the property is the payer. `copilot:use`
-# is in `MUTATING_PERMISSIONS` because asking spends THE CLIENT'S included allowance, and
-# an operator burning it from the client's own screen is the exact hazard that listing
-# exists for. `copilot:admin` spends `platform_ai_usage` — ours — on every path, whether the
-# operator is impersonating or not (`billing/platform_ai.py`; the founder: *"You never
-# charge a client for your own support work"*). So the hazard the listing protects against
-# cannot occur on this permission: there is no client balance for it to move.
+# THIS MAPPING IS THE WHOLE ANSWER TO "MAY A VIEW-AS SESSION DO X". One entry per member of
+# `MUTATING_PERMISSIONS`; the value is `None` when a view-as session may exercise it and a
+# SENTENCE — the ground for withholding, which is never "caution" — when it may not.
 #
-# WHAT AN IMPERSONATING OPERATOR STILL CANNOT DO, and none of it relies on this set:
+# HOW A FUTURE ROUTE KNOWS WHICH IT IS: it does not have to. A permission absent from this
+# mapping is WITHHELD by `withheld_from_view_as` (fail closed), and
+# `tests/authz_audit_test.py::test_every_mutating_permission_is_classified_for_view_as`
+# refuses a build where a mutating permission has no entry. So the choice is made once, by
+# name, with its reason beside it — the shape hard rule 4's table list already uses.
 #
-#   * CHANGE ANYTHING. The admin assistant's write tools are refused at the point of use by
-#     `actions.may_act`, which is `requires()`'s own ladder asked from a non-route caller —
-#     the same `MUTATING_PERMISSIONS` membership, the same D-22 clause, one implementation.
-#     `leads:write`, `leads:dispatch`, `org:manage` and `kb:write` are all in that set, so
-#     every write tool refuses to PROPOSE and `write_tools.confirm` refuses again to APPLY.
-#   * CONFIRM A PROPOSAL. `copilot:admin` is not `copilot:use`, and it is deliberately not
-#     the permission on either confirm route; both stay refused by the ordinary D-22 line.
-#   * SPEND THE CLIENT'S ALLOWANCE. `copilot:use` is NOT in this set and never will be —
-#     that is the sentence to check if this constant is ever edited.
+# THE TWO GROUNDS FOR WITHHOLDING, and neither of them is D-22's:
 #
-# A SET RATHER THAN A SPECIAL CASE IN `requires()`, so the exemption is a value a test can
-# walk (`tests/admin_copilot_billing_test.py` pins its membership) rather than a branch a
-# reader has to find.
-IMPERSONATION_PERMITTED_MUTATIONS: frozenset[Permission] = frozenset({"copilot:admin"})
+#   1. **IT IS NOT THIS SESSION'S ACCOUNT TO SPEND OR TO GOVERN.** `copilot:use` moves the
+#      CLIENT's balance; the platform permissions move every client at once and belong to
+#      the operator's own console, which is where they are already reachable as themselves.
+#   2. **SOMEBODY'S PERSONAL ACT CANNOT BE PERFORMED BY A PROXY.** Accepting an agreement,
+#      consenting to messages, attesting to a compliance statement: these are not settings,
+#      they are acts by a named person. Those are refused at the WRITE SITE rather than by
+#      permission (the permission also covers ordinary settings) — see
+#      `core/context.Principal.client_user_id`, which is the one way a route obtains the
+#      `users.id` of the person acting and answers `None` for an operator.
+VIEW_AS_MUTATIONS: Mapping[Permission, str | None] = MappingProxyType(
+    {
+        # ─────────── writable: the client's own account, changed by a named operator ────
+        # The support job this exists for: an agent that is answering wrongly, a lead stuck
+        # in the wrong state, a knowledge base with a stale price, an opening notice the
+        # client asked to have switched off while on the phone to us.
+        "agents:write": None,
+        "leads:write": None,
+        "leads:dispatch": None,
+        "org:manage": None,
+        "kb:write": None,
+        # The operator's OWN assistant, which spends `platform_ai_usage` — ours — on every
+        # path (`billing/platform_ai.py`; the founder: *"You never charge a client for your
+        # own support work"*). Permitted since D-499, for a reason that survives D-587
+        # unchanged: there is no client balance for it to move.
+        "copilot:admin": None,
+        # ─────────── withheld, each for a ground that is not "caution" ──────────────────
+        "copilot:use": (
+            "Asking this account's assistant spends the account's own AI allowance. Ask "
+            "from the operator console instead — that spends ours, which is whose it is."
+        ),
+        "ops:manage": (
+            "The incident surface is platform-wide and is not inside any client's account. "
+            "Use it from the operator console as yourself."
+        ),
+        "admin:tenants": (
+            "Acting on a client's record is an operator-console act and is already "
+            "reachable there as yourself; doing it through the client's own screens would "
+            "record a tenant-scoped act for a platform-scoped one."
+        ),
+        "admin:operators": (
+            "Handing somebody an admin account is not something any client's account "
+            "contains. Do it from the operator console."
+        ),
+        "platform:config": (
+            "Platform configuration changes what EVERY client's platform does at the same "
+            "instant, so it is not a change to the account you are viewing."
+        ),
+        "platform:secrets": (
+            "Installing a vendor credential is platform-wide and is deliberately the "
+            "narrowest authority here. Do it from the operator console."
+        ),
+    }
+)
+
+#: Mutating permissions a view-as session MAY exercise. Derived, so the two views of
+#: `VIEW_AS_MUTATIONS` cannot disagree. Kept under its pre-D-587 name because every caller
+#: and test already asks for it by that name and its meaning is unchanged — "the mutations
+#: impersonation is permitted" — only its membership grew.
+IMPERSONATION_PERMITTED_MUTATIONS: frozenset[Permission] = frozenset(
+    permission for permission, ground in VIEW_AS_MUTATIONS.items() if ground is None
+)
+
+
+#: What `withheld_from_view_as` answers for a mutating permission nobody classified. A
+#: sentence rather than a bare `True`, because this refusal reaches an operator's screen and
+#: "no reason given" is the one refusal they cannot act on.
+_UNCLASSIFIED_MUTATION: Final = (
+    "This action has not been cleared for a view-as session. Perform it from the operator "
+    "console, and tell us — a mutating permission with no view-as ruling is our defect."
+)
+
+
+def withheld_from_view_as(permission: Permission) -> str | None:
+    """WHY a view-as session may not exercise this permission, or `None` if it may.
+
+    THE ONE PREDICATE, asked by `core/auth.requires`, `copilot/actions.may_act` and
+    `kb/curation.may_curate_knowledge`. All three used to spell the rule themselves as
+    `impersonating and permission in MUTATING_PERMISSIONS`, which was three copies of one
+    policy — fine while the policy was "all of them" and a drift waiting to happen the
+    moment it stopped being.
+
+    FAIL CLOSED ON AN UNCLASSIFIED PERMISSION: a mutating permission with no entry in
+    `VIEW_AS_MUTATIONS` is withheld, so forgetting to classify a new one costs a support
+    person a refusal rather than costing a client an unreviewed decision. The build refuses
+    it separately (`tests/authz_audit_test.py`), so the fail-closed arm is a backstop and
+    not the mechanism.
+    """
+    if permission not in MUTATING_PERMISSIONS:
+        return None
+    return VIEW_AS_MUTATIONS.get(permission, _UNCLASSIFIED_MUTATION)
+
+
+# ══════════════════════════════════════════════════════════════════════════════════════
+# THE SECOND HALF OF THE VIEW-AS RULING: ACTS, NOT PERMISSIONS (D-587).
+#
+# `VIEW_AS_MUTATIONS` rules on a PERMISSION, which is the right grain for almost
+# everything: `org:manage` is "the owner's settings" and an operator fixing a client's
+# settings is the whole point of the reversal. It is the wrong grain for a handful of
+# acts that sit BEHIND a writable permission and are not settings at all:
+#
+#   * a payment — the client's money, and nobody spends it but them;
+#   * a consent — given by the person who will receive the messages;
+#   * an attestation — a named person's statement about a compliance fact;
+#   * an IRREVERSIBLE DESTRUCTION of a client's records about a third party;
+#   * a SPEND of the client's AI allowance under a permission that is otherwise settings
+#     (`copilot:use` is withheld as a permission for this reason; two `org:manage` routes
+#     meter the same wallet and had to be named);
+#   * an ACCESS GRANT — an invitation or a role change, which mints a credential that
+#     outlives the view-as session and is reachable from the operator console anyway;
+#   * a personal UI row — owned by a `users.id` a view-as session does not have.
+#
+# Splitting a permission per act would put a second RBAC vocabulary in the schema and the
+# generated client for four endpoints. Naming the acts does not: each site asks
+# `core/auth.assert_view_as_may(principal, "<key>")`, the ground is written here once, and
+# `tests/impersonation_writes_test.py` walks this mapping so the set is enumerable rather
+# than a habit spread over four modules.
+#
+# THE LAST TWO ENTRIES ARE ALSO ENFORCED STRUCTURALLY and the guard is the message rather than the
+# lock: `Principal.client_user_id` answers `None` for an operator, so neither row can be
+# written with an operator's id even if that check were deleted. The check exists so the
+# operator reads a sentence instead of meeting an FK violation.
+#
+# THIS IS THE SHORT LIST BECAUSE THERE IS A SECOND, OLDER MECHANISM AND IT ALREADY COVERS
+# MOST OF THIS GROUND: `requires(..., realm="client")`, which `core/auth.current_principal`
+# refuses to a request carrying `X-Impersonate-Org` before any permission is read. Four acts
+# are withheld that way and are UNCHANGED by D-587 — `POST /v1/billing/topups/intent` (the
+# client's money), `PUT /v1/billing/caps`, `POST /v1/compliance/whatsapp-alerts` (a person's
+# consent) and `POST /v1/legal/acceptances` ("nobody signs for the client but the client").
+# They are named here so the withheld set is readable in ONE place; the lock stays where it
+# is, because a realm declaration is stronger than a call somebody has to remember and it is
+# already what those four routes carry.
+VIEW_AS_WITHHELD_ACTS: Mapping[str, str] = MappingProxyType(
+    {
+        "compliance.caller_memory_attestation": (
+            "Attesting to what this account's calls collect is a statement the account "
+            "makes about its own callers, not a setting. Ask the client to switch caller "
+            "memory on from their own console — they are the ones a DPDP request about "
+            "those notes will be answered by."
+        ),
+        "billing.ai_assist": (
+            "Running the assistant over this account's call or script spends the "
+            "account's own AI allowance, the same as its in-app assistant does. Ask the "
+            "client to run it, or read the transcript yourself — support work is not "
+            "billed to the client."
+        ),
+        "org.membership": (
+            "Who may sign in to this account is the account's own decision, and an "
+            "invitation outlives your view-as session. Use the client's invitation "
+            "surface in the operator console, where it is recorded as your act."
+        ),
+        "kb.self_approve": (
+            "Publishing knowledge under the client's own name is their approval to give. "
+            "Approve it from the operator console's queue for this client, where the "
+            "record shows that WE approved it."
+        ),
+        "compliance.erasure_request": (
+            "Filing an erasure destroys this account's records of a person irreversibly, "
+            "and it is the account's decision to make about their own customer. Ask the "
+            "client to file it from their console — confirming that one has been done is "
+            "a read and stays available to you."
+        ),
+        "leads.saved_view": (
+            "A saved view belongs to one signed-in person of this account, and a view-as "
+            "session is not one of them — there is no `users` row for it to belong to."
+        ),
+    }
+)
 
 
 # Routes exempt from the boot assertion: unauthenticated by design.
@@ -721,6 +900,7 @@ __all__ = [
     "ADMIN_ROLES",
     "GRANTED_PERMISSIONS",
     "IDENTITY_DEPENDENCIES",
+    "IMPERSONATION_PERMITTED_MUTATIONS",
     "KNOWN_PERMISSIONS",
     "MUTATING_PERMISSIONS",
     "NORMAL_ADMIN_ROLE",
@@ -731,6 +911,8 @@ __all__ = [
     "SUPERADMIN_ONLY_PERMISSIONS",
     "SUPERADMIN_PERMISSIONS",
     "SUPERADMIN_ROLE",
+    "VIEW_AS_MUTATIONS",
+    "VIEW_AS_WITHHELD_ACTS",
     "MissingPolicyError",
     "Permission",
     "assert_policy_registry_complete",
@@ -739,4 +921,5 @@ __all__ = [
     "role_has",
     "route_enforcement",
     "route_realms",
+    "withheld_from_view_as",
 ]

@@ -314,21 +314,18 @@ async def test_view_as_client_actually_resolves_the_tenant(monkeypatch: pytest.M
     slug = created["slug"]
 
     async with _client() as http:
-        # A real grant, so the 403 below is D-22's read-only rule and not the grant
-        # check refusing before that rule is reached (tests/impersonation_grant_test).
+        # A real grant, so the 403 below is the view-as ruling and not the grant check
+        # refusing before that rule is reached (tests/impersonation_grant_test).
         headers = await view_as_headers(http, token, slug, **{"X-Org-Slug": slug})
         seen = await http.get("/v1/agents", headers=headers)
-        # D-22 still holds: read-only. A mutation through the impersonated session is
-        # refused, which is the other half of the same feature.
+        # THE WITHHELD HALF, which D-587 kept. This used to be `POST /v1/kb/sources` and
+        # that request now SUCCEEDS — knowledge is exactly what a support call is for.
+        # Filing an erasure is not: it destroys the client's records about a third party
+        # irreversibly, so it stays the client's act and answers the ground by name.
         blocked = await http.post(
-            "/v1/kb/sources",
+            "/v1/compliance/deletion-requests",
             headers=headers,
-            json={
-                "agent_id": str(created["agent_id"]),
-                "name": "Hours",
-                "body": "9 to 5",
-                "kind": "text",
-            },
+            json={"phone": "+919000000001"},
         )
         # No grant here, and none is possible: the slug lookup runs first, so a tenant
         # that does not exist is a 404 before there is anything for a grant to name.
@@ -342,8 +339,8 @@ async def test_view_as_client_actually_resolves_the_tenant(monkeypatch: pytest.M
         )
 
     assert seen.status_code == 200, seen.text
-    assert blocked.status_code == 403, "impersonation is read-only (D-22)"
-    assert "read-only" in blocked.json()["detail"].lower(), blocked.text
+    assert blocked.status_code == 403, "a view-as session may not approve knowledge"
+    assert "irreversibly" in blocked.json()["detail"], blocked.text
     assert unknown.status_code == 404, "a slug that does not exist is still a 404"
 
 

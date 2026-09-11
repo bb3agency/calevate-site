@@ -38,6 +38,8 @@ from calevate_shared.engine import (
     EngineAgentRef,
     EngineCapabilities,
     EngineKBRef,
+    EngineVoice,
+    EngineVoiceListing,
     ExecutionListing,
     ExecutionSnapshot,
     KBSourceRef,
@@ -356,6 +358,45 @@ EXTERNAL_DEPLOYMENT_CAPABILITIES = EngineCapabilities(
 # secrets manager, never a committed file, and this is neither).
 FAKE_SIGNATURE_HEADER = "X-Calevate-Fake-Signature"
 FAKE_WEBHOOK_SECRET = "fake-engine-webhook-secret"
+
+
+#: THE FIXTURE ACCOUNT'S VOICE LIST (D-585) — deliberately NOT our seed catalogue.
+#:
+#: Three platform personas and one CLONE. The clone is the vendor's own documented example
+#: row (VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/api-reference/voice/
+#: get_all.md:102-112`: `voice_id: sXlZ9Juk5Ji8sZiFjRUV`, `name: my-custom-voice`,
+#: `source: custom`) and it is the row the conformance suite leans on: a cloned voice's
+#: label has no derivable relationship to its id, so a consumer that capitalises the id to
+#: get a label passes on `ashutosh` and fails here.
+#:
+#: `sonic-3.5` appears so the two-provider path is exercised end to end — the engine, not
+#: our source, is what says a Cartesia voice exists, and the fixture has to be able to say
+#: it. The id is the vendor's example again rather than a Cartesia id somebody invented:
+#: nobody in this tree has read one (hard rule 11), and the fake is not the place to start.
+FAKE_ENGINE_VOICES: Final[tuple[EngineVoice, ...]] = (
+    EngineVoice(
+        voice_id="ashutosh",
+        label="Ashutosh",
+        tts_model="bulbul:v3",
+        languages=("te-IN", "hi-IN", "en-IN"),
+    ),
+    EngineVoice(
+        voice_id="priya", label="Priya", tts_model="bulbul:v3", languages=("te-IN", "hi-IN")
+    ),
+    EngineVoice(
+        voice_id="sXlZ9Juk5Ji8sZiFjRUV",
+        label="my-custom-voice",
+        tts_model="bulbul:v3",
+        languages=("en-IN",),
+        is_custom=True,
+    ),
+    EngineVoice(
+        voice_id="fixture-sonic-voice",
+        label="Fixture Sonic Voice",
+        tts_model="sonic-3.5",
+        languages=("en-IN",),
+    ),
+)
 
 
 class FakeEngine:
@@ -1072,6 +1113,26 @@ class FakeEngine:
             objects=sorted(self._account_kb.values(), key=lambda o: str(o.handle)),
             complete=True,
         )
+
+    async def list_voices(self) -> EngineVoiceListing:
+        """The fixture account's voices. Complete by construction — there is no page to
+        miss in a tuple — so `complete` is True and that is a fact rather than the
+        optimistic default the type refuses.
+
+        **IT CARRIES A CLONE, AND THAT IS THE POINT OF THE FIXTURE.** `sXlZ9Juk5Ji8sZiFjRUV`
+        / `my-custom-voice` is the vendor's OWN documented example of a custom voice
+        (VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/api-reference/voice/
+        get_all.md:102-112`), and it is here because a cloned voice is the one entry whose
+        label cannot be derived from its id — so any consumer that recovers a label by
+        capitalising an id passes on the platform personas and fails here, which is exactly
+        when it should fail.
+
+        It is deliberately NOT `agents/voices.SEED_CATALOG`: a fake that echoed our own seed
+        could not show the difference between "what we compiled" and "what the engine
+        offers", which is the entire defect this method was added for (D-585).
+        """
+        require_capability("tts", engine=self)
+        return EngineVoiceListing(voices=list(FAKE_ENGINE_VOICES), complete=True)
 
     async def list_kb(self, ref: EngineAgentRef) -> list[EngineKBRef]:
         # Refuses rather than returning `[]`. An empty list is a POSITIVE claim that the

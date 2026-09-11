@@ -335,10 +335,11 @@ export function LeadsScreen() {
   const exportTotal = leads.data?.total ?? null;
 
   /**
-   * D-22 read-only, applied to the controls rather than discovered on click. Now that
-   * "View as client" genuinely lands an operator here, `leads:write` (the status
-   * select) is a permission the API will refuse for them — the shell's amber banner
-   * says why, so the control is disabled rather than left to answer 403.
+   * Whether the status select is live, applied to the controls rather than discovered on
+   * click. The name is historical: it was D-22's read-only rule, and since D-587 an
+   * operator in "view as client" HOLDS `leads:write` — so this is now false only for a
+   * client `staff` member, and the operator gets a working select whose every change is
+   * recorded against them.
    *
    * It was `Boolean(me.data?.impersonating)`, which is BUILD-LOG §52's `?? false` in a
    * different costume: `me.data` is undefined while `/v1/me` is in flight and after it

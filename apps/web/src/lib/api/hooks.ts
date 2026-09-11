@@ -28,6 +28,8 @@ import { useRef } from "react";
 
 import type { components } from "./schema";
 
+import { unscopedClientSession } from "@/lib/authn/realmSessions";
+
 import { aiQuotaKey } from "./aiQuota";
 import {
   apiRequest,
@@ -68,6 +70,37 @@ export function useMe(session: Session): UseQueryResult<Me> {
   });
 }
 
+/** The key both slug-less callers share — exported so a test can seed or clear it. */
+export const UNSCOPED_ME_KEY = ["me", "unscoped"] as const;
+
+/**
+ * `/v1/me` for a page that is INSIDE a session and OUTSIDE an account — the two screens
+ * that have a cookie and no slug.
+ *
+ * `core/auth._load_client_principal` answers without `X-Org-Slug` when the caller belongs
+ * to exactly one account, which is what `unscopedClientSession()` exists for; somebody in
+ * more than one gets `org_required` and every caller here renders that refusal rather than
+ * choosing an account for them.
+ *
+ * ITS OWN KEY, never `queryKeys.me(slug)`: that one is keyed by the slug these callers do
+ * not have, and answering it under `["me", ""]` would seed the console's cache from a read
+ * that named no account (`tests/queryKeys.test.ts` is the guard for that class).
+ *
+ * A hook rather than a second copy of the `useQuery` block: `/c` (the console junction)
+ * and `/auth/account` both ask the same question of the same endpoint with the same
+ * credential, and two spellings of one read is where the failure handling drifts.
+ */
+export function useUnscopedMe(): UseQueryResult<Me> {
+  return useQuery({
+    queryKey: UNSCOPED_ME_KEY,
+    queryFn: () => apiRequest<Me>(unscopedClientSession(), "/v1/me"),
+    // `retry: false`: both callers show the refusal, and a person staring at a spinner
+    // through three backoffs cannot tell a slow answer from a dead one.
+    retry: false,
+    staleTime: 5 * 60_000,
+  });
+}
+
 /** What a gated control needs to know: whether to enable itself, and what to say. */
 export interface WriteAccess {
   /** Enable the control only when this is true. */
@@ -94,22 +127,24 @@ export interface WriteAccess {
 }
 
 /**
- * May this session use a control that WRITES? — the D-22 read-only sweep, in one place.
+ * May this session use a control that WRITES? — the permission preview, in one place.
  *
- * Two facts decide it, both from the server's own answer to `/v1/me` and never from a
- * hardcoded role list: the permission the endpoint requires, and `impersonating`.
+ * ONE fact decides it, and it comes from the server: is the permission in `/v1/me`'s
+ * `permissions`. That list is the EFFECTIVE set, not the role's — the API subtracts what a
+ * view-as session may not exercise and adds what an owner's curation switch grants — so
+ * this hook previews the server's ruling rather than re-deriving it.
  *
- * The second is the one that changed. "View as client" now genuinely lands an operator
- * on client screens, and `requires()` refuses every permission in `MUTATING_PERMISSIONS`
- * for an impersonating principal (core/auth.py). So each mutating control became
- * reachable-but-refused: the operator clicks, waits, and gets a 403 that reads like a
- * fault. Disabled WITH the reason turns that into an answer given before the click —
- * the same doctrine the campaign launch-check already follows for its blockers.
+ * ⚠ **IT USED TO READ `impersonating` AS A SECOND FACT AND REFUSE EVERYTHING ON IT (D-22).
+ * D-587 DELETED THAT BRANCH.** An operator in "view as client" may now fix the account they
+ * are looking at, and every change is recorded against them (`audit_log.via_grant_id`), so
+ * a browser-side rule saying "no" would have disabled the controls the reversal exists to
+ * enable — and would have done it silently, since nothing in the API would have refused.
+ * `impersonating` survives here for one job only: choosing which SENTENCE explains an
+ * absent permission, because "only an account owner can" is false when the reader is an
+ * operator rather than a member of the account.
  *
- * Note `/v1/me` returns the ROLE's full permission set, impersonation included — it does
- * not subtract the mutating ones — which is why `impersonating` has to be read as well
- * as `permissions`. This is a preview of the server's answer, never a substitute for it:
- * the endpoints still refuse, and every screen keeps its ProblemNotice as the backstop.
+ * A preview, never a substitute: the endpoints still refuse, and every screen keeps its
+ * ProblemNotice as the backstop.
  */
 export function useWriteAccess(session: Session, permission: string, action: string): WriteAccess {
   const me = useMe(session);
@@ -126,15 +161,26 @@ export function useWriteAccess(session: Session, permission: string, action: str
   // Still in flight: also unknown, and deliberately WITHOUT a sentence — a control that
   // flashes an explanation and then retracts it teaches the reader to ignore the next one.
   if (!me.data) return { allowed: false, reason: null, unknown: true };
-  if (me.data.impersonating) {
+  if (!me.data.permissions.includes(permission)) {
+    // D-587 REMOVED THE BLANKET `if (me.data.impersonating) refuse` THAT USED TO STAND
+    // ABOVE THIS, and removing it is the point rather than a side effect: it was a copy of
+    // a server policy ("view-as is read-only") living in the browser, and the moment the
+    // server's answer became "these six mutations yes, those six no" the copy would have
+    // been wrong for every control an operator is now meant to use.
+    //
+    // `/v1/me` already reports the EFFECTIVE permission set — it filters out what
+    // `rbac.VIEW_AS_MUTATIONS` withholds from a view-as session, exactly as it already
+    // added `kb:write` for a staff member whose owner switched curation on — so the list
+    // below IS the server's ruling and this file needs no view-as rule of its own. What
+    // remains is the WORDING: the same absence means two different things, and "only an
+    // account owner can" is the wrong sentence to hand an operator who is not one.
     return {
       allowed: false,
-      reason: `You are viewing this account read-only, so you cannot ${action} from here. Do it from the admin console instead.`,
+      reason: me.data.impersonating
+        ? `This stays with the client, so you cannot ${action} from a view-as session. Do it from the operator console, or ask the account to do it.`
+        : `Only an account owner can ${action}.`,
       unknown: false,
     };
-  }
-  if (!me.data.permissions.includes(permission)) {
-    return { allowed: false, reason: `Only an account owner can ${action}.`, unknown: false };
   }
   return { allowed: true, reason: null, unknown: false };
 }

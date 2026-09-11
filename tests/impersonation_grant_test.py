@@ -422,17 +422,21 @@ async def test_a_grant_cannot_be_minted_from_inside_another_account() -> None:
     assert await _started_rows(uuid.UUID(str(outer["id"]))) == []
 
 
-# ------------------------------------------------------- D-22's other half, unmoved
+# ------------------------------------------------- what the grant now buys (D-587)
 
 
-async def test_a_valid_grant_still_buys_no_mutation() -> None:
-    """D-22 is READ-ONLY, and the grant does not soften it by one endpoint.
+async def test_a_valid_grant_now_buys_a_classified_mutation() -> None:
+    """D-587: the grant is authority to LOOK and, for a classified subset, to ACT.
 
-    The interesting direction: a grant is authority to LOOK, and somebody reading this
-    change could reasonably expect it to also be authority to act. It is not. The
-    refusal is `requires()` + `MUTATING_PERMISSIONS`, untouched by this work, and it is
-    asserted under a grant that is valid in every respect so the 403 cannot be coming
-    from the grant check instead.
+    THE INVERTED VERSION OF THE TEST THIS REPLACES. It used to assert a 403 on exactly
+    this request, on D-22's ground that dual attribution had no home in the ledger. It now
+    asserts the write lands, and the attribution it produces is the subject of
+    `tests/impersonation_writes_test.py` — the two are deliberately separate: this one
+    proves the grant opens the door, that one proves the room keeps a register.
+
+    `kb:write` is in `MUTATING_PERMISSIONS` and `VIEW_AS_MUTATIONS` classifies it writable,
+    so a 403 here can only come from the view-as rule; the read beside it proves the
+    session is genuinely a view-as session and not an ordinary client one.
     """
     _admin_id, token = await _make_admin()
     org = await _make_org()
@@ -441,22 +445,41 @@ async def test_a_valid_grant_still_buys_no_mutation() -> None:
         grant = await _mint_over_http(http, token, str(org["slug"]))
         headers = _headers(token, str(org["slug"]), grant)
         readable = await http.get("/v1/agents", headers=headers)
-        # `kb:write` is in MUTATING_PERMISSIONS and the operator role holds it, so the
-        # only thing that can refuse this is D-22 itself.
         mutation = await http.post(
             "/v1/kb/sources",
             headers=headers,
             json={
                 "agent_id": str(org["agent_id"]),
-                "name": "Should not exist",
+                "name": "Fixed on the support call",
                 "body": "x" * 20,
                 "kind": "text",
             },
         )
 
     assert readable.status_code == 200, "the grant must genuinely open the reads"
-    assert mutation.status_code == 403, mutation.text
-    assert "read-only" in mutation.json()["detail"].lower()
+    assert mutation.status_code in (200, 201), mutation.text
+
+
+async def test_a_valid_grant_still_buys_the_withheld_mutations_nothing() -> None:
+    """The half D-587 did NOT reverse, driven on the permission whose ground is the payer.
+
+    `copilot:use` spends the CLIENT's AI allowance; `VIEW_AS_MUTATIONS` withholds it and
+    says so in a sentence. Asserted under a grant that is valid in every respect, so the
+    403 cannot be coming from the grant check instead — and asserted on the SENTENCE, so a
+    future edit that widens the set has to delete a test rather than quietly pass one.
+    """
+    _admin_id, token = await _make_admin()
+    org = await _make_org()
+
+    async with _client() as http:
+        grant = await _mint_over_http(http, token, str(org["slug"]))
+        headers = _headers(token, str(org["slug"]), grant)
+        asked = await http.post(
+            "/v1/copilot/ask", headers=headers, json={"question": "what is happening"}
+        )
+
+    assert asked.status_code == 403, asked.text
+    assert "allowance" in asked.json()["detail"].lower(), asked.text
 
 
 async def test_losing_the_permission_refuses_a_grant_that_has_not_expired() -> None:

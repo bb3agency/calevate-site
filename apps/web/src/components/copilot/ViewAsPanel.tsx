@@ -12,11 +12,12 @@ import { X } from "lucide-react";
  * All four client copilot routes declare `copilot:use`
  * (`apps/api/copilot/routes.py:164,752,828,905`). `copilot:use` is in
  * `core/rbac.MUTATING_PERMISSIONS` — asking spends the ACCOUNT'S AI allowance, so it moves
- * a balance however read-only the answer looks — and it is NOT in
- * `rbac.IMPERSONATION_PERMITTED_MUTATIONS`, which holds `copilot:admin` alone because that
- * one can only ever spend the platform's own ledger. So `core/auth.requires` refuses an
- * impersonating principal with 403 "Impersonation is read-only" before any model is
- * called: the ask, the confirm, the stored conversation and the clear, all four.
+ * a balance however read-only the answer looks — and `rbac.VIEW_AS_MUTATIONS` withholds it
+ * from a view-as session for exactly that reason. D-587 made most of this console writable
+ * to an operator and deliberately did NOT move this one: the ground is the payer, not
+ * caution, and it is unchanged. So `core/auth.requires` refuses an impersonating principal
+ * before any model is called — the ask, the confirm, the stored conversation and the
+ * clear, all four.
  *
  * Without this panel an operator in view-as saw the ordinary assistant, typed a question,
  * and got a generic refusal — or, worse, read the silence as the feature being broken for
@@ -24,7 +25,7 @@ import { X } from "lucide-react";
  *
  * ## Why not silently render the ADMIN assistant instead
  *
- * It is the reachable route (`copilot:admin` IS impersonation-permitted) and it was
+ * It is the reachable route (`copilot:admin` IS permitted in a view-as session) and it was
  * considered and rejected. The admin assistant answers about PLATFORM state with the
  * platform's own credential and its own prompt; pointing it at a client screen would send
  * that client's field values into the platform's ledger and its context, under an
@@ -36,7 +37,7 @@ import { X } from "lucide-react";
  *
  * A control that vanishes explains nothing, and the operator's next move is to wonder
  * whether the client has the assistant at all. The answer they need is that the client
- * does, and that a read-only session is the reason they cannot use it from here.
+ * does, and that whose allowance it spends is the reason they cannot use it from here.
  */
 export function ViewAsPanel({
   labelledBy,
@@ -85,12 +86,13 @@ export function ViewAsPanel({
       </div>
       <div className="space-y-2 px-4 py-3 text-sm">
         {/* NAMES THE MONEY, because that is the whole reason and an operator can act on
-            it: the client's allowance is the client's, and a view-as session is read-only
-            precisely so nothing an operator does inside one shows up on their bill. */}
+            it: the client's allowance is the client's. D-587 made a view-as session able
+            to change this account, and this panel is one of the few things it still
+            cannot do — so the sentence had to stop saying "read-only", which is no longer
+            true and would have read as a fault rather than as a rule. */}
         <p className="text-xs text-ink-muted">
-          You are viewing this account as its owner, which is read-only. Asking the
-          assistant would spend this client&apos;s own AI allowance, so it is refused
-          inside a view-as session.
+          Asking the assistant would spend this client&apos;s own AI allowance, so it is
+          refused inside a view-as session even though the rest of this console works.
         </p>
         <p className="text-xs text-ink-muted">
           The client can use it normally on this screen. To ask about platform state, use

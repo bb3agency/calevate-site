@@ -92,20 +92,55 @@ class Principal:
     user_id: UUID | None
     tenant_id: UUID | None
     role: str | None
-    # D-22: an admin viewing a client dashboard gets a READ-ONLY scoped session.
-    # Mutating dependencies refuse when this is True; the read itself is audited by
-    # `core/auth.py::_record_impersonated_read`, which is the only place that can set
-    # this flag — coalesced to one row per (admin, tenant) per minute, for the volume
-    # reason argued there.
+    # An admin is inside a client account ("view as client"). The read itself is audited by
+    # `core/auth.py::_record_impersonated_read`, which is the only place that can set this
+    # flag — coalesced to one row per (admin, tenant) per minute, for the volume reason
+    # argued there.
+    #
+    # ⚠ **THIS NO LONGER MEANS "READ-ONLY" (D-587 supersedes D-22).** A view-as session may
+    # now write what `rbac.VIEW_AS_MUTATIONS` classifies as writable, and every such write
+    # is attributed to the OPERATOR — `user_id` above is already the `admin_users.id`, and
+    # `impersonation_grant_id` below is what says the act came through a view-as session and
+    # which one. Code that still reads this flag as "refuse" is asking the wrong question;
+    # the question is `rbac.withheld_from_view_as(permission)`.
     impersonating: bool = False
+    #: The `jti` of the view-as grant this request presented, when there is one.
+    #:
+    #: WHY IT IS ON THE PRINCIPAL AND NOT LEFT IN THE REQUEST. It is the attribution half of
+    #: D-587: `compliance/audit.py::write_audit` reads it off the actor, so EVERY audited
+    #: write performed inside a view-as session names the session that authorised it without
+    #: the route's author doing anything — and joins to the one
+    #: `admin.impersonation_started` row that says who entered this tenant, when, and from
+    #: what address. A per-route parameter would have been correct on the routes whose
+    #: authors remembered it.
+    #:
+    #: Set in `core/auth.py::_load_admin_principal` and nowhere else, from a grant
+    #: `verify_grant` has already matched to this operator and this tenant. `None` here with
+    #: `impersonating=True` is therefore not a reachable state through authentication — and
+    #: `requires()` refuses the write anyway if it ever is, because an unattributable write
+    #: is the one thing D-587 may not produce.
+    impersonation_grant_id: UUID | None = None
 
     @property
     def is_admin(self) -> bool:
         return self.realm == "admin"
 
     @property
-    def can_mutate(self) -> bool:
-        return not self.impersonating
+    def client_user_id(self) -> UUID | None:
+        """The `users.id` of the PERSON acting, or `None` when an operator is acting.
+
+        THE ONE WAY A ROUTE OBTAINS A CLIENT USER ID, and the reason it exists is D-587.
+        `user_id` is a `users.id` on the client realm and an `admin_users.id` on the admin
+        realm, and while impersonation was read-only no client-realm write could ever see
+        the second kind. Now that it can, every column that stores "which person did this"
+        as a `users.id` — `lead_saved_views.user_id`, `legal_acceptances.accepted_by`,
+        `organizations.caller_memory_attested_by`, `whatsapp_alert_optin_ledger.user_id`,
+        `knowledge_gaps.resolved_by` — is one FK violation (or, worse, one silent id-space
+        mixture) away from an operator's id. Asking this instead of `user_id` makes that
+        structural: the answer for an operator is `None`, which those sites either refuse on
+        or store as "no person", and the operator is named in the audit row either way.
+        """
+        return self.user_id if self.realm == "client" else None
 
 
 principal_var: ContextVar[Principal | None] = ContextVar("principal", default=None)

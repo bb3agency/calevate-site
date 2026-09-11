@@ -536,6 +536,51 @@ def _problem_response(problem: dict[str, Any], headers: dict[str, str]) -> JSONR
     )
 
 
+def unhandled_problem_response(path: str, exc: BaseException) -> JSONResponse:
+    """The generic 500 for an exception that escaped every handler — log, alert, body.
+
+    EXTRACTED so it has two callers that must not disagree. `install_error_handlers`
+    registers it as Starlette's `Exception` handler, which runs outside every middleware
+    (see there), and `core/middleware.UnhandledExceptionMiddleware` calls it from INSIDE
+    the CORS layer so the browser can actually read the answer. Two spellings of "what we
+    say when we crash" would drift in exactly the way that matters least until an
+    incident, when the two halves of the same failure carry different codes and the alert
+    fingerprints split.
+    """
+    # Full detail server-side (the logger redacts), generic body to the client.
+    log.exception("unhandled_exception", extra={"path": path})
+    # THE EXCEPTION TYPE IS PART OF THE ALERT'S IDENTITY, not a detail hanging off
+    # it. `alerting._admit` fingerprints on `stage:code` and suppresses repeats for
+    # fifteen minutes, so one code shared by every crash in the service means the
+    # FIRST crash class to fire silences every other one for a quarter of an hour.
+    # That is not hypothetical: an uncaught `ClientDisconnect` — free, from anywhere,
+    # indistinguishable from a flaky mobile network — held the voice-runtime
+    # receiver's crash alarm down until it was caught at the one site it arose from
+    # (`webhook_routes._read_bounded`, D-147). Catching it was right and it fixed one
+    # instance; this fixes the class, for every exception type in both services,
+    # including the ones nobody has met yet.
+    #
+    # Still a STABLE code and not a formatted string (the module docstring's rule):
+    # `__name__` is a class name from our own import graph, low-cardinality and
+    # unmintable by a caller, so it behaves like an Alertmanager label rather than
+    # like the millisecond counts that must never enter a fingerprint. It also gives
+    # the lock-screen subject the one fact worth waking up for, and
+    # `code=unhandled_exception` still substring-matches in a log search.
+    alert(
+        "ROUTE_HANDLER",
+        f"unhandled_exception:{type(exc).__name__}",
+        detail="an exception escaped every handler; the response was a generic 500",
+        path=path,
+    )
+    problem = ProblemError(
+        kind="internal",
+        code="internal_error",
+        title="Something went wrong at our end",
+        detail="Something went wrong at our end. Our team has been told about it.",
+    )
+    return _problem_response(problem.as_problem(path), {})
+
+
 def install_error_handlers(app: FastAPI) -> None:
     """Bootstrap step 5 wires this — every escape route ends in problem+json."""
 
@@ -633,38 +678,25 @@ def install_error_handlers(app: FastAPI) -> None:
 
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception) -> JSONResponse:
-        # Full detail server-side (the logger redacts), generic body to the client.
-        log.exception("unhandled_exception", extra={"path": request.url.path})
-        # THE EXCEPTION TYPE IS PART OF THE ALERT'S IDENTITY, not a detail hanging off
-        # it. `alerting._admit` fingerprints on `stage:code` and suppresses repeats for
-        # fifteen minutes, so one code shared by every crash in the service means the
-        # FIRST crash class to fire silences every other one for a quarter of an hour.
-        # That is not hypothetical: an uncaught `ClientDisconnect` — free, from anywhere,
-        # indistinguishable from a flaky mobile network — held the voice-runtime
-        # receiver's crash alarm down until it was caught at the one site it arose from
-        # (`webhook_routes._read_bounded`, D-147). Catching it was right and it fixed one
-        # instance; this fixes the class, for every exception type in both services,
-        # including the ones nobody has met yet.
+        # ⚠ THIS HANDLER RUNS OUTSIDE EVERY MIDDLEWARE, INCLUDING CORS, AND THAT IS NOT
+        # FIXABLE FROM HERE. Starlette hands the `Exception` handler to
+        # `ServerErrorMiddleware`, which `build_middleware_stack()` puts OUTSIDE the
+        # user middleware — so a response produced here carries no
+        # `Access-Control-Allow-Origin`, no security headers and no `X-Correlation-Id`,
+        # and a browser therefore REFUSES to hand it to the page: `fetch` rejects, and
+        # the console shows a transport failure instead of "something went wrong at our
+        # end". MEASURED, not reasoned: an in-process probe against `apps.api.main.app`
+        # on 11 Sep 2026 returned `{content-length, content-type}` and nothing else for a
+        # handler that raised, while the same route raising `ProblemError(status=502)`
+        # came back with ACAO for both console origins.
         #
-        # Still a STABLE code and not a formatted string (the module docstring's rule):
-        # `__name__` is a class name from our own import graph, low-cardinality and
-        # unmintable by a caller, so it behaves like an Alertmanager label rather than
-        # like the millisecond counts that must never enter a fingerprint. It also gives
-        # the lock-screen subject the one fact worth waking up for, and
-        # `code=unhandled_exception` still substring-matches in a log search.
-        alert(
-            "ROUTE_HANDLER",
-            f"unhandled_exception:{type(exc).__name__}",
-            detail="an exception escaped every handler; the response was a generic 500",
-            path=request.url.path,
-        )
-        problem = ProblemError(
-            kind="internal",
-            code="internal_error",
-            title="Something went wrong at our end",
-            detail="Something went wrong at our end. Our team has been told about it.",
-        )
-        return _problem_response(problem.as_problem(request.url.path), {})
+        # `UnhandledExceptionMiddleware` (`core/middleware.py`) is the fix and it sits
+        # INSIDE the CORS layer, so in the assembled app almost nothing reaches this. It
+        # stays as the last-resort net for the only thing that can still get past it — an
+        # exception raised by a middleware OUTSIDE it (`SettingsScopeMiddleware`,
+        # `CorrelationIdMiddleware`, the CORS layer itself) — where a browser-unreadable
+        # 500 is better than a dropped connection.
+        return unhandled_problem_response(request.url.path, exc)
 
 
 __all__ = [
@@ -673,4 +705,5 @@ __all__ = [
     "InvalidStatusTransitionError",
     "ProblemError",
     "install_error_handlers",
+    "unhandled_problem_response",
 ]

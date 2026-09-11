@@ -14,7 +14,7 @@ What is asserted here, in the order a reviewer should read it:
      including a client token accompanied by a genuine grant somebody else minted.
   2. THE BLANK HEADER. `X-Impersonate-Org: ` used to be neither absent nor present: it
      produced `impersonating=True` with no permission check, no grant and no audit row,
-     and answered a plain admin console request with "Impersonation is read-only".
+     and answered a plain admin console request with the view-as refusal.
   3. THE MUTATION SWEEP. Every route in the live table that declares a mutating
      permission, DRIVEN under a real grant, and required to refuse. Reading the
      decorator is what `tests/authz_audit_test.py::
@@ -42,6 +42,7 @@ from apps.api.core.rbac import (
     IMPERSONATION_PERMITTED_MUTATIONS,
     MUTATING_PERMISSIONS,
     PUBLIC_PREFIXES,
+    VIEW_AS_WITHHELD_ACTS,
     iter_api_routes,
 )
 from apps.api.db.session import tenant_session, untenanted_session
@@ -225,7 +226,8 @@ async def test_a_blank_impersonate_header_is_a_request_defect_not_a_view_as_sess
 
     All three header shapes are driven here, so the test pins a DISTINCTION rather than
     a status code: absent works, blank is a 422 about the header, and a real view-as
-    session is the read-only 403.
+    session is a 403 whose sentence names why THIS authority stays in the operator
+    console (D-587: `admin:tenants` is withheld from a view-as session).
     """
     _admin_id, token = await _make_admin()
     org = await _make_org()
@@ -257,7 +259,10 @@ async def test_a_blank_impersonate_header_is_a_request_defect_not_a_view_as_sess
     )
 
     assert viewing.status_code == 403, viewing.text
-    assert "read-only" in viewing.json()["detail"].lower(), viewing.text
+    # The view-as ruling's own ground for `admin:tenants` (D-587), not a generic refusal:
+    # a real view-as session reaching an ADMIN-console route is refused because that
+    # authority is not inside any client's account, and the sentence has to say so.
+    assert "operator-console act" in viewing.json()["detail"], viewing.text
 
 
 async def test_a_whitespace_slug_is_not_a_deleted_client() -> None:
@@ -282,8 +287,9 @@ async def test_a_whitespace_slug_is_not_a_deleted_client() -> None:
 async def test_the_impersonating_flag_is_never_true_without_a_resolved_tenant() -> None:
     """The invariant the blank header broke, asserted on the function that decides it.
 
-    `Principal.impersonating` is read by `requires()` to refuse every mutation, by
-    `Principal.can_mutate`, and by the console to grey out controls. All of that assumes
+    `Principal.impersonating` is read by `requires()` to decide which mutations a view-as
+    session may perform (D-587), and by the console to explain a control it cannot
+    enable. All of that assumes
     the flag means "this principal entered a tenant through the audited path". It is now
     derived from `tenant_id`, which is assigned on exactly one branch — the one that has
     already checked `admin:impersonate`, resolved the slug and verified the grant — so
@@ -309,77 +315,96 @@ async def test_the_impersonating_flag_is_never_true_without_a_resolved_tenant() 
             "audited — a principal claiming impersonation here means the flag no longer "
             "implies the audited entry every mutating dependency trusts it for"
         )
-        assert principal.can_mutate is True, "an operator who entered no tenant is themselves"
+        assert principal.impersonation_grant_id is None, (
+            "no tenant was entered, so no grant was verified — a principal carrying one "
+            "here would put a view-as attribution on an act performed as the operator"
+        )
 
 
-# --------------------------------------------------------- the read-only rule, DRIVEN
+# ------------------------------------------------------- the view-as ruling, DRIVEN
 
 
-def _mutating_routes() -> list[tuple[str, str, str]]:
-    """(method, template, declared permission) for every mutating-permission route."""
-    found: list[tuple[str, str, str]] = []
+def _routes_by_view_as_ruling() -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str]]]:
+    """(withheld, writable) — every mutating-permission route, split by `VIEW_AS_MUTATIONS`.
+
+    SPLIT BY PERMISSION RATHER THAN BY PATH, deliberately: a second route on a withheld
+    permission is covered without anyone remembering to add it here, and a route on a
+    writable one cannot be smuggled out of the drive by editing a path list.
+    """
+    withheld: list[tuple[str, str, str]] = []
+    writable: list[tuple[str, str, str]] = []
     for route in iter_api_routes(app):
         if any(route.path.startswith(prefix) for prefix in PUBLIC_PREFIXES):
             continue
         declared = (route.openapi_extra or {}).get("x-calevate-permission")
         if declared not in MUTATING_PERMISSIONS:
             continue
-        # THE ONE SANCTIONED HOLE IN D-22, READ FROM THE SET RATHER THAN NAMED HERE
-        # (D-499). `rbac.IMPERSONATION_PERMITTED_MUTATIONS` exists so the exemption is a
-        # VALUE a test can enumerate instead of a special case buried in `requires()`,
-        # and this is the test that enumerates it. Skipping by permission rather than by
-        # path is deliberate: a second route on an exempt permission is covered without
-        # anyone remembering to add it here, and a route added to a NON-exempt permission
-        # cannot be smuggled past by editing a path list.
-        if declared in IMPERSONATION_PERMITTED_MUTATIONS:
-            continue
+        bucket = writable if declared in IMPERSONATION_PERMITTED_MUTATIONS else withheld
         for method in sorted((route.methods or set()) - {"HEAD", "OPTIONS"}):
-            found.append((method, route.path, str(declared)))
-    return found
+            bucket.append((method, route.path, str(declared)))
+    return withheld, writable
 
 
-def test_the_impersonation_exemption_is_exactly_one_permission_and_not_the_client_one() -> None:
-    """The hole in D-22 is pinned, because the test above SKIPS whatever is in it.
+def test_the_view_as_ruling_is_exactly_these_permissions() -> None:
+    """THE RULING IS PINNED, IN BOTH DIRECTIONS, BECAUSE THE DRIVE BELOW OBEYS IT.
 
-    That skip is the only way a mutating route may answer an impersonating operator, so
-    an addition to this set silently removes a route from the drive-every-route test —
-    the guard would go green while the property weakened. Pinning the set means widening
-    it fails HERE, where the argument for it has to be written.
+    The sweep reads `IMPERSONATION_PERMITTED_MUTATIONS` to decide which routes must be
+    REFUSED and which must be REACHABLE, so moving a permission between the two buckets
+    silently moves routes out of the refusal test. Pinning the membership means a widening
+    fails HERE, where the argument for it has to be written — which is what this test has
+    always been for; only the expected value moved (D-587 supersedes D-22's read-only
+    rule, and D-499's single exemption became a classification of all twelve).
 
-    `copilot:use` is the sentence to check: it is in `MUTATING_PERMISSIONS` precisely
+    `copilot:use` is still the sentence to check: it is in `MUTATING_PERMISSIONS` precisely
     because asking spends the CLIENT'S allowance, and an operator burning it from the
     client's own screen is the hazard the listing exists for. `copilot:admin` spends the
     platform's ledger on every path, impersonating or not, so there is no client balance
-    for it to move — which is why it, and only it, is exempt.
+    for it to move.
     """
-    assert frozenset({"copilot:admin"}) == IMPERSONATION_PERMITTED_MUTATIONS, (
-        "the D-22 exemption set changed — every permission in it is skipped by the "
-        "drive-every-route test above, so widening it weakens the read-only rule"
+    assert (
+        frozenset(
+            {
+                "agents:write",
+                "leads:write",
+                "leads:dispatch",
+                "org:manage",
+                "kb:write",
+                "copilot:admin",
+            }
+        )
+        == IMPERSONATION_PERMITTED_MUTATIONS
+    ), (
+        "the view-as ruling changed — every permission in this set is DRIVEN as reachable "
+        "and excluded from the refusal sweep below, so widening it weakens both"
     )
     assert "copilot:use" not in IMPERSONATION_PERMITTED_MUTATIONS, (
-        "copilot:use spends the CLIENT'S allowance and must never be exempt from D-22"
+        "copilot:use spends the CLIENT'S allowance and must never be writable in a "
+        "view-as session — the founder: you never charge a client for your own support work"
     )
+    for platform in ("ops:manage", "platform:config", "platform:secrets", "admin:operators"):
+        assert platform not in IMPERSONATION_PERMITTED_MUTATIONS, (
+            f"{platform} is a platform-wide authority and is not inside any client account"
+        )
 
 
-async def test_no_route_declaring_a_mutating_permission_is_reachable_while_impersonating() -> None:
-    """D-22's read-only rule, driven over every route the registry knows about.
+async def test_no_route_on_a_withheld_permission_is_reachable_while_impersonating() -> None:
+    """The half D-587 did NOT reverse, driven over every route the registry knows about.
 
     THE STATIC TEST IS NOT THIS TEST. `authz_audit_test` reads each route's declaration
     and requires it to be a mutating permission; that assumes `requires()` is the only
     thing between a declaration and a handler, and assumes it is wired on every one of
     them. This sends the request. Any route whose dependency graph lets a body, a path
-    parameter or a router-level dependency answer before the read-only check shows up
-    here as a status that is not a refusal.
+    parameter or a router-level dependency answer before the view-as check shows up here
+    as a status that is not a refusal.
 
     TWO REFUSALS ARE ACCEPTED, and the difference is recorded rather than smoothed over:
 
-      - `impersonation_read_only` (the D-22 rule itself) for every route an operator's
-        token can reach at all;
+      - `forbidden` (the view-as ruling itself) for every route an operator's token can
+        reach at all;
       - `impersonation_not_available_here` for the handful declared `realm="client"`.
-        Those verify against the CLIENT application's JWKS, which an operator's token
-        will never satisfy, so the rule that refuses them is realm separation and not
-        D-22. They are refused either way; saying which is what keeps a support person
-        off the wrong desk.
+        Those verify against the CLIENT realm, which an operator's session will never
+        satisfy, so the rule that refuses them is realm separation. They are refused
+        either way; saying which is what keeps a support person off the wrong desk.
 
     Nothing else passes — in particular a 2xx, a 404 (the handler ran and looked for the
     object) or a 422 (the body was validated first) is a failure, because each of them
@@ -387,9 +412,9 @@ async def test_no_route_declaring_a_mutating_permission_is_reachable_while_imper
     """
     _admin_id, token = await _make_admin()
     org = await _make_org()
-    routes = _mutating_routes()
+    routes, _writable = _routes_by_view_as_ruling()
     # Non-vacuity: if route discovery breaks, this file must go red rather than green.
-    assert len(routes) >= 40, f"only {len(routes)} mutating routes found — discovery is broken"
+    assert len(routes) >= 20, f"only {len(routes)} withheld routes found — discovery is broken"
 
     offenders: list[str] = []
     read_only: list[str] = []
@@ -415,13 +440,78 @@ async def test_no_route_declaring_a_mutating_permission_is_reachable_while_imper
                 offenders.append(f"{method} {template} -> {response.status_code} {code}")
 
     assert not offenders, (
-        "a view-as session reached these routes without meeting D-22's read-only rule "
+        "a view-as session reached these routes without meeting the view-as ruling "
         f"or the realm boundary: {offenders}"
     )
-    assert len(read_only) >= 40, (
-        f"only {len(read_only)} routes were refused by the read-only rule itself; the "
-        f"rest answered the realm boundary ({wrong_realm}) — if that set has grown, D-22 "
-        "is being enforced by an accident of which realm a route declares"
+    assert len(read_only) >= 20, (
+        f"only {len(read_only)} routes were refused by the ruling itself; the "
+        f"rest answered the realm boundary ({wrong_realm}) — if that set has grown, the "
+        "ruling is being enforced by an accident of which realm a route declares"
+    )
+
+
+async def test_every_writable_route_is_actually_reached_while_impersonating() -> None:
+    """THE INVERSE SWEEP, AND THE ONE D-587 ADDED. A reversal nobody can drive is a
+    reversal that half-shipped.
+
+    Every route on a writable permission must get PAST the view-as gate. What happens
+    after that is the route's own business — a 422 on an empty body, a 404 on a random
+    uuid, a 400 on a missing header are all fine and all prove the same thing: the guard
+    let it through. What may NOT happen is a refusal carrying a view-as ground, because
+    that is the control this decision removed.
+
+    TWO KINDS OF EXCEPTION ARE ACCEPTED AND COUNTED SEPARATELY, because they are two
+    mechanisms: a `realm="client"` route (refused before any permission is read — the
+    acts that are the client's own to perform) and a NAMED ACT.
+
+    THE NAMED ACTS are read from `VIEW_AS_WITHHELD_ACTS`
+    rather than listed here, so the withheld set is enumerable in one place (the sentence
+    on the wire IS the registry entry). A route that starts refusing for a ground that is
+    not in that registry fails here — which is exactly the drift this sweep exists to
+    catch, since such a refusal is invisible to every other gate.
+    """
+    _admin_id, token = await _make_admin()
+    org = await _make_org()
+    _withheld, routes = _routes_by_view_as_ruling()
+    assert len(routes) >= 40, f"only {len(routes)} writable routes found — discovery is broken"
+
+    refused: list[str] = []
+    by_named_act: list[str] = []
+    by_realm: list[str] = []
+    async with _client() as http:
+        headers = await view_as_headers(http, token, str(org["slug"]))
+        for method, template, _permission in routes:
+            path = _PATH_PARAM.sub(lambda _: str(uuid.uuid4()), template)
+            response = await http.request(method, path, headers=headers, json={})
+            body = response.json()
+            if response.status_code != 403 or not isinstance(body, dict):
+                continue
+            code = str(body.get("type", "")).rsplit("/", 1)[-1]
+            detail = str(body.get("detail", ""))
+            if code == "impersonation_not_available_here":
+                # The OTHER withholding mechanism, and the older one: `realm="client"`,
+                # refused by `current_principal` before any permission is read. It covers
+                # the acts that are the account's own to perform — buying credit, setting
+                # their own ceiling, consenting, signing — and D-587 left every one of
+                # them exactly where it was.
+                by_realm.append(f"{method} {template}")
+            elif detail in set(VIEW_AS_WITHHELD_ACTS.values()):
+                by_named_act.append(f"{method} {template}")
+            else:
+                refused.append(f"{method} {template} -> {detail[:80]}")
+
+    assert not refused, (
+        "these routes are on a permission a view-as session may exercise and refused it "
+        f"anyway, for a ground that is in no registry: {refused}"
+    )
+    assert by_named_act, (
+        "no route answered a named-act refusal — either `VIEW_AS_WITHHELD_ACTS` is no "
+        "longer enforced at any route, or its sentences drifted from the registry"
+    )
+    assert by_realm, (
+        "no route answered the realm boundary — the client-realm acts (a top-up, a "
+        f"spend cap, a consent, an acceptance) must stay unreachable from view-as: "
+        f"{by_realm}"
     )
 
 

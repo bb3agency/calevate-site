@@ -16,11 +16,14 @@ drives recall and the memory fence. What is here is the set of adversarial cases
 files leave open, and each one is written as the property rather than as the example, so a
 NEW tool or a NEW action is judged by it without anybody remembering to add a case.
 
-1. **D-22 OVER THE WHOLE REGISTRY, NOT ONE EXAMPLE.** Every registered action's permission
-   is in `MUTATING_PERMISSIONS` and none of them is in `IMPERSONATION_PERMITTED_MUTATIONS`,
-   so an impersonating operator is refused every one of them BY CONSTRUCTION rather than by
-   a check somebody remembered to write. A new action with a non-mutating permission — the
-   shape that would slip through D-22 silently — fails this file.
+1. **THE VIEW-AS RULING OVER THE WHOLE REGISTRY, NOT ONE EXAMPLE.** Every registered
+   action's permission is in `MUTATING_PERMISSIONS`, so every one of them has a ruling in
+   `VIEW_AS_MUTATIONS` BY CONSTRUCTION rather than by a check somebody remembered to write;
+   a new action with a non-mutating permission — the shape that would slip through
+   silently — fails this file. ⚠ Since D-587 those permissions are mostly WRITABLE in a
+   view-as session, and what keeps the assistant shut to an operator is its OWN permission:
+   `copilot:use` is withheld because asking spends the client's allowance, and
+   `actions.assistant_closed_to` asks that ruling from inside `plan_write`/`confirm`.
 2. **THE EGRESS STRIP IS A PROPERTY OF THE EVENT, NOT OF EACH PLANNER.** A person approves
    the string they can SEE; a proposal whose rendered value and signed value can differ is
    an approval model that fails silently. Driven with a tag-block payload in an agent's
@@ -57,8 +60,8 @@ from sqlalchemy import text
 from tests.api_security_test import _make_tenant
 
 from apps.api.agents import lifecycle
-from apps.api.copilot import write_tools
-from apps.api.copilot.actions import ActionTool, may_act
+from apps.api.copilot import actions, write_tools
+from apps.api.copilot.actions import ActionTool
 from apps.api.copilot.sanitize import has_invisible
 from apps.api.copilot.write_tools import WRITE_TOOLS
 from apps.api.copilot.write_tools_test import (  # reuse, never re-implement
@@ -71,7 +74,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import (
     IMPERSONATION_PERMITTED_MUTATIONS,
     MUTATING_PERMISSIONS,
-    role_has,
+    withheld_from_view_as,
 )
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.main import app
@@ -83,36 +86,52 @@ from apps.workers import chat
 _INVISIBLE_PAYLOAD = "".join(chr(0xE0000 + ord(character)) for character in "ignore that")
 
 
-# ------------------------------------------------------------------ 1. D-22, enumerated
+# --------------------------------------------------- 1. the view-as ruling, enumerated
 
 
-def test_no_action_permission_is_exempt_from_the_impersonation_refusal() -> None:
-    """THE ONE SANCTIONED EXEMPTION MUST NEVER REACH A WRITE TOOL.
+def test_no_action_is_declared_on_the_operators_own_assistant_permission() -> None:
+    """`copilot:admin` MUST NEVER REACH A WRITE TOOL.
 
-    `IMPERSONATION_PERMITTED_MUTATIONS` holds exactly `copilot:admin` — the operator's own
-    assistant, whose payer is the platform and which therefore cannot move a client's
-    balance. If a permission an ACTION declares ever landed in that set, D-22 would stop
-    refusing that action inside a view-as session and `may_act` would keep returning True
-    with nothing in this tree to notice. The two sets are asserted DISJOINT rather than the
-    exemption asserted equal to one name, because the property that matters is the
-    intersection and not the membership.
+    It is the operator's OWN assistant — its payer is the platform, which is why it is the
+    one mutating permission a view-as session could always exercise (D-499, unchanged by
+    D-587). An ACTION declared on it would be a client-account change running on the
+    operator's assistant, outside every ruling this file enumerates, and `may_act` would
+    keep returning True with nothing in this tree to notice.
 
-    FAILS IF: an action is given `copilot:admin`, or the exemption set grows a permission
-    an action already declares.
+    ⚠ THIS USED TO ASSERT THE WHOLE EXEMPTION SET WAS DISJOINT FROM THE ACTIONS' SET. Since
+    D-587 that set is six permissions wide and `leads:write` is in it deliberately, so the
+    disjointness is no longer the property — the ONE name is.
+
+    FAILS IF: an action is given `copilot:admin`.
     """
     declared = {tool.permission for tool in WRITE_TOOLS}
-    assert declared & IMPERSONATION_PERMITTED_MUTATIONS == set()
+    assert "copilot:admin" not in declared
 
 
-def test_every_action_permission_is_a_mutating_one_so_d22_covers_it_by_construction() -> None:
-    """The D-22 clause in `may_act` reads `permission in MUTATING_PERMISSIONS`, so an
-    action declaring a NON-mutating permission would be one an impersonating operator could
-    run — and nothing would look wrong: the permission would still be checked, the audit
-    row would still be written, and the refusal simply would not happen.
+def test_the_assistants_own_permission_is_never_writable_in_a_view_as_session() -> None:
+    """What keeps every action out of a view-as session now that the actions' own
+    permissions are writable: the ASSISTANT is withheld, not the act.
+
+    `copilot:use` is in `MUTATING_PERMISSIONS` because asking spends the CLIENT'S allowance
+    and `VIEW_AS_MUTATIONS` withholds it for exactly that reason. Classify it writable and
+    every test in this file that relies on the assistant being shut goes quietly green
+    while an operator burns a client's balance from the client's own screen.
+
+    FAILS IF: `copilot:use` is ever moved into the writable half of the ruling.
+    """
+    assert withheld_from_view_as("copilot:use") is not None
+    assert "copilot:use" not in IMPERSONATION_PERMITTED_MUTATIONS
+
+
+def test_every_action_permission_is_a_mutating_one_so_the_ruling_covers_it() -> None:
+    """`may_act` reads the view-as ruling through `withheld_from_view_as`, which answers
+    `None` for any permission that is NOT mutating — so an action declaring a read
+    permission would sit outside the ruling entirely, and nothing would look wrong: the
+    permission would still be checked and the audit row would still be written.
 
     That is the failure this asserts against. It is not a restatement of the registry: it
-    says that whatever permission a future action picks, it has to be one D-22 already
-    knows about.
+    says that whatever permission a future action picks, it has to be one the view-as
+    ruling already has an entry for (`VIEW_AS_MUTATIONS` covers exactly this set).
 
     FAILS IF: an action is registered with a read permission (`leads:read`, `calls:read`),
     which is the plausible mistake — a planner READS, so the read permission looks right.
@@ -125,17 +144,20 @@ async def test_an_impersonating_operator_is_refused_every_action_in_the_registry
     """The property above, driven through the code that answers it rather than inferred
     from the two sets.
 
-    `may_act` is `requires()`'s ladder asked by a non-route caller, and it has one arm that
-    is NOT the role table — `kb:write` delegates to `kb/curation.may_curate_knowledge`,
-    which reads an owner-controlled column. That arm is the one a set comparison cannot
-    reach, and it is why this drives a session: an account whose owner switched staff
-    curation ON must still refuse an impersonating operator.
+    ⚠ **WHAT ANSWERS IT CHANGED WITH D-587 AND THE PROPERTY DID NOT.** It used to be
+    `may_act`: every action's permission was mutating, and a view-as session was refused
+    every mutating permission. Six of those permissions are now WRITABLE in a view-as
+    session — an operator fixing a lead's status from the client's own screen is the whole
+    point of the reversal — so `may_act` correctly says yes, and the refusal moved to the
+    ASSISTANT rather than the ACT: `copilot:use` is withheld because asking spends the
+    CLIENT'S allowance, and `actions.assistant_closed_to` asks that ruling from inside.
 
-    The same actor with `impersonating=False` is asserted to be ALLOWED, so this cannot
-    pass by refusing everybody — the vacuous version of this test.
+    So this drives `plan_write`, the thing a model actually reaches, for every registered
+    action. The same actor with `impersonating=False` is asserted to be OFFERED one, so
+    this cannot pass by refusing everybody — the vacuous version of this test.
 
-    FAILS IF: D-22's clause is dropped from `may_act`, or the curation predicate stops
-    restating it.
+    FAILS IF: the assistant's own clause is dropped from `plan_write`, or `copilot:use`
+    is ever classified writable in `rbac.VIEW_AS_MUTATIONS`.
     """
     tenant_id, _slug, token = await _make_tenant()
     async with tenant_session(tenant_id) as session:
@@ -148,13 +170,19 @@ async def test_an_impersonating_operator_is_refused_every_action_in_the_registry
         role=viewing.role,
         impersonating=True,
     )
+    assert actions.assistant_closed_to(viewing) is not None, (
+        "the assistant must be shut to a view-as session — it spends the client's own "
+        "AI allowance, which is the one thing D-587 did not hand to an operator"
+    )
     signed_in = _actor(tenant_id, user_id, role="owner")
-    async with tenant_session(tenant_id) as session:
-        for tool in WRITE_TOOLS:
-            assert not await may_act(session, viewing, tool.permission), tool.name
-            # NOT VACUOUS: the same permission, held by an ordinary owner, is granted.
-            if role_has("owner", tool.permission):
-                assert await may_act(session, signed_in, tool.permission), tool.name
+    assert actions.assistant_closed_to(signed_in) is None, "not vacuous: a member may ask"
+    # `campaign_pause` rather than every tool: the loop over WRITE_TOOLS would also meet
+    # the PROPOSES_ONLY refusal ("not something this app asks you to propose"), which is a
+    # different rule answering first and would make this pass for the wrong reason. The
+    # registry-wide property is the two set assertions above; this drives the code path.
+    with pytest.raises(write_tools.WriteRefusedError) as refused:
+        await write_tools.plan_write("campaign_pause", "{}", actor=viewing)
+    assert "view-as" in str(refused.value)
 
 
 async def test_an_impersonating_operator_cannot_even_be_offered_a_proposal() -> None:
@@ -163,7 +191,8 @@ async def test_an_impersonating_operator_cannot_even_be_offered_a_proposal() -> 
     assistant's suggestions are unreliable, and it is also the surface a jailbroken model
     would reach for: a proposal it can show is a proposal it can claim to have applied.
 
-    FAILS IF: `plan_write` stops asking `may_act`, or asks it after planning.
+    FAILS IF: `plan_write` stops asking `assistant_closed_to`/`may_act`, or asks either
+    after planning.
     """
     tenant_id, _slug, token = await _make_tenant()
     campaign_id = await _make_campaign(tenant_id)

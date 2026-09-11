@@ -16,7 +16,9 @@ carry a decision-log reference. §3 is DECIDED engineering doctrine.
 What it is: the operations console for a managed voice-agent business. It does NOT
 replicate the client UI; it shows operational internals the client never sees.
 Already decided: two-realm auth (TRD §11), admin roles superadmin|operator, MFA,
-read-only audited impersonation (D-22), always-audited admin reads (SEC-COMP §5).
+audited impersonation (D-22; read-only half superseded by D-587 — a view-as session may
+now perform the mutations `rbac.VIEW_AS_MUTATIONS` classifies as writable, and every one
+is attributed to the operator and the grant), always-audited admin reads (SEC-COMP §5).
 
 Client lifecycle
 - New-client wizard (FLOWS §1) with draft/resume; compliance status surfaced per step.
@@ -117,8 +119,9 @@ the first-campaign hold, which really are about a stranger signing up, still app
   their money-UX is genuinely good), top-up packs, auto-receipt with GST.
 - **Plan/usage**: agents live vs draft, minutes used, spend against cap.
   - **Spend cap, client-editable** — `GET /v1/billing/caps` (`billing:read`) and
-    `PUT /v1/billing/caps` (`org:manage`; mutating, so D-22 refuses an impersonating
-    admin). There are TWO caps per plan: `hard_cap_min`/`hard_cap_spend` are admin-owned
+    `PUT /v1/billing/caps` (`org:manage`, `realm="client"` — so a view-as session is
+    refused it before any permission is read, which is where this refusal survived D-587:
+    the ceiling on a client's own spending is the client's to move). There are TWO caps per plan: `hard_cap_min`/`hard_cap_spend` are admin-owned
     and `client_cap_min`/`client_cap_spend` are the client's, and the effective ceiling
     is `LEAST(admin, client)` with NULL meaning "no constraint from this side". A client
     may lower theirs to anything including zero and may clear it (falling back on the
@@ -318,8 +321,10 @@ Admin realm (`/admin/…`)
   by slug because every place view-as is initiated holds one (including
   `/c/<slug>?view=admin`, where no tenant id is in scope), and bound to the id because
   that is what RLS keys off. See SECURITY-COMPLIANCE §5 and `apps/api/core/
-  impersonation.py`. Read-only is unchanged: `requires()` still refuses every mutating
-  permission to an impersonating principal, grant or no grant.
+  impersonation.py`. ⚠ **READ-ONLY IS NO LONGER THE RULE (D-587)**: `requires()` consults
+  `rbac.VIEW_AS_MUTATIONS` per permission and permits the writable ones, refusing any
+  write it cannot attribute — the grant is what carries the attribution, so "grant or no
+  grant" is now the difference between a recorded act and no act at all.
 - **Who this operator is** (`GET /v1/admin/me`, `org:read`, admin realm) — the console's
   own identity read: the `admin_users` id, the role and the role's permission set, with no
   tenant touched and no impersonation header accepted as a substitute. It exists because
@@ -327,8 +332,8 @@ Admin realm (`/admin/…`)
   `X-Impersonate-Org` is present, so a bare admin token asking it is verified as a CLIENT
   token and refused — leaving the console to learn its own role by entering some client, or
   to guess it from a 403 on whatever the current screen happened to read. `org:read`, not
-  `admin:tenants`: D-22 forbids gating a GET on a permission read-only impersonation
-  refuses, and beyond that rule an identity read gated on the authority to manage tenants
+  `admin:tenants`: D-22 forbids gating a GET on a permission a view-as session
+  is refused, and beyond that rule an identity read gated on the authority to manage tenants
   would answer "what may I do" only to the accounts that may already do the most. It drives
   every admin-realm gate (`@/app/admin/access`) and the SIDEBAR: an entry whose screen the
   session cannot use is shown and DEAD with the permission named, never hidden — the same
@@ -470,8 +475,9 @@ Admin realm (`/admin/…`)
   in force, and **never writes the flag directly** — an ops button that set `capped=false`
   would be a third DEFINITION rather than a third caller. It closes a real dead end: the
   gate reads the flag, a capped tenant meters nothing so the meter can never clear it,
-  and the client's own `PUT /v1/billing/caps` needs `org:manage`, which D-22 refuses to an
-  impersonating admin — so an outbound-only client whose ceiling ops had just raised
+  and the client's own `PUT /v1/billing/caps` is `realm="client"`, which a view-as session
+  cannot reach (unchanged by D-587) — so an outbound-only client whose ceiling ops had just
+  raised
   stayed stopped until they acted themselves or the IST month rolled over. The response
   reports the counters and the effective ceiling next to the flag, so "it did not work"
   becomes "the ceiling is 2 and they have used 3".
@@ -516,7 +522,7 @@ Admin realm (`/admin/…`)
   the flag. Built with **no RLS policy widened**: the directory under the admin session,
   then each tenant's own session asking the ordinary gate (`apps/api/admin/holds.py`
   argues the alternatives). `org:read`, not `admin:tenants` — D-22 forbids gating a GET on
-  a permission read-only impersonation refuses, and the realm is what separates admin from
+  a permission a view-as session is refused, and the realm is what separates admin from
   client here. The row carries the account, its motion, its signup instant and the rule
   names, and deliberately NO reason text, signatory or document reference: the rejection
   reason interpolates an operator's free text, which belongs nowhere near the widest-read
@@ -597,9 +603,9 @@ Self-serve + payments (D-34/D-39) — **read the caveat, this is not a working c
   caller the owner; `plan_tier` is `self_serve` or `trial` — `managed` is the invoiced
   motion and is not self-assignable. The wallet starts empty, so the compliance gate
   refuses outbound until it is topped up, and the response says so in `next_steps`.
-- **Top-up intent**: `POST /v1/billing/topups/intent` (`org:manage` — spending the client's
-  money is not a read, and being mutating is what makes D-22 refuse it to an impersonating
-  admin). Prices the top-up (₹100–₹100,000), binds it to the session's tenant, and refuses
+- **Top-up intent**: `POST /v1/billing/topups/intent` (`org:manage`, `realm="client"` —
+  spending the client's money is not a read, and the realm declaration is what keeps it
+  with the client through D-587: nobody buys credit on their behalf). Prices the top-up (₹100–₹100,000), binds it to the session's tenant, and refuses
   a `managed` tenant (`topup_not_available`) or a deployment whose payment capability is
   not configured (`payments_not_configured`). **Whether the capability exists is now a
   STATEMENT, not an inference**: `PAYMENT_PROVIDER` names it, `payments.payment_capability()`

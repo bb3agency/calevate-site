@@ -744,3 +744,66 @@ class HandoffAttempt(PKMixin, TimestampMixin, Base):
         ForeignKey("scheduled_callbacks.id", ondelete="SET NULL")
     )
     settled_at: Mapped[datetime | None]
+
+
+class PlatformVoiceCatalogEntry(Base):
+    """ONE VOICE THE ENGINE ACCOUNT OFFERS, cached from the engine's own list (D-585).
+
+    **WHY IT IS A TABLE AND NOT A CONSTANT.** `agents/voices.py` used to compile the
+    catalogue from Sarvam's SDK enum. The engine's Sarvam provider offers a different
+    subset — proved by a live `400 POST /v2/agent`, *"Provided voice: Anushka is not
+    available for the provider: sarvam"* (11 Sep 2026) — and a voice the founder CLONES
+    after this code ships cannot be in a compiled list at all, by construction. So the
+    catalogue is read from the engine (`VoiceEngine.list_voices`) and cached here.
+
+    **WHY THERE IS NO `tenant_id`, AND WHY THAT IS NOT AN OMISSION (hard rule 1).** This is
+    a property of OUR engine ACCOUNT, not of a client: one Bolna account serves every
+    tenant, its voice list is the same list for all of them, and there is no tenant whose
+    row any of these could be. It is the same shape and the same argument as
+    `platform_model_prices`, `platform_tts_prices` and `platform_engine_health`, and the
+    written reason `check_rls_coverage` reads lives in `db/registry
+    .RLS_EXEMPT_TENANT_COLUMNS`. Every client-facing read of it is mediated by
+    `agents/voice_offer.offered_catalogue`, which answers the same catalogue to every
+    tenant on purpose.
+
+    **DELIBERATELY NOT IN `APPEND_ONLY_TABLES`** (hard rule 4). Nothing here is a ledger
+    entry: it is a CACHE of somebody else's list, refreshed whole, and every row is
+    re-derivable by running the sync again. An UPDATE here is a cache line being refreshed,
+    not a record being rewritten.
+    """
+
+    __tablename__ = "platform_voice_catalog"
+
+    #: OUR catalogue id — `<tts_model>:<speaker>`, composed by `voices.voice_id_for`. The
+    #: primary key because it is the value written into `agents.tts_voice`, so a duplicate
+    #: here would be two rows claiming one stored id.
+    voice_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    #: The identifier the ENGINE wants in the synthesizer block — a Sarvam persona name, or
+    #: a clone's generated id. Stored beside the composed id rather than derived from it
+    #: for `speech_for_voice_id`'s reason: string surgery on an id is how `bulbul:v3`
+    #: becomes the model `bulbul`.
+    engine_voice_id: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The engine's own NAME for the voice. A WIRE value as well as a human one (their
+    #: synthesizer block requires `voice` beside `voice_id`), and NOT derivable from the id
+    #: for a cloned voice — which is the whole reason it is carried rather than computed.
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Plain text, not an enum, for `PlatformModelPrice.model`'s reason: a row cached for a
+    #: model or provider the catalogue no longer offers must still read back as itself.
+    #: The PROVIDER is derived from `tts_model` on the way in (`voices
+    #: .provider_of_tts_model`) and stored so a reader need not re-derive it — never
+    #: stored independently of it.
+    tts_model: Mapped[str] = mapped_column(Text, nullable=False)
+    provider: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The language codes the engine returned this voice under, ours as the picker renders
+    #: them. ARRAY rather than JSONB: it is a list of short codes with no structure.
+    languages: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), nullable=False, server_default=text("'{}'::text[]")
+    )
+    #: `source == "custom"` on the engine's row: cloned or added by our account. The one
+    #: entry class no compiled list could ever hold.
+    is_custom: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    #: When the sync that last SAW this voice ran. Read by the ops console to say how old
+    #: the catalogue is, and by nothing that decides whether a voice may be offered — a
+    #: stale cache is a reason to alert an operator, never a reason to silently withdraw a
+    #: voice a client's live agent is speaking.
+    synced_at: Mapped[datetime] = mapped_column(nullable=False)

@@ -73,6 +73,7 @@ import { AgentLifecycle } from "../AgentLifecycle";
 import { AgentModel } from "../AgentModel";
 import { ExtractionList } from "../panels/extraction";
 import { CallerContinuity } from "../panels/callerContinuity";
+import { DeliverySettings } from "../panels/delivery";
 import { Handover } from "../panels/handover";
 import { OpeningNotices } from "../panels/openingNotices";
 import { PublishingPanel } from "../panels/publishing";
@@ -209,6 +210,16 @@ function AgentDetail({ agent, slug }: { agent: Agent; slug: string }) {
       {/* BAND 2 — foreground. Read on most visits, or too important to hide. */}
       <Card title="What callers hear right now">
         <PublishingPanel agent={agent} />
+      </Card>
+
+      {/* IMMEDIATELY UNDER the state it changes (D-586). The panel above answers "what do
+          callers hear right now"; this is the pair of controls that move it, and both
+          apply from the next call with no Apply step — which is the whole reason they sit
+          beside the state rather than behind a disclosure. FOREGROUND on doctrine §8's own
+          test: the frequency is low, and the consequence is a client's phone line sounding
+          different and a runaway call's cost ceiling. */}
+      <Card title="How it sounds, and how long a call may run">
+        <DeliverySettings agent={agent} />
       </Card>
 
       <Card title="Switching it on and off">

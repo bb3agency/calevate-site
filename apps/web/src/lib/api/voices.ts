@@ -6,10 +6,15 @@
  *   GET   /v1/agents/voices                                     `agents:read`, realm ANY
  *   PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice `agents:write`, realm ADMIN
  *
- * That split is D-21's and it decides the shape of this module: only we may change a
- * voice, so there is deliberately no client-realm setter here — the same rule `agents.ts`
- * and `publishing.ts` already follow, that a button which could only ever 403 is worse
- * than no button.
+ *   PATCH /v1/agents/{agent_id}/voice                          `agents:write`, realm ANY
+ *
+ * ⚠ **THIS DOCSTRING USED TO SAY "there is deliberately no client-realm setter here"**,
+ * on D-21's ground that only we may change a voice. D-586 withdrew that ground for this
+ * setting: a voice is delivery on the client's own phone line, the account's owner and
+ * their staff hold `agents:write` for it, and the write re-publishes a live agent in the
+ * same transaction so the screen never claims a voice the platform is not speaking. The
+ * admin route stays — it is the ONBOARDING door, used before a client has ever signed in,
+ * and it calls the same server-side writer.
  *
  * **The read half is not client-facing YET, and this docstring used to say it was.** It
  * justified the client-realm route as existing so "a client may HEAR what their agent
@@ -55,11 +60,17 @@
  * refetch would keep showing the previous configuration beside the new one.
  */
 
-import { useMutation, useQuery, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+} from "@tanstack/react-query";
 
 import { adminSession, viewAsSession } from "./admin";
 import { apiRequest, type Session } from "./client";
-import { usePublishingRefresh } from "./publishing";
+import { publishingKeys, usePublishingRefresh } from "./publishing";
 import type { components } from "./schema";
 
 type Schemas = components["schemas"];
@@ -119,13 +130,24 @@ function catalogueOptions(session: Session) {
   };
 }
 
-/*
- * THERE IS NO CLIENT-REALM HOOK, and the module docstring above used to imply otherwise.
+/**
+ * The catalogue from a client's own session — every voice, each with its verdict.
  *
- * `useVoiceCatalogue(session)` existed and nothing called it. `catalogueOptions` stays
- * because the console's `useTenantVoiceCatalogue` is built from it; the client-realm
- * wrapper is gone until there is a screen and something to put on it.
+ * ⚠ **A HOOK OF THIS NAME WAS DELETED ONCE FOR BEING UNWIRED**, and the note that replaced
+ * it said it would come back "when there is a screen and something to put on it". D-586 is
+ * that screen: `c/[slug]/agents/panels/delivery.tsx` renders this list as a picker and
+ * writes the choice with `useSetMyAgentVoice`. It is exported because it is called, and it
+ * shares ONE options builder with the console's hook so the URL, the key and the stale
+ * window cannot drift between the two realms.
+ *
+ * `unavailable_reason` on a row arrives in the CLIENT's language on this session and in the
+ * OPERATOR's on the console's — the server picks from the caller's realm
+ * (`agents/voice_routes.py::_reason_audience`), so neither surface has to know which
+ * sentence it is rendering.
  */
+export function useVoiceCatalogue(session: Session): UseQueryResult<VoiceCatalogue> {
+  return useQuery(catalogueOptions(session));
+}
 
 /** The same catalogue from the console, through the impersonation session (see above). */
 export function useTenantVoiceCatalogue(slug: string): UseQueryResult<VoiceCatalogue> {
@@ -133,11 +155,63 @@ export function useTenantVoiceCatalogue(slug: string): UseQueryResult<VoiceCatal
 }
 
 /**
+ * Set the voice on one of the CALLER'S OWN agents — client realm, no tenant anywhere
+ * (D-586). The owner and their staff; an operator reaches it by viewing as them.
+ *
+ * The refusals are the product here and none of them is pre-empted client-side:
+ *
+ * - an id outside the catalogue comes back as `unknown_voice` with the list in its
+ *   remediation;
+ * - a catalogue voice this deployment cannot put a client on comes back as
+ *   `voice_not_available` with the actual ground in the CLIENT's language — the tier's
+ *   client-facing name and the one action they have, never a vendor or one of our
+ *   settings. That is the same verdict `GET /v1/agents/voices` renders as
+ *   `offerable: false`, from the same function, so the picker and the write cannot
+ *   disagree;
+ * - a vendor refusal on the re-publish comes back as a `dependency` problem, and nothing
+ *   was saved.
+ *
+ * All four render through `ProblemNotice` verbatim. A membership or availability check
+ * duplicated on this side would be a second copy of a server rule, and the second copy is
+ * the one that goes stale.
+ */
+export function useSetMyAgentVoice(
+  session: Session,
+  agentId: string,
+): UseMutationResult<SetVoiceOut, Error, string> {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (voiceId: string) =>
+      apiRequest<SetVoiceOut>(session, `/v1/agents/${agentId}/voice`, {
+        method: "PATCH",
+        body: { voice_id: voiceId } satisfies SetVoiceIn,
+      }),
+    // The pending read is where `voice.configured` and `voice.live` live, and the roster
+    // row carries the agent's published state. Awaited rather than fired-and-forgotten,
+    // for `publishing.ts::useAfterPublish`'s reason: a paint from the stale cache would
+    // contradict the choice the client just made.
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({
+          queryKey: publishingKeys.pending(session.orgSlug, agentId),
+        }),
+        client.invalidateQueries({ queryKey: ["agents", session.orgSlug] }),
+      ]),
+  });
+}
+
+/**
  * Set an agent's voice — admin realm, admin session, tenant named in the PATH.
  *
+ * THE ONBOARDING DOOR, not the client one. Since D-586 a client edits their own agent's
+ * voice on `PATCH /v1/agents/{agent_id}/voice` (`useSetMyAgentVoice` above); this route
+ * stays because the wizard sets a voice before the client has ever signed in, and there is
+ * no client session in that flow to carry it. Both call one server-side writer, so the
+ * catalogue check, the offerability verdict and the in-transaction re-publish are the same
+ * on either path.
+ *
  * The tenant is in the URL rather than inferred from a session because an admin principal
- * has no tenant of its own, and the one way it could get one — impersonation — is refused
- * for every mutation by D-22 (`agents/voice_routes.py` argues it in full). It USED TO ride
+ * has no tenant of its own. It USED TO ride
  * in the body, on `PATCH /v1/agents/{agent_id}/voice`: the same tenant, named in the one
  * place the admin console does not name it anywhere else, on the only admin-realm route
  * that lived in the client path space. Moving it cost this module a template literal and

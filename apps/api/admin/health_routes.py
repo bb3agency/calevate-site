@@ -12,7 +12,7 @@ move. A count in prose is the defect class D-103/D-105 exist for, and the popula
 enumerated where it is declared, one file over.
 
 **`org:read`, not `admin:tenants`**, for the reason `holds_routes.py` states: D-22
-forbids gating a GET on a permission read-only impersonation refuses, and `admin:tenants`
+forbids gating a GET on a permission a view-as session is refused, and `admin:tenants`
 is in `MUTATING_PERMISSIONS`. Reading a triage list is not acting on it — every remedy an
 operator reaches FROM this board (record a KYC verification, release a first campaign,
 raise a cap, approve a knowledge source) keeps its own mutating permission and its own

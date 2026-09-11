@@ -19,15 +19,25 @@
 
 import { useCallback } from "react";
 
-import { useMutation } from "@tanstack/react-query";
-import { LogOut, ShieldCheck, Smartphone } from "lucide-react";
+import { useMutation, type UseQueryResult } from "@tanstack/react-query";
+import Link from "next/link";
+import { Building2, LogOut, ShieldCheck, Smartphone, UserRound } from "lucide-react";
 
 import { Providers } from "@/app/providers";
 import { AuthPageFrame } from "@/components/authPage";
 import { ChangePasswordForm } from "@/components/authn/changePasswordForm";
 import { EmailVerificationPanel } from "@/components/authn/emailVerificationPanel";
 import { AuthProblemNotice } from "@/components/authn/fields";
-import { Card, DANGER_BUTTON, NoticeBox, SECONDARY_BUTTON } from "@/components/ui";
+import {
+  Card,
+  DANGER_BUTTON,
+  Fact,
+  NoticeBox,
+  SECONDARY_BUTTON,
+  Skeleton,
+} from "@/components/ui";
+import type { Me } from "@/lib/api/client";
+import { useUnscopedMe } from "@/lib/api/hooks";
 import { CLIENT_SIGN_IN_PATH, clientAuthn } from "@/lib/authn/clientAuthn";
 import {
   ClientSessionGate,
@@ -54,6 +64,15 @@ export default function ClientAccountPage() {
 
 function ClientAccountBody() {
   const { session, retry } = useClientSession();
+  // WHICH ACCOUNT THIS SESSION IS IN, from the server — the one thing this page could not
+  // previously say. The session itself carries a realm, a subject id and a verified flag
+  // and nothing a person recognises, so "Your account" named no account: an owner of two
+  // businesses, or a colleague invited to one, had no way to tell from this screen whose
+  // account they were about to change the password on.
+  //
+  // `useUnscopedMe` rather than `useMe(session)`: this page is inside a session and
+  // outside an account, and has no slug to key by (`lib/api/hooks.ts`).
+  const me = useUnscopedMe();
 
   const leave = useCallback(() => {
     window.location.assign(CLIENT_SIGN_IN_PATH);
@@ -68,7 +87,7 @@ function ClientAccountBody() {
   return (
     <>
       <Card>
-        <div className="space-y-3 text-sm text-ink-muted">
+        <div className="space-y-4 text-sm text-ink-muted">
           <NoticeBox
             tone="ok"
             icon={<ShieldCheck aria-hidden className="h-4 w-4" />}
@@ -79,6 +98,7 @@ function ClientAccountBody() {
               regardless.
             </p>
           </NoticeBox>
+          <WhoseAccount me={me} />
         </div>
       </Card>
 
@@ -143,6 +163,91 @@ function ClientAccountBody() {
           </div>
         </div>
       </Card>
+
+      {/* THE WAY BACK, and there was none. The console links here (the sidebar footer's
+          "Your account"); this page linked nowhere, so verifying an address or changing a
+          password ended on a screen whose only exits were two sign-out buttons. The
+          operator realm already had its twin of this line (`/auth/admin`), which is the
+          precedent this follows rather than a new pattern.
+
+          `/c` rather than `/c/<slug>`, EVEN WHERE THE SLUG IS ON SCREEN ABOVE: `/c` is the
+          junction that resolves "which console is mine" and already renders every failure
+          of that question. A second link built from `me.data` would be a second answer to
+          it, dead in exactly the case the junction handles — the read that failed. */}
+      <p className="text-sm text-ink-muted">
+        <Link
+          href="/c"
+          className="text-brand-strong underline underline-offset-2 dark:text-brand-bright"
+        >
+          Open your console
+        </Link>
+      </p>
     </>
+  );
+}
+
+/**
+ * The account this session is in, and what this person is in it.
+ *
+ * §52 throughout: in flight is a skeleton, a failed read is a refusal, and neither is an
+ * account name. Nothing here is coalesced to a placeholder — a dash where an account name
+ * belongs is indistinguishable from a dash where the API is dead, which is the defect the
+ * console sidebar had to grow an amber arm for.
+ */
+function WhoseAccount({ me }: { me: UseQueryResult<Me> }) {
+  if (me.error != null) {
+    return (
+      <div className="space-y-2">
+        <AuthProblemNotice error={me.error} />
+        <p>
+          Your sign-in is fine — this is the separate read that says which account it
+          belongs to. Reload to try again. If you belong to more than one Calevate account,
+          open the one you want from its own link: this page can only describe one.
+        </p>
+      </div>
+    );
+  }
+  if (!me.data) return <Skeleton rows={2} label="Reading your account…" />;
+
+  const organization = me.data.organization;
+  const role = me.data.role;
+  if (!organization && !role) {
+    return (
+      <p>
+        This sign-in is not attached to an account yet. Ask whoever invited you to send the
+        invitation again.
+      </p>
+    );
+  }
+
+  return (
+    <dl className="grid gap-4 sm:grid-cols-2">
+      {organization && (
+        <Fact
+          label="Account"
+          icon={<Building2 aria-hidden className="h-3.5 w-3.5" />}
+          hint={organization.slug}
+        >
+          {organization.name}
+        </Fact>
+      )}
+      {role && (
+        <Fact
+          label="Your role"
+          icon={<UserRound aria-hidden className="h-3.5 w-3.5" />}
+          // DERIVED FROM THE PERMISSIONS THE SERVER SENT, not from the word "owner": the
+          // set is what every gated control on the console previews itself against
+          // (`useWriteAccess`), so the sentence here and the controls there cannot
+          // disagree about what this person may do.
+          hint={
+            me.data.permissions.includes("org:manage")
+              ? "You can change this account's settings and invite colleagues."
+              : "Settings, billing and the team are your account owner's to change."
+          }
+        >
+          <span className="capitalize">{role}</span>
+        </Fact>
+      )}
+    </dl>
   );
 }

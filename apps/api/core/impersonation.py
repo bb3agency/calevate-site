@@ -18,12 +18,19 @@ RFC 8693 §4.1), and the spec's own distinction is that a token CARRYING `act` h
 DELEGATION semantics — "this actor is acting on behalf of this subject" — while a token
 WITHOUT it has IMPERSONATION semantics: the actor simply *is* the subject.
 
-That distinction is D-22's, written by somebody else first. D-22 forbids acting-as
-precisely because it wants "no dual attribution" in the audit trail — so although the
+That distinction is D-22's, written by somebody else first. D-22 forbade acting-as
+precisely because it wanted "no dual attribution" in the audit trail — so although the
 feature is called impersonation, its credential is RFC-8693-*delegation*-shaped on
 purpose: `sub` is the tenant whose data may be read and `act.sub` is the operator
 reading it, and both are on the wire, always. A grant that named only the tenant would
-be the impersonation shape and would be the ambiguity D-22 exists to prevent.
+be the impersonation shape and would be the ambiguity D-22 existed to prevent.
+
+**D-587 MADE THAT SHAPE LOAD-BEARING RATHER THAN MERELY CORRECT.** A view-as session may
+now WRITE, so the trail has to carry the dual attribution D-22 avoided by refusing — and
+it does, out of this very claim set: `jti` reaches `audit_log.via_grant_id` on every
+audited write the session performs (`core/auth.py`, `compliance/audit.py`), beside the
+operator as `actor_id` and the client as `tenant_id`. The delegation shape was chosen
+when nothing depended on it; it is what let the reversal cost one column.
 (rfc-editor.org and datatracker.ietf.org are both blocked from this build host, so the
 registry description quoted above is the wording that could be read directly; the
 delegation/impersonation split is RFC 8693 §1.1 and §4.1.)
@@ -52,8 +59,9 @@ WHAT THE GRANT IS BOUND TO, AND WHY EACH BINDING IS THERE.
              a token at a service it was not minted for (RFC 8707 resource indicators
              make the same argument for access tokens).
   - `exp`  = a short life. See GRANT_TTL for why fifteen minutes and not five.
-  - `jti`  = the grant id. It is what makes `admin.impersonation_started` and
-             `admin.impersonation_read` JOINABLE: one start row, N read rows, same id.
+  - `jti`  = the grant id. It is what makes `admin.impersonation_started`,
+             `admin.impersonation_read` and — since D-587 — every WRITE the session
+             performs JOINABLE: one start row, N read rows, N act rows, same id.
   - `auth_time` = when the operator proved the second factor this view-as session rests
              on (D-210). INHERITED by every renewal rather than restamped, which is what
              bounds the whole chain at `VIEW_AS_MAX_AGE` with no server-side table. See

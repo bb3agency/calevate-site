@@ -236,9 +236,10 @@ Three things recompute it, and one of them is not "wait":
    stopped and only they can move it (route 2 below);
 2. **the client** issues `PUT /v1/billing/caps` — any valid body, including one that
    changes nothing. `apply_client_caps` runs the same recompute in the same transaction.
-   This is the only route that clears a CLIENT-set cap: `PUT` needs `org:manage`, which
-   is in `MUTATING_PERMISSIONS`, so an impersonating admin (D-22) cannot do it for them
-   from a client screen;
+   This is the only route that clears a CLIENT-set cap: `PUT` is `realm="client"`, which
+   a view-as session cannot reach at all — unchanged by D-587, because the ceiling on a
+   client's own spending is theirs to move — so an operator cannot do it for them from a
+   client screen;
 3. the billing month rolls over. `spend_capped` compares `spend_state.month` against
    `current_billing_month()` (IST), so a flag belonging to a closed month is not a cap —
    which is also why the ops recompute reports `capped: false` and writes nothing for a

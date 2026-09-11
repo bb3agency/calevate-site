@@ -26,7 +26,8 @@ question, on the three routes that spend it, after the role table has already sa
 ═══ THE LADDER, AND WHY IT IS ADDITIVE BY CONSTRUCTION ═══
 
 `requires_kb_curation()` runs `core/auth.requires("kb:write")`'s ladder first and
-unchanged — role table, then D-22's mutating clause. A caller the role table already
+unchanged — role table, then the view-as clause (`rbac.withheld_from_view_as`, D-587). A
+caller the role table already
 admits (an `owner`, an `operator`, a `superadmin`) reaches the identical answer down the
 identical path, including the identical refusal when impersonating. The extra clause runs
 ONLY on the branch that was already a 403, so there is no input for which this dependency
@@ -38,8 +39,11 @@ THE EXTRA CLAUSE IS THREE CONJUNCTS AND EACH IS LOAD-BEARING:
    client account's decision about its own members. An admin's authority comes from the
    admin realm's role table and its own audited surfaces, never from a row a client can
    write; a client-writable column that could widen an ADMIN principal would be privilege
-   escalation with a form field. The impersonation half is D-22 restated rather than
-   inherited. It is unreachable as written (an impersonating principal is admin-realm, so
+   escalation with a form field. The impersonation half stands even after D-587 made
+   `kb:write` writable in a view-as session: what D-587 permits is an operator ACTING with
+   their own recorded authority, never an operator INHERITING an authority a client's row
+   handed to that client's own staff. It is unreachable as written (an impersonating
+   principal is admin-realm, so
    the first half already rejects it), and it stays because the cost is one `and` and the
    failure it guards is an operator putting words into a client's agent under the client's
    own name. A defence that is currently redundant is the cheapest kind to keep.
@@ -80,7 +84,7 @@ from apps.api.core.auth import PermissionDependency, current_any
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
-from apps.api.core.rbac import MUTATING_PERMISSIONS, role_has
+from apps.api.core.rbac import role_has, withheld_from_view_as
 
 # The one capability this module can unlock, and the one `kb/proposals.py` already names
 # as the lane's permission. Imported from there rather than retyped so the two cannot
@@ -125,14 +129,16 @@ async def may_curate_knowledge(
     exactly that here. Taking the fields means nothing outside `core/auth.py` assembles an
     identity in order to ask a question about one.
 
-    NOT a re-derivation of the role table or of D-22: `role_has` and `MUTATING_PERMISSIONS`
-    are imported, so a permission that stops being mutating stops being refused here in the
-    same edit rather than in a later one somebody forgets.
+    NOT a re-derivation of the role table or of the view-as rule: `role_has` and
+    `withheld_from_view_as` are imported, so a permission whose view-as ruling changes
+    changes here in the same edit rather than in a later one somebody forgets. D-587 is the
+    worked example: `kb:write` became writable inside a view-as session, and this predicate
+    followed without being touched.
     """
     if role_has(role or "", CURATE_PERMISSION):
-        # The pre-existing answer, byte for byte, INCLUDING D-22's clause. An owner and an
-        # admin never reach the conditional grant below.
-        return not (impersonating and CURATE_PERMISSION in MUTATING_PERMISSIONS)
+        # The pre-existing answer, byte for byte, INCLUDING the view-as clause. An owner and
+        # an admin never reach the conditional grant below.
+        return not (impersonating and withheld_from_view_as(CURATE_PERMISSION) is not None)
     if realm != "client" or impersonating:
         return False
     if (role or "") not in _ELIGIBLE_ROLES:
@@ -214,12 +220,14 @@ def requires_kb_curation() -> PermissionDependency:
             impersonating=principal.impersonating,
         ):
             return principal
-        if principal.impersonating:
-            # D-22's own words, kept verbatim from `requires()` so an operator reads the
-            # same sentence here as on every other mutating surface.
-            raise ProblemError.forbidden(
-                "Impersonation is read-only. Perform this action from the admin console."
-            )
+        withheld = withheld_from_view_as(CURATE_PERMISSION)
+        if principal.impersonating and withheld is not None:
+            # The view-as ground, kept verbatim from `requires()` so an operator reads the
+            # same sentence here as on every other mutating surface. Live only if `kb:write`
+            # is ever withheld again; since D-587 it is not, so an impersonating operator
+            # falls through to `_REFUSAL` only when the ACCOUNT's own switch refuses them —
+            # which is the client's decision and reads correctly.
+            raise ProblemError.forbidden(withheld)
         raise ProblemError.forbidden(_REFUSAL)
 
     dep = cast("PermissionDependency", _dep)

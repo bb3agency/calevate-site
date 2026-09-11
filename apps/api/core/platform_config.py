@@ -630,23 +630,59 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # is the credential a client-selected Gemini agent runs on, and an operator who
     # installed it was being told by this file that it reached nothing.
     #
-    # `live` is unchanged and is still honest for both readings: `assist_capability()`
-    # reads it per call, and `offerable_models()` gates a Gemini choice on its presence —
-    # both within one poll interval, which is what `live` claims.
+    # ⚠ **AND `live` WAS THE FLATTERING HALF OF A TWO-SURFACE ANSWER, WHICH IS THE ERROR
+    # THIS FILE'S HEADER CALLS THE EXPENSIVE ONE.** Two surfaces read this key and they do
+    # not agree. `assist_capability()` and `offerable_models()` read it through
+    # `get_settings()` within one poll interval — that half really is `live`. The IN-CALL
+    # leg does not read it from this process AT ALL: a client-selected Gemini agent
+    # authenticates from the ENGINE's own credential store (`agents/service.py`, and
+    # `VoiceEngine.set_llm_credential` is what installs it), so a rotation here does not
+    # reach a live phone call until that install happens. Exactly `azure_openai_api_key`'s
+    # situation, classified the opposite way for no stated reason.
+    #
+    # Same answer as that row, for its reason: the table states the WEAKER of the two
+    # truths, because `live` is the one that costs an outage. Republishing is not the fix
+    # here either — the caveat says so rather than implying it.
     #
     # What is NOT reopened, and is the half worth keeping: Gemini serves no DASHBOARD
     # assist and no extraction pass. D-127 G-2 forbids raw PII on that leg and
     # `GEMINI_EXTRACTION_DEFAULT is False` is the greppable form of it.
-    "gemini_api_key": AppliesRule(LIVE),
-    # OpenAI direct (D-456's third declared leg). `live`, and CHECKED against its own
-    # danger rather than inherited from the family: `needs_republish` warns that a cached
-    # copy will be stale, and nothing caches this one — no `openai`-leg model is selectable
+    "gemini_api_key": AppliesRule(
+        NEEDS_REPUBLISH,
+        "the model picker and the dashboard AI pick up the new key within seconds, but "
+        "the in-call phone leg does not: a Gemini agent authenticates from the voice "
+        "platform's own credential store, so a rotation here does not reach a live call "
+        "until the new key is re-installed there. Re-publishing an agent does not do "
+        "that — an operator must re-install the credential.",
+    ),
+    # OpenAI direct (D-456's third declared leg), and the row above's answer for the row
+    # above's reason — the in-call leg authenticates from the ENGINE's credential store,
+    # not from this process.
+    #
+    # ⚠ **ITS OLD GROUND WAS FALSE IN THIS TREE, AND THAT IS WORTH MORE THAN THE
+    # RECLASSIFICATION.** It justified `live` with "no `openai`-leg model is selectable
     # (`LlmModelSpec` refuses an unverified price), so no adapter is built with it and the
-    # engine holds no copy. A rotation therefore cannot be stale anywhere, which is what
-    # `live` claims. `azure_openai_api_key` below is `needs_republish` precisely because the
-    # engine DOES cache its copy; the day an `openai`-leg model is switched on, the lane that
-    # builds that reader moves this row to `needs_republish` in the same change.
-    "openai_api_key": AppliesRule(LIVE),
+    # engine holds no copy" — but `calevate_shared.engine`'s catalogue carries
+    # `gpt-5.4-mini` with `provider="openai"` and **`selectable=True`**. What holds it back
+    # is the PRICE ATTESTATION gate, which is a thing an operator opens from the ops
+    # console in five minutes, not a property of the code. So the row's own instruction
+    # ("the day an `openai`-leg model is switched on, the lane that builds that reader
+    # moves this row") named a trigger that fires on a screen nobody would be watching,
+    # and the rotation would have been silently stale from that moment.
+    #
+    # The lesson is hard rule 11's, applied to a classification rather than to a vendor
+    # fact: "no model of this provider is selectable" is a claim about a live registry,
+    # and a comment that asserts it ages the moment somebody flips a flag. Classify
+    # against the SHAPE of the leg (does a copy live somewhere we do not control?), which
+    # cannot go stale that way.
+    "openai_api_key": AppliesRule(
+        NEEDS_REPUBLISH,
+        "the model picker and the dashboard AI pick up the new key within seconds, but "
+        "the in-call phone leg does not: an OpenAI agent authenticates from the voice "
+        "platform's own credential store, so a rotation here does not reach a live call "
+        "until the new key is re-installed there. Re-publishing an agent does not do "
+        "that — an operator must re-install the credential.",
+    ),
     # The Azure OpenAI key (D-410), and the classification is the CONSERVATIVE of the two
     # answers its two surfaces give. The dashboard-AI path reads it through
     # `get_settings()` per request, which is `live`; the in-call leg's copy does not live

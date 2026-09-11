@@ -3506,7 +3506,10 @@ const AUTHN_SCREENS: Screen[] = [
     file: "(auth)/auth/account/page.tsx",
     realm: "admin",
     element: () => <ClientAccountPage />,
-    routes: { "GET /v1/auth/client/session": CLIENT_SESSION_ROW },
+    // `/v1/me` is the account block at the top of the page — which account this session is
+    // in and what this person is in it. Without it the sweep would scan the refusal arm
+    // and call the page covered.
+    routes: { "GET /v1/auth/client/session": CLIENT_SESSION_ROW, "/v1/me": ME },
   },
 ];
 

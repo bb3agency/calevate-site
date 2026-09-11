@@ -434,6 +434,17 @@ _OPS_WRITES_WITHOUT_STEP_UP = {
     ("apps/api/ops/secret_routes.py", "test_secret"): (
         "probes a candidate credential against the vendor and stores nothing"
     ),
+    ("apps/api/ops/routes.py", "refresh_voice_catalogue_route"): (
+        "re-reads the engine account's own voice list into a cache (D-585). It sends "
+        "nothing, changes no agent row and cannot move an agent off the voice it is "
+        "speaking — a published agent carries its voice id on the engine. Its worst "
+        "outcome is a voice leaving the picker, which is the VENDOR's statement about "
+        "their account rather than ours, and is undone by pressing it again; an empty "
+        "read is refused outright (`voice_catalogue_empty`) so a bad credential cannot "
+        "empty it. Gating a read-and-cache would train operators to type confirmations "
+        "on a harmless lever, which is what makes them worthless on `outbox/replay`, "
+        "where the blast radius is other people's customer data arriving twice."
+    ),
 }
 
 

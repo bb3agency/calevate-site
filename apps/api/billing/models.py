@@ -442,8 +442,8 @@ class SpendState(TimestampMixin, Base):
     - OPS's `POST /v1/ops/tenants/{tenant_id}/spend-cap/recompute` (step-up confirmed
       per tenant, audited), which is what an operator runs after raising
       `plans.hard_cap_*` on the audited admin path. Raising a ceiling does not by itself
-      release a derived flag, and the client's route needs `org:manage` — in
-      MUTATING_PERMISSIONS, so an impersonating admin (D-22) cannot press it for them —
+      release a derived flag, and the client's route is `realm="client"` — which a view-as
+      session cannot reach, so an operator cannot press it for them —
       which used to leave a capped outbound-only tenant stopped until they acted or the
       IST month rolled over. `runbooks/calls-stopped.md` §2 walks the procedure.
 

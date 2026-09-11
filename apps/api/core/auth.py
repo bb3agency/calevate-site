@@ -85,10 +85,11 @@ from apps.api.core.impersonation import ImpersonationGrant, verify_grant
 from apps.api.core.logging import get_logger
 from apps.api.core.ratelimit import consume, profile_for, too_many_requests
 from apps.api.core.rbac import (
-    IMPERSONATION_PERMITTED_MUTATIONS,
     MUTATING_PERMISSIONS,
+    VIEW_AS_WITHHELD_ACTS,
     Permission,
     role_has,
+    withheld_from_view_as,
 )
 from apps.api.core.redis import get_redis
 from apps.api.core.settings import get_settings
@@ -391,7 +392,15 @@ async def _load_client_principal(verified: VerifiedCaller, org_slug: str | None)
     )
 
 
-# --- D-22 / SEC-COMP §5: BOTH halves of the trail, and what each one means -----
+# --- D-22 / D-587 / SEC-COMP §5: BOTH halves of the trail, and what each one means -----
+#
+# ⚠ READ THIS FIRST IF YOU ARE HERE FOR THE READ-ONLY RULE: THERE ISN'T ONE ANY MORE.
+# D-587 supersedes D-22's read-only half. A view-as session may perform the mutations
+# `rbac.VIEW_AS_MUTATIONS` classifies as writable, and the ledger closes the gap D-22
+# closed by refusal: `write_audit` stamps `audit_log.via_grant_id` from
+# `Principal.impersonation_grant_id`, so an impersonated WRITE names the operator
+# (`actor_id`), the client (`tenant_id`) and the session (`via_grant_id`) — and joins to
+# the start row below by that last id. The two READ rows described here are unchanged.
 #
 # The spec is "session start + every page view audit-logged (actor=admin_user, tenant,
 # at, ip)", and for a long time neither half was what it looked like. The start row was
@@ -411,7 +420,9 @@ async def _load_client_principal(verified: VerifiedCaller, org_slug: str | None)
 #     own fact.
 #
 #   `admin.impersonation_read` — AT MOST ONE PER (ADMIN, TENANT) PER WINDOW, written
-#     here. It means DATA WAS ACTUALLY REACHED, and at what times. It carries the
+#     here. It means DATA WAS ACTUALLY REACHED, and at what times. It is PRESENCE, never
+#     the acts: a write performed in the session writes its own row, with the same
+#     `grant_id` on it, so the two read back as one session's story. It carries the
 #     `grant_id` of the session it belongs to, so a start row and its reads join
 #     exactly rather than by guessing from a timestamp.
 #
@@ -557,7 +568,9 @@ async def _record_impersonated_read(
     The write goes into the CALLER'S transaction — the same `admin_session` that just
     read the tenant directory to authorise this view — so the row and the authorisation
     commit together. If it cannot be written the request fails: a read we cannot record
-    is a read D-22 does not permit.
+    is a read SEC-COMP §5 does not permit. Since D-587 the same sentence covers more
+    ground — the request this refuses might have been a write — and the direction is the
+    same one hard rule 5 takes everywhere.
     """
     marker = f"calevate:imp:seen:{principal.user_id}:{tenant_id}"
     if not await _first_read_in_window(
@@ -671,7 +684,9 @@ async def _load_admin_principal(
             user_id=admin_id,
             tenant_id=tenant_id,
             role=role,
-            # D-22: "view as client" is READ-ONLY and every page view is audit-logged.
+            # "View as client": every page view is audit-logged, and since D-587 a
+            # classified subset of writes is permitted and attributed (`rbac.
+            # VIEW_AS_MUTATIONS`).
             #
             # DERIVED FROM THE RESOLVED TENANT, not from the header. `tenant_id` is set
             # on exactly one path — the branch above, which has already checked
@@ -681,8 +696,13 @@ async def _load_admin_principal(
             # call below (guarded on the same value) cannot be skipped for a principal
             # that carries it. `impersonate_slug is not None` was one blank header away
             # from being false on both counts (see `_impersonation_slug`), and the flag
-            # is what every mutating dependency in the app reads.
+            # is what every view-as dependency in the app reads.
             impersonating=tenant_id is not None,
+            # THE ATTRIBUTION, CARRIED FROM THE ONE PLACE THAT VERIFIED IT. `write_audit`
+            # reads this off the actor, so a write performed in a view-as session names
+            # the grant that authorised it whatever route it came down. Set from the same
+            # branch, so it is present exactly when `impersonating` is.
+            impersonation_grant_id=grant.grant_id if grant is not None else None,
         )
         if tenant_id is not None and grant is not None:
             # Recorded HERE, before the route's own permission check runs, so an
@@ -740,7 +760,9 @@ def _impersonation_slug(request: Request) -> str | None:
         still setting `impersonating=True` from `is not None`. The result was a
         principal flagged as inside a tenant that had entered none — refused every
         mutation with "Impersonation is read-only. Perform this action from the admin
-        console." on the admin console itself, and, more importantly, made
+        console." on the admin console itself (that sentence is gone with D-587; the
+        defect it describes is not, which is why this paragraph keeps it in quotes),
+        and, more importantly, made
         `Principal.impersonating` mean something weaker than the flag's whole contract
         ("a grant was verified and a read was audited").
       - `current_any` read `""` as falsy and fell through to the CLIENT verifier, so
@@ -1049,19 +1071,24 @@ def requires(
         )
         if principal.role is None or not role_has(principal.role, permission):
             raise ProblemError.forbidden("You do not have permission to do this.")
-        if (
-            principal.impersonating
-            and permission in MUTATING_PERMISSIONS
-            and permission not in IMPERSONATION_PERMITTED_MUTATIONS
-        ):
-            # D-22 in one line: read-only keeps the audit trail unambiguous. The one
-            # exemption is NAMED in `rbac.IMPERSONATION_PERMITTED_MUTATIONS` and argued
-            # there — it covers a permission whose spend can only ever land on the
-            # PLATFORM's ledger, so there is no client balance for a view-as session to
-            # move and nothing in the client's account it can change.
-            raise ProblemError.forbidden(
-                "Impersonation is read-only. Perform this action from the admin console."
-            )
+        if principal.impersonating:
+            # D-587, in the one place a route is authorised. D-22 refused every mutation
+            # here; what replaced it is a ruling per permission plus a REQUIREMENT that the
+            # write be attributable, and the order matters — the attribution check is not a
+            # defence against a caller (nothing can forge this flag without forging a
+            # grant), it is a defence against US: a future code path that manufactures an
+            # impersonating principal without one would otherwise write rows saying a
+            # tenant changed its own settings.
+            withheld = withheld_from_view_as(permission)
+            if withheld is not None:
+                raise ProblemError.forbidden(withheld)
+            if permission in MUTATING_PERMISSIONS and principal.impersonation_grant_id is None:
+                log.error("view_as_write_without_grant", extra={"permission": permission})
+                raise ProblemError.forbidden(
+                    "This view-as session cannot be attributed to an operator, so it may "
+                    "not change anything. Start the session again from the client's page "
+                    "in the operator console."
+                )
         if permission in MUTATING_PERMISSIONS:
             # THE ONE PLACE A WRITE TO A DELETED AGENT IS REFUSED (D-527's archive, the
             # console's Delete). This dependency is the only way a non-public route is
@@ -1076,6 +1103,26 @@ def requires(
     dep.calevate_permission = permission
     dep.calevate_realm = realm
     return dep
+
+
+def assert_view_as_may(principal: Principal, act: str) -> None:
+    """Refuse one NAMED ACT to a view-as session, with the ground `rbac` records for it.
+
+    `requires()` rules per PERMISSION (D-587). A few acts sit behind a permission that is
+    writable and are not settings at all — a payment, a consent, an attestation, a row owned
+    by one signed-in person. This is how such a site says so, and `rbac.
+    VIEW_AS_WITHHELD_ACTS` is where the sentence lives, so the set is enumerable rather than
+    four `if principal.impersonating` branches nobody can list.
+
+    A NO-OP FOR EVERY OTHER PRINCIPAL, including an admin acting as themselves on an
+    admin-realm route: what is withheld is acting *as the client*, not the authority.
+
+    An unknown act key is a KeyError at the call site rather than a silent pass — a guard
+    that quietly permits when its reason is missing is worse than no guard.
+    """
+    if not principal.impersonating:
+        return
+    raise ProblemError.forbidden(VIEW_AS_WITHHELD_ACTS[act])
 
 
 async def tenant_of(principal: Principal = Depends(current_any)) -> UUID:
@@ -1103,6 +1150,7 @@ __all__ = [
     "ORG_HEADER",
     "PermissionDependency",
     "VerifiedCaller",
+    "assert_view_as_may",
     "charge_tenant_quota",
     "client_request_ip",
     "current_admin",

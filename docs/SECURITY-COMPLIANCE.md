@@ -66,9 +66,15 @@ feature. Nothing here is optional; items marked [GATE] block launch of the relev
    **Why both are toggles at all, and who carries the risk.** The client is the Principal
    Entity; the calls go out under their identity and their DLT templates, and the
    disclosure posture is their exposure. So the switch is theirs: `PATCH
-   /v1/agents/{agent_id}/disclosure` requires `org:manage`, which no admin-realm or
-   impersonating session holds against a client tenant (D-22), and **every flip writes an
-   `audit_log` row whose ACTION names the toggle and the direction** —
+   /v1/agents/{agent_id}/disclosure` requires `org:manage`, which no admin-realm session
+   holds against a client tenant as itself. ⚠ **A VIEW-AS SESSION NOW DOES HOLD IT
+   (D-587, which supersedes D-22's read-only rule)** — an operator asked to switch a
+   notice off while the client is on the phone can do it — and what makes that acceptable
+   is the same sentence the rest of this bullet already made: **every flip writes an
+   `audit_log` row whose ACTION names the toggle and the direction**, and an operator's
+   flip additionally carries `via_grant_id`, so the ledger answers "who turned this off"
+   with the OPERATOR'S `admin_users.id` and the view-as session they did it in, never with
+   the client's name. —
    `agent.ai_disclosure_disabled`, `agent.recording_notice_enabled`, … — so the ledger
    itself answers "who turned this off, and when" without joining a log shipper. No
    `consent_ledger` row is written: that register holds a DATA PRINCIPAL's consent, and a
@@ -646,7 +652,7 @@ Identity & access
     extended, bounded at `core/impersonation.VIEW_AS_MAX_AGE` = 1 h from the step-up that
     started it (AWS STS caps a chained role session the same way, and for the same
     reason). Both the entry and each extension still write `admin.impersonation_started`
-    naming the operator, so D-22's audit obligation is unchanged.
+    naming the operator, so the audit obligation is unchanged.
   - **The client realm has NO step-up, by design (D-211).** `MFA_REQUIRED_REALMS` is
     `{"admin"}` (D-170), so an owner reading their own raw transcript is `calls:read_raw`
     + a `transcript.read_raw` audit row written in the same transaction, and that is the
@@ -717,7 +723,7 @@ Identity & access
     - `copilot:use` is a flat role fact — every `owner` and every `staff` member may open
       the in-app assistant. It replaced `org:manage` on `POST /v1/copilot/ask` and
       `POST /v1/copilot/confirm` and is itself in `MUTATING_PERMISSIONS`, which is the
-      property the old permission was carrying there: a D-22 view-as session cannot spend
+      property the old permission was carrying there: a view-as session cannot spend
       a client's AI allowance. The assistant's DOOR is not its contents —
       `write_tools.confirm` still re-checks each tool's own permission.
     - `kb:write` for a staff member is a PER-ACCOUNT answer, not a role fact:
@@ -770,9 +776,22 @@ Identity & access
     (`ck_memberships_role_enum`, `ck_admin_users_role_enum`). The constraint is the
     enforcement — a colliding role name cannot be STORED — and
     `tests/rbac_registry_test.py` holds the two statements of that fact to each other.
-- Admin impersonation (D-22): READ-ONLY "view as client" — a scoped read-only session
+- Admin impersonation (D-22, read-only half superseded by D-587): a scoped session
   against the client realm, never a client credential; session start + every page view
-  audit-logged (actor=admin_user, tenant, at, ip). No mutations while impersonating.
+  audit-logged (actor=admin_user, tenant, at, ip).
+  - ⚠ **IT IS NO LONGER READ-ONLY, AND "no mutations while impersonating" — which this
+    line said until 11 Sep 2026 — IS WITHDRAWN.** A view-as session may perform the
+    mutations `core/rbac.VIEW_AS_MUTATIONS` classifies as writable (the client's own
+    agents, leads, knowledge and settings) and is refused the ones it withholds, each with
+    its ground: the client's AI allowance, and the five platform-wide authorities. D-22's
+    reason was "no dual attribution"; the attribution now exists — every audited write
+    carries the operator as `actor_id`, `actor_type = admin`, the client as `tenant_id`
+    and the grant's `jti` as `via_grant_id`, which joins the act to the
+    `admin.impersonation_started` row naming who entered and from where. Four further acts
+    stay with the client because they are the client's to perform and not settings at all:
+    buying credit, setting a spend cap, giving WhatsApp consent and accepting an
+    agreement (all `realm="client"`, refused to a view-as session before any permission is
+    read), plus attesting to caller memory and owning a saved view.
   - **Entry requires a short-lived signed GRANT**, minted by `POST /v1/admin/
     impersonation-grants` and presented as `X-Impersonation-Grant` beside
     `X-Impersonate-Org` (`apps/api/core/impersonation.py`). The grant is bound to the

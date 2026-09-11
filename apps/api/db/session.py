@@ -608,11 +608,18 @@ async def admin_session() -> AsyncIterator[AsyncSession]:
 
     `app.admin` widens `USING` on `organizations` only (migration b57e2f9c4a13); it
     does not unlock calls, leads or transcripts, and it widens no WITH CHECK anywhere.
-    To see a client's data an admin enters that tenant through impersonation, which
-    sets `app.tenant_id` normally, is read-only, and writes an `admin.impersonation_read`
-    audit row from `core/auth.py::_record_impersonated_read` — the one function that can
-    produce an impersonating principal, coalesced to one row per (admin, tenant) per
-    minute rather than one per request (D-22, SEC-COMP §5).
+    To see a client's data an admin enters that tenant through impersonation, which sets
+    `app.tenant_id` NORMALLY and writes an `admin.impersonation_read` audit row from
+    `core/auth.py::_record_impersonated_read` — the one function that can produce an
+    impersonating principal, coalesced to one row per (admin, tenant) per minute rather
+    than one per request (SEC-COMP §5).
+
+    THAT "NORMALLY" IS THE WHOLE TENANCY STORY AND D-587 DID NOT TOUCH IT. A view-as
+    session may now WRITE (`rbac.VIEW_AS_MUTATIONS`), and it writes through the ordinary
+    `tenant_session` every client request uses — same GUC, same FORCE-RLS policies, same
+    `WITH CHECK`. There is no widened policy behind impersonation and there must never be
+    one: what changed is which permissions `requires()` admits, not which rows a session
+    can reach (hard rule 1).
 
     CALLERS MUST have verified an admin-realm principal first. This is the one place a
     mistake would be expensive, which is why it is a single small function with a name

@@ -263,13 +263,19 @@ async def read_readiness(session: Session, principal: Reader) -> LegalReadinessO
     # WHY THE PERMISSION IS READ OFF THE PRINCIPAL RATHER THAN GUESSED FROM THE ROLE:
     # `role_has` is the same predicate `requires("org:manage")` will apply to the POST, so
     # the button's enabled state and the endpoint's answer come from one rule. An
-    # impersonating operator holds the permission and is still refused by D-22, which is
-    # why that arm is asked separately and first — it is the commoner case on this screen.
+    # impersonating operator holds the permission and is still refused — the POST is
+    # `realm="client"`, which a view-as session cannot reach at all — so that arm is asked
+    # separately and first; it is the commoner case on this screen.
+    #
+    # D-587 DID NOT MOVE THIS ONE, and the sentence had to stop saying "read-only" anyway:
+    # a view-as session can change most of this account now, and a reason that generalises
+    # would be read as a fault on every other screen. The reason here is the act, not the
+    # session — nobody signs for the client but the client.
     if principal.impersonating:
         can_accept, reason = (
             False,
-            "You are viewing this account read-only, so you cannot accept its agreements. "
-            "Only the account owner can, from their own console.",
+            "Accepting these agreements is the client's own act, so it cannot be done "
+            "from a view-as session. Only an account owner can, from their own console.",
         )
     elif principal.role is None or not role_has(principal.role, "org:manage"):
         can_accept, reason = (

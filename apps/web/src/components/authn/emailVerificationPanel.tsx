@@ -64,7 +64,18 @@ export function EmailVerificationPanel({
         icon={<ShieldCheck aria-hidden className="h-4 w-4" />}
         title="Your email address is verified"
       >
-        <p className="mt-1">Nothing to do here.</p>
+        {/* IT USED TO SAY "Nothing to do here." — a whole card, on a page of four, spent
+            saying that a card had nothing in it. What a person actually wants to know at a
+            verified address is what rests on it, because that is what tells them whether
+            losing the mailbox matters: it is the only address a code from us is ever sent
+            to (`POST /otp/request` takes no address — it mails this session's own subject,
+            `authn/routes.py`), and the only one a password reset link goes to
+            (`POST /password/reset/request`). Both facts are true on both realms, which is
+            why they are here rather than in either page. */}
+        <p className="mt-1">
+          It is the only address we email a code or a password reset link to, so keep it one
+          you can open.
+        </p>
       </NoticeBox>
     );
   }

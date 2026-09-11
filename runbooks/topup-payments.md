@@ -343,9 +343,11 @@ every deployment and refused on every deployment.
 ## 2. The intent route, and its own refusals
 
 `POST /v1/billing/topups/intent`, client realm, `org:manage`
-(`apps/api/billing/payment_routes.py`). `org:manage` and not a read, and it is in
-`MUTATING_PERMISSIONS`, so an impersonating admin (D-22) cannot start a payment on a
-client's behalf.
+(`apps/api/billing/payment_routes.py`). It is declared `realm="client"`, so a view-as
+session is refused it before any permission is read and an operator cannot start a payment
+on a client's behalf. D-587 made `org:manage` writable inside a view-as session; this
+refusal is unaffected, because the realm declaration and not the permission is what
+carries it.
 
 The tenant comes from the verified session, never from the body.
 

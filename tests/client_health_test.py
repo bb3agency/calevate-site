@@ -621,7 +621,7 @@ async def test_the_board_carries_accounts_and_rule_names_and_nothing_about_a_per
 
 
 async def test_the_board_is_readable_with_a_read_permission() -> None:
-    """D-22: no GET may require a permission read-only impersonation refuses.
+    """D-22: no GET may require a permission a view-as session is refused.
 
     `tests/impersonation_reads_test.py` asserts the rule over the whole route table; this
     pins it for the board by name, because "the ops list of clients in trouble" is exactly

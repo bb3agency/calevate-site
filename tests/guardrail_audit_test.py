@@ -493,6 +493,15 @@ class TestRlsCoverage:
             "platform_settings",
             "platform_config_version",
             "platform_secrets",
+            # D-585: the voice catalogue read from OUR ONE engine account and cached —
+            # which TTS voices that account will actually accept, cloned voices included.
+            # Platform-global for `platform_secrets`' reason: one account serves every
+            # tenant and its voice list is the same list for all of them, so there is no
+            # tenant whose row any of these could be. Written only by the sync (an ARQ
+            # cron plus an ops refresh), read through `voice_offer.offered_catalogue`,
+            # which answers the same catalogue to every tenant on purpose. A cache rather
+            # than a ledger, so deliberately NOT in `APPEND_ONLY_TABLES`.
+            "platform_voice_catalog",
             # D-459: the founder's attested per-model prices, set once per model in
             # the ops console and read by billing for `unit_cost_paid`. Platform-
             # global for the same reason `platform_secrets` is — a price is the

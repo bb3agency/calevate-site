@@ -817,13 +817,13 @@ export function ProblemNotice({
            HAPPENED. This said "We could not reach Calevate. Check your connection and try
            again", which names a cause this branch cannot observe and an outcome it cannot
            know. `problem === null` means only that the thrown thing was not an
-           `ApiProblem`: every non-2xx becomes one (`problemFrom`), and so does a timeout
-           (`TimeoutProblem`), so what lands here is a `fetch` that REJECTED — a dropped
-           connection, yes, but equally a response the browser refused to hand us (a
-           blocked CORS preflight, a mixed-content block). In those the server answered
-           perfectly well and may have DONE the thing, so "check your connection" sends the
-           person to fix something that is not broken and the silence about the outcome
-           invites them to retry a write that already landed. */
+           `ApiProblem`: every non-2xx becomes one (`problemFrom`), a timeout becomes
+           `TimeoutProblem`, and a `fetch` that REJECTED now becomes `TransportProblem` —
+           which carries its own sentence, its own reference and, in `reason`, the one
+           thing the browser told us about the failure. So this arm is no longer the
+           transport's: what reaches it is a plain `Error` thrown by a screen. The copy
+           stays as it is because it is still the honest thing to say about one of those —
+           it names no cause and promises no outcome. */
         <p className="mt-1 break-words text-rose-800 dark:text-rose-300">
           No reply reached this page, so we could not confirm what happened.
           Check your connection and try again.
@@ -1195,6 +1195,24 @@ export function ScrollRegion({
  * takes focus, and goes nowhere.
  */
 export const MAIN_CONTENT_ID = "main-content";
+
+/**
+ * THE CONTENT RAIL — the one width both consoles lay their content out on.
+ *
+ * `<main>` has always capped its content at 1280px and centred it, and the two shells'
+ * page headers had no cap at all: they sat flush against the viewport's own `px-8`. On
+ * anything wider than about 1600px that put the page title and the notification bell
+ * OUTSIDE the column of content they belong to — the title several centimetres to the
+ * left of the first card under it, the bell the same distance to the right of that card's
+ * right edge — which reads as a header with the wrong padding and is really a header on
+ * the wrong rail. Nothing is visible below ~1600px, which is why it survived: at 1280 the
+ * cap is not reached and the two agree exactly.
+ *
+ * A shared constant rather than a fourth copy of the literal: the number is the property
+ * that has to match across four elements in two shells, and a width that has to agree in
+ * four places is the one that drifts.
+ */
+export const SHELL_RAIL_CLASS = "mx-auto w-full max-w-[1280px]";
 
 /**
  * "Skip to main content" — WCAG 2.4.1 Bypass Blocks, Level A.

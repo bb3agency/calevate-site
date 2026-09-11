@@ -27,12 +27,15 @@ import { TenantNav } from "./TenantNav";
 import { WhatsAppAlertsPanel } from "./WhatsAppAlertsPanel";
 
 /**
- * One client: health, the read-only view-as link, and the KB approval queue.
+ * One client: health, the view-as link, and the KB approval queue.
  *
- * The queue is READ through impersonation and DECIDED through the admin surface —
- * that split is D-22 ("no acting-as: mutations still go through admin surfaces"), and
- * it is why the buttons here post to `/v1/admin/tenants/.../kb/...` rather than to the
- * client-realm KB routes the queue was read from.
+ * The queue is READ through impersonation and DECIDED through the admin surface. That
+ * split was D-22's ("no acting-as: mutations still go through admin surfaces") and it
+ * OUTLIVES D-587, which reversed the read-only rule: approving a client's knowledge is
+ * OUR act and the record should say so, on a path that names the tenant rather than
+ * borrowing their session. So the buttons here still post to
+ * `/v1/admin/tenants/.../kb/...` rather than to the client-realm KB routes the queue was
+ * read from.
  *
  * ## What the design pass changed here beyond colour
  *

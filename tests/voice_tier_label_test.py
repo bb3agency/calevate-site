@@ -68,14 +68,14 @@ def test_no_catalogue_note_names_a_vendor_as_the_tier() -> None:
     <vendor> voice tier" in as many words, which is exactly the sentence
     `test_no_label_names_a_vendor` forbids one level up: the labels were clean and the
     prose beside them was not. So the rule is asserted over the prose too, and a Cartesia
-    entry is BUILT rather than taken from `CATALOG` because that half ships empty.
+    entry is BUILT rather than taken from `catalogue()` because that half ships empty.
     """
-    from apps.api.agents.voices import CATALOG, CartesiaVoiceRecord, _cartesia_entry
+    from apps.api.agents.voices import CartesiaVoiceRecord, _cartesia_entry, catalogue
 
     built = _cartesia_entry(
         CartesiaVoiceRecord(id="test-record-not-a-real-voice-id", name="Test", languages=("te-IN",))
     )
-    for voice in (*CATALOG, built):
+    for voice in (*catalogue(), built):
         lowered = voice.note.lower()
         for vendor in VOICE_TIERS:
             assert f"{vendor} voice tier" not in lowered, (
@@ -94,12 +94,12 @@ def test_no_catalogue_note_tells_a_client_to_fix_our_configuration() -> None:
     not reached" — two of our own settings, in a client-readable string, and a second
     un-forked copy of an answer `agents/voice_offer.unofferable_reason` gives per audience
     and per deployment."""
-    from apps.api.agents.voices import CATALOG, CartesiaVoiceRecord, _cartesia_entry
+    from apps.api.agents.voices import CartesiaVoiceRecord, _cartesia_entry, catalogue
 
     built = _cartesia_entry(
         CartesiaVoiceRecord(id="test-record-not-a-real-voice-id", name="Test", languages=("te-IN",))
     )
-    for voice in (*CATALOG, built):
+    for voice in (*catalogue(), built):
         lowered = voice.note.lower()
         for ours in ("cartesia_api_key", "cartesia_agent_cap", "ops console", "attest"):
             assert ours not in lowered, (

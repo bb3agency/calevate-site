@@ -16,7 +16,7 @@ What is asserted here:
    moves. A client that could mark its own KYC verified would be marking the telecom
    gate green on a check nobody performed (`admin/routes.py:1444`).
 2. **D-22 is owned elsewhere.** All five declare `admin:tenants`, which is mutating, so
-   `realm_boundary_test::test_no_route_declaring_a_mutating_permission_is_reachable_while_impersonating`
+   `realm_boundary_test::test_no_route_on_a_withheld_permission_is_reachable_while_impersonating`
    already drives them under a real grant. Not re-asserted here — one way per problem.
 3. **The happy path, with the response model's fields READ**, and with the DB row
    read back: `dlt_status` starts `pending` and is never `registered` because we typed

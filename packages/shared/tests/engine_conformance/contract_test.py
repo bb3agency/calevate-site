@@ -46,6 +46,7 @@ from calevate_shared.engine import (
     openai_base_url,
 )
 from calevate_shared.events import TERMINAL_STATUSES, CallStatus
+from calevate_shared.model_lifecycle import TTS_MODEL_LIFECYCLE
 
 pytestmark = [pytest.mark.conformance]
 
@@ -1189,6 +1190,86 @@ async def test_a_detach_that_did_not_happen_is_reported_rather_than_swallowed(
         "detaching a handle this engine never issued was reported as a success — "
         "the caller cannot distinguish a removal from a silent no-op"
     )
+
+
+async def test_the_voice_catalogue_comes_from_the_engine_or_is_refused_by_name(
+    engine: VoiceEngine,
+) -> None:
+    """`list_voices` answers with the ENGINE's voices, or refuses — never with `[]`.
+
+    THE CLAUSE EXISTS BECAUSE THE COMPILED CATALOGUE WAS WRONG AND NOTHING CAUGHT IT
+    (D-585). Our voice list was copied from Sarvam's own SDK enum; the engine's Sarvam
+    provider offers a different subset, and the first anybody heard of it was a live
+    `400 POST /v2/agent` — "Provided voice: Anushka is not available for the provider:
+    sarvam". A capability that the suite does not exercise is worse than none, so every
+    adapter that says its TTS leg is ours has to be able to produce the list.
+
+    An engine that DICTATES its voices must refuse rather than answer an empty listing, for
+    `list_account_kb`'s reason: `[]` is a positive claim that the account offers no voices,
+    and "that question does not apply here" is a different answer the caller must notice —
+    `agents/voices.voice_selection_capability` branches on exactly that difference.
+    """
+    if not engine.capabilities.is_ours("tts"):
+        refused: Exception | None = None
+        try:
+            await engine.list_voices()
+        except Exception as exc:  # adapters raise our ProblemError; the type is theirs
+            refused = exc
+        assert refused is not None, (
+            "this engine supplies its own voices and still answered a voice listing — an "
+            "empty or borrowed list here is indistinguishable from an account with no "
+            "voices, and a picker would render it"
+        )
+        return
+
+    listing = await engine.list_voices()
+    assert listing.voices, (
+        "an engine whose TTS leg is ours returned no voices at all — the catalogue is read "
+        "from here, so an empty answer takes the voice picker to zero entries"
+    )
+    assert (listing.incomplete_reason is None) == listing.complete, (
+        "the listing's completeness verdict and its reason disagree; a cache refresh reads "
+        "both to decide whether it may prune"
+    )
+    for voice in listing.voices:
+        assert voice.voice_id.strip() and voice.label.strip(), (
+            f"{voice!r} carries a blank id or label — both are WIRE values (the engine's "
+            "synthesizer block requires a name beside the id), so neither may be empty"
+        )
+        assert voice.tts_model in TTS_MODEL_LIFECYCLE, (
+            f"{voice.tts_model!r} is not a model this product offers, so nothing can price "
+            "a minute spoken on it (hard rule 7) — the adapter must filter on our catalogue"
+        )
+    ids = [(voice.tts_model, voice.voice_id) for voice in listing.voices]
+    assert len(ids) == len(set(ids)), (
+        "the same voice was listed twice under one model; the cache is keyed on that pair, "
+        "so a duplicate is two rows claiming one stored id"
+    )
+
+
+async def test_a_cloned_voice_keeps_a_label_nothing_could_derive(engine: VoiceEngine) -> None:
+    """A custom voice's LABEL crosses as data, because it cannot be computed from its id.
+
+    This is the clause a compiled catalogue can never satisfy, and it is the second half of
+    why `list_voices` exists. The engine's own documented example pairs
+    `voice_id: sXlZ9Juk5Ji8sZiFjRUV` with `name: my-custom-voice` (VERIFIED-VENDOR-DOCS,
+    `bolna-findings/mirror/pages/api-reference/voice/get_all.md:102-112`), so an adapter
+    that recovered a label by capitalising the id — which is right for every Sarvam persona
+    — would put a generated string in front of a client AND on the wire.
+
+    An adapter whose fixture account holds no clone is not failed for it: what is being
+    constrained is the adapter's handling, and a vendor account with no cloned voice is a
+    real state. An adapter that CAN list clones is held to the rule.
+    """
+    if not engine.capabilities.is_ours("tts"):
+        return
+    clones = [voice for voice in (await engine.list_voices()).voices if voice.is_custom]
+    for clone in clones:
+        assert clone.label != clone.voice_id.capitalize(), (
+            f"{clone.voice_id!r} came back labelled {clone.label!r}, which is its own id "
+            "capitalised — that is the derivation a clone cannot support, so the adapter is "
+            "computing the name rather than reading the engine's"
+        )
 
 
 # =============================================================================

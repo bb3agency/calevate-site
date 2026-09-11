@@ -155,10 +155,11 @@ def _write_scope(request: Request, *, tenant_id: UUID | None, route_path: str) -
     sets `Principal.tenant_id` on exactly one path — an authorised, granted impersonation —
     so a plain operator's principal carries NO tenant, and the console's per-tenant writes
     (`/v1/admin/tenants/{tenant_id}/agents/{agent_id}/...`) would fall through to `None` and
-    be silently unguarded. Worse, for the one mutation a view-as session may still perform
-    (`rbac.IMPERSONATION_PERMITTED_MUTATIONS`) the principal's tenant is the IMPERSONATED
-    one, which need not be the tenant the admin path names — so preferring it there would
-    scope the check to the wrong client and fail open.
+    be silently unguarded. Worse, for a mutation a view-as session MAY perform
+    (`rbac.IMPERSONATION_PERMITTED_MUTATIONS`, which since D-587 is most of them) the
+    principal's tenant is the IMPERSONATED one, which need not be the tenant the admin path
+    names — so preferring it there would scope the check to the wrong client and fail
+    open.
 
     The realm is read from the ROUTE TEMPLATE rather than from the principal because that is
     what this hook is given, and it is the same fact `assert_policy_registry_complete` keys

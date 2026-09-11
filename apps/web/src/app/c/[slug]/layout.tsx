@@ -24,7 +24,14 @@ import {
 import { ClientCopilotDock } from "@/components/copilot/CopilotDock";
 import { MaintenanceBanner, MaintenanceGate } from "@/components/maintenance";
 import { OfflineBanner } from "@/components/offline";
-import { Avatar, MAIN_CONTENT_ID, ProblemNotice, Skeleton, SkipLink } from "@/components/ui";
+import {
+  Avatar,
+  MAIN_CONTENT_ID,
+  ProblemNotice,
+  SHELL_RAIL_CLASS,
+  Skeleton,
+  SkipLink,
+} from "@/components/ui";
 import { clientAuthn, CLIENT_ACCOUNT_PATH, CLIENT_SIGN_IN_PATH } from "@/lib/authn/clientAuthn";
 import { ADMIN_CONSOLE_PATH } from "@/lib/authn/adminAuthn";
 import { adminConsoleUrl } from "@/lib/consoleOrigin";
@@ -271,48 +278,53 @@ function TopHeader({ slug, onMenuToggle }: { slug: string; onMenuToggle: () => v
   const waiting = attention.data?.total;
 
   return (
-    <header className="sticky top-0 z-10 flex h-[72px] shrink-0 items-center justify-between border-b border-line bg-surface px-4 lg:px-8">
-      <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={onMenuToggle}
-          aria-label="Open navigation"
-          className="flex h-9 w-9 items-center justify-center rounded-md text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
-        >
-          <Menu className="h-5 w-5" />
-        </button>
-        <h1 className="text-xl font-bold tracking-tight text-ink lg:text-2xl">{title}</h1>
-      </div>
+    // The header spans the window (its border and background are the shell's, not the
+    // page's) while its CONTENTS ride the same rail as the content below — see
+    // `SHELL_RAIL_CLASS`. Padding is unchanged and was never the defect.
+    <header className="sticky top-0 z-10 flex h-[72px] shrink-0 items-center border-b border-line bg-surface px-4 lg:px-8">
+      <div className={`${SHELL_RAIL_CLASS} flex items-center justify-between gap-3`}>
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={onMenuToggle}
+            aria-label="Open navigation"
+            className="flex h-9 w-9 items-center justify-center rounded-md text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 lg:hidden dark:hover:bg-white/5"
+          >
+            <Menu className="h-5 w-5" />
+          </button>
+          <h1 className="text-xl font-bold tracking-tight text-ink lg:text-2xl">{title}</h1>
+        </div>
 
-      <div className="flex items-center gap-2 lg:gap-4">
-        <Link
-          href={href(`/c/${slug}/attention`)}
-          aria-label={
-            attention.error != null
-              ? "Needs attention: we could not read your queue"
-              : waiting !== undefined && waiting > 0
-                ? `Needs attention: ${waiting} item(s)`
-                : "Needs attention"
-          }
-          className="relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 dark:hover:bg-white/5"
-        >
-          <Bell className="h-4 w-4" />
-          {attention.error != null ? (
-            <span
-              title="We could not read what needs your attention. Open the list to try again."
-              className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-amber-500 px-1 text-[9px] font-bold text-white"
-            >
-              ?
-            </span>
-          ) : (
-            waiting !== undefined &&
-            waiting > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-rose-500 px-1 text-[9px] font-bold text-white">
-                {waiting > 99 ? "99+" : waiting}
+        <div className="flex items-center gap-2 lg:gap-4">
+          <Link
+            href={href(`/c/${slug}/attention`)}
+            aria-label={
+              attention.error != null
+                ? "Needs attention: we could not read your queue"
+                : waiting !== undefined && waiting > 0
+                  ? `Needs attention: ${waiting} item(s)`
+                  : "Needs attention"
+            }
+            className="relative flex h-9 w-9 items-center justify-center rounded-md border border-line bg-surface text-ink-muted hover:bg-black/5 touch:h-11 touch:w-11 dark:hover:bg-white/5"
+          >
+            <Bell className="h-4 w-4" />
+            {attention.error != null ? (
+              <span
+                title="We could not read what needs your attention. Open the list to try again."
+                className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-amber-500 px-1 text-[9px] font-bold text-white"
+              >
+                ?
               </span>
-            )
-          )}
-        </Link>
+            ) : (
+              waiting !== undefined &&
+              waiting > 0 && (
+                <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border-2 border-surface bg-rose-500 px-1 text-[9px] font-bold text-white">
+                  {waiting > 99 ? "99+" : waiting}
+                </span>
+              )
+            )}
+          </Link>
+        </div>
       </div>
     </header>
   );
@@ -326,8 +338,8 @@ function ViewAsBanner({ slug }: { slug: string }) {
     return (
       <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1 bg-amber-500 px-4 py-1.5 text-center text-xs font-semibold text-amber-950">
         <span>
-          Viewing as {me.data.organization?.name ?? slug} — read only. Every page view is
-          logged, and anything that would change this account is refused.
+          Viewing as {me.data.organization?.name ?? slug}. Every page view is logged, and
+          anything you change here is recorded against you, not this account.
         </span>
         {/* THE WAY OUT, and it belongs HERE rather than in the sidebar. There was none at
             all: an operator who had finished looking could only know to edit the URL, and
@@ -373,7 +385,7 @@ function ViewAsBanner({ slug }: { slug: string }) {
   if (viewAsRequested && me.isPending) {
     return (
       <div className="bg-amber-500/60 px-4 py-1.5 text-center text-xs font-semibold text-amber-950">
-        Opening as an operator, read only — confirming with the server…
+        Opening as an operator — confirming with the server…
       </div>
     );
   }
@@ -473,7 +485,7 @@ export default function ClientRealmLayout({
                     and the skip link all survive the window. It renders `children`
                     untouched unless the platform has actually refused us with a
                     maintenance 503. */}
-                <div className="mx-auto max-w-[1280px]">
+                <div className={SHELL_RAIL_CLASS}>
                   <MaintenanceGate>{children}</MaintenanceGate>
                 </div>
               </main>

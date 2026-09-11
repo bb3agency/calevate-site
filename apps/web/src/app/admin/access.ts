@@ -26,10 +26,10 @@
  *
  * ## Why the client-realm hook cannot be reused
  *
- * `useWriteAccess` (lib/api/hooks.ts) refuses EVERY permission to an impersonating
- * principal, because on a `/c/[slug]` screen impersonation is the whole question: the
- * request would be sent with the impersonating session and `requires()` refuses every
- * member of `MUTATING_PERMISSIONS` for it (D-22). On these screens the opposite is true.
+ * `useWriteAccess` (lib/api/hooks.ts) previews the CLIENT realm's answer: it asks
+ * `/v1/me`, whose permission list is already narrowed to what this session may exercise —
+ * including, in a view-as session, the subset `rbac.VIEW_AS_MUTATIONS` withholds (D-587).
+ * On these screens that is the wrong question.
  * A tenant screen reads through impersonation and WRITES through the admin surface with
  * the tenant in the path (`admin.ts` builds both sessions on purpose), so the write is
  * never impersonating and `impersonating` says nothing about whether it will be allowed.

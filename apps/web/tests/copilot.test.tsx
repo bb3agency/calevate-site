@@ -934,9 +934,17 @@ describe("a proposal", () => {
   }
 
   it("keeps the card and offers a RETRY when the connection dropped", async () => {
-    // A failure that never became an `ApiProblem`: the request may have landed or may not
-    // have, and retrying is safe only because the server's `jti` burn refuses a second
-    // execution rather than doubling it.
+    // A `fetch` that REJECTED — the request may have landed or may not have, and retrying
+    // is safe only because the server's `jti` burn refuses a second execution rather than
+    // doubling it.
+    //
+    // IT NOW ARRIVES AS `TransportProblem` rather than as a bare `TypeError`, so the box
+    // is the one that class writes: the same two facts (no reply, no knowledge of the
+    // outcome) plus a support reference and the reason the browser gave. The sentence
+    // asserted here used to be `ProblemNotice`'s no-problem arm, which this path no
+    // longer reaches — and the reason that matters is the reference: a confirm that
+    // vanished into a blocked response is exactly the failure an operator has to be able
+    // to look up.
     stubCopilot({ chunks: proposalChunks(), confirmThrows: true });
     renderPanel();
     await ask("stop the campaign");
@@ -945,9 +953,12 @@ describe("a proposal", () => {
 
     expect(
       await screen.findByText(
-        "No reply reached this page, so we could not confirm what happened. Check your connection and try again.",
+        "No reply reached this page, so we could not confirm whether that was done.",
       ),
     ).toBeTruthy();
+    // STILL NO CLAIM ABOUT THE OUTCOME. The token may have been spent; the card may not
+    // say it was not.
+    expect(screen.queryByText(/nothing was submitted/i)).toBeNull();
     // Offered again, and its accessible name follows its visible word rather than being
     // frozen at "Confirm" — WCAG 2.5.3 wants the name to contain what is on the button.
     const again = screen.getAllByRole("button", {

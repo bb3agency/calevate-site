@@ -414,7 +414,11 @@ async def test_an_impersonating_operator_can_see_the_team_and_cannot_change_it()
     assert invites.status_code == 200, "support must be able to see who holds a live invite"
     for refused in (promote, remove, invite):
         assert refused.status_code == 403, refused.text
-        assert "read-only" in refused.json()["detail"]
+        # D-587 made `org:manage` writable inside a view-as session and deliberately kept
+        # THIS surface shut: an invitation or a role change is an access grant that
+        # outlives the fifteen-minute grant authorising it, and the operator console has
+        # its own invitation surface for a client. The sentence has to say which.
+        assert "Who may sign in" in refused.json()["detail"], refused.text
     assert await _role_of(tenant_id, colleague) == "staff"
 
 

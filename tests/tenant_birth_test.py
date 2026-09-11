@@ -709,9 +709,18 @@ async def test_the_wizard_writes_its_audit_row_inside_the_birth_transaction(
         raise RuntimeError("audit chain unavailable")
 
     monkeypatch.setattr("apps.api.admin.routes.write_audit", _explode)
-    with pytest.raises(RuntimeError):
-        await _create_tenant(token, name="Audited Clinic", slug=slug)
+    # THE OUTCOME, NOT THE PROPAGATION MECHANISM. This asserted `pytest.raises(RuntimeError)`
+    # — i.e. that the exception escaped the whole ASGI app — which stopped being true when
+    # `UnhandledExceptionMiddleware` landed (D-588): a crash is now dressed as a problem+json
+    # 500 INSIDE the CORS layer, because a bare Starlette 500 carries no
+    # `access-control-allow-origin` and a browser therefore discards it unread. That
+    # middleware is the fix, not a regression, and the property this test exists for is
+    # untouched: the rollback. So the assertion moved to what a caller can actually observe
+    # — a 500 and no tenant — which is also the stronger claim, since "the exception
+    # escaped" would still pass on an app that had committed the row first.
+    response = await _create_tenant(token, name="Audited Clinic", slug=slug)
 
+    assert response.status_code == 500
     assert await _org_count(slug=slug) == 0, "an unrecorded client account must not exist"
 
 
@@ -728,9 +737,11 @@ async def test_an_invitation_and_the_record_of_who_cut_it_commit_together(
         raise RuntimeError("audit chain unavailable")
 
     monkeypatch.setattr("apps.api.admin.routes.write_audit", _explode)
-    with pytest.raises(RuntimeError):
-        await _invite(token, tenant_id, f"owner-{uuid.uuid4().hex[:8]}@clinic.example")
+    # The outcome rather than the propagation — see the test above for why the escaping
+    # exception stopped being observable and why the rollback is the better assertion.
+    response = await _invite(token, tenant_id, f"owner-{uuid.uuid4().hex[:8]}@clinic.example")
 
+    assert response.status_code == 500
     assert await _scalar(tenant_id, "SELECT count(*) FROM invitations") == 0, (
         "an owner credential exists that no audit row accounts for"
     )

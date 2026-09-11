@@ -447,6 +447,17 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "a new effective-dated row, never an edit, so a re-rendered invoice resolves the "
         "price that was live in the month it is re-rendering."
     ),
+    "platform_voice_catalog": (
+        "platform-scoped (D-585). The voice catalogue READ FROM THE ENGINE ACCOUNT and "
+        "cached — which TTS voices our one Bolna account will actually accept, including "
+        "voices the founder has cloned on it. One account serves every tenant and its "
+        "voice list is the same list for all of them, so there is no tenant whose row any "
+        "of these could be and it carries no tenant_id. Written only by the voice-catalogue "
+        "sync (`agents/voice_sync.py`, an ARQ cron plus an ops refresh); read through "
+        "`agents/voice_offer.offered_catalogue`, which deliberately answers the same "
+        "catalogue to every tenant. A cache, not a ledger: refreshed whole and NOT in "
+        "APPEND_ONLY_TABLES."
+    ),
     "platform_tts_prices": (
         "platform-scoped, admin realm only (D-547, plan §3.5). The operator-attested TTS "
         "price per VOICE PROVIDER, effective-dated — one Cartesia account and one Sarvam "

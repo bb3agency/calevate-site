@@ -9,7 +9,7 @@ JWT it might read differently than we do.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, cast
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -19,11 +19,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.authn.service import enqueue_invitation_email
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import client_request_ip, requires, tenant_of
+from apps.api.core.auth import (
+    PermissionDependency,
+    assert_view_as_may,
+    client_request_ip,
+    requires,
+    tenant_of,
+)
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
-from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta
+from apps.api.core.rbac import ROLE_PERMISSIONS, permission_meta, withheld_from_view_as
 from apps.api.kb.curation import CURATE_PERMISSION, may_curate_knowledge
 from apps.api.tenancy import members as members_service
 
@@ -48,9 +54,12 @@ class MeOut(BaseModel):
     realm: str
     user_id: UUID | None
     role: str | None
+    #: WHAT THIS SESSION MAY ACTUALLY DO, not what the role table grants — see the route.
     permissions: list[str]
-    # D-22: the client UI renders a persistent banner when this is true, because a
-    # read-only admin session must never look like the client's own session.
+    # The client UI renders a persistent banner when this is true, because an operator's
+    # session inside a client account must never look like the client's own session. Since
+    # D-587 the banner says what is true of a view-as session now: the controls work, and
+    # every change is recorded against the operator who made it.
     impersonating: bool
     organization: OrganizationOut | None = None
 
@@ -107,6 +116,17 @@ async def me(session: Session, principal: Principal = Depends(requires("org:read
         impersonating=principal.impersonating,
     ):
         permissions.add(CURATE_PERMISSION)
+    if principal.impersonating:
+        # THE VIEW-AS RULING, APPLIED HERE SO THE CONSOLE NEEDS NO COPY OF IT (D-587).
+        #
+        # `requires()` refuses an operator the mutations `rbac.VIEW_AS_MUTATIONS` withholds
+        # — the client's AI allowance, the platform surfaces — and `useWriteAccess` previews
+        # every control against this list. Filtering here is what lets the browser stop
+        # carrying a rule of its own: before D-587 it had one (`if (me.impersonating)
+        # refuse everything`), which was a second copy of a server policy and would now be
+        # wrong for six permissions out of thirteen. The screen asks "is it in the list",
+        # the server decides what is in the list, and the two cannot drift.
+        permissions = {p for p in permissions if withheld_from_view_as(p) is None}
     return MeOut(
         realm=principal.realm,
         user_id=principal.user_id,
@@ -286,6 +306,42 @@ class InvitationCreatedOut(InvitationOut):
     delivery: str
 
 
+def requires_membership_write() -> PermissionDependency:
+    """`requires("org:manage")` plus the one thing a view-as session may not do with it.
+
+    THE MEMBERSHIP SURFACE IS AN ACCESS GRANT, NOT A SETTING (D-587). `org:manage` became
+    writable inside a view-as session because an operator on a support call has to be able
+    to fix the account they are looking at — but inviting a colleague, changing a role and
+    removing a member decide WHO MAY SIGN IN, and an invitation outlives the fifteen-minute
+    grant that authorised it. The operator console has its own invitation surface for a
+    client (`/v1/admin/tenants/{id}/invitations`, FLOWS §1), where the act is recorded as
+    the operator's directly, so nothing is lost by keeping this door shut.
+
+    A DEPENDENCY RATHER THAN FOUR CALLS, for `kb/curation.requires_kb_curation`'s reason:
+    the four routes are one surface with one rule, and the fourth is where a per-handler
+    line gets forgotten. It carries `calevate_permission` / `calevate_realm` because
+    `rbac.route_enforcement` reads exactly those to prove at boot that the declared
+    permission is the one enforced — a hand-rolled dependency without them fails
+    `assert_policy_registry_complete`, correctly.
+    """
+    inner = requires("org:manage")
+
+    async def _dep(request: Request) -> Principal:
+        principal = await inner(request)
+        assert_view_as_may(principal, "org.membership")
+        return principal
+
+    dep = cast("PermissionDependency", _dep)
+    dep.calevate_permission = "org:manage"
+    dep.calevate_realm = "any"
+    return dep
+
+
+#: Built once and shared by the four routes — FastAPI caches per request, and four
+#: identical dependency objects would be four cache entries for one question.
+MEMBERSHIP_WRITE: PermissionDependency = requires_membership_write()
+
+
 @router.post(
     "/invitations",
     response_model=InvitationCreatedOut,
@@ -303,7 +359,7 @@ async def invite_member(
     # outside a tenant is a real shape; on a route whose session is tenant-scoped it
     # cannot be None, and saying so with a dependency beats saying so with a cast.
     tenant_id: UUID = Depends(tenant_of),
-    principal: Principal = Depends(requires("org:manage")),
+    principal: Principal = Depends(MEMBERSHIP_WRITE),
 ) -> InvitationCreatedOut:
     invitation_id, token = await members_service.create_team_invitation(
         session,
@@ -381,7 +437,7 @@ async def revoke_invitation(
     invitation_id: UUID,
     session: Session,
     request: Request,
-    principal: Principal = Depends(requires("org:manage")),
+    principal: Principal = Depends(MEMBERSHIP_WRITE),
 ) -> InvitationOut:
     # Read before the delete: the response has to name what was revoked, and after the
     # DELETE the row is gone. Same transaction, so a failed delete returns nothing.
@@ -423,7 +479,7 @@ async def set_member_role(
     payload: MemberRoleIn,
     session: Session,
     request: Request,
-    principal: Principal = Depends(requires("org:manage")),
+    principal: Principal = Depends(MEMBERSHIP_WRITE),
 ) -> MemberOut:
     previous = await members_service.change_member_role(
         session,
@@ -468,7 +524,7 @@ async def remove_member(
     user_id: UUID,
     session: Session,
     request: Request,
-    principal: Principal = Depends(requires("org:manage")),
+    principal: Principal = Depends(MEMBERSHIP_WRITE),
 ) -> MemberRemovedOut:
     previous, still_assigned = await members_service.remove_member(
         session, actor_user_id=principal.user_id, target_user_id=user_id

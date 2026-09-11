@@ -711,7 +711,10 @@ async def test_an_impersonating_operator_cannot_sign_for_a_client() -> None:
         )
     assert read.status_code == 200, read.text
     assert read.json()["can_accept"] is False
-    assert "read-only" in str(read.json()["can_accept_reason"]).lower()
+    assert "client's own act" in str(read.json()["can_accept_reason"]), (
+        "the screen must say WHY — D-587 made most of this console writable in a view-as "
+        "session, so 'read-only' would now be a false generalisation"
+    )
     assert posted.status_code == 403, posted.text
     assert await _rows(org["tenant_id"]) == []
 

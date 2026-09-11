@@ -23,7 +23,7 @@ Two of the four carry a specific claim that had nothing behind it:
   the row is deleted rather than flagged.
 
 D-22 is not re-asserted for the two mutating routes (`admin:tenants`, `org:manage`):
-`realm_boundary_test::test_no_route_declaring_a_mutating_permission_is_reachable_while_impersonating`
+`realm_boundary_test::test_no_route_on_a_withheld_permission_is_reachable_while_impersonating`
 already drives every mutating-permission route under a real minted grant.
 
 CONCURRENCY: every case mints its own tenant and asserts only on rows it created.

@@ -270,8 +270,14 @@ requirement for a sub-64-bit authenticator looks like when it is taken seriously
   client 12 h idle / 14 d absolute (`authn/sessions.REALM_TIMEOUTS`).
 - **RBAC asserted at boot** in four directions (`core/rbac.py::assert_policy_registry_complete`);
   realm separation is also a CHECK constraint, not only a Python convention.
-- **Impersonation is read-only**, needs a short-lived RFC-8693-shaped signed grant bound to
-  operator *and* tenant, and writes two audit rows (`apps/api/core/impersonation.py`).
+- **Impersonation needs a short-lived RFC-8693-shaped signed grant** bound to operator
+  *and* tenant, and writes two audit rows (`apps/api/core/impersonation.py`). It is **no
+  longer read-only** (D-587): an operator may perform a classified subset of writes inside
+  a client's account, and every one is attributed to them — the audit row carries the
+  operator as actor, the client as tenant, and the grant's id, so "who changed this" is
+  answerable without ambiguity. Spending the client's money or AI allowance, granting
+  access to their account, giving a consent, signing an agreement and filing an erasure
+  all stay with the client.
 - **Append-only ledgers** enforced by DB trigger, verified by
   `scripts/check_ledger_immutability.py`; **audit hash chain** keyed with HMAC
   (`apps/api/compliance/audit.py`), with a Redis-serialised head (D-59).

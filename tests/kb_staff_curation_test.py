@@ -19,16 +19,21 @@ on — and writing `kb.approved` through `write_audit`, which resolves `actor_ty
 `agents:write` to `operator` and, by derivation, to `superadmin`, so "every Calevate
 admin" is already the population that can call it.
 
-**NO HOLE WAS CARVED IN D-22, AND `test_the_admin_approval_path_is_shut_to_an_
-impersonating_principal` IS THE PROOF.** The brief that produced this work assumed an
-admin was blocked from approving because `kb:write` is in `MUTATING_PERMISSIONS` and D-22
-refuses a mutating permission to an impersonating principal. That premise is true and its
-conclusion is not: D-22 blocks the IMPERSONATED route, and the approval route is not one —
-the admin is themselves on it, and the tenant is named in the path rather than inferred
-from a borrowed session. The correct response to "an operator cannot mutate while wearing
-a client's face" is a surface where they are not wearing it, which `admin/routes.py`
-already is. Adding a second one would have been a second door into `kb_sources` for a
-capability that already had one.
+**NO HOLE WAS CARVED, AND `test_the_admin_approval_path_names_the_admin_even_from_inside_
+view_as` IS THE PROOF.** The brief that produced this work assumed an admin was blocked
+from approving because `kb:write` is in `MUTATING_PERMISSIONS` and D-22 refused a mutating
+permission to an impersonating principal. That premise was true of the IMPERSONATED route
+and never of this one: the admin is themselves on it, and the tenant is named in the path
+rather than inferred from a borrowed session. The correct response to "an operator cannot
+mutate while wearing a client's face" was a surface where they are not wearing it, which
+`admin/routes.py` already is. Adding a second one would have been a second door into
+`kb_sources` for a capability that already had one.
+
+⚠ **D-587 REMOVED THE READ-ONLY PREMISE ALTOGETHER AND THIS ARGUMENT SURVIVES IT INTACT**,
+because the argument was never about the refusal. What decision (B) needs is that an
+operator's approval is RECORDED AS AN OPERATOR'S — `actor_type = admin`, the operator's
+own id, and now `via_grant_id` when they were inside the client's session at the time. The
+named test asserts exactly that, and asserts it on the request that used to 403.
 
 CONCURRENCY: every case mints its own tenant and asserts only on rows it created, so this
 file runs beside the other suites on the shared Postgres.
@@ -249,16 +254,21 @@ async def test_staff_cannot_turn_the_switch_on_for_themselves() -> None:
 
 
 @pytest.mark.asyncio
-async def test_an_impersonating_admin_cannot_turn_the_switch_on() -> None:
-    """D-22 on the switch itself: flipping a permission is a mutation.
+async def test_an_impersonating_admin_turning_the_switch_on_is_recorded_as_themselves() -> None:
+    """⚠ THIS ASSERTED A 403 UNTIL D-587, AND THE INVERSION IS DELIBERATE.
 
-    `org:manage` is in `MUTATING_PERMISSIONS`, so `requires()` refuses it to an
-    impersonating principal — which means the repo-wide sweep
-    `realm_boundary_test::test_no_route_declaring_a_mutating_permission_is_reachable_
-    while_impersonating` already walks this route. It is driven HERE as well and only
-    here, because the sweep proves the rule holds for the whole route table and this
-    proves it holds for the one route where being wrong would let an operator hand a
+    The old reasoning: `org:manage` is in `MUTATING_PERMISSIONS`, so `requires()` refused
+    it to an impersonating principal, and being wrong here would let an operator hand a
     client's staff a capability the client never granted.
+
+    THE HAZARD IS THE SAME AND THE ANSWER MOVED. D-587's line is not "settings are
+    harmless": it is that a reversible, visible setting changed by a named operator is a
+    support act, while minting a CREDENTIAL that outlives the view-as session is not
+    (`rbac.VIEW_AS_WITHHELD_ACTS["org.membership"]` keeps invitations and role changes
+    with the client). This switch is the first kind — it widens nothing for anyone who is
+    not already a member, the owner sees it on their own Knowledge screen, and the flip is
+    in the ledger under the OPERATOR'S id with the grant beside it. So the property this
+    test defends is now the ROW, not the refusal: an operator who flips it can be found.
     """
     tenant_id, _agent_id, slug = await _tenant()
     token = await _admin()
@@ -267,14 +277,29 @@ async def test_an_impersonating_admin_cannot_turn_the_switch_on() -> None:
         response = await http.put(
             SWITCH, headers=headers, json={"staff_may_curate_knowledge": True}
         )
-    assert response.status_code == 403, response.text
-    assert response.json()["type"].endswith("/forbidden"), response.text
+    assert response.status_code == 200, response.text
 
     async with tenant_session(tenant_id) as session:
         stored = (
             await session.execute(text("SELECT staff_may_curate_knowledge FROM organizations"))
         ).scalar()
-    assert stored is False, "a view-as session must not have moved the client's switch"
+    assert stored is True
+
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT actor_type, via_grant_id FROM audit_log WHERE tenant_id = :t "
+                    "AND via_grant_id IS NOT NULL ORDER BY at DESC LIMIT 1"
+                ),
+                {"t": tenant_id},
+            )
+        ).first()
+    assert row is not None and row[0] == "admin", (
+        "an operator widening what a client's staff may do must be findable as an "
+        "OPERATOR — a row reading as the client's own change is the laundering D-22 "
+        "refused the write to avoid and D-587 records instead"
+    )
 
 
 @pytest.mark.asyncio
@@ -530,9 +555,16 @@ async def test_the_role_table_itself_is_untouched() -> None:
     # a new permission rather than a widening of `billing:read`, which would have carried the
     # spend breakdown, the caps and the monthly statement with it — SEC-COMP §5 scopes those
     # to the owner and the founder decided nothing about them.
+    # `agents:write` (D-586, 11 Sep 2026) is the third, and the same shape again — a
+    # founder decision, narrowly drawn, granting an EXISTING permission rather than
+    # widening `org:manage`. A client's own team edits its own agents' settings: the voice
+    # and how long one call may run. It opens exactly two client-realm routes and no admin
+    # surface, which `tests/agent_settings_live_edit_test.py` asserts over the live route
+    # table rather than leaving to this set to imply.
     assert ROLE_PERMISSIONS["staff"] == frozenset(
         {
             "agents:read",
+            "agents:write",
             "calls:read",
             "copilot:use",
             "leads:read",
@@ -628,29 +660,36 @@ async def test_every_admin_tier_approves_as_themselves_and_the_row_names_realm_a
 
 
 @pytest.mark.asyncio
-async def test_the_admin_approval_path_is_shut_to_an_impersonating_principal() -> None:
-    """**THE TEST THAT PROVES NO HOLE WAS CARVED IN D-22.**
+async def test_the_admin_approval_path_names_the_admin_even_from_inside_view_as() -> None:
+    """**THE TEST THAT PROVES NO HOLE WAS CARVED IN THE STAFF-CURATION GRANT.**
 
     The same admin, the same route, the same source — but reached while wearing the
-    client's face. `agents:write` is in `MUTATING_PERMISSIONS`, so `requires()` refuses,
-    and the source is still sitting in the review queue afterwards. That is the property
-    the whole of decision (B) rests on: an operator approves knowledge as an operator, on
-    a surface where the audit row can only ever say `admin`, and never as the client.
+    client's face. ⚠ It asserted a 403 until D-587, on D-22's read-only rule; `agents:write`
+    is now writable in a view-as session, so the approval LANDS. That does not reopen the
+    hole decision (B) rests on, and this is where the difference is stated: the property
+    was never "an operator cannot approve" — they always could, one header away, from the
+    operator console. It was that an operator approves AS AN OPERATOR, on a surface whose
+    audit row can only ever say `admin`, and never as the client.
+
+    That property is unchanged and is asserted here directly: `actor_type` is `admin`, the
+    actor is the OPERATOR'S `admin_users.id`, and `via_grant_id` additionally records that
+    they were inside the client's session at the time — which is strictly more than the
+    refusal used to prove.
     """
     tenant_id, agent_id, slug = await _tenant()
     _, owner = await _member(tenant_id, "owner")
     token = await _admin()
+    admin_id = token.rsplit(":", 1)[-1]
 
     async with _client() as http:
         submitted = await _submit(http, owner, slug, agent_id)
         source_id = submitted.json()["id"]
 
         headers = await view_as_headers(http, token, slug)
-        refused = await http.post(
+        approved = await http.post(
             APPROVE.format(tenant_id=tenant_id, source_id=source_id), headers=headers
         )
-    assert refused.status_code == 403, refused.text
-    assert refused.json()["type"].endswith("/forbidden"), refused.text
+    assert approved.status_code == 200, approved.text
 
     async with tenant_session(tenant_id) as session:
         status = (
@@ -658,7 +697,22 @@ async def test_the_admin_approval_path_is_shut_to_an_impersonating_principal() -
                 text("SELECT status FROM kb_sources WHERE id = :s"), {"s": source_id}
             )
         ).scalar()
-    assert status == "pending_approval", (
-        "D-22 must have stopped the write, not merely the response — a refusal that had "
-        "already approved would be the hole this test exists to rule out"
+    assert status == "approved"
+
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT actor_type, actor_id, via_grant_id FROM audit_log "
+                    "WHERE tenant_id = :t AND object_id = :s ORDER BY at DESC LIMIT 1"
+                ),
+                {"t": tenant_id, "s": source_id},
+            )
+        ).first()
+    assert row is not None, "an operator putting words into a client's agent must be findable"
+    assert row[0] == "admin", f"the row must name the actor's REALM; got {row[0]!r}"
+    assert str(row[1]) == str(admin_id), "the row must name WHICH admin"
+    assert row[2] is not None, (
+        "and it must record that the admin was inside the client's own session — the "
+        "fact D-22 kept true by refusing the write"
     )

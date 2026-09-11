@@ -31,9 +31,12 @@ import { Term } from "@/lib/glossary";
  * AI" (TRAI/UCC) and "this call is recorded" (DPDP notice-and-consent). They are separate
  * obligations under separate regimes, and they are separate switches — because the client
  * is the Principal Entity and the exposure is theirs to carry. `org:manage` is the
- * owner's permission and no admin or impersonating session holds it against a tenant
- * (D-22), so this is one of the few controls on the client app that is genuinely and only
- * theirs. Every flip is written to the audit log.
+ * owner's permission, so on the client realm this is theirs and their staff cannot reach
+ * it. ⚠ **AN OPERATOR IN "VIEW AS CLIENT" CAN NOW FLIP IT (D-587, which supersedes D-22's
+ * read-only rule)** — a client on the phone asking us to switch a notice off is the case
+ * it exists for — and what makes that safe is the sentence that was already here: every
+ * flip is written to the audit log, and an operator's flip names THEM, the account, and
+ * the view-as session they did it in. It is never recorded as the client's own change.
  *
  * ## Why the copy is written the way it is
  *

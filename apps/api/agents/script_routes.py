@@ -38,7 +38,7 @@ from apps.api.agents import publishing, script_builder
 from apps.api.agents.assist_leg import account_assist_leg
 from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.compliance.audit import write_audit
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.logging import get_logger
@@ -223,6 +223,10 @@ async def assist_script(
     edit and then save through `PUT` above.
     """
     assert principal.tenant_id is not None  # client realm; `requires()` resolves it
+    # Spends the CLIENT'S AI allowance, so a view-as session is refused it for
+    # `crm/routes.assist_call`'s reason and on the same named ground (D-587). Before the
+    # ownership check, because a refusal that costs nothing should cost no query either.
+    assert_view_as_may(principal, "billing.ai_assist")
     tenant_id = principal.tenant_id
 
     # OWNERSHIP — the agent must be visible to this tenant (RLS) before a rupee is spent or

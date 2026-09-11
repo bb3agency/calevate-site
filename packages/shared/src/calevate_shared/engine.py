@@ -4445,6 +4445,84 @@ class AccountKBListing(BaseModel):
     pages_fetched: int = Field(default=1, ge=1)
 
 
+class EngineVoice(BaseModel):
+    """ONE VOICE THE ENGINE WILL ACTUALLY ACCEPT, in our vocabulary (D-585).
+
+    **WHY THIS TYPE EXISTS AT ALL.** Our catalogue was compiled from SARVAM's own SDK
+    enum — 44 speaker names — but we publish through an ENGINE, whose Sarvam provider
+    offers a different subset. A live publish on 11 Sep 2026 proved the gap in the only
+    way it can be proved: `400 POST /v2/agent` — *"Provided voice: Anushka is not
+    available for the provider: sarvam"*. `anushka` is the first name in the vendor SDK's
+    enum and is absent from the engine's list. A catalogue compiled from the wrong vendor
+    is a picker that saves a row, publishes, and fails on a real client's phone line.
+
+    And a CLONED voice cannot be in a compiled list at all, by construction: the founder
+    clones a voice after this code ships, and its id exists only on the engine account.
+    So the catalogue has to be READ from the engine, which means this method and this type.
+
+    **HARD RULE 2 IS WHY IT IS A MODEL AND NOT A DICT.** The vendor's key names
+    (`voice_id`, `provider_id`, `is_native`, `source`, `use_case`, …) stay inside
+    `apps/api/engine/`; what crosses is this. Nothing here is vendor-shaped: `tts_model` is
+    the identifier OUR catalogue already spells (`agents/voices.TtsModel`), and the
+    PROVIDER is deliberately absent — it is derived from the model through the one registry
+    that maps model to provider (`model_lifecycle.TTS_MODEL_LIFECYCLE`), so an adapter
+    cannot introduce a second opinion about which tier a voice bills at (hard rule 7,
+    D-547 plan §2.3 invariant 7).
+
+    VERIFIED-VENDOR-DOCS for the fields this is translated from, read 11 Sep 2026 in the
+    hash-pinned mirror: `bolna-findings/mirror/pages/api-reference/voice/get_all.md` —
+    `voice_id` is "Provider-specific voice identifier (use this in agent config)" (:140),
+    `name` is the platform's own display name, and `source` is an enum `platform | custom`
+    where custom is "cloned/added by your account" (:172-179).
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    #: The identifier the engine wants in the agent's synthesizer block. Opaque to us: a
+    #: Sarvam persona name (`ashutosh`) or a cloned voice's generated id
+    #: (`sXlZ9Juk5Ji8sZiFjRUV`). Never parsed, never normalised.
+    voice_id: str
+    #: The platform's own NAME for this voice, and a WIRE value as well as a human one —
+    #: the engine's synthesizer block requires `voice` beside `voice_id`. It is carried
+    #: rather than derived because **a cloned voice's name has no derivable relationship to
+    #: its id**: their own example pairs `voice_id: sXlZ9Juk5Ji8sZiFjRUV` with
+    #: `name: my-custom-voice` (`get_all.md:102-112`). `speaker.capitalize()` is right for
+    #: every Sarvam persona and structurally impossible for a clone.
+    label: str
+    #: The TTS model this voice was enumerated under — `agents/voices.TtsModel`'s
+    #: vocabulary, which is also the vendor's `model_id`. The agent's voice PROVIDER and
+    #: therefore its billing tier are derived from this, never carried beside it.
+    tts_model: str
+    #: The BCP-47-ish language codes this voice was enumerated under, as the engine's own
+    #: language filter spells them. A tuple because a voice can be returned for more than
+    #: one of the languages we ask about, and the union is what the catalogue stores.
+    languages: tuple[str, ...] = ()
+    #: `source == "custom"` on the vendor's row: cloned or added by OUR engine account
+    #: rather than curated by the platform. Carried because an operator has to be able to
+    #: tell their own clone apart from a stock persona on a picker, and because a clone is
+    #: the one entry no compiled list could ever hold.
+    is_custom: bool = False
+
+
+class EngineVoiceListing(BaseModel):
+    """`list_voices`'s answer: the account's voices AND whether they are all of them.
+
+    `AccountKBListing`'s argument, and the stakes are the same shape as there. A truncated
+    page here does not read as an error — it reads as a SHORTER CATALOGUE, and the caller
+    is a cache refresh that would happily delete every voice the missing page held. An
+    operator would then find a client's configured voice "no longer offered", with nothing
+    anywhere saying that we simply stopped reading half way.
+
+    So `complete` has no default: an adapter answers the question in writing, and
+    `agents/voice_sync.py` refuses to PRUNE on an incomplete listing (it still upserts what
+    it saw — a voice that is really there is not made less true by a page we missed).
+    """
+
+    voices: list[EngineVoice] = Field(default_factory=list)
+    complete: bool
+    incomplete_reason: ListingIncompleteReason | None = None
+
+
 class LlmCredentialPlacement(BaseModel):
     """What the engine ACTUALLY did with an installed LLM credential (D-404).
 
@@ -5034,6 +5112,32 @@ class VoiceEngine(Protocol):
         """
         ...
 
+    async def list_voices(self) -> EngineVoiceListing:
+        """Every TTS voice THIS ENGINE ACCOUNT will accept, for the models we offer.
+
+        **THE CATALOGUE IS THE ENGINE'S, NOT THE MODEL VENDOR'S, AND THAT DISTINCTION IS A
+        LIVE 400.** `agents/voices.py` compiled its speaker list from Sarvam's own SDK
+        enum; the engine's Sarvam provider offers a different subset, and publishing a
+        voice from the wider list fails at agent CREATE — *"Provided voice: Anushka is not
+        available for the provider: sarvam"* (live publish, 11 Sep 2026). Only the engine
+        can answer which strings it takes, so only the engine is asked.
+
+        It is also the ONLY way a CLONED voice can ever be offered. A voice the account
+        clones after this code ships exists nowhere in our source by construction; it
+        arrives here with `is_custom=True` and reaches the picker through the cache
+        (`agents/voice_sync.py`).
+
+        An adapter whose TTS leg is not ours refuses (`require_capability("tts")`), for
+        `list_account_kb`'s reason: an empty list is a POSITIVE claim that the account
+        offers no voices, and "that question does not apply on this engine — it supplies
+        its own" is a different answer the caller must be made to notice. That is the same
+        fact `EngineCapabilities.speech_control("tts")` publishes and `agents/voices
+        .voice_selection_capability()` already branches on.
+
+        `complete` is part of the answer, not a detail: see `EngineVoiceListing`.
+        """
+        ...
+
     async def get_execution(self, call_id: str) -> ExecutionSnapshot:
         """The authenticated read. This — not the webhook — is what we persist.
 
@@ -5122,6 +5226,8 @@ __all__ = [
     "EngineCapabilities",
     "EngineCapabilityName",
     "EngineKBRef",
+    "EngineVoice",
+    "EngineVoiceListing",
     "Evidence",
     "ExecutionListing",
     "ExecutionSnapshot",

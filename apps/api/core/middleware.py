@@ -1,7 +1,8 @@
 """Middleware, in BACKEND-PATTERNS §2 step 5's order with TWO recorded departures:
 
-    correlation id → security headers → CORS → body limit → rate limit → load shed
-                   → cookie CSRF → [auth, as a route dependency] → tracing → routes
+    correlation id → security headers → CORS → unhandled-exception net → body limit
+                   → rate limit → load shed → cookie CSRF
+                   → [auth, as a route dependency] → tracing → routes
 
 Starlette makes the LAST-added middleware outermost, so `install_middleware` adds them in
 reverse of that list. §2 step 5 reads "security headers → CORS → auth → rate limit →
@@ -43,7 +44,11 @@ from apps.api.core.context import (
     correlation_id_var,
     principal_var,
 )
-from apps.api.core.errors import PROBLEM_CONTENT_TYPE, ProblemError
+from apps.api.core.errors import (
+    PROBLEM_CONTENT_TYPE,
+    ProblemError,
+    unhandled_problem_response,
+)
 from apps.api.core.loadshed import (
     PlatformStatus,
     get_platform_status,
@@ -703,6 +708,76 @@ class CookieCsrfMiddleware:
         await self.app(scope, receive, send)
 
 
+class UnhandledExceptionMiddleware:
+    """A crash, answered from INSIDE the CORS layer so a browser can read the answer.
+
+    ═══ WHY THIS IS A MIDDLEWARE AND NOT AN EXCEPTION HANDLER. ═══
+
+    `core/errors.install_error_handlers` registers `@app.exception_handler(Exception)`,
+    and Starlette hands that one to `ServerErrorMiddleware` — which
+    `build_middleware_stack()` places OUTSIDE every middleware added here. No user
+    middleware can wrap it; that is the framework's ordering, not a configuration.
+
+    So the 500 it produced left with `content-type` and `content-length` and NOTHING
+    ELSE: no `Access-Control-Allow-Origin`, no `X-Correlation-Id`, none of
+    `SECURITY_HEADERS`. MEASURED against the assembled `apps.api.main.app` on
+    11 Sep 2026 — a handler raising `RuntimeError` answered 500 with exactly those two
+    headers, while the same route raising `ProblemError(status=502)` came back carrying
+    ACAO for `https://app.calevate.tech` and `https://admin.calevate.tech` both.
+
+    WHAT THAT COSTS IS NOT COSMETIC. A cross-origin response with no ACAO is one the
+    browser refuses to hand to the page: `fetch` REJECTS. The console therefore cannot
+    tell an internal server error from a dead connection — it shows a transport failure,
+    the problem body it would have rendered is discarded unread, the `trace_id` that
+    would have joined the screen to the log line goes with it, and the operator is left
+    debugging the network for a bug in a handler. It also loses the `request` log line's
+    status: `CorrelationIdMiddleware` records `status: None` when nothing was ever sent
+    through it, which is precisely the shape a crash used to leave in the log.
+
+    Catching here fixes all of it at once, because everything outside this — CSRF, load
+    shed, the rate limiter, the body limit, CORS, the security headers, the correlation
+    id — then runs on the way out exactly as it does for a 404 or a 502.
+
+    IT DOES NOT SWALLOW: `unhandled_problem_response` is the SAME function the outer
+    handler calls, so the exception is still logged with its traceback and still alerts
+    with the exception type in its fingerprint. The only thing that changes is which
+    layers get to dress the response.
+
+    `BaseException` is deliberately NOT caught. `asyncio.CancelledError` is a
+    `BaseException` and means the client went away or the server is shutting down —
+    turning that into a 500 would alert on every disconnected mobile client and would
+    fight the graceful drain `_install_signal_handlers` exists to protect.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        started = False
+
+        async def send_wrapper(message: Message) -> None:
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        except Exception as exc:
+            # ONCE THE STATUS LINE IS OUT, THERE IS NO SECOND RESPONSE TO SEND. An
+            # exception raised while a body is streaming cannot be re-answered — sending
+            # another `http.response.start` is an ASGI protocol violation — so it is
+            # re-raised for `ServerErrorMiddleware`, which logs it and severs the
+            # connection. That is the honest outcome: a truncated body is a failure the
+            # client must not read as success.
+            if started:
+                raise
+            await unhandled_problem_response(str(scope.get("path", "")), exc)(scope, receive, send)
+
+
 def install_middleware(app: FastAPI, *, cors_origins: list[str]) -> None:
     """Added innermost-first; Starlette makes the last one outermost."""
     if "*" in cors_origins:
@@ -729,6 +804,13 @@ def install_middleware(app: FastAPI, *, cors_origins: list[str]) -> None:
     app.add_middleware(LoadShedMiddleware)
     app.add_middleware(RateLimitMiddleware)
     app.add_middleware(BodyLimitMiddleware)
+    # JUST INSIDE CORS, which is the position the whole class exists for: the response it
+    # produces is then dressed by CORS, the security headers and the correlation id on the
+    # way out, so a browser can actually READ a crash. Placed here rather than innermost so
+    # that it also catches the four layers below it — the limiter and the load-shed gate
+    # both talk to Redis, and a Redis failure inside them used to escape to
+    # `ServerErrorMiddleware` exactly like a handler crash.
+    app.add_middleware(UnhandledExceptionMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
@@ -780,5 +862,6 @@ __all__ = [
     "LoadShedMiddleware",
     "RateLimitMiddleware",
     "SecurityHeadersMiddleware",
+    "UnhandledExceptionMiddleware",
     "install_middleware",
 ]

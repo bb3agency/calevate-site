@@ -1162,10 +1162,11 @@ function VoicePanel({
       <p className="-mt-2 text-xs text-ink-muted">
         Two voice qualities, at two different per-minute rates (D-547) — so this choice is a
         price decision as well as a persona one, and the rate shown against each quality is
-        the one frozen on this client&apos;s oldest unspent credit. Setting a voice writes it
-        to the agent and stops there: a live agent keeps speaking in its old voice until the
-        next publish, which is deliberate — re-voicing a running client&apos;s phone line is
-        not something to do silently.
+        the one frozen on this client&apos;s oldest unspent credit. Setting a voice on a LIVE
+        agent re-publishes it in the same transaction (D-586), so callers hear it from their
+        next call — a call in progress finishes as it started, and if the calling system
+        refuses the change nothing is saved. A draft or paused agent is written but not
+        published; the next publish carries the voice.
       </p>
       <div className="mt-3 space-y-3">
         <RestrictionNote reason={write.reason} />

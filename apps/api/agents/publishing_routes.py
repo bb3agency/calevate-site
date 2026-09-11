@@ -8,9 +8,10 @@ Three questions and two buttons:
                                                                   and what a read-back confirmed
     GET   /v1/agents/{agent_id}/engine-state                      what the engine is running RIGHT
                                                                   NOW (one vendor round trip)
+    PATCH /v1/agents/{agent_id}/call-cap                          the max call length
     POST  /v1/admin/tenants/{tid}/agents/{aid}/apply              "Apply to live calls"
     POST  /v1/admin/tenants/{tid}/agents/{aid}/undo               "Undo"
-    PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-cap           the max call length
+    PATCH /v1/admin/tenants/{tid}/agents/{aid}/call-cap           the max call length (ops)
 
 WHY THE AGENT'S VOICE IS READ HERE AND NOT ON `AgentOut`
 --------------------------------------------------------
@@ -51,16 +52,26 @@ invisible in exactly the moment support is needed —
 `tests/impersonation_reads_test.py` exists because that mistake has now been made
 three times in three modules. It is not repeated here.
 
-The mutations stay admin-realm with the tenant named in the path, matching
-`prompt_routes.py` and `voice_routes.py`, for a reason narrower than "D-21 says so":
-**you cannot apply what you cannot write.** The script edit an Apply publishes is
-minted by `POST /v1/admin/tenants/{tid}/agents/{aid}/prompt`, which is admin-realm; an
-Apply button in the client realm would let a client publish a draft they had no way to
-author. When self-serve (D-34) puts script editing in the client's hands, this router
-moves with it — that is a decision-log entry (ROADMAP §6), not a quiet permission
-swap. The tenant rides in the path for the reason `prompt_routes.py` states at length:
-an admin principal has no tenant of its own, and the one way it could get one is
-read-only.
+**APPLY AND UNDO** stay admin-realm with the tenant named in the path, matching
+`prompt_routes.py`, for a reason narrower than "D-21 says so": **you cannot apply what
+you cannot write.** The script edit an Apply publishes is minted by
+`POST /v1/admin/tenants/{tid}/agents/{aid}/prompt`, which is admin-realm; an Apply button
+in the client realm would let a client publish a draft they had no way to author. When
+self-serve (D-34) puts script editing in the client's hands, those two move with it —
+that is a decision-log entry (ROADMAP §6), not a quiet permission swap.
+
+**THE CALL CAP DOES NOT, AND SINCE D-586 IT HAS TWO DOORS.** It is not a script: it
+cannot change one word the agent says, only how long it may keep saying it (`LANES`, the
+`conduct` row), and the money it bounds is the CLIENT's — the screen calls it "Longest
+one call may run" and prints what one such call costs THEM. Leaving its only writer in
+the admin realm meant an owner could read their own worst-case cost on `/pending` and
+had to raise a support ticket to change it. So `PATCH /v1/agents/{agent_id}/call-cap`
+is the client door (`agents:write`, held by `owner` and `staff`), the admin path stays
+for an operator acting as themselves during onboarding, and both call ONE writer,
+`publishing.set_call_cap` — `agents/llm_routes.py`'s two-doors-one-writer pattern,
+adopted rather than re-invented, and the same shape `voice_routes.py` now has. The
+tenant rides in the ADMIN path for the reason `prompt_routes.py` states at length: an
+admin principal has no tenant of its own.
 
 ⚠ **MOUNT THIS ROUTER BEFORE `agents.routes.router`.** FastAPI matches in declaration
 order and `/v1/agents/{agent_id}` happily matches the literal segment `lanes`, so the
@@ -102,7 +113,7 @@ from apps.api.billing.rates import voice_tier_label
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
-from apps.api.core.deps import admin_db
+from apps.api.core.deps import admin_db, db
 from apps.api.core.rbac import permission_meta
 from apps.api.db.session import tenant_session
 
@@ -115,10 +126,19 @@ router = APIRouter(tags=["agents"])
 # so it sits outside the B008 per-file ignore in pyproject.
 PublishingReader = Annotated[Principal, Depends(requires("agents:read"))]
 PublishingWriter = Annotated[Principal, Depends(requires("agents:write", realm="admin"))]
+#: THE CLIENT DOOR'S LOCK (D-586) — `realm` left at its `"any"` default, so `current_any`
+#: admits the account's own `owner` or `staff` from a client session and an ADMIN principal
+#: only when the impersonation header is present. Exactly the population the founder named:
+#: the owner, their staff, and an operator viewing as them. `voice_routes.VoiceWriter` is
+#: the same alias for the same reason; see it for why `agents:write` and not `org:manage`.
+CapWriter = Annotated[Principal, Depends(requires("agents:write"))]
 # Reads the tenant DIRECTORY cross-tenant so the audit row can be written on it; it
 # unlocks no agent rows. Every mutation below does its work inside the tenant's own
 # RLS scope, opened by the `agents.publishing` function it calls.
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
+#: The CLIENT door's session — its own tenant's RLS scope, which is where its audit row
+#: belongs. The cap write itself opens a session of its own inside `publishing`.
+Session = Annotated[AsyncSession, Depends(db)]
 
 
 class Strict(BaseModel):
@@ -484,9 +504,9 @@ def _render(state: publishing.PendingState, *, tier_rates: list[TierRate]) -> Pe
         "A READ: it writes nothing and re-publishes nothing. It costs one call to the "
         "voice platform, so it is a separate endpoint rather than part of "
         "`/pending` — a banner must not dial a vendor on every page load.\n\n"
-        "`agents:read`, not `agents:write`, for the D-22 reason the other reads here "
-        "are: this is what support opens while looking at a client's screen, and "
-        "impersonation refuses every mutating permission."
+        "`agents:read`, not `agents:write`, for the reason the other reads here are: "
+        "this is what support opens while looking at a client's screen, and a read must "
+        "never be gated on a permission a view-as session can be refused."
     ),
 )
 async def engine_state(agent_id: UUID, principal: PublishingReader) -> EngineStateOut:
@@ -597,34 +617,36 @@ async def undo(
     )
 
 
-@router.patch(
-    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-cap",
-    response_model=CallCapOut,
-    openapi_extra=permission_meta("agents:write"),
-    summary="Set the per-agent max call length — the cost-runaway guard (§2b:107)",
-    description=(
-        "Applies immediately: a live agent is re-published in the same transaction, "
-        "so a cap that only lands in our table cannot be displayed as if it were "
-        "enforced. `null` restores the platform default; it never means unlimited. "
-        "Out-of-range values are refused with `call_cap_out_of_range`."
-    ),
-    tags=["admin"],
+_CAP_DESCRIPTION = (
+    "Applies immediately: a live agent is re-published to the voice platform in the same "
+    "transaction, so a cap that only lands in our table cannot be displayed as if it were "
+    "enforced. If that push fails nothing is saved. It binds the NEXT call — a call "
+    "already in progress runs to its own cap.\n\n"
+    "`null` restores the platform default; it never means unlimited. Out-of-range values "
+    "are refused with `call_cap_out_of_range`."
 )
-async def set_call_cap(
+
+
+async def _apply_cap(
+    *,
     tenant_id: UUID,
     agent_id: UUID,
-    payload: SetCallCapIn,
-    session: AdminSession,
+    max_call_duration_s: int | None,
+    principal: Principal,
+    audit_session: AsyncSession,
     request: Request,
-    principal: PublishingWriter,
 ) -> CallCapOut:
+    """THE ONE WRITER BEHIND BOTH DOORS — `agents/llm_routes.py`'s pattern and its argument.
+
+    `set_call_cap` opens the tenant's own RLS scope and reaches the engine, so it runs
+    OUTSIDE the audit session's transaction: a slow vendor call must not hold the audit
+    row's transaction open, and the audit entry should describe what actually happened.
+    """
     result = await publishing.set_call_cap(
-        tenant_id=tenant_id,
-        agent_id=agent_id,
-        max_call_duration_s=payload.max_call_duration_s,
+        tenant_id=tenant_id, agent_id=agent_id, max_call_duration_s=max_call_duration_s
     )
     await write_audit(
-        session,
+        audit_session,
         action="agent.call_cap_set",
         actor=principal,
         tenant_id=tenant_id,
@@ -644,6 +666,73 @@ async def set_call_cap(
         is_platform_default=result.is_platform_default,
         engine_synced=result.engine_synced,
         worst_case_call_cost_inr=result.worst_case_call_cost_inr,
+    )
+
+
+@router.patch(
+    "/v1/agents/{agent_id}/call-cap",
+    response_model=CallCapOut,
+    openapi_extra=permission_meta("agents:write"),
+    summary="How long one of your calls may run before it is ended (D-586)",
+    description=(
+        "The cost-runaway guard on one of your own agents — the screen's \"Longest one "
+        'call may run". `worst_case_call_cost_inr` on the response is what one call that '
+        "runs the whole cap costs YOU, struck at the dearest minute this account can be "
+        "charged.\n\n" + _CAP_DESCRIPTION
+    ),
+)
+async def set_my_agent_call_cap(
+    agent_id: UUID,
+    payload: SetCallCapIn,
+    session: Session,
+    request: Request,
+    principal: CapWriter,
+) -> CallCapOut:
+    """The client door. The tenant is the caller's own and is never in the path.
+
+    `agents:write` rather than `org:manage`: the cap is what stops a stuck call spending
+    an account's credit, and the person watching that happen is as likely to be staff as
+    the owner. See `voice_routes.VoiceWriter` for the full argument — it is one decision
+    covering both settings, not two.
+    """
+    assert principal.tenant_id is not None  # `requires()` resolves a tenant for this realm
+    return await _apply_cap(
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        max_call_duration_s=payload.max_call_duration_s,
+        principal=principal,
+        audit_session=session,
+        request=request,
+    )
+
+
+@router.patch(
+    "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-cap",
+    response_model=CallCapOut,
+    openapi_extra=permission_meta("agents:write"),
+    summary="Set the per-agent max call length — the cost-runaway guard (§2b:107)",
+    description=(
+        "The operator's door onto the same write, for onboarding and for support acting "
+        "as themselves. A client sets their own agent's cap on "
+        "`PATCH /v1/agents/{agent_id}/call-cap`.\n\n" + _CAP_DESCRIPTION
+    ),
+    tags=["admin"],
+)
+async def set_call_cap(
+    tenant_id: UUID,
+    agent_id: UUID,
+    payload: SetCallCapIn,
+    session: AdminSession,
+    request: Request,
+    principal: PublishingWriter,
+) -> CallCapOut:
+    return await _apply_cap(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        max_call_duration_s=payload.max_call_duration_s,
+        principal=principal,
+        audit_session=session,
+        request=request,
     )
 
 

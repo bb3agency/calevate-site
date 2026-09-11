@@ -165,6 +165,7 @@ from apps.workers.retention import (
 from apps.workers.tls_expiry import check_tls_expiry
 from apps.workers.topup_settlement import SETTLEMENT_MINUTES, sweep_topup_settlement
 from apps.workers.trials import sweep_trials
+from apps.workers.voice_catalogue import REFRESH_MINUTE, refresh_voice_catalogue
 from apps.workers.wallet_alerts import notify_low_balance
 from apps.workers.whatsapp import escalate_campaign_contact, notify_hot_lead_whatsapp
 
@@ -528,6 +529,25 @@ CRON_JOBS = [
         traced_job(pull_fx_rate),
         walk=bounded("one HTTP request for one number"),
         minute=set(PULL_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE VOICE CATALOGUE, HOURLY (D-585). The list of voices a client may pick from is
+    # the ENGINE ACCOUNT's, not ours — our compiled list came from the model vendor's SDK
+    # and the engine's provider offers a different subset, which surfaced as a 400 on a
+    # live publish. This is the clock that keeps the cache honest; the founder cloning a
+    # voice and wanting it NOW is served by `POST /v1/ops/voices/refresh` instead.
+    #
+    # `run_at_startup` deliberately NOT set, for `pull_fx_rate`'s reason: a deploy of N
+    # workers would fire N simultaneous vendor requests for one list none of them urgently
+    # needs, and a process with no cached rows serves `agents/voices.SEED_CATALOG`.
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason: `cron()` defaults it to 1 and
+    # `WorkerSettings.max_tries` does not reach a function carrying its own — and the
+    # ladder is what makes the LAST attempt's `alert()` reachable.
+    _cron(
+        traced_job(refresh_voice_catalogue),
+        walk=bounded("one untenanted session and one vendor listing for the whole fleet"),
+        minute={REFRESH_MINUTE},
         max_tries=WORKER_MAX_TRIES,
     ),
     # The dispatch tick (FLOWS §5). Hard rule 5's DNC propagation deadline is

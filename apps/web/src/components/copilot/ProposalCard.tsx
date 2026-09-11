@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Check, ShieldAlert } from "lucide-react";
 
 import { DANGER_BUTTON, PRIMARY_BUTTON, ProblemNotice, SECONDARY_BUTTON } from "@/components/ui";
-import { ApiProblem, type Session } from "@/lib/api/client";
+import { ApiProblem, TransportProblem, type Session } from "@/lib/api/client";
 import { useConfirmProposal, type CopilotConfirmOut } from "@/lib/api/copilot";
 import { lookup } from "@/lib/lookup";
 import type { CopilotProposal } from "@/lib/copilot/types";
@@ -359,5 +359,17 @@ function hasExpired(expiresAt: string): boolean {
  */
 export function canRetry(error: unknown): boolean {
   if (!(error instanceof ApiProblem)) return true;
+  // A `fetch` THAT REJECTED LEAVES THE TOKEN SPENDABLE, and this arm is what keeps that
+  // true now that such a failure wears the API's error shape. It used to fall out of the
+  // line above — a bare `TypeError` is not an `ApiProblem` — and `TransportProblem`
+  // silently took the card's "Try again" away with it when it started dressing them.
+  //
+  // The rule the header states is "did this failure leave the proposal spendable", and a
+  // rejected `fetch` is the strongest case there is for yes: no reply was handed over, so
+  // the request may never have reached the server at all. It is NOT the same as
+  // `TimeoutProblem`, which is also `status: 0` and is deliberately left out — a request
+  // that ran for seventy seconds reached us, and offering it again invites a retry into
+  // "already confirmed".
+  if (error instanceof TransportProblem) return true;
   return error.code === "copilot_confirm_unavailable";
 }

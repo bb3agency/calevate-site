@@ -589,9 +589,17 @@ async def test_staff_may_run_a_bulk_action_because_it_is_the_daily_job() -> None
     assert response.status_code == 200, response.text
 
 
-async def test_a_read_only_impersonating_admin_cannot_run_a_bulk_action() -> None:
-    """D-22: `leads:write` is in MUTATING_PERMISSIONS, so "view as client" is refused
-    this without the route needing to know about impersonation at all."""
+async def test_an_impersonating_admin_runs_a_bulk_action_and_the_ledger_names_them() -> None:
+    """⚠ THIS ASSERTED A 403 UNTIL D-587, WHICH SUPERSEDES D-22's READ-ONLY RULE.
+
+    `leads:write` is classified WRITABLE in a view-as session (`rbac.VIEW_AS_MUTATIONS`) —
+    moving a client's stuck leads is the support call this feature exists for — so the
+    bulk action lands. What the refusal used to guarantee, an unambiguous ledger, is now
+    guaranteed by the row: the operator's `admin_users.id` as the actor, `admin` as the
+    actor type, this tenant, and the view-as grant they were inside at the time.
+
+    The route still needs to know nothing about impersonation. That has not changed.
+    """
     tenant_id, slug, _token = await _make_tenant()
     ids = [str(i) for i in await _seed_leads(tenant_id, 1)]
     admin_id = uuid.uuid4()
@@ -612,8 +620,24 @@ async def test_a_read_only_impersonating_admin_cannot_run_a_bulk_action() -> Non
             ),
             json={"scope": "ids", "ids": ids, "action": "status", "status": "won"},
         )
-    assert response.status_code == 403, response.text
-    assert response.json()["kind"] == "permission"
+    assert response.status_code == 200, response.text
+
+    async with untenanted_session() as session:
+        row = (
+            await session.execute(
+                text(
+                    "SELECT actor_type, actor_id, via_grant_id FROM audit_log "
+                    "WHERE tenant_id = :t ORDER BY at DESC LIMIT 1"
+                ),
+                {"t": tenant_id},
+            )
+        ).first()
+    assert row is not None
+    assert row[0] == "admin" and str(row[1]) == str(admin_id), (
+        "a bulk move performed by an operator must name the OPERATOR — a row reading as "
+        "the client's own action is the attribution D-22 refused the write to protect"
+    )
+    assert row[2] is not None, "and it must record which view-as session it came through"
 
 
 # --- the record --------------------------------------------------------------------

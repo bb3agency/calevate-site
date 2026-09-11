@@ -126,6 +126,156 @@ export class AuthProblem extends ApiProblem {
 }
 
 /**
+ * WHY A REQUEST-SCOPED ID IS MINTED IN THE BROWSER, rather than left to the API.
+ *
+ * `CorrelationIdMiddleware` (`apps/api/core/middleware.py`) already accepts an incoming
+ * `X-Correlation-Id` and generates one when there is none — but the generated one only
+ * ever reaches us ON THE RESPONSE, and the failure this exists for is exactly the failure
+ * where no response is handed over. A `fetch` that rejects leaves an operator with two
+ * indistinguishable worlds: the request never left the browser (a refused preflight, an
+ * edge rule, a dead connection), or it ran to completion at the origin and the reply was
+ * blocked on the way back. Minting the id HERE and sending it collapses that: the id is on
+ * the screen and in `TransportProblem`, and either the server log has a `request` line
+ * carrying it or it does not. That single grep is the discriminator.
+ *
+ * **ONLY ON WRITES, AND THAT IS NOT TIMIDITY.** A header makes a request non-simple and so
+ * buys it a preflight. Every write here is non-simple already — `Content-Type:
+ * application/json`, or a method outside the CORS-simple set — so the id is free on those.
+ * A GET is not: `adminRealmSession()` builds `{ orgSlug: "" }` with no token on the
+ * deployed path (`lib/authn/realmSessions.ts`), so the admin console's first `/v1/me` is a
+ * genuinely simple request today, and stamping every read would newly spend a round trip
+ * on the slowest moment of the slowest screen. Writes are also the half where the
+ * ambiguity costs something: a read that did not arrive can simply be read again, while a
+ * write whose reply was blocked may or may not have happened.
+ *
+ * `crypto.randomUUID` is available in every browser this console supports and in Node 19+
+ * (so the test runner has it); the hyphens come out because the API's own ids are
+ * 32-character hex (`uuid.uuid4().hex`) and one shape makes a log search work for both.
+ */
+function newCorrelationId(): string {
+  return crypto.randomUUID().replaceAll("-", "");
+}
+
+/** How the browser refused to hand us a reply. Three states, because it tells us three. */
+export type TransportFailure =
+  /**
+   * The request could not be made, or the reply could not be handed over. The Fetch
+   * Standard gives this ONE rejection for the whole class ("A network error is a response
+   * whose type is error" → the promise rejects with a `TypeError`), so a refused CORS
+   * preflight, a response the browser would not expose for want of
+   * `Access-Control-Allow-Origin`, a DNS failure, a TLS failure, a dropped connection, a
+   * mixed-content block and a blocking extension are ONE observation here. Nothing in this
+   * file may claim which — see `TransportProblem`'s sentence.
+   */
+  | "blocked"
+  /**
+   * The browser abandoned the request: a navigation, a reload, a closed tab. NOT our
+   * deadline and NOT a caller's `AbortSignal` — `withDeadline` owns both of those and
+   * `sendRequest` hands them back to it untouched, so an `AbortError` that reaches here
+   * came from the browser itself.
+   */
+  | "cancelled"
+  /** Something rejected that is neither. Kept distinct rather than folded into `blocked`,
+   *  because a guess here is what this class exists to stop making. */
+  | "unknown";
+
+/** What the browser actually threw, classified — and nothing beyond what it tells us. */
+function classify(cause: unknown): TransportFailure {
+  // ABORT IS READ BY NAME, NOT BY CONSTRUCTOR, and that is not defensive noise: a
+  // `DOMException` is an `Error` subclass in a browser but is NOT one under the DOM
+  // implementations these tests run on, so `instanceof Error` silently demotes every
+  // cancellation to `unknown` — which is how a guess gets dressed as an observation.
+  // `name` is the field the Fetch Standard and the DOM spec both define for this, and it
+  // survives a polyfill, a cross-realm throw and a structured clone.
+  if (typeof cause === "object" && cause !== null && "name" in cause) {
+    if ((cause as { name?: unknown }).name === "AbortError") return "cancelled";
+  }
+  // The Fetch Standard rejects with a `TypeError` for the WHOLE network-error class and
+  // says nothing more, so this arm is as far as the browser lets anyone go.
+  if (cause instanceof TypeError) return "blocked";
+  return "unknown";
+}
+
+/**
+ * The browser refused to hand us a reply — as the `ApiProblem` every screen renders.
+ *
+ * `AuthProblem`'s shape and `TimeoutProblem`'s, for their reason: `ProblemNotice` is the
+ * only failure channel these screens have, so a failure the browser produced itself still
+ * has to arrive with a sentence, a remediation and a reference. Until this existed, a
+ * rejected `fetch` reached `ProblemNotice` as a bare `TypeError`, took the
+ * `problem === null` arm, and was rendered as one generic sentence with NOTHING recorded
+ * anywhere — no kind, no id, no path. That is the state this closes: the evidence of a
+ * transport failure was being thrown away at the exact moment it was the only evidence.
+ *
+ * ## What it may and may not say
+ *
+ * `status: 0` is the honest part, as in `AuthProblem`: no HTTP response happened *as far
+ * as this page is concerned*. The sentence therefore states the two things this branch can
+ * observe — no reply was handed over, and we cannot know whether the work was done — and
+ * NOT a cause. "Check your connection" is a diagnosis, and on the `blocked` reading it is
+ * the wrong one at least as often as the right one: the server may have answered
+ * perfectly and had its answer withheld by an intermediary or by CORS. `reason` carries
+ * the discrimination the browser DID give us for an operator; the prose does not pretend
+ * to more.
+ *
+ * `kind: "transient"` is chosen so `ProblemNotice`'s `REFERENCE_KINDS` shows the support
+ * reference — which is the whole point of minting `correlationId` above. `retryable: true`
+ * preserves the "Try again" button that the `problem === null` arm used to grant
+ * unconditionally, and preserves `providers.tsx`'s read-retry policy; mutations never
+ * auto-retry there, which is the right answer for a write whose outcome is unknown.
+ *
+ * `cause` is ATTACHED, never logged (hard rule 6): a `TypeError`'s message can carry the
+ * request URL, and a URL can carry a phone number.
+ */
+export class TransportProblem extends ApiProblem {
+  readonly reason: TransportFailure;
+  /** The method and path that failed, for an operator — never rendered. */
+  readonly request: { method: string; path: string };
+  /** What the browser threw. Attached for a debugger; never logged, never rendered. */
+  readonly cause: unknown;
+
+  constructor(
+    cause: unknown,
+    { method, path, correlationId }: { method: string; path: string; correlationId: string },
+  ) {
+    const reason = classify(cause);
+    super(0, {
+      kind: "transient",
+      type: `urn:calevate:browser/transport_${reason}`,
+      title: "No reply reached this page",
+      detail:
+        reason === "cancelled"
+          ? "That request was stopped before a reply arrived, so we could not confirm what happened."
+          : "No reply reached this page, so we could not confirm whether that was done.",
+      remediation:
+        reason === "cancelled"
+          ? "Try again without leaving the page."
+          : "Try again. If it keeps happening, send us the reference below — it is in our logs if the request reached us.",
+      retryable: true,
+      // `ProblemNotice` renders this as the support reference for `transient`, and it is
+      // the id the request was SENT with, so it is greppable in the API's `request` log
+      // line whether or not the reply came back.
+      trace_id: correlationId,
+    });
+    this.name = "TransportProblem";
+    this.reason = reason;
+    this.request = { method, path };
+    this.cause = cause;
+    // THE ONE PLACE THIS IS WRITTEN DOWN ON THE CLIENT SIDE. There is no browser error
+    // sink in this app, so the console is where a founder debugging a live console looks
+    // and the only place these three facts meet: WHAT the browser said went wrong, WHICH
+    // verb it was, and the id to grep the API's own `request` log for. `rateCard.ts` sets
+    // the precedent for the shape — a stable code, then a small object.
+    //
+    // NEITHER THE PATH NOR THE CAUSE IS LOGGED (hard rule 6). A `TypeError`'s message
+    // carries the request URL and a URL can carry an identifier we have no business
+    // writing out; both are on the error object for a debugger to open, and the path is
+    // in the Network panel already. The id is enough to find the request on our side.
+    console.error(`transport_${reason}`, { method, correlationId });
+  }
+}
+
+/**
  * HOW LONG THE BROWSER WAITS BEFORE IT STOPS WAITING — and why the number is ABOVE
  * nginx's rather than below it, which is the part a future reader will want to "fix".
  *
@@ -585,6 +735,13 @@ export async function apiUpload<T>(
 ): Promise<T> {
   const identity = identityHeaders(session);
   const headers = identity instanceof Promise ? await identity : identity;
+  // The same id `sendRequest` stamps on every write, for the same reason and at no extra
+  // cost: this request already carries `Authorization`/`X-Org-Slug`, so it is preflighted
+  // whatever we add. An upload that fails with no reply is otherwise the least
+  // diagnosable request in the app — it is the longest, and the one most likely to meet
+  // something between here and the origin.
+  const correlationId = newCorrelationId();
+  headers["X-Correlation-Id"] = correlationId;
   return await withDeadline<T>(
     (deadlineSignal) =>
       new Promise<T>((resolve, reject) => {
@@ -617,10 +774,16 @@ export async function apiUpload<T>(
           }
           void problemFrom(response).then(reject, reject);
         });
-        // A transport failure gives XHR no status at all, so it gets the same sentence a
-        // dead `fetch` would: `problemFrom` on status 0 falls through to the generic
-        // refusal, which is the honest description of "the request never landed".
-        xhr.addEventListener("error", () => reject(new ApiProblem(0, transportProblem(0))));
+        // XHR gives NO status and NO cause on a transport failure — `error` fires with an
+        // empty `ProgressEvent`. `TransportProblem` classifies what it is handed, and what
+        // it is handed here is an event, not an `Error`, so it lands on `unknown` —
+        // which is the truth: this sender genuinely cannot tell a blocked response from a
+        // dropped connection. What it CAN carry, and what the old generic
+        // `ApiProblem(0, transportProblem(0))` threw away, is the id, the method and the
+        // path.
+        xhr.addEventListener("error", () =>
+          reject(new TransportProblem(null, { method: "POST", path, correlationId })),
+        );
         xhr.addEventListener("abort", () => reject(deadlineSignal.reason));
         deadlineSignal.addEventListener("abort", () => xhr.abort(), { once: true });
         xhr.send(form);
@@ -648,6 +811,11 @@ async function sendRequest<T>(
   if (idempotencyKey) headers["Idempotency-Key"] = idempotencyKey;
   if (confirmAction) headers["X-Confirm-Action"] = confirmAction;
   if (ifMatch) headers["If-Match"] = ifMatch;
+  // WRITES ONLY — see `newCorrelationId`. The id travels with the request so that a
+  // failure with no reply is still joinable to the API's own `request` log line; its
+  // ABSENCE from that log is what tells an operator the request never arrived.
+  const correlationId = newCorrelationId();
+  if (method !== "GET") headers["X-Correlation-Id"] = correlationId;
 
   // THE WHOLE EXCHANGE IS UNDER THE DEADLINE, not just the round trip. A response whose
   // headers arrive and whose body then stalls is the same hang from the reader's chair,
@@ -658,18 +826,35 @@ async function sendRequest<T>(
   // above, where one extra tick between a query and its `fetch` was directly observable in
   // the test suite.
   return withDeadline(async (deadlineSignal) => {
-    const response = await fetch(`${API_BASE}${path}`, {
-      method,
-      headers,
-      // THE CREDENTIAL, in the deployed case (D-177). The realm's session is an HttpOnly,
-      // `__Host-`-prefixed cookie no script can read, so it reaches the API only if this
-      // says so — the API and the consoles are different origins, and the browser omits
-      // cookies cross-origin by default. `lib/authn/transport.ts` says the same thing for
-      // `/v1/auth/**`; the two are one transport the day that file's `fetch` goes away.
-      credentials: "include",
-      body: body === undefined ? undefined : JSON.stringify(body),
-      signal: deadlineSignal,
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${API_BASE}${path}`, {
+        method,
+        headers,
+        // THE CREDENTIAL, in the deployed case (D-177). The realm's session is an HttpOnly,
+        // `__Host-`-prefixed cookie no script can read, so it reaches the API only if this
+        // says so — the API and the consoles are different origins, and the browser omits
+        // cookies cross-origin by default. `lib/authn/transport.ts` says the same thing for
+        // `/v1/auth/**`; the two are one transport the day that file's `fetch` goes away.
+        credentials: "include",
+        body: body === undefined ? undefined : JSON.stringify(body),
+        signal: deadlineSignal,
+      });
+    } catch (cause) {
+      // AN ABORTED DEADLINE SIGNAL IS NOT OURS TO INTERPRET, and this guard is the whole
+      // reason the two contracts above survive. `withDeadline` owns both of its causes —
+      // its own expiry, which it turns into `TimeoutProblem`, and a caller's
+      // `AbortSignal`, which it forwards unwrapped because a cancelled request is not a
+      // failed one. Both reach `fetch` as an `AbortError` and both would be classified
+      // here as `cancelled`, replacing a timeout's honest "we waited 70 seconds" with a
+      // vaguer sentence and turning a caller's own abort into a red box. So: if the
+      // signal we handed `fetch` is aborted, rethrow untouched and let `withDeadline`
+      // decide. What is left is a rejection the BROWSER produced — which, until this
+      // existed, reached `ProblemNotice` as a bare `TypeError` and was rendered as one
+      // generic sentence with nothing recorded anywhere.
+      if (deadlineSignal.aborted) throw cause;
+      throw new TransportProblem(cause, { method, path, correlationId });
+    }
 
     if (!response.ok) throw await problemFrom(response);
     return (await readBody(response)) as T;

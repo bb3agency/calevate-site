@@ -65,6 +65,7 @@ from apps.api.agents.llm_models import (
     install_llm_credential_reader,
 )
 from apps.api.agents.voice_offer import default_tts_price_is_billable, install_tts_price_reader
+from apps.api.agents.voice_sync import load_voice_catalogue
 from apps.api.agents.voices import VoiceProvider
 from apps.api.billing.rates import LlmPriceAttestation, install_llm_price_attestations
 from apps.api.core.logging import get_logger
@@ -168,10 +169,20 @@ async def refresh_pricing_snapshot() -> PricingSnapshot:
     try:
         async with untenanted_session() as session:
             priced = await attested_model_prices(session, at=datetime.now(UTC))
-            # `installed_llm_legs` already carries the azure-always rule and the stored-only
-            # credential rule (see its docstring), so this reader reproduces
-            # `agents.llm_models.installed_llm_providers()`'s default when nothing is stored
-            # and never makes an Azure-catalogue model disappear from the picker.
+            # `installed_llm_legs` carries the stored-only credential rule (see its
+            # docstring), so this reader reproduces
+            # `agents.llm_models.installed_llm_providers()`'s default when nothing is
+            # stored.
+            #
+            # ⚠ **THIS SAID "already carries the azure-always rule … and never makes an
+            # Azure-catalogue model disappear from the picker". THERE IS NO SUCH RULE ANY
+            # MORE AND THE SECOND HALF IS NOW BACKWARDS.** `model_pricing.installed_llm_legs`
+            # adds `azure_openai` only when `azure_credentials()` returns all three of
+            # resource, key and deployment — so on a deployment where those are unset,
+            # making every Azure model disappear from the picker is exactly and correctly
+            # what this does. A comment promising the opposite is how the defect that
+            # change fixed — offering a model the kitchen cannot cook — would get
+            # reintroduced by the next reader.
             installed = await installed_llm_legs(session)
             data_use = await dashboard_permitted_providers(session)
             # THROUGH THE DOOR, once per provider, rather than reading the price table and
@@ -203,6 +214,22 @@ async def refresh_pricing_snapshot() -> PricingSnapshot:
         billable_tts=billable_tts,
     )
     return _snapshot
+
+
+async def refresh_voice_catalogue_snapshot() -> None:
+    """Re-read the cached voice catalogue into this process. NEVER RAISES.
+
+    Same fail-safe direction as `refresh_pricing_snapshot`: a table this process cannot
+    read must not take down the voice picker, so the catalogue already in force (or
+    `agents/voices.SEED_CATALOG` on a cold start) keeps serving and the failure is logged.
+    This is also what makes `POST /v1/ops/voices/refresh` reach every API process rather
+    than only the one that served the request.
+    """
+    try:
+        async with untenanted_session() as session:
+            await load_voice_catalogue(session)
+    except Exception as exc:
+        log.error("voice_catalogue_snapshot_refresh_failed", extra={"reason": type(exc).__name__})
 
 
 def _read_attestations() -> Mapping[str, LlmPriceAttestation]:
@@ -256,6 +283,17 @@ async def _poll_forever() -> None:
     # cannot die.
     while True:
         await refresh_pricing_snapshot()
+        # ⚠ THE VOICE CATALOGUE RIDES THIS POLL, AND THIS MODULE'S NAME IS NOW NARROWER
+        # THAN ITS CONTENTS (D-585). It is a second platform-scoped fact this process
+        # serves from an in-memory snapshot and refreshes off the request path — the
+        # identical shape, the same session pool, the same 30-second budget — and the
+        # alternative was a second task, a second start/stop pair and a second place for
+        # a refresher to be forgotten at startup. It is here rather than in a module of
+        # its own because BOTH processes that matter already start this one
+        # (`apps/api/main.py`, `apps/workers/settings.py`); a third refresher would have
+        # to be wired into both again, which is exactly the half-wired seam the voice
+        # catalogue exists to stop being.
+        await refresh_voice_catalogue_snapshot()
         await asyncio.sleep(_POLL_INTERVAL_S)
 
 
@@ -301,6 +339,7 @@ __all__ = [
     "PricingSnapshot",
     "install_pricing_readers",
     "refresh_pricing_snapshot",
+    "refresh_voice_catalogue_snapshot",
     "start_pricing_refresher",
     "stop_pricing_refresher",
     "uninstall_pricing_readers",

@@ -37,13 +37,13 @@ from apps.api.agents.voice_offer import (
 from apps.api.agents.voices import (
     CARTESIA_CATALOG_SOURCE,
     CARTESIA_TTS_MODEL,
-    CATALOG,
     DEFAULT_VOICE_ID,
     CartesiaVoiceRecord,
     TtsModel,
     Voice,
     _cartesia_entry,
     cartesia_catalogue,
+    catalogue,
     default_voice,
     voice_id_for,
     voice_tier,
@@ -96,7 +96,7 @@ def test_the_cartesia_catalogue_is_empty_and_that_is_the_point() -> None:
     behind a login this container cannot reach; an id nobody read is an id somebody
     invented, and it publishes an agent that fails on a real client's phone."""
     assert CARTESIA_CATALOG_SOURCE == ()
-    assert all(voice.provider == "sarvam" for voice in CATALOG)
+    assert all(voice.provider == "sarvam" for voice in catalogue())
     # And the import-time assertions in `voices.py` held at zero, which is what makes the
     # module importable at all — this test would not have run otherwise.
     assert default_voice().provider == "sarvam", "Cartesia is chosen, never inherited (Q9)"
@@ -157,7 +157,7 @@ def test_the_shared_note_states_no_price() -> None:
     """A rate card in a dropdown string is a second definition of a number that reaches
     money (hard rule 7). Under D-547 a minute's price is the rate frozen on the credit lot
     it draws from, and there are two of them per lot — so no figure belongs here."""
-    for voice in (*CATALOG, _cartesia_entry(_record())):
+    for voice in (*catalogue(), _cartesia_entry(_record())):
         assert "₹" not in voice.note, f"{voice.id} quotes a price the rate card owns"
         assert "10k" not in voice.note
 
@@ -168,20 +168,38 @@ def test_the_shared_note_states_no_price() -> None:
 def test_the_tier_is_the_provider_and_nothing_else() -> None:
     """Plan §2.3 invariant 7: there is no way to hold a Cartesia voice and a Sarvam tier,
     because the tier is not stored anywhere it could disagree with the voice."""
-    for voice in CATALOG:
+    for voice in catalogue():
         assert voice_tier(voice.id) == voice.provider
-    assert voice_tier(_cartesia_entry(_record()).id) == "sarvam", (
-        "a voice built but not REGISTERED in the catalogue is not a catalogue id, so it "
-        "cannot claim the dearer tier — the lookup is the whole authority"
+    assert voice_tier(_cartesia_entry(_record()).id) == "cartesia", (
+        "⚠ THIS ASSERTION USED TO EXPECT `sarvam`, AND REVERSING IT IS THE POINT OF D-585. "
+        "The tier used to be a CATALOGUE LOOKUP that answered 'sarvam' for any id it could "
+        "not find. That was safe only while the catalogue was a frozen compiled constant; "
+        "it is now cached from the engine, so 'absent' is a state a live Cartesia agent "
+        "can be in — a cache not yet synced, a voice the vendor withdrew, a clone renamed "
+        "— and every one of those would have billed a Cartesia minute at the Sarvam rate "
+        "on an append-only ledger (hard rule 7). The tier now comes from the id's own "
+        "model prefix, so a Cartesia id prices as Cartesia whether or not a row exists."
     )
 
 
 def test_an_unknown_or_missing_voice_is_the_cheaper_tier() -> None:
     """A decision, not a fallback: an agent with no voice speaks the engine's default
-    Sarvam persona, and a legacy free-text row is a Sarvam row. Defaulting the other way
-    would bill an unmigrated agent at the dearer rate for a call it never made there."""
-    for unknown in (None, "", "bulbul:v3", "sonic-3.5", "whatever-this-is"):
+    Sarvam persona, and a row naming NO model we offer is a Sarvam row. Defaulting the
+    other way would bill an unmigrated agent at the dearer rate for a call it never made
+    there.
+
+    ⚠ **`sonic-3.5` MOVED OUT OF THIS LIST ON 11 SEP 2026 (D-585) AND THAT IS A FIX, NOT A
+    REGRESSION.** A bare model string is the pre-split legacy spelling, and the legacy
+    spelling of a CARTESIA row names the Cartesia model — so pricing it as Sarvam was the
+    exact under-billing this change exists to remove. `bulbul:v3` stays here and still
+    answers `sarvam`, for the same reason and in the same direction: it names the Sarvam
+    model."""
+    for unknown in (None, "", "bulbul:v3", "whatever-this-is", "Anushka", "bulbul"):
         assert voice_tier(unknown) == "sarvam"
+    assert voice_tier("sonic-3.5") == "cartesia", (
+        "a legacy row naming the Cartesia model is a Cartesia row; billing it at the "
+        "Sarvam rate is unmetered spend on the dearer tier (hard rule 7)"
+    )
 
 
 # --- C.2: offerability ----------------------------------------------------------
@@ -193,7 +211,7 @@ def test_a_sarvam_voice_is_offerable_with_no_cartesia_anything(
     """The Cartesia grounds must not reach the tier that has none of them: its key is the
     engine account's own, its cost is on the rate card, and no cap applies."""
     monkeypatch.setattr(voice_offer, "cartesia_credential_installed", lambda: False)
-    for voice in CATALOG:
+    for voice in catalogue():
         assert unofferable_reason(voice, cartesia_live_agents=10_000) is None
 
 
@@ -252,12 +270,12 @@ def test_every_voice_comes_back_with_its_verdict_never_a_shorter_list(
     that the price is what is still missing. The reason is the product; filtering is the
     caller's."""
     monkeypatch.setattr(voice_offer, "cartesia_credential_installed", lambda: True)
-    catalogue = (*CATALOG, _cartesia_entry(_record()))
+    entries = (*catalogue(), _cartesia_entry(_record()))
 
-    offered = offerable_voices(cartesia_live_agents=0, voices=catalogue)
+    offered = offerable_voices(cartesia_live_agents=0, voices=entries)
 
-    assert len(offered) == len(catalogue), "the list never shrinks"
-    assert [row.voice for row in offered] == list(catalogue)
+    assert len(offered) == len(entries), "the list never shrinks"
+    assert [row.voice for row in offered] == list(entries)
     verdicts = {row.voice.provider: row for row in offered}
     assert verdicts["sarvam"].offerable is True and verdicts["sarvam"].reason is None
     assert verdicts["cartesia"].offerable is False
@@ -304,7 +322,7 @@ def test_the_wire_carries_the_tier_name_so_the_browser_never_holds_a_copy() -> N
     from apps.api.agents.voice_routes import OfferedVoiceOut
     from apps.api.billing.rates import voice_tier_label
 
-    for voice in CATALOG:
+    for voice in catalogue():
         row = OfferedVoiceOut.of(OfferedVoice(voice=voice, reason=None))
         assert row.tier_label == voice_tier_label(voice.provider)
         assert row.provider not in row.tier_label.lower(), (
@@ -364,11 +382,11 @@ def test_offerability_itself_does_not_fork_by_audience(monkeypatch: pytest.Monke
     """`None`-ness is one fact for both readers — which is what lets `OfferedVoice.offerable`
     stay derived from the reason instead of computed a second way per audience."""
     _a_refusing_deployment(monkeypatch)
-    catalogue = (*CATALOG, _cartesia_entry(_record()))
+    entries = (*catalogue(), _cartesia_entry(_record()))
     for audience in ("operator", "client"):
-        rows = offerable_voices(cartesia_live_agents=0, voices=catalogue, audience=audience)
+        rows = offerable_voices(cartesia_live_agents=0, voices=entries, audience=audience)
         assert [row.offerable for row in rows] == [
-            row.offerable for row in offerable_voices(cartesia_live_agents=0, voices=catalogue)
+            row.offerable for row in offerable_voices(cartesia_live_agents=0, voices=entries)
         ]
         assert all(row.offerable is (row.reason is None) for row in rows)
 
@@ -389,6 +407,6 @@ def test_the_default_audience_is_the_operator(monkeypatch: pytest.MonkeyPatch) -
 def test_an_offerable_voice_carries_no_sentence_for_either_reader() -> None:
     """A refusal a client cannot act on is bad; a refusal on a voice they CAN choose would
     be worse. Sarvam fails no ground, so both audiences get `None`."""
-    for voice in CATALOG:
+    for voice in catalogue():
         for audience in ("operator", "client"):
             assert unofferable_reason(voice, cartesia_live_agents=0, audience=audience) is None

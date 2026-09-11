@@ -1,21 +1,24 @@
-"""Voice catalog endpoints: clients READ the catalog, admins SET the voice.
+"""Voice catalog endpoints: everyone READS the catalog, the account OWNS the voice.
 
-That split is D-21's, restated at the top of `agents/routes.py` — "clients CAN see
-their agents, but editing [engine-facing config] is admin-only, because [it] needs a
-regression run — that routes through us, which is the managed-service moat". A voice
-change is squarely that: which voice speaks Telugu well is an EAR TEST, not a spec
-fact (BRD §6 R-10, TRD §10.1, OPERATIONS §2 gate 3), so a client picking a voice
-unsupervised is exactly the failure D-21 exists to prevent. They can hear what their
-agent sounds like; we change it.
+⚠ **D-586 (11 Sep 2026) MOVED THE WRITE INTO THE CLIENT REALM AND MADE IT REACH THE
+ENGINE. THIS MODULE USED TO SAY THE OPPOSITE OF BOTH HALVES**, at length and with
+reasons, and the reasons are answered rather than deleted — read the two sections below
+before restoring either.
 
-NOT mounted in `main.py` — the integrator wires this router in, same as
-`agents/prompt_routes.py` and `compliance/export_routes.py`.
+Clients get an AI phone agent. Which voice it speaks in is a delivery choice about their
+own business's phone line, made from a picker that plays the voice before it is picked,
+and SURFACES §2b has always put it on the "applies straight away" side. So the write is
+`agents:write` in the CLIENT realm — the owner, their staff, and an admin viewing as
+them — and it re-publishes a live agent in the same transaction.
+
+NOT mounted in `main.py`? It is — `main._mount_routers` includes it BEFORE
+`agents.routes.router`, and that order is load-bearing (see below).
 
 WHY THIS ROUTER HAS NO PREFIX
 -----------------------------
-Its two paths live in two spaces — the client realm's `/v1/agents/voices` read and one
-admin mutation under `/v1/admin/tenants/{tenant_id}/...` — so a shared prefix could
-only describe one of them. Same shape and same resolution as `agents/routes.py`.
+Its paths live in two spaces — the client realm's `/v1/agents/...` and the admin
+realm's `/v1/admin/tenants/{tenant_id}/...` — so a shared prefix could only describe one
+of them. Same shape and same resolution as `agents/routes.py` and `agents/llm_routes.py`.
 
 ⚠ **MOUNT THIS ROUTER BEFORE `agents.routes.router`.** FastAPI matches in declaration
 order and `/v1/agents/{agent_id}` happily matches the literal segment `voices`, so the
@@ -24,43 +27,42 @@ Verified against the live app, and the same hazard is called out in
 `campaigns/routes.py` for `/numbers` and `/templates`. `tests/agent_voice_test.py`
 mounts both routers in the correct order so a regression here fails a test, not a demo.
 
-WHY THE TENANT IS NAMED IN THE PATH
------------------------------------
-It looks redundant next to `{agent_id}`, and it is not. D-22 makes admin impersonation
-READ-ONLY, and `requires()` enforces that by refusing every `MUTATING_PERMISSIONS`
-entry — `agents:write` included — whenever `X-Impersonate-Org` is present. So the two
-ways an admin principal could carry a tenant are mutually exclusive with mutating:
+WHY THERE ARE TWO DOORS AND ONE WRITER
+---------------------------------------
+`PATCH /v1/agents/{agent_id}/voice` (client realm) and
+`PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice` (admin realm) are the SAME
+resource with two doors, and both call `agents/publishing.set_agent_voice`. That is
+`agents/llm_routes.py`'s pattern, adopted rather than re-invented, and its argument
+applies here unchanged: "what must never differ between them is the allow-list, the
+price and the resolution — which is exactly what would drift if the operator's screen and
+the client's screen were served by two files. What differs is who is admitted and whose
+account is named, which is a `Depends` and a path parameter, not a second
+implementation."
 
-- WITHOUT the impersonation header, `Principal.tenant_id` is None (`_load_admin_principal`).
-- WITH it, the tenant resolves but every write is 403.
+The admin door is NOT a duplicate of the client one reached by impersonation. It is the
+door an operator uses AS THEMSELVES, during onboarding, before the client has ever signed
+in — the wizard that mints an agent sets its voice (`admin/routes.py`), and there is no
+client session in that flow to carry it. It keeps the tenant in its path for the reason
+every mutating route under `/v1/admin/tenants/` does: an admin principal has no tenant of
+its own, so naming it makes the audit row self-documenting.
 
-`admin/routes.py` draws the conclusion for the mutating KB routes (its comment above
-`approve_kb`): "an admin reaching a tenant does so by impersonation, and impersonation
-is read-only. The tenant is therefore named in the path rather than inferred from a
-session, which also makes every approval self-documenting in the audit log."
-
+WHY THE TENANT IS IN THE ADMIN PATH AND NOT IN A BODY
+------------------------------------------------------
 THE TENANT USED TO RIDE IN THE BODY, on the path `PATCH /v1/agents/{agent_id}/voice`,
 and that shipped one admin-realm route in the CLIENT path space — the only one in the
-app, confirmed by walking the live route table rather than by eye. Three things came
-with it and none of them is cosmetic: the route missed the `/v1/admin` rate-limit
-profile (`core/middleware.py::RateLimitMiddleware.PROFILES`) and took the generic
-`/v1` one; its audit trail was not self-documenting from the path, so "who changed
-what for whom" needed the body to answer; and it was the shape the next author would
-copy, which is how one exception becomes a convention. `tests/route_shape_test.py` now
-asserts the rule over the whole route table, so this cannot come back as a one-off.
+app. Three things came with it and none of them is cosmetic: the route missed the
+`/v1/admin` rate-limit profile (`core/middleware.py::RateLimitMiddleware.PROFILES`) and
+took the generic `/v1` one; its audit trail was not self-documenting from the path; and
+it was the shape the next author would copy. `tests/route_shape_test.py` asserts the rule
+over the whole route table, so this cannot come back as a one-off.
 
-**No deprecation window, deliberately.** Hard rule 8's two-step doctrine is about
-columns, and its reasoning — a reader and a writer that deploy at different times —
-does not transfer here: this route is `realm="admin"`, so its only possible caller is
-the admin console, which ships from this repo against a client generated from OUR
-OpenAPI (`apps/web/src/lib/api/voices.ts`, moved in the same change). There is no
-third-party consumer to strand and no partner API. Keeping the old path as an alias
-would leave two ways to do one thing — the exact defect this move exists to remove —
-with the copyable wrong shape still live and still on the wrong limiter. The same call
-was made, for the same reason, when `POST /v1/agents/{agent_id}/publish` moved here
-(`agents/routes.py`), and `test_the_old_publish_path_no_longer_exists` pins it.
-`SetVoiceIn` keeps `extra="forbid"`, so a caller that still sends `tenant_id` in the
-body gets a 422 naming the field rather than a silently ignored parameter.
+⚠ That path — `PATCH /v1/agents/{agent_id}/voice` — is LIVE AGAIN under D-586, and it is
+a genuinely different route rather than the old one restored: CLIENT realm, no tenant
+anywhere in it (the tenant is the caller's own), and it reaches the engine. The rule the
+move established is intact, because the rule was "no ADMIN-realm route in the client path
+space", not "nothing may live at that path". `SetVoiceIn` keeps `extra="forbid"`, so a
+caller still sending `tenant_id` in the body gets a 422 naming the field rather than a
+silently ignored parameter.
 
 WHERE THE CURRENT VOICE IS READ
 -------------------------------
@@ -69,33 +71,30 @@ Not here. `GET /v1/agents/{agent_id}/pending` (`agents/publishing_routes.py`) ca
 last sent — because that endpoint is already the one answering configured-vs-live for
 the script and the call cap, and a voice is the third instance of that question rather
 than a new one. The argument, including why `AgentOut` was the wrong home and why the
-answer is client-readable at all, is in that module's docstring. This file stays the
-WRITE, which is admin-only per D-21.
+answer is client-readable at all, is in that module's docstring.
 
-WHAT THIS ENDPOINT DOES *NOT* DO
---------------------------------
-It does not touch the engine. Checked, not assumed: `agents/service.py::publish_agent`
-re-reads `a.tts_voice`/`a.tts_provider` from the row inside `_load_agent`, folds them
-into `ModelConfig` in `_to_config`, and only then calls `engine.update_agent(...)`. So
-a live agent keeps speaking in its OLD voice until someone publishes again — at which
-point the new voice is picked up with no extra step. The response says so in a field
-(`republish_required`) rather than in prose nobody reads.
+WHAT THIS ENDPOINT DOES — AND WHAT IT USED TO REFUSE TO DO
+-----------------------------------------------------------
+It writes `agents.tts_voice`/`tts_provider` AND, on a LIVE agent, re-publishes inside the
+same transaction, so the voice reaches the phone line before the response is written. A
+failed engine push rolls the column back with it; the row never claims a voice the engine
+does not hold. `agents/publishing.set_agent_voice` carries the full argument, including
+why a PAUSED agent is deliberately NOT republished.
 
-`publish_agent` now also RECORDS what it sent, in `agents.live_tts_voice` (migration
-c8b3f14e7a29). That is what makes `republish_required` a measurement rather than an
-assumption: it used to be `== published`, which reported a needed republish even when
-the operator re-selected the voice the engine was already running, because nothing in
-the schema could tell those apart.
+⚠ **THIS SECTION USED TO BE HEADED "WHAT THIS ENDPOINT DOES *NOT* DO" AND SAID: "It does
+not touch the engine ... Silently re-voicing a running agent is not a safe default. If
+the integrator wants auto-republish for parity with prompts, that is a decision-log entry
+(ROADMAP §6) and two lines here, not a quiet change."** That decision-log entry is D-586,
+and the objection it overturns was an argument about WHO IS CHOOSING, not about voices:
+it described an operator re-voicing somebody else's live phone line from a console the
+client cannot see, on an ear test (pilot gate 3) nobody had run. Under D-586 the chooser
+is the client, on their own agent, from a picker that plays the voice first — the request
+IS the consent, and nothing about it is silent. What would be silent is the old
+behaviour: a screen saying the voice changed over a line still speaking the old one.
 
-That is a deliberate divergence from `agents/prompts.py`, which republishes a LIVE
-agent inside the same transaction on the grounds that "a prompt change that only lands
-in our DB is a lie on the admin screen". The same argument applies to a voice, but the
-consequence does not: republishing a prompt changes what the agent SAYS, which the
-operator just read and approved, whereas republishing a voice changes what a live
-client's phone line SOUNDS LIKE, and the docs make that an ear test we have not run
-(pilot gate 3). Silently re-voicing a running agent is not a safe default. If the
-integrator wants auto-republish for parity with prompts, that is a decision-log entry
-(ROADMAP §6) and two lines here, not a quiet change.
+`publish_agent` RECORDS what it sent, in `agents.live_tts_voice` (migration c8b3f14e7a29).
+That is what makes `republish_required` a measurement rather than an assumption, and it is
+what lets a re-selection of the voice the engine already holds publish NOTHING.
 """
 
 from __future__ import annotations
@@ -105,9 +104,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents import publishing
 from apps.api.agents.voice_offer import (
     OfferedVoice,
     VoiceReasonAudience,
@@ -116,20 +115,16 @@ from apps.api.agents.voice_offer import (
 from apps.api.agents.voices import (
     Voice,
     VoiceSelectionCapability,
-    get_voice,
-    voice_ids,
+    catalogue_source,
     voice_selection_capability,
 )
 from apps.api.billing.rates import voice_tier_label
 from apps.api.compliance.audit import write_audit
 from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
-from apps.api.core.deps import admin_db
+from apps.api.core.deps import admin_db, db
 from apps.api.core.errors import ProblemError
 from apps.api.core.rbac import permission_meta
-from apps.api.core.settings import get_settings
-from apps.api.db.session import tenant_session
-from apps.api.engine import engine_lacks
 
 # No prefix — see the module docstring: the client-realm read and the admin mutation
 # live in different path spaces, so a shared prefix could only describe one of them.
@@ -139,10 +134,22 @@ router = APIRouter(tags=["agents"])
 # not `routes.py`, so it sits outside the B008 per-file ignore in pyproject — the same
 # situation, and the same resolution, as `prompt_routes.py` and `export_routes.py`.
 CatalogReader = Annotated[Principal, Depends(requires("agents:read"))]
-VoiceSetter = Annotated[Principal, Depends(requires("agents:write", realm="admin"))]
+#: THE CLIENT DOOR'S LOCK (D-586). `agents:write`, held by `owner` and `staff` since the
+#: founder decided an account's own team edits its agents' settings, and `realm` left at
+#: its `"any"` default deliberately: `current_any` resolves a client principal from a
+#: client session and an ADMIN principal only when the impersonation header is present,
+#: which is exactly the population this write is for — the owner, their staff, and an
+#: operator viewing as them. It is NOT `org:manage`: that is the owner's alone, and a
+#: staff member who may not buy credit may still choose which voice answers the phone.
+VoiceWriter = Annotated[Principal, Depends(requires("agents:write"))]
+#: The ADMIN door's lock — an operator acting AS THEMSELVES, with the tenant in the path.
+AdminVoiceSetter = Annotated[Principal, Depends(requires("agents:write", realm="admin"))]
 # Reads the tenant DIRECTORY cross-tenant; the audit row is written on it. The actual
 # agent write happens under `tenant_session`, in that tenant's own RLS scope.
 AdminSession = Annotated[AsyncSession, Depends(admin_db)]
+#: The CLIENT door's session — its own tenant's RLS scope, which is where its audit row
+#: belongs. The agent write itself opens a session of its own inside `set_agent_voice`.
+Session = Annotated[AsyncSession, Depends(db)]
 
 
 class Strict(BaseModel):
@@ -169,8 +176,11 @@ class SetVoiceOut(Strict):
     agent_status: str
     # True when the agent already exists on the engine (`engine_agent_ref` is set).
     published: bool
-    # Always False: this endpoint writes our row and nothing else. Stated as a field so
-    # a UI cannot accidentally imply otherwise.
+    # DID THIS REQUEST REACH THE VOICE PLATFORM. It used to be a hard-coded `False` with
+    # a comment saying this endpoint writes our row and nothing else; since D-586 it is
+    # what actually happened. True means callers hear the new voice from their next call.
+    # False on a draft or paused agent (there is nothing live to update), and on a
+    # re-selection of the voice the engine is already holding (there is nothing to send).
     engine_synced: bool
     # What the engine was last SENT (`agents.live_tts_voice`, written by
     # `publish_agent`), or null when nothing is recorded — an agent that was never
@@ -185,6 +195,10 @@ class SetVoiceOut(Strict):
     # tell the two apart. A null `live_voice_id` counts as different: a sync we cannot
     # prove is not a sync.
     republish_required: bool
+    # False when the row already held this voice — a double-clicked picker, or the retry
+    # of a request whose response was lost. A success, not a conflict (RFC 9110 §9.2.2),
+    # and the signal the audit ledger keys off so one decision writes one entry.
+    changed: bool
     next_step: str
 
 
@@ -268,6 +282,14 @@ class VoiceCatalogueOut(Strict):
     #: EVERY voice in the catalogue, each with its own verdict — never a filtered list.
     #: See `OfferedVoiceOut` for why a shorter list would be the wrong answer.
     voices: list[OfferedVoiceOut]
+    #: WHERE THESE VOICES CAME FROM — `"engine"` (a sync read them off the voice
+    #: platform account) or `"seed"` (no sync has ever succeeded on this process, so the
+    #: built-in fallback is answering). D-585: the catalogue is the ENGINE ACCOUNT's list,
+    #: not a constant in our source, and an operator looking at a short picker has to be
+    #: able to tell "this is what the platform offers" from "nobody has synced yet". It
+    #: crosses the wire rather than being inferred from the row count for
+    #: `VoiceCatalogueOut`'s own reason: a length is not a verdict.
+    source: str
     #: One sentence a UI prints verbatim. Always present, so a surface never has to
     #: compose the explanation out of the two fields above and get the tone wrong — the
     #: closed case is a product fact, not an error, and it should not read like one.
@@ -275,6 +297,17 @@ class VoiceCatalogueOut(Strict):
 
 
 def _catalogue_note(capability: VoiceSelectionCapability) -> str:
+    if capability.available and catalogue_source() == "seed":
+        # THE SEED IS A REAL STATE AND IT IS SAID OUT LOUD (D-585). It is a SHORT list of
+        # voices a live platform read returned, so nothing here will 400 on publish — but
+        # it is not the account's list, it holds no voice the founder has cloned, and the
+        # person who can fix that is the one reading this sentence.
+        return (
+            "Pick the voice this agent speaks in. This is the built-in starter list — the "
+            "voice platform's own catalogue has not been synced on this deployment yet, so "
+            "any voice added or cloned on the platform is missing. An administrator can "
+            "sync it from the ops console."
+        )
     if capability.available:
         return (
             "Pick the voice this agent speaks in. Entries marked unverified have not yet "
@@ -296,13 +329,18 @@ def _reason_audience(principal: Principal) -> VoiceReasonAudience:
     permission, not an audience.
 
     **AN IMPERSONATING ADMIN IS AN OPERATOR HERE, AND THAT IS NOT THE ANSWER
-    `llm_routes` GIVES.** There the two realms have two routes, so an operator opening the
-    CLIENT's route deliberately reads the client's sentence. This endpoint is one route for
-    both consoles, and `current_any` admits an admin principal ONLY when the impersonation
-    header is present (`core/auth.py`) — so the admin console's voice picker reaches it as
-    an impersonating admin, and treating that as a client would delete the operator ground
-    from the only screen an operator installs a Cartesia key from. Realm decides, and
-    impersonation does not change a realm.
+    `llm_routes` GIVES.** There the two realms have two routes AND two audiences, so an
+    operator opening the CLIENT's route deliberately reads the client's sentence. The
+    catalogue READ is one route for both consoles, and `current_any` admits an admin
+    principal ONLY when the impersonation header is present (`core/auth.py`) — so the admin
+    console's voice picker reaches it as an impersonating admin, and treating that as a
+    client would delete the operator ground from the only screen an operator installs a
+    Cartesia key from. Realm decides, and impersonation does not change a realm.
+
+    The WRITE has two routes since D-586 and uses this same selector rather than hard-coding
+    an audience per route, which is what keeps the picker and the write telling one person
+    one story: whichever door an operator comes through, they read the ground they can fix,
+    and a client reads the one action they have.
     """
     return "operator" if principal.is_admin else "client"
 
@@ -346,7 +384,133 @@ async def list_voices(principal: CatalogReader) -> VoiceCatalogueOut:
         control=capability.control,
         selectable=capability.available,
         voices=[OfferedVoiceOut.of(row) for row in offered],
+        source=catalogue_source(),
         note=_catalogue_note(capability),
+    )
+
+
+_APPLIES_NOW = (
+    "Applies immediately: a live agent is re-published to the voice platform in the same "
+    "transaction, so the screen never claims a voice the platform is not speaking. If "
+    "that push fails nothing is saved. Callers hear it from the NEXT call — a call "
+    "already in progress is not disturbed.\n\n"
+    "A draft or paused agent is not published by this: there is nothing live to update, "
+    "and the next publish carries the voice. `engine_synced` says which happened.\n\n"
+    "An id outside the catalog is refused with `unknown_voice`. A catalogue voice this "
+    "deployment cannot put a client on — no vendor key, no attested price, the "
+    "platform-wide cap reached — is refused with `voice_not_available`, and the detail "
+    "names the actual ground."
+)
+
+
+async def _apply_voice(
+    *,
+    tenant_id: UUID,
+    agent_id: UUID,
+    voice_id: str,
+    principal: Principal,
+    audit_session: AsyncSession,
+    request: Request,
+) -> SetVoiceOut:
+    """THE ONE WRITER BEHIND BOTH DOORS — `llm_routes.py`'s pattern, and its argument.
+
+    What differs between the client route and the admin route is who is admitted and
+    whose account is named. Everything that must never differ — the capability check, the
+    catalogue lookup, the offerability verdict, the lock, the republish, the audit action
+    — is here, once.
+
+    `set_agent_voice` opens the tenant's own RLS scope and reaches the engine, so it runs
+    OUTSIDE the audit session's transaction: a slow vendor call must not hold the audit
+    row's transaction open, and the audit entry should describe what actually happened
+    rather than what was about to be attempted. Same ordering, and the same reason, as
+    `agents/routes.py::publish` and `set_disclosure`.
+    """
+    result = await publishing.set_agent_voice(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        voice_id=voice_id,
+        # THE REALM DECIDES WHOSE LANGUAGE A REFUSAL IS IN, never a role — `llm_models.
+        # LlmReasonAudience`'s rule, applied here for the same reason `_reason_audience`
+        # above applies it to the read: a role is a permission, not an audience. An
+        # impersonating admin is an operator, because the operator grounds name a vendor
+        # and two of our settings and they are useless to anyone who cannot reach the ops
+        # console.
+        audience=_reason_audience(principal),
+    )
+    if result.changed:
+        await write_audit(
+            audit_session,
+            action="agent.voice_set",
+            actor=principal,
+            tenant_id=tenant_id,
+            object_type="agent",
+            object_id=str(agent_id),
+            ip=client_request_ip(request),
+            # Catalog ids and booleans. No prompt text, no client detail (hard rule 6).
+            summary={
+                "voice_id": result.voice.id,
+                "tts_model": result.voice.tts_model,
+                "engine_synced": result.engine_synced,
+                "republish_required": result.republish_required,
+            },
+        )
+    return SetVoiceOut(
+        agent_id=result.agent_id,
+        voice=result.voice,
+        agent_status=result.agent_status,
+        published=result.published,
+        engine_synced=result.engine_synced,
+        live_voice_id=result.live_voice_id,
+        republish_required=result.republish_required,
+        changed=result.changed,
+        next_step=_next_step(
+            published=result.published,
+            republish_required=result.republish_required,
+            engine_synced=result.engine_synced,
+        ),
+    )
+
+
+@router.patch(
+    "/v1/agents/{agent_id}/voice",
+    response_model=SetVoiceOut,
+    openapi_extra=permission_meta("agents:write"),
+    summary="Choose the voice this agent speaks in (D-586)",
+    description=(
+        "Sets the voice on one of your own agents. Hear the options first with "
+        "`GET /v1/agents/voices`; a voice returned there with `offerable: false` is "
+        "refused here, with the same sentence that read said.\n\n" + _APPLIES_NOW
+    ),
+)
+async def set_my_agent_voice(
+    agent_id: UUID,
+    payload: SetVoiceIn,
+    session: Session,
+    request: Request,
+    principal: VoiceWriter,
+) -> SetVoiceOut:
+    """The client door. The tenant is the caller's own and is never in the path.
+
+    `agents:write` rather than `org:manage`, and the difference is the founder's decision
+    rather than a preference: `org:manage` is the OWNER's permission — billing, members,
+    every account setting — and this must be reachable by their STAFF, who run the phone
+    line day to day. `agents:write` is the permission that names exactly this authority,
+    it already existed, and `rbac.py` now grants it to both client roles.
+
+    It is in `MUTATING_PERMISSIONS`, which is what makes every guard in `requires()` apply
+    here unchanged: an admin-realm token with no impersonation header is refused by the
+    client verifier, an archived agent is refused by `guard_agent_write`, and whether an
+    impersonating operator may write at all is D-22's answer, given in one place for every
+    route rather than re-decided here.
+    """
+    assert principal.tenant_id is not None  # `requires()` resolves a tenant for this realm
+    return await _apply_voice(
+        tenant_id=principal.tenant_id,
+        agent_id=agent_id,
+        voice_id=payload.voice_id,
+        principal=principal,
+        audit_session=session,
+        request=request,
     )
 
 
@@ -354,15 +518,13 @@ async def list_voices(principal: CatalogReader) -> VoiceCatalogueOut:
     "/v1/admin/tenants/{tenant_id}/agents/{agent_id}/voice",
     response_model=SetVoiceOut,
     openapi_extra=permission_meta("agents:write"),
-    summary="Set an agent's voice from the catalog (admin realm, D-21)",
+    summary="Set an agent's voice from the catalog (admin realm — onboarding)",
     description=(
-        "Writes `agents.tts_voice` (and the matching `tts_provider`) and audits it. "
-        "The tenant is named in the path because an admin principal has no tenant of "
-        "its own and the one way it could get one — impersonation — is read-only by "
-        "D-22; sending `X-Impersonate-Org` here is still refused. It does NOT reach "
-        "the voice engine: `publish_agent` re-reads both columns, so a live agent "
-        "keeps its old voice until the next publish — see `republish_required` in the "
-        "response. An id outside the catalog is refused with `unknown_voice`."
+        "The operator's door onto the same write, for the onboarding wizard and for "
+        "support acting as themselves: the tenant is named in the path because an admin "
+        "principal has no tenant of its own, which also makes the audit row "
+        "self-documenting. A client edits their own agent's voice on "
+        "`PATCH /v1/agents/{agent_id}/voice` instead.\n\n" + _APPLIES_NOW
     ),
     tags=["admin"],
 )
@@ -372,134 +534,59 @@ async def set_agent_voice(
     payload: SetVoiceIn,
     session: AdminSession,
     request: Request,
-    principal: VoiceSetter,
+    principal: AdminVoiceSetter,
 ) -> SetVoiceOut:
-    """Catalog check first, then the row, then the audit entry.
-
-    Order matters: an unknown id must never reach the UPDATE. The whole reason this
-    module exists is that `agents.tts_voice` is free text whose next reader is a vendor
-    API — a typo that gets stored looks saved, publishes cleanly, and surfaces as a
-    broken call on a client's line. Refusing it here costs a dictionary lookup.
-
-    `tts_provider` is written alongside the voice because the catalog knows it and the
-    pair is only meaningful together: the adapter sends `synthesizer.provider` and
-    `synthesizer.provider_config.voice` as one object, and the onboarding wizard leaves
-    both NULL, so setting the voice alone would produce a half-configured synthesizer.
-
-    THE CAPABILITY CHECK COMES FIRST, before even the catalog lookup (D-93). On an engine
-    that supplies its own voices there is no id that would be correct, so refusing with
-    `unknown_voice` would send an operator hunting for the right string forever. It is
-    also a check the picker already made — `GET /v1/agents/voices` answers
-    `selectable: false` — and this is the backstop that makes the picker's answer
-    trustworthy rather than decorative: a screen built from a stale schema, a script, or
-    a curl still cannot write a voice the engine will silently ignore.
+    """The admin door. Tenant existence first, then the shared writer.
 
     TENANT EXISTENCE COMES BEFORE ALL OF IT (D-133). The tenant id here is a uuid an
     operator copies off a console URL, and an absent one must answer 404 `not_found`
     rather than any business rule about the voice — a mistyped tenant hitting
     `unknown_voice` would send an operator hunting for the right catalog id in an account
     that does not exist. `admin.service.tenant_exists` is the one definition, read here on
-    the cross-tenant admin session before the capability and catalog checks that would
-    otherwise mask it. `tests/absent_tenant_answer_test.py` is the census that pins it.
+    the cross-tenant admin session before the checks that would otherwise mask it.
+    `tests/absent_tenant_answer_test.py` is the census that pins it. The client door needs
+    no such read: its tenant came from a verified session.
     """
     from apps.api.admin import service as admin_service
 
     if not await admin_service.tenant_exists(session, tenant_id):
         raise ProblemError.not_found("Client")
 
-    capability = voice_selection_capability()
-    if not capability.available:
-        raise engine_lacks("tts", engine=get_settings().engine)
-
-    voice = get_voice(payload.voice_id)
-    if voice is None:
-        raise ProblemError(
-            kind="business_rule",
-            code="unknown_voice",
-            title="Unknown voice",
-            detail="That voice is not in the catalog, so it cannot be set on an agent.",
-            remediation=("Pick one of the available voices: " + ", ".join(voice_ids()) + "."),
-            fields=[
-                {
-                    "field": "voice_id",
-                    "rule": "not_in_catalog",
-                    "message": "Not a supported voice.",
-                }
-            ],
-        )
-
-    # The tenant's own RLS scope. An agent belonging to a different tenant is invisible
-    # here, so the UPDATE matches zero rows and the answer is 404 — under RLS "not
-    # found" and "belongs to someone else" are deliberately the same answer.
-    async with tenant_session(tenant_id) as scoped:
-        row = (
-            await scoped.execute(
-                text(
-                    "UPDATE agents SET tts_voice = :voice, tts_provider = :provider, "
-                    "updated_at = now() WHERE id = :aid AND deleted_at IS NULL "
-                    # `live_tts_voice` is NOT written here — that is the whole point.
-                    # It records what `publish_agent` handed the engine, and this
-                    # endpoint does not reach the engine. Returned so the response can
-                    # say what callers are hearing rather than assume it moved.
-                    "RETURNING status, engine_agent_ref, live_tts_voice"
-                ),
-                {"voice": voice.id, "provider": voice.provider, "aid": agent_id},
-            )
-        ).first()
-        if row is None:
-            raise ProblemError.not_found("Agent")
-        status, engine_ref, live_voice_id = str(row[0]), row[1], row[2]
-
-    published = bool(engine_ref)
-    # Exact, not assumed. `live_voice_id` is null for an agent published before the
-    # mirror existed, and null != voice.id, so that case still asks for a republish —
-    # the safe direction.
-    republish_required = published and live_voice_id != voice.id
-    await write_audit(
-        session,
-        action="agent.voice_set",
-        actor=principal,
+    return await _apply_voice(
         tenant_id=tenant_id,
-        object_type="agent",
-        object_id=str(agent_id),
-        ip=client_request_ip(request),
-        # Catalog ids and a boolean. No prompt text, no client detail (hard rule 6).
-        summary={
-            "voice_id": voice.id,
-            "tts_model": voice.tts_model,
-            "republish_required": republish_required,
-        },
-    )
-    return SetVoiceOut(
         agent_id=agent_id,
-        voice=voice,
-        agent_status=status,
-        published=published,
-        engine_synced=False,
-        live_voice_id=live_voice_id,
-        republish_required=republish_required,
-        next_step=_next_step(published=published, republish_required=republish_required),
+        voice_id=payload.voice_id,
+        principal=principal,
+        audit_session=session,
+        request=request,
     )
 
 
-def _next_step(*, published: bool, republish_required: bool) -> str:
-    """What the operator does now, in one sentence a UI prints verbatim.
+def _next_step(*, published: bool, republish_required: bool, engine_synced: bool) -> str:
+    """What happens now, in one sentence a UI prints verbatim.
 
-    Three answers rather than two: an agent already speaking the voice that was just
-    selected needs NOTHING, and telling that operator to publish would send them to
-    re-push a configuration the engine already holds — a pointless engine call, and a
-    screen that cries wolf about a divergence stops being read when there is one.
+    Four answers rather than three, because D-586 added the one that is now the common
+    case: the voice HAS reached the phone line, and the only thing left to say is when
+    callers hear it. The old third answer — "publish the agent to send this voice" — is
+    kept for the states a voice write deliberately does not publish (a draft agent, a
+    paused one), because telling those clients that callers already hear it would be the
+    same lie in the other direction.
     """
+    if engine_synced:
+        return (
+            "Callers hear this voice from the next call — the agent already speaking to "
+            "someone finishes in the voice it started in."
+        )
     if not published:
-        return "The agent is not on the engine yet; publishing it will use this voice."
+        return "The agent is not on the voice platform yet; publishing it will use this voice."
     if not republish_required:
         return (
-            "Callers already hear this voice — the engine is holding it, so there is "
-            "nothing to publish."
+            "Callers already hear this voice — the voice platform is holding it, so there "
+            "was nothing to send."
         )
     return (
-        "Publish the agent to send this voice to the engine — until then callers "
-        "hear the previous voice."
+        "This agent is not on the frontline, so nothing was sent to the voice platform. "
+        "It will speak in this voice from the moment it is put back on."
     )
 
 

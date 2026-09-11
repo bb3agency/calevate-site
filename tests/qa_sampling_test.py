@@ -339,7 +339,7 @@ def test_this_router_has_no_route_to_raw_transcript_text() -> None:
 
 
 def test_the_queue_read_is_a_read_permission_and_the_verdict_is_a_mutating_one() -> None:
-    """D-22: a GET must not be gated on a permission read-only impersonation refuses,
+    """D-22: a GET must not be gated on a permission a view-as session is refused,
     and a mutation must be."""
     by_path = {
         (route.path, method): route_enforcement(route)[0]

@@ -25,7 +25,7 @@ from apps.api.billing.ai_quota import new_assist_ref, require_ai_assist
 from apps.api.billing.rates import PREPAID_TIERS
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.service import check_dispatch
-from apps.api.core.auth import client_request_ip, requires
+from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.errors import ProblemError
@@ -266,9 +266,11 @@ async def assist_call(
 
     **`org:manage`, and it is the whole population question.** This is a POST that spends
     money, so `test_every_mutating_route_is_gated_by_a_mutating_permission` requires a
-    permission in `MUTATING_PERMISSIONS` — which also means an operator inside a D-22
-    read-only "view as client" session cannot spend a client's allowance from a client
-    screen. Of the mutating permissions a client role holds, `org:manage` is the one this
+    permission in `MUTATING_PERMISSIONS`. Until D-587 that ALSO meant an operator inside a
+    "view as client" session could not spend a client's allowance from a client screen;
+    `org:manage` is now writable in such a session, so that property is asserted here as
+    its own lock (`assert_view_as_may`, below) rather than inherited from the permission.
+    Of the mutating permissions a client role holds, `org:manage` is the one this
     console already uses for the whole AI surface: `GET /v1/billing/ai-quota` is
     `billing:read` and `POST /v1/billing/ai-quota/extra` is `org:manage`, both owner-only,
     on SEC-COMP §5's ground that spend is an owner's business. Gating the thing that
@@ -294,6 +296,11 @@ async def assist_call(
     draft's RFC 7807 reference; the shape is the same).
     """
     assert principal.tenant_id is not None  # guaranteed by the tenant-scoped session
+    # THE PAYER, NOT CAUTION (D-587). This meters the CLIENT'S AI allowance, which is why
+    # `copilot:use` is withheld from a view-as session as a permission — and this route
+    # spends the same wallet under a permission that is otherwise ordinary settings. The
+    # founder's rule is the ground: "you never charge a client for your own support work".
+    assert_view_as_may(principal, "billing.ai_assist")
     tenant_id = principal.tenant_id
 
     idem_key = request.headers.get("Idempotency-Key")
@@ -840,11 +847,20 @@ async def search_lead_facets(
 
 def _view_owner(principal: Principal) -> UUID:
     """WHOSE views these are. A view is private, so a session with no user is not a
-    session that can have any — and an impersonating operator's `user_id` is an
-    `admin_users` row, which owns none of a client's views and correctly reads empty."""
-    if principal.user_id is None:
+    session that can have any.
+
+    `client_user_id`, NOT `user_id`, and since D-587 that is load-bearing rather than
+    descriptive. An operator's `user_id` is an `admin_users` row; `lead_saved_views.user_id`
+    is an FK to `users`. While view-as was read-only the distinction never reached a write,
+    so reading empty was the whole story. Now that `leads:write` is writable in a view-as
+    session, the same expression would have reached an INSERT and answered a foreign-key
+    violation — a 500 on a support call — which is why the refusal is a sentence here and
+    the id is obtained through the one accessor that cannot hand back an operator's."""
+    owner = principal.client_user_id
+    if owner is None:
+        assert_view_as_may(principal, "leads.saved_view")
         raise ProblemError.forbidden("Saved views belong to a signed-in user of this account.")
-    return principal.user_id
+    return owner
 
 
 @router.get(

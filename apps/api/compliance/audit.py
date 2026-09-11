@@ -332,6 +332,22 @@ async def write_audit(
         "admin" if actor and actor.is_admin else "user" if actor else "system"
     )
     entry_id = uuid7()
+    # WHICH VIEW-AS SESSION THIS ACT CAME THROUGH, or None (D-587).
+    #
+    # READ OFF THE ACTOR rather than taken as a parameter, and that is the whole
+    # attribution design. D-22 kept the ledger unambiguous by refusing the write; this
+    # keeps it unambiguous by carrying the third fact the row needs. With it, an
+    # impersonated write says: `actor_id` = the OPERATOR'S `admin_users.id` (which
+    # `Principal.user_id` already was), `actor_type` = "admin", `tenant_id` = the client it
+    # landed in, and this = the `jti` of the grant — which joins to the ONE
+    # `admin.impersonation_started` row naming who entered, when, and from what address.
+    # Without it the row would read "an admin changed this client's setting" and could not
+    # say the operator was wearing the client's face, which is the sentence hard rule 5's
+    # toggles need in a dispute.
+    #
+    # NO ROUTE HAS TO REMEMBER IT. Every audited write already passes its `Principal`; a
+    # route written tomorrow is attributed by having been written at all.
+    via_grant_id = actor.impersonation_grant_id if actor else None
     payload: dict[str, Any] = {
         "id": str(entry_id),
         "actor_type": resolved_actor_type,
@@ -357,6 +373,13 @@ async def write_audit(
         # order, which is not true of an edited `ip`.
         "ip": ip,
     }
+    if via_grant_id is not None:
+        # PRESENT ONLY WHEN SET, which is what keeps every pre-D-587 row verifying under its
+        # own shape with no `_without_*` shim: a row that came through no view-as session
+        # hashes exactly the payload this function has always hashed. `_without_ip` is the
+        # precedent for the alternative and the reason it is avoided — each shape variant a
+        # verifier must try is a shape an attacker may keep.
+        payload["via_grant_id"] = str(via_grant_id)
     if summary:
         # Depth-capped, length-capped, key-pattern-redacted before it leaves the
         # process (§7). It is NOT part of the hashed payload: `audit_log` has no
@@ -373,9 +396,10 @@ async def write_audit(
     await session.execute(
         text(
             "INSERT INTO audit_log (id, actor_type, actor_id, tenant_id, action, "
-            "object_type, object_id, ip, at, prev_hash, entry_hash, created_at) "
+            "object_type, object_id, ip, via_grant_id, at, prev_hash, entry_hash, "
+            "created_at) "
             "VALUES (:id, :actor_type, :actor_id, :tenant_id, :action, :object_type, "
-            ":object_id, :ip, clock_timestamp(), :prev_hash, :entry_hash, "
+            ":object_id, :ip, :via_grant_id, clock_timestamp(), :prev_hash, :entry_hash, "
             "clock_timestamp())"
         ),
         {
@@ -387,6 +411,7 @@ async def write_audit(
             "object_type": object_type,
             "object_id": object_id,
             "ip": ip,
+            "via_grant_id": via_grant_id,
             "prev_hash": prev_hash,
             "entry_hash": entry_hash,
         },
@@ -558,7 +583,7 @@ async def verify_chain(session: AsyncSession, *, limit: int | None = None) -> Ch
             await session.execute(
                 text(
                     "SELECT id, actor_type, actor_id, tenant_id, action, object_type, "
-                    "object_id, prev_hash, entry_hash, at, ip FROM audit_log "
+                    "object_id, prev_hash, entry_hash, at, ip, via_grant_id FROM audit_log "
                     + ("WHERE (at, id) > (:after_at, :after_id) " if cursor else "")
                     + "ORDER BY at ASC, id ASC LIMIT :limit"
                 ),
@@ -580,6 +605,10 @@ async def verify_chain(session: AsyncSession, *, limit: int | None = None) -> Ch
                 # string or None, so the shapes must match exactly (D-312).
                 "ip": str(row[10]) if row[10] is not None else None,
             }
+            if row[11] is not None:
+                # Same conditional shape the writer used: absent, not null, for every row
+                # that came through no view-as session. See `write_audit`.
+                payload["via_grant_id"] = str(row[11])
             row_prev = str(row[7]) if row[7] is not None else ""
             # `""` for a NULL hash rather than `str(None)`: it can never equal a hex
             # digest either way, but one of them reads like a value and the other reads

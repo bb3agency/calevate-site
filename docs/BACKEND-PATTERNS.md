@@ -170,6 +170,28 @@ after the session it was stolen from is revoked; RBAC as a
 **policy registry validated at boot** (endpoint→permission map asserted at startup, not
 discovered at first use) — pairs with our route-discipline guardrail.
 
+**WRITING A ROUTE THAT AN OPERATOR MAY REACH INSIDE A CLIENT'S ACCOUNT (D-587).** Since
+"view as client" stopped being read-only, two rules bind every new tenant-scoped write and
+neither is optional:
+
+- **The ruling is per permission, and it is a registry.** `core/rbac.VIEW_AS_MUTATIONS`
+  carries one entry for every member of `MUTATING_PERMISSIONS` — `None` if a view-as
+  session may exercise it, a SENTENCE naming the ground if it may not — and
+  `withheld_from_view_as` is the one predicate `requires()`, the copilot's `may_act` and
+  the KB curation gate all ask. A permission with no entry is withheld (fail closed) and a
+  test refuses the build. An act that must stay with the client *behind* a writable
+  permission is named in `VIEW_AS_WITHHELD_ACTS` and guarded with
+  `core/auth.assert_view_as_may(principal, "<key>")`, or — for the acts that are part of
+  the client's own sign-in — declared `realm="client"`, which `current_principal` refuses
+  to a view-as session before any permission is read.
+- **Never store `principal.user_id` in a column that references `users`.** Use
+  `Principal.client_user_id`, which is `None` for an operator: `user_id` is a `users.id`
+  on the client realm and an `admin_users.id` on the admin realm, and an impersonated
+  write now reaches columns that only the first kind belongs in. Either refuse (a personal
+  act) or store `NULL` (nobody of this account did it) — WHO did it is the audit row,
+  which carries the operator, the tenant and `via_grant_id` without the route doing
+  anything.
+
 **"RAW-TRANSCRIPT ACCESS" USED TO BE THE LAST ITEM ON THAT LIST, AND IT NAMED A ROUTE
 THAT CANNOT TAKE THIS GATE** (D-211). `GET /v1/calls/{id}/transcript/raw` and
 `/recording` are CLIENT-realm routes. The client realm has no second factor at all — D-170
@@ -191,7 +213,7 @@ realm it names:
   deliverability (D-170), not an engineering gap, and reversing it would be its own
   decision-log entry rather than a consequence of this one.
 - **On the admin realm, it is step-up, and the gate is on the DOOR rather than the
-  read.** An operator reaches that client-realm route exactly one way: a D-22 view-as
+  read.** An operator reaches that client-realm route exactly one way: a view-as
   session, which needs a grant, and grants exist only at
   `POST /v1/admin/impersonation-grants`. That mint takes the full step-up (D-210), so
   every tenant-realm read an operator can reach — the raw transcript among them — now

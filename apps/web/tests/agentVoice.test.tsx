@@ -130,7 +130,15 @@ const NO_PRICE_REASON =
 const TWO_TIER_CATALOGUE: VoiceCatalogue = {
   control: "ours",
   selectable: true,
-  voices: [...VOICES, studio({ offerable: false, unavailable_reason: NO_PRICE_REASON })],
+  // WHERE THE CATALOGUE CAME FROM (D-585): `engine` = synced from the voice platform's own
+  // voice list, `seed` = the compiled floor a deployment serves until a sync has run. The
+  // fixtures here are all `engine`, because that is the state every clause below is about;
+  // the seed state has its own clause.
+  source: "engine",
+  voices: [
+    ...VOICES,
+    studio({ offerable: false, unavailable_reason: NO_PRICE_REASON }),
+  ],
   note: "Pick the voice this agent speaks in.",
 };
 
@@ -145,6 +153,7 @@ const TWO_TIER_CATALOGUE: VoiceCatalogue = {
 const CATALOGUE: VoiceCatalogue = {
   control: "ours",
   selectable: true,
+  source: "engine",
   voices: VOICES,
   note: "Pick the voice this agent speaks in.",
 };
@@ -153,6 +162,10 @@ const CATALOGUE: VoiceCatalogue = {
 const DICTATED_CATALOGUE: VoiceCatalogue = {
   control: "engine",
   selectable: false,
+  // `engine` here names the SYNC SOURCE, not `control` — on a dictated engine there is
+  // nothing to sync and nothing to pick, and the two fields answering different questions
+  // with the same word is worth noticing rather than conflating.
+  source: "engine",
   voices: [],
   note: "The voice platform in use supplies its own voices, so a voice cannot be chosen here. Nothing is wrong with this agent.",
 };
@@ -174,10 +187,14 @@ const VOICE_IN_SYNC: AgentVoiceState = {
   configured: stored("bulbul:v3:anushka"),
   live: stored("bulbul:v3:anushka"),
   republish_required: false,
-  headline: "Callers hear Anushka — the voice platform is holding the configured voice.",
+  headline:
+    "Callers hear Anushka — the voice platform is holding the configured voice.",
 };
 
-function pendingRoute(voiceState: AgentVoiceState, tierRates: VoiceTierRates = []) {
+function pendingRoute(
+  voiceState: AgentVoiceState,
+  tierRates: VoiceTierRates = [],
+) {
   return {
     // `PendingOut.voice_tier_rates`, generated and REQUIRED. Empty by default: an account
     // with no open credit lot has no next-minute rate to quote, and the picker then prices
@@ -197,14 +214,17 @@ function pendingRoute(voiceState: AgentVoiceState, tierRates: VoiceTierRates = [
       state: "applied",
       confirmed: true,
       verified_at: "2026-08-15T09:20:00Z",
-      headline: "The voice platform was read back and is running this script and voice.",
+      headline:
+        "The voice platform was read back and is running this script and voice.",
     },
   };
 }
 
 function render(over: Partial<Routes> = {}) {
   return renderAdminRoute(
-    <AgentPromptPage params={routeParams({ tenantId: TENANT, agentId: AGENT })} />,
+    <AgentPromptPage
+      params={routeParams({ tenantId: TENANT, agentId: AGENT })}
+    />,
     {
       [TENANT_PATH]: { id: TENANT, name: "Sunrise Clinic", slug: "sunrise" },
       [ME_PATH]: {
@@ -225,7 +245,9 @@ function render(over: Partial<Routes> = {}) {
       [EXPERIMENT_PATH]: {
         agent_id: AGENT,
         rules: {
-          metrics: [{ key: "call_outcome_resolved", label: "calls the agent resolved" }],
+          metrics: [
+            { key: "call_outcome_resolved", label: "calls the agent resolved" },
+          ],
           default_metric: "call_outcome_resolved",
           minimum_calls_per_variant: 40,
           split_min_bp: 500,
@@ -247,8 +269,18 @@ function render(over: Partial<Routes> = {}) {
  * a field that moves on the server fails here rather than at runtime.
  */
 const TIER_RATES: VoiceTierRate[] = [
-  { provider: "sarvam", label: "Clear", inr_per_min: "5.0000", further_open_lots: 0 },
-  { provider: "cartesia", label: "Studio", inr_per_min: "8.0000", further_open_lots: 2 },
+  {
+    provider: "sarvam",
+    label: "Clear",
+    inr_per_min: "5.0000",
+    further_open_lots: 0,
+  },
+  {
+    provider: "cartesia",
+    label: "Studio",
+    inr_per_min: "8.0000",
+    further_open_lots: 2,
+  },
 ];
 
 /** One picker row. Its accessible name is the whole row — persona, languages, note and the
@@ -280,8 +312,12 @@ describe("the voice panel", () => {
     // the string (OPERATIONS §2 gate 3). Rendered, not hidden — and on the row itself, so
     // it is part of the accessible name a screen reader announces for that option.
     expect(container.textContent).toContain("Not yet heard on a live call");
-    expect(voiceRow(/Anushka/).labels?.[0]?.textContent).toContain("Not yet heard");
-    expect(voiceRow(/Vidya/).labels?.[0]?.textContent).not.toContain("Not yet heard");
+    expect(voiceRow(/Anushka/).labels?.[0]?.textContent).toContain(
+      "Not yet heard",
+    );
+    expect(voiceRow(/Vidya/).labels?.[0]?.textContent).not.toContain(
+      "Not yet heard",
+    );
   });
 
   it("pre-selects the voice the agent is configured with", async () => {
@@ -313,10 +349,14 @@ describe("the voice panel", () => {
     });
 
     await screen.findByRole("radio", { name: /Anushka/ });
-    expect(screen.getAllByRole("radio").every((radio) => !(radio as HTMLInputElement).checked)).toBe(
-      true,
+    expect(
+      screen
+        .getAllByRole("radio")
+        .every((radio) => !(radio as HTMLInputElement).checked),
+    ).toBe(true);
+    expect(container.textContent).toContain(
+      "No voice has been set on this agent.",
     );
-    expect(container.textContent).toContain("No voice has been set on this agent.");
     expect(container.textContent).toContain("None set");
   });
 
@@ -330,7 +370,8 @@ describe("the voice panel", () => {
         configured: stored("bulbul:v3:vidya"),
         live: stored("bulbul:v3:anushka"),
         republish_required: true,
-        headline: "Callers still hear Anushka; Vidya reaches them at the next publish.",
+        headline:
+          "Callers still hear Anushka; Vidya reaches them at the next publish.",
       }),
     });
 
@@ -368,7 +409,9 @@ describe("the voice panel", () => {
     });
 
     await screen.findByRole("radio", { name: /Vidya/ });
-    expect(container.textContent).toContain("Not recorded — publish to be sure");
+    expect(container.textContent).toContain(
+      "Not recorded — publish to be sure",
+    );
     expect(container.textContent).toContain("we have no record of which");
   });
 
@@ -390,7 +433,9 @@ describe("the voice panel", () => {
     });
 
     await screen.findByRole("radio", { name: /Vidya/ });
-    expect(container.textContent).toContain("Nothing — not on the voice platform yet");
+    expect(container.textContent).toContain(
+      "Nothing — not on the voice platform yet",
+    );
     expect(container.textContent).not.toContain(
       "Publishing this agent is what moves the voice callers hear.",
     );
@@ -403,7 +448,9 @@ describe("the voice panel", () => {
     fireEvent.click(voiceRow(/Vidya/));
 
     await waitFor(() =>
-      expect(container.textContent).toContain("A brisker, more formal read; still Bulbul v3."),
+      expect(container.textContent).toContain(
+        "A brisker, more formal read; still Bulbul v3.",
+      ),
     );
     expect(container.textContent).toContain("te-IN, hi-IN, en-IN");
     // The commit block names the QUALITY, in the server's word for it — never the vendor.
@@ -420,7 +467,11 @@ describe("the voice panel", () => {
     const { container, calls } = await render({
       [SET_VOICE_PATH]: {
         agent_id: AGENT,
-        voice: voice({ id: "bulbul:v3:vidya", label: "Vidya", speaker: "vidya" }),
+        voice: voice({
+          id: "bulbul:v3:vidya",
+          label: "Vidya",
+          speaker: "vidya",
+        }),
         agent_status: "live",
         published: true,
         engine_synced: false,
@@ -435,7 +486,9 @@ describe("the voice panel", () => {
     fireEvent.click(voiceRow(/Vidya/));
     fireEvent.click(screen.getByRole("button", { name: "Set voice" }));
 
-    await waitFor(() => expect(calls.some((c) => c.path === SET_VOICE_PATH)).toBe(true));
+    await waitFor(() =>
+      expect(calls.some((c) => c.path === SET_VOICE_PATH)).toBe(true),
+    );
     const write = calls.find((c) => c.path === SET_VOICE_PATH)!;
     expect(write.method).toBe("PATCH");
     // ONE field. The tenant is in the path the call was made to (`SET_VOICE_PATH`), and
@@ -459,7 +512,9 @@ describe("the voice panel", () => {
     // would keep showing the previous configuration next to the sentence saying it just
     // changed.
     await waitFor(() =>
-      expect(calls.filter((c) => c.path === PENDING_PATH).length).toBeGreaterThan(1),
+      expect(
+        calls.filter((c) => c.path === PENDING_PATH).length,
+      ).toBeGreaterThan(1),
     );
   });
 
@@ -481,7 +536,9 @@ describe("the voice panel", () => {
     expect(screen.queryByRole("button", { name: "Set voice" })).toBeNull();
     // The server's sentence, verbatim — the panel does not compose its own from the flags
     // and get the tone wrong.
-    expect(container.textContent).toContain("Nothing is wrong with this agent.");
+    expect(container.textContent).toContain(
+      "Nothing is wrong with this agent.",
+    );
     // Still answering the question it can answer.
     expect(container.textContent).toContain("Callers hear now");
   });
@@ -510,8 +567,10 @@ describe("the voice panel", () => {
       [SET_VOICE_PATH]: problem(422, {
         type: "urn:calevate:business_rule/unknown_voice",
         title: "Unknown voice",
-        detail: "That voice is not in the catalog, so it cannot be set on an agent.",
-        remediation: "Pick one of the available voices: bulbul:v3:anushka, bulbul:v3:vidya.",
+        detail:
+          "That voice is not in the catalog, so it cannot be set on an agent.",
+        remediation:
+          "Pick one of the available voices: bulbul:v3:anushka, bulbul:v3:vidya.",
         kind: "business_rule",
       }),
     });
@@ -520,8 +579,12 @@ describe("the voice panel", () => {
     fireEvent.click(voiceRow(/Anushka/));
     fireEvent.click(screen.getByRole("button", { name: "Set voice" }));
 
-    await screen.findByText("That voice is not in the catalog, so it cannot be set on an agent.");
-    expect(container.textContent).toContain("Pick one of the available voices: bulbul:v3:anushka, bulbul:v3:vidya");
+    await screen.findByText(
+      "That voice is not in the catalog, so it cannot be set on an agent.",
+    );
+    expect(container.textContent).toContain(
+      "Pick one of the available voices: bulbul:v3:anushka, bulbul:v3:vidya",
+    );
     // Still usable: the operator can pick another entry without reloading.
     expect(screen.getByRole("button", { name: "Set voice" })).toBeTruthy();
   });
@@ -550,7 +613,9 @@ describe("the voice panel", () => {
     // is addressed to the operator who installs the key and has to know whose key it is.
     // Everything else on this screen names the QUALITY.
     expect(clear.textContent).not.toMatch(/sarvam|cartesia/i);
-    expect(container.textContent!.replace(NO_PRICE_REASON, "")).not.toMatch(/sarvam|cartesia/i);
+    expect(container.textContent!.replace(NO_PRICE_REASON, "")).not.toMatch(
+      /sarvam|cartesia/i,
+    );
   });
 
   it("shows a refused voice refused with the server's reason, and never a shorter list", async () => {
@@ -590,7 +655,9 @@ describe("the voice panel", () => {
     // row announces as "unavailable" and gives no reason at all.
     const describedBy = refused.getAttribute("aria-describedby");
     expect(describedBy).toBeTruthy();
-    expect(document.getElementById(describedBy!)?.textContent).toContain(NO_PRICE_REASON);
+    expect(document.getElementById(describedBy!)?.textContent).toContain(
+      NO_PRICE_REASON,
+    );
 
     // Reachable is not selectable. Arrowing onto a radio in a group dispatches the same
     // click a mouse does, so this is the keyboard path as well as the pointer one — and
@@ -616,7 +683,9 @@ describe("the voice panel", () => {
     expect(container.textContent).toContain("₹8.0000 / min");
     // The server's digits, unrounded and unparsed (hard rule 7).
     expect(container.textContent).not.toContain("₹5.00 /");
-    expect(container.textContent).toContain("the rate on this account's credit");
+    expect(container.textContent).toContain(
+      "the rate on this account's credit",
+    );
     expect(container.textContent).toContain(
       "the rate on this account's oldest credit — 2 later purchases behind it at their own rates",
     );
@@ -685,7 +754,10 @@ describe("the voice panel", () => {
 
     await screen.findByRole("radio", { name: /Anushka/ });
     expect(voiceRow(/Anushka/).disabled).toBe(true);
-    expect(screen.getByRole("button", { name: "Set voice" })).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Set voice" })).toHaveProperty(
+      "disabled",
+      true,
+    );
     expect(container.textContent).toContain(
       "does not have permission to change this agent's script",
     );

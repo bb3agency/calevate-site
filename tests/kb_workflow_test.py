@@ -456,10 +456,17 @@ async def test_approval_lives_on_the_admin_surface_not_behind_impersonation() ->
 async def test_the_approval_queue_is_readable_through_impersonation() -> None:
     """Regression: the admin console's KB queue could never be read.
 
-    Both KB reads were gated on `kb:write`. The queue is read through impersonation
-    (D-22), impersonation refuses every MUTATING permission, and `kb:write` is one — so
-    the operator's approval screen 403'd on the list it exists to show. Reading what an
-    agent knows is an agent read; only submitting changes what it says.
+    Both KB reads were gated on `kb:write`. The queue is read through impersonation, which
+    refused every MUTATING permission, and `kb:write` is one — so the operator's approval
+    screen 403'd on the list it exists to show. Reading what an agent knows is an agent
+    read; only submitting changes what it says.
+
+    THE RULE THE SWEEP BELOW ASSERTS OUTLIVES D-587 AND IS WHY IT IS STILL HERE. A view-as
+    session may now exercise `kb:write`, so this particular 403 could no longer happen —
+    but the sweep is over EVERY mutating permission, and six of them are still withheld
+    (`copilot:use`, the platform authorities). A GET gated on one of those is invisible to
+    a support session exactly as this one was, which is the defect class, not the
+    instance.
     """
     import uuid as _uuid
 
@@ -499,8 +506,8 @@ async def test_the_approval_queue_is_readable_through_impersonation() -> None:
     slug = await _slug_of(tenant_id)
     admin_token = await _make_admin_token()
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://api") as http:
-        # A real D-22 grant, so the 403 below is the read-only rule refusing the write
-        # rather than the grant check refusing before that rule is reached.
+        # A real grant, so the answers below are the view-as ruling rather than the grant
+        # check refusing before that ruling is reached.
         headers = await view_as_headers(http, admin_token, slug, **{"X-Org-Slug": slug})
         listed = await http.get("/v1/kb/sources?status=pending_approval", headers=headers)
         submitted = await http.post(
@@ -510,7 +517,12 @@ async def test_the_approval_queue_is_readable_through_impersonation() -> None:
         )
     assert listed.status_code == 200, listed.text
     assert len(listed.json()) == 1
-    assert submitted.status_code == 403, "reading is allowed; writing through impersonation is not"
+    # ⚠ 201, NOT 403: D-587 classifies `kb:write` as writable in a view-as session —
+    # correcting a client's knowledge on the phone to them is the support call this exists
+    # for — and the submission lands in the same `pending_approval` queue anybody else's
+    # does. Publishing it is still ours to do from the operator console
+    # (`rbac.VIEW_AS_WITHHELD_ACTS["kb.self_approve"]`).
+    assert submitted.status_code == 201, submitted.text
     del _uuid
 
 

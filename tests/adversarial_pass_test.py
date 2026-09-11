@@ -34,6 +34,7 @@ from collections.abc import AsyncIterator, Iterator
 
 import pytest
 from apps.api.admin import service as admin_service
+from apps.api.agents.voices import default_voice
 from apps.api.core import ratelimit
 from apps.api.core.context import bearer_token
 from apps.api.core.ratelimit import LimitProfile
@@ -300,6 +301,11 @@ async def _seed_one_of_everything(tenant_id: uuid.UUID, user_id: uuid.UUID) -> d
 #: below. `headers` is the same argument one step earlier: the two routes that require an
 #: `Idempotency-Key` refuse a request without one BEFORE they look at the id, so a sweep
 #: that sent none would be asserting 400 on them and proving nothing about tenancy.
+#: A voice id the catalogue really offers, read from the catalogue rather than typed, so
+#: the two delivery rows below are refused by the TENANT SCOPE and not by a 422 on an
+#: unknown voice — which would make this sweep pass without proving anything.
+_SWEEP_VOICE_ID: str = default_voice().id
+
 _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     ("GET", "/v1/agents/{agent_id}", {}, {}),
     ("GET", "/v1/agents/{agent_id}/engine-state", {}, {}),
@@ -325,6 +331,16 @@ _IDOR_ROUTES: tuple[tuple[str, str, dict[str, object], dict[str, str]], ...] = (
     # this sweep exists over. The call-back pair matters more than it looks: the row names
     # a person and the time we are going to telephone them.
     ("PATCH", "/v1/agents/{agent_id}/caller-memory", {"enabled": False}, {}),
+    # D-586. The two DELIVERY writes that became client-realm when a live agent's voice and
+    # call cap stopped needing an operator. Both matter more here than a read would: each
+    # RE-PUBLISHES the named agent to the voice platform in the same transaction, so
+    # reaching a neighbour's agent would not leak their configuration — it would change
+    # what their callers hear on the next call, and raise or lower the ceiling on what one
+    # of their calls can cost them. The voice id is a real seeded catalogue id rather than
+    # a fabricated string, so a refusal here is the tenant scope and never a 422 that would
+    # mask it.
+    ("PATCH", "/v1/agents/{agent_id}/voice", {"voice_id": _SWEEP_VOICE_ID}, {}),
+    ("PATCH", "/v1/agents/{agent_id}/call-cap", {"max_call_duration_s": 120}, {}),
     ("GET", "/v1/callbacks/{callback_id}", {}, {}),
     ("DELETE", "/v1/callbacks/{callback_id}", {}, {}),
     ("GET", "/v1/calls/{call_id}", {}, {}),

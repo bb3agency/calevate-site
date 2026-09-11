@@ -375,11 +375,17 @@ async def test_a_person_demoted_between_proposing_and_confirming_is_refused() ->
     assert await _campaign_status(tenant_id, campaign_id) == "running"
 
 
-async def test_a_read_only_view_as_session_may_not_confirm() -> None:
-    """D-22 through `_may`: `leads:dispatch` is in `MUTATING_PERMISSIONS`, so an
-    impersonating principal is refused even though its role grants it. Asserted here as
-    well as at the route because `confirm` is the function a future caller would reach
-    for."""
+async def test_a_view_as_session_may_not_confirm() -> None:
+    """The ASSISTANT is withheld from a view-as session, so `confirm` refuses one.
+
+    ⚠ THE REASON MOVED WITH D-587 AND THE ANSWER DID NOT. It used to be `_may`:
+    `leads:dispatch` is in `MUTATING_PERMISSIONS` and an impersonating principal was
+    refused every mutating permission. That permission is now WRITABLE in a view-as session
+    — an operator pausing a client's campaign from the client's own screen is the reversal
+    working — and what still refuses here is `actions.assistant_closed_to`: asking this
+    assistant spends the CLIENT'S AI allowance, so all four of its routes are shut to an
+    operator, and `confirm` asks the same question from inside because it is the function a
+    future caller would reach for."""
     tenant_id, _slug, token = await _make_tenant()
     user_id = _user_of(token)
     campaign_id = await _make_campaign(tenant_id)

@@ -360,10 +360,19 @@ async def test_staff_may_assign_because_dividing_work_is_the_daily_job() -> None
     assert response.status_code == 200, response.text
 
 
-async def test_a_read_only_impersonating_admin_cannot_assign(monkeypatch) -> None:  # type: ignore[no-untyped-def]
-    """D-22: "view as client" is read-only. `leads:write` is in MUTATING_PERMISSIONS, so
-    the PATCH is refused for an impersonating principal even though the operator's role
-    holds the permission."""
+async def test_an_impersonating_admin_can_assign_to_a_member_but_never_to_themselves(
+    monkeypatch,  # type: ignore[no-untyped-def]
+) -> None:
+    """⚠ THIS ASSERTED A 403 UNTIL D-587. `leads:write` is now writable in a view-as
+    session, so an operator on a support call can put a stuck lead on the right person's
+    desk — and the audit row names the operator, not the account.
+
+    THE SECOND HALF IS THE ONE THAT MATTERS AND IS NEW. `leads.assigned_to` is an FK to
+    `users`, and an operator has no row there. The assignee comes from the BODY (the
+    screen sends a member id from `/v1/members`), never from the session, so an operator
+    cannot land their own `admin_users.id` in a client's column — and a request that tries
+    is refused rather than stored.
+    """
     tenant_id, slug, _token = await _make_tenant()
     lead_id = await _the_lead(tenant_id)
     member = await _the_member(tenant_id)
@@ -386,8 +395,19 @@ async def test_a_read_only_impersonating_admin_cannot_assign(monkeypatch) -> Non
             ),
             json={"assigned_to": str(member)},
         )
-    assert response.status_code == 403
-    assert response.json()["kind"] == "permission"
+        themselves = await http.patch(
+            f"/v1/leads/{lead_id}",
+            headers=await view_as_headers(
+                http, f"dev:admin:{admin_id}", slug, **{"X-Org-Slug": slug}
+            ),
+            json={"assigned_to": str(admin_id)},
+        )
+    assert response.status_code == 200, response.text
+    assert response.json()["assigned_to"] == str(member)
+    assert themselves.status_code in (400, 404, 422), (
+        "an `admin_users.id` is not a member of this account and must not become an "
+        f"assignee: {themselves.text}"
+    )
 
 
 # --- the "my leads" filter -----------------------------------------------------

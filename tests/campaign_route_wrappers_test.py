@@ -31,7 +31,7 @@ What is asserted here:
    does not hold — the wrong-role refusal that no route-table sweep covers.
 
 D-22 is not re-asserted for the two mutations: `leads:dispatch` is mutating, so
-`realm_boundary_test::test_no_route_declaring_a_mutating_permission_is_reachable_while_impersonating`
+`realm_boundary_test::test_no_route_on_a_withheld_permission_is_reachable_while_impersonating`
 already drives them under a real grant.
 
 CONCURRENCY: every case mints its own tenant, and nothing here launches or schedules a

@@ -334,7 +334,7 @@ async def test_a_client_realm_session_sees_zero_rows_of_another_tenant() -> None
 
 
 async def test_the_queue_is_readable_with_a_read_permission() -> None:
-    """D-22: no GET may require a permission read-only impersonation refuses.
+    """D-22: no GET may require a permission a view-as session is refused.
 
     `tests/impersonation_reads_test.py` asserts the rule over the whole route table;
     this pins it for the queue by name, because "the ops list of held accounts" is

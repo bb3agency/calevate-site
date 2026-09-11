@@ -61,6 +61,7 @@ from calevate_shared.document_ingest import CONVERTIBLE_KINDS
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.core.auth import assert_view_as_may
 from apps.api.core.context import Principal
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -719,6 +720,12 @@ async def confirm_upload(
     approval statement would be the place that forgets one of the three.
     """
     if not may_self_approve(principal):
+        # AN OPERATOR IS REFUSED FOR A DIFFERENT REASON AND HEARS A DIFFERENT SENTENCE
+        # (D-587). A view-as session may now submit knowledge — it holds `kb:write` — and
+        # still may not publish it under the client's name; the operator console's own
+        # approval queue for this client is where that act belongs, recorded as ours.
+        # "Only the account owner can" is true for a staff member and false for them.
+        assert_view_as_may(principal, "kb.self_approve")
         raise ProblemError.forbidden("Only the account owner can approve knowledge for the agent.")
     row = await get_upload(session, upload_id)
     if row["ingest_status"] in (UPLOAD_RECEIVED, UPLOAD_CONVERTING) and row["source_kind"] not in (
