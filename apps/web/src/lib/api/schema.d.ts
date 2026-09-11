@@ -5632,7 +5632,7 @@ export interface paths {
         };
         /**
          * Every alarm this platform has raised, loudest and still-open first
-         * @description THE SCREEN THE FOUNDER ASKED FOR (D-590): *"failures in admin panel only"*.
+         * @description THE SCREEN THE FOUNDER ASKED FOR (D-591): *"failures in admin panel only"*.
          *
          *     **`GlobalSession` AND NOT `AdminSession`**, unlike the latency report two routes down.
          *     `platform_alerts` carries no `tenant_id` and no policy at all — it is platform
@@ -12928,6 +12928,8 @@ export interface components {
             label: string;
             /** Languages */
             languages: ("te-IN" | "hi-IN" | "en-IN")[];
+            /** Not On Offer */
+            not_on_offer: boolean;
             /** Note */
             note: string;
             /** Offerable */

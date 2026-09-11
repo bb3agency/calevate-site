@@ -336,9 +336,24 @@ def find_on_platform(
             '"not available for the provider". Nothing was saved.'
         ),
         remediation=(
-            "Check the voice id against the voice platform's Voice Lab "
-            f"({VOICE_LAB_URL}) — it is the provider-specific id, not the voice's name. If "
-            "you have only just cloned or imported it there, press Refresh here first."
+            # ⚠ **THE FIRST REAL ADD HIT THIS AND THE SENTENCE DID NOT HELP.** It said
+            # "check the id, and if you have only just cloned it there press Refresh" —
+            # which assumes the voice is already ON the voice platform. The founder had
+            # cloned it in CARTESIA'S OWN dashboard, where it has an id and the voice
+            # platform has never heard of it, so Refresh could never have found it and the
+            # advice sent them round a loop. A voice made at the vendor has to be IMPORTED
+            # into the voice platform's Voice Lab before anything here can address it —
+            # `bolna-findings/mirror/pages/import-voices.md`, read 11 Sep 2026 — and that
+            # is the step the message now names first, because it is the one most likely
+            # to be missing.
+            "If you cloned this voice in the VENDOR's own dashboard (Cartesia's or "
+            "ElevenLabs'), the voice platform does not have it yet — cloning there and "
+            "importing here are two steps. Open the Voice Lab "
+            f"({VOICE_LAB_URL}), choose Add Voice, pick the provider, paste this same id "
+            "and switch on importing from your connected account. Then press Refresh here "
+            "and add it again. If you cloned it in the Voice Lab itself, the id is the "
+            "provider-specific one it shows, not the voice's name — and a voice made in "
+            "the last few seconds may need one Refresh."
         ),
     )
 

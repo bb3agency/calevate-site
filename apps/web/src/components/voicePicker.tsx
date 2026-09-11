@@ -51,7 +51,11 @@
 import { CheckCircle2 } from "lucide-react";
 
 import { formatRupeeRate } from "@/components/ui";
-import { voiceTierRate, type OfferedVoice, type VoiceTierRates } from "@/lib/api/voices";
+import {
+  voiceTierRate,
+  type OfferedVoice,
+  type VoiceTierRates,
+} from "@/lib/api/voices";
 
 /** One tier heading's money line, or `null` when there is no rate to state. */
 export function tierRateReading(
@@ -172,11 +176,19 @@ export function VoicePicker({
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-2">
             {checked ? (
-              <CheckCircle2 aria-hidden className="h-4 w-4 shrink-0 text-brand" />
+              <CheckCircle2
+                aria-hidden
+                className="h-4 w-4 shrink-0 text-brand"
+              />
             ) : (
-              <span aria-hidden className="h-4 w-4 shrink-0 rounded-full border border-line" />
+              <span
+                aria-hidden
+                className="h-4 w-4 shrink-0 rounded-full border border-line"
+              />
             )}
-            <span className="text-sm font-semibold text-ink">{voice.label}</span>
+            <span className="text-sm font-semibold text-ink">
+              {voice.label}
+            </span>
             {voice.gender && (
               <span className="rounded-full border border-line px-2 py-0.5 text-[11px] font-medium text-ink-muted">
                 {voice.gender}
@@ -202,7 +214,8 @@ export function VoicePicker({
               id={reasonId}
               className="mt-0.5 block pl-6 text-xs font-medium text-amber-700 dark:text-amber-400"
             >
-              Cannot be chosen — {voice.unavailable_reason ?? "this voice is not available here."}
+              Cannot be chosen —{" "}
+              {voice.unavailable_reason ?? "this voice is not available here."}
             </span>
           )}
         </span>
@@ -210,11 +223,48 @@ export function VoicePicker({
     );
   };
 
+  // ══ WHAT A PICKER IS FOR IS THE THINGS YOU CAN PICK ══
+  //
+  // `GET /v1/agents/voices` answers with EVERY catalogue row and a refusal sentence on the
+  // ones that are not offerable, and that is right for an API: `voices.catalogue()`
+  // deliberately keeps disabled and archived rows so a live agent's stored id still
+  // resolves (`speech_for_voice_id`), and a caller has to be able to ask about one.
+  //
+  // Rendering all of them is what is wrong. Once the catalogue became the engine account's
+  // own list (D-585/D-588), "every row" is four hundred and eighteen — so an operator who
+  // had enabled two saw two choices buried in a wall of "Cannot be chosen", each with an
+  // identical orange sentence. The refusal stopped being information and became the page.
+  //
+  // So: the OFFERABLE rows, plus — only if it is not among them — the one this agent is
+  // ALREADY SET TO. That exception is the half that cannot be dropped: an agent speaking a
+  // voice the platform has since withdrawn must still show what it is speaking and why it
+  // can no longer be chosen, or the screen silently misreports the live configuration.
+  // THE LINE IS THE GROUND, NOT OFFERABILITY — and that distinction is why the two clauses
+  // this component already had are still right. A voice refused for an unattested price, a
+  // missing credential or the Cartesia cap is one the platform MEANS to offer and cannot
+  // right now: that reason is worth reading, and the row stays reachable so a screen reader
+  // announces it rather than skipping it. A voice the operator has simply not enabled was
+  // never on offer, and since the catalogue became the engine account's own list there are
+  // four hundred and sixteen of those — which buried the two real choices under a wall of
+  // identical orange sentences.
+  //
+  // `not_on_offer` is the SERVER's verdict (`voice_offer.is_not_on_offer`), so the browser
+  // carries no second copy of the offerability rules — the drift `useWriteAccess` was just
+  // cured of.
+  //
+  // The CURRENT voice is shown whatever its ground: an agent speaking a voice that has
+  // since been archived must still show what it is speaking and why it can no longer be
+  // chosen, or the screen silently misreports the live configuration.
+  const shown = voices.filter(
+    (voice) => !voice.not_on_offer || voice.id === value,
+  );
+
   // Voices with no server-sent tier name render first and ungrouped; the rest gather under
   // their label in first-appearance order, so the server's ordering survives the grouping.
-  const ungrouped = voices.filter((voice) => tierLabel(voice) === null);
-  const groups: { label: string; provider: string; rows: OfferedVoice[] }[] = [];
-  for (const voice of voices) {
+  const ungrouped = shown.filter((voice) => tierLabel(voice) === null);
+  const groups: { label: string; provider: string; rows: OfferedVoice[] }[] =
+    [];
+  for (const voice of shown) {
     const label = tierLabel(voice);
     if (label === null) continue;
     const group = groups.find((candidate) => candidate.label === label);
@@ -235,12 +285,14 @@ export function VoicePicker({
             which of those two it is and says whether reading the catalogue again would
             help) — the caller passes it as `hint` above, and this says out loud that the
             absence of rows is the subject rather than a list that failed to paint. */}
-        {voices.length === 0 && (
+        {shown.length === 0 && (
           <p className="rounded-card border border-dashed border-line p-3 text-sm text-ink-muted">
             No voice is available to choose.
           </p>
         )}
-        {ungrouped.length > 0 && <div className="space-y-2">{ungrouped.map(row)}</div>}
+        {ungrouped.length > 0 && (
+          <div className="space-y-2">{ungrouped.map(row)}</div>
+        )}
         {groups.map((group) => {
           const money = tierRateReading(rates, group.provider);
           const headingId = `${name}-tier-${group.label.toLowerCase().replace(/\s+/g, "-")}`;
@@ -259,10 +311,14 @@ export function VoicePicker({
                   {group.label} voice
                 </p>
                 {money && (
-                  <span className="text-sm font-semibold tabular-nums text-ink">{money.rate}</span>
+                  <span className="text-sm font-semibold tabular-nums text-ink">
+                    {money.rate}
+                  </span>
                 )}
               </div>
-              {money && <p className="pb-2 text-xs text-ink-faint">{money.note}</p>}
+              {money && (
+                <p className="pb-2 text-xs text-ink-faint">{money.note}</p>
+              )}
               <div className="space-y-2">{group.rows.map(row)}</div>
             </div>
           );

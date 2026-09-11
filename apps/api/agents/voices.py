@@ -470,10 +470,20 @@ class Voice(BaseModel):
 #: the vendor as the product tier the founder's 7 Sep 2026 decision says a client never
 #: reads. Composed from the one definition rather than corrected in place, because a typed
 #: name here would be the second copy that drifts the day the labels change.
+#: ⚠ **THIS SENTENCE WAS STALE ON BOTH OF ITS FACTS AND A CLIENT WAS READING IT.** It said
+#: "the speaker list is Sarvam's own; Bolna's acceptance of it is confirmed by
+#: GET /me/voices", which described the compiled catalogue that D-585 deleted: the list is
+#: now the ENGINE ACCOUNT's, either synced from it or typed by an operator and verified
+#: against it at that moment (D-590) — and `GET /me/voices` is not an endpoint the vendor
+#: has. It also carried the pilot-gate-3 ear test into a CLIENT-facing dropdown, which is
+#: our internal verification schedule and not something a clinic can act on.
+#:
+#: What is left is what a client can use: which vendor synthesises it, which tier it is,
+#: and the three languages. The tier name comes through `voice_tier_label` rather than
+#: being spelled here, so it cannot drift from the rate card.
 _NOTE: Final = (
-    f"Sarvam Bulbul v3 — the {voice_tier_label('sarvam')} voice tier. Which speaker suits "
-    "Telugu best is an ear test nobody has run yet (pilot gate 3), and the speaker list is "
-    "Sarvam's own; Bolna's acceptance of it is confirmed by GET /me/voices."
+    f"Sarvam Bulbul v3 — the {voice_tier_label('sarvam')} voice tier. Speaks Telugu, Hindi "
+    "and Indian English."
 )
 
 #: The shared half of every Cartesia entry's `note`, for the same reason and through the

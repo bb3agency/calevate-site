@@ -14487,6 +14487,10 @@
             "title": "Languages",
             "type": "array"
           },
+          "not_on_offer": {
+            "title": "Not On Offer",
+            "type": "boolean"
+          },
           "note": {
             "title": "Note",
             "type": "string"
@@ -14545,6 +14549,7 @@
           "languages",
           "note",
           "unavailable_reason",
+          "not_on_offer",
           "offerable",
           "tier_label"
         ],
@@ -37785,7 +37790,7 @@
     },
     "/v1/ops/alerts": {
       "get": {
-        "description": "THE SCREEN THE FOUNDER ASKED FOR (D-590): *\"failures in admin panel only\"*.\n\n**`GlobalSession` AND NOT `AdminSession`**, unlike the latency report two routes down.\n`platform_alerts` carries no `tenant_id` and no policy at all \u2014 it is platform\nmachinery, registered in `db/registry.RLS_EXEMPT_TENANT_COLUMNS` \u2014 so there is no\ntenant to be inside and no widened policy to need. Asking for the admin-widened\nsession here would be taking a privilege this read has no use for.\n\n**NO STEP-UP CONFIRMATION AND NO AUDIT ROW**, for `read_engine_latency`'s two reasons\nunchanged: it writes nothing, and it is a page an operator refreshes while watching an\nincident \u2014 an audit chain that grows a row per refresh stops being readable. Nothing\nin the payload belongs to a client: `detail` and `ids` were redacted at the write\n(`core/alert_records.py`, hard rule 6) and no row here is attributable to a tenant.",
+        "description": "THE SCREEN THE FOUNDER ASKED FOR (D-591): *\"failures in admin panel only\"*.\n\n**`GlobalSession` AND NOT `AdminSession`**, unlike the latency report two routes down.\n`platform_alerts` carries no `tenant_id` and no policy at all \u2014 it is platform\nmachinery, registered in `db/registry.RLS_EXEMPT_TENANT_COLUMNS` \u2014 so there is no\ntenant to be inside and no widened policy to need. Asking for the admin-widened\nsession here would be taking a privilege this read has no use for.\n\n**NO STEP-UP CONFIRMATION AND NO AUDIT ROW**, for `read_engine_latency`'s two reasons\nunchanged: it writes nothing, and it is a page an operator refreshes while watching an\nincident \u2014 an audit chain that grows a row per refresh stops being readable. Nothing\nin the payload belongs to a client: `detail` and `ids` were redacted at the write\n(`core/alert_records.py`, hard rule 6) and no row here is attributable to a tenant.",
         "operationId": "read_alerts_v1_ops_alerts_get",
         "parameters": [
           {

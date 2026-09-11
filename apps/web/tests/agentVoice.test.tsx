@@ -76,6 +76,14 @@ function voice(over: Partial<OfferedVoice> = {}): OfferedVoice {
     // is always offerable; the Cartesia rows are the ones that can arrive refused.
     offerable: true,
     unavailable_reason: null,
+    // WHETHER THE REFUSAL MEANS "NOT ON OFFER" rather than "offered and currently
+    // unavailable" (D-590). The picker RENDERS the second — an unattested price or the
+    // Cartesia cap is a reason worth reading, and the row stays reachable so it is
+    // announced — and OMITS the first, because since the catalogue became the engine
+    // account's own list there are four hundred and sixteen voices the operator has
+    // simply not enabled. A fixture leaving this false is a voice on offer, which is what
+    // every clause below is about except the one that sets it.
+    not_on_offer: false,
     // The name a HUMAN reads for this quality, and the only one: `provider` names the
     // VENDOR, keys the money and the metering, and never reaches a screen (founder,
     // 7 Sep 2026). The server owns the label — `billing/rates.py::VOICE_TIER_LABELS` —

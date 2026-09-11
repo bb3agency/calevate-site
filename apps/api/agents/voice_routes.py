@@ -110,6 +110,7 @@ from apps.api.agents import publishing
 from apps.api.agents.voice_offer import (
     OfferedVoice,
     VoiceReasonAudience,
+    is_not_on_offer,
     offered_catalogue,
 )
 from apps.api.agents.voices import (
@@ -230,6 +231,23 @@ class OfferedVoiceOut(Voice):
     #: they have. This route is readable in BOTH realms, so which sentence it is comes from
     #: the caller's realm and never from the row.
     unavailable_reason: str | None
+    #: WHETHER THIS REFUSAL MEANS "NOT ON OFFER" RATHER THAN "OFFERED AND CURRENTLY
+    #: UNAVAILABLE", so a picker can omit the first and render the second.
+    #:
+    #: Both are `offerable: false` and both carry a sentence, but they are opposite facts
+    #: about the product. "No attested price" / "no credential" / "the Cartesia cap is
+    #: reached" describe a voice this platform MEANS to offer and cannot right now — the
+    #: reason is worth reading, and the screen leaves the row reachable so it is announced.
+    #: "The operator has not enabled it" describes a voice that was never on offer, and
+    #: since the catalogue became the engine account's own list there are four hundred and
+    #: sixteen of those: rendering them buried the two real choices under a wall of
+    #: identical orange sentences.
+    #:
+    #: A BOOLEAN RATHER THAN THE GROUND ITSELF, deliberately. The screen's question is
+    #: "render this row or not"; handing it the four grounds would invite a second copy of
+    #: the offerability rules in the browser, which is the drift `useWriteAccess` was just
+    #: cured of.
+    not_on_offer: bool
     #: Derived from `unavailable_reason`, never beside it: a screen that could read a `True`
     #: flag next to a refusal sentence is a screen that can offer a voice the write refuses.
     offerable: bool
@@ -248,6 +266,7 @@ class OfferedVoiceOut(Voice):
         return cls(
             **offered.voice.model_dump(),
             unavailable_reason=offered.reason,
+            not_on_offer=is_not_on_offer(offered.reason),
             offerable=offered.offerable,
             tier_label=voice_tier_label(offered.voice.provider),
         )

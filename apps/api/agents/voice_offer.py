@@ -244,6 +244,24 @@ def curation_unofferable_reason(state: CurationState | None) -> str | None:
     return None
 
 
+#: THE GROUNDS THAT MEAN "NOT ON OFFER HERE", as opposed to "offered, and currently
+#: unavailable". A closed vocabulary because a SCREEN branches on it: the picker renders a
+#: voice the platform intends to offer and cannot (no attested price, no credential, the
+#: Cartesia cap) so its reason is read, and omits one the operator has simply not put on
+#: offer — of which there are four hundred and sixteen.
+#:
+#: Derived from the sentence rather than returned beside it, so there is still ONE place
+#: that decides why a voice is refused (`_operator_unofferable_reason`) and no second
+#: switch to keep in step with it.
+_NOT_ON_OFFER_SENTENCES: Final = frozenset({NOT_CURATED_REASON, DISABLED_REASON, ARCHIVED_REASON})
+
+
+def is_not_on_offer(reason: str | None) -> bool:
+    """Is this refusal "the operator has not put it on offer", rather than "it is offered
+    and something is currently wrong with it"? See `_NOT_ON_OFFER_SENTENCES`."""
+    return reason in _NOT_ON_OFFER_SENTENCES
+
+
 def client_unofferable_reason(voice: Voice) -> str:
     """THE ONE SENTENCE A CLIENT SEES for any unofferable voice, whichever ground failed.
 
