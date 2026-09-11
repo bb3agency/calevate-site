@@ -84,7 +84,6 @@ from calevate_shared.call_script import substitute_variables
 from calevate_shared.calling_window import IST
 from calevate_shared.engine import (
     LLM_MODELS,
-    SARVAM_DEFAULT_STT,
     SARVAM_STT_PROVIDER,
     TRUTHFUL_ANSWER_DIRECTIVE,
     AgentConfig,
@@ -873,6 +872,14 @@ def in_call_speech(agent: AgentRow, *, engine: VoiceEngine) -> InCallSpeech:
     null against whatever came back, and the only place the truth appears is a transcript
     that quietly is not Telugu. `SARVAM_DEFAULT_STT` is what should have been going.
 
+    ⚠ **THE PLATFORM DEFAULT IS NOW `Settings.sarvam_stt_model`, NOT THE CONSTANT** (D-583).
+    It still DEFAULTS to `SARVAM_DEFAULT_STT`, so nothing moved; what changed is that the
+    engine's validator turned out to enforce a per-model language matrix no published page
+    states ("Provided language: te-IN is not available for the model: saaras:v3"), and the
+    only instrument that can answer which model serves Telugu is that validator. Read at the
+    point of use rather than captured at import, so a console edit reaches the next publish
+    without a restart.
+
     ⚠ **THE DEFAULT IS FILLED ONLY WHERE THE LEG IS OURS TO FILL**, which is the half a
     reviewer would drop and the half that would have broken working agents.
     `require_speech_leg("stt", ...)` REFUSES a non-None STT selection on an engine whose
@@ -923,7 +930,7 @@ def in_call_speech(agent: AgentRow, *, engine: VoiceEngine) -> InCallSpeech:
         )
     return InCallSpeech(
         stt_provider=agent["stt_provider"] or SARVAM_STT_PROVIDER,
-        stt_model=agent["stt_model"] or SARVAM_DEFAULT_STT,
+        stt_model=agent["stt_model"] or get_settings().sarvam_stt_model,
         tts_model=tts_model,
         tts_voice=speaker,
         tts_voice_label=label,

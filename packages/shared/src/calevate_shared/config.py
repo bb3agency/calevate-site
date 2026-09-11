@@ -24,8 +24,10 @@ from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
     AZURE_RESOURCE_PATTERN,
     PLATFORM_DEFAULT_LLM_MODEL,
+    SARVAM_DEFAULT_STT,
     AzureOpenAIModel,
     LlmModelName,
+    SarvamSttModel,
 )
 
 #: Environment variables the deployment's `.env` legitimately carries FOR SOMEONE ELSE.
@@ -898,6 +900,48 @@ class Settings(BaseSettings):
     # Cartesia agents across every tenant has reached this; an operator raises it here, on
     # a screen, after choosing to. Default 2, the founder's rule; 0 switches the tier off.
     cartesia_agent_cap: int = Field(default=2, ge=0, le=10_000)
+    # WHICH SARVAM TRANSCRIBER EVERY AGENT IS PUBLISHED WITH (D-583).
+    #
+    # A SETTING RATHER THAN THE CONSTANT IT WAS, AND THE REASON IS A LIVE REFUSAL. The
+    # engine's validator enforces a per-model LANGUAGE MATRIX that no published page
+    # states and no API exposes:
+    #
+    #     400 POST /v2/agent — "Provided language: te-IN is not available for the
+    #     model: saaras:v3"
+    #
+    # (live account, 11 Sep 2026). Their own OpenAPI declares `model` and `language` as
+    # INDEPENDENT enums with `saaras:v3` and `te-IN` both present
+    # (`api-reference/agent/v2/create.md:1071-1091`), and their transcriber page says in
+    # prose that all four models support all eleven languages
+    # (`providers/transcriber/sarvam.md` §5) — so the two documents we have both say this
+    # publish should work, and the validator says it does not. A live 400 outranks a
+    # mirrored doc: a documented example is what a vendor CHOSE to print, a 400 is what
+    # their validator ENFORCES.
+    #
+    # There is no STT discovery endpoint to ask — `voice-config` is TTS-only
+    # (`api-reference/voice/overview.md`) — so the only instrument is the validator, and
+    # the only question is how many DEPLOYS it costs to consult it. As a constant: one
+    # build and one deploy per attempt, on a Telugu-first product that cannot currently
+    # publish an agent. As a setting: a console edit and a re-publish. That is the whole
+    # justification, and it is the same one `bolna_llm_credential_name` gives — a
+    # documented value and a live account's actual value are different claims.
+    #
+    # **THE DEFAULT DOES NOT MOVE**, and that is deliberate rather than timid.
+    # `SARVAM_DEFAULT_STT` is `saaras:v3` on grounds that are still good and are written
+    # out where it is defined: `saaras:v4` cannot stream (Sarvam's own Model Catalogue),
+    # `saaras:v2.5` translates to English and is banned by `SARVAM_TRANSLATING_STT`, and
+    # `saaras:v3-realtime` is a Sarvam-direct endpoint Bolna does not list. Which of the
+    # remaining models serves Telugu is UNKNOWN here (hard rule 11), and moving a default
+    # onto a guess is what that rule forbids. When the validator answers, the default
+    # moves WITH the evidence and this comment records it.
+    #
+    # BOUNDED BY ITS TYPE for `platform_llm_model`'s reason: `SarvamSttModel` is the
+    # vendor's own four-member enum, so a console write of a model their schema has never
+    # heard of is refused where it is typed rather than at the next publish. It does NOT
+    # exclude the translating model — `require_speech_leg` refuses that by name, with a
+    # message about what it would do to Telugu transcripts, which is a better error than
+    # a type failure on a screen.
+    sarvam_stt_model: SarvamSttModel = SARVAM_DEFAULT_STT
     # `COHERE_API_KEY` WAS HERE AND IS GONE, for the reason the paragraph below gives
     # about Clerk. It was declared, classified `applies: live` in `platform_config`, and
     # therefore offered to an operator on the ops console as a key they could install —

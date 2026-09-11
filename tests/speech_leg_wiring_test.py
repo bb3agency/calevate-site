@@ -33,12 +33,15 @@ here as one property, not as two.
 from __future__ import annotations
 
 import json
+import os
 from decimal import Decimal
 from typing import Any
+from unittest import mock
 
 import httpx
 from apps.api.agents.service import in_call_speech
 from apps.api.agents.voices import DEFAULT_SPEAKER, DEFAULT_TTS_MODEL, DEFAULT_VOICE_ID
+from apps.api.core.settings import get_settings
 from apps.api.engine.bolna import BASE_URL, BolnaEngine, _agent_models
 from apps.api.engine.capabilities import require_speech_leg
 from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
@@ -109,6 +112,43 @@ def test_no_default_is_filled_on_an_engine_that_supplies_its_own_transcriber() -
     require_speech_leg("stt", engine=engine, value=speech["stt_model"])
 
 
+def test_the_platform_transcriber_is_a_console_setting_not_a_constant() -> None:
+    """D-583: the operator can change which Sarvam model agents publish with, WITHOUT a
+    deploy, because the engine's validator enforces a per-model language matrix that no
+    published page states:
+
+        400 POST /v2/agent — "Provided language: te-IN is not available for the
+        model: saaras:v3"
+
+    Their OpenAPI declares `model` and `language` as independent enums with both values
+    present (`api-reference/agent/v2/create.md:1071-1091`) and their transcriber page says
+    all four models cover all eleven languages (`providers/transcriber/sarvam.md` §5) — so
+    both documents say this publish should work and the validator says otherwise. There is
+    no STT discovery endpoint to ask (`voice-config` is TTS-only), which leaves the
+    validator as the only instrument and the number of DEPLOYS as the only variable.
+
+    Read at the POINT OF USE, so a console edit reaches the next publish without a restart.
+    The setting is `needs_republish` rather than `live` because this resolves at publish
+    time into the agent object the engine stores.
+    """
+    settings = get_settings()
+    assert settings.sarvam_stt_model == SARVAM_DEFAULT_STT, (
+        "the default moved; it may only move WITH evidence from the validator, never on a "
+        "guess about which model serves Telugu (hard rule 11)"
+    )
+
+    get_settings.cache_clear()
+    try:
+        with mock.patch.dict(os.environ, {"SARVAM_STT_MODEL": "saarika:v2.5"}):
+            speech = in_call_speech(_row(), engine=FakeEngine())
+            assert speech["stt_model"] == "saarika:v2.5", (
+                "the resolver captured the constant at import; an operator changing this "
+                "on a console would see no effect and reach for a deploy"
+            )
+    finally:
+        get_settings.cache_clear()
+
+
 # --- the TTS leg (defect 3) ---------------------------------------------------
 
 
@@ -143,13 +183,17 @@ def _config() -> AgentConfig:
         direction="inbound",
         system_prompt="You are the receptionist for Sunrise Clinic.",
         opening_line="Idi AI assistant.",
+        # THE FOUR SPEECH FIELDS COME FROM THE RESOLVER, NOT FROM A HAND-TYPED COPY, and
+        # that is the point of this fixture rather than a convenience. They were typed out
+        # here, and the copy drifted the moment `in_call_speech` started resolving a fifth
+        # fact (`tts_voice_label`, D-582): the body under test kept asserting a shape no
+        # publish would ever send, and the assertion below went green on a payload
+        # production does not produce. A fixture that reproduces the resolver is a second
+        # definition of it; this calls it.
         models=ModelConfig(
-            stt_provider=SARVAM_STT_PROVIDER,
-            stt_model=SARVAM_DEFAULT_STT,
             llm_model="sarvam-105b",
             tts_provider="sarvam",
-            tts_model=DEFAULT_TTS_MODEL,
-            tts_voice=DEFAULT_SPEAKER,
+            **in_call_speech(_row(), engine=FakeEngine()),
         ),
     )
 
@@ -179,8 +223,16 @@ async def test_the_synthesizer_names_the_model_and_the_speaker_in_the_vendors_ow
 
     assert synthesizer["provider_config"] == {
         "model": "bulbul:v3",
+        # The catalogue's LABEL, looked up by the resolver — never `voice_id.capitalize()`.
+        # The two are indistinguishable on every Sarvam persona and unrelated on a cloned
+        # voice (`api-reference/voice/get_all.md:102-112`), which is why the resolver owns
+        # it (D-582).
         "voice": "Ashutosh",
         "voice_id": "ashutosh",
+        # The voice block carries its own language, in `provider_config` where the Cartesia
+        # arm already put it — their validator demands it ("Voice > Language: This field is
+        # required") and the Sarvam arm was dropping the parameter it was handed (D-580).
+        "language": "te-IN",
     }
     assert synthesizer["stream"] is True
 

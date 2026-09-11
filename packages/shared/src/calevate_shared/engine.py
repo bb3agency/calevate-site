@@ -510,6 +510,27 @@ SARVAM_STT_PROVIDER: Final = "sarvam"
 #: product's STT pick — so this constant moves nothing; it makes the pick reach the wire.
 SARVAM_DEFAULT_STT: Final = "saaras:v3"
 
+#: THE FOUR SARVAM TRANSCRIBER MODELS BOLNA'S OWN SCHEMA ACCEPTS, as a closed type — so a
+#: console edit cannot store a model string their validator has never heard of.
+#:
+#: VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/api-reference/agent/v2/create.md:
+#: 1071-1076`, the `SarvamTranscriberConfig.model` enum, read 11 Sep 2026. The same four are
+#: listed in prose on `providers/transcriber/sarvam.md` §4.
+#:
+#: ⚠ **BEING IN THIS ENUM IS NOT A CLAIM THAT A MODEL SERVES A GIVEN LANGUAGE.** Their
+#: schema declares `model` and `language` as INDEPENDENT enums — `saaras:v3` and `te-IN` are
+#: both in it — and their live validator refuses the PAIR:
+#:
+#:     400 POST /v2/agent — "Provided language: te-IN is not available for the
+#:     model: saaras:v3"
+#:
+#: (observed against the live account, 11 Sep 2026). There is no published per-model
+#: language matrix and no STT discovery endpoint — `voice-config` is TTS-only
+#: (`api-reference/voice/overview.md`) — so which of these four serves Telugu is UNKNOWN
+#: here and is settled by the validator. That is the whole reason the choice became a
+#: setting: see `Settings.sarvam_stt_model`.
+SarvamSttModel = Literal["saarika:v2.5", "saaras:v2.5", "saaras:v3", "saaras:v4"]
+
 
 #: THE Azure region this platform's Azure OpenAI resource lives in. **East US 2 (D-449).**
 #:
@@ -5079,6 +5100,7 @@ __all__ = [
     "ProvisionedNumber",
     "RecallOutcome",
     "ResidencyPosture",
+    "SarvamSttModel",
     "SpeechControl",
     "SpeechLeg",
     "VoiceEngine",

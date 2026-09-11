@@ -564,6 +564,17 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # by `agents/voice_offer.offered_catalogue` and per write by `set_agent_voice`, so a
     # raise is in force on the next picker load; it touches nothing already published.
     "cartesia_agent_cap": AppliesRule(LIVE),
+    # WHICH SARVAM TRANSCRIBER AGENTS ARE PUBLISHED WITH (D-583). `needs_republish` and not
+    # `live` for `azure_openai_deployment`'s reason, exactly: `in_call_speech` resolves it at
+    # PUBLISH time into the agent object the engine stores, so an agent already live keeps
+    # transcribing on the model it was published with however many times this is edited.
+    # Saying `live` here would be the outage this file's header describes, on the leg that
+    # decides what the caller is heard to have said.
+    "sarvam_stt_model": AppliesRule(
+        NEEDS_REPUBLISH,
+        "it is the transcriber each agent was published with, so live agents keep "
+        "transcribing on the old model until they are re-published",
+    ),
     # ---- CREDENTIALS. Same question, higher stakes -------------------------------
     #
     # The Secrets panel implies exactly what the config panel implies — set it and it is
