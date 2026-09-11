@@ -852,6 +852,7 @@ class InCallSpeech(TypedDict):
 
     stt_provider: str | None
     stt_model: str | None
+    stt_autodetect: bool
     tts_model: str | None
     tts_voice: str | None
     tts_voice_label: str | None
@@ -924,13 +925,19 @@ def in_call_speech(agent: AgentRow, *, engine: VoiceEngine) -> InCallSpeech:
         return InCallSpeech(
             stt_provider=agent["stt_provider"],
             stt_model=agent["stt_model"],
+            # FALSE ON A DICTATED LEG, not the platform setting, and it is the same
+            # argument the two fields above make: an engine whose transcriber is its own
+            # product is not ours to tell how to resolve a language.
+            stt_autodetect=False,
             tts_model=tts_model,
             tts_voice=speaker,
             tts_voice_label=label,
         )
+    settings = get_settings()
     return InCallSpeech(
         stt_provider=agent["stt_provider"] or SARVAM_STT_PROVIDER,
-        stt_model=agent["stt_model"] or get_settings().sarvam_stt_model,
+        stt_model=agent["stt_model"] or settings.sarvam_stt_model,
+        stt_autodetect=settings.stt_autodetect_language,
         tts_model=tts_model,
         tts_voice=speaker,
         tts_voice_label=label,

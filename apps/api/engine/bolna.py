@@ -749,6 +749,32 @@ def _synthesizer_config(models: ModelConfig, language: str) -> dict[str, Any]:
     return config
 
 
+#: THE VENDOR'S PSEUDO-LANGUAGE FOR "detect it yourself", which travels in the same field
+#: a real language code does. Their own word, so it lives here and not in the contract
+#: (hard rule 2) — `ModelConfig.stt_autodetect` is the normalized question it answers.
+#: VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/api-reference/agent/v2/
+#: create.md:1078-1091`, `SarvamTranscriberConfig.language` — *"Language code, or `unknown`
+#: for automatic language detection"* — read 11 Sep 2026.
+_STT_AUTODETECT_LANGUAGE: Final = "unknown"
+
+
+def _transcriber_language(cfg: AgentConfig) -> str:
+    """The transcriber's `language`: the agent's own, or the detect-it-yourself sentinel.
+
+    **THIS IS A FALLBACK THE VENDOR FORCED, NOT A FEATURE** — see
+    `ModelConfig.stt_autodetect` for the four live 400s that exhausted their model enum on
+    `te-IN`. Read that before concluding the product chose auto-detection.
+
+    Separate from `_synthesizer_config`'s language on purpose: the two legs answer the same
+    question with different vocabularies now, and folding them would mean the SPEAKING side
+    inherited a sentinel that means nothing to a TTS provider. The agent still speaks
+    `language_primary`; only the listening side is allowed to be unsure.
+    """
+    if cfg.models.stt_autodetect:
+        return _STT_AUTODETECT_LANGUAGE
+    return cfg.language_primary
+
+
 def _read_speaker(voice_id: str | None, voice: str | None) -> str | None:
     """The SPEAKER an agent object came back holding, from whichever of the two keys the
     engine echoed.
@@ -3820,7 +3846,7 @@ class BolnaEngine:
                             "transcriber": {
                                 "provider": cfg.models.stt_provider,
                                 "model": cfg.models.stt_model,
-                                "language": cfg.language_primary,
+                                "language": _transcriber_language(cfg),
                                 "stream": True,
                             },
                             # **REQUIRED, AND WE WERE NOT SENDING THEM (D-355).**

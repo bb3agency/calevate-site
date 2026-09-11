@@ -347,7 +347,9 @@ export function Disclosure({
       </summary>
       <div
         className={clsx(
-          inline ? "pb-3 pr-6 text-sm text-ink-muted" : "border-t border-line p-4 sm:p-6",
+          inline
+            ? "pb-3 pr-6 text-sm text-ink-muted"
+            : "border-t border-line p-4 sm:p-6",
         )}
       >
         {children}
@@ -637,7 +639,9 @@ export function glossPosition(
   return {
     left: `${Math.round(left)}px`,
     top: fitsAbove ? "auto" : `${Math.round(rect.bottom + GLOSS_GAP)}px`,
-    bottom: fitsAbove ? `${Math.round(viewport.height - rect.top + GLOSS_GAP)}px` : "auto",
+    bottom: fitsAbove
+      ? `${Math.round(viewport.height - rect.top + GLOSS_GAP)}px`
+      : "auto",
   };
 }
 
@@ -658,7 +662,10 @@ export function TermGloss({
     const el = ref.current;
     if (!el) return;
     const r = el.getBoundingClientRect();
-    const at = glossPosition(r, { width: window.innerWidth, height: window.innerHeight });
+    const at = glossPosition(r, {
+      width: window.innerWidth,
+      height: window.innerHeight,
+    });
     el.style.setProperty("--gloss-left", at.left);
     el.style.setProperty("--gloss-top", at.top);
     el.style.setProperty("--gloss-bottom", at.bottom);
@@ -779,7 +786,9 @@ export function ProblemNotice({
   // `"We could not finish that."` rather than as `""` — but a plain `Error` thrown by a
   // screen ("This preview could not be loaded.") reaches here too, and an empty message on
   // one of those would still paint a box with no words in it.
-  const title = problem?.message?.trim() || (problem === null ? "Something went wrong." : "We could not finish that.");
+  const title =
+    problem?.message?.trim() ||
+    (problem === null ? "Something went wrong." : "We could not finish that.");
   // Anything that is not an ApiProblem never reached the API — a dropped connection,
   // a DNS failure, a laptop that slept. The API's `retryable` cannot speak for those,
   // and they are the most retryable failures there are, so the button must not depend
@@ -795,15 +804,29 @@ export function ProblemNotice({
       role="alert"
       className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900 dark:border-rose-900 dark:bg-rose-950 dark:text-rose-200"
     >
-      <p className="break-words text-[15px] font-semibold leading-snug">{title}</p>
+      <p className="break-words text-[15px] font-semibold leading-snug">
+        {title}
+      </p>
       {problem?.remediation && (
         <p className="mt-1 break-words text-rose-800 dark:text-rose-300">
           {problem.remediation}
         </p>
       )}
       {problem === null && (
+        /* WHAT WE KNOW IS THAT NO REPLY WAS PARSED — NOT WHY, AND NOT THAT NOTHING
+           HAPPENED. This said "We could not reach Calevate. Check your connection and try
+           again", which names a cause this branch cannot observe and an outcome it cannot
+           know. `problem === null` means only that the thrown thing was not an
+           `ApiProblem`: every non-2xx becomes one (`problemFrom`), and so does a timeout
+           (`TimeoutProblem`), so what lands here is a `fetch` that REJECTED — a dropped
+           connection, yes, but equally a response the browser refused to hand us (a
+           blocked CORS preflight, a mixed-content block). In those the server answered
+           perfectly well and may have DONE the thing, so "check your connection" sends the
+           person to fix something that is not broken and the silence about the outcome
+           invites them to retry a write that already landed. */
         <p className="mt-1 break-words text-rose-800 dark:text-rose-300">
-          We could not reach Calevate. Check your connection and try again.
+          No reply reached this page, so we could not confirm what happened.
+          Check your connection and try again.
         </p>
       )}
       {problem?.fields?.length ? (
@@ -1439,7 +1462,9 @@ export function formatWholeCount(value: string | null | undefined): string {
   const [whole = "0"] = value.replace(/^[-+]/, "").split(".");
   const head = whole.length > 3 ? whole.slice(0, -3) : "";
   const tail = whole.slice(-3);
-  const grouped = head ? `${head.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${tail}` : tail;
+  const grouped = head
+    ? `${head.replace(/\B(?=(\d{2})+(?!\d))/g, ",")},${tail}`
+    : tail;
   return `${negative ? "-" : ""}${grouped}`;
 }
 

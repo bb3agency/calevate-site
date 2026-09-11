@@ -42,7 +42,12 @@ const OWNER = {
   role: "owner",
   permissions: [...PERMISSIONS, "calls:read_raw"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 /** Same screen, a reader without the raw-data permission. */
@@ -97,7 +102,12 @@ function routes(over: Record<string, unknown> = {}) {
     // for it. `sheets_delivery_available` decides whether the Sheets form is offered at
     // all; this file is about the delivery log, and true keeps the screen at full size.
     "/v1/integrations/events": {
-      events: ["lead.created", "lead.updated", "call.completed", "campaign.completed"],
+      events: [
+        "lead.created",
+        "lead.updated",
+        "call.completed",
+        "campaign.completed",
+      ],
       sheets_delivery_available: true,
     },
     "/v1/integrations/deliveries": [delivery()],
@@ -182,10 +192,14 @@ describe("the retained delivery body", () => {
 
   it("states the absence rather than offering a link into a refusal", async () => {
     await renderClientPage(page, {
-      ...routes({ "/v1/integrations/deliveries": [delivery({ payload_stored: false })] }),
+      ...routes({
+        "/v1/integrations/deliveries": [delivery({ payload_stored: false })],
+      }),
     });
 
-    expect(await screen.findByTitle(/No copy is kept for this delivery/)).toBeTruthy();
+    expect(
+      await screen.findByTitle(/No copy is kept for this delivery/),
+    ).toBeTruthy();
     expect(screen.queryByRole("button", { name: "View" })).toBeNull();
   });
 
@@ -207,7 +221,9 @@ describe("the retained delivery body", () => {
     fireEvent.click(await screen.findByRole("button", { name: "View" }));
 
     const refusal = await screen.findByRole("alert");
-    expect(refusal.textContent).toContain("We no longer hold a copy of what was sent");
+    expect(refusal.textContent).toContain(
+      "We no longer hold a copy of what was sent",
+    );
     // A refusal, not an empty panel and not a stale body.
     expect(screen.queryByText(BODY)).toBeNull();
   });
@@ -226,7 +242,9 @@ describe("the retained delivery body", () => {
 
     // The number is the SERVER's, and the sentence says our copy stops — a partial body
     // shown as if it were whole is a forensic record that lies.
-    expect(await screen.findByText(/Only the first part of this body is kept/)).toBeTruthy();
+    expect(
+      await screen.findByText(/Only the first part of this body is kept/),
+    ).toBeTruthy();
     expect(screen.getByText(/40,00,000 bytes/)).toBeTruthy();
   });
 });
@@ -244,7 +262,12 @@ describe("the retained delivery body", () => {
 describe("the payload offer when we could not check the permission", () => {
   it("says we could not check, rather than silently withdrawing the column", async () => {
     const { container } = await renderClientPage(page, {
-      ...routes({ "/v1/me": problem(503, { title: "Service unavailable", retryable: true }) }),
+      ...routes({
+        "/v1/me": problem(503, {
+          title: "Service unavailable",
+          retryable: true,
+        }),
+      }),
     });
 
     // The delivery log itself is unaffected — that read succeeded.
@@ -262,7 +285,9 @@ describe("the payload offer when we could not check the permission", () => {
     // column is deliberately absent, "a permanently empty column is a promise the screen
     // cannot keep" — and printing one for every staff reader is the noise that stops the
     // real refusal above from being read.
-    const { container } = await renderClientPage(page, { ...routes({ "/v1/me": STAFF }) });
+    const { container } = await renderClientPage(page, {
+      ...routes({ "/v1/me": STAFF }),
+    });
 
     expect(await screen.findByText("delivered")).toBeTruthy();
     expect(container.textContent).not.toContain("open a delivered payload");
@@ -304,7 +329,7 @@ describe("the integration logs when the read did not answer (§52)", () => {
     // Both cards say we could not reach the server instead.
     expect(
       screen.getAllByText(
-        "We could not reach Calevate. Check your connection and try again.",
+        "No reply reached this page, so we could not confirm what happened. Check your connection and try again.",
       ).length,
     ).toBeGreaterThanOrEqual(2);
   });
@@ -325,7 +350,9 @@ describe("the integration logs when the read did not answer (§52)", () => {
     });
 
     // Present — the failure is a refusal, never the empty state or a blank box…
-    expect(await screen.findAllByText("Your endpoints could not be read.")).toHaveLength(1);
+    expect(
+      await screen.findAllByText("Your endpoints could not be read."),
+    ).toHaveLength(1);
     // …and stated once, not once per place that used to carry it.
     expect(screen.queryByText("No endpoints yet")).toBeNull();
   });

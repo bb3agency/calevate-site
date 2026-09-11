@@ -120,13 +120,27 @@ function state(over: Partial<ExperimentState> = {}): ExperimentState {
 }
 
 const VERSIONS = [
-  { id: "v2", version: 2, notes: "challenger", created_at: "2026-08-01T04:00:00Z", active: true },
-  { id: "v1", version: 1, notes: "control", created_at: "2026-07-01T04:00:00Z", active: false },
+  {
+    id: "v2",
+    version: 2,
+    notes: "challenger",
+    created_at: "2026-08-01T04:00:00Z",
+    active: true,
+  },
+  {
+    id: "v1",
+    version: 1,
+    notes: "control",
+    created_at: "2026-07-01T04:00:00Z",
+    active: false,
+  },
 ];
 
 function render(routes: Partial<Routes> = {}) {
   return renderAdminRoute(
-    <AgentPromptPage params={routeParams({ tenantId: TENANT, agentId: AGENT })} />,
+    <AgentPromptPage
+      params={routeParams({ tenantId: TENANT, agentId: AGENT })}
+    />,
     {
       [TENANT_PATH]: { id: TENANT, name: "Sunrise Clinic", slug: "sunrise" },
       [ME_PATH]: {
@@ -173,7 +187,13 @@ describe("the A/B script test panel", () => {
       [EXPERIMENT_PATH]: state({
         experiment: experiment({
           variants: [
-            variant({ completed: 11, conversions: 5, rate: 0.4545, rate_low: 0.211, rate_high: 0.72 }),
+            variant({
+              completed: 11,
+              conversions: 5,
+              rate: 0.4545,
+              rate_low: 0.211,
+              rate_high: 0.72,
+            }),
             variant({
               label: "B",
               prompt_version: 2,
@@ -191,7 +211,8 @@ describe("the A/B script test panel", () => {
           difference_point: null,
           difference_low: null,
           difference_high: null,
-          headline: "Not enough calls to compare yet — 11 completed on the smaller arm.",
+          headline:
+            "Not enough calls to compare yet — 11 completed on the smaller arm.",
         }),
       }),
     });
@@ -202,7 +223,9 @@ describe("the A/B script test panel", () => {
     expect(screen.getByText("ahead so far")).toBeTruthy();
     expect(container.textContent).not.toContain("winner:");
     // And the absent gap says WHY it is absent rather than showing a dash or a zero.
-    expect(container.textContent).toContain("No gap is published below 40 completed calls");
+    expect(container.textContent).toContain(
+      "No gap is published below 40 completed calls",
+    );
     expect(container.textContent).not.toContain("Gap between the arms");
   });
 
@@ -219,7 +242,13 @@ describe("the A/B script test panel", () => {
         experiment: experiment({
           variants: [
             variant({ completed: 11, conversions: 5, rate: 0.4545 }),
-            variant({ label: "B", prompt_version: 2, completed: 11, conversions: 1, rate: 0.09 }),
+            variant({
+              label: "B",
+              prompt_version: 2,
+              completed: 11,
+              conversions: 1,
+              rate: 0.09,
+            }),
           ],
           basis: "insufficient_data",
           verdict: "not_enough_data",
@@ -233,7 +262,9 @@ describe("the A/B script test panel", () => {
 
     await screen.findByText(/Not enough calls to compare yet/);
     expect(container.textContent).not.toContain("Gap between the arms");
-    expect(container.textContent).toContain("No gap is published below 40 completed calls");
+    expect(container.textContent).toContain(
+      "No gap is published below 40 completed calls",
+    );
   });
 
   it("distinguishes 'B is ahead' from 'B is better' on a measured but inconclusive read", async () => {
@@ -242,7 +273,13 @@ describe("the A/B script test panel", () => {
         experiment: experiment({
           variants: [
             variant({ completed: 40, conversions: 8, rate: 0.2 }),
-            variant({ label: "B", prompt_version: 2, completed: 40, conversions: 7, rate: 0.175 }),
+            variant({
+              label: "B",
+              prompt_version: 2,
+              completed: 40,
+              conversions: 7,
+              rate: 0.175,
+            }),
           ],
           leader_label: "A",
           headline:
@@ -264,7 +301,13 @@ describe("the A/B script test panel", () => {
         experiment: experiment({
           variants: [
             variant({ completed: 200, conversions: 20, rate: 0.1 }),
-            variant({ label: "B", prompt_version: 2, completed: 200, conversions: 70, rate: 0.35 }),
+            variant({
+              label: "B",
+              prompt_version: 2,
+              completed: 200,
+              conversions: 70,
+              rate: 0.35,
+            }),
           ],
           verdict: "winner",
           leader_label: "B",
@@ -282,7 +325,9 @@ describe("the A/B script test panel", () => {
     expect(container.textContent).toContain("Gap between the arms");
     // Promotion is offered per arm, naming the version it would publish.
     expect(screen.getByRole("button", { name: "Promote B (v2)" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Stop, keep the control" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Stop, keep the control" }),
+    ).toBeTruthy();
   });
 
   it("refuses rather than reporting an empty experiment when the read fails", async () => {
@@ -313,8 +358,12 @@ describe("the A/B script test panel", () => {
     });
 
     await screen.findByText(/No difference we can stand behind/);
-    expect(container.textContent).toContain("The 95% confidence is per reading.");
-    expect(container.textContent).toContain("Only outbound calls are assigned to an arm.");
+    expect(container.textContent).toContain(
+      "The 95% confidence is per reading.",
+    );
+    expect(container.textContent).toContain(
+      "Only outbound calls are assigned to an arm.",
+    );
   });
 
   it("qualifies the rate of an arm whose denominator holds calls nobody split", async () => {
@@ -331,7 +380,12 @@ describe("the A/B script test panel", () => {
       [EXPERIMENT_PATH]: state({
         experiment: experiment({
           variants: [
-            variant({ outbound_dialled: 45, completed: 40, inbound_completed: 0, conversions: 8 }),
+            variant({
+              outbound_dialled: 45,
+              completed: 40,
+              inbound_completed: 0,
+              conversions: 8,
+            }),
             variant({
               label: "B",
               prompt_version: 2,
@@ -342,13 +396,16 @@ describe("the A/B script test panel", () => {
               rate: 0.175,
             }),
           ],
-          coverage_note: "Some inbound calls were answered by an arm's own line.",
+          coverage_note:
+            "Some inbound calls were answered by an arm's own line.",
         }),
       }),
     });
 
     await screen.findByText(/No difference we can stand behind/);
-    expect(container.textContent).toContain("includes 12 inbound calls this arm's line answered");
+    expect(container.textContent).toContain(
+      "includes 12 inbound calls this arm's line answered",
+    );
     expect(container.textContent).toContain("not split between the arms");
     // The unmixed arm's rate stays a bare reading — the qualifier is a statement about
     // this arm's data, not a blanket disclaimer bolted onto every row.
@@ -366,13 +423,17 @@ describe("the A/B script test panel", () => {
     // The column index is DERIVED from the header row rather than written down, because
     // a column inserted to its left silently moves it — `leadSources.test.tsx` carries a
     // comment recording exactly that repair being made by hand.
-    const arms = within(screen.getByRole("region", { name: "Prompt experiment arms" }));
+    const arms = within(
+      screen.getByRole("region", { name: "Prompt experiment arms" }),
+    );
     const dialled = arms
       .getAllByRole("columnheader")
       .findIndex((th) => th.textContent === "Dialled (outbound)");
     const armB = arms.getByText("B · v2").closest("tr");
     expect(armB, "no row for arm B").not.toBeNull();
-    expect(within(armB as HTMLElement).getAllByRole("cell")[dialled].textContent).toBe("30");
+    expect(
+      within(armB as HTMLElement).getAllByRole("cell")[dialled].textContent,
+    ).toBe("30");
   });
 
   it("offers a test between two existing versions when none is running, and never authors one", async () => {
@@ -422,10 +483,14 @@ describe("the A/B script test panel", () => {
         .filter((call) => call.method === "POST" && call.path === CONCLUDE_PATH)
         .map((call) => JSON.parse(call.body ?? "{}"));
 
-    fireEvent.click(await screen.findByRole("button", { name: "Promote B (v2)" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Promote B (v2)" }),
+    );
     await screen.findByText(/Promoted variant B as v3\./);
 
-    fireEvent.click(screen.getByRole("button", { name: "Stop, keep the control" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Stop, keep the control" }),
+    );
     await waitFor(() => expect(concludeBodies()).toHaveLength(2));
 
     expect(concludeBodies()).toEqual([
@@ -453,10 +518,14 @@ describe("the A/B script test panel", () => {
       }),
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Promote A (v1)" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Promote A (v1)" }),
+    );
 
     await screen.findByText(/already ended promoting variant B/);
-    expect(container.textContent).toContain("Reload the agent to see how it ended.");
+    expect(container.textContent).toContain(
+      "Reload the agent to see how it ended.",
+    );
     // Nothing was promoted, so nothing may read as a promotion.
     expect(container.textContent).not.toContain("Promoted variant A");
   });
@@ -474,7 +543,9 @@ describe("the A/B script test panel", () => {
       },
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Promote B (v2)" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Promote B (v2)" }),
+    );
 
     await screen.findByText(/Promoted variant B as v3\./);
     expect(screen.getByText(/The voice platform has it\./)).toBeTruthy();
@@ -503,9 +574,13 @@ describe("the A/B script test panel", () => {
       },
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: "Promote B (v2)" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Promote B (v2)" }),
+    );
 
-    await screen.findByText(/This test had already ended, promoting variant B\./);
+    await screen.findByText(
+      /This test had already ended, promoting variant B\./,
+    );
     expect(container.textContent).not.toContain("vnull");
     // The success branch's staged-change sentence, which would send this operator to
     // press Apply for a version that does not exist.
@@ -551,7 +626,9 @@ describe("the call cap", () => {
     // The `<dt>`/`<dd>` pair is the semantic hook here, and it is what the substring
     // matcher could not tell apart from the help text underneath it.
     expect(inForce.tagName).toBe("DD");
-    expect(within(inForce.closest("div") as HTMLElement).getByText("In force")).toBeTruthy();
+    expect(
+      within(inForce.closest("div") as HTMLElement).getByText("In force"),
+    ).toBeTruthy();
     expect(container.textContent).toContain("(10 minutes, platform default)");
   });
 });
@@ -575,7 +652,7 @@ describe("the version history when the read did not answer (§52)", () => {
 
     await waitFor(() =>
       expect(container.textContent).toContain(
-        "We could not reach Calevate. Check your connection and try again.",
+        "No reply reached this page, so we could not confirm what happened. Check your connection and try again.",
       ),
     );
     // Never "No prompt versions yet" off a request that never left the browser.

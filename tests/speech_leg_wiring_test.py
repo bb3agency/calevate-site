@@ -42,7 +42,13 @@ import httpx
 from apps.api.agents.service import in_call_speech
 from apps.api.agents.voices import DEFAULT_SPEAKER, DEFAULT_TTS_MODEL, DEFAULT_VOICE_ID
 from apps.api.core.settings import get_settings
-from apps.api.engine.bolna import BASE_URL, BolnaEngine, _agent_models
+from apps.api.engine.bolna import (
+    BASE_URL,
+    BolnaEngine,
+    _agent_models,
+    _synthesizer_config,
+    _transcriber_language,
+)
 from apps.api.engine.capabilities import require_speech_leg
 from apps.api.engine.fake import DICTATED_SPEECH_CAPABILITIES, FakeEngine
 from calevate_shared.engine import (
@@ -147,6 +153,46 @@ def test_the_platform_transcriber_is_a_console_setting_not_a_constant() -> None:
             )
     finally:
         get_settings.cache_clear()
+
+
+def test_the_transcriber_can_be_told_to_detect_the_language_instead_of_being_told_it() -> None:
+    """D-584, and it is a fallback the vendor forced rather than a feature we wanted.
+
+    Four live 400s exhausted their Sarvam model enum against `te-IN` (11 Sep 2026):
+
+        "Provided language: te-IN is not available for the model: saaras:v3"
+        "Model 'saarika:v2.5' is deprecated and can no longer be used. Use
+         'saaras:v4' instead."
+        "Provided language: te-IN is not available for the model: saaras:v4"
+
+    and `saaras:v2.5` transcribes to English (banned by `SARVAM_TRANSLATING_STT`). Their
+    `language` enum has one value left — `unknown`, documented for automatic detection
+    (`api-reference/agent/v2/create.md:1078-1091`).
+
+    TWO PROPERTIES, and the second is the hard-rule-2 one. The flag on the contract is a
+    BOOLEAN about the product question (pinned, or discovered?); the pseudo-language
+    `unknown` is the vendor's spelling of the answer and never leaves the adapter. And the
+    SPEAKING leg does not inherit it: a sentinel meaning "work it out" is meaningless to a
+    TTS provider, and an agent that listens in an unknown language still speaks Telugu.
+    """
+    assert get_settings().stt_autodetect_language is False, (
+        "detection became the default; it is strictly weaker than pinning and unverified "
+        "for Telugu, so it may only be turned on deliberately (hard rule 11)"
+    )
+
+    pinned = _transcriber_language(_config())
+    assert pinned == "te-IN", "an agent that pinned its language stopped pinning it"
+
+    detecting = _config()
+    detecting = detecting.model_copy(
+        update={"models": detecting.models.model_copy(update={"stt_autodetect": True})}
+    )
+    assert _transcriber_language(detecting) == "unknown"
+    speaks = _synthesizer_config(detecting.models, detecting.language_primary)
+    assert speaks["language"] == "te-IN", (
+        "the voice leg inherited the transcriber's sentinel; `unknown` is not a language a "
+        "TTS provider can speak in, and the agent still speaks Telugu"
+    )
 
 
 # --- the TTS leg (defect 3) ---------------------------------------------------

@@ -554,7 +554,7 @@ describe("the money tile says which kind of nothing it is showing", () => {
     // Neither empty state, and no tile pretending to a figure.
     expect(container.textContent).not.toContain("No call history yet");
     expect(container.textContent).not.toContain("No calls yet");
-    expect(container.textContent).toContain("We could not reach Calevate");
+    expect(container.textContent).toContain("No reply reached this page");
   });
 });
 

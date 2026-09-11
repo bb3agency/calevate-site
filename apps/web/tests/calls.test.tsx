@@ -33,7 +33,12 @@ const ME: Me = {
   role: "owner",
   permissions: ["calls:read"],
   impersonating: false,
-  organization: { id: "o1", name: "Sri Clinic", slug: "acme", status: "active" },
+  organization: {
+    id: "o1",
+    name: "Sri Clinic",
+    slug: "acme",
+    status: "active",
+  },
 };
 
 function call(over: Partial<CallSummary> = {}): CallSummary {
@@ -88,8 +93,13 @@ describe("the call log", () => {
   });
 
   it("says how many rows the filter matched, and only once it knows", async () => {
-    const { container } = await renderClientPage(page, routes([call(), call({ id: "c2" })]));
-    await screen.findByText("Open a call to see the transcript, recording and the details we captured.");
+    const { container } = await renderClientPage(
+      page,
+      routes([call(), call({ id: "c2" })]),
+    );
+    await screen.findByText(
+      "Open a call to see the transcript, recording and the details we captured.",
+    );
     expect(container.textContent).toContain("2");
     expect(container.textContent).toContain("calls");
   });
@@ -98,7 +108,9 @@ describe("the call log", () => {
     // A full page means the account may have any number of calls past it; "100 calls"
     // read forever on a busy account is the statement-about-our-query defect the leads
     // screen's docstring names (ux-audit CL1).
-    const fullPage = Array.from({ length: 100 }, (_, i) => call({ id: `c-${i}` }));
+    const fullPage = Array.from({ length: 100 }, (_, i) =>
+      call({ id: `c-${i}` }),
+    );
     const { container } = await renderClientPage(page, routes(fullPage));
     await screen.findByText(/Showing the/);
     expect(container.textContent).toContain("Showing the");
@@ -107,7 +119,9 @@ describe("the call log", () => {
   });
 
   it("reaches yesterday — Show older calls appends the next offset page (CL2)", async () => {
-    const fullPage = Array.from({ length: 100 }, (_, i) => call({ id: `c-${i}` }));
+    const fullPage = Array.from({ length: 100 }, (_, i) =>
+      call({ id: `c-${i}` }),
+    );
     const { container } = await renderClientPage(
       page,
       routes(fullPage, {
@@ -121,7 +135,9 @@ describe("the call log", () => {
     await screen.findByText("The oldest call in the log");
     // Appended, and the short second page ends the log: the count is now the total.
     expect(container.textContent).toContain("101");
-    expect(screen.queryByRole("button", { name: "Show older calls" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Show older calls" }),
+    ).toBeNull();
   });
 
   it("can filter by every status the system records, not a subset of them", async () => {
@@ -133,8 +149,19 @@ describe("the call log", () => {
 
     await renderClientPage(page, routes([call()]));
 
-    for (const label of ["All", "Completed", "No answer", "Busy", "Voicemail", "Failed", "In progress"]) {
-      expect(screen.getByRole("button", { name: label }), `missing chip: ${label}`).toBeTruthy();
+    for (const label of [
+      "All",
+      "Completed",
+      "No answer",
+      "Busy",
+      "Voicemail",
+      "Failed",
+      "In progress",
+    ]) {
+      expect(
+        screen.getByRole("button", { name: label }),
+        `missing chip: ${label}`,
+      ).toBeTruthy();
     }
   });
 
@@ -149,7 +176,9 @@ describe("the call log", () => {
 
     // Server-side, not a client-side slice of a capped list — the difference decides
     // whether row 101 is findable at all.
-    expect(calls.some((c) => c.path === "/v1/calls?status=voicemail&limit=100")).toBe(true);
+    expect(
+      calls.some((c) => c.path === "/v1/calls?status=voicemail&limit=100"),
+    ).toBe(true);
   });
 
   it("renders a status it has never seen rather than dropping the row", async () => {
@@ -182,7 +211,6 @@ describe("the call log", () => {
     const { container } = await renderClientPage(page, routes([call()]));
 
     expect(container.textContent).not.toContain("No calls yet");
-    expect(container.textContent).toContain("We could not reach Calevate");
+    expect(container.textContent).toContain("No reply reached this page");
   });
-
 });

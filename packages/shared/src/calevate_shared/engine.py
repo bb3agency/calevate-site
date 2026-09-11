@@ -518,8 +518,19 @@ SARVAM_DEFAULT_STT: Final = "saaras:v3"
 #: listed in prose on `providers/transcriber/sarvam.md` §4.
 #:
 #: ⚠ **BEING IN THIS ENUM IS NOT A CLAIM THAT A MODEL SERVES A GIVEN LANGUAGE.** Their
-#: schema declares `model` and `language` as INDEPENDENT enums — `saaras:v3` and `te-IN` are
-#: both in it — and their live validator refuses the PAIR:
+#: ⚠ **`saarika:v2.5` IS DEPRECATED AND THEIR VALIDATOR REFUSES IT** — *"Model
+#: 'saarika:v2.5' is deprecated and can no longer be used. Use 'saaras:v4' instead."*
+#: (live 400, 11 Sep 2026). It stays IN this Literal anyway, for `platform_llm_model`'s
+#: reason: a deployment with that value already stored would fail to CONSTRUCT `Settings`
+#: and brick its own boot rather than report a problem. The refusal belongs at the publish,
+#: where it can be read; the type's job is only to keep a string their schema never had out
+#: of the store. Their own model table still lists it as current
+#: (`providers/transcriber/sarvam.md` §4), so the page is stale and the validator is not.
+#:
+#: ⚠ **NO MODEL IN THIS ENUM ACCEPTS `te-IN`**, which is why `ModelConfig.stt_autodetect`
+#: exists — read that field before choosing a value here. Their schema declares `model` and
+#: `language` as INDEPENDENT enums — `saaras:v3` and `te-IN` are both in it — and their live
+#: validator refuses the PAIR:
 #:
 #:     400 POST /v2/agent — "Provided language: te-IN is not available for the
 #:     model: saaras:v3"
@@ -2473,6 +2484,42 @@ class ModelConfig(BaseModel):
 
     stt_provider: str | None = None
     stt_model: str | None = None
+    #: LET THE TRANSCRIBER DETECT THE SPOKEN LANGUAGE INSTEAD OF BEING TOLD IT (D-584).
+    #:
+    #: A NORMALIZED FLAG, not a language string, and the distinction is hard rule 2 doing
+    #: its job: the engine spells this as the pseudo-language `unknown` in the same field
+    #: that otherwise holds `te-IN`, and that spelling is a vendor payload fact which stays
+    #: inside `apps/api/engine/`. What is NORMALIZED is the product question — is the
+    #: language pinned, or discovered? — which any engine with auto-detection has to answer.
+    #:
+    #: **WHY IT EXISTS AT ALL: NO SARVAM MODEL ON THIS ENGINE ACCEPTS `te-IN`.** Four live
+    #: refusals, in order (11 Sep 2026):
+    #:
+    #:     "Provided language: te-IN is not available for the model: saaras:v3"
+    #:     "Model 'saarika:v2.5' is deprecated and can no longer be used. Use 'saaras:v4'
+    #:      instead."
+    #:     "Provided language: te-IN is not available for the model: saaras:v4"
+    #:
+    #: and `saaras:v2.5` transcribes to ENGLISH and is banned by `SARVAM_TRANSLATING_STT`.
+    #: That exhausts the model enum. Their `language` enum has one value left — `unknown`,
+    #: documented as *"Language code, or `unknown` for automatic language detection"*
+    #: (VERIFIED-VENDOR-DOCS, `api-reference/agent/v2/create.md:1078-1091`) — and their
+    #: provider page says Sarvam *"can automatically detect the spoken language when
+    #: configured with 'unknown'"* with `saaras:v4` named as the auto-detect model
+    #: (`providers/transcriber/sarvam.md` §§2,5).
+    #:
+    #: ⚠ **THAT IT WORKS FOR TELUGU IS UNVERIFIED.** It is the only remaining path in the
+    #: vendor's own vocabulary, not a reading of one that succeeded. Default `False`, so
+    #: nothing changes until an operator turns it on and a publish answers.
+    #:
+    #: ⚠ **AND IT IS A WEAKER GUARANTEE THAN PINNING, WHICH MATTERS ON THIS PRODUCT.**
+    #: Pinned, the transcriber is told Telugu. Detected, it decides — and a Telugu-English
+    #: code-mixed opening turn is exactly the input a detector can call English, on a
+    #: product whose opt-out phrases and redaction rules are matched against romanised
+    #: Telugu (`compliance/optout.py`, `workers/redaction.py`). So this is a fallback the
+    #: vendor forced, not a feature, and `docs/OPERATIONS.md` gate 3 should hear a real
+    #: Telugu call before it is called settled.
+    stt_autodetect: bool = False
     #: The model identifier sent on the wire.
     #:
     #: ⚠ ON AN `azure_openai` LEG THIS IS THE DEPLOYMENT ID, NOT A MODEL NAME. Azure serves

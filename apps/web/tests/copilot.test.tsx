@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { useEffect, useState, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -53,7 +59,11 @@ vi.mock("next/navigation", () => ({
 const SESSION: Session = { orgSlug: "acme" };
 
 /** A screen with one typed draft — the good apply path, as most registrations use it. */
-function DraftScreen({ initial }: { initial?: { name: string; opens: string; phone: string } }) {
+function DraftScreen({
+  initial,
+}: {
+  initial?: { name: string; opens: string; phone: string };
+}) {
   const [draft, setDraft] = useState(
     initial ?? { name: "", opens: "09:00", phone: "+919876543210" },
   );
@@ -64,11 +74,19 @@ function DraftScreen({ initial }: { initial?: { name: string; opens: string; pho
     fields: [
       { id: "t-name", label: "Business name", type: "text", value: draft.name },
       { id: "t-opens", label: "Opens", type: "text", value: draft.opens },
-      { id: "t-phone", label: "Escalation phone", type: "text", value: draft.phone, personal: "phone" },
+      {
+        id: "t-phone",
+        label: "Escalation phone",
+        type: "text",
+        value: draft.phone,
+        personal: "phone",
+      },
     ],
     apply: (items) =>
       setDraft((current) =>
-        applyByPaths(current, items, (id) => (id.startsWith("t-") ? id.slice(2) : null)),
+        applyByPaths(current, items, (id) =>
+          id.startsWith("t-") ? id.slice(2) : null,
+        ),
       ),
   });
   return (
@@ -77,25 +95,35 @@ function DraftScreen({ initial }: { initial?: { name: string; opens: string; pho
       <input
         id="t-name"
         value={draft.name}
-        onChange={(event) => setDraft((d) => ({ ...d, name: event.target.value }))}
+        onChange={(event) =>
+          setDraft((d) => ({ ...d, name: event.target.value }))
+        }
       />
       <label htmlFor="t-opens">Opens</label>
       <input
         id="t-opens"
         value={draft.opens}
-        onChange={(event) => setDraft((d) => ({ ...d, opens: event.target.value }))}
+        onChange={(event) =>
+          setDraft((d) => ({ ...d, opens: event.target.value }))
+        }
       />
       <label htmlFor="t-phone">Escalation phone</label>
       <input
         id="t-phone"
         value={draft.phone}
-        onChange={(event) => setDraft((d) => ({ ...d, phone: event.target.value }))}
+        onChange={(event) =>
+          setDraft((d) => ({ ...d, phone: event.target.value }))
+        }
       />
     </form>
   );
 }
 
-function Probe({ onHolder }: { onHolder: (holder: SurfaceHolder | null) => void }) {
+function Probe({
+  onHolder,
+}: {
+  onHolder: (holder: SurfaceHolder | null) => void;
+}) {
   const holder = useCopilotSurfaceHolder();
   useEffect(() => {
     onHolder(holder);
@@ -119,7 +147,9 @@ function PanelMount() {
 }
 
 function withQuery(children: ReactNode) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
 
@@ -179,7 +209,9 @@ function stubCopilot(options: {
           status: answer.status,
           headers: {
             "content-type":
-              answer.status === 200 ? "application/json" : "application/problem+json",
+              answer.status === 200
+                ? "application/json"
+                : "application/problem+json",
           },
         });
       }
@@ -208,7 +240,9 @@ function stubCopilot(options: {
           });
         }
         return new Response(
-          JSON.stringify(options.conversation ?? { turns: [], has_more: false }),
+          JSON.stringify(
+            options.conversation ?? { turns: [], has_more: false },
+          ),
           { status: 200, headers: { "content-type": "application/json" } },
         );
       }
@@ -229,7 +263,9 @@ async function ask(question: string) {
     target: { value: question },
   });
   await act(async () => {
-    fireEvent.submit(screen.getByRole("button", { name: "Ask" }).closest("form")!);
+    fireEvent.submit(
+      screen.getByRole("button", { name: "Ask" }).closest("form")!,
+    );
   });
 }
 
@@ -248,7 +284,11 @@ function heldStream() {
     status: 200,
     headers: { "content-type": "text/event-stream" },
   });
-  return { response, release: () => release(), push: (chunk: string) => push(chunk) };
+  return {
+    response,
+    release: () => release(),
+    push: (chunk: string) => push(chunk),
+  };
 }
 
 /** The panel, over an ask route whose stream this test drives by hand. */
@@ -293,11 +333,19 @@ describe("the registry", () => {
       </>,
     );
     expect(holder).not.toBeNull();
-    expect(holder!.read().fields.map((field) => field.id)).toEqual(["t-name", "t-opens", "t-phone"]);
+    expect(holder!.read().fields.map((field) => field.id)).toEqual([
+      "t-name",
+      "t-opens",
+      "t-phone",
+    ]);
     expect(holder!.read().fields[0].value).toBe("");
 
-    fireEvent.change(screen.getByLabelText("Business name"), { target: { value: "Sri Clinic" } });
-    await waitFor(() => expect(holder!.read().fields[0].value).toBe("Sri Clinic"));
+    fireEvent.change(screen.getByLabelText("Business name"), {
+      target: { value: "Sri Clinic" },
+    });
+    await waitFor(() =>
+      expect(holder!.read().fields[0].value).toBe("Sri Clinic"),
+    );
   });
 
   it("declares nothing once the screen unmounts", () => {
@@ -331,8 +379,12 @@ describe("applying a fill", () => {
     });
     // BOTH, from one call: six sequential setState calls against a captured draft keep
     // the last and lose the rest, which is why `apply` takes the whole batch.
-    expect((screen.getByLabelText("Business name") as HTMLInputElement).value).toBe("Sri Clinic");
-    expect((screen.getByLabelText("Opens") as HTMLInputElement).value).toBe("10:30");
+    expect(
+      (screen.getByLabelText("Business name") as HTMLInputElement).value,
+    ).toBe("Sri Clinic");
+    expect((screen.getByLabelText("Opens") as HTMLInputElement).value).toBe(
+      "10:30",
+    );
   });
 
   it("lands through the NATIVE-SETTER path on a controlled input", async () => {
@@ -360,8 +412,16 @@ describe("applying a fill", () => {
       const [disclosure, setDisclosure] = useState(false);
       return (
         <>
-          <ToggleSwitch label="Recording notice" checked={recording} onChange={setRecording} />
-          <ToggleSwitch label="AI disclosure" checked={disclosure} onChange={setDisclosure} />
+          <ToggleSwitch
+            label="Recording notice"
+            checked={recording}
+            onChange={setRecording}
+          />
+          <ToggleSwitch
+            label="AI disclosure"
+            checked={disclosure}
+            onChange={setDisclosure}
+          />
           <p>{`recording=${recording} disclosure=${disclosure}`}</p>
         </>
       );
@@ -370,10 +430,14 @@ describe("applying a fill", () => {
     expect(clickByAccessibleName("AI disclosure", true)).toBe(true);
     // The OTHER switch is untouched: matching is by the label's leading text, so two
     // switches on one screen cannot be confused for each other.
-    expect(screen.getAllByText("recording=false disclosure=true").length).toBe(1);
+    expect(screen.getAllByText("recording=false disclosure=true").length).toBe(
+      1,
+    );
     // Already in the wanted state: reported as landed, and nothing is clicked.
     expect(clickByAccessibleName("AI disclosure", true)).toBe(true);
-    expect(screen.getAllByText("recording=false disclosure=true").length).toBe(1);
+    expect(screen.getAllByText("recording=false disclosure=true").length).toBe(
+      1,
+    );
   });
 });
 
@@ -382,7 +446,9 @@ describe("setByPath", () => {
     const draft = { services: [{ name: "Consultation" }] };
     expect(setByPath(draft, "services.9.name", "x")).toBe(draft);
     expect(setByPath(draft, "constructor", "x")).toBe(draft);
-    expect(setByPath(draft, "services.0.name", "Scan")).toEqual({ services: [{ name: "Scan" }] });
+    expect(setByPath(draft, "services.0.name", "Scan")).toEqual({
+      services: [{ name: "Scan" }],
+    });
   });
 });
 
@@ -405,7 +471,9 @@ describe("the panel", () => {
     );
     await ask("fill in the hours");
     await waitFor(() =>
-      expect((screen.getByLabelText("Business name") as HTMLInputElement).value).toBe("Sri Clinic"),
+      expect(
+        (screen.getByLabelText("Business name") as HTMLInputElement).value,
+      ).toBe("Sri Clinic"),
     );
     expect(screen.getAllByText("Filled 2 fields").length).toBe(1);
 
@@ -413,8 +481,12 @@ describe("the panel", () => {
       fireEvent.click(screen.getByRole("button", { name: /Undo/ }));
     });
     // "was empty" is a real prior and the one most worth restoring.
-    expect((screen.getByLabelText("Business name") as HTMLInputElement).value).toBe("");
-    expect((screen.getByLabelText("Opens") as HTMLInputElement).value).toBe("09:00");
+    expect(
+      (screen.getByLabelText("Business name") as HTMLInputElement).value,
+    ).toBe("");
+    expect((screen.getByLabelText("Opens") as HTMLInputElement).value).toBe(
+      "09:00",
+    );
     expect(screen.queryAllByText("Filled 2 fields").length).toBe(0);
   });
 
@@ -437,7 +509,9 @@ describe("the panel", () => {
     await ask("whose number is on file?");
 
     // D-127 G-2: the digits never left the browser.
-    const sent = JSON.parse(bodies[0]) as { fields: { id: string; value: string; redacted: boolean }[] };
+    const sent = JSON.parse(bodies[0]) as {
+      fields: { id: string; value: string; redacted: boolean }[];
+    };
     const phone = sent.fields.find((field) => field.id === "t-phone")!;
     expect(phone.value).toBe("«PHONE_1»");
     expect(phone.redacted).toBe(true);
@@ -446,12 +520,13 @@ describe("the panel", () => {
     // …and the person sees the real number, in the answer AND in the filled field.
     await waitFor(() =>
       expect(
-        screen.getAllByText("+919876543210 is already the escalation number.").length,
+        screen.getAllByText("+919876543210 is already the escalation number.")
+          .length,
       ).toBe(1),
     );
-    expect((screen.getByLabelText("Business name") as HTMLInputElement).value).toBe(
-      "Ring +919876543210",
-    );
+    expect(
+      (screen.getByLabelText("Business name") as HTMLInputElement).value,
+    ).toBe("Ring +919876543210");
   });
 
   it("shows a dropped stream as a retryable refusal and keeps what arrived", async () => {
@@ -469,8 +544,9 @@ describe("the panel", () => {
       // `ProblemNotice` renders the problem's `detail`, which is where the sentence a
       // person can act on lives.
       expect(
-        screen.getAllByText("The connection closed before the assistant finished answering.")
-          .length,
+        screen.getAllByText(
+          "The connection closed before the assistant finished answering.",
+        ).length,
       ).toBe(1),
     );
     expect(screen.getAllByText("half an ans").length).toBe(1);
@@ -479,7 +555,10 @@ describe("the panel", () => {
   it("OPENS THE EXISTING WALLET DIALOG AT THE AI CEILING", async () => {
     stubCopilot({
       askStatus: 402,
-      askBody: { type: "urn:calevate:billing/ai_quota_exceeded", title: "No AI help left" },
+      askBody: {
+        type: "urn:calevate:billing/ai_quota_exceeded",
+        title: "No AI help left",
+      },
       quota: {
         month: "2026-08",
         plan_tier: "growth",
@@ -507,7 +586,9 @@ describe("the panel", () => {
       ),
     );
     await ask("fill it in");
-    const open = await screen.findByRole("button", { name: "Add more AI help" });
+    const open = await screen.findByRole("button", {
+      name: "Add more AI help",
+    });
     await act(async () => {
       fireEvent.click(open);
     });
@@ -532,7 +613,13 @@ describe("redactForWire", () => {
       [
         { id: "a", label: "A", type: "text", value: "+911", personal: "phone" },
         { id: "b", label: "B", type: "text", value: "+912", personal: "phone" },
-        { id: "c", label: "C", type: "text", value: "x@y.z", personal: "email" },
+        {
+          id: "c",
+          label: "C",
+          type: "text",
+          value: "x@y.z",
+          personal: "email",
+        },
       ],
       [],
     );
@@ -541,9 +628,9 @@ describe("redactForWire", () => {
       "«PHONE_2»",
       "«EMAIL_1»",
     ]);
-    expect(pass.restore("call «PHONE_2», or «PHONE_2» again, then «EMAIL_1»")).toBe(
-      "call +912, or +912 again, then x@y.z",
-    );
+    expect(
+      pass.restore("call «PHONE_2», or «PHONE_2» again, then «EMAIL_1»"),
+    ).toBe("call +912, or +912 again, then x@y.z");
     // Idempotent over text carrying no token — it runs over every streamed delta.
     expect(pass.restore("nothing here")).toBe("nothing here");
   });
@@ -578,7 +665,9 @@ const PROPOSAL = {
 };
 
 /** The stream a write tool produces: some prose, then the offer, then `done`. */
-function proposalChunks(proposal: Record<string, unknown> = PROPOSAL): string[] {
+function proposalChunks(
+  proposal: Record<string, unknown> = PROPOSAL,
+): string[] {
   return [
     'event: text\ndata: {"delta":"I can pause it for you."}\n\n',
     `event: proposal\ndata: ${JSON.stringify(proposal)}\n\n`,
@@ -621,7 +710,9 @@ describe("a proposal", () => {
     await ask("stop the kondapur campaign");
 
     // It says, before anything else, that nothing has happened.
-    expect(await screen.findByText("Suggestion — nothing has happened yet")).toBeTruthy();
+    expect(
+      await screen.findByText("Suggestion — nothing has happened yet"),
+    ).toBeTruthy();
     expect(screen.getAllByText("Pause this campaign").length).toBe(1);
     // The server's own summary, verbatim — never re-composed in the browser.
     expect(screen.getAllByText(PROPOSAL.summary).length).toBe(1);
@@ -657,9 +748,13 @@ describe("a proposal", () => {
     expect(JSON.parse(confirms[0])).toEqual({ token: PROPOSAL.token });
 
     // The server's own outcome sentence, and only now a completed state.
-    expect(await screen.findByText("Dialling has stopped on that campaign.")).toBeTruthy();
+    expect(
+      await screen.findByText("Dialling has stopped on that campaign."),
+    ).toBeTruthy();
     expect(screen.getAllByText("Done").length).toBe(1);
-    expect(screen.queryAllByText("Suggestion — nothing has happened yet").length).toBe(0);
+    expect(
+      screen.queryAllByText("Suggestion — nothing has happened yet").length,
+    ).toBe(0);
   });
 
   it("says NOTHING TO CHANGE when the world was already in that state", async () => {
@@ -683,7 +778,9 @@ describe("a proposal", () => {
 
     // `applied: false` is a real answer (D-65), not a failure and not a success.
     expect(
-      await screen.findByText("That campaign was already paused, so nothing changed."),
+      await screen.findByText(
+        "That campaign was already paused, so nothing changed.",
+      ),
     ).toBeTruthy();
     expect(screen.getAllByText("Nothing to change").length).toBe(1);
     expect(screen.queryAllByText("Done").length).toBe(0);
@@ -699,11 +796,18 @@ describe("a proposal", () => {
       fireEvent.click(screen.getByRole("button", { name: /^Dismiss — / }));
     });
     expect(confirms.length).toBe(0);
-    expect(screen.queryAllByText("Suggestion — nothing has happened yet").length).toBe(0);
+    expect(
+      screen.queryAllByText("Suggestion — nothing has happened yet").length,
+    ).toBe(0);
   });
 
   it("REFUSES TO OFFER A CONFIRM on a proposal that has already expired", async () => {
-    stubCopilot({ chunks: proposalChunks({ ...PROPOSAL, expires_at: "2020-01-01T00:00:00Z" }) });
+    stubCopilot({
+      chunks: proposalChunks({
+        ...PROPOSAL,
+        expires_at: "2020-01-01T00:00:00Z",
+      }),
+    });
     renderPanel();
     await ask("stop the campaign");
 
@@ -712,7 +816,9 @@ describe("a proposal", () => {
         "This suggestion has expired. Ask the assistant again — nothing was changed.",
       ),
     ).toBeTruthy();
-    expect(screen.queryAllByRole("button", { name: /^Confirm — / }).length).toBe(0);
+    expect(
+      screen.queryAllByRole("button", { name: /^Confirm — / }).length,
+    ).toBe(0);
   });
 
   /**
@@ -764,7 +870,8 @@ describe("a proposal", () => {
         type: "urn:calevate:permission/forbidden",
         title: "Forbidden",
         detail: "You do not have permission to make this change.",
-        remediation: "Ask an owner or manager on this account to confirm it instead.",
+        remediation:
+          "Ask an owner or manager on this account to confirm it instead.",
         kind: "permission",
       },
       reads: "Ask an owner or manager on this account to confirm it instead.",
@@ -789,7 +896,8 @@ describe("a proposal", () => {
       body: {
         type: "urn:calevate:dependency/copilot_confirm_unavailable",
         title: "That change could not be confirmed",
-        detail: "The assistant could not check that this suggestion is still unused.",
+        detail:
+          "The assistant could not check that this suggestion is still unused.",
         remediation: "Try again in a moment — nothing has been changed.",
         kind: "dependency",
       },
@@ -811,14 +919,17 @@ describe("a proposal", () => {
 
       // The refusal is on screen, in the SERVER's words, and the card did not vanish.
       expect(await screen.findByText(refusal.reads)).toBeTruthy();
-      expect(screen.getAllByText("Suggestion — nothing has happened yet").length).toBe(1);
+      expect(
+        screen.getAllByText("Suggestion — nothing has happened yet").length,
+      ).toBe(1);
       // …and nothing anywhere claims the change was made.
       expect(screen.queryAllByText("Done").length).toBe(0);
       // The action button, under either of its two words: it reads "Try again" once the
       // refusal is one that left the token spendable.
-      expect(screen.queryAllByRole("button", { name: /^(Confirm|Try again) — / }).length).toBe(
-        refusal.clickable ? 1 : 0,
-      );
+      expect(
+        screen.queryAllByRole("button", { name: /^(Confirm|Try again) — / })
+          .length,
+      ).toBe(refusal.clickable ? 1 : 0);
     });
   }
 
@@ -833,11 +944,15 @@ describe("a proposal", () => {
     await clickConfirm();
 
     expect(
-      await screen.findByText("We could not reach Calevate. Check your connection and try again."),
+      await screen.findByText(
+        "No reply reached this page, so we could not confirm what happened. Check your connection and try again.",
+      ),
     ).toBeTruthy();
     // Offered again, and its accessible name follows its visible word rather than being
     // frozen at "Confirm" — WCAG 2.5.3 wants the name to contain what is on the button.
-    const again = screen.getAllByRole("button", { name: /^Try again — Pause this campaign$/ });
+    const again = screen.getAllByRole("button", {
+      name: /^Try again — Pause this campaign$/,
+    });
     expect(again.length).toBe(1);
     expect(again[0].textContent).toBe("Try again");
     expect(screen.queryAllByText("Done").length).toBe(0);
@@ -876,18 +991,24 @@ describe("a proposal", () => {
     stubCopilot({ chunks: proposalChunks() });
     const view = renderPanel();
     await ask("stop the campaign");
-    const confirmButton = await screen.findByRole("button", { name: /^Confirm — / });
+    const confirmButton = await screen.findByRole("button", {
+      name: /^Confirm — /,
+    });
 
     // A real `<button>`, so it is in the tab order with no `tabindex` arithmetic; and its
     // accessible name CONTAINS its visible word (WCAG 2.5.3 Label in Name) while naming
     // WHICH change, so a keyboard user does not land on a bare verb.
     expect(confirmButton.tagName).toBe("BUTTON");
     expect(confirmButton.textContent).toBe("Confirm");
-    expect(confirmButton.getAttribute("aria-label")).toBe("Confirm — Pause this campaign");
+    expect(confirmButton.getAttribute("aria-label")).toBe(
+      "Confirm — Pause this campaign",
+    );
 
     // Announced when it arrives, WITHOUT stealing the caret from the ask box.
     const card = confirmButton.closest('[role="group"]')!;
-    expect(card.getAttribute("aria-label")).toBe("Suggestion: Pause this campaign");
+    expect(card.getAttribute("aria-label")).toBe(
+      "Suggestion: Pause this campaign",
+    );
     expect(card.parentElement?.getAttribute("aria-live")).toBe("polite");
     expect(document.activeElement?.tagName).toBe("TEXTAREA");
 
@@ -923,12 +1044,18 @@ describe("a proposal", () => {
     stubCopilot({ chunks: proposalChunks() });
     renderPanel();
     await ask("stop the campaign");
-    expect(await screen.findByText("Suggestion — nothing has happened yet")).toBeTruthy();
+    expect(
+      await screen.findByText("Suggestion — nothing has happened yet"),
+    ).toBeTruthy();
 
-    stubCopilot({ chunks: ['event: done\ndata: {"disclosure":null,"metered":true}\n\n'] });
+    stubCopilot({
+      chunks: ['event: done\ndata: {"disclosure":null,"metered":true}\n\n'],
+    });
     await ask("what about the other one?");
     await waitFor(() =>
-      expect(screen.queryAllByText("Suggestion — nothing has happened yet").length).toBe(0),
+      expect(
+        screen.queryAllByText("Suggestion — nothing has happened yet").length,
+      ).toBe(0),
     );
   });
 });
@@ -940,7 +1067,13 @@ describe("a proposal", () => {
  */
 describe("the fallback surface", () => {
   /** The dock as a realm shell mounts it, with whatever is beside it. */
-  function DockMount({ realm = "client" as const, children }: { realm?: "client" | "admin"; children?: ReactNode }) {
+  function DockMount({
+    realm = "client" as const,
+    children,
+  }: {
+    realm?: "client" | "admin";
+    children?: ReactNode;
+  }) {
     return withQuery(
       <>
         {children}
@@ -951,7 +1084,9 @@ describe("the fallback surface", () => {
 
   async function openDock() {
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Ask about this screen" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Ask about this screen" }),
+      );
     });
   }
 
@@ -960,21 +1095,29 @@ describe("the fallback surface", () => {
     // audit row, and the server's redaction guard — which would refuse the whole question
     // and show a defect message to somebody who did nothing wrong.
     expect(fallbackRoute("/c/acme/billing")).toBe("/c/acme/billing");
-    expect(fallbackRoute("/c/acme/leads/550e8400-e29b-41d4-a716-446655440000")).toBe(
+    expect(
+      fallbackRoute("/c/acme/leads/550e8400-e29b-41d4-a716-446655440000"),
+    ).toBe("/c/acme/leads/:hidden");
+    expect(fallbackRoute("/c/acme/members/priya@example.com")).toBe(
+      "/c/acme/members/:hidden",
+    );
+    expect(fallbackRoute("/c/acme/leads/+919876543210")).toBe(
       "/c/acme/leads/:hidden",
     );
-    expect(fallbackRoute("/c/acme/members/priya@example.com")).toBe("/c/acme/members/:hidden");
-    expect(fallbackRoute("/c/acme/leads/+919876543210")).toBe("/c/acme/leads/:hidden");
     // A caller passing a full href is the mistake this cuts, and the query string is
     // exactly where an email or a number turns up.
-    expect(fallbackRoute("/c/acme/leads?email=priya@example.com")).toBe("/c/acme/leads");
+    expect(fallbackRoute("/c/acme/leads?email=priya@example.com")).toBe(
+      "/c/acme/leads",
+    );
     expect(fallbackRoute("/")).toBe("/");
   });
 
   it("names the screen from the last part of the address a person would recognise", () => {
     expect(fallbackTitle("/c/acme/billing", "client")).toBe("Billing");
     expect(fallbackTitle("/c/acme/leads/:hidden", "client")).toBe("Leads");
-    expect(fallbackTitle("/admin/tenants/:hidden/do-not-call", "admin")).toBe("Do not call");
+    expect(fallbackTitle("/admin/tenants/:hidden/do-not-call", "admin")).toBe(
+      "Do not call",
+    );
     expect(fallbackTitle("/", "admin")).toBe("Admin console");
   });
 
@@ -990,7 +1133,9 @@ describe("the fallback surface", () => {
     await openDock();
     // The header names the screen — "I can see you're on the billing screen".
     expect(screen.getAllByText("Billing").length).toBe(1);
-    expect(screen.getByText(/hasn't told the assistant what it shows/)).toBeTruthy();
+    expect(
+      screen.getByText(/hasn't told the assistant what it shows/),
+    ).toBeTruthy();
 
     // THE POINT OF THE WHOLE CHANGE: a read-tool question is asked and answered from a
     // screen that declared nothing. The read tools run server-side off the account's own
@@ -1003,7 +1148,11 @@ describe("the fallback surface", () => {
       fields: unknown[];
       facts: { key: string; value: string }[];
     };
-    expect(sent.screen).toEqual({ route: "/c/acme/billing", title: "Billing", realm: "client" });
+    expect(sent.screen).toEqual({
+      route: "/c/acme/billing",
+      title: "Billing",
+      realm: "client",
+    });
     expect(sent.fields).toEqual([]);
     // "Declared nothing" and "shows nothing" are different sentences, and only the first is
     // true. Zero fields cannot carry that distinction — a read-only screen declaring
@@ -1039,7 +1188,11 @@ describe("the fallback surface", () => {
     };
     expect(sent.screen.route).toBe("/t");
     expect(sent.screen.title).toBe("A test screen");
-    expect(sent.fields.map((field) => field.id)).toEqual(["t-name", "t-opens", "t-phone"]);
+    expect(sent.fields.map((field) => field.id)).toEqual([
+      "t-name",
+      "t-opens",
+      "t-phone",
+    ]);
     // …and the fallback's "I cannot see this screen" fact is nowhere near it.
     expect(sent.facts).toEqual([]);
   });
@@ -1106,10 +1259,17 @@ describe("the fallback surface", () => {
     expect(screen.getAllByText(PROPOSAL.summary).length).toBe(1);
     expect(screen.getAllByText("paused").length).toBe(1);
     // …and the decision is withdrawn, in words rather than as a dead control.
-    expect(screen.queryAllByRole("button", { name: /^Confirm — / }).length).toBe(0);
-    expect(screen.getAllByText(/Confirming isn't available in the admin console yet/).length).toBe(1);
+    expect(
+      screen.queryAllByRole("button", { name: /^Confirm — / }).length,
+    ).toBe(0);
+    expect(
+      screen.getAllByText(/Confirming isn't available in the admin console yet/)
+        .length,
+    ).toBe(1);
     // Dismiss survives: clearing the card is still the operator's to do.
-    expect(screen.getAllByRole("button", { name: /^Dismiss — / }).length).toBe(1);
+    expect(screen.getAllByRole("button", { name: /^Dismiss — / }).length).toBe(
+      1,
+    );
     expect(confirms).toEqual([]);
   });
 
@@ -1123,8 +1283,14 @@ describe("the fallback surface", () => {
     await ask("pause the kondapur campaign");
 
     expect(await screen.findByText("Pause this campaign")).toBeTruthy();
-    expect(screen.getAllByRole("button", { name: /^Confirm — / }).length).toBe(1);
-    expect(screen.queryAllByText(/Confirming isn't available in the admin console yet/).length).toBe(0);
+    expect(screen.getAllByRole("button", { name: /^Confirm — / }).length).toBe(
+      1,
+    );
+    expect(
+      screen.queryAllByText(
+        /Confirming isn't available in the admin console yet/,
+      ).length,
+    ).toBe(0);
   });
 });
 
@@ -1143,7 +1309,8 @@ const ACTION = {
   object_type: "agent",
   object_id: "0192f0aa-0000-7000-8000-00000000a001",
   applied: true,
-  reversal: "A draft reaches no caller. You can rename it, or archive it, from the Agents screen.",
+  reversal:
+    "A draft reaches no caller. You can rename it, or archive it, from the Agents screen.",
   where: "under Agents in your dashboard",
 };
 
@@ -1168,8 +1335,12 @@ describe("an action the assistant has already taken", () => {
     // a database write, so this sentence is the only thing saying what applies here.
     expect(screen.getAllByText(ACTION.reversal).length).toBe(1);
     // NOTHING TO CONFIRM AND NOTHING SUGGESTED: this already happened.
-    expect(screen.queryAllByRole("button", { name: /^Confirm — / }).length).toBe(0);
-    expect(screen.queryAllByText("Suggestion — nothing has happened yet").length).toBe(0);
+    expect(
+      screen.queryAllByRole("button", { name: /^Confirm — / }).length,
+    ).toBe(0);
+    expect(
+      screen.queryAllByText("Suggestion — nothing has happened yet").length,
+    ).toBe(0);
   });
 });
 
@@ -1183,7 +1354,12 @@ describe("live tool-execution visibility", () => {
       detail: null,
       elapsed_ms: null,
     };
-    const finished = { ...running, status: "done", detail: "2 campaigns.", elapsed_ms: 84 };
+    const finished = {
+      ...running,
+      status: "done",
+      detail: "2 campaigns.",
+      elapsed_ms: 84,
+    };
     stubCopilot({
       chunks: [
         `event: step\ndata: ${JSON.stringify(running)}\n\n`,
@@ -1215,7 +1391,6 @@ describe("live tool-execution visibility", () => {
  * that KEEPS what arrived, and an Enter that no longer throws it away by accident.
  */
 describe("stopping an answer", () => {
-
   it("OFFERS Stop while the answer is arriving, and KEEPS what arrived", async () => {
     const { held } = renderHeld();
     await ask("summarise this screen");
@@ -1308,9 +1483,18 @@ describe("the transcript scroller", () => {
  */
 describe("following a streaming answer", () => {
   /** A scroller with a real geometry, since jsdom gives every element a zero one. */
-  function measure(el: HTMLElement, { scrollHeight = 1000, clientHeight = 300 } = {}) {
-    Object.defineProperty(el, "scrollHeight", { value: scrollHeight, configurable: true });
-    Object.defineProperty(el, "clientHeight", { value: clientHeight, configurable: true });
+  function measure(
+    el: HTMLElement,
+    { scrollHeight = 1000, clientHeight = 300 } = {},
+  ) {
+    Object.defineProperty(el, "scrollHeight", {
+      value: scrollHeight,
+      configurable: true,
+    });
+    Object.defineProperty(el, "clientHeight", {
+      value: clientHeight,
+      configurable: true,
+    });
   }
 
   /** Put the scroller at `top` and tell the panel about it, as a wheel would. */
@@ -1386,9 +1570,14 @@ describe("following a streaming answer", () => {
       held.release();
     } finally {
       if (original === undefined) {
-        delete (HTMLElement.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+        delete (HTMLElement.prototype as { scrollIntoView?: unknown })
+          .scrollIntoView;
       } else {
-        Object.defineProperty(HTMLElement.prototype, "scrollIntoView", original);
+        Object.defineProperty(
+          HTMLElement.prototype,
+          "scrollIntoView",
+          original,
+        );
       }
     }
   });
@@ -1416,7 +1605,9 @@ describe("what the assistant announces", () => {
       held.push('event: text\ndata: {"delta":"The clinic opens at nine."}\n\n');
     });
 
-    const live = document.querySelector('[aria-live="polite"][aria-atomic="false"]');
+    const live = document.querySelector(
+      '[aria-live="polite"][aria-atomic="false"]',
+    );
     expect(live).not.toBeNull();
     // The answer currently arriving IS announced.
     expect(live!.textContent).toContain("The clinic opens at nine.");
@@ -1441,7 +1632,9 @@ describe("what the assistant announces", () => {
     // Once settled it is an ordinary transcript bubble — outside the live region, which is
     // now empty and waiting for the next answer.
     expect(settled.closest("[aria-live]")).toBeNull();
-    const live = document.querySelector('[aria-live="polite"][aria-atomic="false"]');
+    const live = document.querySelector(
+      '[aria-live="polite"][aria-atomic="false"]',
+    );
     expect(live!.textContent).toBe("");
   });
 
@@ -1510,7 +1703,9 @@ describe("the assistant inside a view-as session", () => {
       ),
     );
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Ask about this screen" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Ask about this screen" }),
+      );
     });
   }
 
@@ -1520,7 +1715,9 @@ describe("the assistant inside a view-as session", () => {
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
         calls.push(String(input).replace(API_BASE, ""));
-        throw new Error("the copilot must not be called inside a view-as session");
+        throw new Error(
+          "the copilot must not be called inside a view-as session",
+        );
       }),
     );
     await openDockFor(VIEW_AS);
@@ -1533,21 +1730,30 @@ describe("the assistant inside a view-as session", () => {
     // mount, which is itself a `copilot:use` route and itself a 403.
     expect(calls).toEqual([]);
     // …and there is no ask box to type a question that could only be refused.
-    expect(screen.queryByLabelText("Your question about this screen")).toBeNull();
+    expect(
+      screen.queryByLabelText("Your question about this screen"),
+    ).toBeNull();
   });
 
   it("leaves the client's OWN session with the real assistant", async () => {
     stubCopilot({ chunks: [] });
     await openDockFor(SESSION);
     expect(screen.queryByTestId("copilot-view-as-panel")).toBeNull();
-    expect(screen.getByLabelText("Your question about this screen")).toBeTruthy();
+    expect(
+      screen.getByLabelText("Your question about this screen"),
+    ).toBeTruthy();
   });
 
   it("returns focus to the launcher when the notice is closed, like the panel does", async () => {
-    vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("{}", { status: 200 })),
+    );
     await openDockFor(VIEW_AS);
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Close the assistant" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Close the assistant" }),
+      );
     });
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "Ask about this screen" }),
@@ -1591,7 +1797,9 @@ describe("asking again after a failure", () => {
     expect(bodies.length).toBe(2);
     expect(JSON.parse(bodies[1]).question).toBe("when does the clinic open?");
     // Whatever HAD arrived is still there — the retry is an addition, not a reset.
-    expect(screen.getAllByText(/The clinic opens at/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/The clinic opens at/).length).toBeGreaterThan(
+      0,
+    );
   });
 
   it("offers nothing to retry on a refusal the person must act on themselves", async () => {
@@ -1700,13 +1908,17 @@ describe("telling the two realms apart", () => {
   it("wears the ADMIN SHELL'S OWN slate on the admin launcher, and the brand on the client's", () => {
     stubCopilot({ chunks: [] });
     const { unmount } = dock("admin");
-    const adminLauncher = screen.getByRole("button", { name: "Ask about this screen" });
+    const adminLauncher = screen.getByRole("button", {
+      name: "Ask about this screen",
+    });
     expect(adminLauncher.className).toContain("bg-slate-900");
     expect(adminLauncher.className).not.toContain("bg-brand-strong");
     unmount();
 
     dock("client");
-    const clientLauncher = screen.getByRole("button", { name: "Ask about this screen" });
+    const clientLauncher = screen.getByRole("button", {
+      name: "Ask about this screen",
+    });
     expect(clientLauncher.className).toContain("bg-brand-strong");
     expect(clientLauncher.className).not.toContain("bg-slate-900");
   });
@@ -1715,12 +1927,16 @@ describe("telling the two realms apart", () => {
     stubCopilot({ chunks: [] });
     dock("admin");
     await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Ask about this screen" }));
+      fireEvent.click(
+        screen.getByRole("button", { name: "Ask about this screen" }),
+      );
     });
     // FAILS IF: the panel heading is shared between the realms again — a screen-reader
     // user then has nothing at all, because the slate is `aria-hidden` by nature.
     expect(
-      await screen.findByRole("heading", { name: "Ask about this admin screen" }),
+      await screen.findByRole("heading", {
+        name: "Ask about this admin screen",
+      }),
     ).toBeTruthy();
   });
 });

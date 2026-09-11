@@ -102,7 +102,10 @@ function source(over: Partial<KbSource> = {}): KbSource {
  */
 const STAFF_CURATION = { staff_may_curate_knowledge: false };
 
-async function renderKnowledge(sources: KbSource[] | ProblemResponse, over: Routes = {}) {
+async function renderKnowledge(
+  sources: KbSource[] | ProblemResponse,
+  over: Routes = {},
+) {
   return await renderClientPage(<KnowledgePage />, {
     "/v1/me": ME,
     "/v1/agents": [AGENT],
@@ -118,7 +121,9 @@ async function renderKnowledge(sources: KbSource[] | ProblemResponse, over: Rout
 
 /** The one control on the screen, found the way a client finds it. */
 function submitButton(): HTMLButtonElement {
-  return screen.getByRole("button", { name: /submit for review/i }) as HTMLButtonElement;
+  return screen.getByRole("button", {
+    name: /submit for review/i,
+  }) as HTMLButtonElement;
 }
 
 describe("the approval gate as the client sees it", () => {
@@ -140,7 +145,9 @@ describe("the approval gate as the client sees it", () => {
     // Approval is an admin action (D-22) and `lib/api/kb.ts` deliberately has no
     // mutation for it. A button here would 403, and — worse — would suggest a client
     // can wave their own text through the gate.
-    const { container } = await renderKnowledge([source({ status: "pending_approval" })]);
+    const { container } = await renderKnowledge([
+      source({ status: "pending_approval" }),
+    ]);
 
     await screen.findByText("Opening hours");
     expect(container.textContent).toContain("In review");
@@ -153,7 +160,11 @@ describe("the approval gate as the client sees it", () => {
     // `is_active` wins. A published source carrying an older status string must not be
     // shown as anything but live, or the client resubmits what the agent already says.
     const { container } = await renderKnowledge([
-      source({ status: "approved", is_active: true, published_at: "2026-07-20T06:00:00Z" }),
+      source({
+        status: "approved",
+        is_active: true,
+        published_at: "2026-07-20T06:00:00Z",
+      }),
     ]);
 
     await screen.findByText("Opening hours");
@@ -163,7 +174,9 @@ describe("the approval gate as the client sees it", () => {
   });
 
   it("tells a client their submission was refused, in words and not in silence", async () => {
-    const { container } = await renderKnowledge([source({ status: "rejected" })]);
+    const { container } = await renderKnowledge([
+      source({ status: "rejected" }),
+    ]);
 
     await screen.findByText("Opening hours");
     expect(container.textContent).toContain("Not accepted");
@@ -174,8 +187,19 @@ describe("the approval gate as the client sees it", () => {
     // Two rows, one topic, and the difference between them is the whole gate. A client
     // reading "Live" beside v3 would think their new text is what callers hear.
     const { container } = await renderKnowledge([
-      source({ id: "old", name: "Opening hours", version: 2, status: "archived", is_active: true }),
-      source({ id: "new", name: "Opening hours", version: 3, status: "pending_approval" }),
+      source({
+        id: "old",
+        name: "Opening hours",
+        version: 2,
+        status: "archived",
+        is_active: true,
+      }),
+      source({
+        id: "new",
+        name: "Opening hours",
+        version: 3,
+        status: "pending_approval",
+      }),
     ]);
 
     await screen.findByText("v3");
@@ -189,7 +213,9 @@ describe("the approval gate as the client sees it", () => {
     // `SourceOut.status` is plain `string` on the wire. A state we have no copy for is
     // shown as itself — a client whose submission is stuck in an unfamiliar state still
     // has to be able to see that it is stuck, and quote the word to support.
-    const { container } = await renderKnowledge([source({ status: "withdrawn_by_reviewer" })]);
+    const { container } = await renderKnowledge([
+      source({ status: "withdrawn_by_reviewer" }),
+    ]);
 
     await screen.findByText("Opening hours");
     expect(container.textContent).toContain("withdrawn_by_reviewer");
@@ -207,7 +233,10 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
     // was lost — and either submits it again or rings us about a queue that is working.
     // The panel is absent entirely; the refusal above is the whole answer.
     const { container } = await renderKnowledge(
-      problem(503, { title: "Service unavailable", detail: "We could not read your submissions." }),
+      problem(503, {
+        title: "Service unavailable",
+        detail: "We could not read your submissions.",
+      }),
     );
 
     expect(await screen.findByRole("alert")).toBeTruthy();
@@ -225,7 +254,9 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
     });
 
     expect(await screen.findByRole("alert")).toBeTruthy();
-    expect(container.textContent).not.toContain("There is no agent on this account yet");
+    expect(container.textContent).not.toContain(
+      "There is no agent on this account yet",
+    );
     expect(submitButton().disabled).toBe(true);
   });
 
@@ -233,11 +264,15 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
     // `POST /v1/kb/sources` is `kb:write`, which `staff` does not hold (core/rbac.py).
     // The button used to render live for them: the 403 arrived after the client had
     // typed the text, and it reads as a fault in the product rather than as a rule.
-    const { container } = await renderKnowledge([source()], { "/v1/me": STAFF });
+    const { container } = await renderKnowledge([source()], {
+      "/v1/me": STAFF,
+    });
 
     await screen.findByText("Opening hours");
     expect(submitButton().disabled).toBe(true);
-    expect(container.textContent).toContain("Only an account owner can add knowledge to this account.");
+    expect(container.textContent).toContain(
+      "Only an account owner can add knowledge to this account.",
+    );
     // The reason travels with the control as well: on a phone the note at the top of the
     // screen is nowhere near the button that is refusing to work.
     expect(submitButton().title).toContain("Only an account owner");
@@ -246,12 +281,16 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
   });
 
   it("disables the submit control inside a read-only view-as session (D-22)", async () => {
-    const { container } = await renderKnowledge([source()], { "/v1/me": OPERATOR_VIEWING });
+    const { container } = await renderKnowledge([source()], {
+      "/v1/me": OPERATOR_VIEWING,
+    });
 
     await screen.findByText("Opening hours");
     expect(submitButton().disabled).toBe(true);
     expect(container.textContent).toContain("viewing this account read-only");
-    expect(container.textContent).toContain("Do it from the admin console instead.");
+    expect(container.textContent).toContain(
+      "Do it from the admin console instead.",
+    );
   });
 
   it("does not render a failed preview as a submission with nothing in it", async () => {
@@ -260,7 +299,9 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
     // source and starts again, losing their place in the queue. Loading, failure and a
     // genuinely empty source were all one silent branch: `(chunks.data ?? []).map(...)`.
     const { container } = await renderKnowledge([source()], {
-      [`/v1/kb/sources/${SOURCE_ID}/preview`]: problem(503, { title: "Service unavailable" }),
+      [`/v1/kb/sources/${SOURCE_ID}/preview`]: problem(503, {
+        title: "Service unavailable",
+      }),
     });
 
     await screen.findByText("Opening hours");
@@ -286,7 +327,7 @@ describe("the gate when we cannot read it, or cannot write to it", () => {
 
     await waitFor(() =>
       expect(container.textContent).toContain(
-        "We could not reach Calevate. Check your connection and try again.",
+        "No reply reached this page, so we could not confirm what happened. Check your connection and try again.",
       ),
     );
     expect(container.textContent).not.toContain(
@@ -353,7 +394,9 @@ describe("what the screen says the agent does with the text", () => {
     // The mechanism, in the owner's words. Pinned rather than merely un-banned: deleting
     // the sentence would leave a client to assume the document-retrieval product that
     // every competitor's page describes.
-    expect(text).toContain("part of what the agent already knows when it picks up");
+    expect(text).toContain(
+      "part of what the agent already knows when it picks up",
+    );
     // And the approval gate stays attached to it — the two facts are one sentence,
     // because "it knows this" without "a person approved it" is the wrong half.
     expect(text).toContain("reviewed by your account manager");

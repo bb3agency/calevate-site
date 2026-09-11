@@ -942,6 +942,27 @@ class Settings(BaseSettings):
     # message about what it would do to Telugu transcripts, which is a better error than
     # a type failure on a screen.
     sarvam_stt_model: SarvamSttModel = SARVAM_DEFAULT_STT
+    # LET THE TRANSCRIBER DETECT THE SPOKEN LANGUAGE INSTEAD OF BEING TOLD IT (D-584).
+    #
+    # **THE VENDOR LEFT NO OTHER PATH TO TELUGU.** Four live refusals exhausted their model
+    # enum against `te-IN` — `saaras:v3` no, `saarika:v2.5` deprecated ("Use 'saaras:v4'
+    # instead"), `saaras:v4` no, `saaras:v2.5` transcribes to English and is banned by
+    # `SARVAM_TRANSLATING_STT`. Their `language` enum has exactly one value left, `unknown`,
+    # documented for automatic detection (`api-reference/agent/v2/create.md:1078-1091`).
+    # `ModelConfig.stt_autodetect` carries the normalized question; `engine/bolna.py` owns
+    # the spelling.
+    #
+    # **DEFAULT `False`, AND IT MUST STAY THAT WAY UNTIL A CALL IS HEARD.** Detection is a
+    # strictly weaker guarantee than pinning, and weaker in the direction this product
+    # cannot afford: a Telugu-English code-mixed opening turn is exactly what a detector
+    # mislabels as English, and every compliance surface downstream (`compliance/optout.py`,
+    # `workers/redaction.py`) matches romanised Telugu. Whether it works AT ALL for Telugu
+    # here is UNVERIFIED (hard rule 11) — it is the last untried value in the vendor's own
+    # vocabulary, not a reading of one that succeeded.
+    #
+    # `needs_republish` for `sarvam_stt_model`'s reason exactly: it resolves at publish time
+    # into the agent object the engine stores.
+    stt_autodetect_language: bool = False
     # `COHERE_API_KEY` WAS HERE AND IS GONE, for the reason the paragraph below gives
     # about Clerk. It was declared, classified `applies: live` in `platform_config`, and
     # therefore offered to an operator on the ops console as a key they could install —

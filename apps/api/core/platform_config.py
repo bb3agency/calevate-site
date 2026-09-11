@@ -575,6 +575,16 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
         "it is the transcriber each agent was published with, so live agents keep "
         "transcribing on the old model until they are re-published",
     ),
+    # Whether the transcriber is TOLD the language or DETECTS it (D-584). Same category and
+    # the same reason as the model above — it is resolved at publish time — and the same
+    # warning applies twice over: turning this on changes what a live agent is heard to have
+    # said, and only on agents re-published afterwards, so a half-migrated fleet is two
+    # different products until every one is re-published.
+    "stt_autodetect_language": AppliesRule(
+        NEEDS_REPUBLISH,
+        "it is baked into each agent at publish time, so live agents keep pinning the "
+        "language they were published with until they are re-published",
+    ),
     # ---- CREDENTIALS. Same question, higher stakes -------------------------------
     #
     # The Secrets panel implies exactly what the config panel implies — set it and it is

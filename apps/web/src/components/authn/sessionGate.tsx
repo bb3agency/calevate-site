@@ -94,7 +94,7 @@ export function SessionGate({
    * The document's one `main`, when this gate is the document.
    *
    * The heading is `sr-only`: the branches below each carry their own visible title, and
-   * a second visible heading over "We could not reach Calevate" would be design noise —
+   * a second visible heading over "No reply reached this page" would be design noise —
    * but a document with no level-one heading gives a screen-reader user no way to name
    * where they are, which is what `page-has-heading-one` is about.
    */
@@ -184,8 +184,8 @@ export function SessionGate({
             title="We could not check your session"
           >
             <p className="mt-1">
-              Calevate did not answer, so we do not know whether your session
-              is still good — this is usually the connection. Nothing on this
+              Calevate did not answer, so we do not know whether your session is
+              still good — this is usually the connection. Nothing on this
               screen has signed you out. Try again, or sign in if it keeps
               failing.
             </p>
