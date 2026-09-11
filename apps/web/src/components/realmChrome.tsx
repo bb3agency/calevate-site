@@ -50,12 +50,30 @@
  */
 
 /**
- * The dark treatment for the admin sidebar's identity block — where an operator's eye goes
- * to check who they are signed in as, and, since the rail was removed, the shell's only
- * realm marker that is not a word.
+ * The admin sidebar's identity block — where an operator's eye goes to check who they are
+ * signed in as, and, since the rail was removed, the shell's only realm marker that is not
+ * a word.
+ *
+ * ⚠ **IT WAS A NEAR-BLACK SLAB (`bg-slate-900 text-white`) AND THE FOUNDER ASKED FOR THAT
+ * COLOUR GONE.** The marker is kept, because the thing it guards against is real — an
+ * operator who mistakes the admin shell for a client's is one click from changing the
+ * wrong account — but a filled dark box was the heaviest possible way to say it, and it
+ * was the only near-black surface in either console.
+ *
+ * What replaces it is the same signal at a lower weight: a TINTED, BORDERED row in the
+ * brand green, on a surface that belongs to the palette rather than overriding it. The
+ * realm is still legible at a glance and in both palettes, and the block no longer reads
+ * as a different application pasted into the sidebar.
+ *
+ * **Contrast is a gate here, not a preference** — `make web-check` runs axe over both
+ * palettes and `color-contrast` is among its rules — so the foreground stays a token that
+ * is AA against its own tint in light and dark, never a lightened brand colour on a
+ * lightened brand background.
  *
  * A class string rather than a component because the block it dresses is not shared: the
  * two shells' identity footers say different things and are built separately, and wrapping
  * one of them in a component would invent a shared thing that does not exist.
  */
-export const ADMIN_REALM_IDENTITY_CLASS = "bg-slate-900 text-white dark:bg-slate-800";
+export const ADMIN_REALM_IDENTITY_CLASS =
+  "border border-emerald-200 bg-emerald-50 text-emerald-950 " +
+  "dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-50";

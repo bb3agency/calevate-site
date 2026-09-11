@@ -379,7 +379,13 @@ function currentItem(pathname: string): NavItem | undefined {
  * still shown unconditionally, so nothing about this decision can keep somebody from the
  * big red switch while `/v1/admin/me` is unwell.
  */
-function Sidebar({ isMobileOpen, onClose }: { isMobileOpen: boolean; onClose: () => void }) {
+function Sidebar({
+  isMobileOpen,
+  onClose,
+}: {
+  isMobileOpen: boolean;
+  onClose: () => void;
+}) {
   const pathname = usePathname();
   const { isCollapsed, toggle } = useSidebarCollapse();
   // ONE identity read for the whole nav — `adminAccess` is a pure verdict on it, so the
@@ -414,7 +420,10 @@ function Sidebar({ isMobileOpen, onClose }: { isMobileOpen: boolean; onClose: ()
           >
             <Icon className="h-4 w-4 shrink-0 text-ink-faint" />
             <SidebarLabel isCollapsed={isCollapsed}>{item.label}</SidebarLabel>
-            <Lock aria-hidden className={`h-3.5 w-3.5 shrink-0 ${sidebarFadeClass(isCollapsed)}`} />
+            <Lock
+              aria-hidden
+              className={`h-3.5 w-3.5 shrink-0 ${sidebarFadeClass(isCollapsed)}`}
+            />
           </span>
           {/* Beside the dead entry, not only in a `title` a mouse has to discover: a
               greyed-out label with no sentence is indistinguishable from a broken build.
@@ -427,7 +436,9 @@ function Sidebar({ isMobileOpen, onClose }: { isMobileOpen: boolean; onClose: ()
               nav in the frame the panel started sliding. */}
           {access.reason && (
             <SidebarCollapsibleBlock isCollapsed={isCollapsed}>
-              <p className="px-4 pb-1 text-[11px] leading-snug text-ink-faint">{access.reason}</p>
+              <p className="px-4 pb-1 text-[11px] leading-snug text-ink-faint">
+                {access.reason}
+              </p>
             </SidebarCollapsibleBlock>
           )}
         </div>
@@ -450,7 +461,9 @@ function Sidebar({ isMobileOpen, onClose }: { isMobileOpen: boolean; onClose: ()
             : "text-ink-muted hover:bg-black/5 dark:hover:bg-white/5"
         }`}
       >
-        <Icon className={`h-4 w-4 shrink-0 ${active ? "text-brand" : "text-ink-faint"}`} />
+        <Icon
+          className={`h-4 w-4 shrink-0 ${active ? "text-brand" : "text-ink-faint"}`}
+        />
         {/* MOUNTED IN BOTH STATES, faded and clipped rather than removed — see
             `components/sidebarCollapse.tsx`. */}
         <SidebarLabel isCollapsed={isCollapsed}>{item.label}</SidebarLabel>
@@ -485,7 +498,9 @@ function Sidebar({ isMobileOpen, onClose }: { isMobileOpen: boolean; onClose: ()
         {NAV.map((group) => (
           <div key={group.heading ?? "main"} className="mb-6">
             {group.heading && (
-              <SidebarGroupHeading isCollapsed={isCollapsed}>{group.heading}</SidebarGroupHeading>
+              <SidebarGroupHeading isCollapsed={isCollapsed}>
+                {group.heading}
+              </SidebarGroupHeading>
             )}
             {group.items.map(renderItem)}
           </div>
@@ -523,17 +538,28 @@ function IdentityFooter({ isCollapsed }: { isCollapsed: boolean }) {
       {/* The realm in the CHROME as well as in the words, and — since the rail across the
           top of the window was removed (9 Sep 2026) — the shell's only realm marker that
           is not a word. `components/realmChrome.tsx`. */}
-      <div className={`${SIDEBAR_IDENTITY_ROW_CLASS} ${ADMIN_REALM_IDENTITY_CLASS}`}>
+      <div
+        // NAMED, so the shell-distinguishability test keys on the MARKER rather than on
+        // whichever utility class sorts first in `ADMIN_REALM_IDENTITY_CLASS` — that was
+        // `border`, which every nav link also carries, so the assertion matched a link.
+        data-realm-marker="admin"
+        className={`${SIDEBAR_IDENTITY_ROW_CLASS} ${ADMIN_REALM_IDENTITY_CLASS}`}
+      >
         <span
           aria-hidden
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/15 text-white"
+          // The glyph rides the row's own tint rather than a white wash: the row is no
+          // longer a dark slab (`ADMIN_REALM_IDENTITY_CLASS`), so `bg-white/15` would be a
+          // near-invisible smudge in light mode and `text-white` unreadable on it.
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-600/15 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300"
         >
           <ShieldCheck className="h-4 w-4" />
         </span>
         {/* `<span className="block">` rather than `<p>`: `SidebarLabel` is a `<span>`, and
             a `<p>` inside one is invalid markup the parser silently unnests. */}
         <SidebarLabel isCollapsed={isCollapsed}>
-          <span className="block truncate text-sm font-semibold text-white">Admin realm</span>
+          <span className="block truncate text-sm font-semibold">
+            Admin realm
+          </span>
           {/* SHORT ENOUGH TO READ, rather than long and cut. This said `${role} · signed
               in across every client`, which is 42 characters in a label that has ~171px
               (255px panel less the footer's `px-3`, the row's `p-1.5`, the 36px glyph and
@@ -542,7 +568,7 @@ function IdentityFooter({ isCollapsed }: { isCollapsed: boolean }) {
               fix is the copy, not a `title`: a tooltip on a sentence nobody can read is a
               workaround, and the cut fact — that this session is not inside any single
               client — is sayable in three words. */}
-          <span className="block truncate text-xs text-white/70">
+          <span className="block truncate text-xs text-emerald-800/80 dark:text-emerald-200/80">
             {role ? `${role} · all clients` : "All clients"}
           </span>
         </SidebarLabel>
@@ -622,7 +648,9 @@ function TopHeader({ onMenuToggle }: { onMenuToggle: () => void }) {
     // Same rail as the client shell's header, for the same reason and in the same place —
     // see `SHELL_RAIL_CLASS`. The strip is the window's; its contents are the page's.
     <header className="sticky top-0 z-10 flex h-[72px] shrink-0 items-center border-b border-line bg-surface px-4 lg:px-8">
-      <div className={`${SHELL_RAIL_CLASS} flex items-center justify-between gap-3`}>
+      <div
+        className={`${SHELL_RAIL_CLASS} flex items-center justify-between gap-3`}
+      >
         <div className="flex items-center gap-3">
           <button
             type="button"
@@ -735,7 +763,8 @@ function AdminMfaGate({ children }: { children: React.ReactNode }) {
   const me = useAdminMe();
   const problem = me.error instanceof ApiProblem ? me.error : null;
   const refused =
-    problem !== null && (MFA_PROBLEM_CODES as readonly string[]).includes(problem.code);
+    problem !== null &&
+    (MFA_PROBLEM_CODES as readonly string[]).includes(problem.code);
 
   if (!refused || problem === null) return <>{children}</>;
 
@@ -749,15 +778,20 @@ function AdminMfaGate({ children }: { children: React.ReactNode }) {
         <p className="mt-1">{problem.message}</p>
         {problem.remediation && <p className="mt-2">{problem.remediation}</p>}
         <p className="mt-2 text-xs">
-          The operator console holds cross-client data and the platform controls, so this
-          is required of every admin account — it is not something this screen can waive.
+          The operator console holds cross-client data and the platform
+          controls, so this is required of every admin account — it is not
+          something this screen can waive.
         </p>
       </NoticeBox>
     </div>
   );
 }
 
-export default function AdminLayout({ children }: { children: React.ReactNode }) {
+export default function AdminLayout({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [isMobileOpen, setIsMobileOpen] = useState(false);
 
   return (
@@ -792,13 +826,19 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                   founder removed the rail (9 Sep 2026, `components/realmChrome.tsx`), and a
                   column holding one child is not a shell layout, it is the leftovers of one.
                   The two shells' outermost element is now the same expression. */}
-              <div data-app-shell className="fixed inset-0 flex overflow-hidden bg-app font-sans">
+              <div
+                data-app-shell
+                className="fixed inset-0 flex overflow-hidden bg-app font-sans"
+              >
                 {/* FIRST focusable thing in the shell — WCAG 2.4.1, Level A. Same component,
                     same target id and same position as the client shell's, because the two
                     shells are siblings and a reader who learns the control in one must find
                     it in the other. */}
                 <SkipLink />
-                <Sidebar isMobileOpen={isMobileOpen} onClose={() => setIsMobileOpen(false)} />
+                <Sidebar
+                  isMobileOpen={isMobileOpen}
+                  onClose={() => setIsMobileOpen(false)}
+                />
                 <div className="flex flex-1 flex-col overflow-hidden">
                   {/* One statement about the whole window, above every screen — the same
                       strip and the same position as the client shell's, because an operator

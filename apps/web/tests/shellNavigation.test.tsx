@@ -5,13 +5,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import AdminLayout from "@/app/admin/layout";
 import ClientRealmLayout from "@/app/c/[slug]/layout";
+import { ADMIN_REALM_IDENTITY_CLASS } from "@/components/realmChrome";
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
 import { MAIN_CONTENT_ID } from "@/components/ui";
 import { HOLDS_PATH } from "@/lib/api/holds";
 import { CLIENT_ACCOUNT_PATH } from "@/lib/authn/clientAuthn";
 import { currentNavItem } from "@/lib/nav";
 
-import { browserOffline, renderAdminPage, stubApi, type Routes } from "./harness";
+import {
+  browserOffline,
+  renderAdminPage,
+  stubApi,
+  type Routes,
+} from "./harness";
 
 /**
  * The two things every screen in the product inherits from its shell: a way past the
@@ -99,7 +105,9 @@ async function renderClientShell(at: string): Promise<HTMLElement> {
     "/v1/me": { organization: { name: "Acme" }, role: "owner" },
     "/v1/attention": { total: 0 },
   });
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   let container!: HTMLElement;
   await act(async () => {
     const ui: ReactElement = (
@@ -135,13 +143,21 @@ function assertSkipLink(container: HTMLElement): void {
   );
   const first = focusables[0];
   expect(first, "nothing focusable in the shell at all").toBeTruthy();
-  expect(first.tagName, "the first focusable thing in the shell is not a link").toBe("A");
+  expect(
+    first.tagName,
+    "the first focusable thing in the shell is not a link",
+  ).toBe("A");
   expect(first.getAttribute("href")).toBe(`#${MAIN_CONTENT_ID}`);
   expect(first.textContent).toMatch(/skip to main content/i);
 
   const target = container.querySelector(`#${MAIN_CONTENT_ID}`);
-  expect(target, "the skip link points at an id no element carries").toBeTruthy();
-  expect(target!.tagName, "the skip target is not the main landmark").toBe("MAIN");
+  expect(
+    target,
+    "the skip link points at an id no element carries",
+  ).toBeTruthy();
+  expect(target!.tagName, "the skip target is not the main landmark").toBe(
+    "MAIN",
+  );
   // -1 and not 0: reachable by a fragment, never a stop on the way there.
   expect(target!.getAttribute("tabindex")).toBe("-1");
 }
@@ -158,8 +174,13 @@ describe("skip to main content", () => {
 
 /** The one element the document says is the current screen, or null. */
 function currentLink(container: HTMLElement): HTMLElement | null {
-  const marked = container.querySelectorAll<HTMLElement>('[aria-current="page"]');
-  expect(marked.length, "more than one element claims to be the current page").toBeLessThan(2);
+  const marked = container.querySelectorAll<HTMLElement>(
+    '[aria-current="page"]',
+  );
+  expect(
+    marked.length,
+    "more than one element claims to be the current page",
+  ).toBeLessThan(2);
   return marked[0] ?? null;
 }
 
@@ -253,11 +274,15 @@ describe("currentNavItem", () => {
     // The admin shell's own comment relies on this: `/admin/ops/dnc` keeps its own name
     // instead of inheriting "Operations".
     expect(currentNavItem(NAV, "/admin/ops/dnc")?.href).toBe("/admin/ops/dnc");
-    expect(currentNavItem(NAV, "/admin/ops/dnc/anything")?.href).toBe("/admin/ops/dnc");
+    expect(currentNavItem(NAV, "/admin/ops/dnc/anything")?.href).toBe(
+      "/admin/ops/dnc",
+    );
     expect(currentNavItem(NAV, "/admin/ops")?.href).toBe("/admin/ops");
     // Platform configuration keeps its own name rather than inheriting "Operations",
     // which is the whole reason it could not have been an anchor on `/admin/ops`.
-    expect(currentNavItem(NAV, "/admin/ops/config")?.href).toBe("/admin/ops/config");
+    expect(currentNavItem(NAV, "/admin/ops/config")?.href).toBe(
+      "/admin/ops/config",
+    );
   });
 
   it("matches on a path SEGMENT, so a longer sibling name cannot borrow the prefix", () => {
@@ -306,7 +331,10 @@ describe("the account name is readable, not merely present", () => {
     const named = [...container.querySelectorAll<HTMLElement>("[title]")].find(
       (el) => el.getAttribute("title") === "Acme",
     );
-    expect(named, "the sidebar's account name is truncated with no way to read it").toBeTruthy();
+    expect(
+      named,
+      "the sidebar's account name is truncated with no way to read it",
+    ).toBeTruthy();
     expect(named?.className).toContain("truncate");
   });
 });
@@ -317,7 +345,9 @@ describe("your own account", () => {
     const account = [...container.querySelectorAll("a[href]")].filter(
       (a) => a.getAttribute("href") === CLIENT_ACCOUNT_PATH,
     );
-    expect(account, "no link from the console to /auth/account").toHaveLength(1);
+    expect(account, "no link from the console to /auth/account").toHaveLength(
+      1,
+    );
     // The accessible name survives the collapsed rail, so it is asserted on the element
     // rather than on the expanded label alone.
     expect(account[0].textContent).toMatch(/account/i);
@@ -355,23 +385,40 @@ describe("the two consoles do not look like each other", () => {
     expect(admin.querySelector(".h-1\\.5.bg-slate-900")).toBeNull();
 
     const adminShell = admin.querySelector("[data-app-shell]");
-    const clientShell = (await renderClientShell("/c/acme")).querySelector("[data-app-shell]");
+    const clientShell = (await renderClientShell("/c/acme")).querySelector(
+      "[data-app-shell]",
+    );
     expect(adminShell?.className).not.toContain("flex-col");
     expect(adminShell?.className).toBe(clientShell?.className);
   });
 
   it("still tells the two shells apart without reading a word", async () => {
-
     // The identity block is what survives the rail's removal, and it is now the shell's
     // ONLY realm marker that is not a word — so it is asserted harder than it was, on
     // both the treatment and the absence of that treatment in the client shell.
+    //
+    // ASSERTED AGAINST THE ONE DEFINITION, NOT AGAINST A COLOUR. This read
+    // `.bg-slate-900.text-white`, a second copy of `ADMIN_REALM_IDENTITY_CLASS`'s value
+    // living in a test — so when the founder asked for that near-black slab to go, the
+    // test failed on the RE-SKIN rather than on the property, which is the one thing it
+    // must not do. What it guards is "an operator can tell the two shells apart without
+    // reading a word", and that is true of whatever treatment the constant currently
+    // holds. Keyed on `data-realm-marker`, a NAME for the thing, because keying on the
+    // first class in the constant matched `border` — which every nav link carries too.
     const admin = await renderAdminShell("/admin");
-    const identity = admin.querySelector(".bg-slate-900.text-white");
-    expect(identity, "the admin identity block is dressed like a client's").toBeTruthy();
+    const identity = admin.querySelector("[data-realm-marker='admin']");
+    expect(
+      identity,
+      "the admin identity block is dressed like a client's",
+    ).toBeTruthy();
     expect(identity?.textContent).toContain("Admin realm");
+    expect(
+      identity?.className,
+      "the marker carries no treatment, so the two shells look alike",
+    ).toContain(ADMIN_REALM_IDENTITY_CLASS);
 
     const client = await renderClientShell("/c/acme");
-    expect(client.querySelector(".bg-slate-900.text-white")).toBeNull();
+    expect(client.querySelector("[data-realm-marker='admin']")).toBeNull();
   });
 });
 
