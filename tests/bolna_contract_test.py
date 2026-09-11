@@ -192,14 +192,21 @@ async def test_the_voice_block_carries_its_own_language_like_the_transcriber_doe
     """
     tools = (await _created_body())["agent_config"]["tasks"][0]["tools_config"]
 
-    for leg in ("synthesizer", "transcriber"):
-        assert tools[leg].get("language"), (
-            f"`{leg}` reached the wire with no block-level `language`; the vendor's "
-            "validator refuses the agent at CREATE, so nothing downstream of publish runs"
-        )
-    assert tools["synthesizer"]["language"] == tools["transcriber"]["language"], (
-        "the agent would listen in one language and speak in another"
+    # THE TWO LEGS CARRY IT IN DIFFERENT PLACES, and that asymmetry is the vendor's, not
+    # ours: the transcriber takes a block-level `language` (their own full-example does),
+    # while the voice provider takes it inside `provider_config` — which is where the
+    # Cartesia arm already put it, built from `CartesiaConfig.language: str` in their OSS.
+    # A first attempt at this fix put the synthesizer's at block level and the live
+    # validator went on refusing, which is how the location was settled.
+    spoken = tools["synthesizer"]["provider_config"].get("language")
+    heard = tools["transcriber"].get("language")
+
+    assert spoken, (
+        "the voice block reached the wire with no `language` in `provider_config`; the "
+        "vendor refuses the agent at CREATE, so nothing downstream of publish runs"
     )
+    assert heard, "the transcriber reached the wire with no block-level `language`"
+    assert spoken == heard, "the agent would listen in one language and speak in another"
 
 
 async def test_the_toolchain_and_prompt_envelope_match_the_spec() -> None:
