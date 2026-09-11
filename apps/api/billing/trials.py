@@ -53,6 +53,14 @@ the AI disclosure, the India-only destination, the DLT chain and the first-campa
 all still bite, unchanged. A trial is a BILLING state. There is no reading of "everything is
 on us" that reaches TRAI.
 
+**AND BECAUSE IT MOVES THE PREDICATE WITHOUT MOVING MONEY, IT PUBLISHES ITS OWN EDGE**
+(D-577). Since D-551 an empty wallet also silences a client's answering agents at the
+engine, and the job that decides that (`workers/inbound_cutover.apply_inbound_credit_state`)
+is published by the LEDGER — which a trial never touches. So `start_trial` enqueues it in
+the trial row's own transaction: an operator opens a trial for a client at zero precisely
+because their line is down, and an edge that only fired on the way down would leave this
+product able to silence a client and unable to un-silence them. See `start_trial`.
+
 --------------------------------------------------------------------------------
 3. USAGE IS METERED AND DISPLAYED. THE WALLET IS NOT DEBITED
 --------------------------------------------------------------------------------
@@ -134,8 +142,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
+from apps.api.reliability.service import enqueue_outbox
 
 log = get_logger(__name__)
+
+#: `billing.service.INBOUND_CUTOVER_JOB`, RESTATED AS A LITERAL rather than imported, for
+#: the two reasons `workers/pipeline.py` restates it — and here the first is not a choice.
+#:
+#: `billing/service.py` imports `counter_epoch` and `read_trial` FROM THIS MODULE, so an
+#: import back the other way is a cycle. And `scripts/check_job_wiring.py` resolves a job
+#: name only as a literal or a module-level constant IN THE FILE THAT ENQUEUES IT —
+#: deliberately shallow — so the name has to be spelled here whichever way the imports ran.
+#: `tests/trial_inbound_recovery_test.py` holds the two spellings in step, exactly as
+#: `tests/inbound_credit_cutover_test.py` does for the pipeline's copy; without that a
+#: rescued client's phone would stay dead because the outbox published a name no worker
+#: answers to, and arq drops it with a warning nothing reads.
+INBOUND_CUTOVER_JOB: Final = "apply_inbound_credit_state"
 
 #: The status of a trial that is still running. Spelled once; four modules compare it.
 TRIAL_ACTIVE: Final = "active"
@@ -470,6 +492,37 @@ async def start_trial(
         )
     ).first()
     assert row is not None  # RETURNING on a single-row INSERT
+    # THE RESCUE EDGE (D-577). Opening a trial is one of the three ways an account stops
+    # being exhausted, and it was the only one that told nobody.
+    #
+    # `compliance.service.credits_exhausted` reads three facts — the plan tier, THIS
+    # predicate, and the balance — and only the balance is a ledger entry, so only the
+    # balance had a publisher: `billing.service.record_entry` enqueues this same job on
+    # every crossing of zero, in either direction. A trial moves no money by explicit
+    # decision (see this module's header), so nothing crossed and nothing was published,
+    # and a client already silenced for an empty wallet went on hearing
+    # `agents.service.CREDIT_STOP_MESSAGE` until somebody happened to republish an agent.
+    # That is the wrong half of the edge to be missing: the operator opens a trial BECAUSE
+    # the line is down.
+    #
+    # THE SAME MECHANISM AS EVERY OTHER EDGE, not a second one. Through the OUTBOX, in the
+    # caller's transaction (BACKEND-PATTERNS §4), so a promise to bring a phone line back
+    # cannot outlive a rolled-back trial row — nor be lost by one that committed. The
+    # payload carries the tenant and nothing else, because the job RE-READS the predicate
+    # rather than trusting a verdict that was true when it was queued; that is also what
+    # makes this harmless for a tenant who was never silenced (`unchanged`), and what lets
+    # it be enqueued unconditionally instead of asking a question here whose answer the
+    # worker asks again anyway.
+    #
+    # The DOWNWARD twin — a trial ending over a wallet that was always empty — is not
+    # published here. It has its own path already (`workers/pipeline.py`'s backstop, named
+    # in `workers/inbound_cutover.py`), and a second publisher for one edge is the
+    # duplication this comment exists to avoid.
+    await enqueue_outbox(
+        session,
+        job=INBOUND_CUTOVER_JOB,
+        payload={"tenant_id": str(tenant_id)},
+    )
     log.info(
         "trial_started",
         extra={
@@ -623,6 +676,7 @@ async def mark_erasure_filed(
 __all__ = [
     "DEFAULT_ERASURE_GRACE_DAYS",
     "EXPIRY_REASON",
+    "INBOUND_CUTOVER_JOB",
     "MAX_ERASURE_GRACE_DAYS",
     "MAX_TRIAL_DAYS",
     "MIN_ERASURE_GRACE_DAYS",

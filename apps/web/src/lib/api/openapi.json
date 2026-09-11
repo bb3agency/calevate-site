@@ -13812,6 +13812,78 @@
         "title": "NationalDndScrubOut",
         "type": "object"
       },
+      "NumberAgentIn": {
+        "additionalProperties": false,
+        "description": "Which agent answers this number \u2014 or `null`, which detaches it.\n\nONE FIELD AND IT IS NULLABLE, rather than a route per direction. Attach and detach are\nthe same decision written two ways (\"who answers this number\"), and a `DELETE` beside a\n`POST` would be two implementations of one transition \u2014 the second of which is where\nthe drift starts. `null` is an ordinary value here, not an omission: `extra=\"forbid\"`\nplus a required field means an operator cannot detach by accident with an empty body.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          }
+        },
+        "required": [
+          "agent_id"
+        ],
+        "title": "NumberAgentIn",
+        "type": "object"
+      },
+      "NumberAgentOut": {
+        "additionalProperties": false,
+        "description": "What the number is attached to now, and what the voice platform was actually told.\n\nThe counts are `route_inbound_numbers`' own, so a screen can say \"attached, but the\nplatform refused the routing\" instead of implying a phone that rings. Reporting only\nthe column would be the defect this route closes, one layer further out.",
+        "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "bound": {
+            "title": "Bound",
+            "type": "integer"
+          },
+          "failed": {
+            "title": "Failed",
+            "type": "integer"
+          },
+          "number_id": {
+            "format": "uuid",
+            "title": "Number Id",
+            "type": "string"
+          },
+          "released": {
+            "title": "Released",
+            "type": "integer"
+          },
+          "unsupported": {
+            "title": "Unsupported",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "number_id",
+          "agent_id",
+          "bound",
+          "released",
+          "failed",
+          "unsupported"
+        ],
+        "title": "NumberAgentOut",
+        "type": "object"
+      },
       "NumberCreatedOut": {
         "additionalProperties": false,
         "properties": {
@@ -20406,6 +20478,29 @@
         "additionalProperties": false,
         "description": "One number and what it costs US \u2014 the admin-only view of a client's numbers.\n\nSEPARATE FROM `GET /v1/campaigns/numbers`, which a client also reads. Our cost of\nholding a number is not a figure a client is shown: whether the rental is absorbed,\npassed through at cost, or a priced add-on is a founder pricing decision that has not\nbeen taken (OPERATIONS \u00a72 gate 26), and publishing our cost before it is taken would\nmake the decision for them.",
         "properties": {
+          "agent_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Id"
+          },
+          "agent_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Agent Name"
+          },
           "dlt_status": {
             "title": "Dlt Status",
             "type": "string"
@@ -20466,6 +20561,8 @@
           "provider",
           "engine_owned",
           "engine_linked",
+          "agent_id",
+          "agent_name",
           "monthly_rental_usd",
           "released"
         ],
@@ -28476,6 +28573,67 @@
           }
         },
         "summary": "Record a calling number the client holds \u2014 the series is the compliance-bearing field",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/numbers/{number_id}/agent": {
+      "post": {
+        "description": "Points a recorded number at an agent, or at nothing when `agent_id` is null, and tells the voice platform in the same request rather than waiting for the next publish. Detaching RELEASES the binding at the platform: leaving it in place would keep an agent answering a number our own screens say it is not on. Refused with `agent_does_not_answer_inbound` for an outbound-only agent, with `agent_archived` for a deleted one, with `number_released` for a number given back, and with a 404 for an agent or number belonging to another client. The counts say what the platform was told.",
+        "operationId": "set_number_agent_v1_admin_tenants__tenant_id__numbers__number_id__agent_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "number_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Number Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NumberAgentIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NumberAgentOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Choose which agent answers this number \u2014 or detach it \u2014 and route it now",
         "tags": [
           "admin"
         ],

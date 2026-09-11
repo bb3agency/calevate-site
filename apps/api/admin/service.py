@@ -44,6 +44,7 @@ from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
 from apps.api.db.base import uuid7
 from apps.api.db.session import admin_session, tenant_session
+from apps.api.reliability.service import enqueue_outbox
 from apps.api.tenancy.lifecycle import assert_account_open
 from apps.api.tenancy.models import DEFAULT_PLAN_TIER as _DEFAULT_PLAN_TIER
 
@@ -51,6 +52,17 @@ log = get_logger(__name__)
 
 SLUG_RE = re.compile(r"^[a-z0-9-]{3,40}$")
 INVITE_TTL = timedelta(hours=72)
+
+#: `billing.service.INBOUND_CUTOVER_JOB`, RESTATED AS A LITERAL rather than imported, for
+#: the reason `apps/workers/pipeline.py` and `apps/api/billing/trials.py` restate it:
+#: `scripts/check_job_wiring.py` resolves a job name only as a literal or a module-level
+#: constant IN THE FILE THAT ENQUEUES IT — deliberately shallow — so the name has to be
+#: spelled here. Importing it from `billing.service` would also drag the whole billing
+#: module into the onboarding wizard's import graph to obtain one string.
+#: `tests/plan_tier_inbound_recovery_test.py` holds this spelling in step with the other
+#: three; without that the outbox would publish a name no worker answers to, and arq drops
+#: that with a warning nothing reads.
+INBOUND_CUTOVER_JOB: Final = "apply_inbound_credit_state"
 
 # DERIVED, NEVER RETYPED (D-163). This table used to be the literal source of the bundled
 # line, and the bundling was the defect: SEC-COMP §2's two invariants — the AI sentence
@@ -1123,6 +1135,10 @@ async def set_plan_tier(session: AsyncSession, *, tenant_id: UUID, plan_tier: st
 
     The session must be tenant-scoped — `organizations` is FORCE-RLS, so an unscoped one
     matches zero rows and this returns None, which would read as "already on that tier".
+
+    A real change also PUBLISHES the inbound-answering edge in this transaction (D-579),
+    because the tier is one of the three facts `credits_exhausted` reads and it was the one
+    with no publisher; see the comment on the enqueue below.
     """
     if plan_tier not in OPERATOR_SETTABLE_PLAN_TIERS:
         # Defence in depth behind the route's own `Literal`. A caller reaching this with a
@@ -1132,13 +1148,49 @@ async def set_plan_tier(session: AsyncSession, *, tenant_id: UUID, plan_tier: st
     previous = (
         await session.execute(text(_SET_PLAN_TIER), {"tid": tenant_id, "tier": plan_tier})
     ).scalar()
-    return str(previous) if previous is not None else None
+    if previous is None:
+        # Nothing changed, so nothing is promised. The statement is idempotent by
+        # `plan_tier <> :tier`, and an enqueue on a no-op click would be a promise about a
+        # state nobody moved — cheap to honour, but it makes the outbox stop being a record
+        # of what actually happened, which is the only thing it is good for.
+        return None
+    # THE PHONE, PUBLISHED IN THE SAME TRANSACTION AS THE TIER THAT DECIDES IT (D-579).
+    #
+    # `compliance.service.credits_exhausted` reads THREE facts — the plan tier, whether a
+    # trial is running, and the wallet balance — and each is a way an account can start or
+    # stop being exhausted. The balance has a publisher (`billing.service.record_entry`, on
+    # every crossing of zero in either direction) and the trial has one
+    # (`billing.trials.start_trial`, D-577). The TIER had none, and the post-call backstop
+    # in `workers/pipeline.py` cannot stand in for one in the direction that matters: it
+    # only enqueues when it finds the tenant EXHAUSTED, which a `managed` tenant never is.
+    # So a client silenced for an empty wallet and then moved onto the invoiced retainer —
+    # the move whose entire point is that nothing should stop their phone — went on
+    # greeting their callers with `agents.service.CREDIT_STOP_MESSAGE` until somebody
+    # happened to republish one of their agents.
+    #
+    # Published for BOTH directions from the one writer that sees the change, on the same
+    # terms as the other two edges: through the OUTBOX (BACKEND-PATTERNS §4) so the promise
+    # cannot outlive a rolled-back tier write nor be lost by one that committed, and with a
+    # payload carrying the tenant and nothing else — the job RE-READS the predicate rather
+    # than trusting a verdict that was true when it was queued.
+    #
+    # IT IS IN THE SERVICE, NOT THE ROUTE, for `record_entry`'s and `start_trial`'s reason:
+    # the promise belongs to the write, so a second caller of this function cannot acquire
+    # the column write without the edge. The audit row stays the route's, because that is
+    # about the OPERATOR and needs their words and the admin session.
+    await enqueue_outbox(
+        session,
+        job=INBOUND_CUTOVER_JOB,
+        payload={"tenant_id": str(tenant_id)},
+    )
+    return str(previous)
 
 
 __all__ = [
     "DEFAULT_PLAN_TIER",
     "DISCLOSURE_TEMPLATES",
     "EDITABLE_TENANT_FIELDS",
+    "INBOUND_CUTOVER_JOB",
     "INVITE_TTL",
     "OPERATOR_SETTABLE_PLAN_TIERS",
     "RESEND_MAX_SENDS",

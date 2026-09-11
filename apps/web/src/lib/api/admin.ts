@@ -1013,7 +1013,20 @@ export function useProvisionNumber(tenantId: string) {
         `/v1/admin/tenants/${tenantId}/numbers`,
         { method: "POST", body: payload },
       ),
-    onSuccess: () => void client.invalidateQueries({ queryKey: ["admin", "numbers"] }),
+    // **NO `agent_id`, DELIBERATELY, THOUGH THE ROUTE ACCEPTS ONE (D-576).** The console
+    // has exactly ONE way to decide which agent answers a number — the attach control on
+    // the numbers screen — and it works at any time, including one second after this
+    // returns. Offering the choice here as well would be a second way to do one thing
+    // (CLAUDE.md), at the moment the operator knows least, on the field whose one wrong
+    // value used to burn the E.164 permanently: `phone_numbers.e164` is globally UNIQUE
+    // and `release_number` refuses a client-owned connection. `provision_number`'s own
+    // docstring calls `agent_id = null` "the ordinary onboarding order".
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["admin", "numbers"] });
+      // The admin cost/attachment list is a different key and is the list this write is
+      // usually made from — without this the new row simply does not appear.
+      void client.invalidateQueries({ queryKey: ["admin", "number-costs"] });
+    },
   });
 }
 

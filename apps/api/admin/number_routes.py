@@ -160,6 +160,14 @@ class TenantNumberCostOut(BaseModel):
     #: Is the voice platform able to answer this number at all? False is GAP-1's symptom:
     #: the publish will report success and the phone will not ring.
     engine_linked: bool
+    #: WHICH AGENT ANSWERS IT — the field whose absence hid D-576 from every screen.
+    #: `phone_numbers.agent_id` had one writer and it was the INSERT, so every number on
+    #: this platform sat NULL here while the console showed a row that looked complete.
+    #: Null means NOTHING rings: an incoming call reaches no agent of ours.
+    agent_id: UUID | None
+    #: The agent's own name, so a row can say who answers without a second request. Null
+    #: exactly when `agent_id` is.
+    agent_name: str | None
     monthly_rental_usd: str | None
     released: bool
 
@@ -356,10 +364,16 @@ async def release_number(
     )
 
 
+# LEFT JOIN, not an inner one: a number attached to no agent is the row an operator most
+# needs to see, and an inner join would hide exactly the defect this column exists to show.
+# `agents.deleted_at IS NULL` in the join predicate rather than the WHERE clause for the
+# same reason — an erased agent leaves the number listed, unattached.
 _TENANT_NUMBERS = (
-    "SELECT id, e164, series, dlt_status, provider, engine_owned, "
-    "engine_number_ref IS NOT NULL, monthly_rental_usd, released_at IS NOT NULL "
-    "FROM phone_numbers ORDER BY created_at, id LIMIT :limit"
+    "SELECT n.id, n.e164, n.series, n.dlt_status, n.provider, n.engine_owned, "
+    "n.engine_number_ref IS NOT NULL, n.agent_id, a.name, n.monthly_rental_usd, "
+    "n.released_at IS NOT NULL FROM phone_numbers n "
+    "LEFT JOIN agents a ON a.id = n.agent_id AND a.deleted_at IS NULL "
+    "ORDER BY n.created_at, n.id LIMIT :limit"
 )
 
 
@@ -404,8 +418,10 @@ async def tenant_numbers(
             provider=row[4],
             engine_owned=row[5],
             engine_linked=row[6],
-            monthly_rental_usd=str(row[7]) if row[7] is not None else None,
-            released=row[8],
+            agent_id=row[7],
+            agent_name=row[8],
+            monthly_rental_usd=str(row[9]) if row[9] is not None else None,
+            released=row[10],
         )
         for row in rows
     ]

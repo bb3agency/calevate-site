@@ -60,6 +60,8 @@ import {
   type OverridePack,
 } from "@/lib/api/creditLots";
 import { useAdminAccess } from "@/app/admin/access";
+import { Field, describedBy } from "./fields";
+import { TrialPanel } from "./TrialPanel";
 import { useCopilotSurface } from "@/lib/copilot/registry";
 import { asText } from "@/lib/copilot/types";
 
@@ -143,9 +145,11 @@ import { asText } from "@/lib/copilot/types";
  *   the route's rule and not this screen's opinion. `useRecordAdjustment` builds it.
  *
  * The consequence stated above the button is the one an operator cannot otherwise see
- * coming: a correction may leave the balance BELOW zero, and for a self-serve or trial
- * client that stops outbound dialling. The server answers whether it did — `stops_dialling`
- * is the dial gate's own predicate — and the outcome panel says so in those words.
+ * coming: a correction may leave the balance BELOW zero, and for every client but a
+ * managed one that stops their outgoing calls AND their agents' answering of incoming
+ * ones (D-551). The server answers whether it did — `stops_dialling` is the dial gate's
+ * own predicate, and its name is now narrower than what it decides — and the outcome
+ * panel says so in those words.
  *
  * ## AND THE OPPOSITE MISTAKE HAS ITS OWN CONTROL — `RestatementPanel` (D-89)
  *
@@ -252,6 +256,11 @@ export default function CreditsPage({
             write={reprice}
             clientName={tenant.name}
           />
+          {/* A TRIAL IS THE OTHER ANSWER TO AN EMPTY WALLET (D-536, put on this screen by
+              D-577), so it sits beside the one that costs the client money rather than on
+              a route of its own. It reads its own endpoint and is withheld on its own
+              failure — the credits read says nothing about a trial. */}
+          <TrialPanel tenantId={tenantId} clientName={tenant.name} />
           <RecordPanel
             clientName={tenant.name}
             wallet={state.wallet}
@@ -375,11 +384,23 @@ function BalancePanel({ wallet }: { wallet: Credits }) {
           icon={<CircleAlert aria-hidden className="h-5 w-5" />}
           title={`Below the low-balance line of ${formatINR(wallet.low_balance_threshold_inr)}`}
         >
+          {/* ⚠ THIS USED TO SAY "stops outbound dialling for a self-serve or trial
+              client", and BOTH halves were wrong. The tier half omitted `prepaid`, which
+              is the DEFAULT every account is created on (`tenancy/models.py`) and is in
+              `billing/rates.PREPAID_TIERS` with the other two — so the sentence excused
+              almost every client on the platform. The other half was withdrawn by D-551:
+              an empty wallet stops INBOUND ANSWERING too. An operator reading the old
+              line concluded a payment was not urgent while it was holding a phone line
+              down. */}
           <p className="mt-1">
-            An empty wallet stops outbound dialling for a self-serve or trial client
-            (the compliance gate reads this balance). A managed client is invoiced
-            against their retainer and is not blocked by it — their plan is on the
-            Commercials screen.
+            An empty wallet stops this client calling and being called. Every account that
+            pays from a wallet — which is all of them except a managed client — has its
+            outgoing calls refused by the compliance gate at a balance of zero or below,
+            and its agents stop answering incoming ones: callers hear a short apology that
+            gives no reason. Record the payment below and both start again. A managed
+            client is invoiced against their retainer and neither half applies — their
+            plan is on the Commercials screen. A client inside a trial period is on us and
+            is stopped by neither, however empty this wallet is.
           </p>
         </NoticeBox>
       )}
@@ -802,8 +823,8 @@ const NO_CORRECTION: Correction = { entryId: "", amount: "", confirm: "", reason
  *   recomputed — the console does no decimal arithmetic on money at all, so it cannot
  *   preview the resulting balance and does not pretend to;
  * - the consequence that cannot be previewed — a balance that lands below zero, which
- *   stops a self-serve or trial client dialling — is stated as a CONDITION above the
- *   button and answered as a FACT by the server underneath it.
+ *   stops every client but a managed one both dialling and answering — is stated as a
+ *   CONDITION above the button and answered as a FACT by the server underneath it.
  */
 function CorrectionPanel({
   clientName,
@@ -1023,13 +1044,18 @@ function CorrectionPanel({
                 cancels stays where it is, because it is the evidence, and correcting the
                 correction is another line again.
               </p>
+              {/* ⚠ THIS USED TO SAY "for a self-serve or trial client that stops outbound
+                  dialling", wrong in the same two ways as the low-balance notice above:
+                  it omitted `prepaid` (the default tier, and in `PREPAID_TIERS`), and it
+                  named only the outbound half that D-551 stopped being the whole story. */}
               <p className="mt-1 text-ink-muted">
                 A correction may take the balance <span className="font-semibold">below
                 zero</span> — a wrong credit that has already been spent cannot be fully
-                taken back any other way. For a self-serve or trial client that stops
-                outbound dialling immediately, exactly as an empty wallet does; a managed
-                client is invoiced against their retainer and keeps calling. The answer
-                comes back with the result rather than being guessed here.
+                taken back any other way. For every client but a managed one that stops
+                their outgoing calls immediately and stops their agents answering incoming
+                ones, exactly as an empty wallet does, until you add credit back; a
+                managed client is invoiced against their retainer and keeps calling. The
+                answer comes back with the result rather than being guessed here.
               </p>
               <p className="mt-1 text-xs text-ink-faint">
                 Recorded in the audit log against your admin account with the reason you
@@ -1694,8 +1720,9 @@ function CorrectionCard() {
           Use <span className="font-semibold">Correct a wrong entry</span> above. It
           names the entry it cancels, takes back at most what that entry put in, derives
           the direction from it, and is keyed so that clicking twice corrects once. The
-          balance may end below zero — for a self-serve or trial client that stops their
-          dialling, and the result says so.
+          balance may end below zero — for every client but a managed one that stops their
+          outgoing calls and stops their agents answering incoming ones until you add
+          credit back, and the result says so.
         </li>
         <li>
           <span className="font-semibold text-ink">
@@ -1728,54 +1755,6 @@ function CorrectionCard() {
         unexplained.
       </p>
     </Card>
-  );
-}
-
-/**
- * The description an input points at. Both halves are named so a screen reader hears the
- * error AND the guidance — an error span that nothing references is a message only
- * sighted users get, which on the field that decides double-crediting is the wrong half
- * of the audience to serve.
- */
-function describedBy(id: string, hasError: boolean): string {
-  return hasError ? `${id}-hint ${id}-error` : `${id}-hint`;
-}
-
-function Field({
-  label,
-  id,
-  hint,
-  error,
-  children,
-}: {
-  label: string;
-  id: string;
-  hint: string;
-  error: string | null;
-  children: React.ReactNode;
-}) {
-  return (
-    <div>
-      {/* A PERSISTENT VISIBLE label, not a placeholder. axe scores a placeholder as an
-          accessible name and WCAG 3.3.2 does not: the text vanishes on the first
-          keystroke, which on a hand-transcribed bank reference is exactly when it is
-          needed (tests/a11y.ts states this limitation). */}
-      <label htmlFor={id} className={FIELD_LABEL}>
-        {label}
-      </label>
-      <div className="mt-1">{children}</div>
-      <span id={`${id}-hint`} className={FIELD_HINT}>
-        {hint}
-      </span>
-      {error && (
-        <span
-          id={`${id}-error`}
-          className="mt-1 block text-xs font-medium text-rose-700 dark:text-rose-300"
-        >
-          {error}
-        </span>
-      )}
-    </div>
   );
 }
 

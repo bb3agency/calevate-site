@@ -1704,6 +1704,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/numbers/{number_id}/agent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Choose which agent answers this number — or detach it — and route it now
+         * @description Points a recorded number at an agent, or at nothing when `agent_id` is null, and tells the voice platform in the same request rather than waiting for the next publish. Detaching RELEASES the binding at the platform: leaving it in place would keep an agent answering a number our own screens say it is not on. Refused with `agent_does_not_answer_inbound` for an outbound-only agent, with `agent_archived` for a deleted one, with `number_released` for a number given back, and with a 404 for an agent or number belonging to another client. The counts say what the platform was told.
+         */
+        post: operations["set_number_agent_v1_admin_tenants__tenant_id__numbers__number_id__agent_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/numbers/{number_id}/dlt-status": {
         parameters: {
             query?: never;
@@ -12396,6 +12416,45 @@ export interface components {
             /** Suppressed Count */
             suppressed_count: number | null;
         };
+        /**
+         * NumberAgentIn
+         * @description Which agent answers this number — or `null`, which detaches it.
+         *
+         *     ONE FIELD AND IT IS NULLABLE, rather than a route per direction. Attach and detach are
+         *     the same decision written two ways ("who answers this number"), and a `DELETE` beside a
+         *     `POST` would be two implementations of one transition — the second of which is where
+         *     the drift starts. `null` is an ordinary value here, not an omission: `extra="forbid"`
+         *     plus a required field means an operator cannot detach by accident with an empty body.
+         */
+        NumberAgentIn: {
+            /** Agent Id */
+            agent_id: string | null;
+        };
+        /**
+         * NumberAgentOut
+         * @description What the number is attached to now, and what the voice platform was actually told.
+         *
+         *     The counts are `route_inbound_numbers`' own, so a screen can say "attached, but the
+         *     platform refused the routing" instead of implying a phone that rings. Reporting only
+         *     the column would be the defect this route closes, one layer further out.
+         */
+        NumberAgentOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Bound */
+            bound: number;
+            /** Failed */
+            failed: number;
+            /**
+             * Number Id
+             * Format: uuid
+             */
+            number_id: string;
+            /** Released */
+            released: number;
+            /** Unsupported */
+            unsupported: number;
+        };
         /** NumberCreatedOut */
         NumberCreatedOut: {
             /** Dlt Status */
@@ -15211,6 +15270,10 @@ export interface components {
          *     make the decision for them.
          */
         TenantNumberCostOut: {
+            /** Agent Id */
+            agent_id: string | null;
+            /** Agent Name */
+            agent_name: string | null;
             /** Dlt Status */
             dlt_status: string;
             /** E164 */
@@ -19618,6 +19681,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["NumberCreatedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_number_agent_v1_admin_tenants__tenant_id__numbers__number_id__agent_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                number_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NumberAgentIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NumberAgentOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

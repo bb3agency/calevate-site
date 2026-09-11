@@ -1181,6 +1181,38 @@ async def route_inbound_numbers(
     rows = (await session.execute(text(_AGENT_NUMBERS_SQL), {"aid": agent_id})).all()
     if not rows:
         return InboundRouting(bound=0, released=0, failed=0, unsupported=0)
+    return await _apply_inbound_bindings(
+        engine, agent_id=agent_id, ref=ref, answers=answers, rows=rows
+    )
+
+
+async def _apply_inbound_bindings(
+    engine: VoiceEngine,
+    *,
+    agent_id: UUID | None,
+    ref: str,
+    answers: bool,
+    rows: Sequence[Any],
+) -> InboundRouting:
+    """Tell the engine about EACH of `rows`, count what happened, alarm on what did not.
+
+    Extracted from `route_inbound_numbers` when `attach_number_to_agent` needed the same
+    work over ONE number instead of over every number an agent holds (D-576). It is the
+    same loop, the same capability question, the same per-number alarm and the same log
+    line — hoisted rather than copied, because two implementations of "what the engine was
+    told" is the shape that lets one of them stop alarming (CLAUDE.md: one way per
+    problem, and migrate rather than accumulate).
+
+    The row shape is `_AGENT_NUMBERS_SQL`'s, in that order. `ref` is unused on the release
+    arm and that is the Protocol's shape, not an oversight: `unbind_inbound_number` names
+    the NUMBER, because "nothing of ours answers this" is not a claim about an agent.
+
+    `agent_id` is nullable for the same reason and is only ever a LABEL here — the agent an
+    operator should be told about. A detach of a number that was attached to nobody has no
+    such agent, and `"none"` is written rather than an invented id: an alarm naming a row
+    that is not an agent would send an operator to the wrong screen.
+    """
+    subject = str(agent_id) if agent_id is not None else "none"
     # ASKED ONCE, not per number. An engine that cannot route numbers at all is a
     # deployment fact, not an incident: it refuses at the console through the same
     # capability, and one alarm per number per publish would page about a platform
@@ -1192,7 +1224,7 @@ async def route_inbound_numbers(
     if not engine.capabilities.has("inbound_binding"):
         log.info(
             "engine_inbound_binding_unsupported",
-            extra={"agent_id": str(agent_id), "engine": engine.name, "numbers": len(rows)},
+            extra={"agent_id": subject, "engine": engine.name, "numbers": len(rows)},
         )
         return InboundRouting(bound=0, released=0, failed=0, unsupported=len(rows))
 
@@ -1224,13 +1256,13 @@ async def route_inbound_numbers(
                     f"set to — or nothing. Intent: {'answer' if answers else 'stop answering'}. "
                     f"Refusal: {exc.code}."
                 ),
-                agent_id=str(agent_id),
+                agent_id=subject,
                 number_id=str(number_id),
             )
     log.info(
         "agent_inbound_numbers_routed",
         extra={
-            "agent_id": str(agent_id),
+            "agent_id": subject,
             "engine": engine.name,
             "bound": bound,
             "released": released,
@@ -2225,8 +2257,11 @@ async def publish_agent(session: AsyncSession, *, tenant_id: UUID, agent_id: UUI
     # numbers it answers — are written in one transaction's worth of intent; it cannot fail
     # the publish (see the function) because the agent itself is already verified live.
     answers_inbound = agent_answers_inbound(agent["direction"])
-    await route_inbound_numbers(
+    routing = await route_inbound_numbers(
         session, engine, agent_id=agent_id, ref=ref, answers=answers_inbound
+    )
+    await _warn_if_answering_nothing(
+        session, agent_id=agent_id, answers_inbound=answers_inbound, routing=routing
     )
     # AND THE LAST WORD ON WHAT IT SAYS, AND ON WHETHER IT SAYS ANYTHING AT ALL (8 Sep
     # 2026; D-564). A publish writes the agent's REAL script and rebinds its numbers,
@@ -3201,6 +3236,229 @@ async def set_number_engine_ref(
     )
 
 
+#: Numbers this client HOLDS that no agent answers. The signature of the defect D-576
+#: closes: a recorded, un-released connection attached to nobody, while a receptionist is
+#: being published as live.
+_UNATTACHED_NUMBERS_SQL = (
+    "SELECT count(*) FROM phone_numbers WHERE agent_id IS NULL AND released_at IS NULL"
+)
+
+
+async def _warn_if_answering_nothing(
+    session: AsyncSession, *, agent_id: UUID, answers_inbound: bool, routing: InboundRouting
+) -> None:
+    """Make a publish that answers NO number loud, when the client has one to answer (D-576).
+
+    **THIS IS THE ALARM THAT WOULD HAVE CAUGHT BOTH D-420 AND D-576.** Each was a
+    `bound=0` that reported success: the first because nothing reached the engine, the
+    second because `phone_numbers.agent_id` had no writer after the INSERT. In both, an
+    operator published a receptionist, read "published", and the client's phone did not
+    ring — with nothing anywhere saying so.
+
+    **IT IS NOT A PUBLISH REFUSAL, and that is a decision rather than caution.** An
+    inbound agent with no number yet is the ORDINARY onboarding order — `provision_number`
+    says so in its own docstring, which is why `agent_id` is nullable — so refusing on
+    `bound == 0` would refuse the first publish of every client this platform ever
+    onboards, and the first thing an operator would learn is which flag turns it off.
+    A publish is also not the only thing that would break: thirteen callers reach
+    `publish_agent`, including the drift sweep and `activate`, so a refusal here would
+    turn a missing attachment into a failed reconciliation.
+
+    **NOR IS IT A WARNING ON THE PUBLISH RESPONSE.** `publish_agent` returns the engine
+    ref and its callers are mostly workers; a field on the one HTTP route would be read by
+    the one screen that publishes, which is not where an operator onboarding a client is
+    looking. The console's answer to the same question is on the numbers screen, where
+    every unattached number says so on its own row and the fix is on that row.
+
+    **THE CONDITION IS NARROW ON PURPOSE.** It fires only when the agent ANSWERS inbound,
+    NOTHING was bound, nothing FAILED (a failure has already alarmed, per number, with the
+    vendor's refusal — a second alarm would say less), the engine can bind at all
+    (`unsupported` is a deployment property, already reported once), and this client holds
+    at least one recorded, un-released number attached to no agent. That last clause is
+    what separates the defect from the legitimate state: a client with no number yet is
+    not a fault, and paging about them would train an operator to ignore this code.
+
+    **THE ONE FALSE POSITIVE IT KNOWINGLY KEEPS**, stated rather than tuned away: a client
+    with a second inbound agent that is deliberately answering nothing — a backup desk —
+    raises this every time that agent is published, while any number of theirs sits
+    unattached. Narrowing it to "this client has no answering agent at all" would delete
+    the case that matters: the FIRST agent published for a client whose number was recorded
+    and never attached is exactly a tenant with one unattached number and one inbound agent.
+    The repeat suppression in `core/alerting` bounds the noise at one per fingerprint per
+    fifteen minutes, and the remedy an operator takes — open the numbers screen and look —
+    is the right thing to do in both cases.
+    """
+    if not answers_inbound or routing.bound or routing.failed or routing.unsupported:
+        return
+    orphaned = (await session.execute(text(_UNATTACHED_NUMBERS_SQL))).scalar() or 0
+    if not orphaned:
+        return
+    alert(
+        "CORE_LOGIC",
+        "agent_published_answering_no_number",
+        detail=(
+            "this agent answers incoming calls and is now live, but no number is attached "
+            f"to it — while this client holds {orphaned} recorded number(s) attached to no "
+            "agent at all. Nothing rings it. The publish itself succeeded."
+        ),
+        agent_id=str(agent_id),
+        unattached_numbers=str(orphaned),
+    )
+
+
+#: The one number this attach/detach is about, locked so two operators cannot both decide
+#: which agent answers it. The first five columns are `_AGENT_NUMBERS_SQL`'s, in its order,
+#: because the same `_apply_inbound_bindings` consumes both.
+_NUMBER_FOR_ATTACH_SQL = (
+    "SELECT id, e164, series, provider, engine_number_ref, agent_id, released_at "
+    "FROM phone_numbers WHERE id = :nid FOR UPDATE"
+)
+
+#: What decides whether attaching to this agent makes the phone ring NOW. `deleted_at IS
+#: NULL` is in the predicate rather than checked afterwards so an erased agent is a 404
+#: and not a 409 about an archive.
+_AGENT_FOR_ATTACH_SQL = (
+    "SELECT direction, status, engine_agent_ref FROM agents WHERE id = :aid AND deleted_at IS NULL"
+)
+
+
+async def attach_number_to_agent(
+    session: AsyncSession, *, number_id: UUID, agent_id: UUID | None
+) -> InboundRouting:
+    """Point a recorded number at an agent — or at nothing — and tell the engine (D-576).
+
+    **THE MISSING HALF OF `phone_numbers.agent_id`.** That column had exactly one writer
+    and it was the INSERT: `provision_number` took it in the body, the release set it back
+    to NULL, and nothing in this tree ever moved it to a value afterwards. Neither console
+    hook supplied it at create time either, so every number this platform holds was
+    attached to no agent — `_AGENT_NUMBERS_SQL` returned zero rows, `route_inbound_numbers`
+    returned `bound=0`, and `publish_agent` reported SUCCESS while the phone never rang.
+    That is verbatim the D-420 defect, reintroduced one layer up from the function written
+    to close it.
+
+    **AND IT WAS UNRECOVERABLE THROUGH THE PRODUCT**, which is what made it urgent rather
+    than merely wrong. `campaigns/number_supply.release_number` refuses a client-owned
+    connection by name (`number_not_ours_to_release`) and its own remediation says *"Detach
+    it from the agent instead"* — a capability that did not exist. `phone_numbers.e164`
+    carries an unconditional global UNIQUE, so the row could not be re-recorded either.
+    One wrong `agent_id` at create time burned that E.164 on this platform for good.
+
+    **DETACH RELEASES THE BINDING AT THE ENGINE, it does not merely null the column.**
+    Inbound is answered by whatever the vendor holds against the number and nothing of ours
+    is consulted, so a detach that stopped at our database would leave a client's line
+    answered by an agent our own screen says is not on it — a mirror that lies, which is
+    the class D-564 exists for. Same reason a re-point to an agent that is not LIVE
+    releases: `deactivate_agent` reaches the engine precisely to take a paused agent off a
+    client's line, and attaching a number to it must not put it back.
+
+    A number the engine has never been given a handle for is the one case where nothing is
+    sent on the release arm. `engine_number_not_linked` would be counted as a failure and
+    would page an operator about a state that is already correct: the engine cannot be
+    answering a number it has never heard of. The BIND arm still alarms on it, which is
+    D-537's whole subject.
+
+    **REFUSALS, each of which is a wrong answer somebody would otherwise get silently:**
+    a number this tenant cannot see, or an agent it cannot see, is a 404 from
+    `assert_visible` — that is the D-331 cross-tenant check, and it is the database's
+    answer under RLS rather than a comparison of two values the caller supplied. A deleted
+    agent is `agent_archived` (`assert_agent_writable`, the same guard `provision_number`
+    asks). A released number is refused: it is a record kept for a closed month's costs,
+    not a connection. An agent that does not answer inbound calls is refused BY NAME rather
+    than attached-and-released, because "saved, and nothing happened" is exactly the report
+    this defect was made of.
+
+    Returns what the engine was told, so the console reports a binding that failed instead
+    of implying one that did not happen. Ids and counts only; no phone number (hard rule 6).
+    """
+    # BEFORE the lock: naming a neighbour's row must not make us hold a lock on their
+    # behalf (`db/ownership.assert_visible` argues the ordering). There is deliberately no
+    # second `assert_visible` for the NUMBER — the locking read below runs under the same
+    # RLS and answers the same question, and asking twice would add a branch no test could
+    # reach (hard rule 10's worked remedy: delete the redundant fetch, not cover it).
+    await assert_visible(session, "agent", agent_id)
+    if agent_id is not None:
+        await assert_agent_writable(session, agent_id, verb="given a phone number")
+
+    row = (await session.execute(text(_NUMBER_FOR_ATTACH_SQL), {"nid": number_id})).first()
+    if row is None:
+        raise ProblemError.not_found("Number")
+    number_row, current_agent_id, released_at = row[:5], row[5], row[6]
+    if released_at is not None:
+        raise ProblemError.business_rule(
+            "number_released",
+            "This number has been given back to the voice platform, so no agent can answer it.",
+            remediation=(
+                "The record is kept because a closed month's costs still refer to it. "
+                "Record the client's current number instead."
+            ),
+        )
+
+    answers = False
+    ref = ""
+    if agent_id is not None:
+        agent = (await session.execute(text(_AGENT_FOR_ATTACH_SQL), {"aid": agent_id})).first()
+        if agent is None:
+            raise ProblemError.not_found("Agent")
+        direction, status, engine_agent_ref = agent
+        if not (_is_agent_direction(direction) and agent_answers_inbound(direction)):
+            raise ProblemError.business_rule(
+                "agent_does_not_answer_inbound",
+                "This agent only makes outgoing calls, so attaching a number to it would "
+                "not make that number ring anywhere.",
+                remediation=(
+                    "Set the agent to answer incoming calls as well (its direction), or "
+                    "attach the number to a receptionist agent."
+                ),
+            )
+        # LIVE AND PUBLISHED, or the engine is told to release rather than to bind. An
+        # agent that has never been published has no ref to bind to, and a paused or
+        # deleted one was deliberately taken off its numbers; `activate` republishes and
+        # routes every attached number, so the attachment starts working the moment it
+        # comes back. This is `provision_number`'s D-440 reasoning, on the later step.
+        answers = bool(engine_agent_ref) and str(status) == "live"
+        ref = str(engine_agent_ref or "")
+
+    # No rowcount check: the row is held under `FOR UPDATE` from the read above, so the
+    # "it vanished" arm is unreachable — and an unreachable defensive branch is a coverage
+    # failure, not a safety net (hard rule 10).
+    await session.execute(
+        text("UPDATE phone_numbers SET agent_id = :aid, updated_at = now() WHERE id = :nid"),
+        {"aid": agent_id, "nid": number_id},
+    )
+
+    if not answers and number_row[4] is None:
+        # Nothing to release: the engine has never been given a handle for this number, so
+        # it cannot be answering it. Sending anyway would raise `engine_number_not_linked`,
+        # count as a failure and page an operator about a correct state.
+        routing = InboundRouting(bound=0, released=0, failed=0, unsupported=0)
+    else:
+        # ONE call, not a reconcile of either agent's whole set: the other numbers of the
+        # agent this one is leaving must not be released, and `bind_inbound_number` is
+        # last-write-wins by contract, so a re-point needs no unbind first (an unbind
+        # between the two would leave the number answering nothing in the meantime).
+        routing = await _apply_inbound_bindings(
+            get_engine(),
+            # The agent an operator would need to look at: the one being bound, or — on a
+            # release — the one the number is being taken away from.
+            agent_id=agent_id if answers else current_agent_id,
+            ref=ref,
+            answers=answers,
+            rows=[number_row],
+        )
+    log.info(
+        "number_agent_attachment_changed",
+        extra={
+            "number_id": str(number_id),
+            "from_agent_id": str(current_agent_id) if current_agent_id else None,
+            "to_agent_id": str(agent_id) if agent_id else None,
+            "bound": routing.bound,
+            "released": routing.released,
+            "failed": routing.failed,
+        },
+    )
+    return routing
+
+
 __all__ = [
     "CREDIT_STOP_MESSAGE",
     "DIAL_NOT_PLACED_CODES",
@@ -3214,6 +3472,7 @@ __all__ = [
     "InboundCutover",
     "InboundRouting",
     "agent_outbound_number_blocker",
+    "attach_number_to_agent",
     "credit_stop_greeting",
     "credit_stop_prompt",
     "dial_was_not_placed",

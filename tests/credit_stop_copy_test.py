@@ -82,6 +82,12 @@ _BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.DOTALL)
 _LINE_COMMENT = re.compile(r"^\s*//.*$", re.MULTILINE)
 
 
+def _flatten(source: str) -> str:
+    """One line, single-spaced. JSX wraps prose at a column, so a phrase this guard looks
+    for is routinely split by a newline and an indent that no reader ever sees."""
+    return " ".join(source.split())
+
+
 def _copy_only(source: str) -> str:
     """Source with its commentary removed, so only what a reader could see is scanned."""
     return _LINE_COMMENT.sub("", _BLOCK_COMMENT.sub("", source))
@@ -211,7 +217,31 @@ WEB_CREDIT_REGIONS: tuple[tuple[str, str, str | None], ...] = (
         'rule === "spend_cap"',
     ),
     ("apps/web/src/app/c/[slug]/campaigns/blockerCopy.tsx", "  no_credits: {", "  spend_cap: {"),
-    ("apps/web/src/app/admin/tenants/[tenantId]/credits/page.tsx", "result.stops_dialling", None),
+    # ⚠ WIDENED TO THE WHOLE FILE (D-577). It used to start at `result.stops_dialling` —
+    # the correction OUTCOME panel — which is one of four places this screen tells an
+    # operator what an empty wallet does, and the only one that was ever corrected. The
+    # other three said "for a self-serve or trial client" and "outbound dialling" until
+    # 10 Sep 2026 and passed this sweep for the worst possible reason: they said nothing
+    # about inbound at all, so no withdrawn phrase appeared in them.
+    #
+    # The whole file is safe to hold because every sentence in it is about THE WALLET.
+    # None of the four conditions that genuinely leave inbound answering alone — the
+    # client's own spend cap, a suspended account, the big red switch, a maintenance
+    # window — has any copy here; each is pinned in `UNCHANGED_CONDITIONS` below, in the
+    # file that does say it.
+    #
+    # THE SIBLING `TrialPanel.tsx` (and its two forms) IS DELIBERATELY NOT IN THIS SWEEP,
+    # and that is the same judgement rather than an omission. A trial is the one state on
+    # this screen where an empty wallet genuinely stops NOTHING — the credit gate is
+    # bypassed for its whole length (D-536) — so "their calling is unaffected" is TRUE
+    # there, and forbidding the withdrawn phrasings in that file would fail a correct
+    # sentence with a message telling its author to say something false. What the trial
+    # control must say instead is pinned by `apps/web/tests/adminTrial.test.tsx`.
+    (
+        "apps/web/src/app/admin/tenants/[tenantId]/credits/page.tsx",
+        "export default function CreditsPage",
+        None,
+    ),
     ("apps/web/src/app/pricing/page.tsx", "Prepaid credit", "Two ceilings"),
 )
 
@@ -242,6 +272,102 @@ def test_the_client_is_told_on_the_wallet_screen_what_their_callers_hear() -> No
     hero = _copy_only(_read("apps/web/src/app/c/[slug]/billing/WalletHero.tsx"))
     _assert_three_facts(hero, "WalletHero.tsx")
     assert "gives no reason and says nothing about your account" in hero
+
+
+# ───── the operator console: BOTH halves, and the tier that owns a wallet (D-577) ─────
+
+#: The three places the ADMIN credits screen tells an operator what an empty — or
+#: below-zero — wallet does to a client, with the region each sentence lives in.
+#:
+#: The sweep above only forbids the eight WITHDRAWN sentences, and these three passed it
+#: for the worst reason available: until 10 Sep 2026 they said nothing about inbound at
+#: all. They said *"an empty wallet stops outbound dialling for a self-serve or trial
+#: client"*, which was wrong twice over — D-551 stopped inbound answering as well, and the
+#: tier half omitted `prepaid`, the DEFAULT every account is created on
+#: (`tenancy/models.py`) and a member of `billing/rates.PREPAID_TIERS` with the other two.
+#: An operator reading it concluded a payment was not urgent while it was holding a
+#: client's phone line down.
+#:
+#: So each region is held to the SAME three facts the backend surfaces are held to, in the
+#: same vocabulary — one guard, one set of accepted spellings, no second definition of what
+#: correct credit copy says.
+WEB_CREDIT_BOTH_HALVES: tuple[tuple[str, str, str, str], ...] = (
+    (
+        "apps/web/src/app/admin/tenants/[tenantId]/credits/page.tsx",
+        "Below the low-balance line",
+        "</NoticeBox>",
+        "the low-balance notice on the balance panel",
+    ),
+    (
+        "apps/web/src/app/admin/tenants/[tenantId]/credits/page.tsx",
+        "A correction may take the balance",
+        "Recorded in the audit log",
+        "the consequence stated above the Correct button",
+    ),
+    (
+        "apps/web/src/app/admin/tenants/[tenantId]/credits/page.tsx",
+        "TOO MUCH was credited",
+        "TOO LITTLE was credited",
+        "the \u201cif a credit was wrong\u201d card",
+    ),
+)
+
+
+@pytest.mark.parametrize("rel,start,end,what", WEB_CREDIT_BOTH_HALVES)
+def test_the_operator_console_states_both_halves_wherever_it_names_the_stop(
+    rel: str, start: str, end: str, what: str
+) -> None:
+    source = _copy_only(_read(rel))
+    begin = source.find(start)
+    assert begin >= 0, (
+        f"{rel}: the anchor \u201c{start}\u201d is gone, so this guard was reading nothing. "
+        f"Re-aim it at {what} wherever it lives now \u2014 do not delete the case."
+    )
+    stop = source.find(end, begin)
+    assert stop > begin, (
+        f"{rel}: the end anchor \u201c{end}\u201d no longer follows the start anchor"
+    )
+    # FLATTENED first: this is JSX, so a sentence wraps mid-phrase at the printer's
+    # column and "until you add\ncredit" would read as a missing fact rather than as a
+    # line break. The copy is not changed to suit the guard; the guard reads it the way a
+    # person does.
+    region = _flatten(source[begin:stop])
+    _assert_not_withdrawn(region, f"{rel} ({what})")
+    _assert_three_facts(region, f"{rel} ({what})")
+
+
+#: The tier phrasing that is WRONG about money, and where it is wrong.
+#:
+#: SCOPED TO ONE FILE ON PURPOSE, and that is the whole care in this guard. "A self-serve
+#: or trial account" is CORRECT wherever the question is *did a stranger sign this account
+#: up unattended* \u2014 `compliance/service.SELF_SERVE_TIERS`, which is what the
+#: subscriber-KYC dial gate (D-47) and the first-campaign hold (D-51) key on, and both
+#: `admin/tenants/[tenantId]/kyc/page.tsx` and `lib/legal/acceptableUse.ts` say it there
+#: and must go on saying it. The credits console asks the OTHER question \u2014 *does this
+#: account pay from a wallet* \u2014 which D-521 split off as `PREPAID_TIERS`, and answering
+#: it with the identity set excuses `prepaid`, i.e. essentially every client.
+STALE_WALLET_TIER_COPY = ("self-serve or trial",)
+
+
+def test_the_credits_console_does_not_name_the_identity_tiers_for_a_money_rule() -> None:
+    """The half of D-577 that outlives the three sentences it corrected.
+
+    Comments are stripped first, so the warning notes on this screen that RECORD the
+    withdrawn wording \u2014 the convention every corrected file in this sweep follows \u2014
+    are not what this reads. Only what an operator can see is scanned.
+    """
+    rel = "apps/web/src/app/admin/tenants/[tenantId]/credits/page.tsx"
+    lowered = _copy_only(_read(rel)).lower()
+    for phrase in STALE_WALLET_TIER_COPY:
+        assert phrase not in lowered, (
+            f"{rel} tells an operator that an empty wallet stops calling for a "
+            f"\u201c{phrase}\u201d client. That is the IDENTITY set (`SELF_SERVE_TIERS` "
+            "\u2014 who signed up unattended), not the MONEY set: "
+            "`billing/rates.PREPAID_TIERS` is (prepaid, self_serve, trial) and `prepaid` "
+            "is the default tier every account is created on, so the sentence excuses "
+            "almost every client on the platform. Name the motion instead \u2014 every "
+            "client but a managed one pays from a wallet."
+        )
 
 
 # ───────── the four conditions that did NOT change, pinned so nobody over-corrects ─────────

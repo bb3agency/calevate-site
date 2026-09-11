@@ -13,7 +13,6 @@ import {
 import { useFormValidation } from "@/components/formValidation";
 import { useAdminAccess } from "@/app/admin/access";
 import {
-  useProvisionNumber,
   useRegisterTemplate,
   useSetNumberDltStatus,
   useSetTemplateStatus,
@@ -44,16 +43,12 @@ import { FIELD, PrimaryButton, SecondaryButton } from "./controls";
 export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: string }) {
   const numbers = useTenantNumbers(slug);
   const templates = useTenantTemplates(slug);
-  const provision = useProvisionNumber(tenantId);
   const setDlt = useSetNumberDltStatus(tenantId);
   const register = useRegisterTemplate(tenantId);
   const setStatus = useSetTemplateStatus(tenantId);
   // Every write in this panel is `admin:tenants` on `/v1/admin/tenants/{id}/...`.
   const write = useAdminAccess("admin:tenants", "change this client's telecom setup");
 
-  const [e164, setE164] = useState("");
-  const numberValid = useFormValidation();
-  const [series, setSeries] = useState<"140" | "160" | "standard">("160");
   const [classification, setClassification] = useState<
     "promotional" | "transactional" | "service"
   >("service");
@@ -86,19 +81,20 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
               <Hash className="h-3.5 w-3.5" />
               <span>Numbers</span>
             </h3>
-            {/* THE OTHER DOOR, and it is a different act (D-537). This form RECORDS a
-                connection the client already holds; the numbers screen BUYS one, links a
-                vendor handle to one that has none, and releases one — each of which
-                spends or stops money and each of which needs its own confirmation. They
-                are deliberately not one form. */}
+            {/* THE DOOR TO THE NUMBERS SCREEN, which is now where a number is RECORDED
+                and where an agent is put on it (D-576). This panel kept a second copy of
+                the recording form until then, with the series preselected to 160 — so an
+                operator onboarding an inbound-only client was sent to a CAMPAIGN screen,
+                with a DLT class already chosen, to do the one step that makes the phone
+                ring. What stays here is the registrar's verdict, which is what the rest
+                of this panel is about. */}
             <Link
               href={`/admin/tenants/${tenantId}/numbers`}
               className="ml-auto text-xs font-medium text-ink-muted underline underline-offset-2 hover:text-ink"
             >
-              Buy, link or release a number
+              Record a number, or choose which agent answers it
             </Link>
           </div>
-          {provision.error && <ProblemNotice error={provision.error} />}
           {setDlt.error && <ProblemNotice error={setDlt.error} />}
           {/* A failed read printed "No numbers on file" — the sentence an operator acts
               on by asking a client who already has a number to go and get another. */}
@@ -137,47 +133,13 @@ export function CampaignSetup({ tenantId, slug }: { tenantId: string; slug: stri
               ))}
             </ul>
           )}
-          <form
-            className="flex flex-wrap gap-2"
-            noValidate
-            onSubmit={numberValid.onSubmit(() => {
-              provision.mutate({ e164, series }, { onSuccess: () => setE164("") });
-            })}
-          >
-            <input
-              {...numberValid.field("e164", "Enter the number to record.")}
-              required
-              minLength={8}
-              aria-label="Number to record"
-              value={e164}
-              disabled={!write.allowed}
-              onChange={(ev) => setE164(ev.target.value)}
-              placeholder="+918041234567"
-              className={`flex-1 font-mono ${FIELD}`}
-            />
-            {/* The series is what the launch gate matches against the campaign's
-                classification — wrong here is a DLT violation later, not a typo. */}
-            <select
-              aria-label="Number series"
-              value={series}
-              disabled={!write.allowed}
-              onChange={(ev) => setSeries(ev.target.value as typeof series)}
-              className={FIELD}
-            >
-              <option value="140">140 — promotional</option>
-              <option value="160">160 — service</option>
-              <option value="standard">standard</option>
-            </select>
-            {numberValid.error("e164")}
-            <PrimaryButton
-              type="submit"
-              /* The length rule is answered at the field now, so the button stays live
-                 and a press produces a sentence rather than nothing. */
-              disabled={provision.isPending || !write.allowed}
-            >
-              Add
-            </PrimaryButton>
-          </form>
+          {/* What this panel still owns is the REGISTRAR'S VERDICT, which is why the
+              list and its one action stay here beside the templates. Recording a number,
+              and putting an agent on it, is the numbers screen's job — the link above. */}
+          <p className="text-xs text-ink-muted">
+            Marking a number registered records what the registrar decided. Recording a
+            new number, and choosing which agent answers it, is on the numbers screen.
+          </p>
         </div>
 
         <div className="min-w-0 space-y-3">

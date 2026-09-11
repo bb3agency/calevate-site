@@ -55,13 +55,14 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 from collections.abc import Callable
 from typing import Any
 
 import httpx
 
 from apps.api.core.errors import ProblemError
-from apps.api.core.logging import get_logger
+from apps.api.core.logging import get_logger, redact_text
 from apps.api.engine.health import record_engine_failure
 
 log = get_logger(__name__)
@@ -180,6 +181,37 @@ REQUEST_REFUSED_STATUSES = frozenset({400, 401, 403, 404})
 #: `_vendor_error_code`.
 _INT32_MAX = 2**31 - 1
 
+#: How much of the vendor's `message` is READ before anything is done to it. Not the
+#: bound an operator sees — `redact_text` caps that at `core.logging._MAX_FREE_TEXT`
+#: (200 characters) — this one bounds the WORK. What answers a 4xx is not always the
+#: vendor: an edge, a WAF or a proxy can put a whole HTML page in an `error` body, and
+#: running two regex passes over a megabyte of it, per failed request, on the dispatcher's
+#: serial dial loop, is a cost a stranger gets to choose for us. 512 is past any message
+#: this vendor has ever been documented to send (their own worked examples are twenty
+#: characters) and is comfortably wider than the 200 that will survive, so the visible
+#: text is never the one that was cut here.
+_VENDOR_MESSAGE_READ_LIMIT = 512
+
+#: Runs of anything that is not printable ASCII, replaced whole before redaction.
+#:
+#: THIS IS THE HALF `redact_text` CANNOT DO, and it is here rather than in the redactor
+#: because it is a statement about a VENDOR ERROR ENVELOPE, not about free text in
+#: general. `redact_text` recognises digit runs and email addresses; it cannot recognise
+#: a name or a Telugu sentence, which is the whole of `core.logging.redact_exception`'s
+#: argument for withholding exception messages outright. The class of hard-rule-6 data
+#: this product actually holds in bulk is Telugu conversation, and it is not ASCII — so
+#: holding the admitted text to printable ASCII removes it structurally, in the same way
+#: the int32 bound removes an E.164 number from the `error` field, rather than by trusting
+#: a route to be safe.
+#:
+#: A MARKER RATHER THAN A DROP, both ways. Dropping the whole message on one em dash
+#: would throw away the diagnosis to punish a punctuation mark; silently deleting the run
+#: would let `"agent<TELUGU>id"` read as a word we never saw. The marker says a thing was
+#: there and was not shown. Control characters go the same way, which also means a vendor
+#: cannot write newlines or terminal escapes into our log stream.
+_NON_PRINTABLE_RE = re.compile(r"[^\x20-\x7e]+")
+_NON_PRINTABLE = "[non-ascii]"
+
 
 class EngineRejectedError(ProblemError):
     """`engine_rejected`, carrying the two facts this ladder used to throw away.
@@ -194,7 +226,25 @@ class EngineRejectedError(ProblemError):
       indistinguishable outcome, which meant a campaign contact was settled TERMINALLY as
       "this person may have been rung" for a refusal that proves nobody was.
     * **`vendor_error`** — the integer from the vendor's own error envelope, when there
-      was one. See `_vendor_error_code` for why the integer and never the message.
+      was one. See `_vendor_error_code` for the bound that admits it.
+
+    THE VENDOR'S `message` IS NOT HERE, AND `detail` IS NOT IT EITHER. Since 10 Sep 2026
+    the ladder does log that sentence, bounded and redacted (`_vendor_error_message`) —
+    but to the OPERATOR LOG and nowhere else, because `detail` is not an operator
+    surface. `ProblemError.as_problem` puts `detail` in the problem+json body verbatim,
+    `apps/web/src/lib/api/client.ts:75` makes it the message the browser throws, and
+    `apps/web/src/lib/authn/problems.ts:12` says outright that "most screens in this app
+    render `problem.detail`". `engine_rejected` is raised on client-realm routes as well
+    as admin ones — a tenant editing a live agent re-publishes it, and the CRM dial
+    buttons reach the same ladder — so a vendor string on `detail` is a vendor string on
+    a client's screen, in the vendor's vocabulary, quoting a payload, on a surface hard
+    rule 5's own "user-safe messages (no internals)" rule governs. It stays generic.
+
+    It is not carried on the exception either: no caller has a use for it that the log
+    line does not already serve, and `apps/workers/campaign_dispatch._dial_failure_reason`
+    holds "the vendor's human message never reaches this process at all" as a
+    by-construction property of hard rule 6. Adding an attribute nobody reads would cost
+    that property and buy nothing.
 
     A SUBCLASS RATHER THAN A NEW ERROR CODE. `engine_rejected` is read by name in a dozen
     places (`pipeline.TRANSIENT_ENGINE_CODES`' complement, the alarm index row, the
@@ -220,44 +270,111 @@ class EngineRejectedError(ProblemError):
         return self.vendor_status in REQUEST_REFUSED_STATUSES
 
 
-def _vendor_error_code(response: httpx.Response) -> int | None:
-    """The integer out of the vendor's error envelope, and NOTHING else out of it.
+def _error_envelope(response: httpx.Response) -> dict[str, Any] | None:
+    """The vendor's error body as a mapping, or None when there is not one to read.
 
-    Their 4xx/5xx body is `{"error": <int>, "message": "<human text>"}` — declared
-    `required: [error, message]` with `error` as `type: integer, format: int32`
-    (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/api-reference/errors.md:26-33`,
-    schema at `api-reference/calls/make.md:229-239`).
-
-    **`message` NEVER LEAVES THIS FUNCTION**, and that is hard rule 6 rather than taste:
-    it is the vendor quoting our request back at us. Their own worked examples for
-    `POST /call` are `agent_id is required` and `recipient_phone_number is required`
-    (`api-reference/calls/make.md:62-63`), i.e. the field being complained about is the
-    caller's phone number, and `tests/engine_audit_test.py` drives a 400 whose body
-    carries one.
-
-    The INTEGER is different in kind and is the fact an operator actually needs: it is
-    the vendor's own identifier for the refusal, so "every dial is failing" becomes a
-    value to quote at their support desk rather than a shrug. It is admitted only when it
-    really is an `int` inside the int32 range the schema declares — a bound that
-    structurally cannot hold an E.164 number, since `919876543210` is two orders of
-    magnitude past int32's ceiling — so this field cannot quietly become a PII channel if
-    the vendor widens it later. `bool` is excluded explicitly because in Python it *is*
-    an `int`, and `{"error": true}` is not a code.
+    ONE PARSE, TWO READERS. `_vendor_error_code` and `_vendor_error_message` used to be
+    one function because only one field was admitted; now that two are, parsing twice
+    would mean four "this body is not what the schema says" branches in two places that
+    have to agree, and a second `response.json()` over the same bytes on every failed
+    request. The malformed shapes are decided here, once — no body, not JSON at all
+    (an edge's HTML page in front of the vendor), or JSON that is not an object.
     """
     if not response.content:
         return None
     try:
         payload = response.json()
     except ValueError:
-        # An error body that is not JSON at all — an edge's HTML page in front of the
-        # vendor. There is nothing to read; the status still says what happened.
         return None
-    if not isinstance(payload, dict):
+    return payload if isinstance(payload, dict) else None
+
+
+def _vendor_error_code(envelope: dict[str, Any] | None) -> int | None:
+    """The integer out of the vendor's error envelope.
+
+    Their 4xx/5xx body is `{"error": <int>, "message": "<human text>"}` — declared
+    `required: [error, message]` with `error` as `type: integer, format: int32`
+    (VERIFIED-VENDOR-DOCS: `bolna-findings/mirror/pages/api-reference/errors.md:26-33`,
+    schema at `api-reference/calls/make.md:229-239`).
+
+    It is the vendor's own identifier for the refusal, so "every dial is failing" becomes
+    a value to quote at their support desk rather than a shrug. It is admitted only when
+    it really is an `int` inside the int32 range the schema declares — a bound that
+    structurally cannot hold an E.164 number, since `919876543210` is two orders of
+    magnitude past int32's ceiling — so this field cannot quietly become a PII channel if
+    the vendor widens it later. `bool` is excluded explicitly because in Python it *is*
+    an `int`, and `{"error": true}` is not a code.
+    """
+    if envelope is None:
         return None
-    value = payload.get("error")
+    value = envelope.get("error")
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value if -_INT32_MAX - 1 <= value <= _INT32_MAX else None
+
+
+def _vendor_error_message(envelope: dict[str, Any] | None) -> str | None:
+    """The human half of the envelope, bounded and redacted — never the raw string.
+
+    **THIS FUNCTION USED NOT TO EXIST, AND ITS DOCSTRING SAID `message` MUST NEVER LEAVE
+    THE PARSER.** The production line that changed the reading, 10 Sep 2026 23:22:54:
+    an operator pressed Publish, `POST /v2/agent` came back `400`, and the record was
+    `engine_error status=400 route=/v2/agent vendor_error=null` beside a client-facing
+    "The voice platform could not complete this operation." A 400 is not 401 — the key
+    authenticated and the vendor refused the PAYLOAD — and we had thrown away the only
+    sentence that says which field of it. There is no runbook page for that; there is
+    only a shell and a guess.
+
+    WHY THE OLD ARGUMENT WAS SOUND AND STILL TOO WIDE. It ran: the message is the vendor
+    quoting our request back at us, their own worked examples for `POST /call` are
+    `agent_id is required` and `recipient_phone_number is required`
+    (`bolna-findings/mirror/pages/api-reference/calls/make.md:62-63`), and the field being
+    complained about on that route IS a caller's phone number. All true — of `/call`. It
+    is not true of `/v2/agent`, whose payload is prompts, model config and voice ids. But
+    a PER-ROUTE ALLOWLIST is the wrong answer to that, and deliberately not what is built
+    here: the vendor writes the string, so a "safe" route is only safe until they echo
+    something else into it, and the person who adds route number six to the list a year
+    from now inherits a promise nobody can keep.
+
+    WHAT IS BUILT INSTEAD IS THE MECHANISM THIS REPO ALREADY HAS FOR EXACTLY THIS.
+    `core.logging`'s own docstring names the case — "`redact_text()` — a value-level
+    scrubber for the places where free text is unavoidable (an upstream error string that
+    may quote a payload)" — and it is what every log extra, every rendered message and
+    `alert()`'s body already pass through. So the message is admitted the way the integer
+    is: only in a form we bound.
+
+    THREE BOUNDS, IN THIS ORDER, AND NONE OF THEM DEPENDS ON THE ROUTE.
+
+    1. **Read at most `_VENDOR_MESSAGE_READ_LIMIT`**, so an edge's HTML page cannot make
+       us regex a megabyte per failure.
+    2. **Non-printable-ASCII runs become a marker** (`_NON_PRINTABLE_RE`). This is the
+       bound that answers `redact_exception`'s objection — that a redactor cannot
+       recognise a name or a Telugu sentence — for the one data class this product holds
+       in bulk. It is structural, like the int32 ceiling, not a judgement about a route.
+    3. **`redact_text`**, which masks E.164-shaped digit runs and email addresses and
+       caps the result at 200 characters. The cap is measured AFTER masking, and the read
+       limit is wider than the cap, so no digit run can be cut in half by either bound and
+       surface as a partial number: what a truncation removes was never shown at all.
+
+    WHAT SURVIVES THE THREE IS STILL NOT PROVEN CLEAN, and that is stated rather than
+    hidden: an English personal name inside a vendor error message would pass all three.
+    That is a real residue, and it is accepted here on the same asymmetry the `error`
+    field was accepted on — bounded exposure of a string the vendor wrote about OUR
+    request, against a refusal an operator cannot diagnose at all. It is accepted for the
+    LOG only. It reaches no client: see `EngineRejectedError.__init__` for why `detail`
+    stays generic.
+    """
+    if envelope is None:
+        return None
+    raw = envelope.get("message")
+    if not isinstance(raw, str):
+        return None
+    printable = _NON_PRINTABLE_RE.sub(_NON_PRINTABLE, raw[:_VENDOR_MESSAGE_READ_LIMIT])
+    redacted = redact_text(printable).strip()
+    # An envelope carrying `"message": "   "` has told us nothing, and a log key whose
+    # value is an empty string reads like a bug in the reader rather than like silence
+    # from the vendor. `None` is the same shape the other three malformed cases produce.
+    return redacted or None
 
 
 def _retry_after_seconds(response: httpx.Response) -> float | None:
@@ -420,12 +537,21 @@ async def vendor_request(
         #
         # THE OPERATOR LOG IS A DIFFERENT AUDIENCE AND USED TO GET THE SAME NOTHING. A
         # line reading `engine_error status=400 route=/call` says the vendor refused and
-        # withholds the only fact that distinguishes "our agent id is stale" from "our key
-        # was revoked" — the vendor's own numeric code, which their envelope always
-        # carries and which we were parsing past. `_vendor_error_code` is where the bound
-        # that keeps this hard-rule-6-safe is argued; the human `message` beside it is
-        # still discarded unread.
-        vendor_error = _vendor_error_code(response)
+        # withholds the only facts that distinguish "our agent id is stale" from "our key
+        # was revoked" — the vendor's own numeric code and the sentence beside it, both of
+        # which their envelope always carries and both of which we were parsing past.
+        # `_vendor_error_code` and `_vendor_error_message` are where the bounds that keep
+        # each of them hard-rule-6-safe are argued; neither reaches the client body.
+        #
+        # `vendor_message` is NOT a key `REDACT_KEYS` matches, and that is deliberate
+        # rather than lucky: a key containing `text`, `body` or `payload` would be
+        # replaced wholesale by the formatter and this would have been an elaborate way
+        # to log `[redacted]`. The value is redacted at the source instead, so it is safe
+        # in `caplog.records` too — where the formatter has not run yet, and where
+        # `tests/vendor_error_message_test.py` reads it precisely because an assertion
+        # that only held after formatting would pass on a raw `log.warning` here.
+        envelope = _error_envelope(response)
+        vendor_error = _vendor_error_code(envelope)
         log.warning(
             "engine_error",
             extra={
@@ -433,6 +559,7 @@ async def vendor_request(
                 "status": response.status_code,
                 "route": path,
                 "vendor_error": vendor_error,
+                "vendor_message": _vendor_error_message(envelope),
             },
         )
         if response.status_code >= 500:

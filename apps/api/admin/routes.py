@@ -1922,6 +1922,39 @@ class NumberCreatedOut(BaseModel):
     dlt_status: str
 
 
+class NumberAgentIn(BaseModel):
+    """Which agent answers this number — or `null`, which detaches it.
+
+    ONE FIELD AND IT IS NULLABLE, rather than a route per direction. Attach and detach are
+    the same decision written two ways ("who answers this number"), and a `DELETE` beside a
+    `POST` would be two implementations of one transition — the second of which is where
+    the drift starts. `null` is an ordinary value here, not an omission: `extra="forbid"`
+    plus a required field means an operator cannot detach by accident with an empty body.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    agent_id: UUID | None
+
+
+class NumberAgentOut(BaseModel):
+    """What the number is attached to now, and what the voice platform was actually told.
+
+    The counts are `route_inbound_numbers`' own, so a screen can say "attached, but the
+    platform refused the routing" instead of implying a phone that rings. Reporting only
+    the column would be the defect this route closes, one layer further out.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    number_id: UUID
+    agent_id: UUID | None
+    bound: int
+    released: int
+    failed: int
+    unsupported: int
+
+
 class DltStatusIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -2150,6 +2183,81 @@ async def set_number_dlt_status(
         summary={"dlt_status": payload.dlt_status},
     )
     return NumberDltStatusOut(dlt_status=payload.dlt_status)
+
+
+@router.post(
+    "/tenants/{tenant_id}/numbers/{number_id}/agent",
+    response_model=NumberAgentOut,
+    openapi_extra=permission_meta("admin:tenants"),
+    summary="Choose which agent answers this number — or detach it — and route it now",
+    description=(
+        "Points a recorded number at an agent, or at nothing when `agent_id` is null, and "
+        "tells the voice platform in the same request rather than waiting for the next "
+        "publish. Detaching RELEASES the binding at the platform: leaving it in place "
+        "would keep an agent answering a number our own screens say it is not on. "
+        "Refused with `agent_does_not_answer_inbound` for an outbound-only agent, with "
+        "`agent_archived` for a deleted one, with `number_released` for a number given "
+        "back, and with a 404 for an agent or number belonging to another client. The "
+        "counts say what the platform was told."
+    ),
+)
+async def set_number_agent(
+    tenant_id: UUID,
+    number_id: UUID,
+    payload: NumberAgentIn,
+    session: AdminSession,
+    request: Request,
+    principal: Principal = Depends(requires("admin:tenants", realm="admin")),
+) -> NumberAgentOut:
+    """The step between a recorded number and a ringing phone (D-576).
+
+    **THE SHAPE IS `set_number_engine_ref`'s, deliberately**, because it is the same act
+    one field over: a tenant-scoped POST that writes one column on `phone_numbers` and
+    reaches the engine inside the same request, whose response is what the engine was
+    told. `agents_service.attach_number_to_agent` holds every refusal — including the
+    cross-tenant one, which is `assert_visible`'s answer under this session's RLS and not
+    a comparison of two ids the caller supplied (hard rule 1, D-331).
+
+    **IT LIVES HERE AND NOT IN `admin/number_routes.py`** because that module is the
+    operator's surface for a number we BUY — search, buy, link, release, each gated on the
+    reseller authorisation nobody holds yet. This number is the CLIENT's own connection
+    (Model B), recorded by `provision_number` two routes up and given its registrar status
+    by `set_number_dlt_status` one route up. Attaching it to an agent is the third fact of
+    that same record, and it must work on a deployment where nothing is purchasable.
+
+    The audit row is written for `provision_number`'s reason: this changes which agent
+    answers a client's business line, and "who did that, and when" is not answerable
+    afterwards unless the request says so. Agent ids, never the number (hard rule 6).
+    """
+    async with tenant_session(tenant_id) as scoped:
+        if not await service.tenant_exists(scoped, tenant_id):
+            raise ProblemError.not_found("Client")
+        routing = await agents_service.attach_number_to_agent(
+            scoped, number_id=number_id, agent_id=payload.agent_id
+        )
+    await write_audit(
+        session,
+        action="number.agent_set",
+        actor=principal,
+        tenant_id=tenant_id,
+        object_type="phone_number",
+        object_id=str(number_id),
+        ip=client_request_ip(request),
+        summary={
+            "agent_id": str(payload.agent_id) if payload.agent_id else None,
+            "bound": routing.bound,
+            "released": routing.released,
+            "failed": routing.failed,
+        },
+    )
+    return NumberAgentOut(
+        number_id=number_id,
+        agent_id=payload.agent_id,
+        bound=routing.bound,
+        released=routing.released,
+        failed=routing.failed,
+        unsupported=routing.unsupported,
+    )
 
 
 @router.post(
@@ -3315,11 +3423,14 @@ class PlanTierOut(BaseModel):
         "wallet, the credits screen says so, and nothing stops their dialling for want "
         "of credit. **Setting `prepaid` on an account with no credit stops its OUTBOUND "
         "calling at the next dial**, and since D-551 it also stops its agents ANSWERING "
-        "incoming calls — not from here, which moves no ledger entry, but from the next "
-        "reconciliation edge (`workers/inbound_cutover.py`, reached from the next metered "
-        "call or the next publish). Moving back to `managed` reverses both. "
+        "incoming calls. **Moving back to `managed` reverses both.** Neither direction "
+        "waits for anything: a change of tier publishes the inbound-answering "
+        "reconciliation (`workers/inbound_cutover.py`) in the same transaction as the "
+        "column write (D-579), so the engine is told as soon as the outbox drains — "
+        "seconds, not whenever an agent is next republished. "
         "Idempotent: setting the tier an account is already on returns 200, "
-        "`changed: false`, and writes no audit row. 404 means no such client."
+        "`changed: false`, writes no audit row and publishes nothing. 404 means no such "
+        "client."
     ),
 )
 async def set_tenant_plan_tier(

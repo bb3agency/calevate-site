@@ -210,6 +210,9 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "POST /v1/admin/tenants/{tenant_id}/numbers/{number_id}/dlt-status": {
         "dlt_status": "registered"
     },
+    # `agent_id` is REQUIRED and nullable (D-576): null is the detach, not an omission,
+    # so an empty body is a 422 and would hide whatever this route really answers.
+    "POST /v1/admin/tenants/{tenant_id}/numbers/{number_id}/agent": {"agent_id": None},
     "POST /v1/admin/tenants/{tenant_id}/plan-tier": {
         "plan_tier": "managed",
         "reason": "census",

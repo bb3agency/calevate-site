@@ -1443,7 +1443,7 @@ async def test_a_non_throttle_failure_is_never_retried() -> None:
         assert raised.value.code == "engine_rejected"
 
 
-async def test_the_vendors_own_error_code_reaches_the_log_and_its_message_never_does(
+async def test_the_vendors_own_error_code_and_its_bounded_message_reach_the_log(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """An operator who cannot see the vendor's own reason cannot fix anything.
@@ -1454,11 +1454,17 @@ async def test_the_vendors_own_error_code_reaches_the_log_and_its_message_never_
     `engine_error status=400 route=/call` cannot distinguish a stale agent id from a
     revoked key, which is the difference between two entirely different pages of runbook.
 
-    The split is not "log a bit more": the INTEGER is a code, bounded to int32 by their own
-    schema and therefore structurally unable to hold an E.164 number, while the MESSAGE is
-    the vendor quoting our request back at us. Only the first is admitted, and this asserts
-    both halves — the code present, every fragment of the message absent from the whole
-    record, attributes included.
+    **THIS TEST USED TO ASSERT THE MESSAGE NEVER REACHED A RECORD AT ALL, AND THAT WAS
+    NARROWED ON 10 SEP 2026 (D-578) RATHER THAN WEAKENED.** The line that changed it was
+    a `400` on `POST /v2/agent` — a publish, whose payload holds prompts and model ids
+    and no contact — logged as `vendor_error=null` beside a generic client sentence, with
+    nothing anywhere saying which field the vendor had refused. The message is now
+    admitted to the OPERATOR LOG through three route-independent bounds
+    (`vendor_http._vendor_error_message`): a read limit, printable-ASCII only, and
+    `core.logging.redact_text`. What this file still holds is the half that never moved —
+    a caller's NUMBER is absent from the record, here on the route where the vendor's own
+    worked example puts one. `tests/vendor_error_message_test.py` owns the bounds
+    themselves; the integer's own int32 bound is asserted below, unchanged.
     """
     engine, _ = _throttling_engine(
         [
@@ -1476,9 +1482,11 @@ async def test_the_vendors_own_error_code_reaches_the_log_and_its_message_never_
     errors = [r for r in caplog.records if r.getMessage() == "engine_error"]
     assert errors, "the refusal was not logged at all"
     assert getattr(errors[0], "vendor_error", None) == 1001
+    assert getattr(errors[0], "vendor_message", None) == "agent_id is required for [phone]"
     blob = " ".join(f"{r.__dict__}" for r in caplog.records)
-    for leak in ("agent_id is required", "919876543210"):
-        assert leak not in blob, f"the vendor's message reached a log record: {leak!r}"
+    assert "919876543210" not in blob, "a caller's number reached a log record"
+    # The client's sentence is a different audience and did not widen with the log's.
+    assert "agent_id" not in raised.value.detail
 
 
 async def test_a_non_integer_error_field_is_refused_rather_than_logged(

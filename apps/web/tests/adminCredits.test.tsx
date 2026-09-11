@@ -20,6 +20,7 @@ import {
 } from "@/lib/api/credits";
 
 import type { CreditLot, OverridePack } from "@/lib/api/creditLots";
+import { trialPath } from "@/lib/api/trials";
 
 import { expectNoA11yViolations } from "./a11y";
 import { renderAdminRoute, routeParams } from "./adminRoute";
@@ -190,6 +191,11 @@ function render(routes: Partial<Routes> = {}) {
     [TENANT_PATH]: tenant(),
     [ADMIN_ME_PATH]: ME,
     [CREDITS_READ]: credits(),
+    // The trial control reads its own endpoint (D-577). `null` is the server's answer for
+    // a client who has never been given a trial, which is what every case in this file is
+    // about; answering it here rather than in each test keeps those tests' premise about
+    // the WALLET. A test about the trial itself is `adminTrial.test.tsx`.
+    [trialPath(TENANT)]: null,
     ...routes,
   });
 }

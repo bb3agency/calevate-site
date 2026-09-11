@@ -307,7 +307,11 @@ describe("the client detail screen", () => {
       "Reject…",
       "Mark registered",
       "Registrar approved",
-      "Add",
+      // "Add" LEFT THIS SCREEN, it was not un-gated (D-576): recording a client's number
+      // moved to `/admin/tenants/[tenantId]/numbers`, where the same permission gates the
+      // same write and `adminNumberAttachment.test.tsx` drives it. It was on a CAMPAIGN
+      // panel with the series preselected to a DLT class, which is how an inbound-only
+      // client's onboarding ran through a screen about outbound campaigns.
       "Register template",
       "Record registration",
     ]) {

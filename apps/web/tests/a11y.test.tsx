@@ -3179,6 +3179,26 @@ const ADMIN_SCREENS: Screen[] = [
           },
         ],
       },
+      // A RUNNING TRIAL (D-577), because that is the arm of the trial control that
+      // renders the most markup: the facts panel with the cost-to-us line AND the end
+      // form with its select, its reason box and its consequence panel. A `null` read
+      // renders one sentence and the start form.
+      "/v1/admin/tenants/t1/trial": {
+        tenant_id: "t1",
+        trial_id: "0192f0aa-5555-7000-8000-0000000000f1",
+        status: "active",
+        active: true,
+        days: 14,
+        started_at: "2026-09-01T05:30:00Z",
+        ends_at: "2026-09-15T05:30:00Z",
+        days_remaining: 5,
+        ended_at: null,
+        ended_reason: null,
+        erase_after: "2026-10-15T05:30:00Z",
+        erasure_filed_at: null,
+        started_by: null,
+        cost_to_us_inr: "1284.50",
+      },
     },
   },
   {

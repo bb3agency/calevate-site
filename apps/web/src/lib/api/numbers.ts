@@ -118,6 +118,34 @@ export function useSetNumberEngineRef(tenantId: string) {
   });
 }
 
+/**
+ * Choose which agent answers this number — or `null`, which detaches it.
+ *
+ * **THE STEP THAT DID NOT EXIST (D-576).** `phone_numbers.agent_id` had exactly one
+ * writer and it was the INSERT, so every number on this platform was attached to nobody:
+ * publishing the receptionist reported success and the phone never rang. Detaching
+ * releases the binding at the voice platform too — a detach that only nulled the column
+ * would leave a client's line answered by an agent this console says is not on it.
+ *
+ * The response says what the platform was TOLD, so a row can report a routing the vendor
+ * refused instead of implying a phone that rings.
+ */
+export function useSetNumberAgent(tenantId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ numberId, agentId }: { numberId: string; agentId: string | null }) =>
+      apiRequest<components["schemas"]["NumberAgentOut"]>(
+        adminSession(),
+        `/v1/admin/tenants/${tenantId}/numbers/${numberId}/agent`,
+        { method: "POST", body: { agent_id: agentId } },
+      ),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: ["admin", "number-costs"] });
+      void client.invalidateQueries({ queryKey: ["admin", "numbers"] });
+    },
+  });
+}
+
 /** Give a bought number back and stop the monthly rental. Offboarding only. */
 export function useReleaseNumber(tenantId: string) {
   const client = useQueryClient();

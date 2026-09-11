@@ -186,12 +186,16 @@ def test_the_dlt_number_class_still_says_standard() -> None:
     campaign path reads; an over-correcting sweep would break the control and the wire
     together.
     """
-    # The panel moved out of the route module when that screen was split by subject
-    # (UX-DOCTRINE §6); the control and the assertion about it are unchanged.
-    numbers = (REPO / "apps/web/src/app/admin/tenants/[tenantId]/CampaignSetup.tsx").read_text(
-        encoding="utf-8"
-    )
-    assert '<option value="standard">standard</option>' in numbers, (
+    # THE CONTROL MOVED AGAIN (D-576): recording a client's number left the CAMPAIGN panel
+    # for the numbers screen, where it belongs — an operator onboarding an inbound-only
+    # client was being sent to a screen about outbound campaigns, with the series
+    # preselected to a DLT class. The assertion follows the control rather than the file,
+    # and matches the VALUE plus the word rather than the exact element, because the option
+    # now carries a plain-language tail ("standard — an ordinary business line").
+    numbers = (
+        REPO / "apps/web/src/app/admin/tenants/[tenantId]/numbers/NumbersScreen.tsx"
+    ).read_text(encoding="utf-8")
+    assert '<option value="standard">standard' in numbers, (
         "the DLT number class lost its `standard` option — that word is the TRAI series "
         "name (CLAUDE.md's domain vocabulary), not one of the excluded rung names"
     )
