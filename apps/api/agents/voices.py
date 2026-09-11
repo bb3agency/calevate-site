@@ -361,11 +361,16 @@ class Voice(BaseModel):
     # What a human picks from. A persona label (speaker), NOT a tier — the tier is
     # `provider`, and price is a question the credit lot answers, not this field.
     #
-    # ⚠ IT IS ALSO A WIRE-ADJACENT VALUE, WHICH IS WORTH KNOWING BEFORE EDITING IT. The
-    # vendor's example carries the speaker twice — `"voice": "Ashutosh", "voice_id":
-    # "ashutosh"` — so the capitalised form is what their `voice` key holds. The ADAPTER
-    # derives that from the speaker (hard rule 2: which key gets which casing is a vendor
-    # payload fact and stays inside `apps/api/engine/`); this field is for humans.
+    # ⚠ IT IS ALSO A WIRE VALUE, NOT ONLY A HUMAN ONE, AND THAT CHANGED ON 11 SEP 2026.
+    # Bolna's synthesizer block REQUIRES a `voice` key beside `voice_id` (their validator:
+    # "Voice > Voice: This field is required"), and `voice` is the platform's own NAME for
+    # the voice. The adapter used to derive it as `speaker.capitalize()`, which is correct
+    # for every Sarvam persona and structurally impossible for a CLONED voice — their own
+    # example pairs `voice_id: "sXlZ9Juk5Ji8sZiFjRUV"` with `name: "my-custom-voice"`
+    # (VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/api-reference/voice/
+    # get_all.md:102-112`). So this field now TRAVELS: `in_call_speech` puts it on
+    # `ModelConfig.tts_voice_label` and the adapter decides which key it lands in (hard
+    # rule 2 intact — the KEY is still a vendor payload fact; the NAME never was).
     label: str
     #: Who synthesises it — and therefore the agent's voice tier (`voice_tier()`).
     provider: VoiceProvider

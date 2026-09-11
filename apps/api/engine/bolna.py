@@ -654,14 +654,16 @@ def _cartesia_synthesizer_config(models: ModelConfig, language: str) -> dict[str
     therefore narrowed rather than closed: it no longer asks *what are the fields*, it asks
     *does the hosted platform accept these*.
 
-    **`voice` AND `voice_id` BOTH CARRY THE ID, and that is a decision rather than an
-    oversight.** `StandardVoiceConfig` types both as bare `str` with no validator visible, so
-    their semantics are unknown; the catalogue's DISPLAY NAME does not travel in
-    `ModelConfig` (nothing needed it before), and the id is the value that can actually
-    resolve a voice. Capitalising an opaque vendor id the way the Sarvam arm capitalises a
-    speaker name would corrupt it. If gate 52 shows the platform renders `voice` to a human,
-    the fix is one field on `ModelConfig` filled by `agents/service.in_call_speech`, not a
-    catalogue lookup from inside this adapter (hard rule 2).
+    **`voice` CARRIES THE DISPLAY NAME AND `voice_id` THE ID** — this used to send the id in
+    both, on the argument that `StandardVoiceConfig` types both as bare `str` and that
+    capitalising an opaque vendor id would corrupt it. The second half was right and the
+    conclusion was wrong: the answer was never to capitalise anything, it was to carry the
+    name, which now travels on `ModelConfig.tts_voice_label` — the one field this docstring
+    predicted ("the fix is one field on `ModelConfig` filled by
+    `agents/service.in_call_speech`"). The Sarvam arm forced it first, for the reason that
+    binds here identically: a CLONED Cartesia voice has an opaque id and an unrelated name.
+    The id remains the fallback when the catalogue cannot name the voice, which is the only
+    non-invented string available.
     """
     voice_id = models.tts_voice or ""
     model = models.tts_model or ""
@@ -672,7 +674,7 @@ def _cartesia_synthesizer_config(models: ModelConfig, language: str) -> dict[str
     if not voice_id or not model:
         raise _refuse_cartesia_voice_incomplete()
     return {
-        "voice": voice_id,
+        "voice": models.tts_voice_label or voice_id,
         "voice_id": voice_id,
         "model": model,
         "language": _cartesia_language(language),
@@ -717,23 +719,32 @@ def _synthesizer_config(models: ModelConfig, language: str) -> dict[str, Any]:
     if models.tts_model is not None:
         config["model"] = models.tts_model
     if models.tts_voice is not None:
-        # `voice_id` ALONE, LOWERCASE — the `voice` key is NOT sent (D-581).
+        # BOTH KEYS, AND BOTH ARE REQUIRED — settled by the validator, twice, in opposite
+        # directions. Sending `voice` capitalised drew
         #
-        # This used to send BOTH, capitalising the speaker for `voice`, on the argument
-        # that their skills-repo example carries three keys and that guessing which one
-        # their provider reads was the guess to avoid. A live publish settled it:
+        #   400 — "Provided voice: Anushka is not available for the provider: sarvam"
         #
-        #   400 POST /v2/agent — "Provided voice: Anushka is not available for the
-        #   provider: sarvam"
+        # which was read here as "they reject the capitalised form" and the key was
+        # removed. That reading was WRONG, and the next publish said so:
         #
-        # They read `voice`, and they reject the capitalised form. Their own API
-        # reference carries `voice_id` and `model` and NO `voice` key, in five places
-        # (VERIFIED-VENDOR-DOCS: `api-reference/agent/v2/{create,get,update,get_all}.md`
-        # and `customizations/multilingual-config-reference.md:76`), every one of them
-        # lowercase. Sending a key their schema does not document, in a casing their
-        # validator refuses, is two mistakes the read-back could never have caught —
-        # `_read_speaker` prefers `voice_id` precisely because it is the one we can
-        # compare untouched.
+        #   400 — "Voice > Voice: This field is required"
+        #
+        # The first error was about AVAILABILITY, not casing: `anushka` is simply not one
+        # of the speakers Bolna's Sarvam provider offers, whatever case it is written in
+        # (their `GET /api/v1/voice-config/tts/voices` for provider `sarvam` / model
+        # `bulbul:v3` does not list it — read against the live account 11 Sep 2026). Their
+        # API reference omitting `voice` in five places does not make it optional; the
+        # validator is what enforces the schema, and it demands the key.
+        #
+        # **THE NAME IS NOT DERIVED FROM THE ID, AND THAT IS THE WHOLE POINT.** It used to
+        # be `models.tts_voice.capitalize()`, which is right for every Sarvam persona and
+        # structurally wrong for a CLONED voice: Bolna's own example pairs
+        # `voice_id: "sXlZ9Juk5Ji8sZiFjRUV"` with `name: "my-custom-voice"`
+        # (VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/api-reference/voice/
+        # get_all.md:102-112`). So the name travels on the contract, resolved once against
+        # the catalogue by `agents/service.py::in_call_speech` — exactly the fix
+        # `_cartesia_synthesizer_config`'s docstring predicted for this key.
+        config["voice"] = models.tts_voice_label or models.tts_voice
         config["voice_id"] = models.tts_voice
     return config
 
@@ -747,8 +758,11 @@ def _read_speaker(voice_id: str | None, voice: str | None) -> str | None:
     `ModelConfig.tts_voice` exactly and the drift verdict is a string equality.
 
     `voice` is the fallback and it is LOWERCASED, which is a normalisation and is named as
-    one. We send that key capitalised (`_synthesizer_config`), so lowering recovers the id
-    for the shape we send; for anything else it is identity on a value already lowercase.
+    one. That key carries the voice's DISPLAY NAME (`_synthesizer_config`), and for a
+    Sarvam persona the name is the id capitalised, so lowering recovers the id.
+    ⚠ It does NOT for a cloned voice, whose name is unrelated to its id — so this fallback
+    degrades from "recovers the id" to "returns something that will not match" exactly
+    where `voice_id` was absent, which no response we have seen actually is.
     Without it, an engine that echoes only the display name would report a mismatch on
     every agent forever — a false drift alarm being exactly what `_agent_models` must not
     manufacture. WHICH of the two their platform stores is not settled here; OPERATIONS §2

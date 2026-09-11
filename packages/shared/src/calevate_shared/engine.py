@@ -2517,6 +2517,23 @@ class ModelConfig(BaseModel):
     #: says why), and a value we no longer offer must still reach the engine as itself
     #: rather than be dropped or guessed at.
     tts_voice: str | None = None
+    #: THE VOICE'S DISPLAY NAME, as the TTS platform itself spells it — the second half of
+    #: the pair a voice is addressed by, and it is NOT derivable from `tts_voice`.
+    #:
+    #: **WHY IT IS A FIELD AND NOT A `.capitalize()` IN THE ADAPTER.** It was the latter, and
+    #: that only ever worked because every voice in the catalogue was a Sarvam persona whose
+    #: id and name differ by one letter's case (`ashutosh` / `Ashutosh`). A voice CLONED on
+    #: the platform has no such relationship: Bolna's own list-voices example carries
+    #: `voice_id: "sXlZ9Juk5Ji8sZiFjRUV"` against `name: "my-custom-voice"`
+    #: (VERIFIED-VENDOR-DOCS, `bolna-findings/mirror/pages/api-reference/voice/
+    #: get_all.md:102-112`, read 11 Sep 2026). No rule turns one into the other, so the name
+    #: has to travel from wherever the voice was enumerated — which is the catalogue, not the
+    #: adapter (hard rule 2: the adapter still owns WHICH KEY it lands in).
+    #:
+    #: `None` for a voice we cannot name — a legacy free-text `agents.tts_voice` the
+    #: catalogue does not recognise. The adapter sends the id in the name's place there,
+    #: because it is the only non-invented string available.
+    tts_voice_label: str | None = None
 
     @model_validator(mode="after")
     def _llm_endpoint_is_coherent(self) -> ModelConfig:

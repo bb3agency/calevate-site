@@ -126,7 +126,7 @@ from apps.api.agents.models import (
 )
 from apps.api.agents.reconciliation import TRUTHFUL_ANSWER_MISSING
 from apps.api.agents.verification import verify_publish
-from apps.api.agents.voices import speech_for_voice_id, voice_id_of
+from apps.api.agents.voices import get_voice, speech_for_voice_id, voice_id_of
 from apps.api.agents.write_guard import archived_refusal, assert_agent_writable
 from apps.api.compliance.caller_memory import recall
 from apps.api.core.alerting import alert
@@ -855,6 +855,7 @@ class InCallSpeech(TypedDict):
     stt_model: str | None
     tts_model: str | None
     tts_voice: str | None
+    tts_voice_label: str | None
 
 
 def in_call_speech(agent: AgentRow, *, engine: VoiceEngine) -> InCallSpeech:
@@ -888,7 +889,12 @@ def in_call_speech(agent: AgentRow, *, engine: VoiceEngine) -> InCallSpeech:
 
     THE TTS HALF IS A SPLIT, NOT A DEFAULT, and it fills nothing. `agents.tts_voice` holds
     OUR catalogue id (`bulbul:v3:ashutosh`); the vendor's Sarvam provider wants the model
-    and the speaker in two different keys. `speech_for_voice_id` is the one splitter and it
+    and the speaker in two different keys — plus the voice's DISPLAY NAME in a third
+    (`ModelConfig.tts_voice_label`), which is looked up here for the reason that field
+    states: a cloned voice's name has no derivable relationship to its id, so it can only
+    come from wherever the voice was enumerated. `None` for an id the catalogue does not
+    recognise, which is the same free-text passthrough the split itself does.
+    `speech_for_voice_id` is the one splitter and it
     is a CATALOGUE LOOKUP — see its docstring for why splitting the string would turn the
     legacy value `bulbul:v3` into the model `bulbul`. No default is invented here: an agent
     with no voice configured still publishes with none, which is `voice_selection_capability`
@@ -903,19 +909,24 @@ def in_call_speech(agent: AgentRow, *, engine: VoiceEngine) -> InCallSpeech:
     provably ask the same engine, which is what stops a drift sweep reporting a mismatch it
     manufactured itself.
     """
-    tts_model, speaker = speech_for_voice_id(agent["tts_voice"])
+    voice_id = agent["tts_voice"]
+    tts_model, speaker = speech_for_voice_id(voice_id)
+    catalogued = get_voice(voice_id) if voice_id else None
+    label = catalogued.label if catalogued is not None else None
     if not engine_capabilities(engine).is_ours("stt"):
         return InCallSpeech(
             stt_provider=agent["stt_provider"],
             stt_model=agent["stt_model"],
             tts_model=tts_model,
             tts_voice=speaker,
+            tts_voice_label=label,
         )
     return InCallSpeech(
         stt_provider=agent["stt_provider"] or SARVAM_STT_PROVIDER,
         stt_model=agent["stt_model"] or SARVAM_DEFAULT_STT,
         tts_model=tts_model,
         tts_voice=speaker,
+        tts_voice_label=label,
     )
 
 

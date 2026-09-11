@@ -39,7 +39,7 @@ from typing import Any
 
 import httpx
 import pytest
-from apps.api.agents.voices import CartesiaVoiceRecord, cartesia_catalogue
+from apps.api.agents.voices import CartesiaVoiceRecord, cartesia_catalogue, default_voice
 from apps.api.core.errors import ProblemError
 from apps.api.engine import bolna as bolna_module
 from apps.api.engine.bolna import (
@@ -47,6 +47,7 @@ from apps.api.engine.bolna import (
     BOLNA_CAPABILITIES,
     BolnaEngine,
     _agent_models,
+    _synthesizer_config,
     llm_provider_keys,
 )
 from calevate_shared.config import Settings
@@ -1562,31 +1563,76 @@ async def test_a_cartesia_voice_with_no_id_is_refused_by_name_rather_than_half_s
     assert requests == [], "a half-built body must never reach the vendor, not even once"
 
 
-async def test_the_sarvam_speaker_is_sent_as_voice_id_alone_and_lowercase() -> None:
-    """THE SECOND REFUSAL A LIVE PUBLISH GAVE US (D-581), after the language one.
+def test_the_sarvam_voice_goes_out_as_a_name_and_an_id_neither_one_derived() -> None:
+    """THE SECOND AND THIRD REFUSALS A LIVE PUBLISH GAVE US (D-581/D-582), in order,
+    because they point opposite ways and only both of them together pin the shape.
 
         400 POST /v2/agent — "Provided voice: Anushka is not available for the
         provider: sarvam"
 
-    So they DO read a `voice` key, and they refuse the capitalised speaker we put in it.
-    Their own API reference carries `voice_id` and `model` and no `voice` at all, in five
-    places — `api-reference/agent/v2/{create,get,update,get_all}.md` and
-    `customizations/multilingual-config-reference.md:76` — every one lowercase.
+    was read as "they refuse the capitalised form" and the `voice` key was removed. The
+    very next publish refused that:
 
-    Pinned as an ABSENCE as well as a presence, because the defect was the extra key: a
-    future reader adding `voice` back "for compatibility" reintroduces a live 400 that no
-    unit test would otherwise notice, since our own read-back prefers `voice_id`.
+        400 POST /v2/agent — "Voice > Voice: This field is required"
+
+    The first error was about AVAILABILITY, not casing — `anushka` is not among the
+    speakers Bolna's Sarvam provider offers at all (their
+    `GET /api/v1/voice-config/tts/voices` for provider `sarvam`, model `bulbul:v3`, read
+    against the live account 11 Sep 2026). Their API reference omitting `voice` in five
+    places does not make it optional; the validator enforces the schema and demands it.
+
+    **AND THE NAME IS NOT DERIVED FROM THE ID**, which is the half a unit test has to hold
+    because no Sarvam persona can demonstrate it: their id and name differ by one letter's
+    case, so `.capitalize()` passes on every catalogue entry and is structurally wrong for
+    a cloned voice — `voice_id: "sXlZ9Juk5Ji8sZiFjRUV"` against `name: "my-custom-voice"`
+    (VERIFIED-VENDOR-DOCS, `api-reference/voice/get_all.md:102-112`). So this asserts the
+    name came from the CATALOGUE, by checking the pair against the catalogue entry rather
+    than against a transformation of the id.
     """
-    config = (await _created_body())["agent_config"]["tasks"][0]["tools_config"]["synthesizer"][
-        "provider_config"
-    ]
-
-    assert "voice" not in config, (
-        "the `voice` key is back: their validator reads it and refuses the speaker, and "
-        "their schema documents only `voice_id`"
+    entry = default_voice()
+    config = _synthesizer_config(
+        ModelConfig(
+            tts_provider="sarvam",
+            tts_model=entry.tts_model,
+            tts_voice=entry.speaker,
+            tts_voice_label=entry.label,
+        ),
+        "te-IN",
     )
+
     speaker = config.get("voice_id")
-    assert speaker, "no speaker reached the wire; the vendor picks its own and the client "
-    assert speaker == speaker.lower(), (
-        f"the speaker went out as {speaker!r}; their reference spells every one lowercase"
+    assert speaker == entry.speaker, (
+        f"the speaker went out as {speaker!r}; their reference spells every one lowercase "
+        "and `voice_id` is the half we compare the read-back against untouched"
+    )
+    name = config.get("voice")
+    assert name, (
+        "the `voice` key is gone: their validator answers 'Voice > Voice: This field is "
+        "required', whatever their reference omits"
+    )
+    assert name == entry.label, (
+        f"the name {name!r} is not the catalogue's label {entry.label!r} for {speaker!r}; "
+        "it must be looked up, never derived — a cloned voice's name is unrelated to its id"
+    )
+
+    cloned = _synthesizer_config(
+        ModelConfig(
+            tts_provider="sarvam",
+            tts_model="bulbul:v3",
+            tts_voice="sXlZ9Juk5Ji8sZiFjRUV",
+            tts_voice_label="my-custom-voice",
+        ),
+        "te-IN",
+    )
+    assert cloned["voice"] == "my-custom-voice" and cloned["voice_id"] == "sXlZ9Juk5Ji8sZiFjRUV", (
+        "a cloned voice's name was transformed; it is the vendor's own string and no rule "
+        "relates it to the id (`api-reference/voice/get_all.md:102-112`)"
+    )
+
+    unnamed = _synthesizer_config(
+        ModelConfig(tts_provider="sarvam", tts_voice="bulbul:v3"), "te-IN"
+    )
+    assert unnamed["voice"] == "bulbul:v3", (
+        "a voice the catalogue cannot name dropped its required `voice` key; the id is the "
+        "only non-invented string available and the validator refuses the key's absence"
     )
