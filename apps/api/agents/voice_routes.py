@@ -110,7 +110,6 @@ from apps.api.agents import publishing
 from apps.api.agents.voice_offer import (
     OfferedVoice,
     VoiceReasonAudience,
-    is_not_on_offer,
     offered_catalogue,
 )
 from apps.api.agents.voices import (
@@ -243,6 +242,11 @@ class OfferedVoiceOut(Voice):
     #: sixteen of those: rendering them buried the two real choices under a wall of
     #: identical orange sentences.
     #:
+    #: Carried from `OfferedVoice.not_on_offer`, which is computed from the OPERATOR
+    #: ground — never recovered from `unavailable_reason`, which collapses all four
+    #: grounds into one sentence for a client and made this field silently false for
+    #: every client session.
+    #:
     #: A BOOLEAN RATHER THAN THE GROUND ITSELF, deliberately. The screen's question is
     #: "render this row or not"; handing it the four grounds would invite a second copy of
     #: the offerability rules in the browser, which is the drift `useWriteAccess` was just
@@ -266,7 +270,7 @@ class OfferedVoiceOut(Voice):
         return cls(
             **offered.voice.model_dump(),
             unavailable_reason=offered.reason,
-            not_on_offer=is_not_on_offer(offered.reason),
+            not_on_offer=offered.not_on_offer,
             offerable=offered.offerable,
             tier_label=voice_tier_label(offered.voice.provider),
         )

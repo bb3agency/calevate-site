@@ -41,7 +41,8 @@ from apps.api.agents.voice_offer import (
     curation_unofferable_reason,
     offered_catalogue,
 )
-from apps.api.agents.voices import ARRIVAL_CURATION_STATE
+from apps.api.agents.voice_sync import load_voice_catalogue
+from apps.api.agents.voices import ARRIVAL_CURATION_STATE, install_voice_catalogue
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
@@ -434,3 +435,54 @@ async def test_a_newly_synced_voice_arrives_in_the_state_the_founder_asked_for()
                 text("DELETE FROM platform_voice_catalog WHERE voice_id = :id"), {"id": probe}
             )
             await session.commit()
+
+
+async def test_not_on_offer_is_the_operator_ground_in_both_audiences() -> None:
+    """THE FIELD THE CLIENT PICKER FILTERS ON, ASSERTED WHERE IT WAS SILENTLY FALSE.
+
+    `OfferedVoiceOut.not_on_offer` is what stops a console rendering four hundred and
+    sixteen "Cannot be chosen" rows to offer two. It was first derived by matching the
+    voice's `reason` against the three curation sentences — correct for an operator, and
+    FALSE FOR EVERY CLIENT, because `unofferable_reason` collapses all four grounds into
+    `CLIENT_NOT_OFFERED_REASON` for that audience. So the filter did nothing in the client
+    console, which is the console the founder was looking at, and nothing in the suite
+    noticed because every existing clause read the operator's answer.
+
+    The claim is therefore audience-INDEPENDENCE, not the value: a verdict a screen
+    branches on must not be recoverable from a human sentence, because the sentence is
+    allowed to vary for reasons the verdict is not.
+    """
+    disabled_id = "bulbul:v3:not-on-offer-probe"
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO platform_voice_catalog "
+                "(voice_id, engine_voice_id, label, tts_model, provider, languages, "
+                " is_custom, synced_at, curation_state) "
+                "VALUES (:id, 'not-on-offer-probe', 'Probe', 'bulbul:v3', 'sarvam', "
+                " ARRAY['te-IN']::text[], false, now(), 'disabled')"
+            ),
+            {"id": disabled_id},
+        )
+        await session.commit()
+    try:
+        async with untenanted_session() as session:
+            await load_voice_catalogue(session)
+
+        for audience in ("operator", "client"):
+            offered = await offered_catalogue(audience=audience)  # type: ignore[arg-type]
+            row = next((o for o in offered if o.voice.id == disabled_id), None)
+            assert row is not None, f"the probe vanished from the {audience} catalogue"
+            assert row.not_on_offer is True, (
+                f"a DISABLED voice reads as on-offer to the {audience} — the client picker "
+                "filters on this, so it renders every unoffered voice as a refusal"
+            )
+            assert row.offerable is False
+    finally:
+        async with untenanted_session() as session:
+            await session.execute(
+                text("DELETE FROM platform_voice_catalog WHERE voice_id = :id"),
+                {"id": disabled_id},
+            )
+            await session.commit()
+        install_voice_catalogue(None)

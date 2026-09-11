@@ -244,24 +244,6 @@ def curation_unofferable_reason(state: CurationState | None) -> str | None:
     return None
 
 
-#: THE GROUNDS THAT MEAN "NOT ON OFFER HERE", as opposed to "offered, and currently
-#: unavailable". A closed vocabulary because a SCREEN branches on it: the picker renders a
-#: voice the platform intends to offer and cannot (no attested price, no credential, the
-#: Cartesia cap) so its reason is read, and omits one the operator has simply not put on
-#: offer — of which there are four hundred and sixteen.
-#:
-#: Derived from the sentence rather than returned beside it, so there is still ONE place
-#: that decides why a voice is refused (`_operator_unofferable_reason`) and no second
-#: switch to keep in step with it.
-_NOT_ON_OFFER_SENTENCES: Final = frozenset({NOT_CURATED_REASON, DISABLED_REASON, ARCHIVED_REASON})
-
-
-def is_not_on_offer(reason: str | None) -> bool:
-    """Is this refusal "the operator has not put it on offer", rather than "it is offered
-    and something is currently wrong with it"? See `_NOT_ON_OFFER_SENTENCES`."""
-    return reason in _NOT_ON_OFFER_SENTENCES
-
-
 def client_unofferable_reason(voice: Voice) -> str:
     """THE ONE SENTENCE A CLIENT SEES for any unofferable voice, whichever ground failed.
 
@@ -305,6 +287,17 @@ class OfferedVoice:
 
     voice: Voice
     reason: str | None
+    #: WHETHER THE GROUND IS "NOT ON OFFER" rather than "offered and currently unavailable".
+    #:
+    #: ⚠ **DERIVED FROM THE OPERATOR GROUND, NEVER FROM `reason`, AND THAT WAS A REAL BUG.**
+    #: It was computed by matching `reason` against the three curation sentences — which
+    #: works for an operator and is silently FALSE for every client, because
+    #: `unofferable_reason` collapses all four grounds into `CLIENT_NOT_OFFERED_REASON` for
+    #: that audience. So the picker filtered nothing in the client console and a founder
+    #: with two voices enabled still read a wall of refusals. The lesson is narrow: a
+    #: MACHINE-READABLE VERDICT MUST NOT BE RECOVERED FROM A HUMAN SENTENCE, because the
+    #: sentence is allowed to vary for reasons the verdict is not.
+    not_on_offer: bool = False
 
     @property
     def offerable(self) -> bool:
@@ -408,6 +401,7 @@ def offerable_voices(
     return tuple(
         OfferedVoice(
             voice=voice,
+            not_on_offer=curation_unofferable_reason(curation.get(voice.id)) is not None,
             reason=unofferable_reason(
                 voice,
                 cartesia_live_agents=cartesia_live_agents,

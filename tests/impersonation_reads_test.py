@@ -122,6 +122,17 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
     ),
     "/v1/ops/platform": "the platform switches — superadmin surface",
     "/v1/ops/audit/verify": "the audit chain check — superadmin surface",
+    "/v1/ops/alerts": (
+        "the platform's own alarm board (D-591) — superadmin surface, and the one list in "
+        "this table that is not about a client even in principle: `platform_alerts` "
+        "carries no `tenant_id` at all, because an alarm is about THIS PLATFORM'S "
+        "machinery (a backup chain, an outbox dispatcher, a vendor's FX feed) and a great "
+        "many of them fire with no tenant in scope to write down. So there is no "
+        "client-realm counterpart for a support person to be looking at alongside it, and "
+        "a view-as session loses nothing by never reaching it. The same argument as "
+        "/v1/ops/engine-latency below, one step stronger: that board at least aggregates "
+        "tenants' calls, and this one has no tenant axis to aggregate."
+    ),
     "/v1/ops/engine-latency": (
         "the fleet-wide engine latency board (D-445) — superadmin surface. It aggregates "
         "every tenant's calls to answer one question about OUR infrastructure (what the "
