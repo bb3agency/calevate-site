@@ -1349,11 +1349,20 @@ Vendors price at two different layers and the same-looking number means differen
 | **Self-orchestrated** | nothing — you built it | ₹0 fee + ~₹0.20/min compute |
 
 Reading a model price against a platform price (or a bundled fee against a BYOK fee)
-produces a ~4× error. **Outpero is the worked example:** they buy Cartesia at the *model*
-layer (~₹1.0–1.6/call-min for TTS) and pay **nothing** at the orchestration layer because
-they built it. That is why they can retail at ₹3/₹5/₹7 — not because they found a cheap
-platform, but because they skipped the platform entirely. Anyone assuming they pay Line's
-₹5.28/min has stacked two layers that never both apply.
+produces a ~4× error. **Outpero is the worked example of the ERROR** — anyone assuming they
+pay Line's ₹5.28/min has stacked two layers that never both apply. They buy Cartesia at the
+*model* layer (~₹1.0–1.6/call-min for TTS); what they pay at the ORCHESTRATION layer is
+**not established** (§10.3).
+
+> ⚠ **This paragraph used to answer that question and had no right to.** It read "they pay
+> **nothing** at the orchestration layer because they built it … they skipped the platform
+> entirely", which is the self-orchestration inference §10.3 explicitly withdraws — stated
+> here as the premise of a worked example, two hundred lines from the correction that
+> retracts it. A reader who stopped here inherited a conclusion the document disowns
+> elsewhere, which is the laundering-by-repetition that hard rule 11 exists to stop, and
+> the one-fact-in-two-places drift D-103/D-105 exist for. The layer-confusion lesson is
+> real and survives without it: it does not need to know who Outpero pays, only that the
+> two layers are different.
 
 ### 10.1 Stack cost, computed from published rates (Aug 2026)
 
