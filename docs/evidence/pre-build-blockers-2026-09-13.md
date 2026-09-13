@@ -350,3 +350,126 @@ on each leg.**
   our design should too. That would be a design input, not merely a compliance one.
 
 Costs nothing, and it sharpens every letter above.
+
+## 9. COMET PROMPT — the Plivo REST surface, because it is egress-blocked from the build container
+
+**Why this exists.** `docs/PIPECAT-MIGRATION.md` §3 divides the adapter four ways, and
+category A — `start_outbound_call`, `end_call`, `search_numbers`, `provision_number`,
+`release_number`, `list_engine_numbers`, `bind_inbound_number`, `unbind_inbound_number` —
+is "real work against the carrier". Every one of those is an HTTP call whose method, path,
+body and response shape must come from a primary source. Measured 13 Sep 2026 from the
+build container:
+
+```
+https://api.plivo.com/v1/    ->  curl: (56) CONNECT tunnel failed, response 403
+https://www.plivo.com/docs/  ->  403
+```
+
+Pipecat's own source is the only VERIFIED-OSS route to a Plivo fact available here, and it
+contains exactly ONE REST endpoint in the whole tree — the hangup
+(`src/pipecat/serializers/plivo.py:184`,
+`DELETE https://api.plivo.com/v1/Account/{auth_id}/Call/{call_id}/`). Nothing about number
+search, purchase, release, listing, inbound binding, or the CDR. So category A cannot be
+written from here without inventing an API surface, which is precisely what hard rule 11
+exists to stop. **This prompt is what unblocks it.** Everything else in §6 step 3 (our own
+control plane, the attestation read, the webhook declaration) is buildable today and is not
+waiting on this.
+
+### The prompt
+
+> You are researching the **Plivo REST API v1** for a production integration. I need exact,
+> citable specifications — not summaries, not example blog posts. For every answer, give me
+> the **documentation URL** and quote the relevant lines verbatim. Where the docs are
+> ambiguous or silent, say "the documentation does not state this" rather than inferring.
+> Prefer `plivo.com/docs/` pages; note when a fact comes from an SDK reference or changelog
+> instead.
+>
+> **A. Authentication and base URL**
+> 1. The exact base URL and path template for v1 REST calls, including whether the trailing
+>    slash is required.
+> 2. How requests authenticate (scheme, header, what the credential pair is called), and
+>    whether an auth token can be scoped or is account-wide.
+> 3. Whether India-region accounts use a different host or path than the default. This
+>    matters: our account must be created in the **India data region** and that choice is
+>    irreversible, so I need to know whether the region changes the API surface at all.
+>
+> **B. Outbound calls**
+> 4. The endpoint that places an outbound call: method, path, every request field with its
+>    type and whether it is required, and the full response body on success.
+> 5. Whether that endpoint accepts a **client-supplied idempotency key** or any
+>    deduplication token. If it does not, say so explicitly — it decides whether a retry can
+>    double-dial a patient.
+> 6. The complete list of call **status** values the API can report, and where each is
+>    documented.
+> 7. How a call is terminated (I have `DELETE /v1/Account/{auth_id}/Call/{call_id}/` from a
+>    third-party source — confirm it against Plivo's own docs), what it returns, and what it
+>    returns when the call has NOT yet been answered versus already ended. Is there any way
+>    to distinguish "prevented a call that never connected" from "ended a live call"?
+>
+> **C. Numbers**
+> 8. The endpoint to **search** available numbers: method, path, every filter parameter
+>    (country, type, pattern, region/city, capabilities), and the response shape.
+> 9. Which number **types** exist in India specifically, and whether any of them are
+>    self-serve. Name the exact `type` values the API uses.
+> 10. The endpoint to **buy/provision** a number, its response, and — critically — whether
+>     it is idempotent or safe to retry. If retrying can purchase twice, say so plainly.
+> 11. The endpoint to **release** a number, and what happens to in-flight calls on it.
+> 12. The endpoint to **list numbers already on the account**, its pagination mechanism
+>     (parameter names, limits, how the client knows it has reached the end), and whether
+>     the response distinguishes numbers bought through Plivo from numbers ported in.
+> 13. How an inbound number is **bound to an application/endpoint** so that incoming calls
+>     reach our media server, and how that binding is removed.
+>
+> **D. India-specific reality, which is the part I most need not to be guessed**
+> 14. What Plivo requires before an Indian number can be purchased or used — KYC documents,
+>     address proof, business registration, per-number approvals — and roughly how long each
+>     step takes.
+> 15. Whether Plivo India supports **outbound calls from a purchased Indian number to Indian
+>     mobiles**, and any restriction on that (DLT registration, header registration,
+>     scrubbing, time-of-day rules).
+> 16. Whether Plivo's India offering includes **10-digit ordinary numbers** or only
+>     special series (140/1600/1601), and what documentation says about which series a
+>     business may use for transactional/service voice calls.
+> 17. Whether Plivo acts as our telemarketer-of-record or whether each of our clients needs
+>     its own registration — and what Plivo's own documentation says about reseller or
+>     sub-account compliance obligations in India.
+>
+> **E. CDR — call detail records**
+> 18. The endpoint that returns CDRs: method, path, every filter (especially any
+>     time-window parameter and what timestamp it filters on — call creation or call
+>     completion), and the pagination mechanism.
+> 19. Every field of a CDR record, with its type and units. I specifically need: which
+>     number rang, direction, whether the call connected, **billable duration and its unit**,
+>     total cost and its **currency**, disposition/hangup cause, and the timestamps.
+> 20. **How long after a call ends does its CDR become available and final?** Is there a
+>     window during which cost or duration can still change? This decides whether we can
+>     meter at hang-up or must reconcile later.
+> 21. Whether a CDR can be fetched by the call id returned when the call was placed.
+>
+> **F. Media streaming, which is how our own software hears the call**
+> 22. How Plivo streams call audio to an external WebSocket: the XML element or API that
+>     starts it, every attribute, the audio encoding and sample rate, and the message
+>     framing.
+> 23. Whether the stream is bidirectional (can we send audio back to the caller over the
+>     same socket?) and how audio is clocked.
+> 24. Whether Plivo supports sending **DTMF digits outbound** on a live call, and by what
+>     mechanism. A third-party source says it does not and falls back to locally generated
+>     in-band tones — confirm or refute against Plivo's own docs.
+> 25. **Where Plivo terminates the media for an India-region account.** If our media server
+>     is in Mumbai but Plivo's edge is in the US, every packet crosses an ocean twice and
+>     the whole latency case for this migration changes. Quote whatever the documentation
+>     actually says about media/PoP geography; if it says nothing, say so.
+>
+> **G. Limits and failure**
+> 26. Documented rate limits per endpoint, and the response when one is hit.
+> 27. The error format (status codes and body shape), and whether errors carry a stable
+>     machine-readable code we can branch on.
+> 28. Any documented maximum on concurrent calls per account, and whether it is raised on
+>     request.
+
+**How the answers land.** Facts read from Plivo's own documentation pages are
+**VERIFIED-VENDOR-DOCS** and may be written into the adapter with the URL and date cited at
+the point of use. Anything answered from an SDK reference is **VERIFIED-OSS** and says so.
+Anything Comet cannot find is recorded here as **UNKNOWN** with the question number, and
+the corresponding adapter method stays a named refusal until it is answered — it does not
+get a plausible default.

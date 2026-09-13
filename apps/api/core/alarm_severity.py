@@ -197,6 +197,18 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # AI-disclosure and recording-notice lines are not ours — the invariant that "no
     # column, config row or client-authored script can withdraw it" is exactly what has
     # been withdrawn. Not a config nit.
+    # Hard rule 5's composer failed its own check, so the config version was refused and
+    # nothing was published. It pages not because a caller is at risk — the refusal is the
+    # system working — but because every OTHER reader of that prompt (publish read-back,
+    # `verification.judge`, the drift sweep) assumes the floor is already there and scores
+    # accordingly. A composer that can drop it once is one none of them can trust.
+    "agent_config_floor_absent": "page",
+    # The mint path collided on a row it then could not read. Degraded, not dangerous: the
+    # client is told to retry and nothing was written. `attention` rather than `page`
+    # because the usual cause is a tenant-scope mistake on our side, which is a bug to fix
+    # in daylight — the alternative cause (a row really disappearing from an append-only
+    # table) would announce itself through the immutability guards, far louder than this.
+    "agent_config_version_unreadable": "attention",
     "engine_agent_drift_detected": "page",
     "handoff_destination_unknown": "attention",
     "handoff_brief_channel_absent": "attention",

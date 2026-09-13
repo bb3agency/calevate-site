@@ -1078,12 +1078,13 @@ def test_the_docstring_exemption_is_load_bearing_on_the_real_tree() -> None:
     EXPLANATIONS AS THE OFFENCE, which is exactly the failure mode the exemption exists to
     prevent, and this is the evidence.
 
-    FIVE FILES MAKE THE ARGUMENT, and it is worth knowing which:
+    SIX FILES MAKE THE ARGUMENT, and it is worth knowing which:
 
       extraction.py             why the region is invisible in the Azure hostname
       calevate_shared/engine.py the builder's own docstring, on the v1 surface it emits
       engine/bolna.py           why `provider: "google"` is REFUSED rather than missing
       workers/document_ocr.py   the evidence that the Google leg takes images at all
+      voice_worker/pipeline.py  the probe that proves the compat surface takes a call
       check_model_residency.py  this guard's explanation of every watched host
 
     `bolna.py` JOINED THE LIST WHEN GEMINI'S HOST BECAME A WATCHED ONE, and that is the
@@ -1101,6 +1102,17 @@ def test_the_docstring_exemption_is_load_bearing_on_the_real_tree() -> None:
     caller. Reporting the citation as the offence would make the guard an argument for
     deleting evidence.
 
+    `voice_worker/pipeline.py` JOINED IT ON 13 SEP 2026 AND IS `document_ocr.py`'S CASE
+    EXACTLY. Its `_build_llm` docstring quotes the three-request probe that settles whether
+    Google's OpenAI-compat surface will carry an IN-CALL turn — an unknown field is named
+    and refused, `stream: true` and `tools`/`tool_choice` both pass the body parser and
+    fail only on the credential — which is what upgrades that claim from SECONDARY to
+    VERIFIED-LIVE. The module builds no endpoint of its own: it calls
+    `google_openai_compat_base_url()`, and a test in `tests/voice_worker_pipeline_test.py`
+    asserts its client's base URL is exactly what that builder emits rather than a string
+    that merely looks like it. Reporting the probe as the offence would, again, make this
+    guard an argument for deleting the evidence hard rule 11 asks for.
+
     If this list ever reaches a size where updating it feels like paperwork, model
     endpoints have spread through the tree and THAT is the finding.
     """
@@ -1115,6 +1127,7 @@ def test_the_docstring_exemption_is_load_bearing_on_the_real_tree() -> None:
     offenders = {failure.split(":", 1)[0] for failure in failures}
     assert offenders == {
         "apps/api/engine/bolna.py",
+        "apps/voice-worker/voice_worker/pipeline.py",
         "apps/workers/document_ocr.py",
         "apps/workers/extraction.py",
         guard.BUILDER_HOME,

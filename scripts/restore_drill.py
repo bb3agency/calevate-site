@@ -835,7 +835,27 @@ class RestoreDrill:
                     f"VALUES ('{_uuid7()}', '{tenant}', '{agent}', "
                     f"'+9{prefix}00{index:04d}', 'inbound_call', 'new')"
                 )
+            # D-594's two ledgers, and the ORDER is the point: the attestation carries an
+            # FK to the version, so the version id has to be a name here rather than a
+            # second `_uuid7()` call. A drill fixture with a dangling FK would fail the
+            # restore on the INSERT rather than on the property being drilled.
+            config_version_id = _uuid7()
+            # A real 64-hex digest so the columns hold what production holds — COMPUTED
+            # rather than typed, because a hand-copied hash that is 63 characters long
+            # fails on an INSERT nobody reads carefully. Deliberately the digest of the
+            # EMPTY string and not of any prompt: the drill restores rows, it does not
+            # re-verify an attestation, and a fixture that looked like a real agent's
+            # prompt hash would invite someone to try.
+            empty_sha = hashlib.sha256(b"").hexdigest()
             statements += [
+                "INSERT INTO agent_config_versions (id, tenant_id, agent_id, "
+                "prompt_sha256, model_config_sha256) VALUES "
+                f"('{config_version_id}', '{tenant}', '{agent}', "
+                f"'{empty_sha}', '{empty_sha}')",
+                "INSERT INTO agent_config_attestations (id, tenant_id, agent_id, "
+                "agent_config_version_id, prompt_sha256, observed_at) VALUES "
+                f"('{_uuid7()}', '{tenant}', '{agent}', '{config_version_id}', "
+                f"'{empty_sha}', now())",
                 "INSERT INTO usage_events (id, tenant_id, unit_type, qty, unit_cost_paid) "
                 f"VALUES ('{_uuid7()}', '{tenant}', 'platform_min', 12.5000, 6.0000)",
                 "INSERT INTO consent_ledger (id, tenant_id, phone_e164, purpose, status) "
