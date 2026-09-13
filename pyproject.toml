@@ -281,8 +281,12 @@ testpaths = ["tests", "apps", "packages"]
 # apps/* are virtual workspace members imported by path (apps.api.main), so the
 # repo root must be importable. `apps/voice-runtime` is hyphenated (D-18) and so is
 # NOT importable as a module path — it runs with `--app-dir`, and tests get the same
-# treatment by putting the directory itself on the path.
-pythonpath = [".", "apps/voice-runtime"]
+# treatment by putting the directory itself on the path. `apps/voice-worker` (D-592) is
+# hyphenated for the same reason and joins it here — but it contributes a PACKAGE
+# (`voice_worker/`) rather than top-level modules, because two hyphenated deployables
+# putting flat modules on one `sys.path` resolve by path order with no error message, and
+# the test suite is the one process that imports both. See its `__init__.py`.
+pythonpath = [".", "apps/voice-runtime", "apps/voice-worker"]
 markers = [
     "smoke: end-to-end smoke test (tenant -> agent -> webhook -> lead)",
     "rls: cross-tenant isolation tests; must return zero rows",
