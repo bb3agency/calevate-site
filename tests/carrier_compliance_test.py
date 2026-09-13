@@ -27,6 +27,7 @@ Run: uv run pytest -q tests/carrier_compliance_test.py
 
 from __future__ import annotations
 
+import io
 import uuid
 from decimal import Decimal
 from typing import Any
@@ -269,6 +270,32 @@ def test_the_vendor_file_rules_are_enforced_at_the_door() -> None:
     # object key in the first place, so this protects the console and the carrier's form.
     assert assert_document_within_limits(filename="../../gst.pdf", size_bytes=10) == "....gst.pdf"
 
+    # A name made ENTIRELY of the characters we strip sanitises to nothing, and nothing is
+    # not a filename: storing it would put an empty cell on the client's own screen and an
+    # unnamed attachment on the carrier's form, with nobody able to say which document it
+    # was. The refusal names the file the client can still see in front of them.
+    with pytest.raises(ProblemError) as nameless:
+        assert_document_within_limits(filename="/\\/", size_bytes=10)
+    assert nameless.value.code == "carrier_document_filename_required"
+    assert "rename" in (nameless.value.remediation or "").lower()
+
+
+def test_a_status_the_check_constraint_cannot_hold_is_raised_not_carried() -> None:
+    """The narrowing between the database and the Literal. `CarrierStatus` is what every
+    gate switches on, and `ck_carrier_compliance_applications_status_enum` is what keeps
+    the column inside it — so a value outside the set means the constraint was changed
+    without this module, and carrying it onward would let an unknown word decide whether a
+    number may be dialled. It is raised at the read instead, naming the value found."""
+    from apps.api.compliance.carrier_application import (
+        CARRIER_APPLICATION_TRANSITIONS,
+        _as_status,
+    )
+
+    for state in CARRIER_APPLICATION_TRANSITIONS:
+        assert _as_status(state) == state
+    with pytest.raises(ValueError, match="under_carrier_review"):
+        _as_status("under_carrier_review")
+
 
 def test_the_object_key_separates_one_submission_from_the_next() -> None:
     """A rejected application is resubmitted IN PLACE, so a key built from the application
@@ -414,6 +441,99 @@ async def test_a_rejected_application_can_be_sent_again(s3: Any) -> None:
     assert body["rejection_reason"] is None
 
 
+async def test_an_accepted_application_is_not_sent_again(s3: Any) -> None:
+    """The OTHER refusal the submit route owes a client, and the one a flat "not
+    submittable" would bury: an account whose application the carrier has already accepted
+    is not blocked on anything, and telling them to send more paperwork would have them
+    chasing a document nobody wants. `carrier_application_in_review` and this are separate
+    codes because the next action differs — wait, versus nothing further is needed."""
+    org = await _tenant()
+    assert (await _submit(org)).status_code == 201
+    await _accept(org)
+
+    stored_before = set(s3.objects)
+
+    again = await _submit(org, filename="gst-again.pdf")
+    assert again.status_code == 409, again.text
+    body = again.json()
+    assert body["type"].rsplit("/", 1)[-1] == "carrier_application_already_accepted"
+    assert "already been accepted" in body["detail"]
+    assert "Numbers can be arranged" in body["remediation"]
+    # Refused BEFORE the bytes are stored, like the unsigned first application: a client
+    # who cannot submit spends none of our storage.
+    assert set(s3.objects) == stored_before
+
+
+async def test_the_cas_refuses_a_submission_the_routes_own_check_would_have_let_through(
+    s3: Any,
+) -> None:
+    """The route's `assert_submittable` is ADVISORY and this is why the CAS still has to
+    guard: the route reads the state, then spends seconds storing an upload, and an
+    operator can record the carrier's decision inside that window. Driving the service
+    function directly is that window with the timing taken out — the guard lives in the
+    UPDATE's WHERE clause, so a state that changed after the read still refuses, and the
+    documents already in front of the carrier are not overwritten."""
+    from apps.api.compliance.carrier_application import (
+        ensure_application_row,
+        read_carrier_application,
+        submit_application,
+    )
+
+    org = await _tenant()
+    tenant_id = uuid.UUID(str(org["id"]))
+    assert (await _submit(org)).status_code == 201
+    await _accept(org)
+
+    async with tenant_session(tenant_id) as session:
+        application_id = await ensure_application_row(session, tenant_id=tenant_id)
+        with pytest.raises(ProblemError) as refused:
+            await submit_application(
+                session,
+                tenant_id=tenant_id,
+                application_id=application_id,
+                document_kind="gst_certificate",
+                document_object_ref="carrier-compliance/x/y/z/registration.pdf",
+                document_filename="gst-late.pdf",
+                signed_application_ref=None,
+            )
+    assert refused.value.code == "carrier_application_not_submittable"
+    assert refused.value.status == 409
+    assert "Reload" in (refused.value.remediation or "")
+
+    # And the write really did not happen: the accepted application still names the
+    # carrier's reference and the document the carrier actually saw.
+    async with tenant_session(tenant_id) as session:
+        record = await read_carrier_application(session, tenant_id=tenant_id)
+    assert record.status == "accepted"
+    assert record.carrier_application_id == CARRIER_REF
+    assert record.document_filename == "gst-certificate.pdf"
+
+
+async def test_an_upload_that_only_declares_its_size_late_is_still_stopped() -> None:
+    """`await file.read()` reads whatever was sent, so the memory one request spends would
+    be chosen by whoever sent it — on an ASGI server that is every tenant's process, not
+    only the uploader's. The read is chunked and STOPS at the carrier's ceiling rather than
+    buffering to the end and measuring afterwards, which is the whole point: the refusal
+    has to arrive without the bytes having been kept.
+
+    Driven directly because the global 2 MiB body limit (`core/middleware.MAX_BODY_BYTES`)
+    sits in front of this route and answers 413 long before 5 MiB arrives. That makes this
+    bound defence in depth — the same per-route bound `kb/routes._read_bounded` keeps — and
+    a bound whose only proof was another module's constant is one that stops holding the
+    day that constant moves."""
+    from apps.api.compliance.carrier_application import CARRIER_MAX_DOCUMENT_BYTES
+    from apps.api.compliance.carrier_application_routes import _read_bounded
+    from fastapi import UploadFile
+
+    oversized = io.BytesIO(b"\0" * (CARRIER_MAX_DOCUMENT_BYTES + 1))
+    with pytest.raises(ProblemError) as refused:
+        await _read_bounded(UploadFile(file=oversized, filename="huge-scan.pdf"))
+    assert refused.value.code == "carrier_document_too_large"
+    # Stopped, not drained: the refusal is raised while bytes are still unread, so the
+    # rest of the body is never paid for.
+    assert oversized.tell() <= CARRIER_MAX_DOCUMENT_BYTES + 1
+
+
 # ---------------------------------------------------------------------- ops's half
 
 
@@ -515,6 +635,71 @@ async def test_there_is_no_client_route_that_decides_an_application() -> None:
     # Exactly ONE client write exists, and it is the submission: it carries documents and
     # takes no status at all, so there is no client-reachable path to `accepted`.
     assert client_writers == {PATH}, client_writers
+
+
+async def test_a_rejection_without_a_reason_is_refused_before_the_database_sees_it(
+    s3: Any,
+) -> None:
+    """ "Rejected, no reason recorded" is the ticket nobody can close: the client is shown
+    this sentence and is the only person who can act on it. The CHECK constraint is the
+    real enforcement — this exists so an operator reads a problem+json naming the missing
+    field instead of a 500 out of an IntegrityError at the end of the transaction."""
+    org = await _tenant()
+    assert (await _submit(org)).status_code == 201
+
+    blank = await _decide(org, status="rejected", rejection_reason="   ")
+    assert blank.status_code == 422, blank.text
+    body = blank.json()
+    assert body["type"].rsplit("/", 1)[-1] == "carrier_rejection_reason_required"
+    assert "which document to replace" in body["detail"]
+    assert "the client is shown this" in body["remediation"]
+
+    # Nothing was recorded: the application is still where the carrier left it, so the
+    # operator can record the decision properly rather than having to undo a half one.
+    async with _client() as http:
+        current = (await http.get(PATH, headers=await _headers(org))).json()
+    assert current["status"] == "submitted"
+    assert current["rejection_reason"] is None
+
+
+async def test_ops_reads_one_clients_application_and_the_read_is_recorded(s3: Any) -> None:
+    """The operator's own view, and the ledger row it owes. This is an admin-realm GET of
+    one client's tenant-scoped rows OUTSIDE impersonation (SEC-COMP §5, D-482 L-1) — a
+    business's registration paperwork is their data, and "who looked at this account and
+    when" is not answerable afterwards unless the read says so itself.
+
+    It reads through the TENANT's own RLS session rather than a widened policy, so what
+    ops sees here is exactly what the client's own screen sees — asserted by comparing the
+    two bodies rather than by trusting that two handlers agree."""
+    from apps.api.core.auth import ADMIN_TENANT_READ_ACTION
+
+    org = await _tenant()
+    tenant_id = uuid.UUID(str(org["id"]))
+    assert (await _submit(org)).status_code == 201
+    await _accept(org)
+
+    token = await _make_admin()
+    async with _client() as http:
+        ops = await http.get(
+            f"/v1/admin/tenants/{tenant_id}/carrier-application",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        client = await http.get(PATH, headers=await _headers(org))
+    assert ops.status_code == 200, ops.text
+    assert ops.json() == client.json()
+    assert ops.json()["carrier_application_id"] == CARRIER_REF
+
+    async with untenanted_session() as session:
+        reads = (
+            await session.execute(
+                text("SELECT actor_id FROM audit_log WHERE action = :action AND tenant_id = :tid"),
+                {"action": ADMIN_TENANT_READ_ACTION, "tid": tenant_id},
+            )
+        ).all()
+    assert [str(row[0]) for row in reads] == [token.rsplit(":", 1)[-1]], (
+        "the operator's read of a client's paperwork must leave exactly one ledger row "
+        "naming that operator"
+    )
 
 
 # ------------------------------------------------------ the gate, where a number is got

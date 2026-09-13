@@ -145,13 +145,6 @@ CARRIER_DOCUMENT_CONTENT_TYPES: Final[dict[str, str]] = {
 #: leaving them to discover it from the carrier.
 DocumentKind = Literal["gst_certificate", "certificate_of_incorporation", "udyam_registration"]
 
-#: What the first application must carry: the signature of an authorised signatory AND a
-#: visible company seal. REPORTED, 12 Sep 2026. Enforced as a REQUIREMENT on the first
-#: submission (see `submit_application`) rather than as an image check we cannot perform —
-#: no code in this repository can see a seal, and pretending otherwise would be a control
-#: in name only.
-SIGNED_APPLICATION_REQUIRED_FIRST: Final = True
-
 # --------------------------------------------------------------------------------------
 # OUR STATE MACHINE
 # --------------------------------------------------------------------------------------
@@ -523,11 +516,18 @@ async def submit_application(
     in front of the carrier, and "what did we actually send them" would stop being
     answerable.
 
-    Zero rows means the guard refused, and the discriminating read below says which of the
-    two refusals it was — the shape `db/transition.transition_status` uses, open-coded here
-    because that helper CASes an existing row by id and this statement has to create the
-    row when there is none. It runs only on the losing path and writes nothing, so it
-    cannot reintroduce the race.
+    Zero rows means the guard refused, and the answer is ONE conflict rather than a second
+    read that names which state refused us. The route refuses `submitted` and `accepted`
+    from its own read BEFORE any bytes are stored (`assert_submittable`), so the only thing
+    that reaches this statement is a row that moved between that check and this write —
+    a client uploading a scan while an operator records the carrier's decision. "It changed
+    while it was being sent" is what actually happened, and reloading is what shows them
+    the state that now holds. The discriminating read this replaced bought a more specific
+    sentence for that one interleaving, at the price of a round trip on the failure path
+    and a trailing arm no test could reach: it could not tell "the CAS refused this state"
+    from "the state moved again since", so one of its two answers was reachable only by
+    losing a race in flight, and a `# pragma: no cover` on a hard rule 5 surface is the
+    thing hard rule 10 exists to refuse.
 
     `application_id` is supplied by the caller rather than minted here because the object
     keys are built from it: the documents are stored BEFORE the row is written, so that a
@@ -557,12 +557,7 @@ async def submit_application(
     ).first()
     if row is not None:
         return UUID(str(row[0]))
-
-    current = await read_carrier_application(session, tenant_id=tenant_id, carrier=carrier)
-    assert_submittable(current)
-    # Submittable, yet the CAS matched nothing: the row moved between the two statements,
-    # which is the ordinary lost-race answer and not a state to report as a bug.
-    raise ProblemError.conflict(  # pragma: no cover - requires losing a race in-flight
+    raise ProblemError.conflict(
         "carrier_application_not_submittable",
         "This business's compliance application changed while it was being sent.",
         remediation="Reload the page and try again — someone else may have changed it.",
@@ -584,9 +579,15 @@ def assert_first_application_is_signed(
     would let a reviewer believe the check had happened. What is enforced is that the form
     is PRESENT, with the requirement stated in words the client can act on, and a human at
     the carrier is the thing that reads it.
+
+    The requirement used to be carried by a module constant, `SIGNED_APPLICATION_REQUIRED_
+    FIRST = True`, read by a guard above this one. It was a feature flag that was not a
+    flag — no config row, no setting, nothing that could set it False — so the guard was a
+    branch with one reachable arm wearing a `# pragma: no cover`, which on a hard rule 5
+    surface fails the coverage ratchet exactly like an untested branch. The requirement
+    itself is unchanged and its evidence class is recorded in this docstring, which is
+    where the next reader looks anyway; withdrawing it would be an edit to this function.
     """
-    if not SIGNED_APPLICATION_REQUIRED_FIRST:  # pragma: no cover - constant, one edit
-        return
     if signed_application_supplied or record.signed_application_ref is not None:
         return
     raise ProblemError(
@@ -608,13 +609,16 @@ def assert_first_application_is_signed(
 def assert_submittable(record: CarrierApplicationRecord) -> None:
     """Raise if this application may not be (re)submitted right now.
 
-    ONE implementation of the two refusals, called from TWO places on purpose. The route
-    asks it BEFORE storing any bytes, so a client whose application is already with the
-    carrier is refused without spending storage on documents nobody will read; the CAS in
-    `submit_application` asks it again afterwards and remains the authority, because only
-    the CAS can tell a stale read from a current one. Sharing the function is what keeps
-    the two answers identical — the alternative is a screen that refuses in two different
-    sentences depending on how fast the client clicked.
+    ONE implementation of the two refusals, asked by the route BEFORE any bytes are
+    stored: a client whose application is already with the carrier, or already accepted,
+    is refused without spending storage on documents nobody will read, and is told which
+    of the two it is because the next action differs.
+
+    It is ADVISORY, not the authority. The CAS in `submit_application` decides, and its
+    `WHERE status IN (SUBMITTABLE_FROM)` refuses exactly the states named here — so a row
+    that moves between this check and that write is refused there, with the conflict that
+    describes what actually happened (it changed mid-submission) rather than a second copy
+    of these sentences about a state that has already been left behind.
     """
     if record.status == "submitted":
         raise ProblemError.conflict(
@@ -759,7 +763,13 @@ async def ensure_application_row(
         ),
         {"id": uuid7(), "tid": tenant_id, "carrier": carrier},
     )
-    row = (
+    # `scalar_one`, not `first()` behind a None arm: the INSERT above either wrote the row
+    # or found it already there, so exactly one row is this query's guarantee rather than a
+    # case to handle. The arm it replaces answered `not_found` for a row this same session
+    # had just inserted — a sentence that would have been a lie about an impossible state,
+    # where SQLAlchemy's own `NoResultFound` is a 500 with an operator alert pointing at
+    # this line (`billing/service.py` and `ops/secret_service.py` make the same trade).
+    application_id = (
         await session.execute(
             text(
                 "SELECT id FROM carrier_compliance_applications "
@@ -767,10 +777,8 @@ async def ensure_application_row(
             ),
             {"tid": tenant_id, "carrier": carrier},
         )
-    ).first()
-    if row is None:  # pragma: no cover - RLS would have to hide a row we just inserted
-        raise ProblemError.not_found("Carrier compliance application")
-    return UUID(str(row[0]))
+    ).scalar_one()
+    return UUID(str(application_id))
 
 
 __all__ = [
