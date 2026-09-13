@@ -99,8 +99,65 @@ So the position for a private clinic placing an appointment reminder is:
 - prohibited from using its ordinary number (Reg 3(1), 22(1)(i)(A)), **and**
 - not eligible for any service series that currently exists.
 
-**This is a regulatory gap, not a mistake in our reading.** It is the single most important
-constraint on this product and it is nobody's bug to fix.
+> ⚠ **CORRECTED LATER THE SAME DAY. THE SENTENCE THAT STOOD HERE IS WITHDRAWN.** It read:
+> *"This is a regulatory gap, not a mistake in our reading. It is the single most important
+> constraint on this product and it is nobody's bug to fix"* — and §5 drew from it that a clinic
+> *"cannot ship lawfully today"*. A second, deeper pass by the same research agent located the
+> migration directions the first pass missed, and they change the finding from a **prohibition**
+> to a **transition gap**. The two bullets above survive as a reading of the regulation's text;
+> what was wrong was treating that text as self-executing for every sector from the day it
+> commenced. See §2.6.
+
+### 2.6 IT IS A TRANSITION GAP — how TRAI actually operates the rule
+
+The amended regulation states the special-series requirement broadly. **TRAI then operationalises
+it sector by sector, through dated directions naming who must migrate and by when.** That is the
+mechanism the first pass missed, and three instruments show it:
+
+| Instrument | What it did |
+|---|---|
+| TRAI Direction, **19 Nov 2025** | `1600` migration deadlines for named RBI-, SEBI- and PFRDA-regulated categories. TRAI records that **most regulated entities were still using ordinary 10-digit numbers even after `1600` was allocated** — and answered that with dates, not with a finding that they were already in breach. |
+| TRAI Direction, **16 Dec 2025** | IRDAI-regulated entities, deadline **15 Feb 2026**, after which they may not place service or transactional calls from outside `1600` *"even with the explicit or inferred consent of customers."* |
+| DoT Order **16-2/2023-AS-III/TRAI/N115** (30 Jun 2026) + TRAI Direction (10 Aug 2026) | Created `1601` for non-BFSI, then opened Phase I to utilities and logistics/courier only, with further sectors *"notified separately … from time to time."* |
+
+**The tell is that TRAI had to name the entities and set the dates.** Had the regulation alone
+barred every ordinary-number commercial call from commencement, none of those directions would
+have been needed.
+
+For private healthcare: **no migration deadline has been published, and no express transitional
+authorisation has been published either.** Both UNKNOWN — not found. So the adopted position is:
+
+> Clinic service calls from ordinary carrier-issued numbers occupy a **regulatory transition
+> gap** — neither clearly authorised nor clearly subject to an operative clinic-specific
+> migration deadline.
+
+#### 2.6.1 The DoT order exists, and `1601` numbers ARE ten-digit
+
+The 30 June 2026 order the first pass could not find is cited above, and one detail bears
+directly on the founder's model: **`1601ABCXXX` is itself a ten-digit number.** So "the clinic
+buys a proper 10-digit number" is ambiguous, and the ambiguity is the entire question:
+
+| "Proper 10-digit number" means | Lawful for outbound clinic service calls? |
+|---|---|
+| An allotted `1601ABCXXX` number | **Yes** — that is the designated class. Blocked only by healthcare not yet being in a phase. |
+| An ordinary `022`/`080` DID registered on a DLT portal | **Not automatically.** Sender registration (Reg 3(2)) and special-series allotment (Reg 3(1)) are two separate requirements; satisfying one does not satisfy the other. |
+
+⚠ **DLT registration does not convert an ordinary number into a special-series resource**, and an
+ordinary 10-digit mobile is the practice TRAI's own Press Release 11/2025 §4(c) describes the
+amendment as restricting. Neither may be written down anywhere as our compliance basis.
+
+#### 2.6.2 Outpero is not evidence, in either direction
+
+That Outpero appears to use ordinary 10-digit numbers is **not established from their public
+material**: the research could not determine which carrier originates their calls, which series a
+recipient actually sees, whether the customer or Outpero is the registered Principal Entity, or
+under what instrument healthcare customers use that number. The `+91 98765…` numbers on their
+site sit in an inbound display, not a proven outbound caller ID — and their own site calls
+conversational inbound answering *"coming soon"*.
+
+**Even if confirmed, vendor behaviour is not regulatory authority.** A competitor's calls
+connecting proves the carrier permits the traffic, not that the traffic is lawful. `docs/TRD.md`
+§10 already refuses this exact class of reasoning about this exact company.
 
 ### 2.3 D-420 is CONFIRMED and its reasoning strengthened
 
@@ -269,10 +326,14 @@ calling-hours clause and filed it, exactly as gate 20 does for the Azure region.
   special series. This is the first vertical's core product and the regulation does not reach
   it.
 
-**Cannot ship lawfully today, for a clinic:**
+**Ships only on a carrier's written authority — the transition gap (§2.6):**
 
 - Outbound appointment reminders, confirmations, reschedules — the whole service-call class.
-  Prohibited from an ordinary number, and no series exists that a clinic can hold.
+  ⚠ This heading read **"Cannot ship lawfully today"** until the §2.6 correction. That was too
+  categorical: healthcare has no published migration deadline AND no published transitional
+  authorisation, so the class is unresolved rather than barred. What it needs before it ships is
+  the carrier's written statement of the authority it relies on — §6.2, whose wording is now
+  specific enough to send.
 
 **Ships with work:**
 
@@ -287,8 +348,23 @@ not merely a feature line**, and the inbound half is the half that is legal toda
 
 1. **Which special series may a private clinic use for service calls?** If the answer is
    none, is healthcare scheduled for a later 1601 phase, and when? → TRAI / DoT.
-2. **What authority does Plivo rely on** for non-BFSI service calls from `022`/`080`? →
-   Plivo, in writing.
+2. **What authority does the carrier rely on** for non-BFSI service calls from `022`/`080`?
+   → Plivo or Exotel, in writing. Send exactly this:
+
+   > "Please identify the TRAI regulation, TRAI direction, DoT order or operative Code-of-
+   > Practice clause under which a non-BFSI private medical clinic may make service voice calls
+   > from its DLT-registered ordinary geographic DID instead of a `1601`-series number."
+
+   A sufficient answer looks like this, and anything vaguer is not an answer:
+
+   > "Until healthcare entities are notified for migration to the 1601 series, this carrier
+   > permits a duly verified private medical clinic to originate non-promotional service calls
+   > from the clinic's allotted ordinary business number, subject to PE/DLT registration,
+   > consent/customer-relationship requirements, DNC controls, autodialer notification and the
+   > carrier's applicable Code of Practice."
+
+   That does not erase the ambiguity. It does give us a named party who asserted the authority,
+   which is materially stronger than inferring it from a competitor's calls connecting.
 3. **Is interactive generative speech a "Robo-Call"?** Undefined in every instrument
    examined. → TRAI.
 4. **Must a voice script be a registered content template?** The Schedule I template controls
@@ -306,8 +382,26 @@ regulator, a carrier or a lawyer, and none of it is coded around.
 
 ## 7. What must not be written anywhere until those close
 
-- That a clinic may make service calls from a geographic number.
+- That a clinic may make service calls from a geographic number **as a settled matter** — and
+  equally, that it may not. Both overstate. The position is §2.6's transition gap, and the only
+  thing that moves it is a carrier's written authority or a TRAI phase notification.
+- That DLT registration of an ordinary DID satisfies the special-series requirement. It does not
+  — they are separate clauses (Reg 3(2) vs 3(1)).
 - That healthcare is eligible for 1600 or 1601.
 - That a 9am–9pm window is the regulator's stated rule (say: our platform window).
 - That inbound answering requires DLT registration — it does not, and saying so would add
   friction and cost to onboarding for no legal reason.
+- That another vendor's practice makes ours lawful (§2.6.2).
+
+### 7.1 The sentence our own policy may safely use
+
+Until the carrier answers, client-facing copy describes the mechanism rather than claiming
+compliance:
+
+> "Calls are originated using a carrier-issued number registered to the customer and operated
+> under the carrier's applicable DLT, KYC and commercial-calling requirements. Number-series
+> eligibility is subject to the current TRAI/DoT phased implementation and the originating
+> carrier's written authorization."
+
+**Never** "unconditionally compliant with TCCCPR". That is the claim this whole document exists
+to stop us from making.
