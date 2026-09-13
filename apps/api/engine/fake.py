@@ -350,6 +350,50 @@ EXTERNAL_DEPLOYMENT_CAPABILITIES = EngineCapabilities(
     webhook_auth="none",
 )
 
+# THE FOURTH SHAPE, and the one that keeps the THIRD hosting member executable offline
+# (D-592, `docs/PIPECAT-MIGRATION.md` §1.1).
+#
+# `AgentHosting` gained `owned_runtime` — we hold the agent record AND run the program —
+# and `EngineCapabilities.hosts_agents()` answers True for it. Without a fixture declaring
+# it, `test_every_agent_hosting_shape_is_exercised_by_the_roster` fails by design and every
+# clause that branches on hosting runs for only two of the three members. `engine_name_
+# drift_test` says a third unselectable fixture has to be ARGUED for rather than appear;
+# this is the argument.
+#
+# **WHAT IS HONEST ABOUT IT, AND WHAT A REAL ADAPTER STILL OWES.** `FakeEngine.get_agent`
+# answers from its own in-process store, which on this shape is not the `control_plane`
+# echo it would be for a vendor-backed adapter: the fake IS the running process, so its
+# dict is the nearest thing a fixture has to "the runtime reporting on its own memory".
+# What it CANNOT stand in for is the real witness — a production `owned_runtime` adapter
+# answers `get_agent` from `agent_config_attestations` (migration `d4e1c7a09b35`), written
+# by a worker that recomputed the prompt digest itself, because only then can the answer
+# DISAGREE with the control plane. This fixture has no database and no second process, so
+# it exercises the CAPABILITY branches and not the attestation contract; the conformance
+# clause for that lands with `apps/api/engine/pipecat.py`, which is what will read the
+# table.
+#
+# Every other answer matches the default deliberately, `EXTERNAL_DEPLOYMENT_CAPABILITIES`'
+# rule: the axis under test is where the agent comes from, and a fixture differing on five
+# axes could not tell a reader which one a failure was about. The three speech legs stay
+# `ours` — unlike the externally-deployed profile, where `engine` is FORCED because an
+# engine with no agent record can have no BYOK leg. Here there is an agent record and every
+# leg really is ours, which is the whole point of running the pipeline.
+OWNED_RUNTIME_CAPABILITIES = EngineCapabilities(
+    stt="ours",
+    tts="ours",
+    llm="ours",
+    agent_hosting="owned_runtime",
+    campaigns=False,
+    knowledge_base=True,
+    number_series=frozenset({"standard"}),
+    caller_id=True,
+    inbound_binding=True,
+    transfer=False,
+    in_call_handoff=True,
+    script_override=True,
+    webhook_auth="none",
+)
+
 
 # The header and key the SIGNING fake instance uses. Both are ours and both are inert:
 # the header is `X-Calevate-`-prefixed so it can never read as a captured vendor

@@ -1040,6 +1040,14 @@ def _call_prompt_for(
     there is no agent record, so this is the only vehicle hard rule 5 has and every dial
     carries it.
 
+    ON AN `owned_runtime` ENGINE IT IS None FOR `control_plane`'S REASON AND NOT BY
+    DEFAULT (D-592). The agent record is ours, the worker loads the composed prompt from
+    the `agent_config_versions` row the publish minted, and the worker's attestation is
+    what proves it is holding it. A per-dial copy would be the same one-string-two-
+    authorities drift, with the added cost that the attestation would then be witnessing a
+    string no call had used. `hosts_agents()` covers both shapes, which is why this
+    function has no branch of its own.
+
     IT GOES THROUGH `_to_config` AND `compose_engine_prompt`, never a second rendering.
     That is the argument `engine_drift_for` already makes for reusing `_to_config`: a
     prompt built here by hand would be a second expression of our intent, and the two

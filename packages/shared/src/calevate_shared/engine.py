@@ -98,7 +98,55 @@ SpeechControl = Literal["ours", "engine"]
 #:   is the only vehicle left, so a dial without one is an agent that can be scripted into
 #:   claiming it is human. An adapter with no per-call prompt field at all must refuse
 #:   EVERY dial by name; a weaker floor is not an option this vocabulary offers.
-AgentHosting = Literal["control_plane", "external_deployment"]
+#:
+#: ``owned_runtime`` — WE HOLD THE AGENT RECORD AND WE RUN THE PROGRAM. The conversation
+#: loop is our own container on a framework we deploy (D-592, Pipecat), so there is no
+#: third party standing between our configuration and the running pipeline. Both older
+#: members are wrong about this shape in ways that matter, which is why it is a third
+#: member rather than a reuse of one of them (`docs/PIPECAT-MIGRATION.md` §1.1):
+#:
+#: * **Not `control_plane`.** That member's read-back is the ENGINE answering about ITS
+#:   OWN state. With no vendor there, `get_agent` would read our own tables and hand back
+#:   the configuration `create_agent` had just written — *"it agrees with the caller by
+#:   construction"*, the exact defect `get_agent`'s own docstring forbids below. Gate 2's
+#:   property (APPLIED, not merely ACCEPTED) would not become false; it would become
+#:   UNFALSIFIABLE, which is worse, because the gate then goes green having measured
+#:   nothing and nothing anywhere says so.
+#: * **Not `external_deployment`.** That member makes `create_agent`, `get_agent` and
+#:   `publish_agent` refuse, so nothing is ever recorded `live` — and the ground it
+#:   refuses on (*"there is no agent record to write and no read-back to prove"*) is
+#:   untrue of us: we write the agent record and there IS a read-back. A capability whose
+#:   stated reason is false of the adapter declaring it is a capability nobody can gate
+#:   on, and a comment saying so does not fix it.
+#:
+#: **AND NOT `self_hosted`, WHICH IS THE OBVIOUS NAME AND WOULD BE A LIE.** The container
+#: runs on somebody else's platform (Pipecat Cloud). What is ours is the RUNTIME — the
+#: pipeline, the prompt, the model calls, the transcript — not the metal. A member named
+#: for infrastructure we do not own would send the next reader reasoning about a machine
+#: room that does not exist, and would be the wrong answer the first time somebody asks
+#: where the process is scheduled.
+#:
+#: **WHAT REPLACES THE READ-BACK, AND IT IS THE LOAD-BEARING HALF.** Under a rented engine
+#: the vendor is an INDEPENDENT WITNESS: we ask it what it is running and it may disagree
+#: with us. Delete the vendor and the witness goes with it — unless something else can
+#: disagree. Something can: **the running worker, about what it actually loaded.** An
+#: `owned_runtime` adapter mints an immutable, content-addressed `agent_config_versions`
+#: row (`apps/api/agents/config_versions.py`), the worker records what it loaded into
+#: memory at session start, and `get_agent` returns **the worker's last attestation** —
+#: never what the control plane intends. The two can disagree — a worker on a stale
+#: deploy, a version published after the session started, a truncated prompt — and that
+#: disagreement is exactly what gate 2, the drift sweep and `agents/verification.py` exist
+#: to detect. The property survives; only the witness changes, from a vendor to our own
+#: process reporting on its own memory. An adapter that answers `get_agent` from the
+#: config version it wrote, rather than from an attestation, has reintroduced
+#: `control_plane`'s defect under a different member's name.
+#:
+#: HARD RULE 5 RIDES THE AGENT RECORD HERE, NOT THE CALL. The worker loads the composed
+#: prompt from the config version, so `compose_engine_prompt` is still the one composer
+#: and the floor is still checked — at mint time rather than at dial time.
+#: `require_call_compliance_floor` is therefore a no-op on this shape for precisely the
+#: reason it is a no-op on `control_plane`, and `CallContext.system_prompt` stays None.
+AgentHosting = Literal["control_plane", "external_deployment", "owned_runtime"]
 
 #: Every capability an adapter answers for, as a closed set — because each value is a
 #: refusal reason an operator reads, a metric label, and the argument to
@@ -289,8 +337,24 @@ class EngineCapabilities(BaseModel):
         adapters, in the conformance suite and in the console pre-flight, and a fifth
         caller writing `!= "external_deployment"` would be correct today and wrong the
         day a third hosting shape lands.
+
+        **THE THIRD SHAPE LANDED AND THIS IS THE FUNCTION THAT ABSORBED IT** (D-592,
+        `docs/PIPECAT-MIGRATION.md` §1.1). `owned_runtime` answers True to all three halves
+        of the question above — we create the agent record, we configure it, and it answers
+        what it is running — so every caller asking "may this engine hold an agent of ours"
+        keeps the answer it had, and not one of them needed changing. What differs on that
+        shape is WHO answers the third half: a vendor under `control_plane`, our own
+        worker's attestation under `owned_runtime`. That is a fact about the adapter's
+        `get_agent`, not about whether an agent record exists, so it does not belong in
+        this predicate.
+
+        MEMBERSHIP RATHER THAN `!= "external_deployment"`, which is the smaller diff and is
+        what the paragraph above warned against: a fourth shape — an engine that holds no
+        record AND runs no program of ours, say — would be silently admitted here and would
+        reach `create_agent`. Every member is named, so a new one has to be decided rather
+        than defaulted into whichever branch it happens to fall through to.
         """
-        return self.agent_hosting == "control_plane"
+        return self.agent_hosting in ("control_plane", "owned_runtime")
 
     def provisions(self, series: NumberSeries) -> bool:
         """Can this engine provision a number in `series`? Asked per SERIES rather than
@@ -309,9 +373,11 @@ class EngineCapabilities(BaseModel):
         if name in ("stt", "llm", "tts"):
             return self.is_ours(name)
         if name == "agent_hosting":
-            # True only for `control_plane`. Same reading as a speech leg: "does this
-            # engine have agents" is never the question — every voice engine does — the
-            # question is whether one of OURS can live there.
+            # True for `control_plane` and `owned_runtime`, false for
+            # `external_deployment` — `hosts_agents()` is the one place that mapping is
+            # written. Same reading as a speech leg: "does this engine have agents" is
+            # never the question — every voice engine does — the question is whether one
+            # of OURS can live there.
             return self.hosts_agents()
         if name == "script_override":
             return self.script_override
@@ -367,6 +433,15 @@ WEBHOOK_AUTH_BY_ENGINE: dict[str, WebhookAuthMethod] = {
     # difference would stop the clause saying which one it measured. Never selectable as
     # `ENGINE=` (`config.EngineName` does not include it), so it can reach no deployment.
     "fake-deployed": "none",
+    # The OWNED-RUNTIME fixture (`fake.OWNED_RUNTIME_CAPABILITIES`, D-592): the same
+    # adapter run with a we-hold-the-record-and-run-the-program set of answers. It is the
+    # only engine in this codebase declaring the third `AgentHosting` member, so without it
+    # every clause branching on hosting runs for two of three shapes. `none` because it
+    # inherits the default fake's webhook posture — the axis under test is agent hosting —
+    # and because `none` is what the shape itself will really declare: nothing external
+    # calls us when we run the pipeline (PIPECAT-MIGRATION §3D). Never selectable as
+    # `ENGINE=` (`config.EngineName` does not include it), so it can reach no deployment.
+    "fake-owned-runtime": "none",
     # Cartesia Line's webhooks are AUTHENTICATED BY SOMETHING WE CANNOT CHECK YET, and
     # `hmac` is this Literal's only value that fails CLOSED. What is read at source is
     # that webhooks exist at all (`AgentSummary.webhook_id` in their generated client);
@@ -1711,8 +1786,27 @@ def openai_base_url() -> str:
 
 
 def google_openai_compat_base_url() -> str:
-    """Google Gemini's **OpenAI-compatibility** base URL — THE only way this tree builds one,
-    and the DASHBOARD leg only (D-478).
+    """Google Gemini's **OpenAI-compatibility** base URL — THE only way this tree builds one.
+
+    ⚠ **"THE DASHBOARD LEG ONLY (D-478)" WAS TRUE UNTIL 13 SEP 2026 AND THIS LINE SAID IT.**
+    `apps/voice-worker/voice_worker/pipeline.py::_build_llm` now calls this for the IN-CALL
+    Gemini leg as well. D-478's restriction was not about this endpoint being unfit for a
+    call — it was that the in-call leg went through the RENTED engine, which talked the
+    native `:generateContent` protocol with its own `genai.Client` and read no base URL of
+    ours. D-592 makes the worker the engine, so that leg is now ours to dial and this is
+    the only Gemini endpoint it may dial. The wire shape was probed from a container on
+    13 Sep 2026 — `stream: true` and `tools`/`tool_choice` both pass Google's body parser
+    and fail only on the credential — which is why the `tools` claim at the foot of this
+    docstring is VERIFIED-LIVE rather than SECONDARY. That the endpoint ACCEPTS the shape
+    is not proof the semantics hold on a live turn; that is still unmeasured.
+
+    **`ModelConfig` STILL REFUSES AN IN-CALL `llm_base_url` ON THE GOOGLE LEG, AND THAT IS
+    CORRECT, NOT STALE.** `PostureLeg.in_call_endpoint_is_ours` is False for `google` while
+    `ENGINE=bolna`, and the refusal's wording describes that world accurately. The worker
+    does not fight it: it calls this function directly and reads no endpoint from config,
+    which is what "there is exactly one endpoint" means when the caller is the engine. The
+    flag flips with the engine, not with this docstring — `docs/PIPECAT-MIGRATION.md` §6
+    step 6 owns it.
 
     NO ARGUMENT, for `openai_base_url()`'s reason: there is exactly one endpoint this product
     may address for the Gemini dashboard leg, it is fixed, and a parameter would be a caller's
@@ -4694,6 +4788,20 @@ class VoiceEngine(Protocol):
         An unknown ref must RAISE, not return an empty snapshot. A caller reading back an
         agent that does not exist is a caller about to record "prompt not applied" for an
         agent it never created — or worse, "no dangling reference" about a phantom.
+
+        **ON AN `owned_runtime` ENGINE THE ANSWER IS THE WORKER'S LAST ATTESTATION, AND
+        THAT IS NOT A DETAIL OF THE ADAPTER** (D-592, `docs/PIPECAT-MIGRATION.md` §1.1).
+        Both promises above are about A THIRD PARTY'S STATE DIVERGING FROM OUR RECORD.
+        Delete the third party and an adapter answering from its own tables satisfies both
+        clauses and measures nothing — the agrees-by-construction defect two paragraphs
+        down, arrived at by removing the vendor rather than by writing a lazy adapter. So
+        the witness moves rather than the contract: the running worker recomputes the
+        prompt digest from what is in its memory and writes it to
+        `agent_config_attestations`, and THAT is what this method reports. It can
+        disagree with the config version the control plane published, which is the whole
+        point; `AgentSnapshot.*_readable` stays meaningful because a worker that has never
+        attested is a genuine "we could not find it" rather than a permanent platform
+        fact.
 
         **THIS IS THE PROMPT READ-BACK, so it REFUSES BY NAME on an `external_deployment`
         engine** (D-280) — `engine_lacks("agent_hosting")`, not a snapshot with three

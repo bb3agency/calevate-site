@@ -1149,6 +1149,13 @@ def truthful_answer_unfalsifiable(roots: Iterable[Path] | None = None) -> list[s
     #
     #   control_plane        the prompt is agent-record state, so the adapter must build
     #                        it with `compose_engine_prompt`;
+    #   owned_runtime        the prompt is agent-record state TOO — the record is ours and
+    #                        the worker loads it from an `agent_config_versions` row — so
+    #                        it owes exactly what `control_plane` owes and is covered by
+    #                        the same `hosts` branch below, deliberately rather than by
+    #                        falling through it (D-592, PIPECAT-MIGRATION §1.1). What is
+    #                        different on that shape is who WITNESSES the prompt, which is
+    #                        `get_agent`'s business and not this section's;
     #   external_deployment  there is no agent record, so the prompt rides the CALL and
     #                        the adapter must run `require_call_compliance_floor` inside
     #                        `start_outbound_call` — which refuses a dial that is not
@@ -1166,8 +1173,9 @@ def truthful_answer_unfalsifiable(roots: Iterable[Path] | None = None) -> list[s
         if unknown:
             failures.append(
                 f"{adapter.name} declares agent hosting {unknown[0]!r}, which is not a "
-                "member of `AgentHosting`. This section only knows what the two shipped "
-                "shapes owe hard rule 5; a third has to say so here before it can ship"
+                "member of `AgentHosting`. This section only knows what the shipped "
+                "shapes owe hard rule 5, each named in the comment above; another has to "
+                "say so there before it can ship"
             )
         # A CALL, not a mention: an adapter that keeps the import and hand-rolls the
         # f-string underneath it is exactly the regression this section exists for, and a

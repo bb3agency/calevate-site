@@ -272,7 +272,12 @@ def require_call_compliance_floor(*, engine: VoiceEngine, prompt_on_the_wire: st
     and `verification.judge` PROVED the engine holds, so a dial carries no prompt and this
     is a no-op. On an `external_deployment` engine there is no agent record and no
     read-back, so the prompt riding the call is the only vehicle left — and a call placed
-    without it is an agent that can be scripted into claiming it is human.
+    without it is an agent that can be scripted into claiming it is human. An
+    `owned_runtime` engine is a no-op here too, for `control_plane`'s exact reason and not
+    as an oversight: the agent record is OURS, the worker loads the composed prompt out of
+    the `agent_config_versions` row a publish minted, and the worker's attestation is what
+    says whether it is holding it (D-592, `docs/PIPECAT-MIGRATION.md` §1.1). Both shapes
+    answer `hosts_agents()` True, so the guard above already covers it.
 
     **`prompt_on_the_wire` IS WHAT THE ADAPTER IS ABOUT TO SEND, NOT WHAT IT WAS HANDED**,
     and the difference is the whole reason the argument is not `ctx`. An adapter that

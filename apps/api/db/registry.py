@@ -65,6 +65,14 @@ TENANT_TABLES = [
     "campaign_contacts",
     "dlt_templates",
     "prompt_versions",
+    # WHAT AN AGENT IS SUPPOSED TO RUN, AND WHAT A WORKER SAYS IT LOADED (D-592,
+    # migration d4e1c7a09b35). Two tenant tables because both name one client's agent and
+    # carry the digest of that client's own script: the version is minted by the control
+    # plane, the attestation is written by the running worker, and `get_agent` on an
+    # `owned_runtime` engine answers from the second — which only means anything while the
+    # two are written by different things. Both append-only (see APPEND_ONLY_TABLES).
+    "agent_config_versions",
+    "agent_config_attestations",
     # A/B script testing (ROADMAP M3, migration b3c8f27d41ae): the experiment, its two
     # arms, and the arm each call actually ran.
     "prompt_experiments",
@@ -811,4 +819,14 @@ APPEND_ONLY_TABLES = [
     # un-withdraws a price change nobody approved, retroactively and silently.
     "platform_list_rate_cancellations",
     "legal_acceptances",
+    # The engine-facing config snapshot and the worker's report of what it loaded (D-592,
+    # migration d4e1c7a09b35). Append-only for `platform_model_prices`' reason, pointed at
+    # EVIDENCE instead of money: a version somebody could edit would let today's
+    # configuration rewrite what a worker attested to last week, and an editable
+    # attestation is a witness that can be told what it saw — which is the entire property
+    # these two tables exist to provide once there is no vendor left to disagree with us.
+    # A correction is a new attestation at a later `observed_at`; a config change is a new
+    # version. The blanket `calevate_forbid_mutation` applies with no carve-out.
+    "agent_config_versions",
+    "agent_config_attestations",
 ]

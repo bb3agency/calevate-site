@@ -21,6 +21,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    func,
     text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
@@ -405,6 +406,132 @@ class PromptVersion(PKMixin, TimestampMixin, Base):
     notes: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[UUID | None] = mapped_column(PgUUID(as_uuid=True))
     published_at: Mapped[datetime | None]
+
+
+class AgentConfigVersion(PKMixin, Base):
+    """ONE IMMUTABLE, CONTENT-ADDRESSED SNAPSHOT OF WHAT AN AGENT IS SUPPOSED TO RUN.
+
+    D-592, `docs/PIPECAT-MIGRATION.md` §1.1, migration `d4e1c7a09b35`. The row IS its two
+    digests: the composed prompt and the resolved `ModelConfig`, each as a sha256
+    hexdigest. `apps/api/agents/config_versions.py` is the only writer and states exactly
+    what goes into each hash and what is deliberately left out.
+
+    **WHY IT IS NOT `prompt_versions`, WHICH ALREADY EXISTS AND ALSO VERSIONS A PROMPT.**
+    That table holds the CLIENT'S AUTHORED SCRIPT — the text a person typed, the
+    structured form it was compiled from, an operator's note about why, a rollback target.
+    This holds the ENGINE-FACING COMPOSITION of it: platform rules, voice style, the
+    composed opening line, that script, and `TRUTHFUL_ANSWER_DIRECTIVE`, hashed. One is
+    what somebody wrote; the other is what the model is handed. They change at different
+    moments — a disclosure toggle or a voice change moves this and not that — and only
+    this one has to be comparable, byte for byte, against what a running process reports.
+    Folding them together would mean either putting a build artefact in an authoring table
+    or making the client's editor re-render every time the platform preamble changed.
+
+    Append-only (`db/registry.APPEND_ONLY_TABLES`) with the blanket
+    `calevate_forbid_mutation`: a version somebody could edit would let today's
+    configuration rewrite what a worker attested to last week, which is the one fact these
+    rows exist to fix in place.
+
+    The constraints below mirror migration `d4e1c7a09b35` — the CHECKs and the unique key
+    are the source of truth and this class must not drift from them (DATA-MODEL §10).
+    """
+
+    __tablename__ = "agent_config_versions"
+    __table_args__ = (
+        # A sha256 hexdigest as `hashlib.sha256(...).hexdigest()` spells it. Checked in
+        # the database because these columns are COMPARED — an attestation is judged by
+        # `=` against one of these — and one side stored uppercase or truncated would read
+        # as a permanent drift incident on an agent that is fine.
+        CheckConstraint("prompt_sha256 ~ '^[0-9a-f]{64}$'", name="prompt_sha256_hex"),
+        CheckConstraint("model_config_sha256 ~ '^[0-9a-f]{64}$'", name="model_config_sha256_hex"),
+        # CONTENT-ADDRESSED: the same content on the same agent is the same version, so a
+        # publish that changes nothing mints nothing and an attestation quoting a version
+        # id resolves to exactly one content.
+        UniqueConstraint("agent_id", "prompt_sha256", "model_config_sha256"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    # No `index=True`: the unique constraint above leads with `agent_id`, which is every
+    # lookup this table serves — `prompt_versions` two classes up makes the same call.
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: sha256 of `compose_engine_prompt(cfg)` as UTF-8, WITHOUT `caller_memory`.
+    prompt_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    #: sha256 of the resolved `ModelConfig` as canonical JSON (sorted keys, no whitespace).
+    model_config_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class AgentConfigAttestation(PKMixin, Base):
+    """WHAT A RUNNING WORKER REPORTS IT ACTUALLY LOADED — the witness that replaces a
+    vendor read-back (D-592, `docs/PIPECAT-MIGRATION.md` §1.1, migration `d4e1c7a09b35`).
+
+    Under a rented engine the vendor is an INDEPENDENT AUTHORITY: we ask it what it is
+    running and it may disagree with us. On `agent_hosting="owned_runtime"` there is no
+    vendor, so a `get_agent` that read `agent_config_versions` would be the control plane
+    agreeing with itself by construction — the exact defect `VoiceEngine.get_agent`'s
+    docstring forbids. This table is the second party: our own process, reporting on its
+    own memory.
+
+    **`prompt_sha256` HERE IS RECOMPUTED BY THE WORKER, NEVER COPIED FROM THE VERSION
+    ROW.** A copy would make every comparison pass and measure nothing, which is the whole
+    failure mode being designed out. The comparison — this digest against the referenced
+    version's — is a FINDING when it differs, not an error to smooth over: a worker on a
+    stale deploy, a version published after the session started, a prompt truncated on the
+    way into the process. `config_versions.record_attestation` returns that verdict rather
+    than raising, because the row is evidence either way and must be written either way.
+
+    Append-only for `AgentConfigVersion`'s reason, pointed at evidence: an UPDATE would let
+    a later belief rewrite what a process reported at an instant that has passed.
+
+    NOTHING HERE IS A DATA PRINCIPAL'S DATA. No number, no transcript, no `subject_ref`,
+    no link to a call or a lead — an attestation is about an AGENT. That is what makes an
+    append-only row lawful to keep indefinitely, and it is why
+    `scripts/check_erasure_coverage.py` has nothing to reach.
+    """
+
+    __tablename__ = "agent_config_attestations"
+    __table_args__ = (
+        CheckConstraint("prompt_sha256 ~ '^[0-9a-f]{64}$'", name="prompt_sha256_hex"),
+        # Exactly the read `get_agent` runs — newest attestation for one agent.
+        # `observed_at DESC, id DESC` for `ix_legal_acceptances_current`'s reason: two
+        # workers attesting in the same instant must still resolve deterministically
+        # rather than by planner whim, and `id` is uuid_v7 so it breaks the tie by write
+        # order. Declared with a DESC ordering, so autogenerate cannot faithfully diff it;
+        # the migration is the source of truth for its existence.
+        Index(
+            "ix_agent_config_attestations_latest",
+            "agent_id",
+            text("observed_at DESC"),
+            text("id DESC"),
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    #: Denormalised from the version row, deliberately: the read this table exists for is
+    #: "what did the worker last attest FOR THIS AGENT", and reaching it through the
+    #: version would put a join on the `get_agent` path to recover a column the writer
+    #: already holds.
+    agent_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: WHAT THE PROCESS ACTUALLY LOADED.
+    agent_config_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_config_versions.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: The worker's OWN recomputation over what is in its memory.
+    prompt_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    #: WHEN THE WORKER SAW IT, on the worker's clock. Separate from `created_at` for
+    #: `legal_acceptances.accepted_at`'s reason: one is the act, the other is when we
+    #: wrote it down, and a worker that attests and then waits on a busy database must not
+    #: have that delay read as a late load.
+    observed_at: Mapped[datetime] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 
 EXPERIMENT_STATUSES = ("running", "concluded")

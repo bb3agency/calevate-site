@@ -493,7 +493,17 @@ def test_every_engine_in_the_webhook_auth_table_is_an_engine_we_ship() -> None:
     deleted — would leave the receiver authenticating deliveries for a name nothing can
     produce, and no adapter-side test can see it because no adapter has that name.
     """
-    shipped = {"bolna", "fake", "fake-restricted", "fake-deployed", "cartesia"}
+    shipped = {
+        "bolna",
+        "fake",
+        "fake-restricted",
+        "fake-deployed",
+        # The third conformance fixture (D-592): the one engine declaring
+        # `agent_hosting="owned_runtime"`, so the hosting axis is exercised for all three
+        # of its members offline. Argued in `fake.OWNED_RUNTIME_CAPABILITIES`.
+        "fake-owned-runtime",
+        "cartesia",
+    }
     assert set(WEBHOOK_AUTH_BY_ENGINE) == shipped
     assert WEBHOOK_AUTH_BY_ENGINE["cartesia"] == "hmac"
     assert WEBHOOK_AUTH_BY_ENGINE["bolna"] == "source_ip"

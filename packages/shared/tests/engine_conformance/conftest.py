@@ -28,11 +28,12 @@ from apps.api.engine.cartesia import CartesiaEngine
 from apps.api.engine.fake import (
     DICTATED_SPEECH_CAPABILITIES,
     EXTERNAL_DEPLOYMENT_CAPABILITIES,
+    OWNED_RUNTIME_CAPABILITIES,
     FakeEngine,
 )
 from calevate_shared.engine import VoiceEngine
 
-#: FOUR SUBJECTS, THREE OF THEM REAL ADAPTERS (D-93).
+#: SIX SUBJECTS, TWO OF THEM REAL ADAPTERS (D-93).
 #:
 #: `cartesia` is the second real vendor and the first that DISAGREES with us: it dictates
 #: its own STT and TTS, signs its webhooks, and provisions no Indian number class. It is
@@ -56,7 +57,23 @@ from calevate_shared.engine import VoiceEngine
 #: without this fixture the branch where an externally-deployed engine actually dials
 #: would be contract nothing executes. Same argument as `fake-restricted`, about a bigger
 #: difference: a capability profile needs no vendor account and no imagined vendor JSON.
-ENGINE_IDS = ["fake", "fake-restricted", "fake-deployed", "bolna", "cartesia"]
+#:
+#: `fake-owned-runtime` is the SIXTH and the only subject declaring the third
+#: `AgentHosting` member (D-592, `docs/PIPECAT-MIGRATION.md` §1.1): we hold the agent
+#: record AND run the program. Without it, `hosts_agents()` True would be exercised on one
+#: shape only and `test_every_agent_hosting_shape_is_exercised_by_the_roster` would say so.
+#: It stands in for the CAPABILITY half and not the witness half — a real `owned_runtime`
+#: adapter answers `get_agent` from `agent_config_attestations`, written by a separate
+#: process, and a fixture with no database and no second process cannot reproduce that.
+#: Its clauses land with `apps/api/engine/pipecat.py`; see `fake.OWNED_RUNTIME_CAPABILITIES`.
+ENGINE_IDS = [
+    "fake",
+    "fake-restricted",
+    "fake-deployed",
+    "fake-owned-runtime",
+    "bolna",
+    "cartesia",
+]
 
 # A completed execution in the shape the vendor's own OpenAPI document declares
 # (`AgentExecution`, D-350): cent-denominated costs with the five-key per-leg breakdown,
@@ -992,6 +1009,15 @@ def make_engine(engine_id: str, *, listing_rows: int = 1) -> VoiceEngine:
             # keyed by name, and two instances answering to one name while declaring
             # different capabilities make that table ambiguous.
             name="fake-deployed",
+        )
+    if engine_id == "fake-owned-runtime":
+        return FakeEngine(
+            listing_page_size=FULL_LISTING_PAGE,
+            capabilities=OWNED_RUNTIME_CAPABILITIES,
+            # Its own name for `fake-restricted`'s reason: `WEBHOOK_AUTH_BY_ENGINE` is
+            # keyed by name, and two instances answering to one name while declaring
+            # different capabilities make that table ambiguous.
+            name="fake-owned-runtime",
         )
     if engine_id == "cartesia":
         return CartesiaEngine(
