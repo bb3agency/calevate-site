@@ -249,11 +249,28 @@ uv run python -m scripts.seed    # reserved slugs, vertical templates, retention
    docs/DATA-MODEL.md §1). Never write queries that bypass RLS; never use the admin DB
    role in app code paths. Any new tenant table ships WITH its policy in the same
    migration and a cross-tenant zero-rows test.
-2. **Engine isolation**: only `apps/api/engine/` (and its voice-runtime twin) may
-   import vendor SDKs or see vendor payload shapes. Everything else consumes OUR
-   normalized models (`CallEvent`, `TranscriptTurn`). Raw vendor payloads go to object
-   storage refs, never into typed columns. Both adapters (bolna, fake) must pass the
-   conformance suite in `packages/shared/tests/engine_conformance/`.
+2. **Engine isolation**: only `apps/api/engine/`, its voice-runtime twin, and
+   **`apps/voice-worker/`** may import vendor SDKs or see vendor payload shapes.
+   Everything else consumes OUR normalized models (`CallEvent`, `TranscriptTurn`). Raw
+   vendor payloads go to object storage refs, never into typed columns. EVERY adapter
+   must pass the conformance suite in `packages/shared/tests/engine_conformance/` — the
+   set is `pyproject.toml`'s `forbidden_modules` under `[tool.importlinter]`, NAMED here
+   rather than copied because this rule shipped enumerating "(bolna, fake)" while
+   `engine/cartesia.py` already existed, which is the count-in-prose defect hard rule 4
+   exists for.
+   ⚠ **THE THIRD HOME IS NEW (D-592, 13 Sep 2026) AND IT WIDENS THE LIST, NOT THE RULE.**
+   D-31 rented the engine, so the adapter CALLED a vendor over HTTP and one directory
+   could hold every vendor shape. Pipecat is a framework we DEPLOY: the conversation loop
+   now runs in our own container on Pipecat Cloud `ap-south`, importing `pipecat-ai`,
+   `sarvamai` and Cartesia directly. What the rule protects is unchanged and is now
+   enforced one place further out — **the worker emits OUR normalized events, never a
+   Pipecat frame**, and nothing downstream of it learns Pipecat exists. Moving the
+   boundary's location while keeping the boundary is maintenance; leaving a fourth
+   deployable unnamed and letting vendor imports land wherever they were convenient is
+   exactly the drift this rule stops. The worker does NOT belong in `apps/api` (a
+   monolith carrying tenancy, billing and the console, which has no business in a voice
+   container) nor in `apps/voice-runtime` (hard rule 3 forbids heavy imports there by
+   name, and an ONNX turn-detection pipeline is the heaviest import in this tree).
 3. **voice-runtime discipline**: webhook handlers verify authenticity per engine (HMAC
    where the engine signs; for unsigned engines like Bolna: source-IP allowlist +
    execution-id dedupe, payloads as hints, poller as truth — TRD §5), ack < 500ms,
