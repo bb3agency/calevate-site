@@ -271,6 +271,74 @@ hand than guessed at.
 > **We are not asking for a compliance programme** — only a written view on 1 and 2, with 3–5
 > addressed briefly. We have the primary documents and can supply them.
 
+## 7a. LETTER — to Gnani support, on the TTS leg and voice cloning
+
+**Why this exists (founder decision, 13 Sep 2026).** Sarvam's public TTS API exposes no
+clone identifier — `speaker` is a closed enum — so a cloned voice cannot be addressed through
+it by any orchestrator (`number-series-inbound-vs-outbound` context; the Sarvam finding is in
+the 12 Sep research). Gnani's cloning IS API-addressable and the founder ran it end to end in
+Telugu on 6 Sep (`docs/evidence/gnani-evaluation-2026-09-06.md` §1.4, FOUNDER-OBSERVED).
+
+**Scope: the TTS leg only.** Sarvam `saaras:v4` stays on STT — cloned voices are a TTS
+problem, Gnani STT would save ₹0.05/call-minute (§1.2 of that evaluation), and Sarvam's STT is
+first-class in Pipecat with Telugu support. Swapping it too would buy five paise and cost a
+maintained integration.
+
+**Q1 blocks the build.** If each utterance counts against the 60 req/min cap, Gnani TTS cannot
+carry ten concurrent lines on the self-serve tier, and building the service first would be
+building it for nothing.
+
+> **Subject: Vachana TTS — concurrency limits, cloned-voice terms, and 8 kHz telephony output**
+>
+> We are building an AI voice-agent product for Indian SMBs and are evaluating Vachana TTS for
+> the synthesis leg, with cloned voices as the primary reason. We hold a self-serve account and
+> have run cloning successfully in Telugu. Five questions before we commit engineering to it.
+>
+> **1. The TTS rate limit — this is our blocking question.** Your pricing page prints
+> **60 requests/minute** for Text to Speech, and prints a separate **20 concurrent sessions**
+> figure for Speech-to-Text WebSocket but no concurrency figure for TTS.
+>
+> Over `wss://api.vachana.ai/api/v1/tts`, does **one open WebSocket session count as one
+> request**, or does **each synthesis request within that session count separately**?
+>
+> This decides whether the product is possible: at ten concurrent calls, each producing roughly
+> 4–5 agent utterances a minute, we would issue 40–50 synthesis requests a minute. Under the
+> second reading we would exhaust the cap at steady state, before any peak.
+>
+> **2. Is there a concurrent-session limit for TTS WebSocket**, and what is it? If the
+> self-serve limits are too low for us, what tier raises them and at what price?
+>
+> **3. Cloned voices — commercial and legal terms.** Your pricing page lists TTS at
+> Rs 27 / 10,000 characters. For a cloned voice created through Voice Cloning:
+> - Is synthesis billed at that same rate, or is there a premium?
+> - Is there a one-time charge to create a clone, and how many may one account hold?
+> - **What rights does Gnani take over the uploaded reference audio and the resulting voice
+>   embedding?** Our customers are clinics, and the voice will often be a named doctor's. We
+>   need to tell them, in writing, who may use that voice and for what.
+> - Is the reference audio or the embedding used to train or improve any Gnani model?
+> - How long is a `speaker_embedding` valid — is it a permanent artefact we may cache, or does
+>   it expire or require regeneration?
+>
+> **4. Telephony audio format on the cloned-voice endpoint.** Our calls run over an Indian PSTN
+> carrier at **8 kHz G.711**. The cloned-voice documentation shows a default `audio_config` of
+> 44100 Hz linear PCM.
+>
+> Does the cloned-voice endpoint (`model: vachana-vc-v1`, over both REST and
+> `wss://api.vachana.ai/api/v1/tts`) accept **8 kHz mu-law output directly**? If it does not, we
+> must resample every utterance, which costs latency on a budget we are already tight against.
+>
+> **5. Latency and reliability.** Do you publish a time-to-first-audio figure for cloned-voice
+> synthesis over the WebSocket endpoint? Is there an SLA, a status page, or a DPA available to
+> self-serve customers? And does Gnani offer a Data Processing Agreement suitable for a customer
+> handling Indian health-adjacent personal data under the DPDP Act?
+>
+> A precise answer to question 1 is what we need first; the rest can follow.
+
+**Filing the answer.** It goes into `docs/evidence/` with the date and who read it, and Q1's
+answer is what converts `GnaniTTSService` from a plan into work. Until it arrives the TTS leg
+stays on Sarvam Bulbul v3 and nothing is blocked — the swap is a service class and a config
+value, not a redesign.
+
 ## 8. A cheap experiment worth running first
 
 Place one inbound and one outbound call through Outpero and **record the exact number presented
