@@ -351,14 +351,47 @@ on each leg.**
 
 Costs nothing, and it sharpens every letter above.
 
-## 9. COMET PROMPT — the Plivo REST surface, because it is egress-blocked from the build container
+## 9. WHAT WE DO NOT NEED FROM THE CARRIER — founder, 13 Sep 2026
+
+Recorded before the research prompt, because it removes about a third of what that prompt
+would otherwise have asked for, and because a question asked is a question somebody spends
+an hour answering.
+
+**We do not provision numbers, and we do not release them.** A number is not something this
+product buys through an API. Where a number is ours to supply it is a **140 or 1600 series**
+number, which is obtained by application through the carrier and the regulatory process —
+not by a purchase call — and it is not retired afterwards. The earlier working assumption
+that the adapter would drive a self-serve number marketplace was carried over from the
+rented engine, which resells telephony; we are not that shape.
+
+**Consequence for `docs/PIPECAT-MIGRATION.md` §3 category A.** `search_numbers`,
+`provision_number` and `release_number` become **named refusals**, not Plivo calls. This
+settles a contradiction that was open between two documents: the contract inventory's §9.1
+reasoned these become refusals, §3 of the migration spec listed them as carrier calls, and
+the founder's answer is §9.1's. `list_engine_numbers`, `bind_inbound_number` and
+`unbind_inbound_number` survive as real work — a number we hold still has to be pointed at
+an agent — and so do `start_outbound_call` and `end_call`, which are the calls themselves.
+
+Two questions are also **closed by decision rather than research**:
+
+- **The account's data region is INDIA, deliberately.** BLOCKER-1 called it irreversible and
+  therefore worth researching first; the founder's answer is that India is the right choice
+  on its own merits and is an advantage to hold, so there is nothing to weigh. It stops
+  being a blocker and becomes a setting.
+- **Where the carrier terminates media is not a gate.** It is worth knowing and it is not
+  worth waiting for: the answer that matters is what a real call measures, not what a
+  documentation page claims. It moves to §3.6 beside the other measurements (M-1..M-5) and
+  out of the research prompt entirely. If a measured call is fine, the question never needed
+  an answer; if it is not, the measurement says so more credibly than any page would.
+
+## 10. COMET PROMPT — the Plivo REST surface, because it is egress-blocked from the build container
 
 **Why this exists.** `docs/PIPECAT-MIGRATION.md` §3 divides the adapter four ways, and
-category A — `start_outbound_call`, `end_call`, `search_numbers`, `provision_number`,
-`release_number`, `list_engine_numbers`, `bind_inbound_number`, `unbind_inbound_number` —
-is "real work against the carrier". Every one of those is an HTTP call whose method, path,
-body and response shape must come from a primary source. Measured 13 Sep 2026 from the
-build container:
+category A is real work against the carrier. After §9 above, what remains of it is
+`start_outbound_call`, `end_call`, `list_engine_numbers`, `bind_inbound_number`,
+`unbind_inbound_number` — plus the CDR, which §1.2 makes the guarantee of record for every
+billable fact. Each is an HTTP call whose method, path, body and response shape must come
+from a primary source. Measured 13 Sep 2026 from the build container:
 
 ```
 https://api.plivo.com/v1/    ->  curl: (56) CONNECT tunnel failed, response 403
@@ -368,11 +401,11 @@ https://www.plivo.com/docs/  ->  403
 Pipecat's own source is the only VERIFIED-OSS route to a Plivo fact available here, and it
 contains exactly ONE REST endpoint in the whole tree — the hangup
 (`src/pipecat/serializers/plivo.py:184`,
-`DELETE https://api.plivo.com/v1/Account/{auth_id}/Call/{call_id}/`). Nothing about number
-search, purchase, release, listing, inbound binding, or the CDR. So category A cannot be
+`DELETE https://api.plivo.com/v1/Account/{auth_id}/Call/{call_id}/`). Nothing about the CDR,
+about listing numbers, or about inbound binding. So this part of category A cannot be
 written from here without inventing an API surface, which is precisely what hard rule 11
-exists to stop. **This prompt is what unblocks it.** Everything else in §6 step 3 (our own
-control plane, the attestation read, the webhook declaration) is buildable today and is not
+exists to stop. **This prompt is what unblocks it.** Everything else in §6 step 3 — our own
+control plane, the attestation read, the webhook declaration — is buildable today and is not
 waiting on this.
 
 ### The prompt
@@ -388,88 +421,88 @@ waiting on this.
 > 1. The exact base URL and path template for v1 REST calls, including whether the trailing
 >    slash is required.
 > 2. How requests authenticate (scheme, header, what the credential pair is called), and
->    whether an auth token can be scoped or is account-wide.
-> 3. Whether India-region accounts use a different host or path than the default. This
->    matters: our account must be created in the **India data region** and that choice is
->    irreversible, so I need to know whether the region changes the API surface at all.
+>    whether an auth token can be scoped to a sub-account or is account-wide.
 >
 > **B. Outbound calls**
-> 4. The endpoint that places an outbound call: method, path, every request field with its
+> 3. The endpoint that places an outbound call: method, path, every request field with its
 >    type and whether it is required, and the full response body on success.
-> 5. Whether that endpoint accepts a **client-supplied idempotency key** or any
->    deduplication token. If it does not, say so explicitly — it decides whether a retry can
->    double-dial a patient.
-> 6. The complete list of call **status** values the API can report, and where each is
+> 4. Whether that endpoint accepts a **client-supplied idempotency key** or any
+>    deduplication token. If it does not, say so explicitly. This is the most important
+>    question in the prompt: without one, a retry after a timeout places a second call, and
+>    the caller is dialled twice for one intended contact. It decides whether the retry
+>    lives in our layer or theirs, which is a design question and not a comment.
+> 5. The complete list of call **status** values the API can report, and where each is
 >    documented.
-> 7. How a call is terminated (I have `DELETE /v1/Account/{auth_id}/Call/{call_id}/` from a
+> 6. How a call is terminated (I have `DELETE /v1/Account/{auth_id}/Call/{call_id}/` from a
 >    third-party source — confirm it against Plivo's own docs), what it returns, and what it
 >    returns when the call has NOT yet been answered versus already ended. Is there any way
->    to distinguish "prevented a call that never connected" from "ended a live call"?
+>    to distinguish "prevented a call that never connected" from "ended a live call"? We
+>    need that distinction for a do-not-call stop, where the two outcomes are different
+>    facts on the record.
 >
-> **C. Numbers**
-> 8. The endpoint to **search** available numbers: method, path, every filter parameter
->    (country, type, pattern, region/city, capabilities), and the response shape.
-> 9. Which number **types** exist in India specifically, and whether any of them are
->    self-serve. Name the exact `type` values the API uses.
-> 10. The endpoint to **buy/provision** a number, its response, and — critically — whether
->     it is idempotent or safe to retry. If retrying can purchase twice, say so plainly.
-> 11. The endpoint to **release** a number, and what happens to in-flight calls on it.
-> 12. The endpoint to **list numbers already on the account**, its pagination mechanism
->     (parameter names, limits, how the client knows it has reached the end), and whether
->     the response distinguishes numbers bought through Plivo from numbers ported in.
-> 13. How an inbound number is **bound to an application/endpoint** so that incoming calls
->     reach our media server, and how that binding is removed.
+> **C. Numbers we already hold** — we do not buy or release numbers through the API, so
+> nothing about search, purchase, pricing or release is wanted here.
+> 7. The endpoint to **list the numbers already on the account**, its pagination mechanism
+>    (parameter names, limits, how the client knows it has reached the end), and every field
+>    of a number record.
+> 8. How an inbound number is **bound to an application/endpoint** so that incoming calls
+>    reach our media server, and how that binding is removed. Method, path, body, response.
+> 9. Whether numbers that were **ported in or assigned by the carrier rather than bought
+>    through Plivo** appear in that listing and can be bound the same way. This is our actual
+>    case and the docs may only describe the bought-through-Plivo path.
 >
-> **D. India-specific reality, which is the part I most need not to be guessed**
-> 14. What Plivo requires before an Indian number can be purchased or used — KYC documents,
->     address proof, business registration, per-number approvals — and roughly how long each
->     step takes.
-> 15. Whether Plivo India supports **outbound calls from a purchased Indian number to Indian
+> **D. India, which is the part I most need not to be guessed**
+> 10. What Plivo requires before an Indian number can be used on the account — KYC
+>     documents, address proof, business registration, per-number approvals — and roughly
+>     how long each step takes.
+> 11. Whether Plivo India supports **outbound calls from an Indian number to Indian
 >     mobiles**, and any restriction on that (DLT registration, header registration,
 >     scrubbing, time-of-day rules).
-> 16. Whether Plivo's India offering includes **10-digit ordinary numbers** or only
->     special series (140/1600/1601), and what documentation says about which series a
->     business may use for transactional/service voice calls.
-> 17. Whether Plivo acts as our telemarketer-of-record or whether each of our clients needs
+> 12. What Plivo's documentation says about **140 and 1600 series** numbers specifically:
+>     whether it supports them, how one is obtained, and which series its documentation says
+>     may be used for transactional/service voice calls versus promotional ones.
+> 13. Whether Plivo acts as our telemarketer-of-record or whether each of our clients needs
 >     its own registration — and what Plivo's own documentation says about reseller or
 >     sub-account compliance obligations in India.
 >
-> **E. CDR — call detail records**
-> 18. The endpoint that returns CDRs: method, path, every filter (especially any
->     time-window parameter and what timestamp it filters on — call creation or call
->     completion), and the pagination mechanism.
-> 19. Every field of a CDR record, with its type and units. I specifically need: which
->     number rang, direction, whether the call connected, **billable duration and its unit**,
->     total cost and its **currency**, disposition/hangup cause, and the timestamps.
-> 20. **How long after a call ends does its CDR become available and final?** Is there a
->     window during which cost or duration can still change? This decides whether we can
->     meter at hang-up or must reconcile later.
-> 21. Whether a CDR can be fetched by the call id returned when the call was placed.
+> **E. CDR — call detail records.** This is the guarantee of record for every billable fact,
+> so it matters as much as the dial itself.
+> 14. The endpoint that returns CDRs: method, path, every filter (especially any time-window
+>     parameter and **what timestamp it filters on** — call creation or call completion) and
+>     the pagination mechanism.
+> 15. Every field of a CDR record, with its type and units. Specifically: which number rang,
+>     direction, whether the call connected, **billable duration and its unit**, total cost
+>     and its **currency**, disposition/hangup cause, and the timestamps.
+> 16. **How long after a call ends does its CDR become available, and when is it final?** Is
+>     there a window during which cost or duration can still change? This decides whether we
+>     can meter at hang-up or must reconcile on a delay.
+> 17. Whether a CDR can be fetched by the call id returned when the call was placed.
 >
 > **F. Media streaming, which is how our own software hears the call**
-> 22. How Plivo streams call audio to an external WebSocket: the XML element or API that
+> 18. How Plivo streams call audio to an external WebSocket: the XML element or API that
 >     starts it, every attribute, the audio encoding and sample rate, and the message
 >     framing.
-> 23. Whether the stream is bidirectional (can we send audio back to the caller over the
+> 19. Whether the stream is bidirectional (can we send audio back to the caller over the
 >     same socket?) and how audio is clocked.
-> 24. Whether Plivo supports sending **DTMF digits outbound** on a live call, and by what
+> 20. Whether Plivo supports sending **DTMF digits outbound** on a live call, and by what
 >     mechanism. A third-party source says it does not and falls back to locally generated
 >     in-band tones — confirm or refute against Plivo's own docs.
-> 25. **Where Plivo terminates the media for an India-region account.** If our media server
->     is in Mumbai but Plivo's edge is in the US, every packet crosses an ocean twice and
->     the whole latency case for this migration changes. Quote whatever the documentation
->     actually says about media/PoP geography; if it says nothing, say so.
 >
 > **G. Limits and failure**
-> 26. Documented rate limits per endpoint, and the response when one is hit.
-> 27. The error format (status codes and body shape), and whether errors carry a stable
+> 21. Documented rate limits per endpoint, and the response when one is hit.
+> 22. The error format (status codes and body shape), and whether errors carry a stable
 >     machine-readable code we can branch on.
-> 28. Any documented maximum on concurrent calls per account, and whether it is raised on
+> 23. Any documented maximum on concurrent calls per account, and whether it is raised on
 >     request.
+
+**Not asked, and why.** Number search, purchase and release (§9 — we do not buy numbers).
+Whether the India region changes the API surface (§9 — India is chosen on its merits, so
+there is nothing to weigh). Where Plivo terminates media (§9 — a measurement, not a
+research question; it sits with M-1..M-5).
 
 **How the answers land.** Facts read from Plivo's own documentation pages are
 **VERIFIED-VENDOR-DOCS** and may be written into the adapter with the URL and date cited at
 the point of use. Anything answered from an SDK reference is **VERIFIED-OSS** and says so.
-Anything Comet cannot find is recorded here as **UNKNOWN** with the question number, and
-the corresponding adapter method stays a named refusal until it is answered — it does not
-get a plausible default.
+Anything Comet cannot find is recorded here as **UNKNOWN** with the question number, and the
+corresponding adapter method stays a named refusal until it is answered — it does not get a
+plausible default.

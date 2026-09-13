@@ -159,10 +159,20 @@ call must be started or ended now, through the carrier's API. `apps.api.engine.p
 The contract inventory's §9 divides the 25 methods four ways. Build in this order.
 
 **A. Real work against the carrier** — `start_outbound_call`, `end_call`,
-`search_numbers`, `provision_number`, `release_number`, `list_engine_numbers`,
-`bind_inbound_number`, `unbind_inbound_number`. These become Plivo API calls. `transfer` has
-**no caller anywhere in the tree** — implement it as a named refusal until something needs it,
-and say so in the capability.
+`list_engine_numbers`, `bind_inbound_number`, `unbind_inbound_number`. These become Plivo API
+calls. `transfer` has **no caller anywhere in the tree** — implement it as a named refusal
+until something needs it, and say so in the capability.
+
+⚠ **THIS LIST SHRANK ON 13 SEP 2026 AND USED TO NAME THREE MORE.** `search_numbers`,
+`provision_number` and `release_number` are **named refusals**, not carrier calls, and
+`number_series` is empty. We do not buy numbers through an API: where a number is ours to
+supply it is a **140 or 1600 series** number obtained by application through the carrier and
+the regulatory process, and it is never retired (founder, 13 Sep 2026 —
+`docs/evidence/pre-build-blockers-2026-09-13.md` §9, D-596). The earlier listing was carried
+over from an engine that RESELLS telephony, which is not our shape. This also settles a
+contradiction that was open between two documents: the contract inventory's §9.1 reasoned
+these three become refusals while this section listed them as carrier calls — §9.1 was
+right, and the reason it was right is a product fact rather than an architectural one.
 
 **B. Our own control plane** — `create_agent`, `update_agent`, `delete_agent`,
 `attach_kb`, `detach_kb`, `list_kb`, `list_account_kb`, `set_llm_credential`, `list_voices`.
@@ -241,8 +251,11 @@ three seconds per turn.
 
 ## 7. WHAT THIS SPEC DOES NOT DECIDE
 
-- Whether Plivo media reaches the Mumbai worker or terminates at a US edge (`pre-build-blockers`
-  §6.1). It changes no code, only whether the latency case is real.
+- Whether Plivo media reaches the Mumbai worker or terminates at a US edge. ⚠ **THIS IS NO
+  LONGER A RESEARCH QUESTION AND IS NOT A GATE** (founder, 13 Sep 2026): it changes no code,
+  and the answer that counts is what a real call measures rather than what a documentation
+  page claims. It moved to `pre-build-blockers` §3.6 beside M-1..M-5. Let the media land
+  where it lands until a measured call says otherwise.
 - What a Pipecat "active minute" bills (§3.5 P-1). It changes the cost model, not the shape.
 - Whether `sonic-3.5` is a real Cartesia identifier — **it appears nowhere in Pipecat's
   source**, whose own default is `sonic-3.6`, and Pipecat validates no Cartesia id at all. Our
