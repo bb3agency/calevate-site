@@ -290,3 +290,87 @@ async def test_the_live_check_constraint_admits_every_selectable_engine() -> Non
 
 
 __all__: list[Any] = []
+
+
+# --- 5. the contract that names the adapters, derived rather than counted ------
+
+#: The import-linter contract whose `forbidden_modules` IS the set hard rule 2 names.
+#: Matched by NAME rather than by index: contracts are reordered and inserted, and a
+#: guard that read `contracts[1]` would silently start asserting about a different one.
+ENGINE_ISOLATION_CONTRACT = "engine isolation: only engine/ may see vendor payload shapes"
+
+#: Adapter modules listed in the contract BEFORE the file they name exists, and why.
+#:
+#: import-linter does not object to a forbidden module that is absent — measured, not
+#: assumed: adding `apps.api.engine.pipecat` to a tree with no such file still reports
+#: "2 kept, 0 broken". So an entry written ahead of its code is INERT, and an inert entry
+#: is indistinguishable from an entry whose file somebody renamed. This ledger is the
+#: difference, and it is an EQUALITY assertion for the same reason `KNOWN_OPEN_COPIES` is:
+#: landing the module fails this test until the entry is deleted from here, so a line
+#: cannot outlive the gap it describes.
+ADAPTERS_LISTED_AHEAD_OF_THEIR_MODULE: dict[str, str] = {
+    "apps.api.engine.pipecat": (
+        "D-592 / docs/PIPECAT-MIGRATION.md §6: step 1 declares the boundary, step 3 "
+        "writes the adapter. Delete this entry when apps/api/engine/pipecat.py lands."
+    ),
+}
+
+
+def _forbidden_engine_modules() -> set[str]:
+    """The `apps.api.engine.*` entries of the engine-isolation contract, from source.
+
+    Read out of `pyproject.toml` rather than restated here, because a test that spelled
+    the adapter set would be the fourth copy this whole file exists to prevent.
+    """
+    import tomllib
+
+    config = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    contracts = config["tool"]["importlinter"]["contracts"]
+    contract = next(c for c in contracts if c["name"] == ENGINE_ISOLATION_CONTRACT)
+    return {m for m in contract["forbidden_modules"] if m.startswith("apps.api.engine.")}
+
+
+def test_every_shipped_adapter_is_forbidden_to_the_rest_of_the_tree() -> None:
+    """Hard rule 2's set is enumerated in ONE place, and nothing was checking it.
+
+    THE DEFECT THIS CLOSES, and CLAUDE.md already records it happening once: hard rule 2
+    shipped enumerating "(bolna, fake)" while `apps/api/engine/cartesia.py` already
+    existed. The rule's own text now names `forbidden_modules` instead of copying it —
+    but nothing in the tree read that list, so the same omission one layer down was just
+    as invisible. An adapter absent from it is not a lint failure; it is a vendor payload
+    shape that any business module may import with the guardrail green, which is worse
+    than having no guardrail because the green is load-bearing in review.
+
+    Derived from the FILES, not from a list: a fourth adapter is covered by the test that
+    already exists rather than by an edit somebody has to remember — the same argument
+    `all_credential_env_keys` makes for deriving from `EngineName`.
+    """
+    engine_dir = REPO_ROOT / "apps" / "api" / "engine"
+    forbidden = _forbidden_engine_modules()
+
+    #: An adapter is a module in `engine/` named for an engine this repo knows. The
+    #: supporting modules beside them (`capabilities`, `health`, `vendor_http`, ...) hold
+    #: no vendor payload shape and are the factory's own machinery, so naming them would
+    #: forbid business code from reaching an engine at all.
+    shipped = {
+        f"apps.api.engine.{path.stem}"
+        for path in sorted(engine_dir.glob("*.py"))
+        if path.stem in ALL_ENGINE_NAMES
+    }
+
+    missing = sorted(shipped - forbidden)
+    assert not missing, (
+        f"{missing} exist in apps/api/engine/ and are not in the import-linter contract's "
+        "forbidden_modules, so hard rule 2 does not cover them: any business module may "
+        f"import a vendor payload shape from them and `lint-imports` stays green. Add "
+        f"them to the {ENGINE_ISOLATION_CONTRACT!r} contract in pyproject.toml."
+    )
+
+    ahead = sorted(forbidden - shipped)
+    assert ahead == sorted(ADAPTERS_LISTED_AHEAD_OF_THEIR_MODULE), (
+        f"the contract forbids {ahead}, which name no module in apps/api/engine/. An "
+        "entry whose file does not exist is inert — it is also exactly what a renamed or "
+        "deleted adapter looks like. Either the module was renamed (fix the entry), or it "
+        "is deliberately ahead of its code (record it in "
+        "ADAPTERS_LISTED_AHEAD_OF_THEIR_MODULE with the step that closes it)."
+    )

@@ -1,0 +1,83 @@
+[project]
+name = "calevate-voice-worker"
+version = "0.1.0"
+description = "The conversation loop we RUN: Pipecat pipeline, our container, Pipecat Cloud ap-south."
+requires-python = ">=3.12,<3.13"
+# THE THIRD SANCTIONED HOME FOR VENDOR SDKs (D-592, hard rule 2). D-31 rented the
+# engine, so an adapter CALLED a vendor over HTTP and one directory held every vendor
+# shape. Pipecat is a framework we DEPLOY: the loop runs here, importing `pipecat-ai`,
+# `sarvamai` and Cartesia directly. The boundary did not weaken, it moved one deployable
+# further out — this worker emits OUR normalized `CallEvent`/`TranscriptTurn` and nothing
+# downstream of it learns Pipecat exists.
+#
+# NOT `apps/api` (a monolith carrying tenancy, billing and the console, which has no
+# business in a voice container) and NOT `apps/voice-runtime` (hard rule 3 forbids heavy
+# imports there by name, and an 8.7 MB ONNX turn detector is the heaviest import in this
+# tree — `pipecat/audio/turn/smart_turn/data/smart-turn-v3.2-cpu.onnx`, measured in the
+# 1.10.0 source at `f67c18af`).
+dependencies = [
+    "calevate-shared",
+    # PINNED, not floored, and this is the one place in the workspace that is. Every
+    # vendor claim this worker is built on was read out of ONE tree —
+    # `docs/evidence/pipecat-api-surface-2026-09-13.md` cites `file:line` throughout, and
+    # `docs/PIPECAT-MIGRATION.md` §0 records that the clone read at commit `f67c18af` is
+    # byte-identical to this release. A floor would let a minor bump move a line number
+    # an evidence document cites, which is how a citation quietly stops being one. The
+    # deprecation shims we must not use (`PipelineTask`, `PipelineRunner`,
+    # `AudioContextTTSService`, the four `*Word*TTSService` classes) are removal-in-2.0.0,
+    # so the pin is also what stops a resolver from handing us 2.x and deleting them.
+    #
+    # EXTRAS, and why only these two. Read out of pipecat's own `pyproject.toml` at
+    # `f67c18af` rather than guessed:
+    #   sarvam    = ["sarvamai==0.1.28"]   — the STT leg (saaras:v4) and today's TTS leg
+    #   websocket = ["fastapi>=0.115.6,<1"] — already in this tree; the transport
+    # Three extras this pipeline needs turn out to be EMPTY lists upstream, so naming
+    # them would install nothing and read as though it did: `cartesia = []` (line 78),
+    # `openai = []` (121), `silero = []` (137). Cartesia's service and Silero's VAD are
+    # carried by base dependencies (`websockets`, `onnxruntime`) and Silero's own
+    # `silero_vad.onnx` ships inside the wheel.
+    #   DELIBERATELY ABSENT: `local-smart-turn`, which pulls `torch`, `torchaudio`,
+    # `transformers` and `coremltools`. We do not need it. Smart turn v3 runs on the
+    # bundled `smart-turn-v3.2-cpu.onnx` through `onnxruntime`, which is a BASE
+    # dependency — that extra is the PyTorch path, and taking it would put a
+    # multi-gigabyte ML stack in a latency-critical container for nothing.
+    #   ALSO ABSENT: `azure` (the Cognitive Services SPEECH sdk — our Azure leg is
+    # LANGUAGE, over the OpenAI-compatible v1 surface) and `google` (`google-genai`);
+    # which BYOK LLM legs this worker wires is a §6 step 4 question and no dependency is
+    # declared ahead of the code that imports it.
+    #
+    # SUPPLY CHAIN (hard rule 9) — the lockfile diff was read before this line was
+    # written, not after. 40 new distributions, 0 removed. Exactly ONE of them has no
+    # wheel and therefore builds from an sdist at install time: `docopt` 0.6.2, a
+    # single-file pure-Python module pulled in by `num2words`, whose last release
+    # predates wheels being universal. Everything else installs as a wheel, so there is
+    # no `setup.py` of a new vendor's running here.
+    #
+    # ONE RESOLUTION EFFECT REACHES THE OTHER MEMBERS AND IS WORTH STATING PLAINLY: this
+    # workspace installs ONE venv, and `pipecat-ai` declares `protobuf<7,>=5.29.6`, so
+    # adding it moved the whole tree from protobuf 7.35.1 to 6.33.6. That is inside every
+    # other consumer's DECLARED range, checked against the vendors rather than inferred
+    # from the resolver succeeding — `opentelemetry-proto` 1.44.0 asks `protobuf<8.0,
+    # >=5.0` and `googleapis-common-protos` 1.75.1 asks `protobuf<8.0.0,>=6.33.5`, both
+    # read from PyPI on 13 Sep 2026. `apps/workers`' OTLP exporter was then imported
+    # alongside `pipecat` in one interpreter to prove it, because a satisfiable
+    # resolution and a working import are different claims.
+    #
+    # `audioop-lts` is marked `python_version >= "3.13"` and this workspace is pinned
+    # `<3.13`, so the stdlib `audioop` is what gets used here and that package is not
+    # installed at all.
+    "pipecat-ai[sarvam,websocket]==1.10.0",
+    # The worker writes our normalized events itself: §3 category D of
+    # `docs/PIPECAT-MIGRATION.md` records that `verify_webhook`/`parse_webhook` have no
+    # counterpart here because nothing external calls us. There is no webhook to receive
+    # and no intake path to extend — this process is inside our trust boundary and
+    # authenticates as itself, so it needs a database client and not an HTTP server.
+    "sqlalchemy>=2.0.44",
+    "psycopg[binary,pool]>=3.2",
+]
+
+# Virtual member, exactly like `apps/voice-runtime`: the directory is hyphenated (D-18)
+# so it is not importable as a module path, and the process runs with the directory on
+# `sys.path` rather than as `apps.voice_worker.*`.
+[tool.uv]
+package = false

@@ -11,7 +11,13 @@ dependencies = []
 package = false
 
 [tool.uv.workspace]
-members = ["apps/api", "apps/voice-runtime", "apps/workers", "packages/shared"]
+members = [
+    "apps/api",
+    "apps/voice-runtime",
+    "apps/voice-worker",
+    "apps/workers",
+    "packages/shared",
+]
 
 [tool.uv.sources]
 calevate-shared = { workspace = true }
@@ -82,6 +88,22 @@ forbidden_modules = ["apps"]
 # Extend `source_modules` whenever a new business module is added; the voice-runtime
 # twin is its own tiny module (apps/voice-runtime/engine_intake.py) and never imports
 # an adapter either.
+#
+# `apps/voice-worker` IS NOT A SOURCE MODULE AND MUST NOT BECOME ONE (D-592). It is the
+# third sanctioned home for vendor SDKs: it IMPORTS `pipecat-ai`, `sarvamai` and Cartesia
+# on purpose, because the conversation loop runs there. import-linter could not police it
+# anyway — the directory is hyphenated, so nothing under it is reachable as a module path
+# from `root_packages` — and what keeps hard rule 2 true one deployable further out is a
+# different property: the worker emits OUR normalized `CallEvent`/`TranscriptTurn` and
+# nothing downstream of it learns Pipecat exists.
+#
+# `forbidden_modules` IS the set hard rule 2 names instead of copying, and until
+# `tests/engine_name_drift_test.py::test_every_shipped_adapter_is_forbidden_to_the_rest_
+# of_the_tree` there was nothing reading it — so an adapter added to `engine/` and left
+# off this list was covered by a rule that pointed at a list that did not contain it,
+# with `lint-imports` green. That is the same omission the rule's own text records
+# (it shipped naming "(bolna, fake)" while `engine/cartesia.py` already existed), one
+# layer down. That test derives the expected set from the FILES in `apps/api/engine/`.
 [[tool.importlinter.contracts]]
 name = "engine isolation: only engine/ may see vendor payload shapes"
 type = "forbidden"
@@ -110,6 +132,15 @@ forbidden_modules = [
     "apps.api.engine.bolna",
     "apps.api.engine.cartesia",
     "apps.api.engine.fake",
+    # AHEAD OF ITS MODULE, deliberately: `apps/api/engine/pipecat.py` is step 3 of
+    # `docs/PIPECAT-MIGRATION.md` §6 and this is step 1. import-linter does not object to
+    # a forbidden module that is absent (measured: "2 kept, 0 broken" with no such file),
+    # which means the entry is INERT until the adapter lands — and an inert entry looks
+    # exactly like one whose file somebody renamed. `ADAPTERS_LISTED_AHEAD_OF_THEIR_
+    # MODULE` in `tests/engine_name_drift_test.py` is the ledger that tells the two
+    # apart, and it is an equality assertion, so landing the module fails the suite until
+    # that entry is deleted.
+    "apps.api.engine.pipecat",
 ]
 # DIRECT imports only. The factory in `apps.api.engine` obviously imports the adapters —
 # that is what a factory does — and forbidding the transitive chain would forbid having
