@@ -90,11 +90,11 @@ D-420 records ₹5,900 PE registration there with a director-signed LOA.
 
 | # | Question |
 |---|---|
-| D-1 | For a private medical clinic registering as Principal Entity **for voice**, what number series do you allot for service calls **today**? |
-| D-2 | What happens to that allotment when healthcare is notified for `1601`? Is there a migration path or a re-registration? |
-| D-3 | Is there a **voice header** concept distinct from an SMS header, and does a 10-digit DID get registered as one? *(This is §2.5's open clause in `number-series-inbound-vs-outbound` — the branch of Reg 3(1) the whole model may rest on.)* |
-| D-4 | Must a **voice script** be registered as a content template, and how is that satisfied by dynamic AI speech? |
-| D-5 | Current fee and turnaround for PE registration, and what an authorised signatory must produce |
+| T-1 | For a private medical clinic registering as Principal Entity **for voice**, what number series do you allot for service calls **today**? |
+| T-2 | What happens to that allotment when healthcare is notified for `1601`? Is there a migration path or a re-registration? |
+| T-3 | Is there a **voice header** concept distinct from an SMS header, and does a 10-digit DID get registered as one? *(This is §2.5's open clause in `number-series-inbound-vs-outbound` — the branch of Reg 3(1) the whole model may rest on.)* |
+| T-4 | Must a **voice script** be registered as a content template, and how is that satisfied by dynamic AI speech? |
+| T-5 | Current fee and turnaround for PE registration, and what an authorised signatory must produce |
 
 ### 3.3 Indian telecom counsel — before client #1 dials
 
