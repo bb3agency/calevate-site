@@ -66,6 +66,7 @@ from apps.api.compliance.service import (
     NO_CREDITS_REASON,
     SPEND_CAP_REASON,
     account_stopped_blocker,
+    carrier_application_blocker,
     credits_exhausted,
     first_campaign_hold_blocker,
     kyc_blocker,
@@ -1103,6 +1104,21 @@ async def launch_blockers(
     )
     if drifted is not None:
         blockers.append(LaunchBlocker(*drifted))
+
+    # AND WHETHER THE CARRIER APPROVES OF THIS BUSINESS AT ALL — the reseller stage
+    # (`docs/evidence/orchestrator-commercial-and-carrier-2026-09-13.md` §5.2). Asked on
+    # the AGENT like its neighbour above, because the rule is about the numbers bound to
+    # it, and asked HERE as well as at dial time for the reason every shared blocker in
+    # this list is: a campaign that launches "ready" and is then refused on every single
+    # dial is the worst outcome available — the client watches a running campaign call
+    # nobody, and nothing on the screen says why. One implementation
+    # (`compliance.service.carrier_application_blocker`), so the two gates cannot word it
+    # differently.
+    carrier_blocked = await carrier_application_blocker(
+        session, tenant_id=tenant_id, agent_id=facts.agent_id
+    )
+    if carrier_blocked is not None:
+        blockers.append(LaunchBlocker(*carrier_blocked))
 
     # WHO may dial, and on what consent (SEC-COMP §3, bullets one and four).
     blockers.extend(await _entity_blockers(session, tenant_id=tenant_id, facts=facts))

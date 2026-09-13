@@ -1131,6 +1131,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/carrier-application": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * One client's carrier compliance application
+         * @description What this client has sent the carrier and where it stands. Read-only; the decision is recorded by POST to the same path.
+         */
+        get: operations["read_for_tenant_v1_admin_tenants__tenant_id__carrier_application_get"];
+        put?: never;
+        /**
+         * Record what the carrier decided about this client's compliance application
+         * @description Records the carrier's own decision. `accepted` is the only state that lets a number be rented for this client, and it requires the carrier's `compliance_application_id` — the reference a number purchase has to quote. `rejected` requires the carrier's reason, which the client is shown. `documents_required` sends the client back for more paperwork, and `expired` records an approval that has lapsed or been suspended. There is deliberately no client-facing twin: a business that could accept its own application would be opening the number gate on a decision nobody made.
+         */
+        post: operations["record_decision_v1_admin_tenants__tenant_id__carrier_application_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/closure": {
         parameters: {
             query?: never;
@@ -4028,6 +4052,30 @@ export interface paths {
         get: operations["read_caller_notice_v1_compliance_caller_notice_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/compliance/carrier-application": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * This account's carrier compliance application — absence is data, not a 404
+         * @description Our telephony carrier approves each client business separately before a number can be rented for it. This is where that application stands: what was sent, what the carrier said, and what is needed next. A business with nothing on file yet gets `recorded: false` and a 200.
+         */
+        get: operations["read_application_v1_compliance_carrier_application_get"];
+        put?: never;
+        /**
+         * Send this business's registration documents to the carrier
+         * @description Upload ONE proof of business registration — a GST certificate, a Certificate of Incorporation, or a Udyam Registration certificate — as a PDF, JPEG or PNG. A PAN card on its own is not accepted. The first application must also carry the signed, sealed application form. Calevate forwards it to the carrier; the decision appears on this same endpoint.
+         */
+        post: operations["submit_v1_compliance_carrier_application_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -7282,6 +7330,18 @@ export interface components {
             /** Rule */
             rule: string;
         };
+        /** Body_submit_v1_compliance_carrier_application_post */
+        Body_submit_v1_compliance_carrier_application_post: {
+            /** Document */
+            document: string;
+            /**
+             * Document Kind
+             * @enum {string}
+             */
+            document_kind: "gst_certificate" | "certificate_of_incorporation" | "udyam_registration";
+            /** Signed Application */
+            signed_application?: string | null;
+        };
         /** Body_upload_document_v1_kb_uploads_post */
         Body_upload_document_v1_kb_uploads_post: {
             /**
@@ -7899,6 +7959,68 @@ export interface components {
             plan_cap_spend_inr: string | null;
             /** Spend Used Inr */
             spend_used_inr: string;
+        };
+        /**
+         * CarrierApplicationOut
+         * @description This account's carrier compliance application, as we last knew it.
+         *
+         *     Every field except `recorded` and `is_accepted` is nullable, because all of them are
+         *     genuinely absent before anything is filed. `is_accepted` is computed server-side for
+         *     the reason `KycRecordOut.is_verified` is: "is `submitted` good enough" is a question
+         *     the console must not answer for itself, and this response and the dial gate must never
+         *     disagree.
+         */
+        CarrierApplicationOut: {
+            /** Carrier */
+            carrier: string | null;
+            /** Carrier Application Id */
+            carrier_application_id: string | null;
+            /** Decided At */
+            decided_at: string | null;
+            /** Document Filename */
+            document_filename: string | null;
+            /** Document Kind */
+            document_kind: string | null;
+            /** Is Accepted */
+            is_accepted: boolean;
+            /** Recorded */
+            recorded: boolean;
+            /** Rejection Reason */
+            rejection_reason: string | null;
+            /** Signed Application On File */
+            signed_application_on_file: boolean;
+            /** Status */
+            status: ("not_started" | "documents_required" | "submitted" | "accepted" | "rejected" | "expired") | null;
+            /** Submitted At */
+            submitted_at: string | null;
+        };
+        /** CarrierDecisionIn */
+        CarrierDecisionIn: {
+            /** Carrier Application Id */
+            carrier_application_id?: string | null;
+            /** Carrier Status */
+            carrier_status?: string | null;
+            /** Rejection Reason */
+            rejection_reason?: string | null;
+            /** Status */
+            status?: ("documents_required" | "accepted" | "rejected" | "expired") | null;
+        };
+        /** CarrierDecisionOut */
+        CarrierDecisionOut: {
+            /** Carrier Application Id */
+            carrier_application_id: string | null;
+            /** Changed */
+            changed: boolean;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "documents_required" | "accepted" | "rejected" | "expired";
+            /**
+             * Tenant Id
+             * Format: uuid
+             */
+            tenant_id: string;
         };
         /**
          * CartesiaLadderPointOut
@@ -19055,6 +19177,72 @@ export interface operations {
             };
         };
     };
+    read_for_tenant_v1_admin_tenants__tenant_id__carrier_application_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CarrierApplicationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    record_decision_v1_admin_tenants__tenant_id__carrier_application_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CarrierDecisionIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CarrierDecisionOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
     read_closure_v1_admin_tenants__tenant_id__closure_get: {
         parameters: {
             query?: never;
@@ -23871,6 +24059,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["CallerNoticeOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    read_application_v1_compliance_carrier_application_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CarrierApplicationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    submit_v1_compliance_carrier_application_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_submit_v1_compliance_carrier_application_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CarrierApplicationOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

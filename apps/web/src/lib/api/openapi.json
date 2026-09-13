@@ -1711,6 +1711,42 @@
         "title": "BlockerOut",
         "type": "object"
       },
+      "Body_submit_v1_compliance_carrier_application_post": {
+        "properties": {
+          "document": {
+            "contentMediaType": "application/octet-stream",
+            "title": "Document",
+            "type": "string"
+          },
+          "document_kind": {
+            "enum": [
+              "gst_certificate",
+              "certificate_of_incorporation",
+              "udyam_registration"
+            ],
+            "title": "Document Kind",
+            "type": "string"
+          },
+          "signed_application": {
+            "anyOf": [
+              {
+                "contentMediaType": "application/octet-stream",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signed Application"
+          }
+        },
+        "required": [
+          "document_kind",
+          "document"
+        ],
+        "title": "Body_submit_v1_compliance_carrier_application_post",
+        "type": "object"
+      },
       "Body_upload_document_v1_kb_uploads_post": {
         "properties": {
           "agent_id": {
@@ -3253,6 +3289,240 @@
           "capped"
         ],
         "title": "CapsOut",
+        "type": "object"
+      },
+      "CarrierApplicationOut": {
+        "additionalProperties": false,
+        "description": "This account's carrier compliance application, as we last knew it.\n\nEvery field except `recorded` and `is_accepted` is nullable, because all of them are\ngenuinely absent before anything is filed. `is_accepted` is computed server-side for\nthe reason `KycRecordOut.is_verified` is: \"is `submitted` good enough\" is a question\nthe console must not answer for itself, and this response and the dial gate must never\ndisagree.",
+        "properties": {
+          "carrier": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Carrier"
+          },
+          "carrier_application_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Carrier Application Id"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "document_filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Filename"
+          },
+          "document_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Document Kind"
+          },
+          "is_accepted": {
+            "title": "Is Accepted",
+            "type": "boolean"
+          },
+          "recorded": {
+            "title": "Recorded",
+            "type": "boolean"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "signed_application_on_file": {
+            "title": "Signed Application On File",
+            "type": "boolean"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "not_started",
+                  "documents_required",
+                  "submitted",
+                  "accepted",
+                  "rejected",
+                  "expired"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          }
+        },
+        "required": [
+          "recorded",
+          "carrier",
+          "status",
+          "carrier_application_id",
+          "document_kind",
+          "document_filename",
+          "signed_application_on_file",
+          "rejection_reason",
+          "submitted_at",
+          "decided_at",
+          "is_accepted"
+        ],
+        "title": "CarrierApplicationOut",
+        "type": "object"
+      },
+      "CarrierDecisionIn": {
+        "additionalProperties": false,
+        "properties": {
+          "carrier_application_id": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Carrier Application Id"
+          },
+          "carrier_status": {
+            "anyOf": [
+              {
+                "maxLength": 64,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Carrier Status"
+          },
+          "rejection_reason": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rejection Reason"
+          },
+          "status": {
+            "anyOf": [
+              {
+                "enum": [
+                  "documents_required",
+                  "accepted",
+                  "rejected",
+                  "expired"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status"
+          }
+        },
+        "title": "CarrierDecisionIn",
+        "type": "object"
+      },
+      "CarrierDecisionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "carrier_application_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Carrier Application Id"
+          },
+          "changed": {
+            "title": "Changed",
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "documents_required",
+              "accepted",
+              "rejected",
+              "expired"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant_id": {
+            "format": "uuid",
+            "title": "Tenant Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant_id",
+          "status",
+          "carrier_application_id",
+          "changed"
+        ],
+        "title": "CarrierDecisionOut",
         "type": "object"
       },
       "CartesiaLadderPointOut": {
@@ -27458,6 +27728,96 @@
         "x-calevate-permission": "admin:tenants"
       }
     },
+    "/v1/admin/tenants/{tenant_id}/carrier-application": {
+      "get": {
+        "description": "What this client has sent the carrier and where it stands. Read-only; the decision is recorded by POST to the same path.",
+        "operationId": "read_for_tenant_v1_admin_tenants__tenant_id__carrier_application_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierApplicationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "One client's carrier compliance application",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      },
+      "post": {
+        "description": "Records the carrier's own decision. `accepted` is the only state that lets a number be rented for this client, and it requires the carrier's `compliance_application_id` \u2014 the reference a number purchase has to quote. `rejected` requires the carrier's reason, which the client is shown. `documents_required` sends the client back for more paperwork, and `expired` records an approval that has lapsed or been suspended. There is deliberately no client-facing twin: a business that could accept its own application would be opening the number gate on a decision nobody made.",
+        "operationId": "record_decision_v1_admin_tenants__tenant_id__carrier_application_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CarrierDecisionIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierDecisionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Record what the carrier decided about this client's compliance application",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      }
+    },
     "/v1/admin/tenants/{tenant_id}/closure": {
       "delete": {
         "description": "Reverses a close while nothing has been deleted: the account goes back to `active`, the scheduled erasure is cancelled, and the client is emailed to say so. Refused with 409 `tenant_already_erased` once the erasure has RUN \u2014 that is the only refusal, and it is a fact about the data rather than a clock, so a deadline that has passed while the sweep was behind is still reversible. Reopening an account that is not closed returns its current state unchanged.",
@@ -34061,6 +34421,72 @@
           "compliance"
         ],
         "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/compliance/carrier-application": {
+      "get": {
+        "description": "Our telephony carrier approves each client business separately before a number can be rented for it. This is where that application stands: what was sent, what the carrier said, and what is needed next. A business with nothing on file yet gets `recorded: false` and a 200.",
+        "operationId": "read_application_v1_compliance_carrier_application_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierApplicationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "This account's carrier compliance application \u2014 absence is data, not a 404",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:read"
+      },
+      "post": {
+        "description": "Upload ONE proof of business registration \u2014 a GST certificate, a Certificate of Incorporation, or a Udyam Registration certificate \u2014 as a PDF, JPEG or PNG. A PAN card on its own is not accepted. The first application must also carry the signed, sealed application form. Calevate forwards it to the carrier; the decision appears on this same endpoint.",
+        "operationId": "submit_v1_compliance_carrier_application_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_submit_v1_compliance_carrier_application_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CarrierApplicationOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Send this business's registration documents to the carrier",
+        "tags": [
+          "compliance"
+        ],
+        "x-calevate-permission": "org:manage"
       }
     },
     "/v1/compliance/deletion-requests": {

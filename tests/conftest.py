@@ -84,6 +84,68 @@ async def arm_agent_for_outbound(
             )
 
 
+async def accept_carrier_application(tenant_id: uuid.UUID) -> None:
+    """Give a tenant the accepted CARRIER compliance application a supplied number needs.
+
+    Our carrier treats us as a reseller and requires a separate approved application for
+    each customer before a number can be rented for them
+    (`docs/evidence/orchestrator-commercial-and-carrier-2026-09-13.md` §5.2), so
+    `campaigns.number_supply.buy_number` and `agents.service.provision_number`
+    (`engine_owned=True`) both refuse a tenant without one. Fixtures written before that
+    rule build a tenant that cannot lawfully be given a number, so a test about the rental
+    meter or the release path fails on a gate it is not about.
+
+    Exactly the shape and exactly the argument of `arm_agent_for_outbound` and
+    `accept_agreements` above: it does NOT soften the gate — it records the same facts
+    through the same writers production uses, including the operator the CHECK constraint
+    demands. Idempotent.
+    """
+    from apps.api.compliance.carrier_application import (
+        ensure_application_row,
+        read_carrier_application,
+        record_carrier_decision,
+        submit_application,
+    )
+    from apps.api.db.base import uuid7
+    from apps.api.db.session import tenant_session, untenanted_session
+
+    async with tenant_session(tenant_id) as session:
+        if (await read_carrier_application(session, tenant_id=tenant_id)).is_accepted:
+            return
+
+    admin_id = uuid7()
+    async with untenanted_session() as session:
+        await session.execute(
+            text(
+                "INSERT INTO admin_users (id, name, role, created_at, updated_at) "
+                "VALUES (:id, 'Carrier Ops', 'operator', now(), now())"
+            ),
+            {"id": admin_id},
+        )
+    async with tenant_session(tenant_id) as session:
+        application_id = await ensure_application_row(session, tenant_id=tenant_id)
+        # The object references are supplied rather than stored: this fixture is about the
+        # APPLICATION's state, and standing up object storage to prove a gate about
+        # paperwork would make every number test depend on a bucket.
+        await submit_application(
+            session,
+            tenant_id=tenant_id,
+            application_id=application_id,
+            document_kind="gst_certificate",
+            document_object_ref=f"carrier-compliance/{tenant_id}/{application_id}/x/registration.pdf",
+            document_filename="gst-certificate.pdf",
+            signed_application_ref=None,
+        )
+        await record_carrier_decision(
+            session,
+            tenant_id=tenant_id,
+            application_id=application_id,
+            status="accepted",
+            recorded_by_admin_id=admin_id,
+            carrier_application_id=f"CA-{uuid.uuid4().hex[:10]}",
+        )
+
+
 async def accept_agreements(tenant_id: uuid.UUID, user_id: uuid.UUID | None = None) -> None:
     """Record the four blocking legal acceptances an operating tenant now has to have.
 

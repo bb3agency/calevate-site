@@ -51,6 +51,14 @@ ADMIN_CONSOLE_GETS: dict[str, str] = {
         "client-realm counterpart at all. A support person inside a client's account is "
         "looking at that client's screens, and none of them names a Calevate operator."
     ),
+    "/v1/admin/tenants/{tenant_id}/carrier-application": (
+        "one client's compliance application with OUR carrier, as ops reads it. The "
+        "client's own view of the same fact is `GET /v1/compliance/carrier-application`, "
+        "which is `org:read` and therefore fully reachable through impersonation — so a "
+        "support person in a view-as session sees exactly the screen the client is "
+        "looking at, and this path is the operator's door to the same resource for an "
+        "account they are NOT impersonating (the `llm-defaults` case above, exactly)"
+    ),
     "/v1/admin/numbers/available": (
         "the voice platform's own for-sale inventory (D-537) — an ops purchasing screen, "
         "and the one list that is not about any client at all: it is what OUR vendor "

@@ -102,6 +102,44 @@ KYC_ENTITY_TYPES = (
 # out of DPDP scope and out of hard rule 6's reach. Aadhaar and personal PAN are absent
 # on purpose and there is a CHECK constraint standing behind that absence.
 KYC_DOCUMENT_KINDS = ("cin", "llpin", "gstin", "udyam", "shop_establishment", "trade_licence")
+# The per-tenant CARRIER compliance application (migration c7a4f9e15b03). OUR state
+# machine for a stage the carrier owns: we are a RESELLER, so the carrier requires a
+# separate approved application for every customer before that customer's number can be
+# rented or assigned (`docs/evidence/orchestrator-commercial-and-carrier-2026-09-13.md`
+# §5.2). The carrier's own status strings are MAPPED onto these in
+# `apps/api/compliance/carrier_application.py` and never stored as our truth — the six
+# names below describe what WE know, which is the only thing a gate of ours may read.
+#   not_started        nothing filed (this row exists but nothing has been sent)
+#   documents_required the carrier, or we, came back asking for more
+#   submitted          sent, awaiting their decision
+#   accepted           the one state that opens a number
+#   rejected           refused, with the reason a client can act on
+#   expired            was accepted and no longer is (lapse, or a UCC suspension)
+CARRIER_APPLICATION_STATUSES = (
+    "not_started",
+    "documents_required",
+    "submitted",
+    "accepted",
+    "rejected",
+    "expired",
+)
+# The one state that satisfies the gate. Named so the gate, the routes and the CHECK
+# cannot drift into three spellings of one idea (`KYC_VERIFIED` does the same job).
+CARRIER_APPLICATION_ACCEPTED = "accepted"
+# WHICH carrier this application is with. One member because one carrier account exists;
+# it is stored rather than assumed because their application identifier is meaningless
+# without knowing whose it is, and because the carrier choice is not closed (§5.5).
+CARRIER_APPLICATION_CARRIERS = ("plivo",)
+# WHICH proof of registration was supplied. REPORTED (12 Sep 2026, §5.2): any ONE of a
+# GST certificate with an active GSTIN, a Certificate of Incorporation with a CIN, or a
+# Udyam Registration Certificate. PAN alone is refused, which is why no PAN member
+# exists here — and no member of this tuple identifies a natural person, the same
+# property that keeps `KYC_DOCUMENT_KINDS` out of hard rule 6's reach.
+CARRIER_APPLICATION_DOCUMENT_KINDS = (
+    "gst_certificate",
+    "certificate_of_incorporation",
+    "udyam_registration",
+)
 # The first-campaign review (R-11's last mitigation; migration c4d9e18a72b6). Exactly
 # the two things a human can decide — "not reviewed yet" is the ABSENCE of a row, not a
 # third status, because a stored `pending` could disagree with the absence and every
@@ -621,6 +659,107 @@ class KycRecord(PKMixin, TimestampMixin, Base):
     )
     submitted_at: Mapped[datetime | None]
     verified_at: Mapped[datetime | None]
+
+
+class CarrierComplianceApplication(PKMixin, TimestampMixin, Base):
+    """This tenant's own compliance application with the telephony carrier.
+
+    **The stage the tenant lifecycle did not have.** The carrier distinguishes a Direct
+    Brand (one application, for the brand's own calls) from a Reseller (*a separate
+    approved compliance application for each customer*). Calevate resells numbers to
+    client businesses, so every tenant needs its own application, ACCEPTED, before a
+    number can be rented for them or assigned to them, and a number purchase then carries
+    the carrier's `compliance_application_id`.
+    (`docs/evidence/orchestrator-commercial-and-carrier-2026-09-13.md` §5.2.)
+
+    **Not the same fact as `KycRecord`, and deliberately not overlapping it.** `KycRecord`
+    is what CALEVATE verified about a business before a connection is provisioned (the DoT
+    business-connection regime, Telecommunications Act 2023 s.3(7)). This is what the
+    CARRIER decided about that same business on its own paperwork. The two ask for
+    overlapping documents and are held by different parties for different purposes;
+    neither satisfies the other, and the registry identifier itself lives in exactly one
+    of them (`kyc_records.document_ref`).
+
+    **Everything we believe about the carrier's requirements is REPORTED** — research-agent
+    reading, founder-relayed, 12 Sep 2026, with `www.plivo.com` egress-blocked from this
+    container. So this models OUR status vocabulary and merely STORES theirs
+    (`carrier_application_id`); the mapping from their strings to ours, and every vendor
+    constraint we enforce at the door, live in `apps/api/compliance/carrier_application.py`
+    where each carries its evidence class and date.
+
+    One row per tenant per carrier, MUTABLE, absent from `APPEND_ONLY_TABLES` — the same
+    reasoning as `KycRecord`: an application is submitted, decided, and later expires or is
+    suspended after unresolved UCC complaints, while the gate reads the CURRENT state on
+    every dial and every purchase. The history is `audit_log`'s (hard rule 4).
+
+    **No document bytes.** `document_object_ref` / `signed_application_ref` are
+    object-store keys minted by `workers/storage.carrier_document_key`; hard rule 2's
+    discipline applied to a client's own paperwork.
+
+    The CHECK constraints mirror migration c7a4f9e15b03 and the migration is the source of
+    truth (DATA-MODEL §10).
+    """
+
+    __tablename__ = "carrier_compliance_applications"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "carrier"),
+        CheckConstraint(f"status IN {CARRIER_APPLICATION_STATUSES!r}", name="status_enum"),
+        CheckConstraint(f"carrier IN {CARRIER_APPLICATION_CARRIERS!r}", name="carrier_enum"),
+        CheckConstraint(
+            f"document_kind IS NULL OR document_kind IN {CARRIER_APPLICATION_DOCUMENT_KINDS!r}",
+            name="document_kind_enum",
+        ),
+        # An application that has been SENT names what was sent, and when. A `submitted`
+        # row with no document reference is a state nobody can act on in either direction.
+        CheckConstraint(
+            "status NOT IN ('submitted', 'accepted', 'rejected', 'expired') OR "
+            "(document_kind IS NOT NULL AND document_object_ref IS NOT NULL "
+            "AND submitted_at IS NOT NULL)",
+            name="submitted_names_its_documents",
+        ),
+        # Acceptance without the carrier's id is a green light attached to nothing: that
+        # id is what a number purchase has to quote.
+        CheckConstraint(
+            "status <> 'accepted' OR (carrier_application_id IS NOT NULL "
+            "AND decided_at IS NOT NULL)",
+            name="accepted_names_the_carriers_id",
+        ),
+        CheckConstraint(
+            "status <> 'rejected' OR (rejection_reason IS NOT NULL AND decided_at IS NOT NULL)",
+            name="rejected_names_its_reason",
+        ),
+        # A decision is a fact a person at Calevate relayed from the carrier. One nobody
+        # signed is not evidence — `FirstCampaignReview` makes the same demand.
+        CheckConstraint(
+            "status NOT IN ('accepted', 'rejected') OR recorded_by_admin_id IS NOT NULL",
+            name="decided_names_its_operator",
+        ),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    carrier: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, server_default="not_started")
+    # THEIRS. Carried, never interpreted, and quoted back at purchase time.
+    carrier_application_id: Mapped[str | None] = mapped_column(Text)
+    document_kind: Mapped[str | None] = mapped_column(Text)
+    # Object-store keys, never bytes. The key names the tenant and this row, so an
+    # account offboarding can enumerate every object of one application by prefix.
+    document_object_ref: Mapped[str | None] = mapped_column(Text)
+    # What the client called the file. Shown back to them so they can tell which document
+    # is on file; sanitised at the door and never part of an object key.
+    document_filename: Mapped[str | None] = mapped_column(Text)
+    # The application form signed by the authorised signatory, carrying the company seal.
+    signed_application_ref: Mapped[str | None] = mapped_column(Text)
+    rejection_reason: Mapped[str | None] = mapped_column(Text)
+    # WHO at Calevate relayed the carrier's decision. An `admin_users.id`, not a name:
+    # an auditor asks who, and a string nobody can resolve to a person is not an answer.
+    recorded_by_admin_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("admin_users.id", ondelete="RESTRICT")
+    )
+    submitted_at: Mapped[datetime | None]
+    decided_at: Mapped[datetime | None]
 
 
 class FirstCampaignReview(PKMixin, TimestampMixin, Base):

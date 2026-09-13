@@ -144,6 +144,11 @@ TENANT_TABLES = [
     # the business's own registry identifiers — read by the number-provisioning gate and
     # by the dispatch gate for self-serve tenants.
     "kyc_records",
+    # This tenant's own compliance application with the telephony carrier (the RESELLER
+    # stage, migration c7a4f9e15b03). Tenant data — the business's own registration
+    # paperwork and the carrier's decision on it — read by the number-acquisition gate
+    # and by the dispatch gate for a number we supplied.
+    "carrier_compliance_applications",
     # The human release of a self-serve account's first campaign (R-11's last
     # mitigation). Tenant data — what a reviewer decided about this account — read by
     # the campaign launch gate and by every dispatch tick.

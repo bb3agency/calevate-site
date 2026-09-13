@@ -187,6 +187,22 @@ cite the same string:
   DoT business-connection obligation attaches to the connection and `plan_tier` is an
   admin-settable column. Asked once, in `compliance.kyc_blocker`, by both the per-dial
   gate and this launch preview. Inbound answering is never gated (D-38).
+- **The carrier has accepted this business's own compliance application** —
+  `carrier_application_missing` (nothing filed) or `carrier_application_not_accepted` (the
+  string names the state, because `documents_required` and `rejected` mean the client owes
+  us a document, `submitted` means we are waiting on the carrier, and `expired` means an
+  approval that has lapsed or been suspended). Our carrier treats Calevate as a RESELLER
+  rather than a direct brand, and a reseller needs a separate approved application for each
+  customer before that customer's number may be rented or used
+  (`docs/evidence/orchestrator-commercial-and-carrier-2026-09-13.md` §5.2 — **REPORTED**,
+  research-agent reading, founder-relayed, 12 Sep 2026; not read from the carrier's own
+  documentation by anybody here). Like KYC above it is **two gates with different scopes**:
+  ACQUIRING a number is gated for every tier and every tenant (`buy_number` before it
+  spends, `provision_number` for an `engine_owned` row), while DIALLING is gated only for an
+  agent that holds a number **we supplied** — a client's own connection on their own
+  operator account is not rented under our reseller relationship and the carrier has no rule
+  about it. Asked once, in `compliance.carrier_application_blocker`, by both the per-dial
+  gate and this launch preview. Inbound answering is never gated (D-38).
 - **The account's first campaign has been reviewed by a human** — `first_campaign_review_pending`
   (nobody has looked yet) or `first_campaign_review_rejected` (a reviewer looked and said
   no, and the refusal carries their words). D-51, and R-11's last mitigation. Same scope

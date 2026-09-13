@@ -37,7 +37,7 @@ from apps.api.db.session import tenant_session
 from apps.api.engine import get_engine, reset_engine_cache
 from calevate_shared.engine import NumberSearch, NumberSpec
 from sqlalchemy import text
-from tests.conftest import accept_agreements
+from tests.conftest import accept_agreements, accept_carrier_application
 
 pytestmark = [pytest.mark.rls]
 
@@ -73,6 +73,10 @@ async def _tenant() -> uuid.UUID:
     )
     tenant_id = uuid.UUID(str(created["id"]))
     await accept_agreements(tenant_id)
+    # The carrier approves each client business before a number may be rented for it
+    # (evidence doc 2026-09-13 §5.2). Supplied, never assumed away — a fixture without it
+    # reports `carrier_application_not_accepted` in place of the answer under test.
+    await accept_carrier_application(tenant_id)
     return tenant_id
 
 
@@ -592,6 +596,7 @@ async def _tenant_with_agent() -> tuple[uuid.UUID, uuid.UUID]:
     )
     tenant_id = uuid.UUID(str(created["id"]))
     await accept_agreements(tenant_id)
+    await accept_carrier_application(tenant_id)
     return tenant_id, uuid.UUID(str(created["agent_id"]))
 
 

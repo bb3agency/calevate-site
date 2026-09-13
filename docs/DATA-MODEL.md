@@ -971,6 +971,52 @@ kyc_records(id, tenant_id UNIQUE → organizations ON DELETE RESTRICT,
   -- an Aadhaar pasted into a business field fails at the moment of the mistake.
   -- Deliberately does NOT duplicate `dlt_registrations.pe_id` — overlapping evidence, two
   -- regimes, different holders.
+carrier_compliance_applications(id, tenant_id → organizations ON DELETE RESTRICT,
+  carrier ENUM[plivo] NOT NULL, UNIQUE (tenant_id, carrier),
+  status ENUM[not_started,documents_required,submitted,accepted,rejected,expired] NOT NULL
+    DEFAULT 'not_started',
+  carrier_application_id TEXT NULL,
+  document_kind ENUM[gst_certificate,certificate_of_incorporation,udyam_registration] NULL,
+  document_object_ref TEXT NULL, document_filename TEXT NULL,
+  signed_application_ref TEXT NULL, rejection_reason TEXT NULL,
+  recorded_by_admin_id → admin_users NULL, submitted_at, decided_at,
+  CHECK (status NOT IN ('submitted','accepted','rejected','expired')
+         OR (document_kind IS NOT NULL AND document_object_ref IS NOT NULL
+             AND submitted_at IS NOT NULL)),
+  CHECK (status <> 'accepted' OR (carrier_application_id IS NOT NULL
+         AND decided_at IS NOT NULL)),
+  CHECK (status <> 'rejected' OR (rejection_reason IS NOT NULL AND decided_at IS NOT NULL)),
+  CHECK (status NOT IN ('accepted','rejected') OR recorded_by_admin_id IS NOT NULL))
+  -- THE RESELLER STAGE (migration c7a4f9e15b03). Our telephony carrier distinguishes a
+  -- Direct Brand (one compliance application, for its own calls) from a RESELLER, which
+  -- needs a separate APPROVED application for EACH customer — and Calevate is a reseller.
+  -- So every tenant needs its own accepted application before a number can be rented for
+  -- them, and the purchase then carries the carrier's `compliance_application_id`.
+  -- `docs/evidence/orchestrator-commercial-and-carrier-2026-09-13.md` §5.2.
+  -- ⚠ EVIDENCE CLASS: everything known about the carrier's requirements is REPORTED
+  -- (research-agent reading, founder-relayed, 12 Sep 2026; `www.plivo.com` is
+  -- egress-blocked here). So the STATUS vocabulary is OURS and the carrier's own words are
+  -- mapped onto it in `compliance/carrier_application.py`, which REFUSES an unmapped one
+  -- rather than storing it; their document list, ~5 MB file ceiling and ~99-char filename
+  -- limit are one named constant each in that module, checked at the door and deliberately
+  -- NOT baked into a CHECK, because a reported number must be correctable without a
+  -- migration. Their approval SLA is not modelled at all — it is reported for one number
+  -- class and explicitly unpublished for the others.
+  -- Read by `compliance.service.carrier_application_blocker` as
+  -- `carrier_application_missing` / `carrier_application_not_accepted` (the DIAL gate,
+  -- scoped to agents holding a number WE supplied — `phone_numbers.engine_owned` — since
+  -- a client's own connection is not rented under our reseller relationship) and by
+  -- `carrier_application.assert_carrier_application_accepted` (the ACQUISITION gate, tier-
+  -- and supply-blind, asked by `number_supply.buy_number` before it spends and by
+  -- `agents.service.provision_number` for an `engine_owned` row). One mutable row per
+  -- tenant per carrier, absent from APPEND_ONLY_TABLES for `kyc_records`' reason: this is
+  -- current state — an approval lapses, or is suspended after unresolved UCC complaints —
+  -- and `audit_log` holds who changed it.
+  -- NEVER the document bytes: the two `*_ref` columns are object-store keys minted by
+  -- `workers/storage.carrier_document_key`, whose per-SUBMISSION segment keeps a
+  -- resubmission from overwriting the bytes the carrier refused. And deliberately NOT a
+  -- second copy of the registry identifier — `kyc_records.document_ref` already holds this
+  -- business's GSTIN/CIN/Udyam, and two columns holding one fact is how they disagree.
 first_campaign_reviews(id, tenant_id UNIQUE → organizations ON DELETE RESTRICT,
   status ENUM[approved,rejected] NOT NULL,
   reviewed_campaign_id → campaigns ON DELETE SET NULL,

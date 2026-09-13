@@ -102,6 +102,18 @@ TRANSIENT_REFUSALS: dict[str, str] = {
     "account_closed": "the account is reopened; a churned one dials nothing either way",
     "kyc_missing": "the client files their subscriber KYC",
     "kyc_not_verified": "the filed KYC is verified",
+    # The RESELLER stage (evidence doc 2026-09-13 §5.2). Transient for the reason the two
+    # KYC entries above are: it is a fact about the ACCOUNT's paperwork, not about the
+    # person being called, and it is lifted by acts that happen while the campaign sits
+    # there — the client sends their registration documents, the carrier decides, an
+    # operator records it. Settling on it would terminally retire every contact of a
+    # campaign that was running when a carrier suspended an application over somebody
+    # else's complaint, and those are leads the client never rings through no fault of the
+    # people on the list.
+    "carrier_application_missing": "the client files their carrier compliance application",
+    "carrier_application_not_accepted": (
+        "the carrier accepts the application and an operator records it"
+    ),
     "agreements_not_accepted": "the client accepts the current Terms/DPA/AUP",
     "tm_registration_missing": "Calevate's telemarketer registration goes live again",
     "pe_registration_missing": "the client records their DLT Principal Entity registration",

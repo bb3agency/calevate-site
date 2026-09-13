@@ -574,6 +574,32 @@ async def store_kb_object(*, key: str, data: bytes, content_type: str) -> str:
     tenant's request rather than only this one.
     """
 
+    # The key's TENANT and UPLOAD segments are ids; the filename is not in the key and
+    # not in the log line this raises through (hard rule 6).
+    return await _put_document(
+        key=key,
+        data=data,
+        content_type=content_type,
+        log_event="kb_object_store_failed",
+        refusal="Object storage refused the knowledge upload",
+    )
+
+
+async def _put_document(
+    *, key: str, data: bytes, content_type: str, log_event: str, refusal: str
+) -> str:
+    """One encrypted PUT of a document somebody uploaded, awaited off the loop.
+
+    Shared by every "these bytes ARE the artefact" caller — a knowledge upload, a carrier
+    compliance document — rather than copied per caller: the encryption, the thread
+    handoff and the refuse-loudly contract are the same three decisions each time, and a
+    second copy is where one of them silently stops being made. What differs is only what
+    an operator should read when it fails, so that is what the caller passes.
+
+    Never logs the key: it names a tenant's document (hard rule 6 keeps ids, not content,
+    and a filename is content).
+    """
+
     def _put() -> None:
         _client().put_object(
             Bucket=get_settings().object_store_bucket,
@@ -586,13 +612,8 @@ async def store_kb_object(*, key: str, data: bytes, content_type: str) -> str:
     try:
         await asyncio.to_thread(_put)
     except (BotoCoreError, ClientError) as exc:
-        # The key's TENANT and UPLOAD segments are ids; the filename is not in the key and
-        # not in this log line (hard rule 6).
-        log.warning(
-            "kb_object_store_failed",
-            extra={"bytes": len(data), "reason": type(exc).__name__},
-        )
-        raise StorageUnavailableError("Object storage refused the knowledge upload") from exc
+        log.warning(log_event, extra={"bytes": len(data), "reason": type(exc).__name__})
+        raise StorageUnavailableError(refusal) from exc
     return key
 
 
@@ -621,6 +642,65 @@ async def read_kb_object(key: str) -> bytes | None:
     except BotoCoreError as exc:
         log.warning("kb_object_read_failed", extra={"reason": type(exc).__name__})
         raise StorageUnavailableError("Object storage is unavailable") from exc
+
+
+# --- carrier compliance documents (reseller stage; evidence doc §5.2) ---------
+
+#: Where a tenant's CARRIER compliance paperwork lives. Its own prefix rather than a slot
+#: under `kb-uploads`, for the reason every prefix in this module is its own: the objects
+#: have a different owner (the business itself, not its knowledge base), a different
+#: reader (an operator relaying an application to the carrier) and a different erasure
+#: story — they are the tenant's own registration documents, not a data principal's data,
+#: so a DPDP subject erasure does not reach them and an ACCOUNT offboarding does.
+CARRIER_DOCUMENT_PREFIX = "carrier-compliance"
+
+
+def carrier_document_key(
+    *, tenant_id: UUID, application_id: UUID, submission_id: UUID, slot: str, suffix: str
+) -> str:
+    """`carrier-compliance/{tenant}/{application}/{submission}/{slot}.{suffix}`.
+
+    THE TENANT AND THE APPLICATION ARE LOAD-BEARING for `kb_object_key`'s reason: an
+    account offboarding must be able to enumerate every object of one application without
+    a second index to keep in step, and an enumeration can only work from a key that names
+    its subject.
+
+    THE SUBMISSION SEGMENT IS WHAT KEEPS A RESUBMISSION HONEST. The application row is one
+    per tenant and MUTABLE — a rejected application is resubmitted in place — so a key
+    built from the application alone would have the second upload overwrite the bytes the
+    carrier refused, and "what did we actually send them" would stop being answerable at
+    exactly the moment somebody asks. A fresh submission id per submission makes the store
+    append-only in effect while the row still points at the current one.
+
+    NEITHER SEGMENT IS CALLER-CONTROLLED: `suffix` comes from our own extension map and
+    the client's filename never reaches the key — it is stored in a column, where a
+    hostile one is a string rather than a path.
+    """
+    return f"{CARRIER_DOCUMENT_PREFIX}/{tenant_id}/{application_id}/{submission_id}/{slot}.{suffix}"
+
+
+def carrier_application_prefix(*, tenant_id: UUID, application_id: UUID) -> str:
+    """Every object of one application, across every submission of it. Ends in `/` so the
+    prefix stops at the path segment."""
+    return f"{CARRIER_DOCUMENT_PREFIX}/{tenant_id}/{application_id}/"
+
+
+async def store_carrier_document(*, key: str, data: bytes, content_type: str) -> str:
+    """Put one carrier compliance document. RAISES when the store refuses.
+
+    `store_kb_object`'s contract, for its reason: these bytes ARE the artefact. If the
+    object is not stored there is nothing to send the carrier and nothing for an operator
+    to attach to the application, and answering 201 to the client would promise a document
+    we do not hold — the client would then sit waiting for a decision on paperwork that
+    was never sent.
+    """
+    return await _put_document(
+        key=key,
+        data=data,
+        content_type=content_type,
+        log_event="carrier_document_store_failed",
+        refusal="Object storage refused the compliance document",
+    )
 
 
 DELIVERY_BODY_PREFIX = "webhook-bodies"

@@ -128,6 +128,7 @@ from apps.api.agents.verification import verify_publish
 from apps.api.agents.voices import get_voice, speech_for_voice_id, voice_id_of
 from apps.api.agents.write_guard import archived_refusal, assert_agent_writable
 from apps.api.compliance.caller_memory import recall
+from apps.api.compliance.carrier_application import assert_carrier_application_accepted
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -3099,6 +3100,23 @@ async def provision_number(
         # answered by whatever the vendor has bound to a number and nothing in our database
         # is consulted. The agent arrives in the body, so the route-level guard cannot see it.
         await assert_agent_writable(session, agent_id, verb="given a phone number")
+    if engine_owned:
+        # THE RESELLER STAGE (evidence doc 2026-09-13 §5.2). Our carrier approves each
+        # client business separately before a number may be rented for it, and the purchase
+        # carries that application's identifier. So a number that is OURS may only be
+        # recorded against a tenant whose application the carrier has accepted.
+        #
+        # Conditioned on `engine_owned` and not applied to every row, because the other
+        # kind of row is a client's own connection on their own operator account (Model B,
+        # `docs/legal/LEGAL-OPS-PLAYBOOK.md` §9) — a number our carrier has no relationship
+        # with and no rule about. Refusing to RECORD one would block the onboarding path
+        # that every existing client came in through, to enforce a condition that does not
+        # apply to them.
+        #
+        # `buy_number` asks the same question BEFORE it spends, which is where the money is
+        # saved; this is the backstop for every other way an owned number reaches the table,
+        # and the one that cannot be skipped by calling this function directly.
+        await assert_carrier_application_accepted(session, tenant_id=tenant_id)
     declared = series_for_e164(e164)
     if declared is None:
         # 140 and 160 are Indian numbering series. A number outside +91 cannot be one,

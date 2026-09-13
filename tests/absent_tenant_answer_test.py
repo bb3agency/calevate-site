@@ -107,6 +107,11 @@ BODIES: dict[str, dict[str, Any] | None] = {
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/intake": {},
     # D-538. The edit demands at least one field, so an empty body would 422 and this
     # census would stop measuring the 404 it is about.
+    "GET /v1/admin/tenants/{tenant_id}/carrier-application": None,
+    # The carrier decision demands a status and, for an acceptance, the carrier's own
+    # reference — an empty body would 422 and this census would stop measuring the 404 it
+    # is about. `documents_required` is the decision with the fewest required companions.
+    "POST /v1/admin/tenants/{tenant_id}/carrier-application": {"status": "documents_required"},
     "PATCH /v1/admin/tenants/{tenant_id}": {"name": "Census Clinic"},
     # D-538. The close demands a reason, so an empty body would 422 and this census would
     # stop measuring the 404 it is about. The undo and the read take no body at all.

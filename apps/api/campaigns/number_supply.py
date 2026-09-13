@@ -68,6 +68,7 @@ from apps.api.campaigns.provisioning import (
     PURCHASABLE_SERIES,
     assert_number_supply_authorized,
 )
+from apps.api.compliance.carrier_application import assert_carrier_application_accepted
 from apps.api.core.alerting import alert
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -158,6 +159,18 @@ async def buy_number(
                 "Buy an ordinary number for answering incoming calls."
             ),
         )
+    # THE RESELLER STAGE, AND THE LAST THING ASKED BEFORE A RUPEE IS SPENT (evidence doc
+    # 2026-09-13 §5.2). Our carrier approves each client business separately, a number may
+    # only be purchased once that application reads accepted, and the purchase carries its
+    # identifier. Asked here rather than only in `provision_number` because the failure mode
+    # of the other ordering is the one this module already has an alarm for: money committed
+    # at the vendor with nothing on our side able to accept the result.
+    #
+    # AFTER the request's own validation and BEFORE the lock: a malformed request should be
+    # told what is wrong with it rather than about paperwork it may already have, and an
+    # entitlement check has no business holding an advisory lock while it runs.
+    await assert_carrier_application_accepted(session, tenant_id=tenant_id)
+
     # SERIALIZE ON THE NUMBER, and hold it across the vendor call. That is a lock held
     # across a vendor request, which BACKEND-PATTERNS §5 refuses as a general shape — and
     # this is the exception it names: the resource being protected IS the vendor-side

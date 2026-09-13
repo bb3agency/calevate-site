@@ -136,6 +136,12 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.campaigns.routes import router as campaigns_router
     from apps.api.compliance.caller_data_routes import router as caller_data_router
     from apps.api.compliance.caller_notice_routes import router as caller_notice_router
+    from apps.api.compliance.carrier_application_routes import (
+        admin_router as carrier_application_admin_router,
+    )
+    from apps.api.compliance.carrier_application_routes import (
+        router as carrier_application_router,
+    )
     from apps.api.compliance.consent_routes import call_router as call_consent_router
     from apps.api.compliance.consent_routes import router as messaging_consent_router
     from apps.api.compliance.deletion_routes import router as deletion_router
@@ -336,6 +342,13 @@ def _mount_routers(application: FastAPI) -> None:
     application.include_router(tenant_closure_router)
     application.include_router(dlt_registration_router)
     application.include_router(kyc_router)
+    # The RESELLER stage: our carrier approves each client business separately before a
+    # number can be rented for it (evidence doc 2026-09-13 §5.2). Mounted beside the KYC
+    # pair because it is the same kind of thing — a gating record with a client-facing
+    # read and an ops-facing write — and a client blocked on one is very often looking at
+    # the other.
+    application.include_router(carrier_application_router)
+    application.include_router(carrier_application_admin_router)
     # R-11's first-campaign hold: the client's view of it, and ops's release. The admin
     # half carries its own `/v1/admin/tenants/{tenant_id}/...` prefix — it lives in the
     # compliance package because that package owns the table, exactly as the agents
