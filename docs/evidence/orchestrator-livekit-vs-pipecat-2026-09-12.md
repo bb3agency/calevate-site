@@ -241,6 +241,18 @@ edge is real. None of that is lost: it is reachable later through
 
 ## 8. NOT ESTABLISHED — do not quote this document for any of it
 
+> ⚠ **PARTLY CLOSED, 13 Sep 2026 — read
+> `docs/evidence/orchestrator-commercial-and-carrier-2026-09-13.md` before using this list.**
+> The commercial half was researched the next day. §9's reversal condition is **NOT triggered**:
+> Pipecat Cloud has no mandatory monthly floor AND has an India region (`ap-south`, Mumbai). The
+> verdict stands. Pricing, floors, regions and concurrency for both candidates are answered there
+> at class REPORTED; the SLA, DPA, training-clause, retention, sub-processor and turn-detector
+> benchmark rows below are **still unanswered** and were re-confirmed as not-found. That companion
+> document also carries three carrier findings this one did not look for — an irreversible Plivo
+> account decision, a per-tenant compliance application that adds a stage to onboarding, and a
+> contradiction about whether a landline number may carry a commercial service call that outranks
+> everything in either document.
+
 - **Pricing, monthly floors, included minutes, reserved-instance rates** for either
   platform. Not in either repository. The founder's research agent reports LiveKit Ship at
   $50/month with 5,000 agent + 5,000 SIP minutes and Pipecat `agent-1x` at $0.01/active
