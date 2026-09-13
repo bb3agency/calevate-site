@@ -18,9 +18,11 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from typing import Any
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
+from apps.api.agents.config_versions import Attestation, model_config_digest, prompt_digest
 from apps.api.engine import bolna as bolna_module
 from apps.api.engine import cartesia as cartesia_module
 from apps.api.engine.bolna import BolnaEngine
@@ -31,7 +33,21 @@ from apps.api.engine.fake import (
     OWNED_RUNTIME_CAPABILITIES,
     FakeEngine,
 )
-from calevate_shared.engine import VoiceEngine
+from apps.api.engine.pipecat import (
+    PipecatEngine,
+    RuntimeAgent,
+)
+from calevate_shared.engine import (
+    AccountKBObject,
+    AgentConfig,
+    EngineAgentRef,
+    EngineKBRef,
+    EngineVoice,
+    ExecutionSnapshot,
+    VoiceEngine,
+    compose_engine_prompt,
+)
+from calevate_shared.events import TranscriptTurn
 
 #: SIX SUBJECTS, TWO OF THEM REAL ADAPTERS (D-93).
 #:
@@ -66,6 +82,21 @@ from calevate_shared.engine import VoiceEngine
 #: adapter answers `get_agent` from `agent_config_attestations`, written by a separate
 #: process, and a fixture with no database and no second process cannot reproduce that.
 #: Its clauses land with `apps/api/engine/pipecat.py`; see `fake.OWNED_RUNTIME_CAPABILITIES`.
+#: `pipecat` is the SEVENTH and is the first REAL adapter on the owned-runtime shape
+#: (D-592). It is here rather than left to `fake-owned-runtime` because that fixture says
+#: in its own comment what it cannot do: it stands in for the CAPABILITY half and not for
+#: the witness, because `FakeEngine` has no database and no second process, and the
+#: attestation contract — `get_agent` answering from what a WORKER recomputed, and
+#: reporting "nobody has confirmed this" when none has — is the whole of §1.1. Its double
+#: below supplies the store AND the worker; see `_InMemoryControlPlane`.
+#:
+#: BOTH SUBJECTS STAY. The fixture keeps the hosting branches executable with no store at
+#: all — it is what every OTHER clause in this file runs against on that shape, at fixture
+#: speed — and deleting it would make the roster's hosting coverage depend on one adapter
+#: that also has to be constructed with a double. They differ on `knowledge_base`,
+#: `caller_id`, `inbound_binding`, `in_call_handoff` and `number_series`, so between them
+#: the owned-runtime shape is exercised in BOTH directions of five capability clauses
+#: rather than one; a single subject could only ever exercise its own answers.
 ENGINE_IDS = [
     "fake",
     "fake-restricted",
@@ -73,6 +104,7 @@ ENGINE_IDS = [
     "fake-owned-runtime",
     "bolna",
     "cartesia",
+    "pipecat",
 ]
 
 # A completed execution in the shape the vendor's own OpenAPI document declares
@@ -986,7 +1018,209 @@ def http_speaking_engine_ids() -> frozenset[str]:
     and a third vendor added to `ENGINE_IDS` lands in this set automatically. That is what
     makes the roster clause in `contract_test.py` bite rather than pass vacuously.
     """
-    return frozenset(eid for eid in ENGINE_IDS if not isinstance(make_engine(eid), FakeEngine))
+    return frozenset(
+        eid for eid in ENGINE_IDS if not isinstance(make_engine(eid), _IN_PROCESS_ADAPTERS)
+    )
+
+
+#: THE VOICES THE `pipecat` DOUBLE'S DEPLOYMENT HAS ATTESTED.
+#:
+#: Two rows, one per speech vendor, because `TtsModel` has two members and a fixture with
+#: one would let an adapter that filtered on a single provider pass. They are the shape an
+#: OPERATOR typed and attested (`platform_voice_catalog`, `origin = 'operator'`, D-590),
+#: which is what `SqlControlPlane.voices` reads and is the only honest source on an engine
+#: whose speech vendors are not reachable from here.
+#:
+#: NEITHER IS A CLONE, and that is a real state rather than a gap: nothing in this tree has
+#: read a cloned voice on this engine, and the clone clause explicitly does not fail an
+#: adapter whose account holds none. The Cartesia speaker is a FIXTURE STRING and not a
+#: voice id, `_VOICE_TIERS`' rule — nobody here has read one, and inventing one that looked
+#: real would be laundering dressed as a fixture.
+PIPECAT_FIXTURE_VOICES: tuple[EngineVoice, ...] = (
+    EngineVoice(
+        voice_id="anushka",
+        label="Anushka",
+        tts_model="bulbul:v3",
+        languages=("te-IN", "hi-IN", "en-IN"),
+    ),
+    EngineVoice(
+        voice_id="conformance-placeholder-not-a-real-voice-id",
+        label="Conformance Sonic",
+        tts_model="sonic-3.5",
+        languages=("en-IN",),
+    ),
+)
+
+
+class _InMemoryControlPlane:
+    """The database AND the worker, in memory — the `pipecat` adapter's far side.
+
+    **IT IS THE SAME KIND OF OBJECT AS `httpx.MockTransport`, NOT A SECOND ADAPTER.** Every
+    other subject in this roster gets its offline property from a stub of the VENDOR;
+    `PipecatEngine` has no vendor, and what it talks to is a database and a separate
+    process, so this stands in for both. The adapter under test is the real one.
+
+    **THE WORKER HALF IS THE PART THAT MATTERS, AND IT IS DELIBERATELY NOT AN ECHO.**
+    `publish` records the version's content and then plays a worker that LOADED that
+    content and recomputed the prompt digest from it — `prompt_digest` over the composed
+    prompt, exactly as `apps/voice-worker/attest.py` will (§1.1). So the attestation is
+    derived from what was STORED, never from what `get_agent` is about to be asked, and an
+    adapter that minted one prompt while publishing another would be caught here rather
+    than agreeing with itself. `attest(...)` lets a clause make that worker disagree, which
+    is the only way the mismatch branch is reachable at all.
+    """
+
+    def __init__(self) -> None:
+        self._agents: dict[EngineAgentRef, RuntimeAgent] = {}
+        self._attested: dict[UUID, Attestation] = {}
+        #: handle -> (kb_id, agent ref or None). The ref goes None on `forget`, never the
+        #: row — an account object that outlives its agent is the residue
+        #: `list_account_kb` exists to report, and a double that tidied it away would make
+        #: that clause unfalsifiable.
+        self._kb: dict[EngineKBRef, tuple[str, EngineAgentRef | None]] = {}
+        self._executions: dict[str, ExecutionSnapshot] = {}
+
+    async def publish(self, cfg: AgentConfig, *, ref: EngineAgentRef) -> UUID:
+        version_id = uuid4()
+        agent_id = UUID(cfg.agent_id)
+        self._agents[ref] = RuntimeAgent(
+            engine_agent_ref=ref,
+            tenant_id=UUID(cfg.tenant_id),
+            agent_id=agent_id,
+            name=cfg.name,
+            agent_config_version_id=version_id,
+            config=cfg,
+        )
+        composed = compose_engine_prompt(cfg)
+        # THE WORKER, and it starts a session immediately. A real one attests when it picks
+        # the agent up; this one does it at publish because a conformance clause cannot
+        # wait for a process. What it recomputes is the digest of the STORED prompt, which
+        # is the property being modelled.
+        self.attest(
+            agent_id,
+            version_id=version_id,
+            worker_prompt_sha256=prompt_digest(cfg),
+            composed_prompt=composed,
+            opening_line=cfg.opening_line,
+            models=cfg.models,
+            expected_prompt_sha256=prompt_digest(cfg),
+        )
+        assert model_config_digest(cfg)  # the model digest is minted too; nothing reads it
+        return version_id
+
+    def attest(
+        self,
+        agent_id: UUID,
+        *,
+        version_id: UUID,
+        worker_prompt_sha256: str,
+        composed_prompt: str,
+        opening_line: str,
+        models: Any,
+        expected_prompt_sha256: str,
+    ) -> None:
+        """Make a worker say what it loaded. Public so a clause can make it DISAGREE."""
+        self._attested[agent_id] = Attestation(
+            id=uuid4(),
+            agent_id=agent_id,
+            agent_config_version_id=version_id,
+            prompt_sha256=worker_prompt_sha256,
+            observed_at=datetime.now(UTC),
+            expected_prompt_sha256=expected_prompt_sha256,
+            composed_prompt=composed_prompt,
+            opening_line=opening_line,
+            models=models,
+        )
+
+    def forget_attestation(self, agent_id: UUID) -> None:
+        """Put an agent back into the state every freshly-published agent is really in:
+        published, never dialled, no worker has confirmed anything."""
+        self._attested.pop(agent_id, None)
+
+    async def runtime_agent(self, ref: EngineAgentRef) -> RuntimeAgent | None:
+        return self._agents.get(ref)
+
+    async def forget(self, ref: EngineAgentRef) -> None:
+        self._agents.pop(ref, None)
+        for handle, (kb_id, held_by) in list(self._kb.items()):
+            if held_by == ref:
+                self._kb[handle] = (kb_id, None)
+
+    async def attested(self, agent: RuntimeAgent) -> Attestation | None:
+        return self._attested.get(agent.agent_id)
+
+    async def attach(self, agent: RuntimeAgent, *, handle: EngineKBRef, kb_id: str) -> None:
+        self._kb[handle] = (kb_id, agent.engine_agent_ref)
+
+    async def detach(self, agent: RuntimeAgent, *, handle: EngineKBRef) -> bool:
+        held = self._kb.get(handle)
+        if held is None or held[1] != agent.engine_agent_ref:
+            return False
+        del self._kb[handle]
+        return True
+
+    async def agent_kb(self, agent: RuntimeAgent) -> tuple[EngineKBRef, ...]:
+        return tuple(
+            sorted(h for h, (_, held_by) in self._kb.items() if held_by == agent.engine_agent_ref)
+        )
+
+    async def account_kb(self) -> tuple[AccountKBObject, ...]:
+        return tuple(AccountKBObject(handle=handle, state="ready") for handle in sorted(self._kb))
+
+    async def voices(self) -> tuple[EngineVoice, ...]:
+        return PIPECAT_FIXTURE_VOICES
+
+    async def execution(self, call_id: str) -> ExecutionSnapshot | None:
+        return self._executions.get(call_id)
+
+    async def executions(self, *, since: datetime) -> tuple[ExecutionSnapshot, ...]:
+        return tuple(
+            snapshot
+            for snapshot in self._executions.values()
+            if (snapshot.started_at or datetime.now(UTC)) >= since
+        )
+
+    def seed_execution(self, call_id: str) -> None:
+        """Stage one session the runtime recorded — what `saturated()` needs.
+
+        It is a SESSION and not a carrier record, which is the point of the clause it
+        serves: `list_executions` reports a window carrying sessions as INCOMPLETE because
+        the CDR that witnesses the billable half cannot be read (§1.2), and a double that
+        seeded a reconciled call could never reach that branch.
+        """
+        now = datetime.now(UTC)
+        self._executions[call_id] = ExecutionSnapshot(
+            engine_call_id=call_id,
+            engine_agent_ref="pipecat:seed",
+            direction="inbound",
+            status="completed",
+            raw_status="completed",
+            terminal=True,
+            # FALSE, and it is the honest value rather than a fixture convenience: the
+            # billable quantity is witnessed by the party that bills the minute, and no
+            # CDR has been read. §9.2 names `billable_ready` as a clause that keeps passing
+            # while measuring nothing; here it measures exactly that.
+            billable_ready=False,
+            started_at=now - timedelta(seconds=95),
+            ended_at=now,
+            duration_s=95,
+            transcript=[
+                TranscriptTurn(call_id=call_id, idx=0, speaker="agent", text="Namaskaram.")
+            ],
+            engine="pipecat",
+        )
+
+
+#: THE ADAPTERS THAT REACH NO VENDOR OVER HTTP, so the transport ladder has nothing to
+#: measure on them.
+#:
+#: It was `FakeEngine` alone and the comment said why — *"it IS the vendor"*. `PipecatEngine`
+#: is the second, for the same structural reason rather than because it is a fixture: its
+#: far side is our own database, and the ladder's clauses are all about what an adapter does
+#: with a vendor's 429, 3xx, error body and dead socket. A tuple rather than a name check,
+#: so `test_every_adapter_that_speaks_http_is_held_to_the_transport_clauses` still refuses
+#: an HTTP-speaking adapter that simply forgot to add a recipe.
+_IN_PROCESS_ADAPTERS: tuple[type, ...] = (FakeEngine, PipecatEngine)
 
 
 def make_engine(engine_id: str, *, listing_rows: int = 1) -> VoiceEngine:
@@ -1019,6 +1253,10 @@ def make_engine(engine_id: str, *, listing_rows: int = 1) -> VoiceEngine:
             # different capabilities make that table ambiguous.
             name="fake-owned-runtime",
         )
+    if engine_id == "pipecat":
+        # The REAL adapter over a double of its database and its worker — see
+        # `_InMemoryControlPlane` for why that is a vendor stub and not a second adapter.
+        return PipecatEngine(store=_InMemoryControlPlane())
     if engine_id == "cartesia":
         return CartesiaEngine(
             api_key="test-key",
@@ -1086,6 +1324,16 @@ def saturated(engine: VoiceEngine) -> VoiceEngine:
                 to_e164="+911140000000",
             )
         return saturated_fake
+    if isinstance(engine, PipecatEngine):
+        # A FRESH adapter over a FRESH double, for the fake's reason: seeding sessions into
+        # the subject other clauses share would change what every one of them sees. The
+        # saturation here is not a page — there are no pages over our own store — it is the
+        # condition §1.2 makes the listing's real verdict: sessions we hold and cannot
+        # reconcile against the carrier's CDR.
+        saturated_store = _InMemoryControlPlane()
+        for i in range(FULL_LISTING_PAGE + 1):
+            saturated_store.seed_execution(f"pipecat_seed_{i}")
+        return PipecatEngine(store=saturated_store)
     if isinstance(engine, CartesiaEngine):
         return make_engine("cartesia", listing_rows=CARTESIA_FULL_PAGE)
     assert isinstance(engine, BolnaEngine), f"no saturation recipe for {type(engine).__name__}"

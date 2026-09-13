@@ -502,6 +502,11 @@ def test_every_engine_in_the_webhook_auth_table_is_an_engine_we_ship() -> None:
         # `agent_hosting="owned_runtime"`, so the hosting axis is exercised for all three
         # of its members offline. Argued in `fake.OWNED_RUNTIME_CAPABILITIES`.
         "fake-owned-runtime",
+        # THE ENGINE WE RUN (D-592): the first real adapter declaring
+        # `agent_hosting="owned_runtime"`, and — unlike the fixture above — one an operator
+        # may actually select, so its absence from this table would leave a deployment
+        # answering every webhook `unknown engine`.
+        "pipecat",
         "cartesia",
     }
     assert set(WEBHOOK_AUTH_BY_ENGINE) == shipped

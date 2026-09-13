@@ -73,6 +73,13 @@ TENANT_TABLES = [
     # two are written by different things. Both append-only (see APPEND_ONLY_TABLES).
     "agent_config_versions",
     "agent_config_attestations",
+    # THE ENGINE'S OWN AGENT RECORD under `agent_hosting="owned_runtime"` (D-592, migration
+    # `e2f5a91c8d47`): what a rented vendor would hold for us — the handle, the config
+    # version last published to it and the resolved `AgentConfig` it was published from.
+    # Tenant-scoped with the plain FORCEd policy and NO exemption: every read of it is
+    # per-agent and therefore per-tenant, and the account-wide question belongs to
+    # `pipecat_kb_objects`, which carries the exemption and none of the content.
+    "pipecat_agents",
     # A/B script testing (ROADMAP M3, migration b3c8f27d41ae): the experiment, its two
     # arms, and the arm each call actually ran.
     "prompt_experiments",
@@ -376,6 +383,25 @@ RLS_EXEMPT_TENANT_COLUMNS = {
         "opaque ids, a content digest and two timestamps: no source name, no chunk, no "
         "PII. NOT append-only — the handle is recorded on attach and the row is deleted "
         "on detach, which is the same lifecycle the JSONB key it replaces had."
+    ),
+    "pipecat_kb_objects": (
+        'the ENGINE ACCOUNT\'s knowledge objects under `agent_hosting="owned_runtime"` '
+        "(D-592, migration `e2f5a91c8d47`), and THE EXEMPTION IS FOR READS ONLY on "
+        "`engine_kb_routes`' exact pattern — `pipecat_kb_objects_global_read` "
+        "(FOR SELECT USING (true)) beside a FORCEd `tenant_isolation` policy covering "
+        "INSERT/UPDATE/DELETE, so one client's session can neither delete nor re-tenant "
+        "another's object. The read genuinely is global and for the identical reason: "
+        "`VoiceEngine.list_account_kb` asks which objects on this account no tenant of "
+        "ours claims — the question `list_kb` structurally cannot answer, because it reads "
+        "the AGENT — and it cannot be asked from a tenant session at all. An account "
+        "listing that answered EMPTY under RLS would be a positive claim that the account "
+        "is clean, which is the one answer that method may never give by accident. "
+        "Keeping the objects here is what lets `kb_sources` and `kb_documents`, which hold "
+        "the client's actual content, stay FORCE-RLS'd with no exemption. Carries a "
+        "handle, a tenant id, an agent ref, our own source id, a four-value state word and "
+        "a timestamp: no source name, no chunk, no prompt, no PII. NOT append-only — the "
+        "object is recorded on attach and the row is deleted on detach, the same lifecycle "
+        "`engine_kb_routes` has."
     ),
     "fx_rate_observations": (
         "platform-scoped. The published USD/INR rate this deployment pulls every five "

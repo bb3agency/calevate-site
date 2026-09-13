@@ -495,6 +495,12 @@ class TestRlsCoverage:
             # document at all. Keeping it here is what lets `kb_sources`/`kb_documents`
             # stay FORCE-RLS'd with no exemption of their own.
             "engine_kb_routes",
+            # The `owned_runtime` engine's account-level knowledge objects (D-592,
+            # migration `e2f5a91c8d47`). Same exemption, same pattern and same argument as
+            # `engine_kb_routes` one line up: `list_account_kb`'s question is "which
+            # objects does no tenant of ours claim", which no tenant session can ask, and
+            # the row holds opaque ids and a state word rather than any client content.
+            "pipecat_kb_objects",
             "platform_settings",
             "platform_config_version",
             "platform_secrets",

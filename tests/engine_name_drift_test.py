@@ -310,10 +310,11 @@ ENGINE_ISOLATION_CONTRACT = "engine isolation: only engine/ may see vendor paylo
 #: landing the module fails this test until the entry is deleted from here, so a line
 #: cannot outlive the gap it describes.
 ADAPTERS_LISTED_AHEAD_OF_THEIR_MODULE: dict[str, str] = {
-    "apps.api.engine.pipecat": (
-        "D-592 / docs/PIPECAT-MIGRATION.md §6: step 1 declares the boundary, step 3 "
-        "writes the adapter. Delete this entry when apps/api/engine/pipecat.py lands."
-    ),
+    # EMPTY, AND THE LAST ENTRY WAS DELETED BY THE CODE IT DESCRIBED. `apps.api.engine
+    # .pipecat` was listed here from step 1 of `docs/PIPECAT-MIGRATION.md` §6; step 3
+    # landed `apps/api/engine/pipecat.py`, so the contract entry stopped being inert and
+    # this ledger line stopped being true in the same commit — which is exactly the
+    # equality assertion below doing its job.
 }
 
 

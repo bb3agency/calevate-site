@@ -79,6 +79,7 @@ from uuid import UUID
 
 from calevate_shared.engine import (
     AgentConfig,
+    ModelConfig,
     carries_truthful_answer_floor,
     compose_engine_prompt,
 )
@@ -104,6 +105,17 @@ def prompt_digest(cfg: AgentConfig) -> str:
     return hashlib.sha256(compose_engine_prompt(cfg).encode()).hexdigest()
 
 
+def canonical_model_config(cfg: AgentConfig) -> str:
+    """The resolved `ModelConfig` as the bytes `model_config_sha256` is taken over.
+
+    Split out of `model_config_digest` so the digest and the STORED copy cannot drift: the
+    version row carries this exact string (migration `e2f5a91c8d47`), and a second
+    serialisation beside the digest's own would be two spellings of one fact — the defect
+    `_engine_name` records at its own call site.
+    """
+    return json.dumps(cfg.models.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
+
+
 def model_config_digest(cfg: AgentConfig) -> str:
     """The digest of the resolved `ModelConfig`, as canonical JSON.
 
@@ -112,8 +124,7 @@ def model_config_digest(cfg: AgentConfig) -> str:
     can reach it. `mode="json"` because the type holds tuples (`llm_traps`) and enums that
     have no stable `str()` of their own.
     """
-    body = json.dumps(cfg.models.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(body.encode()).hexdigest()
+    return hashlib.sha256(canonical_model_config(cfg).encode()).hexdigest()
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,6 +155,21 @@ class Attestation:
     observed_at: datetime
     #: The digest on the version row the worker says it loaded.
     expected_prompt_sha256: str
+    #: THE CONTENT OF THAT VERSION, so a caller can report WHAT the worker is running and
+    #: not only whether it agrees. `None` on the object `record_attestation` returns: that
+    #: function's caller already holds the config it just wrote, and fetching the row back
+    #: to hand it its own bytes would be a round trip for nothing. `latest_attestation`
+    #: — the read `get_agent` answers from — always populates all three.
+    #:
+    #: **THEY MAY ONLY BE REPORTED AS "WHAT THE ENGINE HOLDS" WHEN `matches` IS TRUE**, and
+    #: that is the whole content-addressing argument rather than a caution: the digest the
+    #: WORKER recomputed over its own memory equalling the digest of these bytes is what
+    #: makes "the process is holding this text" an inference instead of an assumption. On a
+    #: mismatch we know only that it is holding something else, and there is nothing here
+    #: that describes it.
+    composed_prompt: str | None = None
+    opening_line: str | None = None
+    models: ModelConfig | None = None
 
     @property
     def matches(self) -> bool:
@@ -204,6 +230,13 @@ async def mint_config_version(
         "aid": agent_id,
         "prompt": prompt_sha,
         "model": model_sha,
+        # THE CONTENT THE TWO DIGESTS ARE TAKEN OVER, so the row can be LOADED and not
+        # only compared (migration `e2f5a91c8d47`). Every one of the three is a function
+        # of the conflict key's inputs, which is what makes `DO NOTHING` safe: the row that
+        # is kept describes the same content as the row that was refused.
+        "composed": compose_engine_prompt(cfg),
+        "opening": cfg.opening_line,
+        "models": canonical_model_config(cfg),
     }
     # DO NOTHING, not DO UPDATE: the table is append-only and `DO UPDATE` fires
     # `calevate_forbid_mutation`. A conflict means the identical version already exists,
@@ -212,8 +245,10 @@ async def mint_config_version(
         await session.execute(
             text(
                 "INSERT INTO agent_config_versions "
-                "(id, tenant_id, agent_id, prompt_sha256, model_config_sha256) "
-                "VALUES (:id, :tid, :aid, :prompt, :model) "
+                "(id, tenant_id, agent_id, prompt_sha256, model_config_sha256, "
+                " composed_prompt, opening_line, model_config) "
+                "VALUES (:id, :tid, :aid, :prompt, :model, :composed, :opening, "
+                "        CAST(:models AS jsonb)) "
                 "ON CONFLICT (agent_id, prompt_sha256, model_config_sha256) DO NOTHING "
                 "RETURNING id, created_at"
             ),
@@ -375,7 +410,7 @@ async def latest_attestation(session: AsyncSession, agent_id: UUID) -> Attestati
         await session.execute(
             text(
                 "SELECT a.id, a.agent_config_version_id, a.prompt_sha256, a.observed_at, "
-                "       v.prompt_sha256 "
+                "       v.prompt_sha256, v.composed_prompt, v.opening_line, v.model_config "
                 "FROM agent_config_attestations a "
                 "JOIN agent_config_versions v ON v.id = a.agent_config_version_id "
                 "WHERE a.agent_id = :aid "
@@ -393,4 +428,12 @@ async def latest_attestation(session: AsyncSession, agent_id: UUID) -> Attestati
         prompt_sha256=row[2],
         observed_at=row[3],
         expected_prompt_sha256=row[4],
+        composed_prompt=row[5],
+        opening_line=row[6],
+        # Validated rather than cast: the column is written from
+        # `ModelConfig.model_dump(mode="json")` and read back by an adapter that puts it
+        # in an `AgentSnapshot`, so a row written before a field moved must fail HERE,
+        # where the agent id is in hand, rather than inside a Pydantic error three layers
+        # up in a publish.
+        models=ModelConfig.model_validate(row[7]),
     )

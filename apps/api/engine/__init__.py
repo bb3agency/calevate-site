@@ -71,6 +71,15 @@ def build_engine(cfg: Settings) -> VoiceEngine:
             api_key=cfg.cartesia_api_key,
             from_number_id=cfg.cartesia_from_number_id,
         )
+    if name == "pipecat":
+        from apps.api.engine.pipecat import PipecatEngine
+
+        # NO CREDENTIAL ARGUMENTS, and that is the adapter's whole shape rather than an
+        # omission: its control plane is this deployment's own database, which the process
+        # already holds (D-592). The store defaults to `SqlControlPlane`; the only caller
+        # that passes one is the conformance suite, which substitutes the database and the
+        # worker together — see the adapter's module docstring.
+        return PipecatEngine()
     from apps.api.engine.fake import FakeEngine
 
     return FakeEngine()
@@ -128,6 +137,7 @@ def all_credential_env_keys() -> tuple[str, ...]:
     from apps.api.engine.bolna import BolnaEngine
     from apps.api.engine.cartesia import CartesiaEngine
     from apps.api.engine.fake import FakeEngine
+    from apps.api.engine.pipecat import PipecatEngine
 
     # KEYED OFF EACH ADAPTER'S OWN `name`, and NEVER a literal set of engine names here.
     # The first version of this wrote `{"bolna": ..., "cartesia": ..., "fake": ...}` and
@@ -136,7 +146,12 @@ def all_credential_env_keys() -> tuple[str, ...]:
     # `ENGINE=` may take) and `WEBHOOK_AUTH_BY_ENGINE` (which names have an authenticity
     # story) — and a third spelling drifts the first time either grows. The adapters
     # already declare `name`, so the mapping is derivable and the literal bought nothing.
-    adapters: tuple[type[VoiceEngine], ...] = (BolnaEngine, CartesiaEngine, FakeEngine)
+    adapters: tuple[type[VoiceEngine], ...] = (
+        BolnaEngine,
+        CartesiaEngine,
+        FakeEngine,
+        PipecatEngine,
+    )
     by_name = {adapter.name: adapter for adapter in adapters}
     # Exhaustiveness against the Literal rather than against the tuple above: an engine
     # added to `EngineName` without an adapter here is a failure, not a credential that

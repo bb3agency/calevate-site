@@ -455,6 +455,22 @@ WEBHOOK_AUTH_BY_ENGINE: dict[str, WebhookAuthMethod] = {
     # an IP allowlist will do". If the scheme turns out to be a shared secret, a
     # `shared_secret` member lands in `WebhookAuthMethod` and in both halves together.
     "cartesia": "hmac",
+    # THE ENGINE WE RUN (D-592, `docs/PIPECAT-MIGRATION.md` §3D). `none` because there is
+    # no counterpart: nothing external calls us — the worker is inside our own trust
+    # boundary, authenticates as itself and writes to the database directly — so there is
+    # no signature to check and no egress range to allowlist. It is listed here anyway
+    # because the table is what the receiver reads, and an engine absent from it answers
+    # every delivery "unknown engine" while `SELECTABLE_ENGINES` says it may be selected.
+    #
+    # ⚠ WHAT `none` COSTS, AND IT IS NOT ZERO. `engine_intake.verify_source`'s `none`
+    # branch opens the route when the delivery's engine IS this deployment's engine, which
+    # is right for `fake` (that is how the pipeline runs offline) and makes
+    # `/hooks/v1/engine/pipecat` an unauthenticated write endpoint on a deployment running
+    # `ENGINE=pipecat`. The bound is that the job such a delivery starts calls
+    # `get_execution`, which raises on a call the runtime does not hold. The fix belongs to
+    # the receiver's admission rule and is a decision, not a re-labelling here: `hmac`
+    # would fail closed and would also claim this engine signs webhooks, which is false.
+    "pipecat": "none",
 }
 
 
@@ -4379,6 +4395,18 @@ ListingIncompleteReason = Literal[
     # tenth. Reporting one of them would send an operator to the wrong runbook entry;
     # reporting completeness would hide a client's stranded document behind a blip.
     "partial_fan_out",
+    # The listing is complete over OUR OWN store and could not be reconciled against the
+    # party that bills the minute. It lands with the adapter that emits it
+    # (`apps/api/engine/pipecat.py`), which is what the note below asks of a new member.
+    #
+    # IT IS NOT A PAGING CONDITION AND IS THE FIRST MEMBER THAT IS NOT. Under a rented
+    # engine every reason above describes walking a vendor's pages; under a framework we
+    # run there are no pages, and the thing that can still be missing is the CARRIER's
+    # call detail record — which `docs/PIPECAT-MIGRATION.md` §1.2 makes the authority for
+    # every billable fact precisely because it is independent of us. A session we hold and
+    # cannot match to a CDR is an unwitnessed billable quantity, and reporting the window
+    # complete would hide it behind a green tick.
+    "carrier_cdr_unavailable",
 ]
 # `next_link_loop` AND `empty_page_with_next` USED TO BE MEMBERS AND ARE GONE (D-365).
 #

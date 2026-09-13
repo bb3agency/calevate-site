@@ -82,7 +82,7 @@ Environment = Literal["local", "staging", "prod"]
 # validates the setting against it and mypy checks every comparison against it, and
 # neither can be done with a runtime set — so this is the one spelling of these names on
 # the selection axis, and `SELECTABLE_ENGINES` below is how every other module asks.
-EngineName = Literal["fake", "bolna", "cartesia"]
+EngineName = Literal["fake", "bolna", "cartesia", "pipecat"]
 
 #: The same set as a value, for the callers that need to CHECK membership rather than
 #: annotate a field — `get_args` on the Literal, never a second tuple beside it.

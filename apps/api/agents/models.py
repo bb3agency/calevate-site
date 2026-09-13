@@ -448,6 +448,13 @@ class AgentConfigVersion(PKMixin, Base):
         # publish that changes nothing mints nothing and an attestation quoting a version
         # id resolves to exactly one content.
         UniqueConstraint("agent_id", "prompt_sha256", "model_config_sha256"),
+        # A version whose prompt is empty cannot carry the truthful-answer floor, and an
+        # immutable row saying the agent runs nothing is the one defect that cannot be
+        # repaired afterwards. NOT VALID in `e2f5a91c8d47` — rows minted before the content
+        # columns existed carry the empty default and cannot be backfilled, because the
+        # bytes they digest were never stored and the table is append-only. It still binds
+        # every INSERT from there on, which is the population that matters.
+        CheckConstraint("length(composed_prompt) > 0", name="composed_prompt_present"),
     )
 
     tenant_id: Mapped[UUID] = mapped_column(
@@ -462,6 +469,23 @@ class AgentConfigVersion(PKMixin, Base):
     prompt_sha256: Mapped[str] = mapped_column(Text, nullable=False)
     #: sha256 of the resolved `ModelConfig` as canonical JSON (sorted keys, no whitespace).
     model_config_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    # THE CONTENT THOSE TWO DIGESTS ARE TAKEN OVER (migration `e2f5a91c8d47`), so the row
+    # can be LOADED and not only compared — `docs/PIPECAT-MIGRATION.md` §2 has the worker
+    # load a config VERSION, and a row of hashes is a row nothing can load.
+    #
+    # Every one of the three is a function of the conflict key's inputs, which is what
+    # makes `ON CONFLICT DO NOTHING` still correct: the row that is kept describes the same
+    # content as the row that was refused. A column that was NOT — `handoff`, resolved from
+    # the roster and a clock — belongs on `pipecat_agents` instead, and is there.
+    #: Exactly the bytes `prompt_sha256` digests.
+    composed_prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    #: The greeting, which the composer prepends and `AgentSnapshot.greeting` reports.
+    #: Inside `composed_prompt` already; stored apart because the snapshot has its own
+    #: field for it and recovering it by string surgery on a prompt is how `bulbul:v3`
+    #: once became the model `bulbul`.
+    opening_line: Mapped[str] = mapped_column(Text, nullable=False)
+    #: Exactly the object `model_config_sha256` digests, as the same canonical JSON.
+    model_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 
@@ -985,3 +1009,64 @@ class PlatformVoiceCatalogEntry(Base):
     #: `sync_voice_catalogue`'s upsert: a re-read of the vendor's list reports what the
     #: platform has and can neither create nor revoke an operator's attestation.
     origin: Mapped[str] = mapped_column(Text, nullable=False, server_default=text("'synced'"))
+
+
+class PipecatAgent(PKMixin, TimestampMixin, Base):
+    """THE ENGINE'S OWN AGENT RECORD on `agent_hosting="owned_runtime"` (D-592, migration
+    `e2f5a91c8d47`) — what a rented vendor would hold for us, held by us.
+
+    **WHY IT IS A TABLE AND NOT A COLUMN ON `agents`.** `agents` is OUR record of what a
+    client configured; this is one ENGINE's record of what it was handed, and the two are
+    the pair `get_agent` exists to be able to disagree about. Folding it into `agents` would
+    make `delete_agent` — a compensation that removes the engine's copy and must leave ours
+    standing — impossible to express, and would put a second engine's state in the same row
+    the day one exists.
+
+    **WHY IT LIVES IN `apps/api/agents/` RATHER THAN BESIDE ITS WRITER.** `apps/api/engine/`
+    holds no ORM models by construction: `db/registry.py` imports the model modules to build
+    metadata, and importing an adapter package from there would run the hard-rule-2 boundary
+    backwards. `engine_agent_routes` is the same shape for the same reason and lives in
+    `apps/api/reliability/models.py`; this is agent state, so it lives here.
+
+    Tenant-scoped with the plain FORCEd `tenant_isolation` policy and NO exemption: every
+    read is per-agent and therefore per-tenant, and `resolved_config` holds a client's whole
+    script. The account-wide question — which knowledge objects nobody claims — belongs to
+    `pipecat_kb_objects`, which carries the exemption precisely because it carries none of
+    this content.
+
+    **DELIBERATELY NOT IN `APPEND_ONLY_TABLES`** (hard rule 4). `update_agent` is a full
+    replacement by contract, so this row is state rather than a ledger entry. The ledger is
+    `agent_config_versions`, which IS append-only and is where "what was this agent running
+    in March" is answered.
+    """
+
+    __tablename__ = "pipecat_agents"
+    __table_args__ = (
+        UniqueConstraint("engine_agent_ref", name="uq_pipecat_agents_engine_agent_ref"),
+        # ONE ENGINE RECORD PER AGENT, which is the conformance suite's ref-stability
+        # clause stated as a constraint rather than trusted to the adapter's id function.
+        UniqueConstraint("agent_id", name="uq_pipecat_agents_agent_id"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False, index=True
+    )
+    agent_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("agents.id"), nullable=False
+    )
+    #: `pipecat:<tenant>:<agent>`, minted by `engine/pipecat.engine_agent_ref_for`. The join
+    #: key every read comes in on, and the value `agents.engine_agent_ref` stores.
+    engine_agent_ref: Mapped[str] = mapped_column(Text, nullable=False)
+    #: What the console calls this agent — read back as `AgentSnapshot.name`, which has no
+    #: `_readable` tri-state because it carries no compliance claim.
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    #: What the control plane last PUBLISHED. Never the read-back: the worker attests a
+    #: version of its own choosing and the two disagreeing is the whole point of D-592.
+    agent_config_version_id: Mapped[UUID] = mapped_column(
+        PgUUID(as_uuid=True), ForeignKey("agent_config_versions.id"), nullable=False
+    )
+    #: The whole `AgentConfig` as published. It is here and not on `agent_config_versions`
+    #: because that table is content-addressed on two digests and writes
+    #: `ON CONFLICT DO NOTHING`, so a column not determined by those digests would make the
+    #: kept row describe the earlier publish — and `handoff` is exactly such a column.
+    resolved_config: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)

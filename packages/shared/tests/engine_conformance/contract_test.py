@@ -205,6 +205,29 @@ def _dial_context(
     return CallContext(system_prompt=prompt, **fields)
 
 
+#: THE REFUSAL CODES A DIAL MAY HONESTLY GIVE INSTEAD OF PLACING A CALL.
+#:
+#: A CLOSED SET, checked by membership, so an adapter that fails for some OTHER reason
+#: still fails the clause — which is the whole value of the assertion this replaces.
+#:
+#: It used to be one code spelled inline, and that was correct while exactly one adapter
+#: refused. `engine_compliance_floor_absent` is `cartesia`'s: an externally-deployed engine
+#: whose outbound body has no field a prompt could ride in must refuse every dial rather
+#: than place one with no truthful-answer rule on it (D-282). `engine_capability_unverified`
+#: is `pipecat`'s and is a different honest answer to the same question: the dial is a
+#: CARRIER call, `api.plivo.com` is egress-blocked from the build environment and its REST
+#: surface has not been read, so the telephony leg is not written
+#: (`docs/evidence/pre-build-blockers-2026-09-13.md` §10). Hard rule 11 forbids inventing
+#: it, and `capabilities.py` reserves exactly this code for "not VERIFIED" as against "this
+#: platform cannot".
+#:
+#: A third entry needs the same treatment: a sentence saying which adapter, and why the
+#: refusal is a property of the world rather than of the adapter.
+DIAL_REFUSAL_CODES: Final[frozenset[str]] = frozenset(
+    {"engine_compliance_floor_absent", "engine_capability_unverified"}
+)
+
+
 async def _place_call(engine: VoiceEngine, *, to: str = "+919876543210") -> str | None:
     """Dial once through whichever shape this engine is, or None if it refuses by name.
 
@@ -218,8 +241,8 @@ async def _place_call(engine: VoiceEngine, *, to: str = "+919876543210") -> str 
     try:
         return await engine.start_outbound_call(ref, to, _dial_context(engine, cfg))
     except Exception as exc:
-        assert _refusal(exc)[0] == "engine_compliance_floor_absent", (
-            f"this adapter refused a dial for a reason other than the compliance floor: {exc!r}"
+        assert _refusal(exc)[0] in DIAL_REFUSAL_CODES, (
+            f"this adapter refused a dial for a reason no adapter is allowed to give: {exc!r}"
         )
         return None
 
@@ -684,8 +707,8 @@ async def test_outbound_call_returns_a_handle(engine: VoiceEngine) -> None:
             _dial_context(engine, cfg, lead_name="Ravi", context_note="Called about the 6pm slot"),
         )
     except Exception as exc:
-        assert _refusal(exc)[0] == "engine_compliance_floor_absent", (
-            f"this adapter neither placed the call nor named the compliance floor: {exc!r}"
+        assert _refusal(exc)[0] in DIAL_REFUSAL_CODES, (
+            f"this adapter neither placed the call nor named why it could not: {exc!r}"
         )
         return
     assert isinstance(handle, str) and handle
@@ -813,7 +836,7 @@ async def test_get_execution_carries_the_vendors_own_document_for_the_archive(
             ref, "+919876543210", _dial_context(engine, cfg, lead_id="lead-1")
         )
     except Exception as exc:
-        assert _refusal(exc)[0] == "engine_compliance_floor_absent", repr(exc)
+        assert _refusal(exc)[0] in DIAL_REFUSAL_CODES, repr(exc)
         return  # this adapter refuses to dial at all — see `_place_call`
     second = await engine.start_outbound_call(
         ref, "+919876543211", _dial_context(engine, cfg, lead_id="lead-2")
@@ -1732,6 +1755,25 @@ async def test_the_llm_credential_seam_matches_the_declaration_either_way(
     DICTATES its language model has no credential of ours to hold, so "can we install one"
     and "is the LLM ours" are one question, and inventing a second flag would let the two
     answers drift apart.
+
+    ⚠ **AND THAT GATE STOPPED BEING THE WHOLE ANSWER WHEN AN ENGINE WE RUN ARRIVED**
+    (D-592, `docs/evidence/voice-engine-contract-2026-09-13.md` §9.1, which named this
+    method as the one whose *"existing gate gives the WRONG answer"*). On
+    `agent_hosting="owned_runtime"` the LLM leg is ours in the fullest sense — we choose the
+    model and we hold the key — and there is STILL nothing to install into, because the
+    method's purpose is *"pushing OUR key into THE ENGINE'S credential store"* and the
+    runtime reads its keys from our secrets manager at process start. So `is_ours("llm")`
+    is True and the honest answer is a refusal, which the two-branch shape above could not
+    express.
+
+    THE THIRD ARM IS THEREFORE A REFUSAL FROM A BYOK ENGINE, and it is admitted on one
+    condition: it must be NAMED — a machine code and a sentence an operator can act on —
+    because the failure this clause exists to prevent is a rotation reporting green
+    forever, and a named refusal is the opposite of that. What the widening gives up is the
+    ability to fail an adapter that COULD install and does not; that is a real loss and it
+    is smaller than the alternative, which was forcing an adapter with no credential store
+    to return `replaced_in_place=True` about a write it never performed — an unearned claim
+    of exactly the kind `LlmCredentialPlacement` exists to prevent.
     """
     if not engine.capabilities.is_ours("llm"):
         refusal: Exception | None = None
@@ -1751,7 +1793,21 @@ async def test_the_llm_credential_seam_matches_the_declaration_either_way(
         )
         return
 
-    placement = await engine.set_llm_credential("ya29.rotated", provider="azure_openai")
+    try:
+        placement = await engine.set_llm_credential("ya29.rotated", provider="azure_openai")
+    except Exception as exc:
+        code, _ = _refusal(exc)
+        assert code, (
+            "`set_llm_credential` refused with nothing a caller can dispatch on, so the "
+            "refresher cannot tell 'this engine has no credential store' from 'the vendor "
+            "rejected our credential' and will retry the second forever"
+        )
+        assert getattr(exc, "remediation", None), (
+            "`set_llm_credential` refused with no next step, and the one person who reads "
+            "this failure is holding a key they now do not know what to do with"
+        )
+        return
+
     # The write must REPLACE. A store that appended would leave the engine holding the
     # fresh bearer beside expired ones and choosing between them itself, which takes the
     # leg's health out of our hands — `LlmCredentialPlacement` exists to say which

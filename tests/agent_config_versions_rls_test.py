@@ -58,9 +58,16 @@ async def _plant(tenant_id: uuid.UUID, agent_id: uuid.UUID, marker: bytes) -> uu
     async with tenant_session(tenant_id) as session:
         await session.execute(
             text(
+                # The CONTENT columns are written too (migration `e2f5a91c8d47`): a
+                # version row holding only digests is a row nothing can load, and the
+                # `composed_prompt` CHECK refuses an empty one. The marker goes in the
+                # prompt so a row planted for tenant A is distinguishable from tenant B's
+                # by its content as well as by its digest.
                 "INSERT INTO agent_config_versions "
-                "(id, tenant_id, agent_id, prompt_sha256, model_config_sha256) "
-                "VALUES (:id, :tid, :aid, :prompt, :model)"
+                "(id, tenant_id, agent_id, prompt_sha256, model_config_sha256, "
+                " composed_prompt, opening_line, model_config) "
+                "VALUES (:id, :tid, :aid, :prompt, :model, :composed, :opening, "
+                "        CAST(:models_json AS jsonb))"
             ),
             {
                 "id": version_id,
@@ -68,6 +75,9 @@ async def _plant(tenant_id: uuid.UUID, agent_id: uuid.UUID, marker: bytes) -> uu
                 "aid": agent_id,
                 "prompt": digest,
                 "model": hashlib.sha256(marker + b":models").hexdigest(),
+                "composed": marker.decode(),
+                "opening": "Idi AI assistant.",
+                "models_json": "{}",
             },
         )
         await session.execute(
