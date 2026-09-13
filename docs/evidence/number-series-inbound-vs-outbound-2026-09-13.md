@@ -146,18 +146,41 @@ buys a proper 10-digit number" is ambiguous, and the ambiguity is the entire que
 ordinary 10-digit mobile is the practice TRAI's own Press Release 11/2025 §4(c) describes the
 amendment as restricting. Neither may be written down anywhere as our compliance basis.
 
-#### 2.6.2 Outpero is not evidence, in either direction
+#### 2.6.2 Outpero DOES use ordinary 10-digit numbers — what that proves, and what it does not
 
-That Outpero appears to use ordinary 10-digit numbers is **not established from their public
-material**: the research could not determine which carrier originates their calls, which series a
-recipient actually sees, whether the customer or Outpero is the registered Principal Entity, or
-under what instrument healthcare customers use that number. The `+91 98765…` numbers on their
-site sit in an inbound display, not a proven outbound caller ID — and their own site calls
-conversational inbound answering *"coming soon"*.
+> ⚠ **This clause said the opposite for a few hours and was wrong.** It read that Outpero's use
+> of ordinary numbers was *"not established from their public material"*, that the `+91 98765…`
+> on their site was an inbound display rather than a proven outbound CLI, and that their
+> conversational inbound product was *"coming soon"*. That was an accurate description of their
+> **marketing pages** and a poor description of **reality** — and preferring a document over a
+> witness is the failure this rule set usually points the other way.
 
-**Even if confirmed, vendor behaviour is not regulatory authority.** A competitor's calls
-connecting proves the carrier permits the traffic, not that the traffic is lawful. `docs/TRD.md`
-§10 already refuses this exact class of reasoning about this exact company.
+**FOUNDER-OBSERVED, 13 Sep 2026:** the founder has used Outpero's product directly, **both
+inbound and outbound**, and both legs present **ordinary 10-digit Indian numbers**. Their
+conversational inbound answering is live, not forthcoming.
+
+That is a first-hand reading of a running system and it outranks a research agent's inference
+from a vendor's own web copy. Three things follow, and they are worth having:
+
+1. **An Indian carrier is originating AI outbound calls from ordinary 10-digit numbers today**,
+   for an SMB voice-agent product, at commercial scale. The operational path is not blocked.
+2. **Conversational inbound on an ordinary number works in production** — independent support for
+   §1, arrived at from the opposite direction.
+3. **The transition gap in §2.6 is being occupied in practice, not merely in theory.** Our read
+   of the regulation is not in conflict with how the market runs.
+
+**And the distinction this clause was written to protect survives intact: vendor behaviour is
+not regulatory authority.** What the founder observed proves the **carrier permits the traffic**
+— which is exactly what §2.6's transition gap predicts and which materially de-risks our build.
+It does not establish that the traffic is compliant, who Outpero's registered Principal Entity
+is, whether their customers hold PE registrations, or what authority their carrier relies on.
+
+So it changes the engineering risk and not the legal question. `docs/TRD.md` §10 refuses this
+same inference about this same company on the orchestration question, for the same reason: a
+competitor's arrangement working is evidence about what is POSSIBLE, never about what is
+PERMITTED. The §6.2 letter to the carrier is still the thing that closes it — and is now more
+likely to come back "yes, we permit this", because a competitor's traffic already demonstrates
+the carrier's position.
 
 ### 2.3 D-420 is CONFIRMED and its reasoning strengthened
 
