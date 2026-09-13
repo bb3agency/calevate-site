@@ -13,6 +13,15 @@ measurement nobody has taken.
 | D-33, D-354, D-502, D-28 (`docs/ROADMAP.md` §6) | Where in-call retrieval stands and why | DECISION |
 | `docs/evidence/kb-retrieval-bakeoff.md` §5.2 | The store bake-off D-502 adopted | VERIFIED-OSS |
 | Founder-supplied research, 13 Sep 2026 | The Qdrant proposal and the retrieval contract | THIRD-PARTY |
+| `docs/evidence/telugu-embedding-quality.md` (recovered 13 Sep 2026) | What retrieval actually scores on the query form we receive | MEASURED-HERE |
+| `apps/api/retrieval/embedding.py`, `apps/api/kb/models.py`, D-180 | Where the query vector comes from, what the chunk already carries, and where it is hosted | VERIFIED-REPO |
+
+⚠ **`telugu-embedding-quality.md` WAS CITED BY `apps/api/kb/gloss.py` AS FACT AND WAS NOT IN
+THE TREE.** It exists in commit `523f1bc` (31 Aug 2026), which is NOT an ancestor of HEAD —
+the measurement was taken in a worktree and never merged, while the code that depends on it
+shipped quoting its numbers. That is hard rule 12's attribution case exactly ("a
+repo-internal claim is not evidence of itself, and this includes attribution"), and the file
+is restored in the same commit as this section.
 
 ## 1. THE FINDING THAT FORCES THE QUESTION
 
@@ -115,6 +124,125 @@ mounted route inventory, and a token scan for `kb_documents` / `kb_sources` /
 would land — trips neither. The guard is not wrong; its subject moved. If the tier moves,
 the guard must move with it in the same change, or D-33 gets reversed by accident a second
 time, which is the exact failure that test exists to prevent.
+
+## 3a. THE IN-CALL PATH'S FIRST HOP IS NOT THE STORE — IT IS AN OCEAN
+
+Read from the code, not reasoned about. `apps/api/retrieval/embedding.py`:
+
+```
+EMBEDDING_MODEL = "text-embedding-3-small"
+EMBEDDING_DIMS  = 1536
+POST {azure_openai_base_url(resource)}/embeddings        EMBED_TIMEOUT_S = 20.0
+```
+
+**Our query vector is an HTTPS round trip to Azure in East US 2.** That is the ocean D-449
+put the language leg on deliberately — and under any dense in-call retrieval it lands on the
+call path *before the store is touched at all*.
+
+So the store comparison the founder's research is built around optimises the last few
+milliseconds of a path whose first leg crosses a planet. A Qdrant box in Mumbai, queried
+from a worker in Mumbai, still begins every dense retrieval by sending the caller's sentence
+to Virginia and waiting. **Changing the database does not shorten that.** This is the single
+most load-bearing fact in this document and it is why §4's answer is what it is.
+
+### Where the store actually is, since the research assumed it needed moving
+
+**India.** D-180 supersedes D-25 on provider and region: the site stack — web, api, workers,
+voice-runtime, **Postgres and Redis** — runs on a Hostinger VPS in India. So `kb_chunks` is
+already domestic to a Pipecat `ap-south` worker, and a read from it is a national hop rather
+than an international one. (Which Indian city is UNKNOWN and does not change the design; it
+changes a few milliseconds on a path that is not the bottleneck.)
+
+### What the chunk already carries
+
+`apps/api/kb/models.py::KbChunk` is already a hybrid row, already scoped per agent:
+
+```
+agent_id                     the per-agent slice is one indexed query
+tsv        TSVECTOR          chunk text AND its English gloss, one text-search config
+embedding  Vector(1536)      NULLABLE by design — sparse works before dense lands
+is_active, version
+```
+
+## 3b. WHAT THE IN-CALL KB SHOULD BE, AND THE MEASUREMENT THAT CORRECTS THE OBVIOUS ANSWER
+
+### The shape: nothing on the network during a turn
+
+1. **At call setup, while the phone is ringing** — one indexed query on `agent_id` pulls this
+   agent's chunks into the worker: text, gloss, `tsv` terms, and the vector where present.
+   That wall-clock is already being paid and nothing is waiting on it. At 1536 dims a chunk's
+   vector is 6 KB, so a 500-chunk corpus is ~3 MB.
+2. **Per turn, search in-process.** Over a few hundred entries this is microseconds. The
+   database is never on the turn path — it serves the LOAD, not the TURN.
+3. **Hide it inside the endpointing window.** `stop_secs` is 0.65 s
+   (`apps/voice-worker/voice_worker/pipeline.py`) — silence we already wait through.
+   Retrieval on the partial transcript can finish before the caller stops speaking.
+4. **Fail to a state, not to improvisation.** Load failed at setup → the tool answers
+   `temporarily_unavailable` (§5) and T0's static profile still covers the common questions.
+
+Only one cost survives into the turn: the query vector, and the added input tokens' effect on
+time-to-first-token.
+
+### ⚠ THE CORRECTION: "just use the lexical arm, it needs no embedding" IS WRONG
+
+That was the obvious way to delete the last hop, and this repo already measured it (n=24,
+`telugu-embedding-quality.md` §4). Read the row for the query form we actually receive:
+
+| corpus | query | dense | lexical (BM25) | hybrid RRF |
+|---|---|---|---|---|
+| Telugu | **Tenglish** | 0.250 | **0.042** | 0.292 |
+| English | **Tenglish** | 0.500 | 0.625 | 0.667 |
+| **both** | **Tenglish** | 0.542 | 0.625 | **0.750** |
+| **both** | Telugu | 0.708 | 0.625 | **0.750** |
+
+*(recall@1, multilingual-e5-large for the dense and hybrid cells.)*
+
+Three things follow, and each kills a tempting shortcut:
+
+- **Lexical against Telugu-script text is 0.042 — noise.** A lexical arm only works at all
+  because the English gloss is in the index. `kb_chunks.tsv` already carries the gloss, which
+  is why the arm is worth having; it is not a reason to think text search alone is enough.
+- **Lexical alone caps around 0.625 on both of our real query forms, and that figure is
+  OPTIMISTIC.** The document says so itself: its BM25 tokenises on word boundaries with no
+  stemming, Telugu is agglutinative, and **Postgres's `ts_rank_cd` has no Telugu dictionary
+  at all** — so a real Postgres sparse arm scores *below* the table. Lexical-only is a
+  usable floor, not the design.
+- **Hybrid reaches 0.750, and UNCONDITIONAL fusion makes two cells WORSE.** Telugu corpus +
+  English query falls 0.708 → 0.375; English corpus + Telugu query falls 0.625 → 0.292,
+  because RRF averages in a ranking from an arm that matched nothing. **The lexical arm must
+  be gated on script/vocabulary overlap, not always fused.** The document notes that an
+  unconditional `dense + sparse` hybrid is what most tutorials show — and what our own
+  sibling Postgres query does.
+
+So the dense arm is not optional, which means a query vector is not optional, which means
+**the only way to keep the ocean off the turn is to embed locally, in the worker.**
+
+### The local embedder, and the measurement that points at a surprising model
+
+`onnxruntime` is already a base dependency of the worker (it runs smart turn v3 and Silero),
+so in-process inference is a capability we already ship rather than a new one to justify.
+
+Which model is where the measurement is most useful, and most counter-intuitive. On Tenglish
+over an English corpus, the small **English** model `bge-base-en-v1.5` scored **0.667/0.750**
+— *better* than multilingual-e5-large's **0.500/0.583** — because Tenglish is Latin script
+studded with English nouns, which is nearer an English model's home ground than a
+Telugu-script model's. The document flags this as "the finding most likely to be got wrong by
+intuition", and it is: a Telugu-first product reaching for a multilingual model is the obvious
+move and the measured wrong one for this query form.
+
+A base-size English encoder is also the size that plausibly runs on CPU in a voice container.
+**Whether it does, at what latency, is UNMEASURED** — and so is that model's score against a
+`both`-corpus index, which is the configuration we would actually run.
+
+### ⚠ A GAP IN WHAT WE SHIP TODAY, found while writing this
+
+Our production embedding is `text-embedding-3-small` — an English-centric model. The measured
+English-centric controls (`all-MiniLM-L6-v2`, `bge-base-en-v1.5`) scored **recall@1 0.000 on
+Telugu script**. `text-embedding-3-small` was not among the models measured, so its Telugu
+number is **UNKNOWN** and is not asserted here. But it means today's retrieval quality on
+Telugu-script content may rest entirely on the English gloss, with the dense arm contributing
+little — an unstated dependency on a mitigation, rather than a mitigation on top of a working
+arm. Closing it is a measurement, not an argument.
 
 ## 4. QUESTION TWO — does D-502 hold, or fall?
 
@@ -227,11 +355,14 @@ during a call.
 
 | # | Question | What closes it |
 |---|---|---|
-| 1 | Does in-call retrieval move into the worker? | Pilot gate 8's round-trip measurement, plus a measured pgvector p95 INCLUDING query embedding from the worker's real network position. Both need a running worker; neither needs a carrier. |
+| 1 | Does in-call retrieval move into the worker? | ⚠ **RE-AIMED BY §3a/§3b.** Not a round-trip-to-Postgres measurement — the store is in India (D-180) and is not the bottleneck. What closes it is (a) a local ONNX embedder's latency on CPU in the worker, and (b) its recall against a `both`-corpus index on Tenglish, which is the configuration we would actually run and which `telugu-embedding-quality.md` did not measure. Neither needs a carrier. |
 | 2 | Does D-502 hold? | One of §4's three conditions becoming true, measured. Until then it holds. A reversal on preference is the founder's to take and should be its own decision row. |
 | 3 | The four-state retrieval contract | Nothing. It is additive, it is a compliance improvement, and it can be built before either other question is answered. |
 
-**UNKNOWN, in those words.** The in-call round trip (pilot gate 8, NOT RUN). pgvector's
-p95 including query embedding, from the worker (no worker has run). Where the carrier
-terminates media (`pre-build-blockers` §3.6, and the founder has ruled it not a gate). None
-of the three is filled with a plausible number here.
+**UNKNOWN, in those words.** A local ONNX embedder's CPU latency in a voice container (no
+worker has run one). Its recall on Tenglish against a `both`-corpus index (not among the
+configurations measured). `text-embedding-3-small`'s Telugu-script recall — the model we ship
+today, and the one model the measurement did not cover. The in-call round trip (pilot gate 8,
+NOT RUN). Where the carrier terminates media (`pre-build-blockers` §3.6; the founder has ruled
+it not a gate). **None is filled with a plausible number here, and the first two are what the
+in-call KB now waits on — not a store decision.**

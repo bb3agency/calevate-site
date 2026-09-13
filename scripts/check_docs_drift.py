@@ -598,6 +598,19 @@ def _resolve_module(claim: Claim) -> str | None:
     if match is None:
         return None
     module = match.group(1)
+    # THE STANDARD LIBRARY RESOLVES TOO, and it is asked FIRST because `python -m venv`,
+    # `python -m json.tool` and `python -m pip` are real commands a doc may legitimately
+    # tell a reader to run — this check exists to catch a doc naming one of OUR modules
+    # that does not exist, not to forbid the interpreter's own.
+    #
+    # `sys.stdlib_module_names` rather than a hand-written set, for this file's usual
+    # reason: a list of stdlib names typed here would be a second copy of something the
+    # interpreter already knows, and it would rot at the next Python version. Found when
+    # restoring `docs/evidence/telugu-embedding-quality.md`, whose measurement harness is
+    # set up with `python -m venv` — the gate failed an evidence file for quoting a
+    # command that works.
+    if module.split(".")[0] in sys.stdlib_module_names:
+        return None
     base = REPO_ROOT.joinpath(*module.split("."))
     if base.with_suffix(".py").exists() or (base / "__init__.py").exists():
         return None
