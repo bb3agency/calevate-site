@@ -1,0 +1,832 @@
+"""The conversation loop, assembled: `docs/PIPECAT-MIGRATION.md` §4, step 4 of §6.
+
+    transport.input() -> STT -> user aggregator -> LLM -> TTS -> transport.output()
+                                                             -> assistant aggregator
+
+That ordering is the shipped one, not a guess: `examples/voice/voice-cartesia.py:86-96`
+in the `pipecat-ai==1.10.0` tree, with the ASSISTANT aggregator after `transport.output()`
+so it records what was actually spoken rather than what was generated.
+
+**WHAT THIS MODULE IS FOR, IN ONE SENTENCE.** It turns a `SessionConfig` — plain data, no
+vendor types, no secrets — plus three vendor legs into a runnable `PipelineWorker`, and it
+is the only place in this repository that knows how those legs are configured.
+
+**HARD RULE 2 AT ITS NEW BOUNDARY (D-592).** This package may import Pipecat. What it
+HANDS OUT may not be a Pipecat object, and there is exactly one class here that converts:
+`NormalizedEventBoundary`. Everything the rest of the system ever sees comes out of that
+class as a `calevate_shared.events.CallEvent` or `TranscriptTurn`. Nothing else in this
+module touches the sink, and a reviewer checking the rule has one class to read.
+
+**WHAT IS DELIBERATELY NOT HERE.**
+
+- **No database.** `config.py` (loading a config VERSION) and `attest.py` (§1.1) are the
+  next wave and are another stream's files. `assemble_call` takes its configuration as an
+  argument; see `SessionConfig` for the exact shape expected of them.
+- **No `GnaniTTSService`.** §5 stages it behind an unanswered vendor question (whether
+  Gnani's 60 req/min cap counts a session or an utterance) and building before the answer
+  is building for nothing.
+- **No metering.** `meter.py` (§1.3) is another stream's file. `PipelineParams` below
+  turns the metrics it needs ON, which is this module's whole obligation to it.
+- **No carrier.** The Plivo transport is step 6 and needs an account in the India data
+  region (BLOCKER-1). `assemble_call` takes the transport as an argument, so the same
+  assembly runs against `FastAPIWebsocketTransport` in production and a fake in tests.
+
+Every default changed below is changed against a line of source read in the installed
+package on 13 Sep 2026, cited at the point of use. Nothing here is measured on real
+Telugu PSTN audio — `docs/evidence/pre-build-blockers-2026-09-13.md` §3.6 M-1..M-5 is that
+open item, and the settings that need a measurement say so where they are set.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Any, Final, Protocol
+from uuid import UUID
+
+from calevate_shared.engine import (
+    INHERITED_TURN_DETECTION_MS,
+    ModelConfig,
+    google_openai_compat_base_url,
+)
+from calevate_shared.events import CallDirection, CallEvent, CallStatus, TranscriptTurn
+from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
+from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
+from pipecat.audio.vad.silero import SileroVADAnalyzer
+from pipecat.frames.frames import LLMRunFrame
+from pipecat.pipeline.pipeline import Pipeline
+from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
+from pipecat.processors.aggregators.llm_context import LLMContext
+from pipecat.processors.aggregators.llm_response_universal import (
+    AssistantTurnStoppedMessage,
+    LLMContextAggregatorPair,
+    LLMUserAggregatorParams,
+    UserTurnStoppedMessage,
+)
+from pipecat.processors.frame_processor import FrameProcessor
+from pipecat.services.azure.llm import AzureLLMService
+from pipecat.services.openai.llm import OpenAILLMService
+from pipecat.services.sarvam.stt import SarvamSTTService
+from pipecat.services.sarvam.tts import SarvamTTSService
+from pipecat.transcriptions.language import Language
+from pipecat.transports.base_transport import BaseTransport
+from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
+from pipecat.turns.user_turn_strategies import UserTurnStrategies
+
+from voice_worker.vendor_logging import install_vendor_log_guard
+
+# ---------------------------------------------------------------------------------------
+# The numbers we set deliberately, each against the source line that gave us the default.
+# ---------------------------------------------------------------------------------------
+
+#: `engine` on every `CallEvent` this worker emits. OUR vocabulary, not a vendor's: the
+#: adapter that reads these rows is `apps/api/engine/pipecat.py` (§6 step 3).
+ENGINE_NAME: Final[str] = "pipecat"
+
+#: Smart turn v3's hard silence fallback, in seconds.
+#:
+#: **THE DEFAULT IS 3 SECONDS** — `SmartTurnParams.stop_secs: float = STOP_SECS` with
+#: `STOP_SECS = 3` (`pipecat/audio/turn/smart_turn/base_smart_turn.py:41` and `:27`, read
+#: 13 Sep 2026). What it does is not a model parameter: `append_audio` accumulates silence
+#: and at `stop_secs` returns `EndOfTurnState.COMPLETE` **without running the model at
+#: all** (`base_smart_turn.py:129-138`). It is the CEILING on a turn, the case where smart
+#: turn never got to have an opinion.
+#:
+#: **SET TO THE NUMBER WE ALREADY RUN WITH, WHICH IS THE ONLY HONEST CHOICE AVAILABLE.**
+#: `INHERITED_TURN_DETECTION_MS` is 650 ms — Bolna's `transcriber.endpointing` (250) plus
+#: `incremental_delay` (400), the fixed-timeout endpointing this migration exists to beat
+#: (`packages/shared/src/calevate_shared/engine.py:3904`,
+#: `docs/evidence/orchestrator-livekit-vs-pipecat-2026-09-12.md:151-156`). Pinning the
+#: ceiling there means the worst case of the new pipeline is the typical case of the old
+#: one, while smart turn can end a turn EARLIER whenever it is confident. Three seconds
+#: would have made our worst case 4.6x the thing we are replacing.
+#:
+#: ⚠ **THIS IS A STARTING POINT TO BE MEASURED, NOT A MEASUREMENT.** Nobody has run Telugu
+#: PSTN audio through this analyzer — `docs/evidence/pre-build-blockers-2026-09-13.md`
+#: §3.6 M-1 (decision latency on 8 kHz Telugu), M-2 (false endpoints on అవును/సరే/హా/ఓకే),
+#: M-3 (code-switch false interruptions) and M-5 (whether the 650 ms actually falls) are
+#: all open. The number to change when they close is this one, and the measurement is what
+#: replaces this comment.
+#:
+#: The 0.5 decision threshold beside it is hardcoded — `probability > 0.5` at
+#: `pipecat/audio/turn/smart_turn/local_smart_turn_v3.py:174` — and is not a parameter;
+#: changing sensitivity means subclassing `_predict_endpoint`.
+SMART_TURN_STOP_SECS: Final[float] = INHERITED_TURN_DETECTION_MS / 1000.0
+
+#: Global tool-call timeout, in seconds.
+#:
+#: **THE DEFAULT IS `None` — NO TIMEOUT AT ALL** (`pipecat/services/llm_service.py:309`).
+#: A handler that hangs holds the turn open forever, which on a phone call is dead air with
+#: no end.
+#:
+#: **2.0 s, AND IT IS DERIVED FROM OUR OWN ENDPOINT RATHER THAN PICKED.** The in-call tool
+#: surface is ours and already declares its worst case: `_TOOL_BODY_DEADLINE_S = 0.5` plus
+#: `_TOOL_DURABLE_DEADLINE_S = 1.0` (`apps/voice-runtime/webhook_routes.py:253-254`), after
+#: which it does not hang — it returns a problem+json refusal written for the agent to SAY.
+#: So the caller-side timeout has to sit ABOVE 1.5 s or we would cancel the handler in the
+#: moment it was about to hand us a sentence, and Pipecat's cancellation tells the LLM only
+#: that "the function failed and returned no result"
+#: (`llm_service.py:301-303`) — strictly worse for the caller than the refusal we wrote.
+#: 2.0 s leaves 500 ms for the HTTP round trip over the container bridge and stays well
+#: under the "four seconds of dead air" that same file names as the thing to avoid
+#: (`webhook_routes.py:248-251`).
+#:
+#: Note this is the LLM-side ceiling, not the retrieval budget: `RETRIEVAL_BUDGET_MS` is
+#: 100 ms and is what the endpoint is held to (CLAUDE.md, "measure it"). A ceiling equal to
+#: the budget would fire on every slow-but-successful lookup.
+FUNCTION_CALL_TIMEOUT_SECS: Final[float] = 2.0
+
+#: The telephony leg's rate. Plivo is 8 kHz; Silero VAD supports 8 kHz and 16 kHz natively
+#: (`pipecat/audio/vad/silero.py:134-135`) so nothing resamples for VAD, and smart turn v3
+#: resamples to its own 16 kHz with `soxr` once per turn
+#: (`local_smart_turn_v3.py:123-136`), not once per frame.
+TELEPHONY_SAMPLE_RATE_HZ: Final[int] = 8000
+
+#: The STT model our declared leg names. See `_build_stt` for why this constant decides
+#: which of Pipecat's two Sarvam STT classes we can use at all.
+STT_MODEL: Final[str] = "saaras:v4"
+
+#: Today's Sarvam TTS model. `bulbul:v2` is withdrawn — Pipecat's own docstring says
+#: "Sarvam's API rejects it" (`pipecat/services/sarvam/tts.py:648`).
+TTS_MODEL: Final[str] = "bulbul:v3"
+
+
+# ---------------------------------------------------------------------------------------
+# The seam: what `config.py` and the secrets manager must hand this module.
+# ---------------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class SessionConfig:
+    """One call's configuration, as `config.py` will load it from `agent_config_versions`.
+
+    **NO SECRETS AND NO VENDOR TYPES.** Both exclusions are load-bearing:
+
+    - Secrets live in `VendorCredentials`, separately, because §1.1 makes the config
+      version CONTENT-ADDRESSED — `prompt_sha256` and a hash of the resolved `ModelConfig`
+      are what the worker attests it loaded, and a structure carrying an API key can never
+      be hashed, logged or compared.
+    - Vendor types (Pipecat's `Language`, a Sarvam speaker enum) stay out so this dataclass
+      is exactly what a row in our own tables holds. The mapping to a vendor spelling
+      happens in `_build_stt`/`_build_tts` and nowhere else.
+
+    `models` is `calevate_shared.engine.ModelConfig` rather than a new set of fields:
+    that model is already the portability contract, already carries `llm_provider` in OUR
+    closed vocabulary, already knows that `llm_model` on an Azure leg is a DEPLOYMENT id,
+    and already carries `llm_traps`. A second shape for the same facts would be the drift
+    the quality bar forbids.
+    """
+
+    #: Ours, not a vendor's. On the Plivo leg this will be our own id for the session, and
+    #: the carrier's CDR is reconciled against it (§1.2) rather than being its source.
+    call_id: str
+    tenant_id: UUID
+    agent_id: UUID
+    #: §1.1 — the immutable version this process loaded. `attest.py` reports it back, and
+    #: `get_agent` returns the attestation rather than the control plane's intention.
+    agent_config_version_id: UUID
+    direction: CallDirection
+    #: Already composed by `compose_engine_prompt` on the control-plane side, so the hard
+    #: rule 5 sentences are in it before it reaches this container. This worker does not
+    #: compose and must never edit it.
+    system_prompt: str
+    #: sha256 of `system_prompt`, as the control plane computed it. The worker RECOMPUTES
+    #: it (`recompute_prompt_sha256`) rather than trusting it — that disagreement is the
+    #: whole point of §1.1's attestation.
+    prompt_sha256: str
+    models: ModelConfig
+    #: BCP-47, e.g. `te-IN`. `None` means let Sarvam auto-detect, which is what
+    #: `ModelConfig.stt_autodetect` asks for and the only path that model leaves us.
+    language: str | None = None
+    #: Whether the agent speaks first. Queued as an `LLMRunFrame` from the transport's
+    #: connect event — the shipped pattern (`examples/voice/voice-cartesia.py:112-119`).
+    greet_first: bool = True
+
+
+@dataclass(frozen=True, slots=True)
+class VendorCredentials:
+    """The three keys, from the secrets manager. Never persisted, never hashed, never logged.
+
+    The founder holds all three vendor accounts and installs the keys in the ops console
+    (CLAUDE.md, the multi-provider paragraph); clients bring no BYOK. `cartesia_api_key` is
+    optional because it is only needed on the Studio tier.
+    """
+
+    sarvam_api_key: str
+    llm_api_key: str
+    cartesia_api_key: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class VendorLegs:
+    """The three constructed vendor services, as processors.
+
+    Typed as `FrameProcessor` rather than as their concrete classes so a test can put a
+    stub in any slot without subclassing a websocket service. That is the same seam
+    `docs/BACKEND-PATTERNS.md` §9 asks for ("worker/job factories accept a deps object").
+    """
+
+    stt: FrameProcessor
+    llm: FrameProcessor
+    tts: FrameProcessor
+
+
+# ---------------------------------------------------------------------------------------
+# The boundary. ONE class, and it is the only thing here that touches the sink.
+# ---------------------------------------------------------------------------------------
+
+
+class NormalizedEventSink(Protocol):
+    """Where normalized events go. Implemented by the DB writer in the next wave.
+
+    Deliberately two narrow methods rather than one `emit(Any)`: the type of what crosses
+    this boundary is the guarantee, and a union would let a Pipecat frame through the day
+    somebody widened it.
+    """
+
+    async def on_call_event(self, event: CallEvent) -> None: ...
+
+    async def on_transcript_turn(self, turn: TranscriptTurn) -> None: ...
+
+
+def recompute_prompt_sha256(prompt: str) -> str:
+    """§1.1: the worker's own reading of what it loaded, not the value it was handed.
+
+    `get_agent` returns what the worker attested; the control plane's intention is the
+    other side of a comparison that is only meaningful if the two are computed
+    independently. Echoing `SessionConfig.prompt_sha256` back would agree by construction —
+    the exact defect §1.1 says `control_plane` hosting has.
+    """
+    return hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+
+
+class NormalizedEventBoundary:
+    """**THE** place a Pipecat object becomes a Calevate model. Hard rule 2 lives here.
+
+    It takes vendor types IN (`UserTurnStoppedMessage`, `AssistantTurnStoppedMessage` — the
+    framework's own "a turn ended" payloads) and hands OUT `TranscriptTurn` and
+    `CallEvent`. Nothing downstream of the sink learns Pipecat exists.
+
+    **WHY THE AGGREGATORS' EVENTS AND NOT FRAMES, WHICH IS THE DESIGN DECISION HERE.**
+    Three placements were possible and two are wrong:
+
+    - **A processor at the tail of the pipeline** cannot see the caller at all. The user
+      aggregator CONSUMES `TranscriptionFrame` and does not push it downstream —
+      `pipecat/processors/aggregators/llm_response_universal.py:824-838`, where the branch
+      calls `_handle_transcription(frame)` with no `push_frame`, and the comment says
+      interim, translation and eager frames are consumed "same as final
+      TranscriptionFrame". A tail tap would emit agent turns and silently never emit a
+      caller turn.
+    - **A `BaseObserver`** does see everything, but `on_push_frame` fires once per HOP, so
+      the same frame arrives two or three times and has to be de-duplicated by `frame.id`
+      in an unbounded set for the life of the call. It also sees `TTSTextFrame`, which is
+      one aggregated CHUNK of speech, not a turn — reassembling turns from chunks would be
+      re-implementing the aggregator that is already in the pipeline.
+    - **The aggregators' own turn events** are the framework's answer to "what was one turn
+      of this conversation", fire exactly once, and carry the already-aggregated text plus
+      whether the turn was interrupted. `UserTurnStoppedMessage` and
+      `AssistantTurnStoppedMessage` (`llm_response_universal.py:284-305`, `:331-348`) map
+      onto `TranscriptTurn` field for field.
+
+    **`text_redacted` IS LEFT `None` ON PURPOSE.** Redaction is step 2 of the post-call
+    pipeline and `apps/workers/redaction.py` is the one pass that produces that column,
+    validators and Telugu spoken-digit handling included. A second redactor running here
+    would be two ways of doing one thing, and the weaker of the two would be the one on the
+    latency-critical path.
+    """
+
+    def __init__(self, *, config: SessionConfig, sink: NormalizedEventSink) -> None:
+        self._config = config
+        self._sink = sink
+        self._idx = 0
+        self._started_at: datetime | None = None
+        self._ended = False
+
+    # -- call lifecycle ------------------------------------------------------------------
+
+    async def call_started(self) -> None:
+        """Emit `in_progress`. Idempotent — a re-`StartFrame` must not restart the clock."""
+        if self._started_at is not None:
+            return
+        self._started_at = datetime.now(UTC)
+        await self._sink.on_call_event(self._event("in_progress", ended_at=None))
+
+    async def call_ended(self, *, status: CallStatus = "completed") -> None:
+        """Emit a terminal event exactly once.
+
+        ⚠ **THIS IS THE WORKER'S VIEW, NOT THE BILLABLE FACT.** §1.2 splits the record:
+        connected/answered/duration/disposition are the CARRIER's, witnessed by the party
+        that billed the minute, and `list_executions` reconciles against the Plivo CDR. What
+        this worker is the sole author of is CONTENT. A `completed` here means "our
+        pipeline drained", never "the call connected and lasted N seconds".
+        """
+        if self._ended:
+            return
+        self._ended = True
+        await self._sink.on_call_event(self._event(status, ended_at=datetime.now(UTC)))
+
+    def _event(self, status: CallStatus, *, ended_at: datetime | None) -> CallEvent:
+        return CallEvent(
+            call_id=self._config.call_id,
+            tenant_id=self._config.tenant_id,
+            agent_id=self._config.agent_id,
+            direction=self._config.direction,
+            status=status,
+            started_at=self._started_at,
+            ended_at=ended_at,
+            engine=ENGINE_NAME,
+        )
+
+    # -- turns ---------------------------------------------------------------------------
+
+    async def user_turn(self, message: UserTurnStoppedMessage) -> None:
+        """A caller turn. `content` is `None` in realtime mode, which we do not run."""
+        if not message.content:
+            return
+        await self._emit_turn("caller", message.content, message.timestamp)
+
+    async def assistant_turn(self, message: AssistantTurnStoppedMessage) -> None:
+        """An agent turn.
+
+        An empty `content` is a real outcome, not an error: the docstring on
+        `AssistantTurnStoppedMessage` says it happens when a turn is interrupted before any
+        token was pushed. There is nothing the CRM can do with an empty turn, so it is
+        dropped rather than stored as a blank row.
+        """
+        if not message.content:
+            return
+        await self._emit_turn("agent", message.content, message.timestamp)
+
+    async def _emit_turn(self, speaker: str, text: str, started_iso: str) -> None:
+        idx = self._idx
+        self._idx += 1
+        await self._sink.on_transcript_turn(
+            TranscriptTurn(
+                call_id=self._config.call_id,
+                idx=idx,
+                speaker="caller" if speaker == "caller" else "agent",
+                text=text,
+                text_redacted=None,
+                lang=self._config.language,
+                start_ms=self._offset_ms(started_iso),
+                end_ms=self._offset_ms(None),
+            )
+        )
+
+    def _offset_ms(self, iso: str | None) -> int | None:
+        """Milliseconds from call start. `None` rather than a guess when either end is absent.
+
+        Both instants come from the same clock: Pipecat stamps turns with
+        `datetime.now(datetime.UTC).isoformat(timespec="milliseconds")`
+        (`pipecat/utils/time.py:17-23`) and `call_started` uses `datetime.now(UTC)`.
+        """
+        if self._started_at is None:
+            return None
+        try:
+            at = datetime.now(UTC) if iso is None else datetime.fromisoformat(iso)
+        except ValueError:
+            return None
+        return max(0, round((at - self._started_at).total_seconds() * 1000))
+
+    # -- wiring --------------------------------------------------------------------------
+
+    def attach(self, *, worker: PipelineWorker, aggregators: LLMContextAggregatorPair) -> None:
+        """Register the handlers. Called by `assemble_call`; no reason to call it yourself."""
+
+        async def _on_user(
+            _aggregator: Any, _strategy: Any, message: UserTurnStoppedMessage
+        ) -> None:
+            await self.user_turn(message)
+
+        async def _on_assistant(_aggregator: Any, message: AssistantTurnStoppedMessage) -> None:
+            await self.assistant_turn(message)
+
+        async def _on_started(_worker: Any, _frame: Any) -> None:
+            await self.call_started()
+
+        async def _on_finished(_worker: Any, _frame: Any) -> None:
+            await self.call_ended()
+
+        aggregators.user().add_event_handler("on_user_turn_stopped", _on_user)
+        aggregators.assistant().add_event_handler("on_assistant_turn_stopped", _on_assistant)
+        worker.add_event_handler("on_pipeline_started", _on_started)
+        worker.add_event_handler("on_pipeline_finished", _on_finished)
+
+
+# ---------------------------------------------------------------------------------------
+# Vendor legs.
+# ---------------------------------------------------------------------------------------
+
+
+def _language(config: SessionConfig) -> Language | None:
+    """Our BCP-47 string to Pipecat's enum. `None` means auto-detect.
+
+    `Language` is a `StrEnum` whose members hold exactly these codes
+    (`pipecat/transcriptions/language.py:19`, `TE_IN = "te-IN"` at `:516`), so the lookup
+    is a constructor call. An unrecognised code is a configuration error and raises rather
+    than silently falling back to English, which is what `SarvamRealtimeSTTService` would
+    do with its `language_code` default of `en-IN`.
+    """
+    if config.language is None:
+        return None
+    return Language(config.language)
+
+
+def _build_stt(config: SessionConfig, credentials: VendorCredentials) -> FrameProcessor:
+    """Sarvam STT.
+
+    **`SarvamSTTService`, AND THE CHOICE IS DECIDED BY OUR DECLARED MODEL, NOT BY TASTE.**
+    Pipecat ships two Sarvam STT classes and they are not interchangeable:
+
+    - `SarvamSTTService` (`pipecat/services/sarvam/stt.py:173`) accepts exactly the keys of
+      `MODEL_CONFIGS` — `saaras:v3` and `saaras:v4` (`stt.py:114-127`), anything else
+      raising `ValueError` at construction (`stt.py:303-306`). Its hardcoded default is
+      `saaras:v4` (`stt.py:267`). It runs over Sarvam's own SDK websocket.
+    - `SarvamRealtimeSTTService` (`stt.py:915`) is fixed at `_REALTIME_MODEL =
+      "saaras:v3-realtime"` (`stt.py:799`) and accepts no other id.
+
+    **REJECTED — `SarvamRealtimeSTTService`, and it was the tempting one.** It is the only
+    one of the two that emits `InterimTranscriptionFrame` (`stt.py:1362`; the non-realtime
+    class imports the type and never constructs it), it validates 8 kHz explicitly —
+    `SUPPORTED_SAMPLE_RATES = {8000, 16000}` at `stt.py:829`, which is the Plivo rate — and
+    Pipecat's own benchmark figure for it is lower: `SARVAM_REALTIME_TTFS_P99 = 1.00` s
+    against `SARVAM_TTFS_P99 = 1.17` s (`pipecat/services/stt_latency.py:60,62`). On a live
+    phone call that 170 ms is real money, because `TurnAnalyzerUserTurnStopStrategy` uses
+    the STT's declared P99 as its safety-net timeout, so it feeds straight into end-of-turn
+    latency. It loses anyway on one fact that outranks all of that: **it cannot run
+    `saaras:v4`**, and `saaras:v4` is the model our declared leg names and the only Sarvam
+    model the vendor has left us for Telugu auto-detect
+    (`calevate_shared.engine.ModelConfig.stt_autodetect`, which records four live refusals).
+    Choosing the faster class would mean silently changing which transcriber a client's
+    Telugu call runs on. Both P99 figures are Pipecat's REPORTED benchmark numbers anyway —
+    neither is measured by us on our leg, and M-1..M-4 are what would settle it.
+
+    **`vad_signals` IS LEFT UNSET, AND THAT IS A TURN-ARCHITECTURE DECISION.** With it on,
+    `service_metadata_frame()` returns `ExternalUserTurnStrategies()` (`stt.py:387-399`),
+    which tells the user aggregator to stop running local VAD and smart turn and to take
+    Sarvam's server-side speech boundaries instead. Smart turn v3 is the whole reason for
+    this migration, so we keep it; the cost is that Sarvam's socket is flushed from
+    Pipecat's own `VADUserStoppedSpeakingFrame` instead (`stt.py:401-413`). These are two
+    mutually exclusive architectures and this is the deliberate half.
+    """
+    # `language=None` is a REAL value on this settings class, not an omission: "set
+    # unsupported fields to None (e.g. language=None if the service auto-detects
+    # language)" (`pipecat/services/settings.py:381-383`). That is exactly what
+    # `ModelConfig.stt_autodetect` asks for, so it is passed through rather than dropped.
+    settings = SarvamSTTService.Settings(
+        model=config.models.stt_model or STT_MODEL,
+        language=_language(config),
+    )
+    return SarvamSTTService(
+        api_key=credentials.sarvam_api_key,
+        settings=settings,
+        sample_rate=TELEPHONY_SAMPLE_RATE_HZ,
+    )
+
+
+def _build_tts(config: SessionConfig, credentials: VendorCredentials) -> FrameProcessor:
+    """Sarvam TTS today; Cartesia on the Studio tier.
+
+    ⚠ **`SarvamTTSSpeakerV3` (`pipecat/services/sarvam/tts.py:101`) IS A CLOSED `StrEnum`
+    OF 25 SPEAKER NAMES.** That is the structural fact behind D-593 and it is recorded here
+    rather than acted on: a vendor whose speaker set is an enum has no place to put a voice
+    cloned from a client's own recording, so Sarvam cannot serve the Clear tier's cloned
+    voices however good its Telugu is. Gnani replaces Sarvam on that tier and Cartesia
+    stays on Studio. Nothing in this function implements that — `GnaniTTSService` is §5,
+    staged behind Gnani's unanswered rate-limit question, and building it now would be
+    building for nothing.
+
+    `bulbul:v2` is not offered: Pipecat's own docstring says "Sarvam's API rejects it"
+    (`tts.py:648`), which agrees with CLAUDE.md's correction that v2 is WITHDRAWN rather
+    than a value tier.
+    """
+    provider = (config.models.tts_provider or "sarvam").lower()
+    # A settings field left ABSENT keeps the vendor class's own default; a field set to
+    # `None` overwrites it (these are delta dataclasses whose unset marker is `NOT_GIVEN`,
+    # `pipecat/services/settings.py`). `tts_voice` is nullable on `ModelConfig`, so it is
+    # only passed when we actually have one — sending `voice=None` would blank Sarvam's
+    # "shubh" default and leave the agent with no speaker at all.
+    voice = config.models.tts_voice
+    if provider == "cartesia":
+        if credentials.cartesia_api_key is None:
+            raise ValueError("tts_provider is 'cartesia' but no Cartesia key was supplied")
+        # Imported here, not at module scope: the Studio tier is a minority of calls and
+        # this keeps a websocket client out of the import graph of every Sarvam call.
+        from pipecat.services.cartesia.tts import CartesiaTTSService
+
+        cartesia_settings = CartesiaTTSService.Settings(language=_language(config))
+        if config.models.tts_model is not None:
+            cartesia_settings.model = config.models.tts_model
+        if voice is not None:
+            cartesia_settings.voice = voice
+        return CartesiaTTSService(
+            api_key=credentials.cartesia_api_key,
+            settings=cartesia_settings,
+            sample_rate=TELEPHONY_SAMPLE_RATE_HZ,
+        )
+    if provider != "sarvam":
+        raise ValueError(f"unsupported tts_provider {provider!r}")
+    sarvam_settings = SarvamTTSService.Settings(
+        model=config.models.tts_model or TTS_MODEL,
+        language=_language(config),
+    )
+    if voice is not None:
+        sarvam_settings.voice = voice
+    return SarvamTTSService(
+        api_key=credentials.sarvam_api_key,
+        settings=sarvam_settings,
+        sample_rate=TELEPHONY_SAMPLE_RATE_HZ,
+    )
+
+
+def _build_llm(config: SessionConfig, credentials: VendorCredentials) -> FrameProcessor:
+    """The BYOK LLM leg, on whichever of our three declared providers the config names.
+
+    **NO `temperature` IS SENT, AND THAT IS WHY THERE IS NO TRAP LAYER HERE.** Pipecat has
+    no equivalent of `LlmModelSpec.traps`; `temperature` simply defaults to `NOT_GIVEN`
+    (`pipecat/services/settings.py:337`) and an unset field is not serialised. The GPT-5
+    trap that `engine/bolna.py::_llm_trap_settings` exists for was caused by that adapter
+    sending `temperature: 0.1` UNCONDITIONALLY — a thing this leg does not do. If a future
+    change wants a temperature, `ModelConfig.llm_traps` is already on `SessionConfig` and
+    that is where the decision belongs.
+
+    **THE `google` LEG GOES OVER THE OPENAI-COMPAT SURFACE, NOT `google-genai`, AND THAT IS
+    A CHOICE WITH TWO GROUNDS RATHER THAN A WORKAROUND.**
+
+    Pipecat's own Gemini service is unreachable here: `import pipecat.services.google.llm`
+    raises `ImportError("Missing module: No module named 'google.genai'")` (measured in this
+    venv, 13 Sep 2026), because `apps/voice-worker/pyproject.toml` declares no `google`
+    extra. The obvious repair — add the extra — is the WRONG one twice over. It would pull
+    `google-cloud-speech` and `google-cloud-texttospeech` alongside `google-genai` for a leg
+    that wants none of them, and, more importantly, it would be a SECOND way for this
+    codebase to talk to Gemini. `copilot/service._google_leg` and `workers/document_ocr.py`
+    already reach it over `google_openai_compat_base_url()`, the same OpenAI-shaped wire
+    `workers/chat.py` speaks to Azure — so the leg below is the way this repo already has,
+    not a new one beside it.
+
+    **D-478 SCOPED THAT BUILDER TO "THE DASHBOARD LEG ONLY", AND THE REASON IT GAVE IS GONE.**
+    Its ground was that the in-call Google leg talked the NATIVE `:generateContent` protocol
+    through Bolna's own `genai.Client` and read no base URL of ours. This migration deletes
+    Bolna from the in-call path, so there is no longer a native in-call leg for the
+    restriction to protect — the worker IS the engine, and the only Gemini endpoint this
+    product may address is the one that builder emits. The scope note on
+    `calevate_shared.engine.google_openai_compat_base_url` is stale as a consequence and is
+    the follow-up this change owes.
+
+    **THE WIRE SHAPE IS VERIFIED-LIVE, THE SEMANTICS ARE NOT, AND THE DIFFERENCE MATTERS.**
+    Probed from this container on 13 Sep 2026 against
+    `POST https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` with
+    `Authorization: Bearer INVALID_KEY_PROBE`, using the two-request discrimination
+    `copilot/service.py` documents (the body parser runs BEFORE the credential, so an
+    accepted field fails on the key and an unknown one is named):
+
+        {... "zzz_not_a_param": true}                  -> 400 Unknown name "zzz_not_a_param"
+        {... "stream": true}                           -> 400 Please pass a valid API key
+        {... "stream": true, "tools": [...],
+             "tool_choice": "auto"}                    -> 400 Please pass a valid API key
+
+    So the endpoint ACCEPTS streaming and tool calling in the body — which upgrades the
+    `tools`/`tool_choice` claim in that builder's docstring from SECONDARY (web search) to
+    VERIFIED-LIVE, and adds `stream`. It does NOT prove streamed tool-calling behaves
+    correctly end to end; a body the parser accepts is not a semantics guarantee, and
+    nothing here has run a real turn. That remains to be measured on the first live call.
+    """
+    provider = config.models.llm_provider or "azure_openai"
+    model = config.models.llm_model
+    if model is None:
+        raise ValueError("SessionConfig.models.llm_model is required: this worker IS the engine")
+    # NOT a field of our own: `ModelConfig` already carries `llm_base_url` AND already
+    # refuses an `azure_openai` leg without one (its own validator raises
+    # "llm_provider 'azure_openai' requires llm_base_url" — measured, 13 Sep 2026). A
+    # second copy on `SessionConfig` would be a second place for the endpoint a third party
+    # sends a client's caller's words to, which is the one value D-127's argument turns on.
+    base_url = config.models.llm_base_url
+    if provider == "azure_openai":
+        if base_url is None:  # pragma: no cover - ModelConfig's validator gets here first
+            raise ValueError("the azure_openai leg needs llm_base_url (azure_openai_base_url())")
+        return AzureLLMService(
+            endpoint=base_url,
+            api_key=credentials.llm_api_key,
+            # On Azure this is the DEPLOYMENT id an operator chose, never a model name —
+            # `ModelConfig.llm_model` says so at the field.
+            settings=AzureLLMService.Settings(model=model),
+            function_call_timeout_secs=FUNCTION_CALL_TIMEOUT_SECS,
+        )
+    if provider == "openai":
+        return OpenAILLMService(
+            api_key=credentials.llm_api_key,
+            base_url=base_url,
+            settings=OpenAILLMService.Settings(model=model),
+            function_call_timeout_secs=FUNCTION_CALL_TIMEOUT_SECS,
+        )
+    if provider == "google":
+        # NO `base_url` FROM CONFIG, and that asymmetry with the two legs above is the
+        # point. `google_openai_compat_base_url()` takes no argument on purpose — there is
+        # exactly one endpoint this product may address for Gemini, and a parameter would
+        # be a caller's chance to vary the one value that decides where a caller's words
+        # are sent. Azure's endpoint is per-resource and therefore config; Google's is not.
+        return OpenAILLMService(
+            api_key=credentials.llm_api_key,
+            base_url=google_openai_compat_base_url(),
+            settings=OpenAILLMService.Settings(model=model),
+            function_call_timeout_secs=FUNCTION_CALL_TIMEOUT_SECS,
+        )
+    raise ValueError(f"unknown llm_provider {provider!r}")
+
+
+def build_vendor_legs(config: SessionConfig, credentials: VendorCredentials) -> VendorLegs:
+    """Construct the three real vendor services. No network happens here."""
+    install_vendor_log_guard()
+    return VendorLegs(
+        stt=_build_stt(config, credentials),
+        llm=_build_llm(config, credentials),
+        tts=_build_tts(config, credentials),
+    )
+
+
+# ---------------------------------------------------------------------------------------
+# Assembly.
+# ---------------------------------------------------------------------------------------
+
+
+def build_user_aggregator_params(
+    stop_secs: float = SMART_TURN_STOP_SECS,
+) -> LLMUserAggregatorParams:
+    """VAD and turn detection, both of which live HERE and not where you would look for them.
+
+    ⚠ **`TransportParams` HAS NO `vad_analyzer` AND NO `turn_analyzer` FIELD IN 1.10.0** —
+    verified by reading the whole model (`pipecat/transports/base_transport.py:25-93`), not
+    by trying it. The obvious place is the wrong place; the analyzer goes on the user
+    context aggregator (`LLMUserAggregatorParams.vad_analyzer`,
+    `pipecat/processors/aggregators/llm_response_universal.py:178`).
+
+    **THE STOP STRATEGY IS SPELLED OUT EVEN THOUGH IT IS THE DEFAULT.**
+    `default_user_turn_stop_strategies()` already returns a
+    `TurnAnalyzerUserTurnStopStrategy(turn_analyzer=LocalSmartTurnAnalyzerV3())` and
+    `UserTurnStrategies.__post_init__` installs it when none is given
+    (`pipecat/turns/user_turn_strategies.py:45-53`, `:76-80`). Writing it out is what lets
+    `SmartTurnParams(stop_secs=...)` be OURS — the default constructs the analyzer with
+    `stop_secs=3` and gives no other way in. A pipeline that inherited it would be a
+    pipeline whose most important number was chosen by a library.
+
+    `wait_for_transcript` is left at its default `True`: the turn ends when the analyzer
+    says COMPLETE **and** a finalized transcript has landed (or the STT's own P99 elapses).
+    Setting it `False` takes transcripts off the latency path, which is tempting on a
+    650 ms budget — rejected because it would let the LLM answer a turn whose words we do
+    not have yet, and Sarvam's `saaras:v4` emits no interim transcripts to fall back on.
+    """
+    return LLMUserAggregatorParams(
+        vad_analyzer=SileroVADAnalyzer(sample_rate=TELEPHONY_SAMPLE_RATE_HZ),
+        user_turn_strategies=UserTurnStrategies(
+            stop=[
+                TurnAnalyzerUserTurnStopStrategy(
+                    turn_analyzer=LocalSmartTurnAnalyzerV3(
+                        params=SmartTurnParams(stop_secs=stop_secs),
+                    ),
+                )
+            ],
+        ),
+    )
+
+
+@dataclass(slots=True)
+class AssembledCall:
+    """Everything one call needs, assembled and not yet running."""
+
+    worker: PipelineWorker
+    pipeline: Pipeline
+    context: LLMContext
+    aggregators: LLMContextAggregatorPair
+    boundary: NormalizedEventBoundary
+    #: What the worker attests it loaded (§1.1). Recomputed here, never echoed.
+    observed_prompt_sha256: str
+    #: Whether the prompt this process holds is the one the config version names. `attest.py`
+    #: reports the disagreement; it is not this module's job to refuse on it.
+    prompt_matches_config_version: bool = field(default=False)
+    #: Carried from `SessionConfig` so `start_conversation` reads one object.
+    greet_first: bool = field(default=True)
+
+    async def start_conversation(self) -> bool:
+        """Make the agent speak first, if this agent does.
+
+        **CALLED FROM THE TRANSPORT'S CONNECT EVENT, WHICH IS WHY IT IS A METHOD AND NOT
+        SOMETHING `assemble_call` WIRES.** The shipped pattern adds a developer message and
+        queues an `LLMRunFrame` from `on_client_connected`
+        (`examples/voice/voice-cartesia.py:112-119`), and that event belongs to a real
+        transport — `FastAPIWebsocketTransport` registers exactly three handlers
+        (`pipecat/transports/websocket/fastapi.py:674-678`). Registering it here would make
+        `assemble_call` fail on any transport without that event, which includes every fake,
+        so the entrypoint (step 6, with the carrier) does the one-line registration and this
+        method holds the decision.
+
+        Returns whether it spoke, so a caller can log the branch without re-reading config.
+        """
+        if not self.greet_first:
+            return False
+        # A DEVELOPER message, not a scripted line: what the agent opens with is the
+        # agent's prompt (and, per hard rule 5 / D-163, its disclosure toggles), composed
+        # on the control-plane side. A greeting hardcoded here would be a second author of
+        # the first sentence of every call.
+        self.context.add_message(
+            {"role": "developer", "content": "Greet the caller as your instructions direct."}
+        )
+        await self.worker.queue_frames([LLMRunFrame()])
+        return True
+
+
+def assemble_call(
+    *,
+    config: SessionConfig,
+    legs: VendorLegs,
+    transport: BaseTransport,
+    sink: NormalizedEventSink,
+    stop_secs: float = SMART_TURN_STOP_SECS,
+) -> AssembledCall:
+    """Assemble the §4 pipeline for one call.
+
+    `transport` is an argument rather than something built here because the Plivo leg is
+    step 6 and gated on an account in the India data region — and because a pipeline that
+    can only be exercised with a carrier is a pipeline nobody can test (§6 step 4 asks for
+    exactly this: a local run against a fake transport).
+    """
+    install_vendor_log_guard()
+
+    context = LLMContext(messages=[{"role": "system", "content": config.system_prompt}])
+    aggregators = LLMContextAggregatorPair(
+        context,
+        user_params=build_user_aggregator_params(stop_secs),
+    )
+
+    pipeline = Pipeline(
+        [
+            transport.input(),
+            legs.stt,
+            aggregators.user(),
+            legs.llm,
+            legs.tts,
+            transport.output(),
+            # AFTER the output, per the shipped ordering — placing it before would record
+            # assistant text that was never spoken (`examples/voice/voice-cartesia.py:93-94`).
+            aggregators.assistant(),
+        ]
+    )
+
+    worker = PipelineWorker(
+        pipeline,
+        params=PipelineParams(
+            # Both default to False (`pipecat/pipeline/worker.py:198-199`). Hard rule 7
+            # needs a real cost per usage_event and §1.3 meters five legs independently;
+            # with these off there is nothing to meter. `meter.py` is the consumer.
+            enable_metrics=True,
+            enable_usage_metrics=True,
+            audio_in_sample_rate=TELEPHONY_SAMPLE_RATE_HZ,
+            audio_out_sample_rate=TELEPHONY_SAMPLE_RATE_HZ,
+        ),
+        # Default is CONTINUE, which keeps a pipeline alive after (say) a TTS key is
+        # rejected — i.e. a live call with a permanently silent agent. END ends the call so
+        # the caller hears a disconnect rather than nothing, and the shipped telephony
+        # example makes the same choice (`voice-cartesia.py:98-104`).
+        processor_unusable_policy=ProcessorUnusablePolicy.END,
+        # Default 300 s cancels a silent call AND the whole runner with it
+        # (`worker.py:356-368`). A phone call has its own end; we do not want a five-minute
+        # timer deciding it, and under one-worker-per-call the runner cancellation would be
+        # a second, invisible way for a session to die.
+        idle_timeout_secs=None,
+        conversation_id=config.call_id,
+    )
+
+    boundary = NormalizedEventBoundary(config=config, sink=sink)
+    boundary.attach(worker=worker, aggregators=aggregators)
+
+    observed = recompute_prompt_sha256(config.system_prompt)
+    return AssembledCall(
+        worker=worker,
+        pipeline=pipeline,
+        context=context,
+        aggregators=aggregators,
+        boundary=boundary,
+        observed_prompt_sha256=observed,
+        prompt_matches_config_version=observed == config.prompt_sha256,
+        greet_first=config.greet_first,
+    )
+
+
+__all__ = [
+    "ENGINE_NAME",
+    "FUNCTION_CALL_TIMEOUT_SECS",
+    "SMART_TURN_STOP_SECS",
+    "STT_MODEL",
+    "TELEPHONY_SAMPLE_RATE_HZ",
+    "TTS_MODEL",
+    "AssembledCall",
+    "NormalizedEventBoundary",
+    "NormalizedEventSink",
+    "SessionConfig",
+    "VendorCredentials",
+    "VendorLegs",
+    "assemble_call",
+    "build_user_aggregator_params",
+    "build_vendor_legs",
+    "recompute_prompt_sha256",
+]
