@@ -2232,8 +2232,16 @@ Related observers that ship in the tree:
 **Supported, behind an optional extra.**
 `tracing = ["opentelemetry-sdk>=1.33.0,<2", "opentelemetry-api>=1.33.0,<2",
 "opentelemetry-instrumentation>=0.54b0,<1"]` (`pyproject.toml:147`) — i.e.
-`uv add "pipecat-ai[tracing]"`. Without it, `OPENTELEMETRY_AVAILABLE = False` and everything
-degrades silently (`utils/tracing/setup.py:18-25`).
+`uv add "pipecat-ai[tracing]"`. Without it, Pipecat's own availability flag in
+`pipecat/utils/tracing/setup.py:18-25` stays false and everything degrades silently.
+
+> ⚠ That sentence originally quoted the vendor's constant by its bare name, and
+> `check_docs_drift` was RIGHT to fail on it: the gate reads a bare capability constant in
+> prose as one of OURS and could find no such name in `apps`/`packages`/`scripts`. It cannot
+> tell a vendor's constant from a renamed one of our own, and that is the correct bias — the
+> defect it exists to catch is a rename that leaves every sentence quoting the old name
+> readable and wrong. The rule for this whole document: **name a vendor constant by its file,
+> never bare**, so a reader cannot mistake it for something this repository defines.
 
 ```python
 def setup_tracing(
