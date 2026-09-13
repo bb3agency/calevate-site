@@ -239,6 +239,7 @@ def upgrade() -> None:
             ["agent_config_version_id"],
             ["agent_config_versions.id"],
             name=op.f("fk_pipecat_agents_agent_config_version_id_agent_config_versions"),
+            ondelete="RESTRICT",
         ),
     )
     op.create_index(
@@ -301,6 +302,13 @@ def upgrade() -> None:
     op.execute("CREATE POLICY pipecat_kb_objects_global_read ON pipecat_kb_objects FOR SELECT USING (true)")
 
     # --- the outward foreign keys, NOT VALID then validated -------------------
+    # `ON DELETE RESTRICT` on every one, and it is this repo's rule rather than a
+    # preference: offboarding is an explicit workflow (FLOWS §9), never a cascade that
+    # silently destroys a client's data. The first cut of this migration omitted the
+    # clause entirely; `orm_schema_fidelity_test` caught it, and the reason it is worth
+    # catching is that an unspecified ON DELETE is NO ACTION, which REFUSES the delete the
+    # same way RESTRICT does today — so the schema behaves correctly while saying nothing
+    # about why, and the next reader cannot tell a decision from an omission.
     for table, column, target in (
         ("pipecat_agents", "tenant_id", "organizations"),
         ("pipecat_agents", "agent_id", "agents"),
@@ -309,7 +317,8 @@ def upgrade() -> None:
         name = f"fk_{table}_{column}_{target}"
         op.execute(
             f"ALTER TABLE {table} ADD CONSTRAINT {name} "
-            f"FOREIGN KEY ({column}) REFERENCES {target} (id) NOT VALID"
+            f"FOREIGN KEY ({column}) REFERENCES {target} (id) "
+            "ON DELETE RESTRICT NOT VALID"
         )
         op.execute(f"ALTER TABLE {table} VALIDATE CONSTRAINT {name}")
 

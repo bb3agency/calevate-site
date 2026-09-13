@@ -352,6 +352,15 @@ class GateRegistry:
     truthful_directive: str
     truthful_names: frozenset[str]
     prompt_composer: str
+    #: D-597. The ONE function an adapter may compose THROUGH instead of composing
+    #: itself, and the predicate that makes it safe to allow. `mint_config_version` both
+    #: calls `prompt_composer` and REFUSES a config whose composed prompt does not carry
+    #: the floor — so an adapter delegating to it gets a stronger guarantee than the
+    #: direct call this section originally demanded, not a weaker one. Both names are
+    #: read off the imported objects so a rename fails `blind_spots()` rather than
+    #: silently matching nothing.
+    prompt_composer_delegate: str
+    floor_predicate: str
     agent_config_fields: frozenset[str]
     #: D-282. The names section 6's SECOND half polices — the per-call home hard rule 5
     #: gets on an engine whose agent record cannot hold a prompt. Read off the real
@@ -370,6 +379,7 @@ class GateRegistry:
 
 
 def gate_registry() -> GateRegistry:
+    from apps.api.agents.config_versions import mint_config_version
     from apps.api.agents.models import AGENT_STATUSES
     from apps.api.agents.service import dispatch_call
     from apps.api.campaigns.service import (
@@ -396,6 +406,7 @@ def gate_registry() -> GateRegistry:
         AgentHosting,
         CallContext,
         VoiceEngine,
+        carries_truthful_answer_floor,
         compose_engine_prompt,
     )
 
@@ -423,6 +434,8 @@ def gate_registry() -> GateRegistry:
         truthful_directive=TRUTHFUL_ANSWER_DIRECTIVE,
         truthful_names=frozenset({"TRUTHFUL_ANSWER_MARKER", "TRUTHFUL_ANSWER_DIRECTIVE"}),
         prompt_composer=compose_engine_prompt.__name__,
+        prompt_composer_delegate=mint_config_version.__name__,
+        floor_predicate=carries_truthful_answer_floor.__name__,
         agent_config_fields=frozenset(AgentConfig.model_fields),
         call_floor_guard=require_call_compliance_floor.__name__,
         call_prompt_field=next(
@@ -1058,6 +1071,57 @@ _ADAPTER_DIR = REPO_ROOT / "apps" / "api" / "engine"
 _ADAPTER_EXCLUDED = frozenset({"__init__.py", "capabilities.py", "document.py"})
 
 
+def _composes_through_delegate(tree: ast.AST, registry: GateRegistry, failures: list[str]) -> bool:
+    """Does this adapter compose through `mint_config_version`, and is that still safe?
+
+    TWO questions, and answering only the first is how an allowance rots. The adapter must
+    CALL the delegate; the delegate must still both compose and refuse. The second half is
+    re-read from source on every run, so the allowance dies the day the refusal does.
+    """
+    import sys as _sys
+
+    # Imported HERE, like every other object this module reads a name off, so the guard
+    # has no import-time dependency on the app package.
+    from apps.api.agents.config_versions import mint_config_version
+
+    calls_delegate = any(
+        isinstance(node, ast.Call) and _called_name(node) == registry.prompt_composer_delegate
+        for node in ast.walk(tree)
+    )
+    if not calls_delegate:
+        return False
+
+    module = _sys.modules[mint_config_version.__module__]
+    source = Path(str(module.__file__))
+    body = next(
+        (
+            node
+            for node in ast.walk(_parse(source))
+            if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef)
+            and node.name == registry.prompt_composer_delegate
+        ),
+        None,
+    )
+    if body is None:  # pragma: no cover - the import above would have failed first
+        failures.append(
+            f"`{registry.prompt_composer_delegate}` is importable but has no definition in "
+            f"{source.name}; the delegation allowance cannot be verified"
+        )
+        return False
+
+    inner = {_called_name(n) for n in ast.walk(body) if isinstance(n, ast.Call)}
+    missing = sorted({registry.prompt_composer, registry.floor_predicate} - inner)
+    if missing:
+        failures.append(
+            f"`{registry.prompt_composer_delegate}` no longer calls {missing} — adapters "
+            "compose THROUGH it precisely because it composes and then refuses a prompt "
+            "that does not carry the floor. Restore that, or make every delegating "
+            "adapter call the composer itself"
+        )
+        return False
+    return True
+
+
 def _adapter_files(roots: Iterable[Path] | None = None) -> list[Path]:
     """Every vendor adapter, discovered rather than listed.
 
@@ -1184,6 +1248,23 @@ def truthful_answer_unfalsifiable(roots: Iterable[Path] | None = None) -> list[s
             isinstance(node, ast.Call) and _called_name(node) == registry.prompt_composer
             for node in ast.walk(tree)
         )
+        # OR IT COMPOSES THROUGH THE ONE SANCTIONED DELEGATE, and the delegate is verified
+        # here rather than trusted by name (D-597). An `owned_runtime` adapter does not
+        # build a request body: it mints an immutable `agent_config_versions` row that the
+        # worker later loads, and `mint_config_version` is where the composing happens.
+        # Forcing a direct call in the adapter as well would add a second composition of
+        # the same prompt whose only purpose is to be seen by this scanner — which is the
+        # "guardrail teaching the code to lie to it" this section's own comment rejects,
+        # arriving from the other direction.
+        #
+        # Allowing it is only safe because the delegate is STRICTLY STRONGER than the call
+        # it replaces: it composes AND refuses a config whose composed prompt does not
+        # carry the floor, where a direct call composes and sends. Both properties are
+        # re-read from the delegate's source on every run, so the day somebody deletes the
+        # refusal, every adapter that delegates fails here — the allowance cannot outlive
+        # the thing that justified it.
+        if not composes:
+            composes = _composes_through_delegate(tree, registry, failures)
         renders_agents = any(
             isinstance(node, ast.Name) and node.id == "AgentConfig" for node in ast.walk(tree)
         )

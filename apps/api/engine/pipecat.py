@@ -694,7 +694,12 @@ class PipecatEngine:
             raise ProblemError(
                 kind="dependency",
                 code="engine_rejected",
-                title="Voice engine rejected the request",
+                # NOT "voice engine rejected the request", which this adapter inherited
+                # from a rented-engine refusal and which is false twice here: nothing
+                # rejected anything, and WE are the engine. `plain_language_guard` caught
+                # the wording — "the request" is not a thing the reader can see — and the
+                # honest title is the one that names what is missing.
+                title="That agent is not on the voice platform",
                 detail="The voice platform does not hold that agent.",
             )
         return held
@@ -815,7 +820,7 @@ class PipecatEngine:
             raise ProblemError(
                 kind="dependency",
                 code="engine_rejected",
-                title="Voice engine rejected the request",
+                title="That knowledge base is not attached to this agent",
                 detail="The voice platform does not hold that knowledge base.",
             )
 
@@ -1007,7 +1012,7 @@ class PipecatEngine:
             raise ProblemError(
                 kind="dependency",
                 code="engine_rejected",
-                title="Voice engine rejected the request",
+                title="There is no record of that call",
                 detail="The voice platform holds no record of that call.",
                 failure_stage="CORE_LOGIC",
             )

@@ -1048,11 +1048,21 @@ class PipecatAgent(PKMixin, TimestampMixin, Base):
         UniqueConstraint("agent_id", name="uq_pipecat_agents_agent_id"),
     )
 
+    # `RESTRICT` on all three, which is this repo's rule and not a preference:
+    # offboarding is an explicit workflow (FLOWS §9), never a cascade that silently
+    # destroys a client's data. It shipped without one and
+    # `orm_schema_fidelity_test::test_every_tenant_table_declares_its_organizations_
+    # foreign_key` caught it — an unspecified ON DELETE is NO ACTION, which refuses the
+    # same way today and says nothing about why, so the next reader cannot tell a decision
+    # from an omission.
     tenant_id: Mapped[UUID] = mapped_column(
-        PgUUID(as_uuid=True), ForeignKey("organizations.id"), nullable=False, index=True
+        PgUUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
     )
     agent_id: Mapped[UUID] = mapped_column(
-        PgUUID(as_uuid=True), ForeignKey("agents.id"), nullable=False
+        PgUUID(as_uuid=True), ForeignKey("agents.id", ondelete="RESTRICT"), nullable=False
     )
     #: `pipecat:<tenant>:<agent>`, minted by `engine/pipecat.engine_agent_ref_for`. The join
     #: key every read comes in on, and the value `agents.engine_agent_ref` stores.
@@ -1063,7 +1073,9 @@ class PipecatAgent(PKMixin, TimestampMixin, Base):
     #: What the control plane last PUBLISHED. Never the read-back: the worker attests a
     #: version of its own choosing and the two disagreeing is the whole point of D-592.
     agent_config_version_id: Mapped[UUID] = mapped_column(
-        PgUUID(as_uuid=True), ForeignKey("agent_config_versions.id"), nullable=False
+        PgUUID(as_uuid=True),
+        ForeignKey("agent_config_versions.id", ondelete="RESTRICT"),
+        nullable=False,
     )
     #: The whole `AgentConfig` as published. It is here and not on `agent_config_versions`
     #: because that table is content-addressed on two digests and writes
