@@ -24,6 +24,23 @@ the only published Pipecat + Sarvam + Indian-carrier integration in existence, a
 India compliance API. Exotel stays a live alternative and is not eliminated — it is
 **unevaluable** on public material (`orchestrator-commercial-and-carrier` §5.5).
 
+### 0.1 Three architecture decisions, founder, 13 Sep 2026
+
+Asked because each genuinely forks the work, and answered so nothing downstream has to guess:
+
+| Fork | Decision | What follows |
+|---|---|---|
+| **Where the worker runs** | **Pipecat Cloud, `ap-south` (Mumbai)** — not our own VPS | They own scaling, rolling deploys and call draining, which is the operational burden a one-person team should not carry. It also **promotes P-1 and P-4 from curiosities to blockers on the first billed minute**: what an "active minute" covers, and whether Plivo media reaches Mumbai without a US hop. A Pipecat Cloud account is now needed — added as BLOCKER-2. |
+| **First milestone** | **Inbound and outbound together** — full parity before anything ships | The adapter targets the whole 27-operation protocol rather than an inbound subset, and the conformance suite must pass in full. Outbound still cannot dial a client until the §6 carrier letter is answered, but the code does not wait for it. |
+| **The Bolna adapter** | **Keep it selectable; delete it in one commit once Pipecat has placed a real call** | Hard rule 2's conformance suite exists precisely so several adapters coexist and `Settings.engine` chooses. A broken Pipecat path then never leaves this product with no working engine. The deletion is a planned, single, reviewable commit — not a slow rot of dead code. |
+
+> ### ⚠ BLOCKER-2 — a Pipecat Cloud account, with `ap-south` selected
+>
+> Follows directly from the first decision. Needed to answer P-1 through P-7, and to measure
+> cold-start time against inbound answer expectations before we promise anything.
+>
+> **Owner:** founder. **Blocks:** the billing model and the first deploy, not the code.
+
 ## 1. WHAT BLOCKS CODE: one account action, nothing else
 
 **The regulatory questions in §3 do not block the build.** They decide *which number we dial
