@@ -619,7 +619,14 @@ async def test_the_conversation_lands_in_copilot_memories_and_nowhere_else(
     body = {**BODY, "question": f"question-{marker}"}
 
     async with _client() as http:
-        await _events(http, token, slug, body)
+        events = await _events(http, token, slug, body)
+    # THE STREAM IS CHECKED BEFORE THE TABLES. A refusal raised ahead of the provider takes
+    # the `except ProblemError` arm, which writes nothing and logs nothing — so a run that
+    # was refused used to fail below as "not remembered", naming the wrong half. Ratchet
+    # round 7 (14 Sep 2026) produced exactly that: a 15ms request, no memory row, and no
+    # line in the captured log to say why. This names the refusal instead.
+    assert [name for name, _ in events if name == "error"] == [], events
+    assert any(name == "text" for name, _ in events), events
 
     async with tenant_session(tenant_id) as session:
         columns = (
