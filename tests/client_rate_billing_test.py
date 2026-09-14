@@ -35,6 +35,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from uuid import UUID
 
+from apps.api.billing.credit_packs import PACK_CATALOGUE
 from apps.api.billing.rates import PREPAID_TIERS, prepaid_billed_inr
 from apps.api.billing.service import priced_overage
 from apps.api.core.settings import get_settings
@@ -163,7 +164,17 @@ async def test_a_self_serve_wallet_is_debited_the_list_price_not_the_supplier_co
 
     await _meter_one_minute(tenant_id, agent_id)
 
-    rate = get_settings().self_serve_inr_per_min
+    # THE CARD'S entry rung, which is what the meter actually debits
+    # (`service.rate_card_at(...).list_rates()` through the lot). The legacy
+    # `self_serve_inr_per_min` setting is asserted to be the SAME number beside it, because
+    # the two disagreeing is a live money defect rather than a test detail:
+    # `list_rates.self_serve_rate_at` falls back to the setting on any instant no card row
+    # covers, so a closed month would render at a price no wallet was charged. D-601 cut
+    # the card and this assertion is what noticed the setting had not moved with it.
+    rate = PACK_CATALOGUE[0].sarvam_inr_per_min
+    assert get_settings().self_serve_inr_per_min == rate, (
+        "the legacy list-rate setting has drifted from the card's entry rung"
+    )
     assert await _balance(tenant_id) == -rate, (
         "the wallet moved by something other than one minute at the list price"
     )

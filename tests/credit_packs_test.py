@@ -51,6 +51,7 @@ from apps.api.core.errors import install_error_handlers
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.tenancy.signup_routes import router as signup_router
+from calevate_shared.config import Settings
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
@@ -188,6 +189,32 @@ def test_the_founder_approved_card_is_pinned() -> None:
         # Round rungs, not charm prices: what makes the rate and the talk time easy to hold
         # in your head.
         assert amount % Decimal("1000") == 0, f"{amount} is not a round rung"
+
+
+def test_the_legacy_list_rate_setting_still_equals_the_entry_rungs_clear_rate() -> None:
+    """`Settings.self_serve_inr_per_min` IS the card's entry rung, and nothing enforces it
+    except this.
+
+    The setting is the pre-D-547 single price, kept alive for one release (plan §10) and
+    still read by `billing/service`, `billing/attribution` and `workers/pipeline` to price a
+    CLOSED month, and by `list_rates.self_serve_rate_at` as the fallback for any instant no
+    recorded card covers. The ops console keeps the two equal on every write
+    (`config_routes._record_card` passes `list_rates.card_list_rate(card)`), but a card
+    changed in CODE — which is the only way this catalogue changes — touches no console and
+    updates no setting.
+
+    So the default and the entry rung have to be moved together, and when D-601 cut the
+    card to ₹4.00 they were not: for one commit a wallet was debited ₹4.00 from the lot
+    while a closed month on a deployment with no recorded card still rendered at ₹5.00.
+    `tests/client_rate_billing_test.py` caught it. The two figures cannot be derived from
+    one another (`calevate_shared` may not import `apps.api`), so the equality is asserted
+    here instead.
+    """
+    # The CODE DEFAULT, not the live value: the setting is operator-editable by design, and
+    # what has to stay paired with the code catalogue is the figure a deployment falls back
+    # to when nobody has set one. (`tests/platform_config_test.py` reads it the same way.)
+    default = Settings.model_fields["self_serve_inr_per_min"].get_default(call_default_factory=True)
+    assert default == PACK_CATALOGUE[0].sarvam_inr_per_min
 
 
 def test_the_fifteen_thousand_rung_exists_between_ten_and_twenty_five() -> None:
