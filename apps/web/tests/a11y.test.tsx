@@ -25,6 +25,7 @@ import LifecyclePage from "@/app/admin/tenants/[tenantId]/lifecycle/page";
 import TenantClosurePage from "@/app/admin/tenants/[tenantId]/closure/page";
 import TenantProfilePage from "@/app/admin/tenants/[tenantId]/profile/page";
 import TenantInvitationsPage from "@/app/admin/tenants/[tenantId]/invitations/page";
+import TenantMembersPage from "@/app/admin/tenants/[tenantId]/members/page";
 import HeldAccountsPage from "@/app/admin/holds/page";
 import NewClientPage from "@/app/admin/new/page";
 import GlobalDncPage from "@/app/admin/ops/dnc/page";
@@ -3396,6 +3397,54 @@ const ADMIN_SCREENS: Screen[] = [
     routes: {
       ...TENANT_ROUTES,
       "/v1/admin/tenants/t1/closure": CLOSED_ACCOUNT,
+    },
+  },
+  {
+    // THREE members on purpose, because each renders a branch the other two do not: an
+    // owner (the role the last-owner refusal is written about), a staff member carrying
+    // leads (the sentence that decides a removal), and one who is deactivated and whose
+    // address was never verified — the two amber notes. The REMOVAL disclosure is not
+    // scanned here: it mounts only after a click, this table takes one entry per screen
+    // file, and everything inside it is a shared primitive swept elsewhere
+    // (`TypedConfirmation`, `NoticeBox`, `ActionButton`). Its behaviour is driven in
+    // tests/adminAccountManagement.test.tsx.
+    file: "admin/tenants/[tenantId]/members/page.tsx",
+    realm: "admin",
+    element: () => <TenantMembersPage params={tenant} />,
+    routes: {
+      ...TENANT_ROUTES,
+      "/v1/admin/tenants/t1/members": [
+        {
+          user_id: "u-owner",
+          name: "Lakshmi Rao",
+          email: "lakshmi@sri-traders.example",
+          role: "owner",
+          joined_at: "2026-06-02T05:30:00Z",
+          email_verified: true,
+          deactivated: false,
+          leads_assigned: 0,
+        },
+        {
+          user_id: "u-staff",
+          name: "Anitha Kumar",
+          email: "anitha@sri-traders.example",
+          role: "staff",
+          joined_at: "2026-07-14T05:30:00Z",
+          email_verified: true,
+          deactivated: false,
+          leads_assigned: 9,
+        },
+        {
+          user_id: "u-gone",
+          name: null,
+          email: "former@sri-traders.example",
+          role: "staff",
+          joined_at: "2026-05-01T05:30:00Z",
+          email_verified: false,
+          deactivated: true,
+          leads_assigned: 2,
+        },
+      ],
     },
   },
   {

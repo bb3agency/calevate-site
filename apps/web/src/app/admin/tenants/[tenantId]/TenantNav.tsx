@@ -13,6 +13,7 @@ import {
   Power,
   ReceiptIndianRupee,
   ShieldCheck,
+  Users,
   Wallet,
 } from "lucide-react";
 
@@ -123,6 +124,20 @@ export function TenantNav({ tenantId, slug }: { tenantId: string; slug: string }
         icon={<KeyRound className="h-4 w-4" />}
       >
         Invitations
+      </NavLink>
+      {/* Who has actually SIGNED IN, as opposed to who has been sent a link (D-602).
+          Beside Invitations rather than folded into it because the two answer different
+          questions with different consequences: a pending invitation is a key in an inbox
+          and cancelling one costs nobody anything, while this list is people working in
+          the account right now and removing one of them cannot be undone from our side.
+          Its own screen for the reason the invitations list is: it is STATE before it is
+          a button — the role, the joining date and the pile of leads somebody is carrying
+          are what turn "take their access away" into a decision. */}
+      <NavLink
+        href={`/admin/tenants/${tenantId}/members`}
+        icon={<Users className="h-4 w-4" />}
+      >
+        Who holds this account
       </NavLink>
       {/* Suspend / reactivate. Separate from everything above because it is the one
           control here that stops a client's outbound dialling outright. */}
