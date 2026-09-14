@@ -187,10 +187,12 @@ function cardDearestRate(card: PublicRateCard, voice: VoiceTier): string {
 }
 
 /**
- * One voice's ladder as a sentence: `"₹5.00 a minute, down to ₹4.50 on the largest pack"`.
+ * One voice's ladder as a sentence: `"₹7.00 a minute, down to ₹5.50 on the largest pack"`.
  *
- * A ladder with one rung is not a band, and "down to ₹5.00" would be a discount described
- * where there is none, so that case says the one figure once.
+ * A ladder with one rung is not a band, and "down to ₹7.00" would be a discount described
+ * where there is none, so that case says the one figure once — and since the founder's card
+ * of 14 Sep 2026 that case is LIVE rather than defensive: the Clear column is flat at ₹4.00
+ * on all six rungs and renders as `"₹4.00 a minute"`.
  */
 /**
  * Does this voice's column actually FALL across the ladder?
