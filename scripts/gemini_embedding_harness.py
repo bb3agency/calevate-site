@@ -86,10 +86,24 @@ def main() -> None:
     # costs one run; comparing them afterwards costs a migration.
     wanted = sys.argv[2] if len(sys.argv) > 2 else ""
     if wanted:
-        matches = [n for n in picked if wanted in n]
-        if not matches:
+        # EXACT FIRST, AND THAT IS NOT A NICETY. A bare substring match for "embedding-2"
+        # also matches "gemini-embedding-2-preview" and silently took it — a PREVIEW id,
+        # which is the precise trap hard rule 11's worked example is about (a retirement
+        # date that belonged to a preview snapshot and was repeated as fact about the GA
+        # model). The vendor prices the GA id, not the preview, so measuring one and
+        # billing the other is two different models wearing one name.
+        exact = [n for n in picked if n.rsplit("/", 1)[-1] == wanted or n == wanted]
+        loose = [n for n in picked if wanted in n]
+        if not exact and len(loose) > 1:
+            raise SystemExit(
+                f"\n{wanted!r} matches {len(loose)} models and none exactly: {loose}\n"
+                "Name one exactly — a preview and its GA id are different models.\n"
+            )
+        if not exact and not loose:
             raise SystemExit(f"\nNo embedding model matching {wanted!r}. Seen: {picked}")
-        model = matches[0]
+        model = exact[0] if exact else loose[0]
+        if "preview" in model:
+            print(f"\n⚠ {model} is a PREVIEW id. Vendor pricing names GA ids.\n")
     else:
         model = picked[0]
     print(f"\nusing: {model}\n")
