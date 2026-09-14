@@ -566,6 +566,10 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "kb_embed_width_mismatch": "page",
     "caller_embed_width_mismatch": "page",
     "kb_embed_worklist_failed": "attention",
+    # The gloss was bought and stored and the SPARSE KEY built from it was not rebuilt, so
+    # cross-script questions keep missing those chunks. Degraded retrieval on one arm, and
+    # the next tick re-selects the same rows by difference — attention, never a page.
+    "kb_gloss_rekey_failed": "attention",
     "caller_embed_unusable_response": "attention",
     "caller_embed_unmeterable": "attention",
     "caller_embed_worklist_failed": "attention",

@@ -1965,10 +1965,15 @@ _TSV_SQL = "to_tsvector('english', d.content) || to_tsvector('english', coalesce
 #:
 #: **`tsv` IS RECOMPUTED ON CONFLICT AND `embedding` IS NOT TOUCHED.** The text a chunk
 #: holds cannot change under it (`kb_documents.content` is written once at submission), but
-#: its GLOSS can arrive hours later on the sweep's clock, and a projection written before
-#: the gloss would carry only half its sparse key for ever. The vector is left alone because
-#: re-embedding costs money and nothing about the text moved — the sweep re-reaches a row
-#: only when `embed_state` says so.
+#: its GLOSS can arrive hours later on the sweep's clock, so a REPUBLISH of a source glossed
+#: since its last publish picks the gloss up here rather than carrying half a key forward.
+#: ⚠ **THAT IS THE REPUBLISH CASE AND THIS COMMENT ONCE READ AS IF IT WERE THE WHOLE OF IT.**
+#: A source published BEFORE its gloss lands — the NORMAL order, because a reviewer approves
+#: and publishes in one sitting and this sweep fires at :12 and :42 — is re-projected by
+#: nothing at all, so its key stayed Telugu-only for ever. `refresh_projection_keys` below
+#: is what actually closes that, and it is the only other writer of this column. The vector
+#: is left alone because re-embedding costs money and nothing about the text moved — the
+#: sweep re-reaches a row only when `embed_state` says so.
 _PROJECT_SQL = f"""
 INSERT INTO kb_chunks (id, tenant_id, agent_id, source_id, document_id, tsv, version, is_active)
 SELECT gen_random_uuid(), d.tenant_id, s.agent_id, s.id, d.id, {_TSV_SQL}, s.version, s.is_active
@@ -2020,6 +2025,84 @@ async def project_chunks(
         extra={"source_id": str(source_id), "agent_id": str(agent_id), "chunks": count},
     )
     return count
+
+
+#: The projected chunks whose stored sparse key no longer matches the text it is derived
+#: from. ONE candidate set and ONE recomputation, both spelled with `_TSV_SQL`, so a refresh
+#: cannot disagree with a publish about what the key IS — the drift that would show up as a
+#: question matching before a republish and not after it.
+#:
+#: `d.gloss IS NOT NULL` is the cheap half of the predicate and `x.tsv <> (...)` is the
+#: exact half: a chunk with no gloss cannot have a stale key (its content is written once),
+#: and of those that have one, only the rows that actually differ are written — so a tick
+#: over a settled corpus updates nothing, touches no `updated_at`, and moves no cache epoch.
+_REKEY_SQL = f"""
+UPDATE kb_chunks c SET tsv = stale.tsv, updated_at = now()
+FROM (
+  SELECT d.id AS document_id, {_TSV_SQL} AS tsv
+  FROM kb_documents d JOIN kb_chunks x ON x.document_id = d.id
+  WHERE x.tenant_id = :tid AND d.gloss IS NOT NULL AND x.tsv <> ({_TSV_SQL})
+  ORDER BY d.id LIMIT :limit
+) stale
+WHERE c.document_id = stale.document_id AND c.tenant_id = :tid
+"""
+
+
+async def refresh_projection_keys(session: AsyncSession, *, tenant_id: UUID, limit: int) -> int:
+    """Rebuild the sparse key of projected chunks whose English gloss arrived late.
+
+    THE DEFECT THIS CLOSES, in one sentence: `project_chunks` builds `kb_chunks.tsv` from
+    the chunk's text AND its gloss, at PUBLISH time, and the gloss is written afterwards by
+    a sweep on a half-hourly clock (`workers/kb_gloss.py`) — so for the normal ordering, in
+    which a reviewer approves and publishes in one sitting, the key was built before the
+    English half of it existed and nothing on any path ever rebuilt it. The dense arm was
+    given exactly this care and the sparse arm was not: `workers/kb_embeddings._CLAIM_SQL`
+    refuses to embed a chunk whose `gloss_state` is still `pending`, because "nothing
+    re-embeds a `ready` row". Nothing re-projected a published one either.
+
+    WHAT IT COST, measured rather than assumed. `docs/evidence/telugu-embedding-quality.md`
+    (n=24, this repo's own seeded verticals) scored a Tenglish question — Telugu grammar in
+    Latin script, which is the query form Saaras actually returns — at recall@1 **0.250**
+    against a Telugu-script corpus where an English control scored 0.958, and the gloss is
+    what takes that cell to 0.750. On a `tsvector` the failure is total rather than merely
+    poor, for `retrieval/compiled_facts.py`'s reason: a Latin-script question and a
+    Telugu-script passage share no lexemes, so `tsv @@ q` is false and the sparse arm
+    returns nothing at all.
+
+    **IT IS A DIFFERENCE, NOT A WORKLIST, AND THAT IS THE LOAD-BEARING CHOICE.** The caller
+    could hand over the document ids it just glossed; comparing the stored key against the
+    one the text implies converges on rows nobody told us about, and there are two such
+    rows in practice. A publish whose `_PROJECT_SQL` snapshot was taken before a gloss
+    committed writes its own stale key back over a fresh one (READ COMMITTED: `EXCLUDED` is
+    computed from the source read at statement start, even when the conflicting row is
+    locked and the statement then waits) — an id-driven refresh would have already run and
+    would never look again. And every row written before this function existed is stale
+    with no event left to replay. It is the argument `write_knowledge_glosses` makes for
+    being a sweep rather than an enqueue, applied one table over.
+
+    **REJECTED: calling `project_chunks` for each affected source, which is the obvious
+    reuse.** It INSERTS. The gloss sweep claims chunks of every source that is not
+    `rejected` — deliberately, so a reviewer sees the gloss on the preview screen before
+    approving — so projecting from here would put the chunks of UNAPPROVED knowledge into
+    the retrieval table and move the approval gate out of `publish_source`, which
+    `KbChunk`'s own docstring calls structural rather than a predicate somebody remembers.
+    This statement can only ever UPDATE a row some publish already created, which is why
+    it needs no approval predicate of its own. It also avoids `_DEACTIVATE_SQL` and the
+    publish lock, neither of which has anything to say about a key rebuild.
+
+    `tenant_id` is restated on both halves on top of RLS for `project_chunks`' reason —
+    the one mistake RLS cannot see is a caller passing tenant A's id on tenant B's session.
+
+    `limit` is the caller's, because the budget belongs to the tick. Rows past it are not
+    lost: they still differ, so the next tick selects them first.
+    """
+    updated = rowcount_of(
+        await session.execute(text(_REKEY_SQL), {"tid": tenant_id, "limit": limit})
+    )
+    if updated:
+        # Ids and counts (hard rule 6). Never a gloss, never a chunk, never a source name.
+        log.info("kb_chunks_rekeyed", extra={"tenant_id": str(tenant_id), "chunks": updated})
+    return updated
 
 
 async def list_sources(
@@ -2085,6 +2168,7 @@ __all__ = [
     "publish_lock_key",
     "publish_source",
     "recorded_handles_of_agent",
+    "refresh_projection_keys",
     "reject_source",
     "submit_source",
 ]
