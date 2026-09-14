@@ -120,11 +120,22 @@ MEMBER_LIMIT = 200
 #: that did not would disagree in front of the operator at the moment they are deciding,
 #: which is worse than either number on its own. A soft-deleted lead still names an
 #: assignee, and removal still does not clear it.
+#:
+#: `:user_id` NARROWS IT TO ONE ROW when it is not NULL, which is how the PATCH reads back
+#: the person it just changed. The alternative — fetching the page and scanning it — makes
+#: the read-back silently depend on `LIMIT`, so on an account with more members than the
+#: ceiling a successful write would answer 404 because the person sorted past the cut. One
+#: statement with a nullable filter keeps that impossible AND keeps the two reads agreeing
+#: about what a member row contains, which is why this is not two SQL strings.
 _ROSTER_SQL = (
     "SELECT m.user_id, u.name, u.email, m.role, m.created_at, u.email_verified_at, "
     "       u.deactivated_at, "
     "       (SELECT count(*) FROM leads l WHERE l.assigned_to = m.user_id) AS leads "
     "FROM memberships m JOIN users u ON u.id = m.user_id "
+    # CAST, because the parameter is NULL on the roster read and Postgres cannot infer a
+    # type for a bare placeholder compared against nothing — "could not determine data
+    # type of parameter" rather than a wrong answer, but a 500 either way.
+    "WHERE (CAST(:user_id AS uuid) IS NULL OR m.user_id = CAST(:user_id AS uuid)) "
     "ORDER BY (m.role <> 'owner'), u.name NULLS LAST, m.created_at "
     "LIMIT :limit"
 )
@@ -222,15 +233,29 @@ class TeamMemberRemovedOut(BaseModel):
     leads_still_assigned: int
 
 
-async def _roster(session: AsyncSession, *, limit: int) -> list[TeamMemberOut]:
+async def _roster(
+    session: AsyncSession, *, limit: int, user_id: UUID | None = None
+) -> list[TeamMemberOut]:
     """`_ROSTER_SQL` in the caller's tenant scope, mapped by NAME rather than by index.
 
     By name because this select has eight columns and two of them are timestamps that
     mean opposite things (`email_verified_at` is good news, `deactivated_at` is not) — an
     off-by-one in a positional unpack would swap them silently, and the screen would read
     plausibly either way round.
+
+    `user_id` narrows it to one person. It is a filter on top of the policy and never
+    instead of it: RLS still decides which memberships exist on this session, so naming a
+    foreign id here returns nothing rather than somebody else's row.
     """
-    rows = (await session.execute(text(_ROSTER_SQL), {"limit": limit})).mappings().all()
+    rows = (
+        (
+            await session.execute(
+                text(_ROSTER_SQL), {"limit": limit, "user_id": str(user_id) if user_id else None}
+            )
+        )
+        .mappings()
+        .all()
+    )
     return [
         TeamMemberOut(
             user_id=row["user_id"],
@@ -361,14 +386,16 @@ async def set_tenant_member_role(
                 object_id=str(user_id),
                 ip=client_request_ip(request),
             )
-        members = await _roster(scoped, limit=MEMBER_LIMIT)
-    for member in members:
-        if member.user_id == user_id:
-            return member
-    # Unreachable in practice: the write above 404s on a user who is not a member of this
-    # account, and nothing removes them in between. Raised rather than asserted so that if
-    # it ever does happen the operator gets a sentence instead of a 500 from an empty list.
-    raise ProblemError.not_found("Member")
+        # ONE row, read back inside the same transaction as the write it describes, so the
+        # answer cannot be a stale picture and cannot depend on where this person sorted
+        # in a bounded page.
+        changed = await _roster(scoped, limit=1, user_id=user_id)
+    if not changed:
+        # Unreachable in practice: the write above 404s on a user who is not a member of
+        # this account, and it holds the same transaction. Raised rather than asserted so
+        # that if it ever does happen the operator gets a sentence, not an IndexError.
+        raise ProblemError.not_found("Member")
+    return changed[0]
 
 
 @router.delete(
