@@ -178,15 +178,24 @@ def test_the_wire_carries_the_volume_the_fx_and_a_breakeven_for_every_studio_run
     for cell in studio:
         assert cell.breakeven_call_minutes is not None, cell.pack_id
         assert cell.cost_inr_per_min_at_volume == "6.9011"
-    # At ₹6.9011 a minute — 100 platform call-minutes a month — the four cheapest Studio
-    # rungs are UNDER WATER, and the console has to say so. Under the retired ₹4.3639
-    # "floor" every one of them read as comfortably profitable.
+    # At ₹6.9011 a minute — 100 platform call-minutes a month — every Studio rung except
+    # the entry one is UNDER WATER, and the console has to say so. Under the retired
+    # ₹4.3639 "floor" every one of them read as comfortably profitable. ⚠ It was four
+    # rungs until the founder's 14 Sep card moved the Studio column from 8.00 → 6.00 to
+    # 7.00 → 5.50; the COUNT is a consequence of the card, and what the console owes the
+    # operator is the per-rung verdict, not a number that stays put.
     assert sorted(cell.pack_id for cell in studio if cell.below_floor_at_volume) == [
+        "growth",
         "max",
         "plus",
         "pro",
         "scale",
     ]
+    # Derived rather than only listed: at this volume a rung is under water exactly when
+    # its rate is under the measured cost, so the set above cannot drift from the card.
+    assert sorted(
+        cell.pack_id for cell in studio if Decimal(cell.inr_per_min) < Decimal("6.9011")
+    ) == sorted(cell.pack_id for cell in studio if cell.below_floor_at_volume)
     # ...while the STRUCTURAL verdict on the same cells refuses nothing, which is why the
     # card is still recordable and the at-volume figure is a warning (D-556).
     assert not any(cell.below_floor for cell in studio)

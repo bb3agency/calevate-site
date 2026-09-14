@@ -6,6 +6,8 @@ import type { ReactNode } from "react";
 import { Card, Disclosure, formatRupeeRate } from "@/components/ui";
 import type { CreditPacks } from "@/lib/api/billing";
 
+import { rateToTenThousandths } from "@/lib/api/rateCard";
+
 import { VOICE_TIERS, cheapestRate, dearestRate, type TierLabels } from "./lots";
 
 /**
@@ -111,8 +113,11 @@ export function WhatCallsCost({
     <Card title="What calls cost">
       <p className="text-sm text-ink-muted">
         Calling is charged out of your credit as you use it, and 1 credit is ₹1.
-        {band && " What a minute costs depends on the voice the agent speaks with, and on"}
-        {band && " how big a pack you buy:"}
+        {/* "and on how big a pack you buy" was unconditional and is now only true of the
+            quality whose column still falls — the Clear one is flat since 14 Sep 2026. The
+            list below says it per quality, so the lede states the part that holds for
+            both. */}
+        {band && " What a minute costs depends on the voice the agent speaks with:"}
       </p>
       {/* A LIST rather than a sentence, because it is four figures in two pairs and a
           sentence makes the reader hold the first pair while reading the second. Each rate
@@ -123,16 +128,33 @@ export function WhatCallsCost({
           {VOICE_TIERS.map((tier) => (
             <div key={tier} className="flex flex-wrap items-baseline gap-x-2">
               <dt className="font-medium text-ink">{labels[tier]}</dt>
-              <dd className="tabular-nums text-ink-muted">
-                <strong className="font-semibold text-ink">
-                  {formatRupeeRate(band[tier].dearest)}
-                </strong>{" "}
-                a minute, down to{" "}
-                <strong className="font-semibold text-ink">
-                  {formatRupeeRate(band[tier].cheapest)}
-                </strong>{" "}
-                on the largest pack
-              </dd>
+              {/* ONE FIGURE WHEN THE TWO ENDS MEET. A ladder with one rung is not a
+                  band, and "₹4.00 a minute, down to ₹4.00 on the largest pack" describes
+                  a discount that is not there — which is exactly what the Clear column
+                  renders as since the founder's card of 14 Sep 2026 made it FLAT across
+                  all six rungs. Same rule as the marketing page's `bandSentence`, which
+                  had it already; this panel did not, and would have printed the sentence.
+                  Compared as integer ten-thousandths, never as floats (hard rule 7). */}
+              {rateToTenThousandths(band[tier].dearest) ===
+              rateToTenThousandths(band[tier].cheapest) ? (
+                <dd className="tabular-nums text-ink-muted">
+                  <strong className="font-semibold text-ink">
+                    {formatRupeeRate(band[tier].cheapest)}
+                  </strong>{" "}
+                  a minute, whichever pack you buy
+                </dd>
+              ) : (
+                <dd className="tabular-nums text-ink-muted">
+                  <strong className="font-semibold text-ink">
+                    {formatRupeeRate(band[tier].dearest)}
+                  </strong>{" "}
+                  a minute, down to{" "}
+                  <strong className="font-semibold text-ink">
+                    {formatRupeeRate(band[tier].cheapest)}
+                  </strong>{" "}
+                  on the largest pack
+                </dd>
+              )}
             </div>
           ))}
         </dl>
@@ -228,11 +250,15 @@ export function WhatCallsCost({
  * The two ends of the ladder on each quality, or `undefined` when the card cannot supply
  * both.
  *
- * Both ends, because one is not the sentence: "from ₹4.50" is the largest pack's rate and
- * describes nobody's first purchase, while the entry rate alone hides the whole reason a
- * bigger pack is worth buying. `cheapestRate` is the server's own published minimum
+ * Both ends, because one is not the sentence: the "from" figure is the largest pack's rate
+ * and describes nobody's first purchase, while the entry rate alone hides the whole reason
+ * a bigger pack is worth buying. `cheapestRate` is the server's own published minimum
  * (`from_*_inr_per_min`) and `dearestRate` is a comparison across the rows it sent — no
  * price is computed here.
+ *
+ * The two ends may be the SAME figure, and the caller renders that case as one rate rather
+ * than as a band: the founder's card of 14 Sep 2026 prices a Clear minute at ₹4.00 on every
+ * rung. That is a flat column, not a missing one, so it is not an error condition.
  */
 function rateBand(
   card: CreditPacks,

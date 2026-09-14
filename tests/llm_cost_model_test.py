@@ -494,25 +494,41 @@ def test_no_client_billing_function_takes_a_model() -> None:
         )
 
 
+#: The language leg may be at most this share of a client's whole minute. See the test
+#: below for why it is a share rather than the "order of magnitude" this started as.
+MAX_LLM_SHARE_OF_A_CLIENTS_MINUTE = Decimal("0.20")
+
+
 def test_our_language_cost_is_nowhere_near_a_clients_per_minute_price() -> None:
     """The two numbers are different KINDS, and a screen that prints one as the other is
-    out by more than an order of magnitude.
+    out by roughly ten times.
 
     `self_serve_inr_per_min` is what a prepaid client is charged for a minute of calling.
-    `llm_cost_inr_per_minute` is what one of the several legs inside that minute costs us.
-    Even the DEARER model's language leg is a small fraction of the client's rate — so if
-    this assertion ever fails, either a vendor price moved by more than an order of
-    magnitude or somebody has reconciled the supplier figure with the retail one, and both
-    of those need a person rather than a passing test.
+    `llm_cost_inr_per_minute` is what ONE of the several legs inside that minute costs us.
+    Even the DEARER model's language leg is a small fraction of the client's rate — 11.0%
+    on `gpt-4.1-mini` and 4.1% on `gpt-4o-mini` as this is written — so if this assertion
+    ever fails, either a vendor price moved by most of an order of magnitude or somebody
+    has reconciled the supplier figure with the retail one, and both of those need a person
+    rather than a passing test.
+
+    ⚠ **IT WAS `ours * 10 < client_rate` AND THAT FORM BROKE ON A PRICE CUT, NOT ON A
+    DEFECT.** D-601 (14 Sep 2026) took the retail minute from ₹5.00 to ₹4.00; the language
+    leg did not move, and `gpt-4.1-mini` went from 11.4x under the retail rate to 9.11x —
+    failing a test whose own docstring said a failure meant a vendor move or a
+    reconciliation. Neither had happened. The RATIO is a function of two independent
+    decisions (a vendor's price and the founder's), so it was never the property; the
+    property is that the leg is a MINORITY SHARE of the minute, and a fifth is far enough
+    from the 100% a reconciliation would produce to still catch one.
     """
     client_rate = get_settings().self_serve_inr_per_min
     for model in AZURE_OPENAI_MODELS:
         ours = llm_cost_inr_per_minute(5, model=model)
         assert isinstance(ours, Decimal) and isinstance(client_rate, Decimal)
-        assert ours * 10 < client_rate, (
-            f"{model}: our language leg ({ours}/min) is now within an order of magnitude "
-            f"of what a client pays for a whole minute ({client_rate}/min) — these are "
-            "different numbers and neither is a substitute for the other"
+        assert ours < client_rate * MAX_LLM_SHARE_OF_A_CLIENTS_MINUTE, (
+            f"{model}: our language leg ({ours}/min) is now more than "
+            f"{MAX_LLM_SHARE_OF_A_CLIENTS_MINUTE:%} of what a client pays for a whole "
+            f"minute ({client_rate}/min) — these are different numbers and neither is a "
+            "substitute for the other"
         )
 
 

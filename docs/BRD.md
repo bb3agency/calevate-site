@@ -208,9 +208,11 @@ combinations, so their LLM leg is free and no model migration can move them — 
 is what we ship. **The shipped default is Bulbul v3 + `gpt-4o-mini` at ₹1.74–2.28/min**
 (five-minute call), or ₹2.02–2.56 on the `gpt-4.1-mini` switch. A tier ladder is reachable
 on any of them, but the platform fee decides the floor (TRD §10.1–10.3). **The ladder we
-took is TWO VOICES × SIX PACKS, not three voice tiers (D-547):** Sarvam ₹5.00 falling to
-₹4.50, Cartesia ₹8.00 falling to ₹6.00, across ₹2,000 / 5,000 / 10,000 / 15,000 / 25,000 /
-50,000. The Sarvam floor is the ₹4.12 worst-case minute (engine fee 1.76 + STT 0.50 + LLM
+took is TWO VOICES × SIX PACKS, not three voice tiers (D-547):** Clear (Sarvam) at a FLAT
+₹4.00 and Studio (Cartesia) falling ₹7.00 → ₹5.50 in even ₹0.30 steps, across ₹2,000 /
+5,000 / 10,000 / 15,000 / 25,000 / 50,000. ⚠ **THIS READ "Sarvam ₹5.00 falling to ₹4.50,
+Cartesia ₹8.00 falling to ₹6.00" UNTIL D-601 (14 Sep 2026)** — the founder cut every cell to
+win the first clients, and the Clear ladder became one number. The Sarvam floor is the ₹4.12 worst-case minute (engine fee 1.76 + STT 0.50 + LLM
 0.24 + Bulbul v3 1.62, telephony excluded because the client pays their own carrier,
 D-474). ⚠ **THE CARTESIA LEG HAS A FLOOR, AND THIS PASSAGE HAS NOW BEEN WRONG TWICE.** It first
 said the leg had "no per-minute cost floor at all"; it was then corrected to **₹4.3639/min**,
@@ -241,9 +243,12 @@ Cartesia call-minute costs **₹6.90 at 100 platform call-minutes a month, ₹4.
 ₹5.46 at 1,000**. Every Studio rung therefore has a volume below which it loses money —
 ₹8.00 needs 81 platform min/mo, ₹6.00 needs 126 — and the admin rate-card screen prints
 that break-even beside each rung, the measured volume for the month, and what a minute
-actually cost at it. **No rung moved**: the founder's decision of 9 Sep 2026 is to make the
-truth visible now and reprice later against real Cartesia invoices rather than an assumed
-speaking rate (D-556).
+actually cost at it. **No rung moved on 9 Sep**: the founder's decision that day was to make
+the truth visible and reprice later against real Cartesia invoices rather than an assumed
+speaking rate (D-556). ⚠ **THE RUNGS DID MOVE ON 14 SEP (D-601)**, and the break-evens moved
+out with them — at ₹88 to the dollar the Studio ladder now needs 82 / 87 / 93 / 99 / 106 /
+114 platform call-minutes a month from ₹7.00 down to ₹5.50
+(`rates.cartesia_rung_breakeven_call_minutes`, recomputed rather than quoted).
 
 **THE FLOOR CONVERTS AT THE LIVE USD→INR RATE** (founder, same day), because Cartesia bills
 in dollars and this platform already pulls and publishes the rate every five minutes. At
@@ -346,7 +351,7 @@ suite, transcription error rate on names/numbers (Telugu), escalation correctnes
 | R-07 | Cold-start sales stall | Medium | High | §7 plan; demo-first; pilot pricing; weekly pipeline review. |
 | R-08 | Two-person team overbuild (platform before client) | Medium | High | ROADMAP gate: client #1 live on a partly-manual stack before multi-tenant polish. |
 | R-09 | Runaway usage cost (client campaign misfire) | Low | Medium | Per-tenant hard caps enforced pre-dispatch; prepaid credit; alerts. |
-| R-10 | Telugu voice quality below expectation (Bulbul v3 untested by us; **v2 is live at half price — D-35 corrects the earlier "discontinued" note**) | Medium | Medium | Ear-test v3 **vs v2** in the pilot (OPERATIONS §2 gate 3 + the D-35 scorecard item); quality is a per-client config choice. **THE TIER LEVER IS NO LONGER THE v3/v2 GAP, AND THIS ROW USED TO SAY IT WAS (D-547).** The two tiers we sell are **Sarvam Bulbul v3** and **Cartesia Sonic 3.5**, chosen **per agent**, priced as two per-minute rates on every pack (₹5.00→4.50 and ₹8.00→6.00) and frozen on the credit each purchase buys. Bulbul v2 remains a cost choice inside the Sarvam tier (D-36), not a price tier a client picks. So the mitigation if v3's Telugu disappoints is now a SECOND VENDOR rather than a cheaper rung of the same one — with three caveats that are part of the mitigation, not footnotes to it: Cartesia's Telugu **voice ids are UNKNOWN** (library behind a login), Telugu–English code-mixing is **absent from their docs** and must not be promised (Hinglish is documented; Telugu-English is not), and no Cartesia agent can be published until the engine's `provider_config` field names are recorded (OPERATIONS §2 gate 52). All three: VENDOR-PUBLISHED, relayed research over `docs.cartesia.ai`, 7 Sep 2026, `docs/evidence/cartesia-tts-verification-2026-09-06.md` §A4 — the host is egress-blocked from this repository. |
+| R-10 | Telugu voice quality below expectation (Bulbul v3 untested by us; **v2 is live at half price — D-35 corrects the earlier "discontinued" note**) | Medium | Medium | Ear-test v3 **vs v2** in the pilot (OPERATIONS §2 gate 3 + the D-35 scorecard item); quality is a per-client config choice. **THE TIER LEVER IS NO LONGER THE v3/v2 GAP, AND THIS ROW USED TO SAY IT WAS (D-547).** The two tiers we sell are **Sarvam Bulbul v3** and **Cartesia Sonic 3.5**, chosen **per agent**, priced as two per-minute rates on every pack (a flat ₹4.00 and ₹7.00→5.50 since D-601; ₹5.00→4.50 and ₹8.00→6.00 when this row was written) and frozen on the credit each purchase buys. Bulbul v2 remains a cost choice inside the Sarvam tier (D-36), not a price tier a client picks. So the mitigation if v3's Telugu disappoints is now a SECOND VENDOR rather than a cheaper rung of the same one — with three caveats that are part of the mitigation, not footnotes to it: Cartesia's Telugu **voice ids are UNKNOWN** (library behind a login), Telugu–English code-mixing is **absent from their docs** and must not be promised (Hinglish is documented; Telugu-English is not), and no Cartesia agent can be published until the engine's `provider_config` field names are recorded (OPERATIONS §2 gate 52). All three: VENDOR-PUBLISHED, relayed research over `docs.cartesia.ai`, 7 Sep 2026, `docs/evidence/cartesia-tts-verification-2026-09-06.md` §A4 — the host is egress-blocked from this repository. |
 | R-11 | **Self-serve motion creates telecom-compliance exposure** (D-34): anyone can sign up and dial, but TRAI/DLT liability lands on us as Telemarketer. A single abusive self-serve account can trigger TSP action against our Telemarketer registration — which is one registration for the whole platform — and damage every client on it | Medium once self-serve ships | **Critical** | Non-negotiable, ships WITH the self-serve flow, not after: platform-fixed calling hours (not user-editable); DNC scrub on **every** dispatch path incl. instant (Hard Rule 5 — this is precisely where Outpero fails, teardown §9c); an AI disclosure sentence on every agent, mandatory and non-blank, whose in-call delivery the client may switch off and is audited for doing (D-163) while the truthful ANSWER when asked stays unconditional; durable versioned consent-attestation ledger; per-account concurrency + spend caps; business KYC verified before any account dials (the client's own carrier gates them the same way — we supply no numbers, Model B); AUP with enforcement teeth (throttle/suspend on abuse signals); and manual review of the first campaign for any self-serve account. |
 
 ## 10. Assumptions Log (all remaining assumptions — everything else is decided/verified)

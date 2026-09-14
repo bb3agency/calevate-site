@@ -30,11 +30,21 @@ from uuid import UUID
 
 from apps.api.admin import service as admin_service
 from apps.api.billing import payments
+from apps.api.billing.credit_packs import CreditPack, pack_by_id
 from apps.api.billing.lots import CallDemand, open_lot, read_open_lots, runway
 from apps.api.billing.service import LotRates, charge_for_call, get_balance, record_entry
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from tests.credit_lots_helpers import lot_rows
+
+
+def _pack(pack_id: str) -> CreditPack:
+    """The live catalogue rung. Rates are READ from the card, never typed here: the card is
+    the founder's to move (it moved on 14 Sep 2026) and none of the properties below is
+    about a particular rupee figure."""
+    pack = pack_by_id(pack_id)
+    assert pack is not None, pack_id
+    return pack
 
 
 async def _tenant() -> UUID:
@@ -167,13 +177,25 @@ async def test_the_runway_stops_quoting_minutes_the_client_was_refunded_for() ->
 async def test_a_refunded_purchase_does_not_price_the_clients_next_top_up() -> None:
     """THE MONEY DEFECT, asserted where it lands: the rate of the next call.
 
-    A ₹50,000 pack buys the cheapest minute on the card (₹4.50). Refunded in full and
-    replaced by a ₹2,000 pack (₹5.00), the client's next minute costs ₹5.00 — the pack they
-    are actually holding. With the phantom lot left open it costs ₹4.50, because FIFO is
-    `opened_at` and the refunded lot is older: a rate nobody agreed to, on credit bought at
-    another price.
+    A ₹50,000 pack buys the cheapest minute on the card. Refunded in full and replaced by a
+    ₹2,000 pack, the client's next minute costs the ENTRY rung's rate — the pack they are
+    actually holding. With the phantom lot left open it costs the deepest rung's, because
+    FIFO is `opened_at` and the refunded lot is older: a rate nobody agreed to, on credit
+    bought at another price.
+
+    ⚠ **ON THE STUDIO VOICE SINCE 14 SEP 2026, AND THE CLEAR ONE WOULD NO LONGER SEE THE
+    DEFECT.** This drove a Clear minute and asserted ₹50 (ten minutes at the ₹2,000 pack's
+    ₹5.00, against ₹4.50 from the phantom). The founder's card made Clear FLAT at ₹4.00 on
+    every rung, so a phantom `max` lot and a real `starter` lot price a Clear minute
+    identically and the assertion would have gone on passing while the bug was back. The
+    two rungs are asserted to differ before the call is charged, so this cannot quietly
+    become vacuous a second time.
     """
     tenant_id = await _tenant()
+    entry, deepest = _pack("starter"), _pack("max")
+    assert entry.cartesia_inr_per_min != deepest.cartesia_inr_per_min, (
+        "the two rungs must price this tier differently, or the phantom lot is invisible"
+    )
     refunded_payment = await _fund(tenant_id, amount_inr="50000.00", pack_id="max")
     await _refund(tenant_id, payment_id=refunded_payment, amount_inr="50000.00")
     await _fund(tenant_id, amount_inr="2000.00", pack_id="starter")
@@ -186,12 +208,15 @@ async def test_a_refunded_purchase_does_not_price_the_clients_next_top_up() -> N
             call_id=call_id,
             demand=CallDemand(
                 minutes=Decimal("10"),
-                voice_tier="sarvam",
+                voice_tier="cartesia",
                 fallback_rates=LotRates(Decimal("9.99"), Decimal("9.99")),
             ),
         )
-    assert charged == Decimal("50.0000"), "10 minutes of the ₹2,000 pack, at ₹5.00"
-    assert await _open_remaining(tenant_id) == await _balance(tenant_id) == Decimal("1950.0000")
+    expected = Decimal("10") * entry.cartesia_inr_per_min
+    assert charged == expected, "10 minutes of the ₹2,000 pack, at the ₹2,000 pack's rate"
+    assert (
+        await _open_remaining(tenant_id) == await _balance(tenant_id) == Decimal("2000") - expected
+    )
 
 
 # ============================================================================
@@ -213,9 +238,10 @@ async def test_a_partial_refund_restates_the_lot_and_leaves_its_rates_alone() ->
     assert rows[0]["credits_total"] == Decimal("3000.0000")
     assert rows[0]["credits_remaining"] == Decimal("3000.0000")
     assert rows[0]["closed_at"] is None
+    growth = _pack("growth")
     assert (rows[0]["sarvam_inr_per_min"], rows[0]["cartesia_inr_per_min"]) == (
-        Decimal("5.0000"),
-        Decimal("7.0000"),
+        growth.sarvam_inr_per_min,
+        growth.cartesia_inr_per_min,
     ), "a refund returns money; it does not re-price what is left"
     assert await _open_remaining(tenant_id) == await _balance(tenant_id) == Decimal("3000.0000")
 
@@ -251,7 +277,10 @@ async def test_a_refund_of_credit_already_spent_overdraws_rather_than_leaving_a_
             tenant_id=tenant_id,
             call_id=uuid.uuid4(),
             demand=CallDemand(
-                minutes=Decimal("800"),
+                # ₹4,000 of the ₹5,000 pack, DERIVED from the rung's own Clear rate: a
+                # typed 800 minutes was ₹4,000 at ₹5.00 and is ₹3,200 at ₹4.00, which
+                # leaves ₹1,800 on the wallet and a different overdraft to assert.
+                minutes=Decimal("4000") / _pack("growth").sarvam_inr_per_min,
                 voice_tier="sarvam",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),

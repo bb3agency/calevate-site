@@ -45,6 +45,7 @@ from apps.api.ops.config_routes import (
     set_config,
 )
 from apps.api.ops.config_service import WriteResult
+from calevate_shared.config import Settings
 from calevate_shared.model_lifecycle import ATTESTATION_PATH
 from fastapi import BackgroundTasks, Response
 from httpx import ASGITransport, AsyncClient
@@ -449,7 +450,12 @@ async def test_a_revert_removes_the_row_and_is_audited() -> None:
     body = response.json()
     assert body["previous"] == "7.25"
     assert body["field"]["source"] == "default"
-    assert body["field"]["value"] == "5.00", "back to the code default (D-466 reprice)"
+    # DERIVED from the field's own default, not typed. This said "5.00 (D-466 reprice)" and
+    # then had to move again for D-601, which is the tell: what a REVERT must restore is
+    # whatever the code default currently is, and the figure itself is the founder's to
+    # change. The rendering (two decimal places) is the part this test is actually about.
+    default = Settings.model_fields[KEY].get_default(call_default_factory=True)
+    assert body["field"]["value"] == f"{default:.2f}", "back to the code default"
     assert await _row() is None
     assert await _audit_since(since) == [("platform.config_reverted", KEY)]
 

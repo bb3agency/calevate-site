@@ -6148,7 +6148,7 @@ export interface paths {
         };
         /**
          * The credit-pack card in force: every rung, both voices, with the server's margin
-         * @description Twelve cells — six pack rungs on each of the two voice qualities — each with the rate a client is sold, the per-minute cost that rate carries, the gross margin the server strikes between them, and two verdicts: below the margin TARGET (a warning; the approved card is deliberately thin on the cheaper voice) and below COST (a refusal; the card cannot be recorded at all). It also carries every card already recorded whose date has not arrived (`pending`), the notice period in days, the soonest date this deployment would accept right now, and how many clients a new card would be announced to. Writing one is `POST` on this same path; a card is written whole and takes effect on its own date.
+         * @description Twelve cells — six pack rungs on each of the two voice qualities — each with the rate a client is sold, the per-minute cost that rate carries, the gross margin the server strikes between them, and two verdicts: below the margin TARGET (a warning; eight of the twelve approved cells are deliberately in that band) and below COST (a refusal; the card cannot be recorded at all). It also carries every card already recorded whose date has not arrived (`pending`), the notice period in days, the soonest date this deployment would accept right now, and how many clients a new card would be announced to. Writing one is `POST` on this same path; a card is written whole and takes effect on its own date.
          */
         get: operations["read_rate_card_v1_ops_rate_card_get"];
         put?: never;

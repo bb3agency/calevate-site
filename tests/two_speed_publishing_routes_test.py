@@ -145,8 +145,11 @@ async def test_the_pending_view_prices_each_voice_off_the_clients_own_lots() -> 
     It rides `/pending` rather than a new endpoint because that is where `voice` already
     lives — a second request and a second cache key for one screen is how the two get out
     of step. What it publishes is the rate frozen on the client's OLDEST OPEN LOT, not the
-    card's: a client who bought a ₹15,000 pack pays ₹4.70, and a picker quoting today's
-    card would quote a price they do not pay.
+    card's: a client who bought a ₹15,000 pack under the 7 Sep card pays ₹4.70 while the
+    card in force since 14 Sep sells that rung's Clear minute at ₹4.00, and a picker
+    quoting today's card would quote a price they do not pay. The gap between the two is
+    what makes this assertion mean anything, and it is real — a lot's rates are frozen for
+    the life of its credit.
 
     Both tiers are always present and each carries its CLIENT-FACING label — no
     client-facing surface names a vendor as a product tier (founder, 7 Sep 2026) — sent

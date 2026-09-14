@@ -1398,24 +1398,39 @@ class Settings(BaseSettings):
     #: inside that and comfortably beyond any notice period a client would ask for.
     maintenance_notice_lead_hours: int = Field(default=24, ge=1, le=720)
 
-    # Self-serve list price per calling minute, INR (the single-tier voice decision,
-    # superseding D-34/D-35/D-36's ₹6). One number for the whole motion — there is one
-    # voice quality now (Sarvam Bulbul v3), so there is one client rate — and it exists
-    # in config so the runway framing ("about N minutes left") and the top-up flow price
-    # from the SAME source, and so a price change is a deploy, not a code edit. Managed
-    # clients never see it: their price lives in their `plans` row.
+    # THE SELF-SERVE LIST PRICE PER CALLING MINUTE, INR — AND SINCE D-547 IT IS A
+    # PROJECTION OF THE RATE CARD, NOT AN INDEPENDENT NUMBER.
     #
-    # ₹5.00 is a founder-accepted ~22-30% gross margin against an all-in cost of roughly
-    # ₹2.89-4.28/call-minute (TRD §10.1); the dominant unmeasured risk is Telugu/Indic
-    # character density on the TTS leg (pilot gate 12), which can push the cost toward the
-    # ceiling. That risk is knowingly carried, not hedged in this number.
+    # ⚠ **IT MUST EQUAL THE ENTRY RUNG'S CLEAR RATE**
+    # (`apps/api/billing/credit_packs.PACK_CATALOGUE[0].sarvam_inr_per_min`, ₹4.00 since
+    # D-601, 14 Sep 2026). That is not a coincidence to preserve by hand — it is the
+    # DEFINITION the rest of the money path uses: `ops/config_routes._record_card` writes
+    # `list_rates.card_list_rate(card)` into this key in the same transaction as every card
+    # it records, and `payment_routes.CreditPacksOut.list_rate_inr_per_min` publishes the
+    # same cell to the marketing site. The number is repeated here rather than imported
+    # because `calevate_shared` may not import `apps.api` (the layering runs the other way),
+    # so `tests/credit_packs_test.py` asserts the equality instead.
+    #
+    # WHAT BREAKS IF THEY DISAGREE, and it bit exactly once: a wallet is debited from the
+    # CARD (`billing/service.rate_card_at(...).list_rates()` via the lot), while
+    # `list_rates.self_serve_rate_at` falls back to THIS value whenever no card row covers
+    # the instant — which is every month on a deployment whose console has never written a
+    # card. A closed month's statement and the admin margin panel would then price minutes
+    # a rupee above what the wallet actually paid. D-601 cut the card to ₹4.00 and left this
+    # at ₹5.00 for one commit; `tests/client_rate_billing_test.py` caught it.
+    #
+    # It exists in config (rather than as a constant) so the runway framing ("about N
+    # minutes left") and the top-up flow price from the SAME source and an operator can move
+    # it without a deploy. Managed clients never see it: their price lives in their `plans`
+    # row. ⚠ This comment used to say "there is one voice quality now, so there is one client
+    # rate" — there have been TWO since D-547, and this key carries the CHEAPER one.
     #
     # BOUNDED FOR THE SAME REASON `usd_inr_rate` IS, one surface closer to the client:
     # `0` is type-valid and would price every self-serve minute at nothing, so the
     # runway framing says "unlimited" and the top-up flow charges zero. Exclusive floor.
     # The ceiling is absurd on purpose — nobody sells a minute for ₹10,000 — and its job
     # is to catch a decimal point in the wrong place before it reaches a wallet.
-    self_serve_inr_per_min: Decimal = Field(default=Decimal("5.00"), gt=0, le=10_000)
+    self_serve_inr_per_min: Decimal = Field(default=Decimal("4.00"), gt=0, le=10_000)
 
     # HOW OLD A LIST'S CONSENT MAY BE BEFORE A CAMPAIGN OVER IT IS REFUSED, in days.
     #

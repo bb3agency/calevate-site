@@ -966,12 +966,14 @@ class RateCardCellOut(BaseModel):
     #: Published because it appeared on no surface at all before this route: the margin was
     #: computed, logged once inside the write path, and never shown to anyone.
     cost_floor_inr_per_min: str
-    #: The gross margin as a PERCENTAGE string ("17.60"). `null` only where no margin is
+    #: The gross margin as a PERCENTAGE string ("17.22"). `null` only where no margin is
     #: defined (a non-positive rate), which is a real state and not a zero.
     gross_margin_pct: str | None
-    #: Under the target but above cost — a warning. The approved Sarvam column is
-    #: deliberately in this band down to 8.4%, so a console that treated it as an error
-    #: would refuse the founder's own card.
+    #: Under the target but above cost — a warning. EIGHT of the twelve approved cells are
+    #: deliberately in this band since the founder's card of 14 Sep 2026 — the whole Clear
+    #: column at 17.2% and the two deepest Studio rungs at 18.8% and 14.4% — so a console
+    #: that treated it as an error would refuse the founder's own card. ⚠ This said "the
+    #: approved Sarvam column ... down to 8.4%", which was one voice and a different card.
     below_target: bool
     #: Below cost. `card_refusals` refuses the write; nothing may be sold here.
     below_floor: bool
@@ -1210,8 +1212,8 @@ def _pct(ratio: Decimal | None) -> str | None:
         "Twelve cells — six pack rungs on each of the two voice qualities — each with the "
         "rate a client is sold, the per-minute cost that rate carries, the gross margin "
         "the server strikes between them, and two verdicts: below the margin TARGET (a "
-        "warning; the approved card is deliberately thin on the cheaper voice) and below "
-        "COST (a refusal; the card cannot be recorded at all). It also carries every card "
+        "warning; eight of the twelve approved cells are deliberately in that band) and "
+        "below COST (a refusal; the card cannot be recorded at all). It also carries every card "
         "already recorded whose date has not arrived (`pending`), the notice period in "
         "days, the soonest date this deployment would accept right now, and how many "
         "clients a new card would be announced to. Writing one is `POST` on this same "

@@ -16,7 +16,7 @@ The properties worth protecting, in the order they cost money:
   legacy pack, since no catalogue pack carries a bonus any more.
 - **Money is Decimal end to end** (hard rule 7).
 
-The MARGIN each approved rate delivers, and the fact that the whole Sarvam column sits
+The MARGIN each approved rate delivers, and the fact that EIGHT of the twelve cells sit
 under the 20% target deliberately, is `tests/cost_floor_test.py` — one file per behaviour.
 """
 
@@ -51,19 +51,23 @@ from apps.api.core.errors import install_error_handlers
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.tenancy.signup_routes import router as signup_router
+from calevate_shared.config import Settings
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
-#: THE FOUNDER-APPROVED CARD (plan §2.2, 7 Sep 2026), typed out here so a rate that moves
-#: without the founder moving it is a red test rather than a silent repricing.
+#: THE FOUNDER-APPROVED CARD (`docs/PIPECAT-MIGRATION.md` §12, 14 Sep 2026), typed out here
+#: so a rate that moves without the founder moving it is a red test rather than a silent
+#: repricing. TYPED, not derived, and deliberately: this list IS the founder's instruction,
+#: and a version of it computed from the catalogue would assert the catalogue against
+#: itself. It superseded the 7 Sep card (Clear 5.00 → 4.50, Studio 8.00 → 6.00).
 APPROVED_CARD = [
-    ("starter", Decimal("2000"), Decimal("5.00"), Decimal("8.00")),
-    ("growth", Decimal("5000"), Decimal("5.00"), Decimal("7.00")),
-    ("scale", Decimal("10000"), Decimal("4.85"), Decimal("6.75")),
-    ("plus", Decimal("15000"), Decimal("4.70"), Decimal("6.50")),
-    ("pro", Decimal("25000"), Decimal("4.60"), Decimal("6.25")),
-    ("max", Decimal("50000"), Decimal("4.50"), Decimal("6.00")),
+    ("starter", Decimal("2000"), Decimal("4.00"), Decimal("7.00")),
+    ("growth", Decimal("5000"), Decimal("4.00"), Decimal("6.70")),
+    ("scale", Decimal("10000"), Decimal("4.00"), Decimal("6.40")),
+    ("plus", Decimal("15000"), Decimal("4.00"), Decimal("6.10")),
+    ("pro", Decimal("25000"), Decimal("4.00"), Decimal("5.80")),
+    ("max", Decimal("50000"), Decimal("4.00"), Decimal("5.50")),
 ]
 
 WEBHOOK_SECRET = "whsec_pack_test_secret"
@@ -110,8 +114,13 @@ def test_the_guard_has_teeth_on_a_below_cost_rate() -> None:
     refused. A literal on the wrong side of a moving line is the failure mode; half the
     floor cannot land on the wrong side of it.
 
-    ⚠ The docstring also said "the whole approved Sarvam column is in that band". It is not,
-    since the same change: every rung on both columns now clears the 20% target.
+    ⚠ This docstring has now said three different things about the band, which is the
+    hazard a derived rate exists to survive. It said "the whole approved Sarvam column is in
+    that band" (true before D-592), then "every rung on both columns now clears the 20%
+    target" (true only between D-592 and 14 Sep 2026). What is true today: the founder's
+    14 Sep card puts EIGHT of twelve cells under the target — the whole Clear column at
+    17.2%, and Studio's `pro` and `max` at 18.8% and 14.4% — and none below cost. The
+    assertions below do not depend on any of that, which is the point of deriving them.
     """
     half_floor = (cost_floor_inr_per_min("sarvam") / 2).quantize(Decimal("0.01"))
     below_cost = _pack("greedy", "50000", str(half_floor), "6.00")
@@ -182,6 +191,32 @@ def test_the_founder_approved_card_is_pinned() -> None:
         assert amount % Decimal("1000") == 0, f"{amount} is not a round rung"
 
 
+def test_the_legacy_list_rate_setting_still_equals_the_entry_rungs_clear_rate() -> None:
+    """`Settings.self_serve_inr_per_min` IS the card's entry rung, and nothing enforces it
+    except this.
+
+    The setting is the pre-D-547 single price, kept alive for one release (plan §10) and
+    still read by `billing/service`, `billing/attribution` and `workers/pipeline` to price a
+    CLOSED month, and by `list_rates.self_serve_rate_at` as the fallback for any instant no
+    recorded card covers. The ops console keeps the two equal on every write
+    (`config_routes._record_card` passes `list_rates.card_list_rate(card)`), but a card
+    changed in CODE — which is the only way this catalogue changes — touches no console and
+    updates no setting.
+
+    So the default and the entry rung have to be moved together, and when D-601 cut the
+    card to ₹4.00 they were not: for one commit a wallet was debited ₹4.00 from the lot
+    while a closed month on a deployment with no recorded card still rendered at ₹5.00.
+    `tests/client_rate_billing_test.py` caught it. The two figures cannot be derived from
+    one another (`calevate_shared` may not import `apps.api`), so the equality is asserted
+    here instead.
+    """
+    # The CODE DEFAULT, not the live value: the setting is operator-editable by design, and
+    # what has to stay paired with the code catalogue is the figure a deployment falls back
+    # to when nobody has set one. (`tests/platform_config_test.py` reads it the same way.)
+    default = Settings.model_fields["self_serve_inr_per_min"].get_default(call_default_factory=True)
+    assert default == PACK_CATALOGUE[0].sarvam_inr_per_min
+
+
 def test_the_fifteen_thousand_rung_exists_between_ten_and_twenty_five() -> None:
     """The `plus` pack is new in D-547 and its position in the ladder is the decision — a
     rung appended at the end would break the monotonicity every other assertion rests on."""
@@ -226,15 +261,15 @@ def test_a_pack_prices_by_voice_and_refuses_a_tier_it_does_not_carry() -> None:
     back to the cheaper column would undercharge a Cartesia minute silently."""
     plus = pack_by_id("plus")
     assert plus is not None
-    assert plus.inr_per_min("sarvam") == Decimal("4.70")
-    assert plus.inr_per_min("cartesia") == Decimal("6.50")
+    assert plus.inr_per_min("sarvam") == Decimal("4.00")
+    assert plus.inr_per_min("cartesia") == Decimal("6.10")
     with pytest.raises(ValueError, match="not a voice tier"):
         plus.inr_per_min("elevenlabs")  # type: ignore[arg-type]
 
 
 def test_credits_are_one_rupee_each_and_talk_time_divides_by_the_voices_rate() -> None:
-    """1 credit = ₹1, so a ₹15,000 pack holds 15,000 credits — and buys 3,191 minutes on
-    Sarvam (₹4.70) against 2,307 on Cartesia (₹6.50). The pair is the client-facing number
+    """1 credit = ₹1, so a ₹15,000 pack holds 15,000 credits — and buys 3,750 minutes on
+    Sarvam (₹4.00) against 2,459 on Cartesia (₹6.10). The pair is the client-facing number
     the wallet screen shows (plan Q7), and it is why one balance can no longer print one
     "minutes left"."""
     plus = pack_by_id("plus")
@@ -243,8 +278,8 @@ def test_credits_are_one_rupee_each_and_talk_time_divides_by_the_voices_rate() -
     assert plus.total_credits == plus.paid_credits
     sarvam = pack_talk_time_minutes(plus, voice="sarvam")
     cartesia = pack_talk_time_minutes(plus, voice="cartesia")
-    assert int(sarvam) == 3191
-    assert int(cartesia) == 2307
+    assert int(sarvam) == 3750
+    assert int(cartesia) == 2459
     assert cartesia < sarvam
 
 

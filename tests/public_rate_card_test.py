@@ -162,14 +162,18 @@ async def test_the_card_names_each_voice_tier_without_naming_its_vendor() -> Non
     assert body["sarvam_tier_label"] != body["cartesia_tier_label"]
 
 
-async def test_the_packs_arrive_in_ladder_order_with_both_columns_falling() -> None:
+async def test_the_packs_arrive_in_ladder_order_with_neither_column_rising() -> None:
     """The WIRE order is load-bearing, so it is pinned here and not only in the catalogue.
 
-    `/pricing` renders the rows in the order they arrive and tells the reader, in words,
-    that putting more on at once brings the rate down. That sentence is true of the PAGE
-    only if the response is ascending by amount with neither column rising — a property of
-    this body, not of the tuple behind it, and one a `sorted()` slipped into the builder
+    `/pricing` renders the rows in the order they arrive, so the table only reads as a
+    ladder if the response is ascending by amount with neither column RISING — a property
+    of this body, not of the tuple behind it, and one a `sorted()` slipped into the builder
     would break without failing `tests/credit_packs_test.py`.
+
+    ⚠ "with both columns FALLING" is what this was called, and the Clear column has been
+    FLAT at ₹4.00 since the founder's card of 14 Sep 2026. The assertion was already the
+    right one (`sorted(reverse=True)` admits a flat column); the name and the page copy
+    were the parts that claimed a discount on a voice that no longer has one.
     """
     async with _anonymous() as http:
         rows = (await http.get(PATH)).json()["packs"]
@@ -185,10 +189,19 @@ async def test_the_packs_arrive_in_ladder_order_with_both_columns_falling() -> N
         assert row["cartesia_minutes"] <= row["sarvam_minutes"]
 
 
-async def test_the_from_rates_are_derived_and_below_the_list_rate() -> None:
+async def test_the_from_rates_are_derived_and_never_above_the_list_rate() -> None:
     """The founder's rule survives D-547: the site leads with a rate a pack actually
-    delivers, never a typed figure. Both columns fall across the ladder, so both "from"
-    figures come from the deepest pack and the Sarvam one is under the list rate.
+    delivers, never a typed figure. Each "from" figure is the lowest rate published in its
+    own column, so it is a rate some pack really sells at.
+
+    ⚠ **THIS ASSERTED `from_sarvam < list_rate` AND THAT IS NO LONGER TRUE.** It held while
+    the Clear column fell 5.00 → 4.50. The founder's 14 Sep card made Clear FLAT at ₹4.00,
+    so the cheapest Clear rate and the entry rung's Clear rate are the same number and a
+    strict `<` asserted that the card must offer a volume discount on that voice. What the
+    page actually needs is that the lead figure is never ABOVE what the first purchase
+    costs — otherwise "from ₹x" would undersell nobody and oversell everybody — and
+    `apps/web/src/app/pricing/page.tsx::bandSentence` already collapses the band to one
+    figure when the two ends meet, which is what a flat column renders as.
 
     Async since D-550: the ladder is resolved from the dated card rather than read off the
     constant, and with no card recorded that resolves to the catalogue per cell."""
@@ -196,7 +209,9 @@ async def test_the_from_rates_are_derived_and_below_the_list_rate() -> None:
         card = await rate_card_out(session)
     assert card.from_sarvam_inr_per_min in {p.sarvam_inr_per_min for p in card.packs}
     assert card.from_cartesia_inr_per_min in {p.cartesia_inr_per_min for p in card.packs}
-    assert card.from_sarvam_inr_per_min < card.list_rate_inr_per_min
+    assert card.from_sarvam_inr_per_min == min(p.sarvam_inr_per_min for p in card.packs)
+    assert card.from_cartesia_inr_per_min == min(p.cartesia_inr_per_min for p in card.packs)
+    assert card.from_sarvam_inr_per_min <= card.list_rate_inr_per_min
     assert card.from_cartesia_inr_per_min > card.from_sarvam_inr_per_min
 
 
