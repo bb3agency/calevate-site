@@ -580,8 +580,8 @@ async def test_a_reprice_that_would_make_a_minute_dearer_is_refused_naming_both_
     # without opening the rate card in another tab.
     was, now = _pack("growth").cartesia_inr_per_min, _pack("starter").cartesia_inr_per_min
     assert now > was, "this test needs a pack that raises the Studio rate"
-    assert f"Studio ₹{rate_to_display(was)} to ₹{rate_to_display(now)} a minute." in (
-        body["detail"]
+    assert (
+        f"Studio ₹{rate_to_display(was)} to ₹{rate_to_display(now)} a minute." in (body["detail"])
     ), body["detail"]
     assert "Clear" not in body["detail"], "the tier that did not move must not be named"
     assert "lower" in body["remediation"]

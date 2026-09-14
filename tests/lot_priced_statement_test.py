@@ -41,6 +41,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from apps.api.billing import service as billing
+from apps.api.billing.credit_packs import PACK_CATALOGUE
 from apps.api.billing.list_rates import PACK_RATE_KEY_PREFIX, pack_rate_key
 from apps.api.billing.lots import AiAssistDemand, CallDemand, consume, credits_of, split_meta
 from apps.api.billing.service import (
@@ -58,7 +59,6 @@ from apps.api.core.settings import Settings
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
-from apps.api.billing.credit_packs import PACK_CATALOGUE
 from tests.credit_lots_helpers import PLUS, credit_entry, make_tenant
 
 #: A LOT'S OWN FROZEN RATES — the `plus` rung as the 7 Sep card sold it, which is what a

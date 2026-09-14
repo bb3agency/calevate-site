@@ -21,6 +21,7 @@ from uuid import UUID
 
 import pytest
 from apps.api.billing import service as billing
+from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_by_id
 from apps.api.billing.lots import AiAssistDemand, CallDemand, read_open_lots, voice_tier_rates
 from apps.api.billing.service import (
     LotRates,
@@ -36,7 +37,6 @@ from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_by_id
 from tests.credit_lots_helpers import GROWTH, PLUS, add_lot, credit_entry, lot_rows, make_tenant
 
 
@@ -378,9 +378,7 @@ async def test_a_free_amount_below_the_first_rung_takes_the_list_rates() -> None
 
 
 async def test_a_purchase_naming_a_pack_takes_that_packs_rates() -> None:
-    assert (await _card()).for_purchase(pack_id="max", amount_inr=Decimal("50000")) == _rates(
-        "max"
-    )
+    assert (await _card()).for_purchase(pack_id="max", amount_inr=Decimal("50000")) == _rates("max")
 
 
 async def test_a_purchase_naming_a_pack_this_build_no_longer_offers_falls_to_the_amount() -> None:

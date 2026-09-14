@@ -647,9 +647,9 @@ def test_the_scary_marginal_figure_is_not_the_blended_one_and_both_are_published
     assert blended == Decimal("4.3379")
     assert blended < cartesia_cost_floor_inr_per_min_at(fx)
     floor_rung = min(pack.cartesia_inr_per_min for pack in PACK_CATALOGUE)
-    assert gross_margin_ratio(rate=floor_rung, cost=blended).quantize(
-        Decimal("0.0001")
-    ) == Decimal("0.2113")
+    assert gross_margin_ratio(rate=floor_rung, cost=blended).quantize(Decimal("0.0001")) == Decimal(
+        "0.2113"
+    )
 
 
 def test_only_the_dollar_legs_move_with_the_rate() -> None:
