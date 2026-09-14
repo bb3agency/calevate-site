@@ -35,6 +35,7 @@ from voice_worker.config import load_session_config
 from voice_worker.knowledge import (
     PackCache,
     PackFetcher,
+    QueryEmbedder,
     SessionKnowledge,
     load_session_knowledge,
 )
@@ -119,6 +120,7 @@ async def open_session(
     sink: NormalizedEventSink,
     fetcher: PackFetcher,
     cache: PackCache | None = None,
+    embedder: QueryEmbedder | None = None,
     stop_secs: float = SMART_TURN_STOP_SECS,
 ) -> AssembledCall:
     """One assembled call, with its knowledge already in memory.
@@ -129,6 +131,13 @@ async def open_session(
     a dead store does not delay it at all past it. Nothing about a turn changes afterwards:
     every lookup for the rest of the call is in-process, and `docs/PIPECAT-MIGRATION.md`
     §8.1 measures it at 0.501 ms p50 against a 100 ms budget.
+
+    **`embedder` IS THE ONE THING ON THIS PATH THAT CAN PUT A NETWORK CALL BACK ON A TURN,
+    AND IT IS OFF UNLESS SOMEBODY HANDS ONE IN.** The sentence above stays true for every
+    turn the lexical index answers, which is the overwhelming majority; the dense arm runs
+    only where it answered `not_found` or `ambiguous` — see `knowledge.py`'s module
+    docstring for the measurement, and `pipeline.assemble_call` for why the switch is an
+    argument rather than config this container reads for itself.
     """
     knowledge = await load_knowledge(config, fetcher=fetcher, cache=cache)
     logger.info(
@@ -148,6 +157,7 @@ async def open_session(
         transport=transport,
         sink=sink,
         knowledge=knowledge,
+        embedder=embedder,
         stop_secs=stop_secs,
     )
 
@@ -164,6 +174,7 @@ async def start_session(
     sink: NormalizedEventSink,
     fetcher: PackFetcher,
     cache: PackCache | None = None,
+    embedder: QueryEmbedder | None = None,
 ) -> AssembledCall:
     """Ids in, a runnable call out. The whole path, in the order it must happen.
 
@@ -187,6 +198,7 @@ async def start_session(
         sink=sink,
         fetcher=fetcher,
         cache=cache,
+        embedder=embedder,
     )
 
 

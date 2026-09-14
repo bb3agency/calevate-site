@@ -19,11 +19,17 @@ WHAT "PUBLISHABLE" MEANS HERE, STATED ONCE. A `kb_chunks` row exists only becaus
 predicate somebody must remember), and it is LIVE when `is_active` is true on both the
 projection and the source it projects. See `_ENTRIES_SQL` for why both are checked.
 
-**VERSION 1 CARRIES NO VECTORS AND THIS MODULE MUST NOT ADD ONE.** `kb_chunks.embedding`
-is right there in the table this reads and is deliberately not projected: the dense arm
-needs a query encoder in the worker, and `knowledge_pack.py:25-43` is the measurement that
-rules one out at 1-2 threads against a 100ms turn. Adding vectors is a
-`PACK_FORMAT_VERSION` bump, not a column somebody slips into the SELECT.
+**VERSION 2 CARRIES VECTORS AND `kb_chunks.embedding` IS STILL NOT WHERE THEY COME FROM.**
+That column is right there in the table this reads and is deliberately not projected, and
+the reason is no longer "there are no vectors" — it is that it holds a DIFFERENT model's
+vectors at a different width, for a different consumer. `retrieval/embedding.py` fills it
+with `text-embedding-3-small` at 1536 dimensions for the dashboard's pgvector index; the
+pack's dense arm compares against a query vector from `kb/pack_vectors.EMBEDDING_MODEL`, and
+two encoders' vectors are not comparable however similar the numbers look. Projecting the
+column would produce a dense arm that ranks confidently and wrongly with nothing in any log.
+So `pack_vectors.embed_entries` buys the pack's own, under its own model, metered under its
+own `usage_events` feature — see that module for hard rule 7's pre-flight and for why this
+is a no-op until an operator attests the price.
 
 **WHO CALLS THIS, AND WHY IT IS THE KB PUBLISH PATH AND NOT `publish_agent`.**
 `refresh_published_pack` at the bottom is the entry point, and `kb/service.publish_source`
@@ -80,6 +86,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.db.ownership import assert_visible
+from apps.api.kb.pack_vectors import EMBEDDING_DIMS, embed_entries
 
 log = get_logger(__name__)
 
@@ -168,17 +175,40 @@ async def build_pack(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) 
     zero chunks and mints a perfectly valid empty pack, which is the same bytes a real
     empty agent gets and would be stored under the foreign id's key.
 
-    `built_at` is stamped AFTER the read, and is deliberately outside the content hash
-    (`knowledge_pack.py:120-123`), so a rebuild that changes nothing keeps its id and every
-    warm container holding it stays warm.
+    `built_at` is stamped AFTER the read, and is deliberately outside the content hash, so a
+    rebuild that changes nothing keeps its id and every warm container holding it stays warm.
+
+    **THE EMBEDDING STEP IS BETWEEN THE READ AND THE DIGEST, AND THAT ORDER IS FORCED.** The
+    encoder's NAME is inside the hash (`KnowledgePack.digest`, which argues why the floats
+    are not), so the digest cannot be computed until it is known whether this deployment
+    bought vectors at all. `embed_entries` returns the entries unchanged and `None` whenever
+    it did not — no price, no credential, nothing to embed, or every batch failed — and the
+    pack that results is byte-identical to what a deployment without a Gemini key builds.
+
+    **IT IS AWAITED ON THE PUBLISH PATH AND THAT IS WHERE IT BELONGS.** A client who has just
+    clicked publish is waiting on a few hundred milliseconds of hosted encoder; the
+    alternative — a queued job that fills vectors in afterwards — would need the pack to be
+    mutable, and the pack is immutable and content-addressed precisely so a cached one cannot
+    be wrong. `kb/pack_vectors.EMBED_TIMEOUT_S` bounds it, and a provider that fails costs
+    the dense arm rather than the publish.
     """
     await assert_visible(session, "agent", agent_id)
     entries = await read_entries(session, tenant_id=tenant_id, agent_id=agent_id)
+    entries, embedding_model = await embed_entries(session, tenant_id=tenant_id, entries=entries)
+    dimensions = None if embedding_model is None else EMBEDDING_DIMS
     return KnowledgePack(
         tenant_id=tenant_id,
         agent_id=agent_id,
-        content_sha256=KnowledgePack.digest(tenant_id, agent_id, entries),
+        content_sha256=KnowledgePack.digest(
+            tenant_id,
+            agent_id,
+            entries,
+            embedding_model=embedding_model,
+            embedding_dimensions=dimensions,
+        ),
         built_at=datetime.now(UTC),
+        embedding_model=embedding_model,
+        embedding_dimensions=dimensions,
         entries=entries,
     )
 
@@ -243,6 +273,12 @@ async def publish_pack(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
             # (`kb/gloss.py`). A count, so an operator can see a gloss sweep that never ran
             # without anybody reading a client's knowledge to find out.
             "glossed": sum(1 for entry in pack.entries if entry.gloss),
+            # How much of the corpus the DENSE arm can reach. Zero with a non-null
+            # `embedding_model` never happens (`embed_entries` declares no model when
+            # nothing landed), so the pair reads unambiguously: no model = the arm is off
+            # for this deployment, a model with a count below `entries` = batches failed.
+            "vectored": sum(1 for entry in pack.entries if entry.vector_f32_b64),
+            "embedding_model": pack.embedding_model,
         },
     )
     return pack.content_sha256

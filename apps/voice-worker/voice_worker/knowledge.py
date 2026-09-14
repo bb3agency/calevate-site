@@ -1,4 +1,4 @@
-"""In-call knowledge search: one `KnowledgePack` in RAM, lexical, gated, four answers.
+"""In-call knowledge search: one `KnowledgePack` in RAM, lexical first, dense on the misses.
 
 **WHAT THIS IS.** The consumer side of `calevate_shared.knowledge_pack` (D-599). The pack is
 built once at publish and stored immutably; this module fetches it once while the phone is
@@ -147,6 +147,54 @@ redundant against a correctly-built pack — tenant and agent are inside the dig
 stays because the cost is two comparisons and the failure it catches is cross-tenant
 disclosure on a live call.
 
+## The SECOND arm, and the three sentences that decide when it runs
+
+The paragraph above ("no network on the turn") was true of every turn until 14 Sep 2026 and
+is now true of almost every turn, which is a different claim and is worth stating exactly.
+
+**WHAT CHANGED IS A MEASUREMENT.** The founder ran `scripts/gemini_embedding_harness.py`
+against the live Gemini API with their own key (14 Sep 2026, `models/gemini-embedding-001`,
+3072 dimensions, n=24, English-only index — VENDOR-PUBLISHED, founder-relayed; `ai.google.dev`
+is egress-blocked from this container and nothing here claims to have read it):
+
+    query form        recall@1   recall@3   MRR        this module, same corpus
+    query_en            0.9583     1.0000   0.9722     0.833
+    query_tenglish      1.0000     1.0000   1.0000     0.583
+    query_te            0.9583     1.0000   0.9792     **0.083, 22 of 24 `not_found`**
+
+The Telugu-script row is the finding. Two hits in twenty-four becomes twenty-three, which is
+not a better ranking of the same answers — it is the removal of the English-paraphrase
+dependency this index has, and `docs/PIPECAT-MIGRATION.md` §9.4 records that dependency as
+load-bearing ("if it ever stops, in-call retrieval does not degrade, it stops").
+
+**THE PASSAGE VECTORS COST A CALL NOTHING, AND THAT IS THE WHOLE DESIGN.** They are computed
+at PUBLISH by `apps/api/kb/pack_vectors.py` and travel inside the pack, so the corpus side of
+the dense arm is already in this process's memory by the time the phone is answered. What is
+left on the call path is ONE query vector.
+
+**IT FIRES ONLY ON `not_found` AND `ambiguous`, AND THOSE WORDS ARE THE TRIGGER BECAUSE THEY
+ARE ALREADY THE ANSWER.** The gate above computes them before any of this: `not_found` means
+nothing the caller said is informative about this corpus, `ambiguous` means two documents
+scored the same. Both are turns on which the agent was about to tell the caller it has
+nothing useful — so the second arm is spent only where the first already lost, and the ~0.5 ms
+`found` path is byte-for-byte what it was. A hybrid that fused on every turn would spend a
+network round trip on the 83% of English questions the lexical arm answers correctly, and
+§4(b) of the evidence file is the measurement that unconditional fusion makes cells WORSE.
+
+**IT CAN ONLY ADD, NEVER SUBTRACT.** A dense pass that clears `DENSE_MIN_COSINE` replaces the
+answer; one that does not leaves the lexical answer exactly as it stood. So the cost of that
+threshold being set too HIGH is today's behaviour, and the cost of the arm being absent, off,
+unpriced or broken is also today's behaviour. There is no configuration of this module in
+which adding the arm made an answer worse than the one before it.
+
+**AND IT IS HONEST ABOUT ITS OWN FAILURE.** Once we have decided to consult a second arm we
+have said, in code, that the lexical answer is not authoritative for this question. If the
+embedder then times out, `not_found` would be asserting "this business publishes nothing
+about that" on the strength of an arm we had just declined to trust. So a failed dense pass
+answers `temporarily_unavailable` — "we could not look" — which is the distinction
+`RetrievalOutcome` exists for, and it is why `QueryEmbedder.embed` returns `None` rather
+than raising.
+
 ## Failure is a STATE
 
 A fetch that failed, a format version this build does not understand, a pack that is not
@@ -171,10 +219,11 @@ from typing import Final, Literal, Protocol
 from uuid import UUID
 
 from calevate_shared.knowledge_pack import (
-    PACK_FORMAT_VERSION,
+    SUPPORTED_PACK_FORMAT_VERSIONS,
     KnowledgePack,
     PackEntry,
     RetrievalOutcome,
+    decode_vector,
     pack_object_key,
 )
 from calevate_shared.retrieval import Passage, Provenance
@@ -233,6 +282,39 @@ DEFAULT_TOP_K: Final[int] = 3
 #: lived instance rather than a working-set estimate. Pipecat Cloud's documented maximum
 #: pool size is 50 CONTAINERS, which is not a number of packs and is not this number.
 MAX_CACHED_PACKS: Final[int] = 8
+
+#: How close a passage vector must be to the question's, as a cosine, before the DENSE arm is
+#: allowed to overrule what the lexical arm said.
+#:
+#: ⚠ **A STARTING POINT TO BE MEASURED, AND UNLIKE ITS THREE NEIGHBOURS ABOVE IT CANNOT BE
+#: DERIVED FROM THE MEASUREMENT THAT MOTIVATED IT.** The founder's harness reports RANKS —
+#: recall@1, recall@3, MRR — and prints no similarity SCORES at all, so nothing in this
+#: repository says where a matching passage sits on this model's cosine scale or where an
+#: unrelated one does. Inventing a number and presenting it as the model's separation point
+#: would be exactly the laundering hard rule 11 forbids, so this is 0.5 — the midpoint of the
+#: range a same-direction cosine occupies — chosen to be argued with rather than believed.
+#: What replaces this comment is a harness run that prints the score distribution for a
+#: matching and a deliberately unrelated query on a real corpus.
+#:
+#: **WHAT MAKES AN UNMEASURED NUMBER SAFE HERE IS THE DIRECTION OF ITS TWO FAILURES, AND THAT
+#: IS A PROPERTY OF THE DESIGN RATHER THAN OF THE VALUE.** Too HIGH: the dense arm declines,
+#: the lexical answer stands, and the caller gets precisely what they get today. Too LOW: the
+#: nearest passage in a corpus that has nothing to say is presented as an answer — which is
+#: the trap the lexical gate exists for, repeated on the other arm. So the conservative side
+#: is UP, and this sits on it. `_dense_pass` can only ever REPLACE a `not_found` or an
+#: `ambiguous`; it is never consulted on a `found` and can never turn one into anything else.
+DENSE_MIN_COSINE: Final[float] = 0.5
+
+#: The lexical outcomes that DO reach the dense arm — the trigger, stated as data so that a
+#: test can assert the set rather than re-derive it from a branch.
+#:
+#: `found` is absent because the fast path is the product: a network round trip on a turn the
+#: index already answered correctly would spend a second of a caller's time to re-confirm
+#: 83% of English questions (`docs/PIPECAT-MIGRATION.md` §9.4), which is the unconditional
+#: fusion §4(b) measured going backwards. `temporarily_unavailable` is absent because it
+#: means there is no pack in memory at all — there is nothing for a query vector to be
+#: compared against, so buying one would be money spent on an empty corpus.
+_DENSE_TRIGGERS: Final[frozenset[str]] = frozenset({"not_found", "ambiguous"})
 
 #: Why a pack could not be loaded. Each is an OPERATOR-facing word: the caller only ever
 #: hears the agent say it cannot verify something right now.
@@ -819,6 +901,146 @@ class LexicalIndex:
 # ---------------------------------------------------------------------------------------
 
 
+class DenseIndex:
+    """Cosine over the passage vectors the pack already carries. No model, no network, no
+    vendor — the encoder ran at publish, and what is left here is arithmetic.
+
+    **UNIT VECTORS ARE STORED, NOT RAW ONES.** Cosine is a dot product divided by two norms;
+    the passage norms are the same on every turn of every call, so dividing them out ONCE at
+    load turns each of the thousands of per-turn similarity computations into a bare dot
+    product. That is the standard move in every vector store and it is taken here for the
+    standard reason.
+
+    **`math.sumprod` RATHER THAN A PYTHON LOOP OR A NEW DEPENDENCY.** It is C-implemented and
+    stdlib from 3.12, which this workspace pins (`requires-python = ">=3.12,<3.13"`). The
+    alternative — `numpy` — is installed transitively under `onnxruntime` but is NOT declared
+    by `apps/voice-worker/pyproject.toml`, and importing an undeclared transitive dependency
+    into a latency-critical container is how a resolver change becomes an outage. A hand
+    written `sum(a * b for ...)` over 3072 floats is the third option and is the slow one.
+
+    A zero vector is dropped at construction rather than divided by: it has no direction, so
+    its cosine against anything is undefined, and an entry with one is simply unreachable by
+    this arm — the state the format already has for an entry with no vector at all.
+    """
+
+    __slots__ = ("_dimensions", "_model", "_units")
+
+    def __init__(self, pack: KnowledgePack) -> None:
+        self._model: str | None = pack.embedding_model
+        self._dimensions: int | None = pack.embedding_dimensions
+        #: position in `pack.entries` → that entry's unit vector.
+        self._units: dict[int, tuple[float, ...]] = {}
+        if self._dimensions is None:
+            return
+        for position, entry in enumerate(pack.entries):
+            if entry.vector_f32_b64 is None:
+                continue
+            values = decode_vector(entry.vector_f32_b64, dimensions=self._dimensions)
+            if values is None:
+                continue
+            unit = _unit(values)
+            if unit is not None:
+                self._units[position] = unit
+
+    def __len__(self) -> int:
+        return len(self._units)
+
+    @property
+    def model(self) -> str | None:
+        """Which encoder produced these vectors, or `None` when there are none to compare."""
+        return self._model
+
+    @property
+    def dimensions(self) -> int | None:
+        return self._dimensions
+
+    def usable_with(self, *, model: str, dimensions: int) -> bool:
+        """May a query vector from THIS encoder be compared against these passages?
+
+        **A MISMATCH IS REFUSED RATHER THAN TOLERATED, AND THE REASON IS THAT IT DOES NOT
+        RAISE.** Two encoders' vectors of the same width are both just 3072 floats: a dot
+        product between them computes happily and means nothing, so a pack embedded under
+        last month's model and a worker configured with this month's would produce a dense
+        arm that ranks confidently and wrongly, with no error anywhere and nothing in a log.
+        The width is checked too, because a mismatch there is the same failure one layer down.
+        """
+        return bool(self._units) and self._model == model and self._dimensions == dimensions
+
+    def search(self, query: tuple[float, ...]) -> list[tuple[int, float]]:
+        """Every passage with a usable vector, as (position, cosine), best first.
+
+        Ties broken by POSITION rather than left to `sort`'s stability over a dict iteration
+        order, so two passages at the same distance rank the same way on every call — the
+        `str(chunk_id)` tie-break the lexical arm uses, one field cheaper because position is
+        already the pack's canonical `chunk_id` order (`KnowledgePack.digest` sorts by it and
+        `kb/pack.read_entries` stores it that way).
+        """
+        unit = _unit(query)
+        if unit is None:
+            return []
+        scored = [
+            (position, math.sumprod(unit, values)) for position, values in self._units.items()
+        ]
+        scored.sort(key=lambda item: (-item[1], item[0]))
+        return scored
+
+
+def _unit(values: tuple[float, ...]) -> tuple[float, ...] | None:
+    """`values` scaled to length 1, or `None` for the zero vector, which has no direction."""
+    norm = math.sqrt(math.sumprod(values, values))
+    if norm == 0.0:
+        return None
+    return tuple(value / norm for value in values)
+
+
+@dataclass(frozen=True, slots=True)
+class QueryVector:
+    """One bought query vector and what it cost, as a QUANTITY rather than a rupee figure.
+
+    `tokens` is the vendor's own reported usage and `None` where it reported none. It is
+    carried rather than dropped because hard rule 7 needs the quantity at the point of
+    purchase: the PRICE is `apps/api/billing/rates.llm_inr_per_ktok`'s, from an operator
+    attestation, in a process this container deliberately cannot reach (`storage.py` argues
+    why). A token count re-derived downstream from a character length would be a second and
+    wrong answer to a question the vendor already answered.
+
+    It lives HERE and not in `embedding.py` so that this module stays free of `httpx` and of
+    every other import the production embedder needs — the same reason `PackFetcher` is a
+    Protocol here and `ObjectStorePackFetcher` is a class over there.
+    """
+
+    values: tuple[float, ...]
+    tokens: int | None = None
+
+
+class QueryEmbedder(Protocol):
+    """The second seam to the outside world: a question in, a vector or `None` out.
+
+    A PROTOCOL for `PackFetcher`'s reason — whichever client eventually speaks HTTP is that
+    module's import and not this one's, and the tests that prove the four outcomes hand
+    `SessionKnowledge` a three-line fake rather than a transport.
+
+    **`embed` MUST NOT RAISE, AND THAT IS PART OF THE CONTRACT RATHER THAN A HOPE.** A
+    timeout, a 5xx, a rotated key, a body that is not JSON and a width that disagrees are all
+    the same fact to the caller — we did not get a vector — and every one of them has to
+    arrive as `None`, because the caller is a live phone call and the alternative is a tool
+    handler that "failed and returned no result" instead of an agent saying it cannot check.
+
+    `model` and `dimensions` are on the Protocol so the pack's declaration can be compared
+    against this process's configuration BEFORE a request is paid for: a query vector bought
+    from an encoder the pack was not built with is money spent on a comparison that cannot
+    mean anything.
+    """
+
+    @property
+    def model(self) -> str: ...
+
+    @property
+    def dimensions(self) -> int: ...
+
+    async def embed(self, question: str) -> QueryVector | None: ...
+
+
 class PackCache:
     """Bounded LRU of built indexes, keyed on the pack's CONTENT DIGEST.
 
@@ -839,7 +1061,13 @@ class PackCache:
         if max_entries < 1:
             raise ValueError("max_entries must be at least 1")
         self._max_entries = max_entries
-        self._entries: OrderedDict[str, tuple[KnowledgePack, LexicalIndex]] = OrderedDict()
+        #: The two indexes are cached TOGETHER with the pack, not rebuilt per session. The
+        #: dense one decodes and normalises every passage vector, which is the one part of
+        #: loading that is proportional to the corpus times the width — a warm container
+        #: re-doing it per call would spend the saving the cache exists for.
+        self._entries: OrderedDict[str, tuple[KnowledgePack, LexicalIndex, DenseIndex]] = (
+            OrderedDict()
+        )
 
     def __len__(self) -> int:
         return len(self._entries)
@@ -852,7 +1080,7 @@ class PackCache:
 
     def get(
         self, content_sha256: str, *, tenant_id: UUID, agent_id: UUID
-    ) -> tuple[KnowledgePack, LexicalIndex] | None:
+    ) -> tuple[KnowledgePack, LexicalIndex, DenseIndex] | None:
         """A hit only if the digest matches AND the pack is this tenant's and this agent's.
 
         The identity re-check is redundant against a correctly built pack — both ids are
@@ -864,7 +1092,7 @@ class PackCache:
         held = self._entries.get(content_sha256)
         if held is None:
             return None
-        pack, _index = held
+        pack = held[0]
         if pack.tenant_id != tenant_id or pack.agent_id != agent_id:
             del self._entries[content_sha256]
             logger.error(
@@ -877,8 +1105,8 @@ class PackCache:
         self._entries.move_to_end(content_sha256)
         return held
 
-    def put(self, pack: KnowledgePack, index: LexicalIndex) -> None:
-        self._entries[pack.content_sha256] = (pack, index)
+    def put(self, pack: KnowledgePack, index: LexicalIndex, dense: DenseIndex) -> None:
+        self._entries[pack.content_sha256] = (pack, index, dense)
         self._entries.move_to_end(pack.content_sha256)
         while len(self._entries) > self._max_entries:
             self._entries.popitem(last=False)
@@ -917,6 +1145,18 @@ class KnowledgeAnswer:
     #: Wall clock inside the search, milliseconds. Every latency number in this repo is
     #: measured (hard rule 11); this is where the in-call retrieval one is measured.
     elapsed_ms: float = 0.0
+    #: Which arm produced this answer, for the operator log and for the tests that prove the
+    #: dense one did NOT run on a `found`. `"lexical"` on every turn the fast path settled,
+    #: `"dense"` where the second arm replaced it, `"dense_failed"` where it was consulted
+    #: and could not answer — which is the only path that turns a `not_found` into
+    #: `temporarily_unavailable`, and an operator needs to see the difference.
+    arm: Literal["lexical", "dense", "dense_failed"] = "lexical"
+    #: Tokens the query embedding actually cost, straight from the vendor's `usage`. `None`
+    #: on every turn that bought nothing. Hard rule 7 needs the QUANTITY at the point of
+    #: purchase; the price is an operator attestation in a process this container cannot
+    #: reach, so what travels out of here is the number that was bought and never a rupee
+    #: figure computed from it.
+    embedding_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -933,6 +1173,11 @@ class SessionKnowledge:
     #: `None` exactly when `unavailable_reason` is set.
     pack: KnowledgePack | None = None
     index: LexicalIndex | None = None
+    #: The dense arm's half of the corpus. Always present alongside `index` and EMPTY for a
+    #: v1 pack or a pack built without vectors, which is why it is not another `| None`: an
+    #: index with nothing in it already answers every question this object asks of it, and a
+    #: second nullable would put the same state in two places.
+    dense: DenseIndex | None = None
     unavailable_reason: UnavailableReason | None = None
     #: The digest asked for, which is an id and therefore loggable, and which is present
     #: even on the failure path so an operator can find the object that did not load.
@@ -942,12 +1187,128 @@ class SessionKnowledge:
     def available(self) -> bool:
         return self.index is not None
 
+    async def answer(
+        self,
+        question: str,
+        *,
+        k: int = DEFAULT_TOP_K,
+        embedder: QueryEmbedder | None = None,
+    ) -> KnowledgeAnswer:
+        """**THE in-call entry point.** Lexical first; dense only where that already lost.
+
+        This and `search` are one layer and not two ways of doing one thing: `search` IS the
+        lexical index lookup — free, deterministic, offline, and the thing
+        `tests/in_call_retrieval_recall_test.py` scores — while this is the ANSWER a turn
+        gets, which consults it and may then buy a query vector. Everything that decides
+        whether to spend money lives here, in one function, and `pipeline.py` calls nothing
+        else.
+
+        `embedder=None` is the complete off state and it is the default: no embedder, no
+        request, no spend, and the answer is exactly `search`'s. That is what a deployment
+        with no attested embedding price runs (hard rule 7 — `embedding.py`'s docstring has
+        where that pre-flight lives and why it cannot live in this container).
+        """
+        started = time.perf_counter()
+        answer = self._search(question, k=k, started=started)
+        if embedder is not None and answer.outcome in _DENSE_TRIGGERS:
+            answer = await self._dense_pass(
+                question, k=k, started=started, embedder=embedder, lexical=answer
+            )
+        _log_answer(self, answer)
+        return answer
+
     def search(self, question: str, *, k: int = DEFAULT_TOP_K) -> KnowledgeAnswer:
-        """Answer one turn. Four states, never an exception, never a network call."""
+        """The LEXICAL answer alone. Four states, never an exception, never a network call.
+
+        Kept as its own callable — rather than folded into `answer` behind `embedder=None` —
+        because it is what the recall harness measures and what the ~0.5 ms budget claim is
+        about, and a measurement whose subject can only be reached through an `await` and an
+        optional argument is a measurement that will quietly start including something else.
+        It logs, like `answer` does, because a turn that never reaches the second arm is
+        still a turn an operator counts.
+        """
         started = time.perf_counter()
         answer = self._search(question, k=k, started=started)
         _log_answer(self, answer)
         return answer
+
+    async def _dense_pass(
+        self,
+        question: str,
+        *,
+        k: int,
+        started: float,
+        embedder: QueryEmbedder,
+        lexical: KnowledgeAnswer,
+    ) -> KnowledgeAnswer:
+        """Buy one query vector and rank the passage vectors already in memory.
+
+        **THE FOUR REFUSALS BEFORE ANY MONEY MOVES**, in the order they cost least to check:
+        no dense index at all (a v1 pack, or a pack built with no vectors); a pack whose
+        declared encoder is not this process's, where a dot product would compute happily and
+        mean nothing (`DenseIndex.usable_with`); a vector the provider did not give us; and a
+        best match below `DENSE_MIN_COSINE`. Each leaves the lexical answer standing UNCHANGED
+        except the third, which is the one that is our fault rather than the corpus's.
+
+        **A FAILED EMBEDDING IS `temporarily_unavailable` AND NOT THE LEXICAL ANSWER, WHICH IS
+        THE ONE PLACE THIS ARM CAN MAKE A TURN WORSE AND IS DELIBERATE.** Reaching here means
+        the code has already decided the lexical answer is not authoritative for this
+        question. Passing `not_found` through would tell the caller "this business publishes
+        nothing about that" on the strength of an arm we had just declined to trust — a claim
+        about a client's business made out of our own outage. "I cannot check that right now"
+        is the truth, and `RetrievalOutcome` has the word for it precisely so that this
+        distinction can be spoken.
+
+        **`ambiguous` IS PRESERVED THE SAME WAY `_search` COMPUTES IT**: two top passages from
+        different documents, within `AMBIGUITY_MARGIN` of each other. Same constant, same
+        rule, one arm further out — a caller who asked about a category rather than a thing
+        asked about a category however the passages were ranked, and the agent should still
+        ask one short question rather than guess.
+        """
+        dense = self.dense
+        if dense is None or not dense.usable_with(
+            model=embedder.model, dimensions=embedder.dimensions
+        ):
+            return lexical
+
+        query = await embedder.embed(question)
+        if query is None:
+            return KnowledgeAnswer(
+                "temporarily_unavailable", (), _elapsed_ms(started), arm="dense_failed"
+            )
+
+        ranked = dense.search(query.values)
+        if not ranked or ranked[0][1] < DENSE_MIN_COSINE:
+            # The corpus genuinely has nothing near this question. The lexical answer already
+            # said so in its own vocabulary; replacing it with an identical word would only
+            # lose the `arm` the operator log reads.
+            return lexical
+
+        entries = self.entries_or_empty()
+        top = [(position, score) for position, score in ranked if score >= DENSE_MIN_COSINE]
+        if len(top) > 1:
+            margin = (top[0][1] - top[1][1]) / top[0][1]
+            different_document = entries[top[1][0]].document_id != entries[top[0][0]].document_id
+            if different_document and margin < AMBIGUITY_MARGIN:
+                return KnowledgeAnswer(
+                    "ambiguous",
+                    tuple(self._passage(entries[position], score) for position, score in top[:2]),
+                    _elapsed_ms(started),
+                    arm="dense",
+                    embedding_tokens=query.tokens,
+                )
+        return KnowledgeAnswer(
+            "found",
+            tuple(self._passage(entries[position], score) for position, score in top[:k]),
+            _elapsed_ms(started),
+            arm="dense",
+            embedding_tokens=query.tokens,
+        )
+
+    def entries_or_empty(self) -> tuple[PackEntry, ...]:
+        """The pack's entries, or nothing when no pack loaded. `DenseIndex` indexes BY
+        POSITION into exactly this tuple, so the two must be read from one place."""
+        return () if self.pack is None else self.pack.entries
 
     def _search(self, question: str, *, k: int, started: float) -> KnowledgeAnswer:
         index = self.index
@@ -1032,6 +1393,11 @@ def _log_answer(session: SessionKnowledge, answer: KnowledgeAnswer) -> None:
     It logs ids, counts, the outcome word and the elapsed time. It does NOT log the
     question, a passage, a gloss or a score-bearing excerpt — all four are conversation
     content, and "we only logged the top match" is still logging the transcript.
+
+    `arm` and `embedding_tokens` join that list and neither widens it: one is a word out of a
+    closed three-value set and the other is a count the vendor reported. A COSINE would not
+    be admissible on the same reasoning that keeps a BM25 score out — a similarity against a
+    named chunk id is a statement about what the caller asked.
     """
     logger.info(
         "in-call knowledge lookup",
@@ -1042,6 +1408,8 @@ def _log_answer(session: SessionKnowledge, answer: KnowledgeAnswer) -> None:
         passages=len(answer.passages),
         elapsed_ms=round(answer.elapsed_ms, 3),
         unavailable_reason=session.unavailable_reason,
+        arm=answer.arm,
+        embedding_tokens=answer.embedding_tokens,
     )
 
 
@@ -1064,19 +1432,21 @@ async def load_session_knowledge(
     """
     held = cache.get(content_sha256, tenant_id=tenant_id, agent_id=agent_id)
     if held is not None:
-        pack, index = held
+        pack, index, dense = held
         logger.info(
             "knowledge pack cache hit",
             tenant_id=str(tenant_id),
             agent_id=str(agent_id),
             digest=content_sha256,
             entries=len(pack.entries),
+            vectors=len(dense),
         )
         return SessionKnowledge(
             tenant_id=tenant_id,
             agent_id=agent_id,
             pack=pack,
             index=index,
+            dense=dense,
             requested_digest=content_sha256,
         )
 
@@ -1097,9 +1467,12 @@ async def load_session_knowledge(
         return _unavailable(tenant_id, agent_id, content_sha256, "fetch_failed", exc)
 
     # A version we do not understand is REFUSED rather than parsed partially: an agent that
-    # silently lost half its corpus cannot tell it is missing knowledge it thinks it has
-    # (the contract's `PACK_FORMAT_VERSION` docstring).
-    if pack.format_version != PACK_FORMAT_VERSION:
+    # silently lost half its corpus cannot tell it is missing knowledge it thinks it has.
+    # The SET rather than the builder's constant, because v2 is a strict superset of v1 and
+    # refusing every pack published before this deploy would be an outage on every agent
+    # until each client happened to republish — the contract's
+    # `SUPPORTED_PACK_FORMAT_VERSIONS` docstring argues both halves.
+    if pack.format_version not in SUPPORTED_PACK_FORMAT_VERSIONS:
         return _unavailable(tenant_id, agent_id, content_sha256, "unsupported_format", None)
 
     # The bytes must be the pack we asked for and the pack must belong to this session.
@@ -1111,19 +1484,28 @@ async def load_session_knowledge(
         return _unavailable(tenant_id, agent_id, content_sha256, "identity_mismatch", None)
 
     index = LexicalIndex(pack.entries)
-    cache.put(pack, index)
+    dense = DenseIndex(pack)
+    cache.put(pack, index, dense)
     logger.info(
         "knowledge pack loaded",
         tenant_id=str(tenant_id),
         agent_id=str(agent_id),
         digest=content_sha256,
         entries=len(pack.entries),
+        format_version=pack.format_version,
+        # A count and a model name, both ids rather than content. Zero vectors against a
+        # non-empty pack is the state an operator most needs to see: it means the deployment
+        # that PUBLISHED this pack had no attested embedding price or no Google credential,
+        # and the dense arm is off for this agent for a reason outside this container.
+        vectors=len(dense),
+        embedding_model=pack.embedding_model,
     )
     return SessionKnowledge(
         tenant_id=tenant_id,
         agent_id=agent_id,
         pack=pack,
         index=index,
+        dense=dense,
         requested_digest=content_sha256,
     )
 
@@ -1161,14 +1543,18 @@ __all__ = [
     "BM25_B",
     "BM25_K1",
     "DEFAULT_TOP_K",
+    "DENSE_MIN_COSINE",
     "DF_GATE_MIN_ENTRIES",
     "INDIAN_SCRIPT_NAMES",
     "MAX_CACHED_PACKS",
     "MAX_INFORMATIVE_DF_RATIO",
+    "DenseIndex",
     "KnowledgeAnswer",
     "LexicalIndex",
     "PackCache",
     "PackFetcher",
+    "QueryEmbedder",
+    "QueryVector",
     "SessionKnowledge",
     "UnavailableReason",
     "has_indian_script",
