@@ -22,9 +22,11 @@ that Pipecat Cloud REUSES ACROSS SESSIONS to cache one: eviction is by key, and 
 cannot be reused for different bytes cannot serve clinic A's knowledge into clinic B's call.
 Tenancy at the process level, by construction rather than by discipline.
 
-NO VECTORS IN VERSION 1, AND THAT IS A MEASUREMENT RATHER THAN AN OMISSION. The dense arm
-needs a query vector, and a query vector in-call needs a local encoder. Measured on an
-Intel Xeon @ 2.10GHz (AVX-512, 4 cores), GEMM-only floor at `seq_len=32`:
+VERSION 1 CARRIED NO VECTORS AND VERSION 2 CARRIES THEM, BECAUSE THE MEASUREMENT THAT
+RULED THEM OUT WAS ABOUT A **LOCAL ENCODER** AND NOT ABOUT DENSE RETRIEVAL. That reasoning
+is kept verbatim because it is still true of the thing it was about — a query vector in-call
+needs an encoder, and measured on an Intel Xeon @ 2.10GHz (AVX-512, 4 cores), GEMM-only
+floor at `seq_len=32`:
 
     threads   bge-base (12L/768)   MiniLM-L6 (6L/384)
     1              78.7 ms              9.3 ms
@@ -32,40 +34,140 @@ Intel Xeon @ 2.10GHz (AVX-512, 4 cores), GEMM-only floor at `seq_len=32`:
     4              25.6 ms              3.2 ms
 
 The worker shares those cores with STT, TTS, VAD and smart-turn, so 1-2 threads is the real
-budget — which rules out `bge-base` against a 100ms turn. And `bge-base-en-v1.5` is exactly
-the model `docs/evidence/telugu-embedding-quality.md` found BEST on our query form (0.667 /
-0.750 on Tenglish, beating multilingual-e5-large). The best dense arm is the one we cannot
-afford in-call, and the affordable one has no Telugu number at all.
+budget, which rules out `bge-base` against a 100ms turn; and `bge-base-en-v1.5` is exactly
+the model `docs/evidence/telugu-embedding-quality.md` found best on our query form.
 
-So version 1 carries TEXT ONLY and the lexical arm carries the search. That is not a
-downgrade from a working dense arm — it is the arm the English gloss was written for, and
-it needs no model, no download and no inference. Adding vectors later is a format version
-bump, not a redesign.
+**WHAT CHANGED IS THE CORPUS SIDE, AND IT CHANGED THE ARITHMETIC COMPLETELY.** A pack is
+built ONCE at publish, on the control plane, where nobody is holding a phone. So the
+PASSAGE vectors cost a call nothing at all: they are computed by the publisher and travel
+in these bytes. Only the QUERY vector is left on the call path, and it is one hosted
+request rather than an encoder in a latency-critical container.
+
+**AND THE RECALL IT BUYS IS A DIFFERENT CAPABILITY, NOT AN IMPROVEMENT.** Measured against
+the live Gemini API by the founder with their own key, 14 Sep 2026, `models/gemini-
+embedding-001`, 3072 dimensions, n=24, English-only index (`scripts/gemini_embedding_
+harness.py`; VENDOR-PUBLISHED via a founder-relayed live run, not fetchable from this
+container):
+
+    query form        recall@1   recall@3   MRR
+    query_en            0.9583     1.0000   0.9722
+    query_te            0.9583     1.0000   0.9792
+    query_tenglish      1.0000     1.0000   1.0000
+
+against the shipped lexical arm's 0.833 English, 0.583 Tenglish and **0.083 Telugu script,
+22 of 24 answered `not_found`** (`tests/in_call_retrieval_recall_test.py`). A Telugu-script
+question goes from two hits in twenty-four to twenty-three. That is not a better ranking of
+the same answers — it is the removal of the English-paraphrase dependency the lexical index
+has, which `docs/PIPECAT-MIGRATION.md` §9.4 records as load-bearing.
+
+**SO THE PACK CARRIES VECTORS AND THE LEXICAL ARM IS STILL THE FAST PATH.** Version 2 adds
+one optional field per entry and two declarations to the pack; the consumer
+(`voice_worker/knowledge.py`) runs the dense arm ONLY where the lexical one already said it
+had no answer. Nothing about the ~0.5ms `found` path changes.
+
+**WHY THE VECTOR IS BASE64 float32 AND NOT A JSON ARRAY OF NUMBERS.** 3072 floats rendered
+as JSON decimals is ~60 KB per entry; as little-endian float32 it is 12,288 bytes, base64
+16,384 characters. On a few-hundred-entry pack that is the difference between ~18 MB and
+~5 MB fetched inside `voice_worker/storage.PACK_FETCH_BUDGET_S` while the phone rings — and
+a pack that times out is answered `temporarily_unavailable`, which is strictly worse than
+the lexical-only pack it replaced. float32 is also what every vector store holds; cosine
+over it is the industry default, and the precision the JSON form would preserve is
+precision the ranking cannot use.
+
+**THE VECTORS ARE NOT IN THE DIGEST AND THE EMBEDDING DECLARATION IS. THAT IS THE ONE
+NON-OBVIOUS CHOICE IN THIS FILE, SO HERE IS THE WHOLE ARGUMENT.** A vector is a DERIVED
+artefact of (text, model, width) and every one of those three inputs is already hashed, so
+hashing the derivation adds no power to distinguish two corpora — except in one case:
+whether the vendor returns bit-identical floats for identical input across calls is
+**UNVERIFIED** (`ai.google.dev` is egress-blocked here and nobody has measured it). If it
+does not, hashing the floats would mint a new pack id on every rebuild of unchanged
+knowledge and invalidate every warm container, which is the exact defect `built_at` is
+excluded for. Leaving them out is correct under either fact. What must NOT be lost is that
+a pack embedded under a different model or a different width is a DIFFERENT pack — a
+container holding the old build would otherwise serve it for the new digest and the dense
+arm would silently compare vectors from two models — so `embedding_model` and
+`embedding_dimensions` are hashed, and a re-embedding under a new model therefore mints a
+new id and forces a fresh upload through `kb/pack.publish_pack`'s write-once skip.
 """
 
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
+import struct
 from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 __all__ = [
     "PACK_FORMAT_VERSION",
+    "SUPPORTED_PACK_FORMAT_VERSIONS",
     "KnowledgePack",
     "PackEntry",
     "RetrievalOutcome",
+    "decode_vector",
+    "encode_vector",
     "pack_object_key",
 ]
 
-#: Bumped when the on-the-wire shape changes. A worker that does not understand a version
-#: must REFUSE the pack (`temporarily_unavailable`) rather than parse it partially — a
-#: half-understood corpus is worse than none, because the agent cannot tell it is missing
-#: knowledge it thinks it has.
-PACK_FORMAT_VERSION: Literal[1] = 1
+#: Bumped when the on-the-wire shape changes. What a BUILDER writes.
+PACK_FORMAT_VERSION: Literal[2] = 2
+
+#: What a READER accepts, which is deliberately not the same thing.
+#:
+#: **A VERSION WE DO NOT UNDERSTAND IS STILL REFUSED, AND THAT RULE HAS NOT MOVED.** The
+#: reason it exists is that a half-understood corpus is worse than none: an agent that
+#: silently lost entries cannot tell it is missing knowledge it thinks it has. Version 1 is
+#: not half-understood — version 2 is a strict SUPERSET of it (one optional field on the
+#: entry, two optional declarations on the pack), so a v1 pack read by a v2 worker is
+#: understood completely and simply has no dense arm.
+#:
+#: **THE ALTERNATIVE WAS REFUSING v1, AND IT IS AN OUTAGE RATHER THAN A CAUTION.**
+#: `agents.knowledge_pack_sha256` points at whatever was published last, and nothing
+#: republishes on deploy. A reader that accepted only `PACK_FORMAT_VERSION` would answer
+#: `temporarily_unavailable` to every question on every agent on every call, from the moment
+#: this constant changed until each client happened to publish something — which is the
+#: state the refusal rule was written to prevent, arrived at by obeying its words. Hard rule
+#: 12's "satisfying the WORDS of an instruction while defeating its PURPOSE", in the small.
+#:
+#: A version is added here only when a reader in this tree can genuinely answer every
+#: question from a pack of that version. Dropping one is how a format is retired.
+SUPPORTED_PACK_FORMAT_VERSIONS: frozenset[int] = frozenset({1, 2})
+
+
+def encode_vector(values: tuple[float, ...]) -> str:
+    """One passage vector as base64 of LITTLE-ENDIAN float32. The pack's only binary field.
+
+    `<` on the struct format is doing real work and is not decoration: `array('f').tobytes()`
+    is NATIVE-endian, so a pack built on one architecture and read on another would decode to
+    byte-swapped garbage — which does not raise, because any four bytes are a valid float.
+    The failure would be a dense arm that ranks confidently and wrongly with nothing in any
+    log. Pinning the byte order costs nothing and makes it unrepresentable.
+    """
+    return base64.b64encode(struct.pack(f"<{len(values)}f", *values)).decode("ascii")
+
+
+def decode_vector(encoded: str, *, dimensions: int) -> tuple[float, ...] | None:
+    """`encode_vector`'s inverse, or `None` for anything that is not exactly `dimensions`.
+
+    **NONE RATHER THAN A RAISE, BECAUSE THE CALLER IS A PHONE CALL.** A truncated object, a
+    pack whose declared width disagrees with what is stored, a field somebody hand-edited:
+    all of them mean this entry has no usable vector, which is a state the dense arm already
+    has (an entry without one is simply unreachable by it). An exception here would travel up
+    through `load_session_knowledge`, which promises never to raise, and would cost the call
+    its whole LEXICAL arm as well over one bad row.
+    """
+    try:
+        raw = base64.b64decode(encoded, validate=True)
+    except (binascii.Error, ValueError):
+        return None
+    if len(raw) != dimensions * 4:
+        return None
+    return struct.unpack(f"<{dimensions}f", raw)
 
 
 #: WHAT THE TOOL ANSWERS, AND WHY IT IS FOUR WORDS RATHER THAN A LIST OF CHUNKS.
@@ -112,6 +214,22 @@ class PackEntry(BaseModel):
     #: `None` where no gloss was produced. The entry is still searchable by its own words —
     #: which is the right answer for a corpus already written in English.
     gloss: str | None = Field(default=None, max_length=4000)
+    #: This entry's passage vector, base64 of little-endian float32 (`encode_vector`), at
+    #: the pack's declared `embedding_dimensions`. **v2, AND OPTIONAL EVEN THERE.**
+    #:
+    #: `None` on every v1 entry, on every pack built by a deployment that has no Gemini
+    #: credential or no attested embedding price (`apps/api/kb/pack_vectors.py` — hard rule
+    #: 7's pre-flight is asked BEFORE the provider is called, never after), and on any single
+    #: entry a batch failed to embed. All three are the same fact to the reader: this entry
+    #: is not reachable by the dense arm, and the lexical arm is unaffected.
+    #:
+    #: **WHAT IT IS A VECTOR OF IS THE SAME TEXT THE LEXICAL ARM INDEXES** — the entry's own
+    #: words plus the English gloss — and not the gloss alone. The gloss is a retrieval key
+    #: written for a WORD-MATCHING arm (`voice_worker/knowledge.py`'s module docstring has
+    #: the 0.042 / 0.625 measurement it was written for); a dense model reads the source
+    #: language directly, so throwing the client's own words away before embedding them
+    #: would discard exactly the capability this arm was added for.
+    vector_f32_b64: str | None = None
 
 
 class KnowledgePack(BaseModel):
@@ -131,25 +249,87 @@ class KnowledgePack(BaseModel):
     #: The id. Derived by `digest()`; never supplied by a caller who could get it wrong.
     content_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     built_at: datetime
+    #: Which model produced every `PackEntry.vector_f32_b64` here, spelled as the WIRE spells
+    #: it, and `None` when the pack carries no vectors at all.
+    #:
+    #: **IT IS IN THE DIGEST AND THE VECTORS ARE NOT** — the module docstring argues the
+    #: whole trade. The short form: the floats are derived from (text, model, width), all
+    #: three of which are hashed, and whether the vendor is bit-deterministic is UNVERIFIED;
+    #: hashing a possibly-nondeterministic derivation would churn every warm container on a
+    #: rebuild that changed nothing, while hashing the DECLARATION keeps the one property
+    #: that matters — a pack embedded under a different model is a different pack.
+    embedding_model: str | None = None
+    #: How many float32 each vector holds. `None` exactly when `embedding_model` is.
+    #:
+    #: STORED RATHER THAN INFERRED FROM THE FIRST VECTOR'S LENGTH, because a reader that
+    #: inferred it could not notice a truncated field: it would decode whatever was there at
+    #: whatever width that implied and compare it against the query. Declaring the width is
+    #: what makes `decode_vector` a CHECK rather than a parse.
+    embedding_dimensions: int | None = Field(default=None, ge=1)
     entries: tuple[PackEntry, ...] = ()
 
+    @model_validator(mode="after")
+    def _embedding_declaration_is_whole(self) -> KnowledgePack:
+        """The two embedding fields are one fact and must arrive together or not at all.
+
+        A pack declaring a model with no width cannot be decoded; a pack declaring a width
+        with no model cannot be compared against a query vector, because nothing says which
+        encoder that query has to come from. Both are made unrepresentable here rather than
+        handled at every reader.
+
+        A vector on an entry with NO declaration is refused for the sharper version of the
+        same reason: every reader would silently ignore it, which is a corpus that LOOKS
+        embedded and is not — and a retrieval arm that quietly does not run is the failure
+        mode this whole contract is shaped to avoid.
+        """
+        if (self.embedding_model is None) != (self.embedding_dimensions is None):
+            raise ValueError(
+                "embedding_model and embedding_dimensions are one declaration: set both "
+                "(a pack with vectors) or neither (a pack without)"
+            )
+        if self.embedding_model is None and any(e.vector_f32_b64 for e in self.entries):
+            raise ValueError(
+                "this pack carries entry vectors but declares no embedding_model, so no "
+                "reader could tell which encoder a query would have to come from"
+            )
+        return self
+
     @staticmethod
-    def digest(tenant_id: UUID, agent_id: UUID, entries: tuple[PackEntry, ...]) -> str:
-        """The content hash, over canonical JSON of the tenant, agent and entries.
+    def digest(
+        tenant_id: UUID,
+        agent_id: UUID,
+        entries: tuple[PackEntry, ...],
+        *,
+        embedding_model: str | None = None,
+        embedding_dimensions: int | None = None,
+    ) -> str:
+        """The content hash, over canonical JSON of the tenant, agent, entries and encoder.
 
         SORTED BY `chunk_id`, because a SELECT without an ORDER BY may return rows in any
         order and a hash that depends on row order would mint a new pack id for identical
         knowledge — invalidating every warm cache on a rebuild that changed nothing.
         `sort_keys` and tight separators for the same reason one layer down.
+
+        **`vector_f32_b64` IS EXCLUDED FROM EVERY ENTRY AND THE ENCODER'S NAME IS INCLUDED.**
+        The module docstring carries that argument in full; it is the same argument that puts
+        `built_at` outside the hash, applied to the one other field whose bytes can change
+        while the knowledge does not. The exclusion is written as a `del` on the dumped row
+        rather than as `model_dump(exclude=...)` so that a FUTURE field is hashed by default
+        and has to be argued out here — the safe direction, since a field wrongly hashed
+        costs a cache miss and a field wrongly omitted costs an id two corpora can share.
         """
+        dumped: list[dict[str, object]] = []
+        for entry in sorted(entries, key=lambda e: str(e.chunk_id)):
+            row = entry.model_dump(mode="json")
+            del row["vector_f32_b64"]
+            dumped.append(row)
         payload = {
             "format_version": PACK_FORMAT_VERSION,
             "tenant_id": str(tenant_id),
             "agent_id": str(agent_id),
-            "entries": [
-                entry.model_dump(mode="json")
-                for entry in sorted(entries, key=lambda e: str(e.chunk_id))
-            ],
+            "embedding_model": embedding_model,
+            "embedding_dimensions": embedding_dimensions,
+            "entries": dumped,
         }
         canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode()).hexdigest()

@@ -78,7 +78,7 @@ from pipecat.transports.base_transport import BaseTransport
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
-from voice_worker.knowledge import DEFAULT_TOP_K, SessionKnowledge
+from voice_worker.knowledge import DEFAULT_TOP_K, QueryEmbedder, SessionKnowledge
 from voice_worker.vendor_logging import install_vendor_log_guard
 
 # ---------------------------------------------------------------------------------------
@@ -747,12 +747,13 @@ _KNOWLEDGE_GUIDANCE: Final[dict[str, str]] = {
 }
 
 
-def knowledge_tool_payload(
+async def knowledge_tool_payload(
     knowledge: SessionKnowledge | None,
     question: str,
     *,
     pack_configured: bool,
     k: int = DEFAULT_TOP_K,
+    embedder: QueryEmbedder | None = None,
 ) -> dict[str, Any]:
     """What the model gets back from one lookup: the outcome word, what to do, the passages.
 
@@ -778,12 +779,17 @@ def knowledge_tool_payload(
     inaudible for the same reason every vendor line is: it is DEBUG, and
     `vendor_logging.install_vendor_log_guard` floors the vendor at INFO
     (`pipecat/services/llm_service.py:1616`, read 14 Sep 2026).
+
+    **IT IS ASYNC BECAUSE THE SECOND ARM IS**, and `knowledge.answer` is the only thing it
+    calls — never `knowledge.search`, which is the lexical half and would silently drop the
+    dense one. `embedder=None` is the complete off state: same payload, same words, no
+    request and no spend.
     """
     if knowledge is None:
         outcome = "temporarily_unavailable" if pack_configured else KNOWLEDGE_OUTCOME_NO_PACK
         return {"outcome": outcome, "guidance": _KNOWLEDGE_GUIDANCE[outcome], "passages": []}
 
-    answer = knowledge.search(question, k=k)
+    answer = await knowledge.answer(question, k=k, embedder=embedder)
     return {
         "outcome": answer.outcome,
         "guidance": _KNOWLEDGE_GUIDANCE[answer.outcome],
@@ -807,6 +813,7 @@ def build_knowledge_tool(
     *,
     pack_configured: bool,
     k: int = DEFAULT_TOP_K,
+    embedder: QueryEmbedder | None = None,
 ) -> FunctionSchema:
     """The search, as a tool the LLM may call. ALWAYS built, even with no pack to search.
 
@@ -834,6 +841,18 @@ def build_knowledge_tool(
     `k` is fixed at assembly rather than exposed as a parameter: how many passages an
     answer rests on is ours to decide, and a model asking for twenty would be a model
     choosing its own context budget.
+
+    **`embedder` IS FIXED HERE FOR THE SAME REASON AND ONE STRONGER ONE.** It decides whether
+    a turn may spend money, which is never a model's choice to make in a tool argument. It is
+    bound at assembly, from the bootstrap, and the handler cannot see past it.
+
+    **THE DENSE ARM IS BOUNDED BY `FUNCTION_CALL_TIMEOUT_SECS` FROM THE OUTSIDE AS WELL AS BY
+    `embedding.EMBED_BUDGET_S` FROM THE INSIDE, AND BOTH BOUNDS ARE REAL.** The inner one is
+    the smaller (1.2 s against 2.0 s) so that a hung encoder still returns the honest
+    `temporarily_unavailable` INSIDE the tool call; the outer one is what stops a defective
+    embedder that ignores its own budget from extending a turn indefinitely
+    (`llm_service.py:301-303` — the model then sees "the function failed and returned no
+    result", which is worse than the word but is still bounded).
     """
 
     async def _search(params: FunctionCallParams) -> None:
@@ -844,7 +863,13 @@ def build_knowledge_tool(
         raw = params.arguments.get(KNOWLEDGE_TOOL_QUESTION_PARAM)
         question = raw if isinstance(raw, str) else ""
         await params.result_callback(
-            knowledge_tool_payload(knowledge, question, pack_configured=pack_configured, k=k)
+            await knowledge_tool_payload(
+                knowledge,
+                question,
+                pack_configured=pack_configured,
+                k=k,
+                embedder=embedder,
+            )
         )
 
     return FunctionSchema(
@@ -966,6 +991,7 @@ def assemble_call(
     transport: BaseTransport,
     sink: NormalizedEventSink,
     knowledge: SessionKnowledge | None = None,
+    embedder: QueryEmbedder | None = None,
     stop_secs: float = SMART_TURN_STOP_SECS,
 ) -> AssembledCall:
     """Assemble the §4 pipeline for one call.
@@ -985,6 +1011,15 @@ def assemble_call(
     THE PHONE IS RINGING, wall clock nobody is waiting on
     (`load_session_knowledge`'s own docstring), and hands the result in. `None` is a
     complete state, not an omission: see `build_knowledge_tool`.
+
+    **`embedder` IS AN ARGUMENT FOR A THIRD REASON ON TOP OF THOSE TWO: IT IS THE SWITCH
+    THAT DECIDES WHETHER A TURN MAY SPEND MONEY.** `None` — the default, and what every test
+    and every local run gets — means the dense arm never runs and nothing is bought. A
+    bootstrap supplies one only where hard rule 7's pre-flight has been answered (the same
+    question `apps/api/kb/pack_vectors.pack_embedding_is_billable()` asks, of the same model
+    id), which is a question this container cannot ask for itself because it deliberately
+    does not carry the billing module — `voice_worker/embedding.py`'s docstring has that
+    argument and the structural reason the arm is unreachable without it anyway.
     """
     install_vendor_log_guard()
 
@@ -1009,7 +1044,7 @@ def assemble_call(
         # `ToolsSchema` itself (`pipecat/processors/aggregators/llm_context.py:493-499`),
         # and the LLM service registers a schema's own handler when it sees the context
         # (`pipecat/services/llm_service.py:1256-1265`) — so nothing else has to be wired.
-        tools=[build_knowledge_tool(knowledge, pack_configured=pack_configured)],
+        tools=[build_knowledge_tool(knowledge, pack_configured=pack_configured, embedder=embedder)],
     )
     aggregators = LLMContextAggregatorPair(
         context,

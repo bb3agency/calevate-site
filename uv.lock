@@ -367,6 +367,7 @@ source = { virtual = "apps/voice-worker" }
 dependencies = [
     { name = "boto3" },
     { name = "calevate-shared" },
+    { name = "httpx" },
     { name = "pipecat-ai", extra = ["sarvam", "websocket"] },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "sqlalchemy" },
@@ -376,6 +377,7 @@ dependencies = [
 requires-dist = [
     { name = "boto3", specifier = ">=1.40" },
     { name = "calevate-shared", editable = "packages/shared" },
+    { name = "httpx", specifier = ">=0.28" },
     { name = "pipecat-ai", extras = ["sarvam", "websocket"], specifier = "==1.10.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
     { name = "sqlalchemy", specifier = ">=2.0.44" },

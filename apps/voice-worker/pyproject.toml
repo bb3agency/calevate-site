@@ -91,6 +91,25 @@ dependencies = [
     # its `botocore`/`s3transfer`/`jmespath` chain are already resolved for
     # `calevate-workers`; this adds an edge to packages the workspace already installs.
     "boto3>=1.40",
+    # The in-call query embedding (`voice_worker/embedding.py`), which is ONE POST to the
+    # Gemini OpenAI-compat surface on the turns the lexical arm could not answer. httpx
+    # rather than the alternatives, each rejected for its own reason:
+    #
+    #   * `urllib` in a thread — the stdlib client has no connection reuse across calls, and
+    #     the measured handshake is roughly half the round trip (0.35 s of a 0.51 s cold
+    #     request against 0.08 s warm, measured 14 Sep 2026), which is most of a 1.2 s budget
+    #     spent re-doing TLS on every fallback turn.
+    #   * `openai` / `google-genai` — a whole SDK, and a SECOND way for this codebase to
+    #     speak to a model provider. `apps/workers/chat.py` already speaks this wire shape
+    #     over httpx and `copilot/service.py` already calls this exact host with it.
+    #   * `aiohttp` — installed transitively under pipecat, but a client this container
+    #     depends on must be one it declares, and the workspace already resolves httpx.
+    #
+    # SUPPLY CHAIN (hard rule 9): no new distribution enters the lock. `httpx>=0.28` is
+    # already declared by the workspace root, `apps/api` and `apps/workers`; this adds an
+    # edge to a package the one venv already installs, at the SAME floor — two ranges for
+    # one vendor would mean whichever member resolved first decided for both.
+    "httpx>=0.28",
 ]
 
 # Virtual member, exactly like `apps/voice-runtime`: the directory is hyphenated (D-18)
