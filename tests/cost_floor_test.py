@@ -757,7 +757,7 @@ def test_the_modelled_cartesia_curve_rounds_exactly_once_like_the_measured_one()
     )
     for minutes in (Decimal(n) for n in (2, 3, 4, 7, 10, 100, 200, 1000, 2500)):
         plan = cartesia_cheapest_plan(minutes, usd_inr=live)
-        rounded_once = (
-            shared + plan.monthly_inr(minutes, usd_inr=live) / minutes
-        ).quantize(MONEY_Q, rounding=ROUNDING)
+        rounded_once = (shared + plan.monthly_inr(minutes, usd_inr=live) / minutes).quantize(
+            MONEY_Q, rounding=ROUNDING
+        )
         assert cartesia_cost_inr_per_call_minute(minutes, usd_inr=live) == rounded_once, minutes
