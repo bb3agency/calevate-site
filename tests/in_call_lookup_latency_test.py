@@ -171,9 +171,7 @@ def _entries(count: int, *, dimensions: int | None = None) -> tuple[PackEntry, .
                 vector_f32_b64=(
                     None
                     if dimensions is None
-                    else encode_vector(
-                        tuple(numbers.uniform(-1.0, 1.0) for _ in range(dimensions))
-                    )
+                    else encode_vector(tuple(numbers.uniform(-1.0, 1.0) for _ in range(dimensions)))
                 ),
             )
         )

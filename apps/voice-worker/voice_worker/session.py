@@ -129,8 +129,13 @@ async def open_session(
     whole design rests on: the fetch is bounded (`storage.PACK_FETCH_BUDGET_S`) and spent
     while the phone is ringing, so a slow store delays the answer by at most that bound and
     a dead store does not delay it at all past it. Nothing about a turn changes afterwards:
-    every lookup for the rest of the call is in-process, and `docs/PIPECAT-MIGRATION.md`
-    §8.1 measures it at 0.501 ms p50 against a 100 ms budget.
+    every lookup for the rest of the call is in-process, and
+    `tests/in_call_lookup_latency_test.py` measures it at **p50 0.31 ms / p95 0.34 ms** on a
+    400-entry pack against a 100 ms budget (14 Sep 2026, development container, contended —
+    that file states the conditions and re-runs on demand). **THIS SAID `0.501 ms p50` AND
+    THE NUMBER HAD NO HARNESS**: it came from an ad-hoc run nobody could repeat, which is
+    hard rule 11's "a value already in this repo is NOT verification of itself". The order of
+    magnitude was right and the figure is now reproducible.
 
     **`embedder` IS THE ONE THING ON THIS PATH THAT CAN PUT A NETWORK CALL BACK ON A TURN,
     AND IT IS OFF UNLESS SOMEBODY HANDS ONE IN.** The sentence above stays true for every

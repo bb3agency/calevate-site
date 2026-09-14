@@ -63,14 +63,21 @@ has, which `docs/PIPECAT-MIGRATION.md` §9.4 records as load-bearing.
 **SO THE PACK CARRIES VECTORS AND THE LEXICAL ARM IS STILL THE FAST PATH.** Version 2 adds
 one optional field per entry and two declarations to the pack; the consumer
 (`voice_worker/knowledge.py`) runs the dense arm ONLY where the lexical one already said it
-had no answer. Nothing about the ~0.5ms `found` path changes.
+had no answer. Nothing about the sub-millisecond `found` path changes
+(`tests/in_call_lookup_latency_test.py`).
 
 **WHY THE VECTOR IS BASE64 float32 AND NOT A JSON ARRAY OF NUMBERS.** 3072 floats rendered
 as JSON decimals is ~60 KB per entry; as little-endian float32 it is 12,288 bytes, base64
-16,384 characters. On a few-hundred-entry pack that is the difference between ~18 MB and
-~5 MB fetched inside `voice_worker/storage.PACK_FETCH_BUDGET_S` while the phone rings — and
-a pack that times out is answered `temporarily_unavailable`, which is strictly worse than
-the lexical-only pack it replaced. float32 is also what every vector store holds; cosine
+16,384 characters. That was arithmetic when it was written and it is now WEIGHED
+(`tests/in_call_lookup_latency_test.py`, 14 Sep 2026, against the bytes
+`kb/pack.publish_pack` actually uploads): **63,775 B for one vector as JSON decimals against
+16,382 B of serialised pack per entry for the encoded form**, and a 300-entry pack at 3072
+dimensions is **5,003,292 B**. So the choice is worth 3.9x and the few-hundred-entry pack is
+~5 MB rather than ~18 MB, fetched inside `voice_worker/storage.PACK_FETCH_BUDGET_S` while
+the phone rings — and a pack that times out is answered `temporarily_unavailable`, which is
+strictly worse than the lexical-only pack it replaced. ⚠ **WHETHER 5 MB FITS IN THAT BUDGET
+IS STILL UNMEASURED**: the budget is an assumption (its own docstring says so), a size is
+not a transfer time, and nobody has timed the fetch from `ap-south`. float32 is also what every vector store holds; cosine
 over it is the industry default, and the precision the JSON form would preserve is
 precision the ranking cannot use.
 
