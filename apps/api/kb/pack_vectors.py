@@ -123,6 +123,48 @@ def pack_embedding_is_billable() -> bool:
     return llm_price_is_billable(EMBEDDING_MODEL)
 
 
+def pack_embedding_declaration(entries: tuple[PackEntry, ...]) -> str | None:
+    """Which encoder a pack built from `entries` WILL declare — answered without buying one.
+
+    **THIS EXISTS BECAUSE THE STALENESS SCAN HAS TO ASK THE QUESTION AND MUST NOT PAY FOR
+    THE ANSWER** (`kb/pack.agents_with_stale_packs`, which argues the whole trade). The
+    encoder's name is inside the pack id (`KnowledgePack.digest`), so anything comparing a
+    recorded id against the one an agent's corpus implies needs the encoder BEFORE it has a
+    pack — and the only other way to learn it is to call `embed_entries`, which spends real
+    money per agent per tick to recompute a declaration that is a property of this
+    deployment's configuration rather than of the corpus.
+
+    So the two free pre-flights `embed_entries` already runs are named once, here, and both
+    callers read them: hard rule 7's price question (`pack_embedding_is_billable`, asked
+    before a provider is ever addressed) and whether a credential exists at all
+    (`embedding_leg`). Neither touches the network, neither writes a ledger row, and
+    `attested_llm_prices()` is an in-process read.
+
+    **IT IS A PREDICTION IN ONE DIRECTION ONLY, AND THAT ASYMMETRY IS DELIBERATE.** A `None`
+    here is certain — nothing downstream can conjure a vector out of no price or no key — and
+    a model name here is "this is what will be declared IF any vector lands". The one state
+    where the prediction and the outcome differ is a deployment that is configured to embed
+    and whose provider refused EVERY batch: `embed_entries` then declares nothing, the pack
+    is built with no dense arm, and a scan reading this stays one tick behind it. That is the
+    right way round. It costs the failing deployment a rebuild attempt per glossed agent per
+    tick and buys it the dense arm the moment the provider answers again — and a refused
+    request buys no vectors, so it is not billable and reaches no `usage_events` row.
+    """
+    if not entries or not pack_embedding_is_billable() or embedding_leg() is None:
+        return None
+    return EMBEDDING_MODEL
+
+
+def declared_dimensions(model: str | None) -> int | None:
+    """`EMBEDDING_DIMS` beside a declared encoder, `None` without one.
+
+    The pack's two embedding fields are ONE fact and a pack carrying half of it is refused
+    (`KnowledgePack._embedding_declaration_is_whole`), so the pairing is spelled once rather
+    than at each site that has a model and needs a width.
+    """
+    return None if model is None else EMBEDDING_DIMS
+
+
 def embedding_leg() -> chat.ChatLeg | None:
     """Where a pack-embedding request goes, or `None` when this deployment cannot make one.
 
@@ -225,17 +267,20 @@ async def embed_entries(
     with 300 of 320 entries embedded is a pack whose dense arm works on 300 entries, and the
     contract already treats a missing vector as "unreachable by that arm".
     """
-    if not entries:
-        return entries, None
-    if not pack_embedding_is_billable():
-        log.info(
-            "knowledge_pack_embedding_unpriced",
-            extra={"tenant_id": str(tenant_id), "model": EMBEDDING_MODEL},
-        )
-        return entries, None
+    model = pack_embedding_declaration(entries)
     leg = embedding_leg()
-    if leg is None:
-        log.info("knowledge_pack_embedding_no_provider", extra={"tenant_id": str(tenant_id)})
+    if model is None or leg is None:
+        # The GROUND is logged separately from the decision, because the decision is now one
+        # expression shared with the staleness scan and an operator still has to be able to
+        # tell "nobody has attested the price" from "nobody has installed the key" — two
+        # different people fix those. An empty corpus is neither and says nothing.
+        if entries and not pack_embedding_is_billable():
+            log.info(
+                "knowledge_pack_embedding_unpriced",
+                extra={"tenant_id": str(tenant_id), "model": EMBEDDING_MODEL},
+            )
+        elif entries:
+            log.info("knowledge_pack_embedding_no_provider", extra={"tenant_id": str(tenant_id)})
         return entries, None
 
     encoded: dict[int, str] = {}
@@ -286,7 +331,7 @@ async def embed_entries(
             else entry.model_copy(update={"vector_f32_b64": encoded[position]})
             for position, entry in enumerate(entries)
         ),
-        EMBEDDING_MODEL,
+        model,
     )
 
 
@@ -296,8 +341,10 @@ __all__ = [
     "EMBEDDING_MODEL",
     "EMBED_BATCH",
     "EMBED_TIMEOUT_S",
+    "declared_dimensions",
     "embed_entries",
     "embedding_input",
     "embedding_leg",
+    "pack_embedding_declaration",
     "pack_embedding_is_billable",
 ]
