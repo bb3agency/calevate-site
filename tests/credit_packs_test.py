@@ -16,7 +16,7 @@ The properties worth protecting, in the order they cost money:
   legacy pack, since no catalogue pack carries a bonus any more.
 - **Money is Decimal end to end** (hard rule 7).
 
-The MARGIN each approved rate delivers, and the fact that the whole Sarvam column sits
+The MARGIN each approved rate delivers, and the fact that EIGHT of the twelve cells sit
 under the 20% target deliberately, is `tests/cost_floor_test.py` — one file per behaviour.
 """
 
@@ -55,15 +55,18 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
 
-#: THE FOUNDER-APPROVED CARD (plan §2.2, 7 Sep 2026), typed out here so a rate that moves
-#: without the founder moving it is a red test rather than a silent repricing.
+#: THE FOUNDER-APPROVED CARD (`docs/PIPECAT-MIGRATION.md` §12, 14 Sep 2026), typed out here
+#: so a rate that moves without the founder moving it is a red test rather than a silent
+#: repricing. TYPED, not derived, and deliberately: this list IS the founder's instruction,
+#: and a version of it computed from the catalogue would assert the catalogue against
+#: itself. It superseded the 7 Sep card (Clear 5.00 → 4.50, Studio 8.00 → 6.00).
 APPROVED_CARD = [
-    ("starter", Decimal("2000"), Decimal("5.00"), Decimal("8.00")),
-    ("growth", Decimal("5000"), Decimal("5.00"), Decimal("7.00")),
-    ("scale", Decimal("10000"), Decimal("4.85"), Decimal("6.75")),
-    ("plus", Decimal("15000"), Decimal("4.70"), Decimal("6.50")),
-    ("pro", Decimal("25000"), Decimal("4.60"), Decimal("6.25")),
-    ("max", Decimal("50000"), Decimal("4.50"), Decimal("6.00")),
+    ("starter", Decimal("2000"), Decimal("4.00"), Decimal("7.00")),
+    ("growth", Decimal("5000"), Decimal("4.00"), Decimal("6.70")),
+    ("scale", Decimal("10000"), Decimal("4.00"), Decimal("6.40")),
+    ("plus", Decimal("15000"), Decimal("4.00"), Decimal("6.10")),
+    ("pro", Decimal("25000"), Decimal("4.00"), Decimal("5.80")),
+    ("max", Decimal("50000"), Decimal("4.00"), Decimal("5.50")),
 ]
 
 WEBHOOK_SECRET = "whsec_pack_test_secret"
@@ -110,8 +113,13 @@ def test_the_guard_has_teeth_on_a_below_cost_rate() -> None:
     refused. A literal on the wrong side of a moving line is the failure mode; half the
     floor cannot land on the wrong side of it.
 
-    ⚠ The docstring also said "the whole approved Sarvam column is in that band". It is not,
-    since the same change: every rung on both columns now clears the 20% target.
+    ⚠ This docstring has now said three different things about the band, which is the
+    hazard a derived rate exists to survive. It said "the whole approved Sarvam column is in
+    that band" (true before D-592), then "every rung on both columns now clears the 20%
+    target" (true only between D-592 and 14 Sep 2026). What is true today: the founder's
+    14 Sep card puts EIGHT of twelve cells under the target — the whole Clear column at
+    17.2%, and Studio's `pro` and `max` at 18.8% and 14.4% — and none below cost. The
+    assertions below do not depend on any of that, which is the point of deriving them.
     """
     half_floor = (cost_floor_inr_per_min("sarvam") / 2).quantize(Decimal("0.01"))
     below_cost = _pack("greedy", "50000", str(half_floor), "6.00")
@@ -226,15 +234,15 @@ def test_a_pack_prices_by_voice_and_refuses_a_tier_it_does_not_carry() -> None:
     back to the cheaper column would undercharge a Cartesia minute silently."""
     plus = pack_by_id("plus")
     assert plus is not None
-    assert plus.inr_per_min("sarvam") == Decimal("4.70")
-    assert plus.inr_per_min("cartesia") == Decimal("6.50")
+    assert plus.inr_per_min("sarvam") == Decimal("4.00")
+    assert plus.inr_per_min("cartesia") == Decimal("6.10")
     with pytest.raises(ValueError, match="not a voice tier"):
         plus.inr_per_min("elevenlabs")  # type: ignore[arg-type]
 
 
 def test_credits_are_one_rupee_each_and_talk_time_divides_by_the_voices_rate() -> None:
-    """1 credit = ₹1, so a ₹15,000 pack holds 15,000 credits — and buys 3,191 minutes on
-    Sarvam (₹4.70) against 2,307 on Cartesia (₹6.50). The pair is the client-facing number
+    """1 credit = ₹1, so a ₹15,000 pack holds 15,000 credits — and buys 3,750 minutes on
+    Sarvam (₹4.00) against 2,459 on Cartesia (₹6.10). The pair is the client-facing number
     the wallet screen shows (plan Q7), and it is why one balance can no longer print one
     "minutes left"."""
     plus = pack_by_id("plus")
@@ -243,8 +251,8 @@ def test_credits_are_one_rupee_each_and_talk_time_divides_by_the_voices_rate() -
     assert plus.total_credits == plus.paid_credits
     sarvam = pack_talk_time_minutes(plus, voice="sarvam")
     cartesia = pack_talk_time_minutes(plus, voice="cartesia")
-    assert int(sarvam) == 3191
-    assert int(cartesia) == 2307
+    assert int(sarvam) == 3750
+    assert int(cartesia) == 2459
     assert cartesia < sarvam
 
 

@@ -15,8 +15,10 @@ What this file protects, in the order it costs money:
 - **No telephony leg**, asserted by value: both floors are well under any figure that
   includes ₹0.38-0.50/min of carrier cost.
 - **The approved card clears both floors**, with the margin each rate actually delivers
-  spelled out — including that the whole Sarvam column is UNDER the 20% target, which is
-  the founder's decision and not a defect.
+  spelled out — including that EIGHT of the twelve cells are UNDER the 20% target (the
+  whole Clear column, plus Studio's two deepest rungs), which is the founder's decision of
+  14 Sep 2026 and not a defect. What is asserted as a PROPERTY is the posture: under cost
+  is REFUSED, under target is merely WARNED, whichever cells happen to be which.
 - **The conversion choice is bounded**: at `LIST_PRICE_USD_INR` instead of the Cartesia
   evidence file's own ₹88, the Cartesia floor is ₹4.5260 and the card still clears it. The
   comment in `rates.py` states that number; this is where it is computed rather than
@@ -30,7 +32,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 import pytest
-from apps.api.billing.credit_packs import PACK_CATALOGUE, card_refusals
+from apps.api.billing.credit_packs import PACK_CATALOGUE, card_refusals, pack_rate_margin
 from apps.api.billing.rates import (
     AZURE_OPENAI_DEFAULT_MODEL,
     BASE_RATE_LLM_MODEL,
@@ -288,16 +290,25 @@ def test_the_cartesia_cost_curve_at_real_volumes_including_one_that_is_underwate
             cartesia_cheapest_plan(minutes, usd_inr=CARTESIA_EVIDENCE_USD_INR).plan_id == plan_id
         ), minutes
 
-    # At 100 call-minutes a month the dearest Studio rung still sells a minute for less
+    # At 100 call-minutes a month the deepest Studio rungs still sell a minute for less
     # than it cost — the case the ₹4.3639 "floor" said could not exist and the console has
-    # to warn about. It was FOUR rungs until D-592 halved the engine leg; one is enough to
-    # keep the warning per-rung rather than a blanket one, and the shrink is the point.
+    # to warn about. The COUNT has moved twice and is not the property: four rungs before
+    # D-592 halved the engine leg, one after it, and two again under the founder's 14 Sep
+    # card, which cut the Studio floor rung from ₹6.00 to ₹5.50. What must hold is that the
+    # set is a non-empty run of the DEEPEST rungs — a per-rung warning the console can
+    # print, rather than a blanket one.
     at_100 = cartesia_cost_inr_per_call_minute(Decimal("100"), usd_inr=CARTESIA_EVIDENCE_USD_INR)
     assert at_100 == Decimal("6.0211")
     underwater = sorted(
         pack.pack_id for pack in PACK_CATALOGUE if pack.cartesia_inr_per_min < at_100
     )
-    assert underwater == ["max"]
+    assert underwater == ["max", "pro"]
+    assert underwater, "some rung must be under water at the ladder's bottom volume"
+    by_depth = sorted(PACK_CATALOGUE, key=lambda pack: pack.amount_inr, reverse=True)
+    assert sorted(pack.pack_id for pack in by_depth[: len(underwater)]) == underwater, (
+        "only the deepest rungs may be under water at a volume: the Studio column falls "
+        "with pack size, so a gap in the middle would mean the card is not monotone"
+    )
     # The curve is NOT monotonic: it falls while a plan's allotment amortises and rises once
     # the plan is into overage. A reader who assumes otherwise writes a broken bisection.
     assert cartesia_cost_inr_per_call_minute(
@@ -344,12 +355,12 @@ def test_every_studio_rung_carries_the_volume_it_needs_to_stop_losing_money() ->
         )
         for pack in PACK_CATALOGUE
     } == {
-        "starter": Decimal("69"),
-        "growth": Decimal("82"),
-        "scale": Decimal("86"),
-        "plus": Decimal("91"),
-        "pro": Decimal("96"),
-        "max": Decimal("101"),
+        "starter": Decimal("82"),
+        "growth": Decimal("87"),
+        "scale": Decimal("93"),
+        "plus": Decimal("99"),
+        "pro": Decimal("106"),
+        "max": Decimal("114"),
     }
     sustained = cartesia_rung_breakeven_call_minutes(
         Decimal("5.00"), usd_inr=CARTESIA_EVIDENCE_USD_INR
@@ -504,44 +515,65 @@ def test_the_floor_selector_is_total_over_the_two_tiers_and_raises_otherwise() -
         cost_floor_inr_per_min("elevenlabs")  # type: ignore[arg-type]
 
 
-def test_the_approved_card_clears_both_floors_and_every_rung_clears_target() -> None:
-    """THE MARGIN THE APPROVED CARD ACTUALLY DELIVERS, written out.
+def test_the_approved_card_clears_both_floors_and_thin_cells_are_warned_not_refused() -> None:
+    """THE MARGIN THE APPROVED CARD ACTUALLY DELIVERS, all twelve cells written out.
 
-    ⚠ Every Sarvam rate is UNDER `MIN_GROSS_MARGIN` and every one is above cost. That is the
-    founder's card (plan §2.2) read against a floor re-derived without telephony, and it is
-    why `credit_packs.card_refusals` refuses below COST and only reports below TARGET. If
-    this test ever fails because a Sarvam margin rose past 20%, the floor or the card moved
-    and somebody should know which.
+    ⚠ **EIGHT OF THE TWELVE ARE UNDER `MIN_GROSS_MARGIN` AND NONE IS UNDER COST, AND THAT
+    IS THE DECISION, NOT THE DEFECT.** The founder's card of 14 Sep 2026
+    (`docs/PIPECAT-MIGRATION.md` §12) cut Clear to a flat ₹4.00 — 17.2% on every rung — and
+    Studio to 7.00 → 5.50, which leaves `pro` at 18.8% and `max` at 14.4%. It is a
+    deliberate opening price to win the first clients. **Do not repair a thin cell by
+    moving a rate**: holding 20% everywhere needs Clear ₹4.15 and a Studio floor of ₹5.90,
+    which is a pricing decision and not a test fix.
+
+    THE ASSERTION IS THE POSTURE, NOT A LIST OF THIN CELLS. Below cost is REFUSED, at or
+    above cost but under target is WARNED — whichever cells happen to be which. The
+    twelve-cell readout below is kept because it is the table the ops console renders and
+    §12 publishes, so a floor that moves under our feet fails here with the cell named; it
+    is not the thing that encodes the rule.
+
+    ⚠ This test used to be named `..._and_every_rung_clears_target` and asserted exactly
+    that. It was true only between D-592 (which halved the engine leg and pulled the floors
+    to ₹3.3111 / ₹4.7099) and the 14 Sep card. A literal expectation that sits on the wrong
+    side of a line the founder can move is the failure mode this rewrite is guarding
+    against — which is why the posture is asserted structurally and the numbers are only
+    read back.
     """
     expected = {
-        ("starter", "sarvam"): Decimal("0.3378"),
-        ("starter", "cartesia"): Decimal("0.4113"),
-        ("growth", "sarvam"): Decimal("0.3378"),
-        ("growth", "cartesia"): Decimal("0.3272"),
-        ("scale", "sarvam"): Decimal("0.3173"),
-        ("scale", "cartesia"): Decimal("0.3022"),
-        ("plus", "sarvam"): Decimal("0.2955"),
-        ("plus", "cartesia"): Decimal("0.2754"),
-        ("pro", "sarvam"): Decimal("0.2802"),
-        ("pro", "cartesia"): Decimal("0.2464"),
-        ("max", "sarvam"): Decimal("0.2642"),
-        ("max", "cartesia"): Decimal("0.2150"),
+        ("starter", "sarvam"): Decimal("0.1722"),
+        ("starter", "cartesia"): Decimal("0.3272"),
+        ("growth", "sarvam"): Decimal("0.1722"),
+        ("growth", "cartesia"): Decimal("0.2970"),
+        ("scale", "sarvam"): Decimal("0.1722"),
+        ("scale", "cartesia"): Decimal("0.2641"),
+        ("plus", "sarvam"): Decimal("0.1722"),
+        ("plus", "cartesia"): Decimal("0.2279"),
+        ("pro", "sarvam"): Decimal("0.1722"),
+        ("pro", "cartesia"): Decimal("0.1879"),
+        ("max", "sarvam"): Decimal("0.1722"),
+        ("max", "cartesia"): Decimal("0.1437"),
     }
+    thin = []
     for pack in PACK_CATALOGUE:
         for voice in ("sarvam", "cartesia"):
             rate = pack.inr_per_min(voice)  # type: ignore[arg-type]
             floor = cost_floor_inr_per_min(voice)  # type: ignore[arg-type]
+            # THE INVARIANT: no cell may sell a minute for less than that minute costs us.
             assert rate > floor, f"{pack.pack_id}/{voice} is below cost"
             margin = gross_margin_ratio(rate=rate, cost=floor).quantize(Decimal("0.0001"))
             assert margin == expected[(pack.pack_id, voice)]
-            # ⚠ **NOTHING IS THIN ANY MORE, AND THE CARD WAS NOT REPRICED.** Until D-592
-            # the whole Sarvam column and four Studio rungs sat under the 20% target, and
-            # this assertion enumerated them. Then the engine leg went from Bolna's
-            # $0.02/min BYOK fee to Pipecat's $0.01/min active minute; the floors fell
-            # ₹4.1211 → ₹3.3111 and ₹5.5899 → ₹4.7099, and every cell cleared. The
-            # assertion is now the PROPERTY rather than the list, so the next cost move is
-            # read as a margin question instead of an edit to a set of names.
-            assert margin >= MIN_GROSS_MARGIN, f"{pack.pack_id}/{voice} fell under target"
+            verdict = pack_rate_margin(pack, voice=voice)  # type: ignore[arg-type]
+            # THE POSTURE: a cell under target is REPORTED as thin and never refused, and
+            # the two flags are disjoint. This is what the console reads, so it is what a
+            # deliberate thin price is allowed to trip.
+            assert verdict.below_cost is False
+            assert verdict.below_target is (margin < MIN_GROSS_MARGIN)
+            if verdict.below_target:
+                thin.append(f"{pack.pack_id}/{voice}")
+    # Thin cells exist on the card that is on sale, and not one of them makes it
+    # unsellable — the whole reason `card_refusals` separates cost from target.
+    assert thin
+    assert card_refusals(PACK_CATALOGUE) == []
 
 
 def test_the_floor_moves_with_the_dollar_and_the_refusal_bound_does_not() -> None:
@@ -549,8 +581,12 @@ def test_the_floor_moves_with_the_dollar_and_the_refusal_bound_does_not() -> Non
 
     Cartesia bills in dollars, so the cost floor converts at the LIVE published rate
     (`core/fx.usd_inr_rate_now`, already pulled every five minutes). At ₹95.66 the floor is
-    ₹5.0554 and the founder's own ₹6.00 `max` rung earns **-0.2%** — it is under water at
-    the margin. At ₹100 it is -4.2%.
+    ₹5.0554, and the founder's ₹5.50 `max` rung earns **8.1%** against it — thin, and still
+    above water. ⚠ This paragraph read "the founder's own ₹6.00 `max` rung earns -0.2% — it
+    is under water at the margin" when the floor rung was ₹6.00 against a ₹6.0120 floor;
+    both halves have moved since (D-592 halved the engine leg, and the 14 Sep card cut the
+    rung to ₹5.50), and the exposure it described is not live at today's numbers. The
+    reasoning below is what survives, not the sign of that figure.
 
     ⚠ **AND THAT IS WHY THE REFUSAL BOUND IS FROZEN.** `credit_packs.card_refusals` scores
     against `CARTESIA_COST_FLOOR_INR_PER_MIN`, struck at the evidence file's ₹88, so a
@@ -565,13 +601,14 @@ def test_the_floor_moves_with_the_dollar_and_the_refusal_bound_does_not() -> Non
     assert cartesia_cost_floor_inr_per_min_at(Decimal("100")) == Decimal("5.2511")
 
     cheapest_rung = min(pack.cartesia_inr_per_min for pack in PACK_CATALOGUE)
-    assert cheapest_rung == Decimal("6.00")
+    assert cheapest_rung == Decimal("5.50")
     assert cheapest_rung > cartesia_cost_floor_inr_per_min_at(Decimal("88"))
-    # ⚠ **₹6.00 NO LONGER GOES UNDER WATER AT THE LLM CARD'S RATE, AND THAT IS THE WHOLE
-    # POINT OF FREEZING THE BOUND, NOT A REASON TO UNFREEZE IT.** Until D-592 this rung
-    # earned -0.2% at ₹95.66 and +7% at ₹88, which is what made the frozen bound worth
-    # arguing for. The halved engine leg pulled the ₹95.66 floor to ₹5.0554 and the rung now
-    # clears at BOTH conversions — so the exposure this test was built around is closed at
+    # ⚠ **THE FLOOR RUNG NO LONGER GOES UNDER WATER AT THE LLM CARD'S RATE, AND THAT IS
+    # THE WHOLE POINT OF FREEZING THE BOUND, NOT A REASON TO UNFREEZE IT.** Until D-592 the
+    # ₹6.00 rung earned -0.2% at ₹95.66 and +7% at ₹88, which is what made the frozen bound
+    # worth arguing for. The halved engine leg pulled the ₹95.66 floor to ₹5.0554; the
+    # founder's 14 Sep card then cut the rung to ₹5.50, which still clears at BOTH
+    # conversions (8.1% at ₹95.66) — so the exposure this test was built around is closed at
     # today's numbers and the reasoning is not. A currency tick still must not get a veto
     # over a card that is on sale; the assertion is now the ORDER of the two floors, which
     # is what actually encodes "the live rate can move the judgement".
@@ -582,7 +619,7 @@ def test_the_floor_moves_with_the_dollar_and_the_refusal_bound_does_not() -> Non
     at_9566 = gross_margin_ratio(
         rate=cheapest_rung, cost=cartesia_cost_floor_inr_per_min_at(Decimal("95.66"))
     ).quantize(Decimal("0.0001"))
-    assert at_9566 == Decimal("0.1574")
+    assert at_9566 == Decimal("0.0808")
 
     # The refusal is struck at the FROZEN rate and the card therefore still records — which
     # is the property `tests/credit_packs_test.py` scores and this one explains.
@@ -600,17 +637,19 @@ def test_the_scary_marginal_figure_is_not_the_blended_one_and_both_are_published
     The floor is the pure OVERAGE marginal rate and applies only ABOVE the included
     allotment — it is the cost of the NEXT minute for a high-volume client on the ₹50,000
     pack. At 200 call-minutes a month on Pro the BLENDED cost at the same ₹95.66 is ₹4.3379
-    and the ₹6.00 rung earns ~11.8%. A console that showed only the first would be crying
-    wolf, and one that showed only the second would be hiding the exposure; both are on the
-    wire (`CartesiaVolumeOut.floor_inr_per_min` and `.cost_inr_per_min`).
+    and the ₹5.50 rung earns 21.1% against it, where the marginal reading gives 8.1%. A
+    console that showed only the first would be crying wolf, and one that showed only the
+    second would be hiding the exposure; both are on the wire
+    (`CartesiaVolumeOut.floor_inr_per_min` and `.cost_inr_per_min`).
     """
     fx = Decimal("95.66")
     blended = cartesia_cost_inr_per_call_minute(Decimal("200"), usd_inr=fx)
     assert blended == Decimal("4.3379")
     assert blended < cartesia_cost_floor_inr_per_min_at(fx)
-    assert gross_margin_ratio(rate=Decimal("6.00"), cost=blended).quantize(
+    floor_rung = min(pack.cartesia_inr_per_min for pack in PACK_CATALOGUE)
+    assert gross_margin_ratio(rate=floor_rung, cost=blended).quantize(
         Decimal("0.0001")
-    ) == Decimal("0.2770")
+    ) == Decimal("0.2113")
 
 
 def test_only_the_dollar_legs_move_with_the_rate() -> None:
