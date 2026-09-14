@@ -81,10 +81,22 @@ const QUESTIONS: { q: string; a: string }[] = [
      * on the HOMEPAGE, where `tests/publicLanding.test.tsx` bans a price, a fee and the
      * vocabulary of one outside the ROI calculator.
      */
+    /*
+     * ⚠ "COMING DOWN THE MORE CREDIT YOU BUY AT ONCE" WAS CUT ON 14 SEP 2026, AND IT WAS
+     * NOT A STYLE EDIT. It asserted the SHAPE of the ladder about BOTH voices, from a
+     * static component with no card in hand — and the next card does not have that shape:
+     * the founder's 14 Sep decision prices the cheaper voice FLAT at ₹4.00 on every rung
+     * while the dearer one still falls (`docs/PIPECAT-MIGRATION.md` §12). Every other
+     * surface that narrates the ladder now asks the card first (`rateCard.ladderFalls`);
+     * this one CANNOT — it is a `"use client"` component on the homepage, deliberately
+     * holding no figures — so the only sentence it may write is the one that is true of
+     * every card: the ladder is published, and the price list has it. Do not put a shape
+     * claim back here. If it needs one, it needs the card, and then it is not this file.
+     */
     a:
       "Two answers, depending on how you buy. Prepaid calling credit is published: a " +
-      "rate for each of the two voices, coming down the more credit you buy at once, and " +
-      "the whole ladder is on our price list. A monthly plan — a bundle of talk time " +
+      "rate for each of the two voices, and the whole ladder is on our price list, so " +
+      "you can see what a minute costs before you talk to anybody. A monthly plan — a bundle of talk time " +
       "included and a rate for anything past that bundle — we quote for your business, " +
       "because what those figures should say depends on how much you call and get called.",
   },

@@ -6,9 +6,11 @@ import {
   cardFromRate,
   fetchPublicRateCard,
   formatRateINR,
+  ladderFalls,
   packRate,
   rateToTenThousandths,
   tierLabel,
+  VOICE_TIERS,
   type PublicRateCard,
   type VoiceTier,
 } from "@/lib/api/rateCard";
@@ -243,9 +245,24 @@ export default async function PricingPage() {
                 ladder, which is the one nobody's first purchase is at. The band is
                 overhead in the h1 and every rung is in the table below; a heading that
                 re-quoted one end of it was the duplicate the audit found. */}
+            {/* ⚠ THIS WAS A TYPED PROMISE THAT THE RATE FALLS, ON A PAGE WHOSE WHOLE
+                DOCTRINE IS THAT NOTHING HERE IS TYPED. It is false the moment either
+                column goes flat, and the next card takes the cheaper voice flat at ₹4.00
+                (`docs/PIPECAT-MIGRATION.md` §12) — leaving a heading that sells a volume
+                discount directly above a table showing six identical figures. It now
+                asks the card, the same question `bandSentence` below already asks.
+
+                `every` AND NOT `some`, WHICH IS THE WHOLE CARE HERE. This heading takes
+                no voice: it sits above the switch and speaks for both, and the table
+                under it OPENS ON THE CHEAPER ONE — precisely the column the next card
+                flattens. A claim that holds for one of two voices is not a claim this
+                heading may make, so it drops to the sentence true of every card: the
+                price is published and there is no minimum. */}
             {rateCard === null
               ? "Our self-serve rate"
-              : "Prepaid credit, and the rate comes down as the pack gets bigger"}
+              : VOICE_TIERS.every((voice) => ladderFalls(rateCard, voice))
+                ? "Prepaid credit, and the rate comes down as the pack gets bigger"
+                : "Prepaid credit, at a published rate with no minimum"}
           </h2>
           {rateCard === null ? (
             <p role="status" className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">

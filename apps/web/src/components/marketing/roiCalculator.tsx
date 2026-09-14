@@ -99,6 +99,7 @@ import {
   cheapestPack,
   formatAmountINR,
   formatRateINR,
+  ladderFalls,
   packMinutes,
   packRate,
   ratePaisePerMin,
@@ -361,19 +362,31 @@ function rateFor(
 function voiceOptions(
   card: PublicRateCard,
 ): readonly { id: VoiceTier; label: string; caption: string }[] {
-  return VOICE_TIERS.map((voice) => ({
-    id: voice,
-    label: `${tierLabel(card, voice)} voice — ${formatRateINR(rateFor(card, voice, LIST_RATE).rate)}/min`,
-    caption:
-      voice === "sarvam"
-        ? `The everyday voice, and where every agent starts. Down to ${formatRateINR(cardFromRate(card, voice))}/min on the deepest pack.`
-        // "CHOSEN AGENT BY AGENT" READ AS A CONTROL THE CLIENT HOLDS, AND THEY DO NOT:
-        // the voice picker is mounted in the admin realm only and changing a voice is ours
-        // (D-21). Per-agent is the true and load-bearing half — it is why this calculator
-        // prices one voice at a time — so it is said as the property it is, in the same
-        // register `/pricing` and the console now use.
-        : `Costs more per minute because it costs us more, and it is set per agent rather than for the whole account. Down to ${formatRateINR(cardFromRate(card, voice))}/min on the deepest pack.`,
-  }));
+  return VOICE_TIERS.map((voice) => {
+    // ⚠ THE PACK SENTENCE WAS UNCONDITIONAL AND ADVERTISED A DISCOUNT THE CARD MAY NOT
+    // GRANT. On a voice priced flat it rendered "₹4.00/min … Down to ₹4.00/min on the
+    // deepest pack" — the label and the caption quoting one figure as if either were a
+    // saving on the other. The next card prices the cheaper voice exactly that way
+    // (`docs/PIPECAT-MIGRATION.md` §12), and `card_refusals` has always permitted it.
+    // `ladderFalls` is the guard `/pricing`'s `bandSentence` already applied; this is the
+    // same question asked once more rather than a second way of asking it.
+    const pack = ladderFalls(card, voice)
+      ? ` Down to ${formatRateINR(cardFromRate(card, voice))}/min on the deepest pack.`
+      : "";
+    return {
+      id: voice,
+      label: `${tierLabel(card, voice)} voice — ${formatRateINR(rateFor(card, voice, LIST_RATE).rate)}/min`,
+      caption:
+        voice === "sarvam"
+          ? `The everyday voice, and where every agent starts.${pack}`
+          // "CHOSEN AGENT BY AGENT" READ AS A CONTROL THE CLIENT HOLDS, AND THEY DO NOT:
+          // the voice picker is mounted in the admin realm only and changing a voice is
+          // ours (D-21). Per-agent is the true and load-bearing half — it is why this
+          // calculator prices one voice at a time — so it is said as the property it is,
+          // in the same register `/pricing` and the console now use.
+          : `Costs more per minute because it costs us more, and it is set per agent rather than for the whole account.${pack}`,
+    };
+  });
 }
 
 /**
@@ -1094,13 +1107,29 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 average length × {formatRateINR(selectedRate)}/min × working days.{" "}
                 {formatRateINR(card.list_rate_inr_per_min)}/min is our published self-serve
                 list rate on the {tierLabel(card, "sarvam")} voice, read from our own rate
-                card when this page loaded; a prepaid pack brings it down to{" "}
-                {formatRateINR(cardFromRate(card, "sarvam"))}/min, and the{" "}
-                {tierLabel(card, "cartesia")} voice runs from{" "}
-                {formatRateINR(cardFromRate(card, "cartesia"))}/min to{" "}
-                {formatRateINR(rateFor(card, "cartesia", LIST_RATE).rate)}/min. The
-                comparison starts on the everyday voice at the list rate rather than at the
-                cheapest pack, on purpose.
+                {/* The pack clause is CONDITIONAL for the same reason the voice captions'
+                    is: on a flat column "a prepaid pack brings it down to ₹4.00/min"
+                    quotes the list rate straight back as a discount. The dearer voice is
+                    stated as a RANGE, which has the same failure — a range whose ends are
+                    equal is not a range. */}
+                card when this page loaded
+                {ladderFalls(card, "sarvam") && (
+                  <>
+                    ; a prepaid pack brings it down to{" "}
+                    {formatRateINR(cardFromRate(card, "sarvam"))}/min
+                  </>
+                )}
+                , and the {tierLabel(card, "cartesia")} voice{" "}
+                {ladderFalls(card, "cartesia") ? (
+                  <>
+                    runs from {formatRateINR(cardFromRate(card, "cartesia"))}/min to{" "}
+                    {formatRateINR(rateFor(card, "cartesia", LIST_RATE).rate)}/min
+                  </>
+                ) : (
+                  <>is {formatRateINR(rateFor(card, "cartesia", LIST_RATE).rate)}/min</>
+                )}
+                . The comparison starts on the everyday voice at the list rate rather than
+                at the cheapest pack, on purpose.
               </li>
               <li>
                 <span className="font-medium text-ink">Telecallers needed</span> = calls a

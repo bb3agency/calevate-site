@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 
 import { Card, Disclosure, formatRupeeRate } from "@/components/ui";
 import type { CreditPacks } from "@/lib/api/billing";
+import { ladderFalls } from "@/lib/api/rateCard";
 
 import { VOICE_TIERS, cheapestRate, dearestRate, type TierLabels } from "./lots";
 
@@ -123,15 +124,29 @@ export function WhatCallsCost({
           {VOICE_TIERS.map((tier) => (
             <div key={tier} className="flex flex-wrap items-baseline gap-x-2">
               <dt className="font-medium text-ink">{labels[tier]}</dt>
+              {/* ⚠ THE "down to X on the largest pack" HALF IS CONDITIONAL, AND WAS NOT.
+                  A card may price a voice FLAT — `credit_packs.py::card_refusals` refuses
+                  only a bigger pack that buys a DEARER minute, so equal rungs have always
+                  been a legal card, and the next one prices the cheaper voice at ₹4.00 on
+                  every rung (`docs/PIPECAT-MIGRATION.md` §12). Unguarded, this rendered
+                  "₹4.00 a minute, down to ₹4.00 on the largest pack" to a paying client:
+                  a discount offered where the card grants none, in their own billing
+                  screen. `/pricing`'s `bandSentence` already collapses this case and says
+                  why; this is the same guard, from the same helper. */}
               <dd className="tabular-nums text-ink-muted">
                 <strong className="font-semibold text-ink">
                   {formatRupeeRate(band[tier].dearest)}
                 </strong>{" "}
-                a minute, down to{" "}
-                <strong className="font-semibold text-ink">
-                  {formatRupeeRate(band[tier].cheapest)}
-                </strong>{" "}
-                on the largest pack
+                a minute
+                {band[tier].falls && (
+                  <>
+                    , down to{" "}
+                    <strong className="font-semibold text-ink">
+                      {formatRupeeRate(band[tier].cheapest)}
+                    </strong>{" "}
+                    on the largest pack
+                  </>
+                )}
               </dd>
             </div>
           ))}
@@ -236,15 +251,21 @@ export function WhatCallsCost({
  */
 function rateBand(
   card: CreditPacks,
-): Record<"sarvam" | "cartesia", { cheapest: string; dearest: string }> | undefined {
+):
+  | Record<"sarvam" | "cartesia", { cheapest: string; dearest: string; falls: boolean }>
+  | undefined {
   const sarvamLow = cheapestRate(card, "sarvam");
   const sarvamHigh = dearestRate(card, "sarvam");
   const cartesiaLow = cheapestRate(card, "cartesia");
   const cartesiaHigh = dearestRate(card, "cartesia");
   if (!sarvamLow || !sarvamHigh || !cartesiaLow || !cartesiaHigh) return undefined;
   return {
-    sarvam: { cheapest: sarvamLow, dearest: sarvamHigh },
-    cartesia: { cheapest: cartesiaLow, dearest: cartesiaHigh },
+    sarvam: { cheapest: sarvamLow, dearest: sarvamHigh, falls: ladderFalls(card, "sarvam") },
+    cartesia: {
+      cheapest: cartesiaLow,
+      dearest: cartesiaHigh,
+      falls: ladderFalls(card, "cartesia"),
+    },
   };
 }
 
