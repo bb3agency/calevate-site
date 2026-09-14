@@ -1,9 +1,10 @@
 """Passage vectors for one knowledge pack, computed at PUBLISH and never on a call.
 
 **WHY THIS EXISTS AND WHY IT IS HERE RATHER THAN IN THE WORKER.** `voice_worker/knowledge.py`
-answers most questions by word-matching in ~0.5 ms with no network, and the arm it cannot
-serve is a question written in a script the index does not contain: measured at **0.083
-recall@1, 22 of 24 answered `not_found`** on Telugu script
+answers most questions by word-matching in well under a millisecond with no network
+(`tests/in_call_lookup_latency_test.py`), and the arm it cannot serve is a question written
+in a script the index does not contain: measured at **0.083 recall@1, 22 of 24 answered
+`not_found`** on Telugu script
 (`tests/in_call_retrieval_recall_test.py`). A dense arm fixes that — 0.9583 on the same
 corpus, founder-run against the live Gemini API on 14 Sep 2026 — but only if there is a
 vector to compare against, and computing a few hundred of those is not something a container

@@ -309,7 +309,12 @@ overwhelming majority; a DENSE second arm now fires on the turns it answers `not
 `ambiguous`, and that arm is one hosted request. Read both halves before quoting either.
 
 Box 1 fetches the agent's `KnowledgePack` ONCE at session start and searches it in-process
-for the rest of the call. **Measured: 0.501 ms p50 per lookup, zero network per turn.** The
+for the rest of the call. **Measured: p50 0.31 ms / p95 0.34 ms per lookup, zero network per
+turn** — `tests/in_call_lookup_latency_test.py`, 400-entry pack, n=500 after warm-up, on the
+development container (Intel Xeon @ 2.10GHz, 4 vCPU, contended) on 14 Sep 2026. ⚠ **THIS
+SECTION SAID `0.501 ms p50` AND NOTHING IN THE TREE COULD REPRODUCE IT** — an ad-hoc run with
+no corpus, no sample count and no machine recorded. The committed harness puts it at the same
+order of magnitude and states its conditions; quote that file, not a bare number. The
 alternative — box 1 asking box 3 on every question — costs 30–50 ms of network, and makes
 every question on every call depend on a second machine being up and fast. A phone call has
 no retry affordance: a caller hears the hesitation.
@@ -337,13 +342,19 @@ not a better ranking of the same answers, it is the removal of the English-parap
 dependency §9.4 calls load-bearing.
 
 **THE CORPUS SIDE COSTS A CALL NOTHING.** Passage vectors are computed at PUBLISH
-(`apps/api/kb/pack_vectors.py`) and travel inside the pack as base64 float32 — ~16 KB per
-3072-dim entry against ~60 KB as JSON decimals, which is what keeps a few-hundred-entry pack
-inside `storage.PACK_FETCH_BUDGET_S` while the phone rings. What is left on the call path is
-ONE query vector.
+(`apps/api/kb/pack_vectors.py`) and travel inside the pack as base64 float32. **That was
+arithmetic in prose until 14 Sep 2026 and is now weighed** (`tests/in_call_lookup_latency_
+test.py`, against the exact bytes `kb/pack.publish_pack` uploads): a 300-entry pack at 3072
+dimensions serialises to **5,003,292 B — 16,678 B per entry, of which 16,382 B is the base64
+vector** — against **63,775 B** for one vector rendered as JSON decimals, so the encoding is
+worth 3.9x. The ~16 KB / ~60 KB / ~5 MB figures were right. ⚠ **WHAT THAT DOES NOT SHOW is
+that 5 MB fits inside `storage.PACK_FETCH_BUDGET_S`**: that budget is an assumption, no fetch
+from a Pipecat Cloud `ap-south` container to the bucket has ever been timed, and a pack size
+is not a transfer time. **UNMEASURED**, and §3.6 is where it closes. What is left on the call
+path is ONE query vector.
 
 **IT FIRES ONLY ON `not_found` AND `ambiguous`** — turns where the agent was about to tell
-the caller it has nothing. The ~0.5 ms `found` path is unchanged, which is the §4(b) finding
+the caller it has nothing. The sub-millisecond `found` path is unchanged, which is the §4(b) finding
 (unconditional fusion makes cells WORSE) respected rather than re-learned.
 
 **IT CAN ONLY ADD.** A dense pass below `knowledge.DENSE_MIN_COSINE` leaves the lexical
@@ -371,9 +382,26 @@ until the first live call from Pipecat Cloud `ap-south` measures it (§3.6).
 Everything the client has published **for one agent** — every active chunk, as text plus its
 English gloss. Not the platform's KB, not other clients, not other agents. Chunk text is
 capped at 4,000 characters (`calevate_shared/knowledge_pack.py`), so a 50-page client KB is a
-few hundred chunks: on the order of a few hundred KB of text, ~1 MB with the search index.
-The container already holds an ONNX turn-detection model and the Pipecat runtime, which are
-hundreds of MB. The pack is a rounding error beside them.
+few hundred chunks.
+
+⚠ **THIS SECTION SAID "a few hundred KB of text, ~1 MB with the search index" AND IT WAS
+WRITTEN BEFORE v2 CARRIED VECTORS.** Measured, 14 Sep 2026
+(`tests/in_call_lookup_latency_test.py`, over the exact bytes `kb/pack.publish_pack` uploads),
+300 entries of short shop facts:
+
+| pack | serialised | per entry |
+|---|---|---|
+| v1 / v2 with no vectors | 88,667 B | 296 B + the chunk's own text |
+| v2 at 3072 dimensions | **5,003,292 B (5.00 MB)** | 16,678 B |
+
+**The vector is a FIXED 16,382 B per entry whatever the text weighs**, so the lexical-only
+figure scales with the corpus and the dense one barely does: at 4,000-character chunks the
+text still loses to the vector. A vector-carrying pack is therefore MEGABYTES, not ~1 MB, and
+the "rounding error" framing only ever applied to the lexical one. It remains small against
+the ONNX turn-detection model and the Pipecat runtime the container already holds (hundreds
+of MB) — but ⚠ **what 5 MB costs to FETCH is UNMEASURED**: `storage.PACK_FETCH_BUDGET_S` is an
+assumption, a size is not a transfer time, and no fetch from Pipecat Cloud `ap-south` to the
+bucket has been timed (§3.6).
 
 The pack is **content-addressed** (`content_sha256`, `built_at` deliberately outside the
 hash), so republishing identical content produces the identical key and nothing is
@@ -474,7 +502,8 @@ records the product constraint that follows from those two lists not matching. (
    `google/llm.py:213,367` passes `tools`.] **THIS IS THE STEP THAT MAKES THE PATH
    LANGUAGE-GENERAL**, and it is also the step §9.4 shows is load-bearing: the index never
    sees the source language, so adding a source language costs the index nothing.
-3. **Search runs in the worker's memory** over the English index. 0.5 ms.
+3. **Search runs in the worker's memory** over the English index. Sub-millisecond — p50
+   0.31 ms on a 400-entry pack, `tests/in_call_lookup_latency_test.py` (§8.1 for conditions).
 4. **The LLM composes the reply in the caller's language.**
 5. **Sarvam TTS speaks it.** `target_language_code` is sent per request on the HTTP leg and
    in the opening config on the websocket leg (`sarvam/tts.py:564,1060`); the 11 locales it

@@ -1221,9 +1221,11 @@ class SessionKnowledge:
         """The LEXICAL answer alone. Four states, never an exception, never a network call.
 
         Kept as its own callable — rather than folded into `answer` behind `embedder=None` —
-        because it is what the recall harness measures and what the ~0.5 ms budget claim is
-        about, and a measurement whose subject can only be reached through an `await` and an
-        optional argument is a measurement that will quietly start including something else.
+        because it is what the recall harness measures and what the sub-millisecond budget
+        claim is about (`tests/in_call_lookup_latency_test.py`: p50 0.31 ms on a 400-entry
+        pack, conditions stated there), and a measurement whose subject can only be reached
+        through an `await` and an optional argument is a measurement that will quietly start
+        including something else.
         It logs, like `answer` does, because a turn that never reaches the second arm is
         still a turn an operator counts.
         """
