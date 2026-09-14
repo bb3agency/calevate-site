@@ -16,6 +16,7 @@ from decimal import Decimal
 
 from apps.api.admin import service as admin_service
 from apps.api.billing import payments
+from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_by_id
 from apps.api.billing.credit_routes import (
     credit_adjustment_confirmation,
     credit_grant_confirmation,
@@ -41,6 +42,25 @@ def _app() -> FastAPI:
 
 def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=_app()), base_url="http://api")
+
+
+def _pack(pack_id: str) -> CreditPack:
+    """The live catalogue rung a lot is expected to be opened at.
+
+    ⚠ **EVERY RATE IN THIS FILE USED TO BE TYPED**, and the founder's card of 14 Sep 2026
+    (D-601) turned all of them into assertions about a card that is no longer sold. What
+    each test is about is WHICH RUNG a route picks — the free-amount rule, the list rate for
+    a gift, the pack named on a capture — never what that rung happens to cost. So the rung
+    is named and its rates are read from the card.
+    """
+    pack = pack_by_id(pack_id)
+    assert pack is not None, pack_id
+    return pack
+
+
+#: The rung a gift and a below-the-first-rung amount are both sold at — the ENTRY pack
+#: (`billing/list_rates.card_list_rate`, plan §0 Q4).
+LIST_RUNG = PACK_CATALOGUE[0]
 
 
 async def _make_admin() -> str:
@@ -97,9 +117,11 @@ async def test_a_manual_topup_opens_a_lot_at_the_free_amount_rates() -> None:
     assert lot["source"] == "topup"
     assert lot["pack_id"] is None
     assert lot["credits_total"] == lot["credits_remaining"] == Decimal("6000.0000")
+    # ₹6,000 buys no pack but clears the ₹5,000 rung, so it is sold at THAT rung's rates.
+    growth = _pack("growth")
     assert (lot["sarvam_inr_per_min"], lot["cartesia_inr_per_min"]) == (
-        Decimal("5.0000"),
-        Decimal("7.0000"),
+        growth.sarvam_inr_per_min,
+        growth.cartesia_inr_per_min,
     )
 
 
@@ -121,8 +143,8 @@ async def test_a_grant_opens_a_lot_at_the_list_rates() -> None:
     (lot,) = await lot_rows(tenant_id)
     assert lot["source"] == "grant"
     assert (lot["sarvam_inr_per_min"], lot["cartesia_inr_per_min"]) == (
-        Decimal("5.0000"),
-        Decimal("8.0000"),
+        LIST_RUNG.sarvam_inr_per_min,
+        LIST_RUNG.cartesia_inr_per_min,
     )
 
 
@@ -152,9 +174,11 @@ async def test_a_restatement_grows_the_purchases_own_lot_rather_than_opening_a_s
     lots = await lot_rows(tenant_id)
     assert len(lots) == 1, "one payment, one lot"
     assert lots[0]["credits_total"] == lots[0]["credits_remaining"] == Decimal("8000.0000")
-    # The rates are the ORIGINAL purchase's and did not move with the correction.
-    assert lots[0]["sarvam_inr_per_min"] == Decimal("5.0000")
-    assert lots[0]["cartesia_inr_per_min"] == Decimal("7.0000")
+    # The rates are the ORIGINAL purchase's (₹6,000 → the ₹5,000 rung) and did not move
+    # with the correction, which is the property — not the figures themselves.
+    growth = _pack("growth")
+    assert lots[0]["sarvam_inr_per_min"] == growth.sarvam_inr_per_min
+    assert lots[0]["cartesia_inr_per_min"] == growth.cartesia_inr_per_min
 
 
 async def test_an_adjustment_that_takes_credit_back_restates_the_lot_it_corrects() -> None:
@@ -242,22 +266,28 @@ async def test_an_adjustment_that_credits_back_opens_a_lot_at_the_list_rates() -
                 {"t": tenant_id},
             )
         ).scalar_one()
+    # THE WHOLE CALL BACK, which is what "the call was on us" means and what keeps this a
+    # legal correction: an adjustment may not exceed the entry it corrects, and ₹1,000
+    # buys no pack so the call was priced at the LIST rung. A typed ₹300 was 60 minutes at
+    # ₹5.00; at ₹4.00 the entry only holds ₹240 and the route refuses it (422
+    # `adjustment_exceeds_entry`) — a literal on the wrong side of a line the card moved.
+    charged = Decimal("60") * LIST_RUNG.sarvam_inr_per_min
     async with _client() as http:
         adjusted = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credits/adjustments",
             headers=_headers(token),
             json={
                 "corrects_entry_id": str(entry_id),
-                "amount_inr": "300.00",
+                "amount_inr": f"{charged:.2f}",
                 "reason": "the call was on us",
             },
         )
     assert adjusted.status_code == 200, adjusted.text
     bought, given = await lot_rows(tenant_id)
-    assert bought["credits_remaining"] == Decimal("700.0000")
+    assert bought["credits_remaining"] == Decimal("1000.0000") - charged
     assert given["source"] == "grant"
-    assert given["credits_remaining"] == Decimal("300.0000")
-    assert given["sarvam_inr_per_min"] == Decimal("5.0000")
+    assert given["credits_remaining"] == charged
+    assert given["sarvam_inr_per_min"] == LIST_RUNG.sarvam_inr_per_min
 
 
 async def test_a_captured_payment_opens_a_lot_at_its_packs_rates() -> None:
@@ -276,9 +306,10 @@ async def test_a_captured_payment_opens_a_lot_at_its_packs_rates() -> None:
     (lot,) = await lot_rows(tenant_id)
     assert lot["source"] == "topup"
     assert lot["pack_id"] == "plus"
+    plus = _pack("plus")
     assert (lot["sarvam_inr_per_min"], lot["cartesia_inr_per_min"]) == (
-        Decimal("4.7000"),
-        Decimal("6.5000"),
+        plus.sarvam_inr_per_min,
+        plus.cartesia_inr_per_min,
     )
 
 
@@ -296,7 +327,7 @@ async def test_a_captured_payment_with_no_pack_falls_to_the_free_amount_rule() -
         await payments.credit_captured_payment(session, payment=payment)
     (lot,) = await lot_rows(tenant_id)
     assert lot["pack_id"] is None
-    assert lot["cartesia_inr_per_min"] == Decimal("7.0000")
+    assert lot["cartesia_inr_per_min"] == _pack("growth").cartesia_inr_per_min
 
 
 async def test_a_correction_that_overdraws_the_wallet_publishes_the_shortfall() -> None:
@@ -326,7 +357,11 @@ async def test_a_correction_that_overdraws_the_wallet_publishes_the_shortfall() 
                 tenant_id=tenant_id,
                 call_id=uuid.uuid4(),
                 demand=CallDemand(
-                    minutes=Decimal("900"),  # ₹4,500 at the ₹5,000 rung's ₹5.00
+                    # ₹4,500 of the ₹5,000 lot, DERIVED from the rung's own Clear rate so
+                    # the shortfall below stays ₹1,500 whatever the card says. A typed 900
+                    # minutes was ₹4,500 at ₹5.00 and is ₹3,600 at ₹4.00, which leaves the
+                    # wallet ₹900 better off and every figure in this test wrong.
+                    minutes=Decimal("4500") / _pack("growth").sarvam_inr_per_min,
                     voice_tier="sarvam",
                     fallback_rates=LotRates(Decimal("5.00"), Decimal("8.00")),
                 ),
