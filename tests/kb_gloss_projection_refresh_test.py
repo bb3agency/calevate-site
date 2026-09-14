@@ -152,7 +152,7 @@ async def test_a_gloss_written_before_publish_is_not_re_keyed_twice(
         await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
         # Nothing is projected yet, so there is no key to re-build — the approval gate is
         # `publish_source`'s and this refresh never inserts.
-        == "translated=1 not_needed=0 rekeyed=0"
+        == "translated=1 not_needed=0 rekeyed=0 repacked=0"
     )
     assert await _matching_chunks(tenant_id, ENGLISH_QUESTION) == 0
 
@@ -165,7 +165,7 @@ async def test_a_gloss_written_before_publish_is_not_re_keyed_twice(
 
     assert (
         await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
-        == "translated=0 not_needed=0 rekeyed=0"
+        == "translated=0 not_needed=0 rekeyed=0 repacked=0"
     )
 
 
@@ -202,7 +202,7 @@ async def test_many_glossed_documents_on_one_agent_are_re_keyed_by_one_statement
     provider = _RecordingProvider(f"{TAILOR_ENGLISH} {BLOUSE_ENGLISH}")
     assert (
         await _run_sweep(monkeypatch, provider, only=tenant_id)
-        == "translated=2 not_needed=0 rekeyed=2"
+        == "translated=2 not_needed=0 rekeyed=2 repacked=0"
     )
     assert calls == [tenant_id], "the refresh ran once per document instead of once per tenant"
     assert await _matching_chunks(tenant_id, ENGLISH_QUESTION) == 2
@@ -235,7 +235,7 @@ async def test_a_storage_failure_keeps_the_gloss_and_tells_somebody(
 
     assert (
         await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
-        == "translated=1 not_needed=0 rekeyed=0"
+        == "translated=1 not_needed=0 rekeyed=0 repacked=0"
     )
     assert await _gloss_states(tenant_id) == [GLOSS_READY]
     assert alerts == [("CORE_LOGIC", "kb_gloss_rekey_failed")]

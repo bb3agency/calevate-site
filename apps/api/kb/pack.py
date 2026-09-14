@@ -34,18 +34,20 @@ cannot move a single chunk, and it does NOT run for the publish that matters mos
 source recompiles no T0 block, so `recompile_t0` returns None and nothing republishes).
 A pack refreshed there would be rebuilt constantly and stale exactly when it mattered.
 
-⚠ **KNOWN GAP, AND IT IS NOT FIXED HERE: A GLOSS THAT LANDS AFTER THE PUBLISH DOES NOT
-REACH THE PACK.** `apps/workers/kb_gloss.py` writes `kb_documents.gloss` on a sweep, minutes
-or hours after a source is published, and says of itself that a late gloss "starts working
-immediately, with no prompt re-mint and no republish" — which is true of
-`retrieval/compiled_facts.py`, which reads the column live, and is NOT true of a pack, which
-is frozen at publish by construction. So a Telugu-script corpus published before its sweep
-runs is packed with `gloss=None`, and until the client next publishes or withdraws anything
-on that agent the in-call search is the 0.250-recall case `kb/gloss.py` measured rather than
-the 0.750 one. What closes it is one call to `refresh_published_pack` from the sweep, on the
-agents whose glosses it just wrote; it is a change to `apps/workers/kb_gloss.py`, which this
-module does not own, and it is recorded here rather than left to be discovered from a
-retrieval number nobody can explain.
+**A GLOSS THAT LANDS AFTER THE PUBLISH REACHES THE PACK ON THE NEXT SWEEP, AND THAT IS
+`agents_with_stale_packs` AT THE BOTTOM OF THIS FILE.** It was a known gap and it is now
+closed. `apps/workers/kb_gloss.py` writes `kb_documents.gloss` minutes or hours after a
+source is published, and says of itself that a late gloss "starts working immediately, with
+no prompt re-mint and no republish" — true of `retrieval/compiled_facts.py`, which reads the
+column live, and never true of a pack, which is frozen at publish by construction. So a
+Telugu-script corpus published before its sweep ran was packed with `gloss=None` and stayed
+that way until the client next published anything on that agent: the in-call search was the
+0.250-recall case `kb/gloss.py` measured rather than the 0.750 one, permanently, with no
+error anywhere to say so.
+
+The fix is a DIFFERENCE and not the obvious enqueue from the sweep, for the reason
+`refresh_projection_keys` gives one table over — the set of agents the gloss sweep could
+name is strictly smaller than the set that is actually wrong. See that function.
 
 ⚠ **A SUPERSEDED PACK KEEPS THE WORDS THAT WERE IN IT, AND NOTHING DELETES IT BUT THAT
 CEILING.** A client who removes one document gets a new pack without it; the previous pack
@@ -106,13 +108,21 @@ log = get_logger(__name__)
 #:
 #: No `ORDER BY`: the canonical order is `KnowledgePack.digest`'s and is applied in Python
 #: below, so there is exactly one place that decides it.
-_ENTRIES_SQL: Final = """
+#: WHAT MAKES A PROJECTED CHUNK LIVE, SPELLED ONCE. Both readers in this module — the
+#: builder's SELECT and the sweep's scan — interpolate this rather than restating it, so
+#: they cannot come to disagree about which corpus an agent's pack describes. A scan whose
+#: predicate was one flag narrower than the builder's would report every agent settled
+#: while their packs were built from a different set, which is the quietest way this
+#: mechanism could fail: nothing errors and the phone answers from the wrong corpus.
+_LIVE_CHUNK: Final = "c.is_active AND s.is_active"
+
+_ENTRIES_SQL: Final = f"""
 SELECT c.id, c.document_id, s.version, d.content, d.gloss
 FROM kb_chunks c
 JOIN kb_sources s ON s.id = c.source_id
 JOIN kb_documents d ON d.id = c.document_id
 WHERE c.tenant_id = :tid AND c.agent_id = :aid
-  AND c.is_active AND s.is_active
+  AND {_LIVE_CHUNK}
 """
 
 
@@ -336,4 +346,129 @@ async def refresh_published_pack(
     return pack_id
 
 
-__all__ = ["build_pack", "publish_pack", "read_entries", "refresh_published_pack"]
+#: The agents whose pointer this tenant's sweep has to check, and nobody else's.
+#:
+#: **AN AGENT WITH NO POINTER AND NO LIVE CHUNK IS NOT A CANDIDATE, AND THAT EXCLUSION IS
+#: THE WHOLE CORRECTNESS OF THE SCAN.** The digest of an empty corpus is a perfectly good
+#: digest, so an agent that has never published anything would compare unequal to `NULL`
+#: and be handed an EMPTY pack — collapsing "this client has never written anything down"
+#: (`SessionConfig.knowledge_pack_sha256 = None`) into "this client withdrew everything",
+#: which `refresh_published_pack` keeps apart on purpose, on every agent of every account
+#: that has ever been opened.
+#:
+#: The other arm is deliberately WIDER than "has a pointer": an agent whose corpus is live
+#: and whose pointer is NULL is a publish whose store write failed
+#: (`knowledge_pack_publish_failed`), and until this sweep existed its only repair was the
+#: client happening to publish again. The live predicate is `_LIVE_CHUNK`'s, interpolated
+#: rather than restated.
+#:
+#: `deleted_at IS NULL` for `kb/reconciliation.py`'s reason — a soft-deleted agent answers
+#: no calls, so rebuilding its pack spends a store round trip on nobody.
+#:
+#: `ORDER BY a.id` with the caller's LIMIT, so the ceiling is a prefix of a stable order and
+#: the agents past it are first next tick rather than never.
+_PACK_CANDIDATES_SQL: Final = f"""
+SELECT a.id, a.knowledge_pack_sha256
+FROM agents a
+WHERE a.tenant_id = :tid AND a.deleted_at IS NULL
+  AND (a.knowledge_pack_sha256 IS NOT NULL OR EXISTS (
+        SELECT 1 FROM kb_chunks c JOIN kb_sources s ON s.id = c.source_id
+        WHERE c.agent_id = a.id AND c.tenant_id = :tid AND {_LIVE_CHUNK}))
+ORDER BY a.id
+LIMIT :limit
+"""
+
+
+async def agents_with_stale_packs(
+    session: AsyncSession, *, tenant_id: UUID, limit: int
+) -> tuple[UUID, ...]:
+    """This tenant's agents whose recorded pack is not the pack their corpus now implies.
+
+    **A DIFFERENCE, NOT A WORKLIST, AND THAT IS THE SAME CHOICE `refresh_projection_keys`
+    MADE ONE TABLE OVER.** The pack's id IS the digest of its content, so "is this pointer
+    still the corpus?" is one comparison that needs nobody to have told us anything. The
+    caller COULD hand over the agents whose glosses it just wrote; that set is strictly
+    smaller than the set that is actually wrong, and the rows it misses are the ones with no
+    event left to replay:
+
+    * a gloss that committed between a publish's read of `kb_documents` and its pack build
+      (READ COMMITTED gives the publish the older snapshot, and the publish is over);
+    * a publish whose store write failed — the pointer never moved and nothing retries it;
+    * every agent packed before this function existed.
+
+    **WHY THE COMPARISON IS DONE IN PYTHON AND NOT IN SQL.** The digest is
+    `KnowledgePack.digest`: canonical JSON over the projected entries, which is the one
+    definition of a pack's identity in this repository. Re-deriving it in a statement would
+    be a SECOND definition, and the day the two disagreed the sweep would quietly rebuild
+    every agent on the platform twice an hour or none of them.
+
+    The cost is one small read per candidate agent — a pack is KB, not MB — bounded by
+    `limit`, which is the tick's budget and therefore the caller's.
+
+    Runs on the CALLER's tenant-scoped session (hard rule 1); `tenant_id` is restated on top
+    of RLS for `_ENTRIES_SQL`'s reason.
+    """
+    if limit <= 0:
+        return ()
+    candidates = (
+        await session.execute(text(_PACK_CANDIDATES_SQL), {"tid": tenant_id, "limit": limit})
+    ).all()
+    stale: list[UUID] = []
+    for row in candidates:
+        agent_id = UUID(str(row[0]))
+        entries = await read_entries(session, tenant_id=tenant_id, agent_id=agent_id)
+        if KnowledgePack.digest(tenant_id, agent_id, entries) != row[1]:
+            stale.append(agent_id)
+    return tuple(stale)
+
+
+async def refresh_pack_unless_publishing(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
+) -> str | None:
+    """`refresh_published_pack`, but only if no human is mid-publish on this agent.
+
+    **TRY, NEVER WAIT** — `kb/reconciliation.observe_agent`'s instrument and its argument.
+    A publish holds `pg_advisory_xact_lock(publish_lock_key(agent))` from before its first
+    engine call until COMMIT or ROLLBACK, which is exactly the stretch in which this agent's
+    corpus is half-applied; a False answer means "somebody is publishing, come back next
+    tick", which costs nothing because the difference that selected this agent is still
+    there. The blocking form would make a client's Publish button queue behind a background
+    job they did not ask for.
+
+    It matters in both directions. Without the lock this sweep could read the corpus a
+    publish is halfway through changing and then write a pointer at a pack that names a
+    state that was never live — and a publish that committed a moment later would not
+    notice, because it has already done its own refresh.
+
+    Returns the pack id recorded, or `None` when the agent was skipped or the refresh could
+    not store its pack (which alerts and is not this function's to re-report).
+    """
+    # Deferred, and `kb/service.py` defers the mirror import for the mirror reason: that
+    # module imports this one at module level for `refresh_published_pack`, so the cycle is
+    # real. The KEY has one home (`publish_lock_key`) precisely so a second holder cannot
+    # spell it slightly differently and lock nothing.
+    from apps.api.kb.service import publish_lock_key
+
+    acquired = (
+        await session.execute(
+            text("SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": publish_lock_key(agent_id)},
+        )
+    ).scalar()
+    if not acquired:
+        log.info(
+            "knowledge_pack_refresh_skipped_publishing",
+            extra={"tenant_id": str(tenant_id), "agent_id": str(agent_id)},
+        )
+        return None
+    return await refresh_published_pack(session, tenant_id=tenant_id, agent_id=agent_id)
+
+
+__all__ = [
+    "agents_with_stale_packs",
+    "build_pack",
+    "publish_pack",
+    "read_entries",
+    "refresh_pack_unless_publishing",
+    "refresh_published_pack",
+]
