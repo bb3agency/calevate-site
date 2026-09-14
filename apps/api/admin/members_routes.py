@@ -113,6 +113,13 @@ MEMBER_LIMIT = 200
 #: this" reads the top of the list, and an order that changes between renders is a list
 #: people mis-click. ONE statement, used by the read AND by the PATCH's read-back, so the
 #: two can never disagree about what a member row contains.
+#:
+#: THE LEAD COUNT CARRIES NO `deleted_at IS NULL`, and that is deliberate rather than
+#: overlooked: `members.remove_member` counts with exactly this predicate and its number
+#: is the one the removal's answer states out loud. A roster that filtered and an answer
+#: that did not would disagree in front of the operator at the moment they are deciding,
+#: which is worse than either number on its own. A soft-deleted lead still names an
+#: assignee, and removal still does not clear it.
 _ROSTER_SQL = (
     "SELECT m.user_id, u.name, u.email, m.role, m.created_at, u.email_verified_at, "
     "       u.deactivated_at, "
