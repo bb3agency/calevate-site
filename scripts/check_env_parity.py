@@ -85,6 +85,15 @@ INFRA_ENV_KEYS: frozenset[str] = frozenset(
 # drill script uses — which is the opposite of what the fail-fast doctrine is for. They
 # are listed rather than pattern-matched so that adding one is a visible diff.
 DRILL_ENV_KEYS: dict[str, str] = {
+    "GOOGLE_API_KEY": (
+        "scripts/gemini_embedding_harness.py — the key a MEASUREMENT is run under, by an "
+        "operator, on a machine of their choosing. It is not application config and must "
+        "not become one: no deployable reads it, it reaches no request path, and the "
+        "in-call and dashboard Gemini legs take their credential from the ops console "
+        "rather than from a process environment. Registered here rather than pattern-"
+        "matched so that the day something in `apps/` reads it, this list is where the "
+        "argument has to be had."
+    ),
     "DRILL_S3_ACCESS_KEY": (
         "scripts/restore_drill.py — the scratch bucket's access key, for the same reason "
         "and with the same scope as DRILL_S3_ENDPOINT below. A drill credential is not a "
