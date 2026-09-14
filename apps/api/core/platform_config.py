@@ -567,6 +567,23 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # compiled block, with no deploy and nothing to unwind. It does not touch the call path
     # under any value.
     "retrieval_provider": AppliesRule(LIVE),
+    # WHERE A SELF-HOSTED SUPERMEMORY ANSWERS, and which model it embeds with (§8 of
+    # `docs/PIPECAT-MIGRATION.md`). LIVE for `retrieval_provider`'s own reason and with the
+    # same consequence: `get_retriever` is called per request, constructs the adapter fresh
+    # and holds no connection, so a corrected URL or a newly attested model is in force on
+    # the next question with nothing to restart and nothing to re-publish. Neither touches
+    # the call path under any value — the in-call pack is fetched at session start and
+    # searched in the worker's own memory.
+    "supermemory_base_url": AppliesRule(LIVE),
+    "supermemory_embedding_model": AppliesRule(LIVE),
+    # The credential, sealed into `platform_secrets` by name. LIVE for the same mechanical
+    # reason: `supermemory_t3` reads it out of `get_settings()` each time a retriever is
+    # built, and a retriever is built per request — there is no long-lived client holding a
+    # stale key. Its own entry rather than a shared one because §8.4 makes it unlike our
+    # other vendor keys: on the local build it is ONE auto-generated key addressing every
+    # tenant's documents, so rotating it is a whole-store event and an operator should see
+    # that said beside the box they are typing into.
+    "supermemory_api_key": AppliesRule(LIVE),
     # A MARKED ASSUMPTION, live on purpose (D-404's mechanism, D-410's provider). It names
     # which entry in the engine's credential store the LLM key is written to; our default
     # is derived from the vendor's naming rule rather than read from their docs, and the

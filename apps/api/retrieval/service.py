@@ -42,7 +42,10 @@ from apps.api.retrieval import cache
 from apps.api.retrieval.compiled_facts import CompiledFactsRetriever
 from apps.api.retrieval.embedding import embedding_leg, embedding_price_is_billable
 from apps.api.retrieval.pgvector import PROVIDER_NAME as PGVECTOR_PROVIDER
+from apps.api.retrieval.pgvector import PgVectorRetriever
 from apps.api.retrieval.routing import RouteDecision, classify
+from apps.api.retrieval.supermemory import PROVIDER_NAME as SUPERMEMORY_PROVIDER
+from apps.api.retrieval.supermemory import supermemory_t3
 from apps.api.retrieval.tiered import KnowledgeRetriever
 
 log = get_logger(__name__)
@@ -65,8 +68,30 @@ def get_retriever(session: AsyncSession) -> RetrievalProvider:
     it degrades to T0 — which is a strictly working system — and says so at ERROR, because
     unlike a missing credential this is a CONTRADICTION between two settings an operator set
     and only they can resolve it.
+
+    **THE THIRD BRANCH IS THE ONE THE PORT WAS BUILT FOR** (`docs/PIPECAT-MIGRATION.md` §8,
+    14 Sep 2026). `supermemory` swaps the T3 MEMBER of the composite and nothing else: T0
+    still answers out of the compiled block, and the store it replaces becomes the thing it
+    falls back TO, per request, so an unreachable box 3 costs a log line rather than a
+    client's question.
+
+    IT IS ASKED FIRST, AND BEFORE THE EMBEDDING PRECONDITIONS, because those are facts about
+    OUR Postgres dense arm and box 3 embeds its own questions (§8.3). A deployment with a
+    working box 3 and no Azure embedding deployment is a real and correct configuration; a
+    check ordered the other way would have degraded it to T0 over a credential its live
+    store does not use. A misconfigured box 3 falls through to the Postgres rules below with
+    the missing precondition already named by `supermemory.supermemory_t3`.
     """
-    if get_settings().retrieval_provider != PGVECTOR_PROVIDER:
+    provider = get_settings().retrieval_provider
+    if provider == SUPERMEMORY_PROVIDER:
+        # The fallback is the store box 3 replaces, constructed whatever this deployment's
+        # embedding state is: `PgVectorRetriever` degrades to its own sparse arm when no
+        # question vector can be bought, which is strictly more than T0 and is a decision
+        # that adapter already took and tested.
+        t3 = supermemory_t3(session, fallback=PgVectorRetriever(session))
+        if t3 is not None:
+            return KnowledgeRetriever(session, t3=t3)
+    elif provider != PGVECTOR_PROVIDER:
         return CompiledFactsRetriever(session)
     if embedding_leg() is None or not embedding_price_is_billable():
         log.error(

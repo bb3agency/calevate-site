@@ -72,9 +72,21 @@ class KnowledgeRetriever:
 
     name = "knowledge"
 
-    def __init__(self, session: AsyncSession) -> None:
+    def __init__(self, session: AsyncSession, *, t3: RetrievalProvider | None = None) -> None:
+        """`t3` NAMES THE COLD-LOOKUP STORE, and defaults to the one in our own Postgres.
+
+        A parameter rather than a second composite class, because what changes between
+        `pgvector` and `supermemory` (`docs/PIPECAT-MIGRATION.md` §8) is exactly one member
+        and nothing else: T0 still answers out of the block the agent speaks from, the
+        dispatch is still per-tier, the union is still computed from the members. A second
+        class would have duplicated all three to vary none of them.
+
+        The DEFAULT is what keeps `retrieval_provider = pgvector` byte-identical in
+        behaviour: a caller that names no store gets the store this composite has always
+        had, so adding a provider leaves the current one working and selected.
+        """
         self._t0: RetrievalProvider = CompiledFactsRetriever(session)
-        self._t3: RetrievalProvider = PgVectorRetriever(session)
+        self._t3: RetrievalProvider = t3 if t3 is not None else PgVectorRetriever(session)
         self.capabilities = _union(self._t0.capabilities, self._t3.capabilities)
 
     def _member(self, request: RetrievalRequest) -> RetrievalProvider:
