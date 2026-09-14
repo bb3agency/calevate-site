@@ -19,9 +19,10 @@ module touches the sink, and a reviewer checking the rule has one class to read.
 
 **WHAT IS DELIBERATELY NOT HERE.**
 
-- **No database.** `config.py` (loading a config VERSION) and `attest.py` (§1.1) are the
-  next wave and are another stream's files. `assemble_call` takes its configuration as an
-  argument; see `SessionConfig` for the exact shape expected of them.
+- **No database.** `config.py` LOADS the config version and `session.py` orders the start
+  (config, then pack, then this); `attest.py` (§1.1) is still to come. `assemble_call`
+  takes its configuration as an argument and reads no row itself, which is what keeps this
+  module runnable with no database at all — see `SessionConfig` for the shape it expects.
 - **No `GnaniTTSService`.** §5 stages it behind an unanswered vendor question (whether
   Gnani's 60 req/min cap counts a session or an utterance) and building before the answer
   is building for nothing.
@@ -980,9 +981,10 @@ def assemble_call(
     and let it load — would buy nothing and cost the property that makes step 4 testable:
     a synchronous assembler can be exercised with no network, no event loop and no object
     store, which is exactly what `transport` being an argument bought and what a carrier-
-    free local run needs. The entrypoint awaits the load WHILE THE PHONE IS RINGING —
-    wall clock nobody is waiting on (`load_session_knowledge`'s own docstring) — and hands
-    the result in. `None` is a complete state, not an omission: see `build_knowledge_tool`.
+    free local run needs. The entrypoint — `session.open_session` — awaits the load WHILE
+    THE PHONE IS RINGING, wall clock nobody is waiting on
+    (`load_session_knowledge`'s own docstring), and hands the result in. `None` is a
+    complete state, not an omission: see `build_knowledge_tool`.
     """
     install_vendor_log_guard()
 
