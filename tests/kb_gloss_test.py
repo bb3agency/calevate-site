@@ -329,3 +329,75 @@ async def test_no_client_prose_reaches_a_log_line(
     assert ENGLISH_BODY[:40] not in emitted
     assert "The clinic is open on Sunday" not in emitted
     assert str(tenant_id) in emitted, "the log must still be actionable — ids, just not prose"
+
+
+# --- the tick with a neighbour in it -----------------------------------------------
+
+
+async def test_one_tick_over_two_tenants_glosses_and_bills_each_on_its_own_side(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Hard rule 1 AND hard rule 7 on the sweep's own loop, which nothing else measures.
+
+    `_CLAIM_SQL` carries NO tenant predicate — it selects `gloss_state = 'pending'` across
+    the whole table and is bounded only by the `tenant_session(tenant_id)` it runs inside.
+    That is the right design (RLS is the wall, hard rule 1), and it is also the design
+    where one wrong variable is catastrophic and silent: a loop that opened tenant A's
+    session and then handed tenant B's id to `_gloss_one` would translate A's knowledge and
+    write the `usage_events` row against B — and every other test in this file would stay
+    green forever, because each narrows the worklist to ONE tenant with `only=`, and with
+    one tenant in the list the two ids are the same value.
+
+    So this is the tick WITH A NEIGHBOUR IN IT. Both tenants are in the worklist, both hold
+    one pending Telugu chunk, and the two assertions are the ones only a neighbour makes
+    possible:
+
+    * each tenant's chunk is glossed with ITS OWN text — the substitute replies with a
+      per-call marker, so a gloss landing on the wrong row is visible as a VALUE rather
+      than as a count that happens to add up;
+    * each tenant's `usage_events` carries exactly its own charge, read from that tenant's
+      own session, which is where a misfiled row is MISSING rather than merely duplicated.
+    """
+    tenant_a, _, _bodies_a = await _tenant_with_pending_chunks(TELUGU_BODY)
+    tenant_b, _, _bodies_b = await _tenant_with_pending_chunks(TELUGU_BODY)
+
+    class _PerCallReply(_RecordingProvider):
+        """A distinct reply per request, in claim order, so a gloss traces to its call."""
+
+        async def __call__(self, _leg: Any, messages: Any, **_kwargs: Any) -> _FakeOutcome:
+            self.seen.append(str(messages[-1]["content"]))
+            return _FakeOutcome(content=f"gloss number {len(self.seen)}", usage=_FakeUsage())
+
+    monkeypatch.setattr(kb_gloss.chat, "complete", _PerCallReply())
+    monkeypatch.setattr(kb_gloss, "azure_credentials", lambda: ("res", "key", "deployment-abc"))
+
+    async def _both() -> list[uuid.UUID]:
+        return [tenant_a, tenant_b]
+
+    monkeypatch.setattr(kb_gloss, "tenants_holding_knowledge", _both)
+    await kb_gloss.write_knowledge_glosses({"job_try": 1})
+
+    glossed = {}
+    for tenant_id in (tenant_a, tenant_b):
+        states = await _states(tenant_id)
+        assert [state[0] for state in states] == [GLOSS_READY], (
+            f"tenant {tenant_id} did not end the tick with exactly its own chunk glossed"
+        )
+        glossed[tenant_id] = states[0][1]
+    assert glossed[tenant_a] != glossed[tenant_b], (
+        "both tenants' chunks carry the same gloss, so one session wrote the other's row"
+    )
+
+    # And the money. One paid call per tenant is two ledger rows (tokens in, tokens out),
+    # and they belong to the tenant whose knowledge was translated.
+    for tenant_id in (tenant_a, tenant_b):
+        async with tenant_session(tenant_id) as session:
+            billed = (
+                await session.execute(
+                    text("SELECT count(*) FROM usage_events WHERE meta ->> 'feature' = 'kb_gloss'")
+                )
+            ).scalar_one()
+        assert billed == 2, (
+            f"tenant {tenant_id} was billed {billed} row(s) for one translation — either a "
+            "neighbour's spend reached this account's ceiling, or this account's did not"
+        )
