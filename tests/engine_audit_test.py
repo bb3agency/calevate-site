@@ -235,6 +235,113 @@ class _ForeignTranscript(FakeEngine):
         )
 
 
+class _EverythingIsInbound(FakeEngine):
+    """Calls every call inbound, including the ones we dialled.
+
+    `_DirectionLiar` above is this mistake in the cheap direction and its docstring says
+    so: getting direction wrong towards `outbound` over-regulates, and "the same hole
+    passes an adapter that gets it wrong the other way". This is the other way, and it is
+    the expensive one — every campaign dial arrives looking like a call the customer
+    placed, so DNC, calling hours and the 140/160-series rules attach to nothing.
+    """
+
+    def parse_webhook(self, payload: dict[str, Any]) -> CallEvent:
+        return super().parse_webhook(payload).model_copy(update={"direction": "inbound"})
+
+
+class _TakesATenantFromThePayload(FakeEngine):
+    """Reads `tenant_id` out of the request body.
+
+    Bolna signs nothing (D-31), so the body is chosen by whoever found the URL. A tenant
+    read out of it is a cross-tenant write (hard rule 1) with a webhook for a delivery
+    mechanism: one POST files a call, its transcript and its cost into another client's
+    dashboard. The lookup this shortcuts — `engine_agent_ref` in the agents table — is the
+    only thing that ties a delivery to an account.
+    """
+
+    def parse_webhook(self, payload: dict[str, Any]) -> CallEvent:
+        event = super().parse_webhook(payload)
+        supplied = payload.get("tenant_id")
+        return event.model_copy(update={"tenant_id": supplied}) if supplied else event
+
+
+class _WearsTheSendersEngineName(FakeEngine):
+    """Lets the payload rename the engine that produced it.
+
+    `calls.engine` decides which adapter re-fetches a call and which verifier its
+    deliveries are held to. An adapter that takes that name from the body moves the
+    delivery onto another engine's authenticity rules — and the sender picks which.
+    """
+
+    def parse_webhook(self, payload: dict[str, Any]) -> CallEvent:
+        event = super().parse_webhook(payload)
+        return event.model_copy(update={"engine": str(payload.get("engine") or event.engine)})
+
+
+class _SettlesAStatusThatIsNotAString(FakeEngine):
+    """Reads a status sent as an object or a list as `completed`.
+
+    One layer below the status map, which is asked a question about a string. This is the
+    absent-status defect in a third place: a call is settled, metered and extracted on the
+    strength of a field nobody sent in a readable form.
+    """
+
+    def parse_webhook(self, payload: dict[str, Any]) -> CallEvent:
+        raw = payload.get("status")
+        if raw is not None and not isinstance(raw, str):
+            return super().parse_webhook({**payload, "status": "completed"})
+        return super().parse_webhook(payload)
+
+
+class _CrashesOnAStatusThatIsNotAString(FakeEngine):
+    """Raises on a body shape instead of falling closed on it.
+
+    The other wrong answer to the same payload, and it is wrong for a different reason:
+    the receiver must ack in under 500ms (hard rule 3), so an adapter that throws hands a
+    stranger a one-line way to make an unsigned public endpoint answer 500. A payload is a
+    hint, and a hint we cannot read is a hint we drop.
+    """
+
+    def parse_webhook(self, payload: dict[str, Any]) -> CallEvent:
+        raw = payload.get("status")
+        if raw is not None and not isinstance(raw, str):
+            raise TypeError("status is not a string")
+        return super().parse_webhook(payload)
+
+
+class _ListingTranscriptOfAnotherCall(FakeEngine):
+    """`_ForeignTranscript`'s leak, on the route the poller actually uses.
+
+    The transcript checks used to live only in the clause that reads a snapshot back from
+    a DIAL, so a transcript that reaches us by reconciliation — which under D-31 is every
+    call whose at-most-once webhook was lost — was normalized by nobody. Extraction and
+    redaction run off polled calls exactly as they run off webhook calls.
+    """
+
+    async def list_executions(self, *, since: Any) -> ExecutionListing:
+        listing = await super().list_executions(since=since)
+        return listing.model_copy(
+            update={
+                "snapshots": [
+                    snapshot.model_copy(
+                        update={
+                            "transcript": [
+                                TranscriptTurn(
+                                    call_id="some_other_call",
+                                    idx=turn.idx,
+                                    speaker=turn.speaker,
+                                    text=turn.text,
+                                )
+                                for turn in snapshot.transcript
+                            ]
+                        }
+                    )
+                    for snapshot in listing.snapshots
+                ]
+            }
+        )
+
+
 class _ForgetsRawStatus(FakeEngine):
     """Normalizes the status and throws the vendor's own word away.
 
@@ -525,8 +632,18 @@ SABOTEURS: dict[str, Callable[[], VoiceEngine]] = {
     "drops-engine-agent-ref": _DropsAgentRef,
     "cost-without-fx-stamp": _UnstampedCost,
     "lies-about-direction": _DirectionLiar,
+    # The same lie towards `inbound`, which is the reading that DROPS an obligation
+    # instead of adding one. `_DirectionLiar`'s own docstring asked for this entry.
+    "calls-every-call-inbound": _EverythingIsInbound,
     "transcript-of-another-call": _ForeignTranscript,
+    "listing-transcript-of-another-call": _ListingTranscriptOfAnotherCall,
     "forgets-raw-status": _ForgetsRawStatus,
+    # What an unsigned endpoint's SENDER can put in the body. Bolna signs nothing
+    # (D-31), so every field below is chosen by whoever found the URL.
+    "takes-a-tenant-from-the-payload": _TakesATenantFromThePayload,
+    "wears-the-senders-engine-name": _WearsTheSendersEngineName,
+    "settles-a-status-that-is-not-a-string": _SettlesAStatusThatIsNotAString,
+    "crashes-on-a-status-that-is-not-a-string": _CrashesOnAStatusThatIsNotAString,
     # Descriptor lies. See the block comment above.
     "accepts-a-voice-it-says-it-cannot-speak": _AcceptsAVoiceItSaysItCannotSpeak,
     "substitutes-its-own-voice": _SubstitutesItsOwnVoice,
