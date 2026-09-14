@@ -38,7 +38,7 @@ from decimal import Decimal
 import pytest
 from apps.api.admin import service as admin_service
 from apps.api.billing import lots as credit_lots
-from apps.api.billing.credit_packs import pack_by_id
+from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_by_id
 from apps.api.billing.credit_routes import lot_reprice_confirmation
 from apps.api.billing.credit_routes import lots_router as credit_lots_router
 from apps.api.billing.credit_routes import router as credit_router
@@ -49,6 +49,7 @@ from apps.api.billing.service import (
     charge_for_call,
     get_balance,
     lot_reprice_ref,
+    rate_to_display,
     reprice_lot,
 )
 from apps.api.core.errors import ProblemError, install_error_handlers
@@ -56,7 +57,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy import text
-from tests.credit_lots_helpers import lot_rows
+from tests.credit_lots_helpers import add_lot, lot_rows
 
 
 #: BOTH routers on one app, deliberately: the wallet writes and the lot write are separate
@@ -72,6 +73,19 @@ def _app() -> FastAPI:
 
 def _client() -> AsyncClient:
     return AsyncClient(transport=ASGITransport(app=_app()), base_url="http://api")
+
+
+def _pack(pack_id: str) -> CreditPack:
+    """The live catalogue rung, so every rate below is READ from the card rather than typed.
+
+    ⚠ **THIS FILE USED TO TYPE THEM**, and the founder's card of 14 Sep 2026 turned a dozen
+    of those literals into assertions about a card that no longer exists — including one
+    (`₹4.50`) that made a test claim a re-price had changed a rate it no longer changes.
+    The re-price rules are about the ORDER of two rates, never about their values.
+    """
+    pack = pack_by_id(pack_id)
+    assert pack is not None, pack_id
+    return pack
 
 
 async def _admin() -> str:
@@ -114,7 +128,8 @@ def _headers(token: str, confirm: str | None = None) -> dict[str, str]:
 
 async def _wallet_with_one_lot(http: AsyncClient, token: str, tenant_id: uuid.UUID) -> uuid.UUID:
     """₹6,000 recorded as a bank transfer — the free-amount rule sells it at the ₹5,000
-    rung (₹5.00 / ₹7.00), which is the card position a re-price then moves off."""
+    (`growth`) rung, which is the card position a re-price then moves off. The RUNG is the
+    fact; its two rates come from the card (`_pack("growth")`)."""
     posted = await http.post(
         f"/v1/admin/tenants/{tenant_id}/credits",
         headers=_headers(token),
@@ -158,9 +173,10 @@ async def test_a_reprice_closes_the_lot_and_opens_its_replacement_at_the_new_rat
     # move — the freeze trigger is what makes that a fact rather than an intention.
     assert closed["closed_at"] is not None
     assert closed["credits_remaining"] == Decimal("0.0000")
+    growth = _pack("growth")
     assert (closed["sarvam_inr_per_min"], closed["cartesia_inr_per_min"]) == (
-        Decimal("5.0000"),
-        Decimal("7.0000"),
+        growth.sarvam_inr_per_min,
+        growth.cartesia_inr_per_min,
     )
     # The replacement carries the credit at the ₹50,000 pack's rates, under `override`,
     # naming the pack whose terms were borrowed — the field that answers "why is this
@@ -170,9 +186,10 @@ async def test_a_reprice_closes_the_lot_and_opens_its_replacement_at_the_new_rat
     assert replacement["source"] == "override"
     assert replacement["pack_id"] is None, "the client did not buy that pack"
     assert replacement["override_of_pack_id"] == "max"
+    deepest = _pack("max")
     assert (replacement["sarvam_inr_per_min"], replacement["cartesia_inr_per_min"]) == (
-        Decimal("4.5000"),
-        Decimal("6.0000"),
+        deepest.sarvam_inr_per_min,
+        deepest.cartesia_inr_per_min,
     )
     # NO MONEY MOVED, in either direction, and invariant §2.3.1 still holds.
     assert await _balance(tenant_id) == before
@@ -205,8 +222,21 @@ async def test_the_replacement_keeps_the_originals_place_in_the_spend_queue() ->
 
 async def test_the_next_call_is_charged_at_the_replacements_rate() -> None:
     """The point of the whole feature, asserted where it lands: the client's next minute
-    costs what they were promised, out of the lot the walk now finds."""
+    costs what they were promised, out of the lot the walk now finds.
+
+    ⚠ **ON THE STUDIO VOICE, AND THAT IS NOT AN ARBITRARY CHOICE.** This drove a Clear
+    minute and asserted ₹45 — ten minutes at the ₹50,000 pack's ₹4.50. Since the founder's
+    card of 14 Sep 2026 the Clear column is FLAT at ₹4.00, so `growth` and `max` price a
+    Clear minute identically and the assertion would have passed whether or not the
+    re-price had done anything at all. A test of "the rate changed" has to be run on a tier
+    whose rate changes; the guard that the rates DIFFER is asserted here so this cannot
+    quietly become vacuous again.
+    """
     token, tenant_id = await _admin(), await _tenant()
+    growth, deepest = _pack("growth"), _pack("max")
+    assert deepest.cartesia_inr_per_min < growth.cartesia_inr_per_min, (
+        "the re-price must actually lower this tier, or this test proves nothing"
+    )
     async with _client() as http:
         lot_id = await _wallet_with_one_lot(http, token, tenant_id)
         await http.post(
@@ -221,11 +251,13 @@ async def test_the_next_call_is_charged_at_the_replacements_rate() -> None:
             call_id=uuid.uuid4(),
             demand=CallDemand(
                 minutes=Decimal("10"),
-                voice_tier="sarvam",
+                voice_tier="cartesia",
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("8.00")),
             ),
         )
-    assert charged == Decimal("45.0000"), "10 minutes at the ₹50,000 pack's ₹4.50"
+    assert charged == Decimal("10") * deepest.cartesia_inr_per_min, (
+        "ten minutes at the ₹50,000 pack's Studio rate, not at the rung it was bought on"
+    )
 
 
 async def test_re_posting_the_same_reprice_changes_nothing() -> None:
@@ -314,7 +346,10 @@ async def test_a_lot_whose_credit_is_all_spent_is_refused_with_a_sentence() -> N
                 tenant_id=tenant_id,
                 call_id=uuid.uuid4(),
                 demand=CallDemand(
-                    minutes=Decimal("1200"),  # ₹6,000 at ₹5.00 — the whole lot
+                    # THE WHOLE LOT, derived: ₹6,000 divided by the rung's own Clear rate.
+                    # A typed 1,200 minutes was ₹6,000 at ₹5.00 and is ₹4,800 at ₹4.00,
+                    # which leaves the lot open and the refusal untested.
+                    minutes=Decimal("6000") / _pack("growth").sarvam_inr_per_min,
                     voice_tier="sarvam",
                     fallback_rates=LotRates(Decimal("5.00"), Decimal("8.00")),
                 ),
@@ -390,8 +425,8 @@ async def test_the_marker_moves_no_money_and_says_where_the_lot_came_from() -> N
     assert meta["reason"] == "founding client, agreed in week three"
     # Rates as STRINGS on both sides of the change (hard rule 7), written out rather than
     # left to be looked up from today's card: the card moves and this decision does not.
-    assert meta["previous_sarvam_inr_per_min"] == "5.0000"
-    assert meta["sarvam_inr_per_min"] == "4.50"
+    assert meta["previous_sarvam_inr_per_min"] == f"{_pack('growth').sarvam_inr_per_min:.4f}"
+    assert meta["sarvam_inr_per_min"] == str(_pack("max").sarvam_inr_per_min)
     assert meta["rates_of_pack_id"] == "max"
 
 
@@ -516,11 +551,18 @@ async def test_a_reprice_that_would_make_a_minute_dearer_is_refused_naming_both_
     founding-client promotion (plan §0 Q6), which is cheaper by construction.
 
     The trap this pins is that the ₹2,000 `starter` pack is not simply "the small one": its
-    Clear rate MATCHES the ₹5,000 rung's, and only its Studio rate is dearer (₹8.00 against
-    ₹7.00). So a guard that compared a single tier, or compared the packs by size, would
-    have let this through — and the replacement inherits `opened_at`, so the dearer credit
-    would be spent FIRST. Refused loudly, never clamped: the operator picked the wrong pack
-    and a half-applied re-price is a decision nobody could later describe.
+    Clear rate MATCHES the ₹5,000 rung's, and only its Studio rate is dearer. So a guard
+    that compared a single tier, or compared the packs by size, would have let this through
+    — and the replacement inherits `opened_at`, so the dearer credit would be spent FIRST.
+    Refused loudly, never clamped: the operator picked the wrong pack and a half-applied
+    re-price is a decision nobody could later describe.
+
+    ⚠ **THE TRAP GOT WIDER, NOT NARROWER, ON 14 SEP 2026.** It used to be a property of the
+    `starter` rung alone (₹5.00 Clear on both, ₹8.00 against ₹7.00 Studio). The founder's
+    card makes the WHOLE Clear column flat at ₹4.00, so on the card in force no re-price
+    between two catalogue packs can ever move a Clear minute — every rate rise the guard
+    will see is a Studio-only one. A single-tier comparison would now be wrong on every
+    pair, which is why the figures below are read off the card rather than typed.
     """
     token, tenant_id = await _admin(), await _tenant()
     async with _client() as http:
@@ -536,14 +578,18 @@ async def test_a_reprice_that_would_make_a_minute_dearer_is_refused_naming_both_
     assert body["type"].endswith("/lot_reprice_raises_rate"), answer.text
     # BOTH figures, in the operator's own vocabulary, so the refusal can be acted on
     # without opening the rate card in another tab.
-    assert "Studio ₹7.00 to ₹8.00 a minute." in body["detail"], body["detail"]
+    was, now = _pack("growth").cartesia_inr_per_min, _pack("starter").cartesia_inr_per_min
+    assert now > was, "this test needs a pack that raises the Studio rate"
+    assert f"Studio ₹{rate_to_display(was)} to ₹{rate_to_display(now)} a minute." in (
+        body["detail"]
+    ), body["detail"]
     assert "Clear" not in body["detail"], "the tier that did not move must not be named"
     assert "lower" in body["remediation"]
 
     # NOTHING MOVED: no replacement lot, no marker row, no money.
     rows = await lot_rows(tenant_id)
     assert len(rows) == 1 and rows[0]["closed_at"] is None
-    assert rows[0]["cartesia_inr_per_min"] == Decimal("7.0000")
+    assert rows[0]["cartesia_inr_per_min"] == _pack("growth").cartesia_inr_per_min
     assert await _balance(tenant_id) == before
     async with tenant_session(tenant_id) as session:
         marker = (
@@ -556,26 +602,48 @@ async def test_a_reprice_that_would_make_a_minute_dearer_is_refused_naming_both_
 
 
 async def test_a_reprice_that_raises_both_tiers_names_both_of_them() -> None:
-    """The plural branch of the same message. A lot sold at the ₹50,000 pack's rates
-    (₹4.50 / ₹6.00) cannot be moved to the ₹5,000 rung, on either voice."""
+    """The plural branch of the same message: BOTH tiers named, joined by "and".
+
+    ⚠ **THE LOT IS BUILT DIRECTLY, AND THE CARD IS WHY.** This used to re-price a `growth`
+    lot down to `max` (₹4.50 / ₹6.00) and then try to take it back to the ₹5,000 rung,
+    which raised both tiers. Since the founder's card of 14 Sep 2026 the Clear column is
+    FLAT at ₹4.00, so NO pair of catalogue packs raises both tiers and that route can no
+    longer reach this branch at all. The branch is still live in
+    `billing/service.reprice_lot` and still has to be covered, so the lot here carries
+    rates below every rung of the card in force — which is exactly what a lot bought under
+    a bespoke arrangement holds, and what the `override` source exists to record. A lot's
+    rates are frozen at purchase and outlive any card; that is the feature, not a fixture
+    contrivance.
+    """
     token, tenant_id = await _admin(), await _tenant()
+    cheapest_clear = min(pack.sarvam_inr_per_min for pack in PACK_CATALOGUE)
+    cheapest_studio = min(pack.cartesia_inr_per_min for pack in PACK_CATALOGUE)
+    bespoke = (cheapest_clear - Decimal("0.10"), cheapest_studio - Decimal("0.10"))
+    lot_id = await add_lot(
+        tenant_id,
+        credits_inr="6000.00",
+        rates=bespoke,
+        source="override",
+        pack_id=None,
+        override_of_pack_id="max",
+    )
+    target = _pack("growth")
+    assert target.sarvam_inr_per_min > bespoke[0] and target.cartesia_inr_per_min > bespoke[1]
     async with _client() as http:
-        lot_id = await _wallet_with_one_lot(http, token, tenant_id)
-        cheapened = await http.post(
+        answer = await http.post(
             f"/v1/admin/tenants/{tenant_id}/credit-lots/{lot_id}/override",
             headers=_headers(token, lot_reprice_confirmation(lot_id)),
-            json={"pack_id": "max", "reason": "founding client"},
-        )
-        assert cheapened.status_code == 200, cheapened.text
-        replacement = uuid.UUID(cheapened.json()["lot"]["lot_id"])
-        # ... and taking it back is what this refuses.
-        answer = await http.post(
-            f"/v1/admin/tenants/{tenant_id}/credit-lots/{replacement}/override",
-            headers=_headers(token, lot_reprice_confirmation(replacement)),
             json={"pack_id": "growth", "reason": "the promotion is over"},
         )
     assert answer.status_code == 422, answer.text
+    assert answer.json()["type"].endswith("/lot_reprice_raises_rate"), answer.text
     detail = answer.json()["detail"]
-    assert "Clear ₹4.50 to ₹5.00" in detail, detail
-    assert "Studio ₹6.00 to ₹7.00 a minute." in detail, detail
-    assert len(await lot_rows(tenant_id)) == 2, "the refusal opened no third lot"
+    clear = f"Clear ₹{rate_to_display(bespoke[0])} to ₹{rate_to_display(target.sarvam_inr_per_min)}"
+    studio = (
+        f"Studio ₹{rate_to_display(bespoke[1])} to "
+        f"₹{rate_to_display(target.cartesia_inr_per_min)} a minute."
+    )
+    assert clear in detail, detail
+    assert studio in detail, detail
+    assert ", and " in detail, "both tiers, joined — this is the plural branch"
+    assert len(await lot_rows(tenant_id)) == 1, "the refusal opened no second lot"
