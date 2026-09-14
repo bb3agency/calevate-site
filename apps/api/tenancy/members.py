@@ -21,7 +21,9 @@ granted, or a write that records who granted it. The CRUD is incidental.
    matches no row and 404s.
 4. granting a role the granter does not hold — `assert_role_is_grantable`, expressed as
    a permission-set subset rather than a role name list, so it stays right when a third
-   role lands.
+   role lands. It is a question about a MEMBERSHIP role, so it belongs to the client
+   realm: `change_member_role` asks it, `assign_member_role` beneath it does not, and the
+   operator console reaches the second one having proved `admin:tenants` instead.
 5. an invitation redeemed by the wrong person — the accept route binds the invitation to
    the address it was issued to (see `tenancy/routes.py::accept_invitation`).
 6. an invitation replayed after revocation or use — revocation DELETES the row, and the
@@ -55,6 +57,7 @@ __all__ = [
     "MEMBER_ROLES",
     "PendingInvitation",
     "assert_role_is_grantable",
+    "assign_member_role",
     "change_member_role",
     "create_team_invitation",
     "list_pending_invitations",
@@ -195,7 +198,45 @@ async def change_member_role(
     new_role: str,
     expected_role: str,
 ) -> str:
-    """Move one colleague between roles. Returns the role they held before.
+    """CLIENT-REALM entry: an owner moving a colleague. Returns the role held before.
+
+    The only thing this adds to `assign_member_role` below is escalation defence 4 —
+    "you may only hand out authority you hold" — because that check is a question about a
+    MEMBERSHIP ROLE, and it therefore has an answer only in the realm where the actor has
+    one. This is the same split `admin/service.create_invitation` already argues for the
+    invitation path: the statement and its invariants live in one place, and each realm
+    asserts its own authority before reaching them. An admin-realm operator holds
+    `admin:tenants` and no membership role at all, so running this check against them
+    would refuse every promotion with a sentence about an authority they were never
+    supposed to have.
+    """
+    assert_role_is_grantable(actor_role, new_role)
+    return await assign_member_role(
+        session,
+        actor_user_id=actor_user_id,
+        target_user_id=target_user_id,
+        new_role=new_role,
+        expected_role=expected_role,
+    )
+
+
+async def assign_member_role(
+    session: AsyncSession,
+    *,
+    actor_user_id: UUID | None,
+    target_user_id: UUID,
+    new_role: str,
+    expected_role: str,
+) -> str:
+    """Move one member between roles. Returns the role they held before.
+
+    AUTHORIZATION-FREE BY DESIGN, and that is a contract rather than an omission: the
+    caller has already proved it may do this (`org:manage` plus `assert_role_is_grantable`
+    in the client realm, `admin:tenants` in the operator realm). What is enforced HERE is
+    the three things that are true whoever is asking — nobody acts on themselves, an
+    account never loses its last owner, and the write is a compare-and-swap — because an
+    invariant that depended on which door the caller came through would be an invariant
+    with a door that skips it.
 
     `expected_role` is a CAS on what the caller was LOOKING at when they clicked
     (BACKEND-PATTERNS §5: write the guard into the WHERE clause and treat
@@ -206,7 +247,6 @@ async def change_member_role(
     rather than reapplied.
     """
     _refuse_self(actor_user_id, target_user_id)
-    assert_role_is_grantable(actor_role, new_role)
 
     # Locks BEFORE reading the target's role, so the value this decision rests on cannot
     # move underneath it. Also the ordering that keeps concurrent callers from
