@@ -37,9 +37,10 @@ import pytest
 from apps.api.agents import lifecycle as agent_lifecycle
 from apps.api.db.session import tenant_session
 from apps.api.kb import pack as kb_pack
+from apps.api.kb import pack_vectors
 from apps.api.kb import service as kb_service
-from apps.workers import kb_gloss
-from calevate_shared.knowledge_pack import pack_object_key
+from apps.workers import chat, kb_gloss
+from calevate_shared.knowledge_pack import PackEntry, pack_object_key
 from sqlalchemy import text
 from tests.conftest import FakeS3
 from tests.kb_gloss_test import _RecordingProvider, _run_sweep, _unique
@@ -501,3 +502,262 @@ async def test_one_agents_publish_does_not_hold_up_its_neighbour(
         "a neighbour's publish stranded this agent's pack"
     )
     assert _glosses_in_pack(s3, tenant_id, quiet_agent, quiet_after) == [both]
+
+
+# --- 6. The encoder ------------------------------------------------------------------
+#
+# EVERYTHING ABOVE RUNS ON A DEPLOYMENT WITH NO DENSE ARM, which is every deployment today:
+# `pack_vectors.pack_embedding_is_billable()` is False until an operator attests the Gemini
+# embedding price (hard rule 7), so `embed_entries` is a no-op and every pack declares no
+# encoder. That is exactly why the defect these tests pin was invisible — it is dormant
+# until vectors land, and then it is an embedding invoice per agent per half hour, for ever.
+#
+# So this section turns the arm ON in-process and asserts the four states the scan has to
+# separate — corpus changed, encoder changed, nothing changed, no pack at all — plus the two
+# TICK-level properties that are the money: a settled corpus buys nothing and stores nothing,
+# and a changed encoder rebuilds.
+
+
+#: Somewhere to address the fake encoder. Never reached: `chat.embed` is substituted whole,
+#: and a leg is required only because `embed_entries` refuses to run without a credential.
+_ENCODER_LEG = chat.ChatLeg(
+    url="https://example.invalid/v1/embeddings",
+    api_key="not-a-key",
+    wire_model=pack_vectors.EMBEDDING_MODEL,
+    dialect="google",
+)
+
+
+class _FakeEncoder:
+    """A stand-in for `chat.embed` that records every PASSAGE it was asked to encode.
+
+    Passages and not a call count, for `_RecordingProvider`'s reason one leg over: the sweep
+    is fleet-wide, so "this corpus was embedded exactly once" has to survive another test's
+    tenant being in the same tick. Recording what went to the provider is what makes the
+    money assertion a claim about THIS agent rather than about the whole database.
+    """
+
+    def __init__(self) -> None:
+        self.passages: list[str] = []
+
+    async def __call__(
+        self, _leg: Any, inputs: Any, *, dimensions: int, timeout_s: float, **_kw: Any
+    ) -> chat.EmbeddingOutcome:
+        texts = [str(one) for one in inputs]
+        self.passages.extend(texts)
+        # Derived from the text so one passage always encodes to one vector — the pack is
+        # content-addressed and a random vector would make every rebuild look different for
+        # a reason `KnowledgePack.digest` deliberately excludes.
+        return chat.EmbeddingOutcome(
+            vectors=tuple((float(len(text) % 7),) * dimensions for text in texts)
+        )
+
+
+def _dense_arm_on(monkeypatch: pytest.MonkeyPatch) -> _FakeEncoder:
+    """Make this process a deployment that HAS bought vectors.
+
+    Both pre-flights are substituted rather than the declaration helper itself, because the
+    property under test is that the scan and the builder read the SAME two facts — patching
+    the answer they share would pass for a scan that had gone on asking its own question.
+
+    `usage` is left absent on the outcome (a shape `chat.EmbeddingOutcome` documents) so no
+    `usage_events` row is written: what is asserted here is whether the provider was CALLED,
+    and metering has its own tests.
+    """
+    encoder = _FakeEncoder()
+    monkeypatch.setattr(pack_vectors, "pack_embedding_is_billable", lambda: True)
+    monkeypatch.setattr(pack_vectors, "embedding_leg", lambda: _ENCODER_LEG)
+    monkeypatch.setattr(pack_vectors.chat, "embed", encoder)
+    return encoder
+
+
+def _count_pack_stores(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The keys `publish_pack` actually WROTE, in order. One entry per PUT.
+
+    A list of calls and not a set of keys, which is the difference that matters here: the
+    object is content-addressed and write-once, so a rebuild loop that re-derives identical
+    bytes leaves `s3.objects` untouched and is invisible to a key assertion. The bill is paid
+    per attempt, not per distinct key.
+    """
+    from apps.workers import storage
+
+    written: list[str] = []
+    real = storage.store_knowledge_pack
+
+    async def _counting(*, key: str, data: bytes) -> None:
+        written.append(key)
+        await real(key=key, data=data)
+
+    monkeypatch.setattr(storage, "store_knowledge_pack", _counting)
+    return written
+
+
+async def _stale_agents(tenant_id: uuid.UUID) -> list[uuid.UUID]:
+    async with tenant_session(tenant_id) as session:
+        return await kb_pack.agents_with_stale_packs(session, tenant_id=tenant_id, limit=25)
+
+
+async def _gloss_everything(tenant_id: uuid.UUID, english: str) -> None:
+    """Land the English gloss without running the sweep, so the scan can be asked on its own."""
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE kb_documents SET gloss = :g, gloss_state = 'ready' WHERE tenant_id = :t"),
+            {"g": english, "t": tenant_id},
+        )
+
+
+async def test_a_settled_corpus_with_vectors_buys_no_embedding_and_writes_no_pack(
+    monkeypatch: pytest.MonkeyPatch, s3: FakeS3
+) -> None:
+    """THE DEFECT, AND IT IS A BILL. Fails on the model-less digest; passes on the fix.
+
+    The scan hashed the corpus with `embedding_model=None` while `build_pack` hashes it with
+    the encoder that made the vectors, so on a deployment that has bought them the recorded
+    pointer can NEVER equal what the scan computes. Every glossed agent is therefore selected
+    on every tick, rebuilt, and re-embedded — arriving at bytes that already exist, twice an
+    hour, for as long as the client keeps their knowledge base.
+
+    Three assertions, and the first is the one with the invoice on it. The passages are what
+    the provider was paid for; the store list is per PUT rather than per key, because
+    content-addressing hides a rebuild loop from `s3.objects` entirely; the pointer is the
+    control that says the pack really was settled rather than never built.
+    """
+    encoder = _dense_arm_on(monkeypatch)
+    tenant_id, agent_id = await _published_telugu_agent(TAILOR_TELUGU)
+    await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
+
+    settled = await _pointer(tenant_id, agent_id)
+    assert settled is not None
+    assert _glosses_in_pack(s3, tenant_id, agent_id, settled) == [TAILOR_ENGLISH]
+
+    encoder.passages.clear()
+    written = _count_pack_stores(monkeypatch)
+    assert (
+        await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
+        == "translated=0 not_needed=0 rekeyed=0 repacked=0"
+    )
+
+    assert encoder.passages == [], "a settled corpus was re-embedded — that is the bill"
+    assert written == [], "a settled corpus was re-packed"
+    assert await _pointer(tenant_id, agent_id) == settled
+
+
+async def test_the_scan_sees_a_corpus_that_moved_even_with_vectors_present(
+    monkeypatch: pytest.MonkeyPatch, s3: FakeS3
+) -> None:
+    """STATE 1 of four: the corpus changed. The digest must still notice.
+
+    A fix that made the comparison agree by dropping the encoder from BOTH sides would pass
+    the settled test above and break this one, which is why it is asserted at all: the scan's
+    job is unchanged and only the encoder half of it moved.
+    """
+    _dense_arm_on(monkeypatch)
+    tenant_id, agent_id = await _published_telugu_agent(TAILOR_TELUGU)
+    await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
+    assert await _stale_agents(tenant_id) == []
+
+    await _gloss_everything(tenant_id, "Sri Lakshmi Tailors is open until 9 pm on Saturdays.")
+    assert await _stale_agents(tenant_id) == [agent_id]
+
+
+async def test_the_scan_sees_an_encoder_that_changed_under_an_unmoved_corpus(
+    monkeypatch: pytest.MonkeyPatch, s3: FakeS3
+) -> None:
+    """STATE 2 of four, and the one the model-in-the-digest exists to protect.
+
+    Not one word of the client's knowledge changed; the deployment now encodes with something
+    else. The pack in the store holds the OLD encoder's vectors, and the worker's dense arm
+    admits them by DECLARATION (`DenseIndex.usable_with`) — so an agent left on the stale
+    pack loses that arm on every call. A fix that moved the encoder out of the comparison
+    would leave a client's corpus on a retired encoder silently and for ever, which is why
+    this is the test that discriminates between the two directions the defect could have been
+    fixed in.
+    """
+    _dense_arm_on(monkeypatch)
+    tenant_id, agent_id = await _published_telugu_agent(TAILOR_TELUGU)
+    await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
+    assert await _stale_agents(tenant_id) == []
+
+    monkeypatch.setattr(pack_vectors, "EMBEDDING_MODEL", "models/some-other-encoder-002")
+    assert await _stale_agents(tenant_id) == [agent_id], "an encoder change did not force a rebuild"
+
+
+async def test_an_agent_that_has_never_been_packed_is_stale(
+    monkeypatch: pytest.MonkeyPatch, s3: FakeS3
+) -> None:
+    """STATE 4 of four: no pack at all, which is NULL and equals no digest.
+
+    Stated on its own because it is the state a comparison against the STORED pack's declared
+    encoder cannot answer — there is nothing to read — and the one every agent published
+    before the pack existed is in.
+    """
+    _dense_arm_on(monkeypatch)
+    tenant_id, agent_id = await _published_telugu_agent(TAILOR_TELUGU)
+    await _gloss_everything(tenant_id, TAILOR_ENGLISH)
+
+    async with tenant_session(tenant_id) as session:
+        await session.execute(
+            text("UPDATE agents SET knowledge_pack_sha256 = NULL WHERE id = :a"), {"a": agent_id}
+        )
+
+    assert await _stale_agents(tenant_id) == [agent_id]
+
+
+async def test_a_tick_rebuilds_the_pack_when_the_encoder_changes(
+    monkeypatch: pytest.MonkeyPatch, s3: FakeS3
+) -> None:
+    """The other half of the money assertion: the tick that SHOULD spend, does.
+
+    A scan that never selected anything would satisfy every "nothing was bought" assertion in
+    this section for free. Here the corpus is untouched and only the encoder moved, and the
+    sweep must re-embed the corpus exactly once, store a NEW pack and move the pointer onto
+    it — the superseded object staying readable for any call still holding its id.
+    """
+    encoder = _dense_arm_on(monkeypatch)
+    tenant_id, agent_id = await _published_telugu_agent(TAILOR_TELUGU)
+    await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
+    before = await _pointer(tenant_id, agent_id)
+    assert before is not None
+
+    encoder.passages.clear()
+    written = _count_pack_stores(monkeypatch)
+    monkeypatch.setattr(pack_vectors, "EMBEDDING_MODEL", "models/some-other-encoder-002")
+    assert (
+        await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
+        == "translated=0 not_needed=0 rekeyed=0 repacked=1"
+    )
+
+    after = await _pointer(tenant_id, agent_id)
+    assert after is not None and after != before, "a new encoder did not mint a new pack id"
+    assert len(encoder.passages) == 1, "the corpus was embedded more or less than once"
+    assert written == [pack_object_key(tenant_id, agent_id, after)]
+    assert json.loads(s3.objects[written[0]])["embedding_model"] == "models/some-other-encoder-002"
+    assert pack_object_key(tenant_id, agent_id, before) in s3.objects
+
+
+async def test_the_builder_and_the_scan_read_one_declaration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """STATE 3's mechanism, stated where a reader will find it: one function, two callers.
+
+    `pack_embedding_declaration` is what makes the scan's digest and the builder's digest the
+    same question. Asserted over all four configurations of the two free pre-flights, because
+    the failure this closes was precisely a scan answering a question the builder was not
+    asking — and the empty corpus is in here too, since `embed_entries` declares nothing for
+    one and a scan that declared an encoder would select every empty agent for ever.
+    """
+    entries = (
+        PackEntry(chunk_id=uuid.uuid4(), document_id=uuid.uuid4(), document_version=1, text="Hi."),
+    )
+    for priced in (True, False):
+        for has_key in (True, False):
+            monkeypatch.setattr(pack_vectors, "pack_embedding_is_billable", lambda p=priced: p)
+            monkeypatch.setattr(
+                pack_vectors, "embedding_leg", lambda k=has_key: _ENCODER_LEG if k else None
+            )
+            expected = pack_vectors.EMBEDDING_MODEL if priced and has_key else None
+            assert pack_vectors.pack_embedding_declaration(entries) == expected
+            assert pack_vectors.pack_embedding_declaration(()) is None
+            assert pack_vectors.declared_dimensions(expected) == (
+                pack_vectors.EMBEDDING_DIMS if expected else None
+            )

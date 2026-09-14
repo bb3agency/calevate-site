@@ -90,7 +90,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.db.ownership import assert_visible
-from apps.api.kb.pack_vectors import EMBEDDING_DIMS, embed_entries
+from apps.api.kb.pack_vectors import declared_dimensions, embed_entries, pack_embedding_declaration
 
 log = get_logger(__name__)
 
@@ -209,7 +209,7 @@ async def build_pack(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID) 
     await assert_visible(session, "agent", agent_id)
     entries = await read_entries(session, tenant_id=tenant_id, agent_id=agent_id)
     entries, embedding_model = await embed_entries(session, tenant_id=tenant_id, entries=entries)
-    dimensions = None if embedding_model is None else EMBEDDING_DIMS
+    dimensions = declared_dimensions(embedding_model)
     return KnowledgePack(
         tenant_id=tenant_id,
         agent_id=agent_id,
@@ -434,6 +434,41 @@ async def agents_with_stale_packs(
     pointer where it was, so the digest still differs and the next tick selects the same
     agent. A worklist would have consumed the id and moved on.
 
+    **THE DIGEST HASHES THE ENCODER, SO THE SCAN HAS TO NAME ONE — AND NAMING NONE WAS A
+    BILL WAITING FOR THE DENSE ARM TO BE SWITCHED ON.** `KnowledgePack.digest` hashes
+    `embedding_model` deliberately (a pack embedded under a different encoder IS a different
+    pack, or a warm container serves one model's vectors for another's id). This scan called
+    it with the default `embedding_model=None` while `build_pack` passes the real encoder, so
+    the moment an operator attests the embedding price every glossed agent's recorded pointer
+    would stop matching the digest computed here — for ever. The sweep would select every one
+    of them on every tick, rebuild, re-embed, and arrive at the same bytes: an embedding
+    invoice per agent per half hour for no change at all. Dormant today only because
+    `pack_vectors.embed_entries` is a no-op until that attestation lands (hard rule 7).
+
+    **SO THE ENCODER IS PREDICTED FROM CONFIGURATION AND NEVER BOUGHT**
+    (`pack_vectors.pack_embedding_declaration`, which argues the prediction's one asymmetry).
+    Both halves of the comparison then mean the same thing — "the pack this corpus implies on
+    this deployment" — and the four states it has to separate are each answered by one
+    equality: a changed corpus moves the entries and the digest with them; a changed encoder
+    moves the declaration and the digest with it, which is the property the model-in-the-hash
+    exists for and the one a fix must not trade away; an unchanged corpus under an unchanged
+    encoder matches, so the tick buys and stores nothing; and an agent with no pack at all
+    holds NULL, which no digest equals.
+
+    **REJECTED: calling `embed_entries` here so the digest matches.** It is the shortest
+    patch and it is the defect with extra steps — it spends a hosted encoder per candidate
+    agent per tick to re-derive a name that is a property of our own settings, and it spends
+    it hardest on exactly the agents that turn out not to be stale.
+
+    **REJECTED: fetching the STORED pack and reading its declared `embedding_model`.** It
+    compares like with like, and it costs an object-store GET per glossed agent per tick —
+    the round trip `MAX_PACK_AGENTS_PER_TENANT` is sized on the assumption that only an agent
+    whose digest actually moved pays. Worse, it cannot answer the state it was reached for:
+    re-hashing with whatever the stored pack declared makes the encoder match BY
+    CONSTRUCTION, so a deployment that changed encoders would never rebuild and every
+    client's corpus would stay on the old one silently. Making it correct means asking for
+    the expected encoder anyway — the same prediction, plus a GET.
+
     **REJECTED: a marker column, or comparing `kb_documents.updated_at` against
     `agents.updated_at`.** The timestamp comparison is the cheaper-looking one and it is
     WRONG in the silent direction: `agents.updated_at` moves for a voice change, a call-cap
@@ -473,7 +508,19 @@ async def agents_with_stale_packs(
     for row in candidates:
         agent_id = UUID(str(row[0]))
         entries = await read_entries(session, tenant_id=tenant_id, agent_id=agent_id)
-        if KnowledgePack.digest(tenant_id, agent_id, entries) != row[1]:
+        # The encoder is PREDICTED, never bought. `pack_embedding_declaration` reads this
+        # deployment's two free pre-flights and nothing else; calling `embed_entries` here to
+        # obtain the same name would spend a hosted encoder per agent per tick to re-derive a
+        # fact about our own configuration.
+        model = pack_embedding_declaration(entries)
+        implied = KnowledgePack.digest(
+            tenant_id,
+            agent_id,
+            entries,
+            embedding_model=model,
+            embedding_dimensions=declared_dimensions(model),
+        )
+        if implied != row[1]:
             stale.append(agent_id)
     return stale
 
