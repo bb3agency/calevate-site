@@ -27,9 +27,12 @@ rules one out at 1-2 threads against a 100ms turn. Adding vectors is a
 
 **WHO CALLS THIS, AND WHY IT IS THE KB PUBLISH PATH AND NOT `publish_agent`.**
 `refresh_published_pack` at the bottom is the entry point, and `kb/service.publish_source`
-and `kb/service.withdraw_source` are its two callers — the only two functions that change
-which of an agent's chunks are live. `publish_agent` was the obvious alternative and is
-wrong twice: it runs for a voice change, a call-cap change and nine other reasons that
+and `kb/service.withdraw_source` are its callers on that path — the only two functions that
+change which of an agent's chunks are live. (`workers/kb_gloss.py` is the third caller and
+is not a publish: it changes what a live chunk SAYS rather than which chunks there are, and
+it reaches the same helper rather than a second one. See the gloss paragraph below.)
+`publish_agent` was the obvious alternative and is wrong twice: it runs for a voice
+change, a call-cap change and nine other reasons that
 cannot move a single chunk, and it does NOT run for the publish that matters most (a T1-T4
 source recompiles no T0 block, so `recompile_t0` returns None and nothing republishes).
 A pack refreshed there would be rebuilt constantly and stale exactly when it mattered.
@@ -276,8 +279,10 @@ async def refresh_published_pack(
 ) -> str | None:
     """Freeze this agent's live knowledge and point `agents.knowledge_pack_sha256` at it.
 
-    THE ONE ENTRY POINT FROM THE PUBLISH PATH (`docs/PIPECAT-MIGRATION.md` §6 step 12).
-    `publish_pack` stores the bytes; this is what makes them findable, because a pack
+    THE ONE ENTRY POINT FOR EVERY WRITER OF `agents.knowledge_pack_sha256`
+    (`docs/PIPECAT-MIGRATION.md` §6 step 12): the KB publish path, the withdrawal path, and
+    the English-gloss sweep, which all arrive here rather than each freezing a pack its own
+    way. `publish_pack` stores the bytes; this is what makes them findable, because a pack
     nothing names is a pack no session will ever load. Returns the id it recorded, or
     `None` when the pack could not be built or stored — see the posture below.
 
