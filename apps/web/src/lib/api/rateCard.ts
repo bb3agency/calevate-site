@@ -119,6 +119,31 @@ export function cardFromRate(card: PublicRateCard, voice: VoiceTier): string {
 }
 
 /**
+ * DOES THIS VOICE'S LADDER ACTUALLY FALL? — the guard every sentence that narrates the
+ * ladder has to pass before it promises a discount.
+ *
+ * ⚠ **A CARD IS NOT REQUIRED TO FALL ON BOTH VOICES, AND THE NEXT ONE DOES NOT.** The
+ * founder's 14 Sep 2026 decision (`docs/PIPECAT-MIGRATION.md` §12) prices the cheaper
+ * voice FLAT — ₹4.00 at every rung from ₹2,000 to ₹50,000 — while the dearer one still
+ * falls ₹7.00 → ₹5.50. `credit_packs.py::card_refusals` permits it: invariant 6 refuses a
+ * bigger pack that buys a DEARER minute (`>`), so equal rungs are a legal card and always
+ * were. The server therefore cannot be relied on to keep the ladder sloping, and every
+ * surface that says "down to X on the largest pack" has to ask first.
+ *
+ * Said in one place because the sentence is written in four (`/pricing`'s band, the rate
+ * table's cheapest-rung chip, the ROI calculator's voice captions, and the console's
+ * "What calls cost"), and a guard copied four times is three that will be missed. The
+ * comparison is `rateToTenThousandths` over two figures the SERVER sent — exact integers
+ * at the API's own NUMERIC(12,4) scale, nothing computed, nothing rounded.
+ *
+ * False for a card with one rung, which is right: a one-rung ladder is not a discount.
+ */
+export function ladderFalls(card: PublicRateCard, voice: VoiceTier): boolean {
+  const cheapest = rateToTenThousandths(cardFromRate(card, voice));
+  return card.packs.some((pack) => rateToTenThousandths(packRate(pack, voice)) > cheapest);
+}
+
+/**
  * What a CLIENT calls this voice. Read from the response, never held here: two copies of
  * a name is how a client comes to meet both of them (founder, 7 Sep 2026).
  */

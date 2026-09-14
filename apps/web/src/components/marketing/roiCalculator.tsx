@@ -99,10 +99,10 @@ import {
   cheapestPack,
   formatAmountINR,
   formatRateINR,
+  ladderFalls,
   packMinutes,
   packRate,
   ratePaisePerMin,
-  rateToTenThousandths,
   tierLabel,
   VOICE_TIERS,
   type PublicRateCard,
@@ -354,48 +354,37 @@ function rateFor(
 }
 
 /**
- * Does a pack bring this voice's rate DOWN at all, on the card we were handed?
- *
- * ⚠ **THE CAPTIONS BELOW USED TO ASSUME IT ALWAYS DOES.** They ended "Down to ₹X/min on
- * the deepest pack" unconditionally, which on the founder's card of 14 Sep 2026 renders as
- * "₹4.00/min ... Down to ₹4.00/min on the deepest pack" for the Clear voice — the Clear
- * column is FLAT at ₹4.00 across all six rungs. A sentence that offers a discount of zero
- * is worse than no sentence: it reads as a mistake to anyone who checks it. Compared as
- * integer ten-thousandths, never as floats (hard rule 7).
- */
-function packsLowerTheRate(card: PublicRateCard, voice: VoiceTier): boolean {
-  return (
-    rateToTenThousandths(rateFor(card, voice, LIST_RATE).rate) >
-    rateToTenThousandths(cardFromRate(card, voice))
-  );
-}
-
-/**
  * The voice picker's two options, named and priced BY THE API. The label is the card's
  * `*_tier_label` (a client never reads a vendor's name — founder, 7 Sep 2026) and the
- * caption carries that voice's list rate and, WHERE THERE IS ONE, its best pack rate — so
- * the choice a buyer makes shows its own consequence and never advertises a fall that is
- * not there.
+ * caption carries that voice's list rate and its best pack rate, so the choice a buyer
+ * makes shows its own consequence.
  */
 function voiceOptions(
   card: PublicRateCard,
 ): readonly { id: VoiceTier; label: string; caption: string }[] {
   return VOICE_TIERS.map((voice) => {
-    const fall = packsLowerTheRate(card, voice)
+    // ⚠ THE PACK SENTENCE WAS UNCONDITIONAL AND ADVERTISED A DISCOUNT THE CARD MAY NOT
+    // GRANT. On a voice priced flat it rendered "₹4.00/min … Down to ₹4.00/min on the
+    // deepest pack" — the label and the caption quoting one figure as if either were a
+    // saving on the other. The next card prices the cheaper voice exactly that way
+    // (`docs/PIPECAT-MIGRATION.md` §12), and `card_refusals` has always permitted it.
+    // `ladderFalls` is the guard `/pricing`'s `bandSentence` already applied; this is the
+    // same question asked once more rather than a second way of asking it.
+    const pack = ladderFalls(card, voice)
       ? ` Down to ${formatRateINR(cardFromRate(card, voice))}/min on the deepest pack.`
-      : " One rate, whichever pack you buy.";
+      : "";
     return {
       id: voice,
       label: `${tierLabel(card, voice)} voice — ${formatRateINR(rateFor(card, voice, LIST_RATE).rate)}/min`,
       caption:
         voice === "sarvam"
-          ? `The everyday voice, and where every agent starts.${fall}`
+          ? `The everyday voice, and where every agent starts.${pack}`
           // "CHOSEN AGENT BY AGENT" READ AS A CONTROL THE CLIENT HOLDS, AND THEY DO NOT:
           // the voice picker is mounted in the admin realm only and changing a voice is
           // ours (D-21). Per-agent is the true and load-bearing half — it is why this
           // calculator prices one voice at a time — so it is said as the property it is,
           // in the same register `/pricing` and the console now use.
-          : `Costs more per minute because it costs us more, and it is set per agent rather than for the whole account.${fall}`,
+          : `Costs more per minute because it costs us more, and it is set per agent rather than for the whole account.${pack}`,
     };
   });
 }
@@ -1118,19 +1107,29 @@ function PricedCalculator({ card }: { card: PublicRateCard }) {
                 average length × {formatRateINR(selectedRate)}/min × working days.{" "}
                 {formatRateINR(card.list_rate_inr_per_min)}/min is our published self-serve
                 list rate on the {tierLabel(card, "sarvam")} voice, read from our own rate
-                card when this page loaded;{" "}
-                {/* "a prepaid pack brings it down to ₹X/min" was unconditional and became
-                    "brings it down to ₹4.00/min" — the rate it already is — the day the
-                    Clear column went flat. Derived from the card, like every other figure
-                    on this page. */}
-                {packsLowerTheRate(card, "sarvam")
-                  ? `a prepaid pack brings it down to ${formatRateINR(cardFromRate(card, "sarvam"))}/min`
-                  : "a prepaid pack buys talk time at that same rate"}
-                , and the {tierLabel(card, "cartesia")} voice runs from{" "}
-                {formatRateINR(cardFromRate(card, "cartesia"))}/min to{" "}
-                {formatRateINR(rateFor(card, "cartesia", LIST_RATE).rate)}/min. The
-                comparison starts on the everyday voice at the list rate rather than at the
-                cheapest pack, on purpose.
+                {/* The pack clause is CONDITIONAL for the same reason the voice captions'
+                    is: on a flat column "a prepaid pack brings it down to ₹4.00/min"
+                    quotes the list rate straight back as a discount. The dearer voice is
+                    stated as a RANGE, which has the same failure — a range whose ends are
+                    equal is not a range. */}
+                card when this page loaded
+                {ladderFalls(card, "sarvam") && (
+                  <>
+                    ; a prepaid pack brings it down to{" "}
+                    {formatRateINR(cardFromRate(card, "sarvam"))}/min
+                  </>
+                )}
+                , and the {tierLabel(card, "cartesia")} voice{" "}
+                {ladderFalls(card, "cartesia") ? (
+                  <>
+                    runs from {formatRateINR(cardFromRate(card, "cartesia"))}/min to{" "}
+                    {formatRateINR(rateFor(card, "cartesia", LIST_RATE).rate)}/min
+                  </>
+                ) : (
+                  <>is {formatRateINR(rateFor(card, "cartesia", LIST_RATE).rate)}/min</>
+                )}
+                . The comparison starts on the everyday voice at the list rate rather than
+                at the cheapest pack, on purpose.
               </li>
               <li>
                 <span className="font-medium text-ink">Telecallers needed</span> = calls a

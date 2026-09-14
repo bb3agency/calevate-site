@@ -2,6 +2,7 @@ import { ScrollRegion } from "@/components/ui";
 import {
   formatAmountINR,
   formatRateINR,
+  ladderFalls,
   packMinutes,
   packRate,
   tierLabel,
@@ -187,9 +188,20 @@ function caption(card: PublicRateCard, voice: VoiceTier): string {
   return `Prepaid credit packs on the ${tierLabel(card, voice)} voice: what you put on, the rate per minute it buys, and the talk time that comes to.`;
 }
 
-/** The one place the "this rung is the cheapest minute" treatment is spelled. */
-function highlight(pack: RateCardPack): string {
-  return pack.best_value ? "bg-brand-soft dark:bg-brand-strong/20" : "";
+/**
+ * The one place the "this rung is the cheapest minute" treatment is spelled.
+ *
+ * ⚠ `marks` IS THE PER-VOICE HALF OF THE QUESTION AND THE CHIP USED TO SKIP IT.
+ * `best_value` is the server's flag on ONE pack for the whole card; whether that pack
+ * actually buys a cheaper minute is a property of the VOICE on screen. The next card
+ * prices the cheaper voice flat at ₹4.00 (`docs/PIPECAT-MIGRATION.md` §12), and shading
+ * one of six identical ₹4.00 columns under the words "Lowest rate" tells a buyer the
+ * ₹50,000 pack gets them a better minute than the ₹2,000 one. It does not. On a flat
+ * column the whole treatment is dropped: no chip, no shading, nothing distinguishing a
+ * column that is not distinguished.
+ */
+function highlight(pack: RateCardPack, marks: boolean): string {
+  return pack.best_value && marks ? "bg-brand-soft dark:bg-brand-strong/20" : "";
 }
 
 /**
@@ -211,6 +223,7 @@ const LOWEST_RATE = "Lowest rate";
 
 /** From `md` up: one COLUMN per pack, two rows of facts. The comparison form. */
 function PackColumns({ card, voice }: { card: PublicRateCard; voice: VoiceTier }) {
+  const marks = ladderFalls(card, voice);
   return (
     <table
       // Names the LAYOUT, not a style. `marketingPages.test.tsx` counts a pack per column
@@ -231,12 +244,12 @@ function PackColumns({ card, voice }: { card: PublicRateCard; voice: VoiceTier }
             <th
               key={pack.pack_id}
               scope="col"
-              className={`rounded-t-2xl px-3 pt-4 pb-3 align-bottom font-semibold ${highlight(pack)}`}
+              className={`rounded-t-2xl px-3 pt-4 pb-3 align-bottom font-semibold ${highlight(pack, marks)}`}
             >
               <span className="block text-lg text-ink">
                 {formatAmountINR(pack.amount_inr)}
               </span>
-              {pack.best_value ? (
+              {pack.best_value && marks ? (
                 <span className="mt-1 block text-xs font-semibold text-brand-strong dark:text-brand-bright">
                   {LOWEST_RATE}
                 </span>
@@ -253,7 +266,7 @@ function PackColumns({ card, voice }: { card: PublicRateCard; voice: VoiceTier }
           {card.packs.map((pack) => (
             <td
               key={pack.pack_id}
-              className={`border-t border-line px-3 py-4 text-base font-semibold text-ink ${highlight(pack)}`}
+              className={`border-t border-line px-3 py-4 text-base font-semibold text-ink ${highlight(pack, marks)}`}
             >
               {formatRateINR(packRate(pack, voice))}
             </td>
@@ -269,7 +282,7 @@ function PackColumns({ card, voice }: { card: PublicRateCard; voice: VoiceTier }
           {card.packs.map((pack) => (
             <td
               key={pack.pack_id}
-              className={`rounded-b-2xl border-t border-line/60 px-3 py-4 text-ink-muted ${highlight(pack)}`}
+              className={`rounded-b-2xl border-t border-line/60 px-3 py-4 text-ink-muted ${highlight(pack, marks)}`}
             >
               {packMinutes(pack, voice).toLocaleString("en-IN")} min
             </td>
@@ -289,6 +302,7 @@ function PackColumns({ card, voice }: { card: PublicRateCard; voice: VoiceTier }
  * fit, because the switch above already removed one of the two rate columns.
  */
 function PackRows({ card, voice }: { card: PublicRateCard; voice: VoiceTier }) {
+  const marks = ladderFalls(card, voice);
   return (
     <table
       data-rate-layout="rows"
@@ -313,21 +327,21 @@ function PackRows({ card, voice }: { card: PublicRateCard; voice: VoiceTier }) {
           <tr key={pack.pack_id} className="border-b border-line/60">
             <th
               scope="row"
-              className={`py-3 pe-3 font-semibold text-ink ${highlight(pack)}`}
+              className={`py-3 pe-3 font-semibold text-ink ${highlight(pack, marks)}`}
             >
               {formatAmountINR(pack.amount_inr)}
-              {pack.best_value ? (
+              {pack.best_value && marks ? (
                 <span className="block text-xs font-semibold text-brand-strong dark:text-brand-bright">
                   {LOWEST_RATE}
                 </span>
               ) : null}
             </th>
             <td
-              className={`py-3 pe-3 font-semibold text-ink ${highlight(pack)}`}
+              className={`py-3 pe-3 font-semibold text-ink ${highlight(pack, marks)}`}
             >
               {formatRateINR(packRate(pack, voice))}
             </td>
-            <td className={`py-3 text-ink-muted ${highlight(pack)}`}>
+            <td className={`py-3 text-ink-muted ${highlight(pack, marks)}`}>
               {packMinutes(pack, voice).toLocaleString("en-IN")} min
             </td>
           </tr>

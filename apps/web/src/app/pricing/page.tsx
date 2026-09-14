@@ -6,6 +6,7 @@ import {
   cardFromRate,
   fetchPublicRateCard,
   formatRateINR,
+  ladderFalls,
   packRate,
   rateToTenThousandths,
   tierLabel,
@@ -187,34 +188,11 @@ function cardDearestRate(card: PublicRateCard, voice: VoiceTier): string {
 }
 
 /**
- * One voice's ladder as a sentence: `"₹7.00 a minute, down to ₹5.50 on the largest pack"`.
+ * One voice's ladder as a sentence: `"₹5.00 a minute, down to ₹4.50 on the largest pack"`.
  *
- * A ladder with one rung is not a band, and "down to ₹7.00" would be a discount described
- * where there is none, so that case says the one figure once — and since the founder's card
- * of 14 Sep 2026 that case is LIVE rather than defensive: the Clear column is flat at ₹4.00
- * on all six rungs and renders as `"₹4.00 a minute"`.
+ * A ladder with one rung is not a band, and "down to ₹5.00" would be a discount described
+ * where there is none, so that case says the one figure once.
  */
-/**
- * Does this voice's column actually FALL across the ladder?
- *
- * The heading below used to promise that it does, unconditionally. The founder's card of
- * 14 Sep 2026 made the Clear column FLAT at ₹4.00 on all six rungs, so the promise became
- * false for the voice a reader may well have selected in the table underneath it. Derived
- * from the card, per column, and compared as integer ten-thousandths — never as floats
- * (hard rule 7).
- */
-function columnFalls(card: PublicRateCard, voice: VoiceTier): boolean {
-  return (
-    rateToTenThousandths(cardDearestRate(card, voice)) >
-    rateToTenThousandths(cardFromRate(card, voice))
-  );
-}
-
-/** The voices whose rate really does come down, in the card's own order. */
-function fallingVoices(card: PublicRateCard): VoiceTier[] {
-  return VOICE_TIERS.filter((voice) => columnFalls(card, voice));
-}
-
 function bandSentence(card: PublicRateCard, voice: VoiceTier): string {
   const dearest = cardDearestRate(card, voice);
   const cheapest = cardFromRate(card, voice);
@@ -266,24 +244,25 @@ export default async function PricingPage() {
                 ₹4.50 a minute" — a third price in six lines, and the cheapest rung of the
                 ladder, which is the one nobody's first purchase is at. The band is
                 overhead in the h1 and every rung is in the table below; a heading that
-                re-quoted one end of it was the duplicate the audit found.
+                re-quoted one end of it was the duplicate the audit found. */}
+            {/* ⚠ THIS WAS A TYPED PROMISE THAT THE RATE FALLS, ON A PAGE WHOSE WHOLE
+                DOCTRINE IS THAT NOTHING HERE IS TYPED. It is false the moment either
+                column goes flat, and the next card takes the cheaper voice flat at ₹4.00
+                (`docs/PIPECAT-MIGRATION.md` §12) — leaving a heading that sells a volume
+                discount directly above a table showing six identical figures. It now
+                asks the card, the same question `bandSentence` below already asks.
 
-                ⚠ AND IT USED TO PROMISE A FALLING RATE UNCONDITIONALLY. "Prepaid credit,
-                and the rate comes down as the pack gets bigger" was typed when both
-                columns fell. The founder's card of 14 Sep 2026 made the Clear column FLAT
-                at ₹4.00 on every rung, and the table under this heading has a voice switch
-                — so a reader looking at Clear would have read a promise the rows beneath
-                it contradict. The claim is now DERIVED from the card, per column, and the
-                page falls back to the part that is true of both. */}
+                `every` AND NOT `some`, WHICH IS THE WHOLE CARE HERE. This heading takes
+                no voice: it sits above the switch and speaks for both, and the table
+                under it OPENS ON THE CHEAPER ONE — precisely the column the next card
+                flattens. A claim that holds for one of two voices is not a claim this
+                heading may make, so it drops to the sentence true of every card: the
+                price is published and there is no minimum. */}
             {rateCard === null
               ? "Our self-serve rate"
-              : VOICE_TIERS.every((voice) => columnFalls(rateCard, voice))
+              : VOICE_TIERS.every((voice) => ladderFalls(rateCard, voice))
                 ? "Prepaid credit, and the rate comes down as the pack gets bigger"
-                : fallingVoices(rateCard).length > 0
-                  ? `Prepaid credit at a published rate, and on the ${fallingVoices(rateCard)
-                      .map((voice) => tierLabel(rateCard, voice))
-                      .join(" and ")} voice it comes down as the pack gets bigger`
-                  : "Prepaid credit at a published rate, with no minimum"}
+                : "Prepaid credit, at a published rate with no minimum"}
           </h2>
           {rateCard === null ? (
             <p role="status" className="mt-4 max-w-2xl text-base text-pretty text-ink-muted">
