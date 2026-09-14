@@ -1,15 +1,20 @@
 #!/usr/bin/env python3
-"""Measure Gemini embedding quality on the Telugu corpus. Standard library only.
+"""Measure Gemini embedding quality on the Indic corpus. Standard library only.
 
-WHY IT DISCOVERS THE MODEL INSTEAD OF NAMING ONE: a model id recalled from memory is
-exactly the class of claim that has been wrong in this project before. The script asks
-the live API which models support embedding, prints them, and uses one of those.
+THE HOST IS NOT SPELLED HERE. `google_openai_compat_base_url()` is the ONE place this
+tree assembles a Gemini URL, and `scripts/check_model_residency.py` asserts exactly that —
+it refused the first version of this file, correctly, for writing its own literal. A
+second endpoint form would be a second residency story for one leg. Both routes were
+probed live on 14 Sep 2026 and answer "Please pass a valid API key", i.e. they exist and
+only auth was missing:
+    GET  /v1beta/openai/models
+    POST /v1beta/openai/embeddings
+
+The embedding MODEL is discovered from the live models list, never named from memory.
 
 RUN:
-    export GOOGLE_API_KEY='paste-your-key-here'
-    python3 telugu_gemini_harness.py /path/to/tests/fixtures/telugu_gloss_corpus.json
-
-On the VPS the corpus is at /var/www/calevate/tests/fixtures/telugu_gloss_corpus.json
+    export GOOGLE_API_KEY='...'
+    uv run python -m scripts.gemini_embedding_harness tests/fixtures/telugu_gloss_corpus.json
 """
 
 from __future__ import annotations
@@ -21,49 +26,39 @@ import sys
 import urllib.error
 import urllib.request
 
-BASE = "https://generativelanguage.googleapis.com/v1beta"
+from calevate_shared.engine import google_openai_compat_base_url
+
+BASE = google_openai_compat_base_url()
+RESULT_PATH = "/tmp/gemini_embedding_result.json"
 
 
-def _post(url: str, payload: dict) -> dict:
-    body = json.dumps(payload).encode()
-    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
+def _call(url: str, key: str, payload: dict | None = None) -> dict:
+    data = json.dumps(payload).encode() if payload is not None else None
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with urllib.request.urlopen(req, timeout=90) as r:
             return json.loads(r.read())
     except urllib.error.HTTPError as e:
-        detail = e.read().decode()[:600]
-        raise SystemExit(f"\nHTTP {e.code} from {url.split('?')[0]}\n{detail}\n") from e
+        raise SystemExit(f"\nHTTP {e.code} from {url}\n{e.read().decode()[:700]}\n") from e
 
 
-def _get(url: str) -> dict:
-    try:
-        with urllib.request.urlopen(url, timeout=60) as r:
-            return json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        detail = e.read().decode()[:600]
-        raise SystemExit(f"\nHTTP {e.code} from {url.split('?')[0]}\n{detail}\n") from e
-
-
-def discover_embedding_models(key: str) -> list[dict]:
-    """Every model the account may call that supports embedding. Printed, never assumed."""
-    out, token = [], ""
-    while True:
-        url = f"{BASE}/models?key={key}&pageSize=200" + (f"&pageToken={token}" if token else "")
-        page = _get(url)
-        for m in page.get("models", []):
-            methods = m.get("supportedGenerationMethods", [])
-            if any("mbed" in meth for meth in methods):
-                out.append(m)
-        token = page.get("nextPageToken", "")
-        if not token:
-            return out
+def embedding_models(key: str) -> list[str]:
+    rows = _call(f"{BASE}/models", key).get("data", [])
+    names = [r.get("id", "") for r in rows]
+    picked = [n for n in names if "embed" in n.lower()]
+    print("MODELS THIS KEY CAN SEE")
+    for n in sorted(names):
+        print(f"  {'* ' if n in picked else '  '}{n}")
+    return picked
 
 
 def embed(key: str, model: str, text: str) -> list[float]:
-    url = f"{BASE}/{model}:embedContent?key={key}"
-    payload = {"model": model, "content": {"parts": [{"text": text}]}}
-    data = _post(url, payload)
-    return data["embedding"]["values"]
+    body = _call(f"{BASE}/embeddings", key, {"model": model, "input": text})
+    return body["data"][0]["embedding"]
 
 
 def cosine(a: list[float], b: list[float]) -> float:
@@ -76,33 +71,25 @@ def cosine(a: list[float], b: list[float]) -> float:
 def main() -> None:
     key = os.environ.get("GOOGLE_API_KEY", "").strip()
     if not key:
-        raise SystemExit("Set GOOGLE_API_KEY first:  export GOOGLE_API_KEY='...'")
+        raise SystemExit("Set GOOGLE_API_KEY first")
     path = sys.argv[1] if len(sys.argv) > 1 else "tests/fixtures/telugu_gloss_corpus.json"
     with open(path, encoding="utf-8") as fh:
         corpus = json.load(fh)
     print(f"corpus: {len(corpus)} facts from {path}\n")
 
-    models = discover_embedding_models(key)
-    if not models:
-        raise SystemExit("No embedding-capable model is visible to this key.")
-    print("EMBEDDING MODELS THIS KEY CAN SEE")
-    for m in models:
-        dims = m.get("outputDimensions") or m.get("outputTokenLimit") or "?"
-        print(f"  {m['name']:<45} dims={dims}  in_limit={m.get('inputTokenLimit', '?')}")
-    model = models[0]["name"]
+    picked = embedding_models(key)
+    if not picked:
+        raise SystemExit("\nNo embedding-capable model visible to this key.")
+    model = picked[0]
     print(f"\nusing: {model}\n")
 
-    # THE INDEX IS ENGLISH ONLY — that is the design being tested, not an accident.
-    print(f"embedding {len(corpus)} English passages ...")
     index = [embed(key, model, row["passage_en"]) for row in corpus]
+    print(f"indexed {len(index)} English passages, width {len(index[0])}\n")
 
-    forms = ("query_en", "query_te", "query_tenglish")
-    print(f"embedding {len(corpus)} queries x {len(forms)} forms ...\n")
-
+    out: dict = {"model": model, "dimensions": len(index[0]), "n": len(corpus), "forms": {}}
     print(f"{'query form':<16} {'recall@1':>9} {'recall@3':>9} {'MRR':>7}")
     print("-" * 45)
-    results = {}
-    for form in forms:
+    for form in ("query_en", "query_te", "query_tenglish"):
         hits1 = hits3 = 0
         rr = 0.0
         for i, row in enumerate(corpus):
@@ -113,15 +100,23 @@ def main() -> None:
             hits3 += rank <= 3
             rr += 1.0 / rank
         n = len(corpus)
-        results[form] = (hits1 / n, hits3 / n, rr / n)
+        out["forms"][form] = {
+            "recall_at_1": round(hits1 / n, 4),
+            "recall_at_3": round(hits3 / n, 4),
+            "mrr": round(rr / n, 4),
+        }
         print(f"{form:<16} {hits1 / n:>9.3f} {hits3 / n:>9.3f} {rr / n:>7.3f}")
 
-    print("\nCOMPARE AGAINST docs/evidence/telugu-embedding-quality.md")
-    print("  word-matching, Tenglish query -> Telugu passages : 0.042")
-    print("  word-matching, Tenglish query -> English passages: 0.625")
-    print("  bge-base-en on Tenglish                          : 0.667")
-    print("  multilingual-e5 on Tenglish                      : 0.500")
-    print("\nThe number that decides the design is the Tenglish row above:")
-    print("  >= 0.75  -> Gemini embeddings beat everything measured; use them for retrieval")
-    print("  0.6-0.75 -> comparable to bge-base-en; keep the English-gloss design")
-    print("  < 0.6    -> worse than a local encoder; do not pay for it")
+    with open(RESULT_PATH, "w", encoding="utf-8") as fh:
+        json.dump(out, fh, indent=2, ensure_ascii=False)
+    print(f"\nRESULT JSON ({RESULT_PATH}):\n")
+    print(json.dumps(out, indent=2, ensure_ascii=False))
+    print("\nlexical baselines already measured here: Tenglish->English 0.625, bge-base-en 0.667")
+    print(
+        "decision: >=0.75 move retrieval to Gemini | 0.60-0.75 keep the English gloss"
+        " | <0.60 do not pay"
+    )
+
+
+if __name__ == "__main__":
+    main()
