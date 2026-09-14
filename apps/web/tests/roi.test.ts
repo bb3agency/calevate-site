@@ -446,26 +446,50 @@ describe("the rate card's per-voice rates", () => {
 
   it("finds the cheapest pack SEPARATELY for each voice", () => {
     // A card whose two columns bottom out on DIFFERENT rungs — the shape a single-rate
-    // lookup answers wrongly and cannot report. (Our published card bottoms out on the same
-    // pack for both, which is exactly why testing against it alone would prove nothing.)
+    // lookup answers wrongly and cannot report.
+    //
+    // ⚠ **THE PUBLISHED CARD IS NOW THAT SHAPE BY ITSELF, AND THE OLD FIXTURE WAS
+    // INCOHERENT.** This built a card by overriding `max`'s Studio rate to ₹6.50 while
+    // leaving `from_cartesia_inr_per_min` typed at "6.2500" — a figure no pack carried
+    // once the founder's 14 Sep card moved the column, so `cheapestPack` fell through to
+    // its last-pack fallback and the test asserted the fallback. The "from" figures are
+    // DERIVED from the rows here, which is what the server does
+    // (`payment_routes.rate_card_out`), so the fixture cannot come apart again.
+    const packs = RATE_CARD.packs.map((pack) =>
+      pack.pack_id === "max" ? { ...pack, cartesia_inr_per_min: "6.5000" } : pack,
+    );
+    const lowest = (voice: "sarvam" | "cartesia"): string =>
+      packs
+        .map((pack) => packRate(pack, voice))
+        .reduce((a, b) => (ratePaisePerMin(a) <= ratePaisePerMin(b) ? a : b));
     const card = {
       ...RATE_CARD,
-      from_sarvam_inr_per_min: "4.5000",
-      from_cartesia_inr_per_min: "6.2500",
-      packs: RATE_CARD.packs.map((pack) =>
-        pack.pack_id === "max" ? { ...pack, cartesia_inr_per_min: "6.5000" } : pack,
-      ),
+      packs,
+      from_sarvam_inr_per_min: lowest("sarvam"),
+      from_cartesia_inr_per_min: lowest("cartesia"),
     };
-    expect(cheapestPack(card, "sarvam")?.pack_id).toBe("max");
+    // Clear is FLAT at ₹4.00 on every rung since 14 Sep 2026, so the FIRST rung already
+    // delivers the floor rate — `cheapestPack` returns it, and "from ₹4.00 with the ₹2,000
+    // pack" is the true and rather better sentence the pages now print. Studio still falls,
+    // and with `max` nudged above `pro` it bottoms out on a different rung, which is the
+    // case this test exists for.
+    expect(cheapestPack(card, "sarvam")?.pack_id).toBe("starter");
     expect(cheapestPack(card, "cartesia")?.pack_id).toBe("pro");
-    expect(cardFromRate(card, "sarvam")).toBe("4.5000");
-    expect(cardFromRate(card, "cartesia")).toBe("6.2500");
+    expect(cheapestPack(card, "sarvam")?.pack_id).not.toBe(
+      cheapestPack(card, "cartesia")?.pack_id,
+    );
+    expect(cardFromRate(card, "sarvam")).toBe("4.0000");
+    expect(cardFromRate(card, "cartesia")).toBe("5.8000");
   });
 
   it("prices the comparison at the chosen voice's rate on the chosen pack", () => {
-    // 200 × 26 × 2 min = 10,400 min. On the ₹15,000 pack that is ₹4.70/min on one voice and
-    // ₹6.50 on the other — the whole reason the calculator had to start asking which.
+    // 200 × 26 × 2 min = 10,400 min. On the ₹15,000 pack that is ₹4.00/min on one voice and
+    // ₹6.10 on the other — the whole reason the calculator had to start asking which. The
+    // two totals are DERIVED from the fixture's own rates: the property is that the chosen
+    // voice's column prices the comparison, and the rates are the founder's to move (they
+    // were ₹4.70 and ₹6.50 until 14 Sep 2026).
     const plus = RATE_CARD.packs.find((pack) => pack.pack_id === "plus")!;
+    const minutes = 10_400;
     const clear = computeRoi({
       ...BASE,
       calevatePaisePerMin: ratePaisePerMin(packRate(plus, "sarvam")),
@@ -474,8 +498,9 @@ describe("the rate card's per-voice rates", () => {
       ...BASE,
       calevatePaisePerMin: ratePaisePerMin(packRate(plus, "cartesia")),
     });
-    expect(clear.calevatePaise).toBe(4_888_000);
-    expect(studio.calevatePaise).toBe(6_760_000);
+    expect(clear.calevatePaise).toBe(minutes * ratePaisePerMin(packRate(plus, "sarvam")));
+    expect(studio.calevatePaise).toBe(minutes * ratePaisePerMin(packRate(plus, "cartesia")));
+    expect(studio.calevatePaise).toBeGreaterThan(clear.calevatePaise);
   });
 
   it("passes the tier NAMES through from the card rather than holding any", () => {

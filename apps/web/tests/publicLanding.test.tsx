@@ -11,7 +11,7 @@ import { LEGAL_DOCUMENTS } from "@/lib/legal";
 
 import { copyUnder, tsSources } from "./copyScan";
 import { relPosix } from "./repoPaths";
-import { RATE_CARD_ROUTES } from "./fixtures/rateCard";
+import { RATE_CARD, RATE_CARD_ROUTES } from "./fixtures/rateCard";
 import { stubApi } from "./harness";
 
 /**
@@ -1282,6 +1282,16 @@ describe("the footer's legal links", () => {
  * rate, recompute live as the buyer changes an input, and expose the assumptions.
  */
 describe("the ROI calculator", () => {
+  /** The card's own Clear list rate, formatted the way the page formats it ("₹4.00"). */
+  const LIST_RATE = `₹${Number(RATE_CARD.list_rate_inr_per_min).toFixed(2)}`;
+
+  it("prices its worked examples at the card's published Clear list rate", () => {
+    // The rupee totals below are arithmetic ON THIS RATE. If the founder moves the card
+    // they must move too, and this assertion is what says so in one line rather than
+    // leaving three tests to fail with no explanation.
+    expect(LIST_RATE).toBe("₹4.00");
+  });
+
   function calc(container: HTMLElement): HTMLElement {
     const el = container.querySelector<HTMLElement>("[data-roi-calculator]");
     expect(el, "the calculator did not render").not.toBeNull();
@@ -1290,9 +1300,11 @@ describe("the ROI calculator", () => {
 
   it("shows the published self-serve rate as its Calevate input", async () => {
     const { container } = render(await Home());
-    // ₹5.00/min must appear, and it must be inside the calculator (never leaking into the
-    // rest of the page, which the no-price bans still guard).
-    expect(calc(container).textContent).toContain("₹5.00/min");
+    // The card's OWN list rate must appear, and it must be inside the calculator (never
+    // leaking into the rest of the page, which the no-price bans still guard). Read from
+    // the fixture rather than typed: this said "₹5.00/min" and the founder's card of
+    // 14 Sep 2026 made it ₹4.00, which is a rate change and not a page defect.
+    expect(calc(container).textContent).toContain(`${LIST_RATE}/min`);
   });
 
   it("computes headcount and recomputes live when call volume changes", async () => {
@@ -1316,13 +1328,15 @@ describe("the ROI calculator", () => {
 
   it("recomputes the Calevate monthly figure as inputs change", async () => {
     const { container } = render(await Home());
-    // Default 200 × 26 × 2 min × ₹5 = ₹52,000.00.
-    expect(calc(container).textContent).toContain("₹52,000.00");
+    // Default 200 × 26 × 2 min × ₹4.00 = ₹41,600.00. (₹5 and ₹52,000.00 until the
+    // founder's card of 14 Sep 2026; the arithmetic is the property, the rate is the
+    // founder's, and `LIST_RATE` above is asserted against the fixture.)
+    expect(calc(container).textContent).toContain("₹41,600.00");
     fireEvent.change(screen.getByRole("spinbutton", { name: "Calls a day" }), {
       target: { value: "100" },
     });
-    // 100 × 26 × 2 × ₹5 = ₹26,000.00.
-    expect(calc(container).textContent).toContain("₹26,000.00");
+    // 100 × 26 × 2 × ₹4.00 = ₹20,800.00.
+    expect(calc(container).textContent).toContain("₹20,800.00");
   });
 
   it("exposes an assumptions disclosure, closed by default and labelled illustrative", async () => {
@@ -1443,15 +1457,20 @@ describe("the ROI calculator", () => {
     // Four salespeople on the whole list at ₹1,28,000 …
     expect(text).toMatch(/hire\s*4\s*salespeople/);
     expect(text).toContain("₹1,28,000.00");
-    // … versus ₹52,000 of first calls plus two salespeople at ₹64,000 = ₹1,16,000.
-    // Every figure here dropped when turnover and replacement cost left the model
-    // (5 Sep 2026), and the GAP dropped with them, from ₹22,000 to ₹12,000: what was
-    // removed sat on the people side. A change that shrinks our own advantage is the
-    // safe direction, and this test is where that stays visible.
-    expect(text).toContain("₹52,000.00");
+    // … versus ₹41,600 of first calls (5,200 × 2 min × ₹4.00) plus two salespeople at
+    // ₹64,000 = ₹1,05,600.
+    //
+    // THE GAP IS THE FIGURE TO WATCH, AND IT HAS MOVED TWICE IN OPPOSITE DIRECTIONS. It
+    // fell ₹22,000 → ₹12,000 when turnover and replacement cost left the model (5 Sep
+    // 2026) — what was removed sat on the people side, and a change that SHRINKS our own
+    // advantage is the safe direction. It then rose to ₹22,400 when the founder cut the
+    // Clear rate from ₹5.00 to ₹4.00 (14 Sep 2026), which widens our advantage by lowering
+    // our own side rather than by inflating theirs. Both are recorded here because the
+    // direction is the thing a reader has to be able to check.
+    expect(text).toContain("₹41,600.00");
     expect(text).toContain("₹64,000.00");
-    expect(text).toContain("₹1,16,000.00");
-    expect(text).toContain("₹12,000.00");
+    expect(text).toContain("₹1,05,600.00");
+    expect(text).toContain("₹22,400.00");
     // The capacity line — the actual argument, and pure arithmetic off the buyer's inputs.
     expect(text).toMatch(/3,640[^]*never reach a person/);
     expect(text).toMatch(/364[^]*hours a month/);
