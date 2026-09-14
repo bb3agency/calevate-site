@@ -365,6 +365,7 @@ name = "calevate-voice-worker"
 version = "0.1.0"
 source = { virtual = "apps/voice-worker" }
 dependencies = [
+    { name = "boto3" },
     { name = "calevate-shared" },
     { name = "pipecat-ai", extra = ["sarvam", "websocket"] },
     { name = "psycopg", extra = ["binary", "pool"] },
@@ -373,6 +374,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "boto3", specifier = ">=1.40" },
     { name = "calevate-shared", editable = "packages/shared" },
     { name = "pipecat-ai", extras = ["sarvam", "websocket"], specifier = "==1.10.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },

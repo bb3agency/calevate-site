@@ -74,6 +74,23 @@ dependencies = [
     # authenticates as itself, so it needs a database client and not an HTTP server.
     "sqlalchemy>=2.0.44",
     "psycopg[binary,pool]>=3.2",
+    # The knowledge pack is fetched from the S3-compatible object store at session start
+    # (`voice_worker/storage.py`), so this container needs an S3 client of its own. Same
+    # floor as `apps/workers`, which reads the same bucket with the same SDK — one version
+    # range for one vendor across the workspace, because the resolver installs ONE venv and
+    # two ranges would mean whichever member was resolved first decided for both.
+    #
+    # NOT `httpx` plus hand-rolled SigV4: the signature is a security-shaped spec (hard
+    # rule 9's neighbourhood and the quality bar's "search before writing anything
+    # crypto-shaped"), and the vendor ships the implementation. NOT importing
+    # `apps.workers.storage`, which reads this same bucket: that module pulls
+    # `apps.api.core.settings`, `apps.api.core.logging` and the egress guard, i.e. the
+    # monolith, into a latency-critical voice container — see `voice_worker/storage.py`.
+    #
+    # SUPPLY CHAIN (hard rule 9): no new distribution enters the lock. `boto3` 1.43.56 and
+    # its `botocore`/`s3transfer`/`jmespath` chain are already resolved for
+    # `calevate-workers`; this adds an edge to packages the workspace already installs.
+    "boto3>=1.40",
 ]
 
 # Virtual member, exactly like `apps/voice-runtime`: the directory is hyphenated (D-18)
