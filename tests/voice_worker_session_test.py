@@ -668,3 +668,52 @@ async def test_start_session_loads_the_config_and_its_pack_in_one_call(s3: FakeS
     assert any(
         ALTERATION_FACT in str(passage["text"]) for passage in cast(list[Any], payload["passages"])
     )
+
+
+async def test_a_bucket_that_is_not_there_is_an_outage_and_not_an_empty_knowledge_base() -> None:
+    """`NoSuchBucket` is "we could not look", never "this client published nothing".
+
+    `voice_worker.storage` states the contract itself — absent and unreachable "must not
+    merge", because merging them "would tell an operator that a client had published
+    nothing when in truth we could not reach the bucket". A bucket that does not exist is
+    a DEPLOY fault: one misspelled `OBJECT_STORE_BUCKET` makes every call of every tenant
+    on that container report the benign, permanent state, and the log line an operator
+    reads then says the clients emptied their own knowledge bases.
+
+    It is also the exact set `apps/workers/storage.read_kb_object` matches, which
+    `_MISSING_CODES`' own comment claims parity with and did not have.
+    """
+
+    class NoBucket:
+        def get_object(self, **_kwargs: Any) -> dict[str, Any]:
+            raise ClientError(
+                {"Error": {"Code": "NoSuchBucket", "Message": "no such bucket"}}, "GetObject"
+            )
+
+    fetcher = _fetcher_over(NoBucket())
+    with pytest.raises(ClientError):
+        await fetcher.fetch("knowledge-packs/t/a/" + "d" * 64 + ".json")
+
+    config = make_config(knowledge_pack_sha256="d" * 64)
+    call, _schema = await _open(config, fetcher=fetcher, cache=PackCache())
+    assert call.knowledge is not None
+    assert call.knowledge.unavailable_reason == "fetch_failed"
+
+
+def test_the_pack_fetcher_retries_nothing_inside_its_wall_clock_budget() -> None:
+    """`_client` says "no retry" and botocore's `max_attempts` does not mean that.
+
+    VERIFIED-VENDOR-SPEC, botocore `config.py` as installed in this tree's own lockfile
+    (read 14 Sep 2026): `max_attempts` is "the maximum number of RETRY attempts", so
+    `max_attempts=1` buys one retry — two round trips, each with its own
+    `PACK_FETCH_BUDGET_S` connect and read timeout, behind an `asyncio.timeout` that
+    releases the caller after one. The await is bounded either way; the THREAD is not, and
+    a thread parked on a second attempt holding a connection for the life of a hung socket
+    is precisely what the comment above those timeouts says cannot happen.
+    `total_max_attempts` is the key that means what was intended — the same page says it
+    "includes the initial request, so a value of 1 indicates that no requests will be
+    retried".
+    """
+    client = storage._client("http://localhost:9000")
+
+    assert client.meta.config.retries["total_max_attempts"] == 1
