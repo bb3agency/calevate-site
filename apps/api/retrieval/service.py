@@ -73,12 +73,25 @@ def get_retriever(session: AsyncSession) -> RetrievalProvider:
     14 Sep 2026). `supermemory` swaps the T3 MEMBER of the composite and nothing else: T0
     still answers out of the compiled block, and the store it replaces becomes the thing it
     falls back TO, per request, so an unreachable box 3 costs a log line rather than a
-    client's question. A deployment that names it without configuring it takes the same
-    degrade the pgvector branch takes, with the missing precondition named
-    (`supermemory.supermemory_t3`).
+    client's question.
+
+    IT IS ASKED FIRST, AND BEFORE THE EMBEDDING PRECONDITIONS, because those are facts about
+    OUR Postgres dense arm and box 3 embeds its own questions (§8.3). A deployment with a
+    working box 3 and no Azure embedding deployment is a real and correct configuration; a
+    check ordered the other way would have degraded it to T0 over a credential its live
+    store does not use. A misconfigured box 3 falls through to the Postgres rules below with
+    the missing precondition already named by `supermemory.supermemory_t3`.
     """
     provider = get_settings().retrieval_provider
-    if provider not in (PGVECTOR_PROVIDER, SUPERMEMORY_PROVIDER):
+    if provider == SUPERMEMORY_PROVIDER:
+        # The fallback is the store box 3 replaces, constructed whatever this deployment's
+        # embedding state is: `PgVectorRetriever` degrades to its own sparse arm when no
+        # question vector can be bought, which is strictly more than T0 and is a decision
+        # that adapter already took and tested.
+        t3 = supermemory_t3(session, fallback=PgVectorRetriever(session))
+        if t3 is not None:
+            return KnowledgeRetriever(session, t3=t3)
+    elif provider != PGVECTOR_PROVIDER:
         return CompiledFactsRetriever(session)
     if embedding_leg() is None or not embedding_price_is_billable():
         log.error(
@@ -89,19 +102,7 @@ def get_retriever(session: AsyncSession) -> RetrievalProvider:
                 "priced": embedding_price_is_billable(),
             },
         )
-        # NOT reached for `supermemory` on the way to box 3 — this is the state of the
-        # FALLBACK store, and a deployment whose Postgres dense arm is unconfigured can
-        # still have a working box 3. It degrades all the way to T0 only because the
-        # fallback would too, and a T3 answer that cannot be backed by anything if box 3
-        # blinks is a worse promise than the one T0 keeps.
         return CompiledFactsRetriever(session)
-    if provider == SUPERMEMORY_PROVIDER:
-        t3 = supermemory_t3(session, fallback=PgVectorRetriever(session))
-        if t3 is not None:
-            return KnowledgeRetriever(session, t3=t3)
-        # Unconfigured, and `supermemory_t3` has already said which precondition failed.
-        # Falling through to the Postgres composite rather than to T0: the store that was
-        # about to be the fallback is a strictly better answer than no store at all.
     return KnowledgeRetriever(session)
 
 
