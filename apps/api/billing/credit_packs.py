@@ -19,7 +19,7 @@ THE MODEL, in one paragraph
 Every pack carries `sarvam_inr_per_min` and `cartesia_inr_per_min`. Which one prices a call
 is a property of the AGENT that took it — its voice tier, derived from the voice's provider
 (`rates.VoiceTier`, plan §2.3.7) — never of the wallet. So the same 15,000 credits buy
-3,191 minutes on a Sarvam agent and 2,307 on a Cartesia one, and the wallet screen quotes
+3,750 minutes on a Sarvam agent and 2,459 on a Cartesia one, and the wallet screen quotes
 both (plan Q7). `bonus_pct` is zero on every pack and is retained ONLY as the deprecated
 field named in §10; nothing sets it and nothing new may read it.
 
@@ -46,14 +46,22 @@ cannot disagree about what "thin" means:
 * **below cost is a REFUSAL** — `card_refusals` names it, `tests/credit_packs_test.py`
   fails on it, and the ops console will not write a card containing it.
 * **below `MIN_GROSS_MARGIN` is a WARNING**, and the approved card is deliberately in that
-  band on the Sarvam column. Re-deriving the floor without telephony (D-474) put it at
-  ₹4.1211/min against Sarvam rates of ₹5.00 down to ₹4.50, i.e. **17.6% down to 8.4%** —
-  under the 20% target and above cost throughout. That is the founder's card, not a
-  defect; the guard's job is to make the number visible and to refuse the line below which
-  we would be paying for the client's minute.
+  band on **eight of its twelve cells** (the founder's card of 14 Sep 2026). Against the
+  D-592 floors — ₹3.3111 Clear, ₹4.7099 Studio — a flat ₹4.00 Clear minute earns **17.2%**
+  on every rung, and the two deepest Studio rungs earn **18.8%** (₹5.80) and **14.4%**
+  (₹5.50). Nothing is below COST. That is a deliberate price cut to win the first clients,
+  not a defect; the guard's job is to make the number visible and to refuse the line below
+  which we would be paying for the client's minute. ⚠ **DO NOT "FIX" A THIN CELL BY MOVING
+  A RATE** — holding 20% everywhere would need Clear ₹4.15 and a Studio floor of ₹5.90, and
+  that is a pricing decision, not a test failure. This paragraph read "₹4.1211/min against
+  Sarvam rates of ₹5.00 down to ₹4.50, i.e. 17.6% down to 8.4%" until 14 Sep 2026; both the
+  floor and the card have moved since.
 
-Invariant 6 (plan §2.3) is checked here too: on every pack `cartesia >= sarvam`, and both
-columns fall monotonically as `amount_inr` rises. A card that inverts either is refused.
+Invariant 6 (plan §2.3) is checked here too: on every pack `cartesia >= sarvam`, and
+neither column RISES as `amount_inr` rises. ⚠ It is "never rises", not "always falls": the
+Clear column is FLAT at ₹4.00 across all six rungs since 14 Sep 2026, and a guard written
+as strict descent would refuse the card that is on sale. A card that inverts either is
+refused.
 """
 
 from __future__ import annotations
@@ -107,7 +115,7 @@ PACK_BONUS_CLAWBACK_META_KIND: Final[str] = "credit_pack_bonus_clawback"
 class CreditPack:
     """One purchasable pack: an amount, and one per-minute rate per voice tier.
 
-    Both rates are the founder-approved card of 7 Sep 2026 and are stated in the card's own
+    Both rates are the founder-approved card of 14 Sep 2026 and are stated in the card's own
     unit (₹/min at `MONEY_Q` precision), so the constant a reviewer reads is the constant
     the guard scores and the constant a lot freezes.
     """
@@ -167,20 +175,31 @@ class CreditPack:
         return self.paid_credits + self.bonus_credits
 
 
-#: THE RATE CARD (founder sign-off, 7 Sep 2026 — plan §2.2). Six rungs from ₹2,000 to
-#: ₹50,000, each with a Sarvam and a Cartesia ₹/min. Two properties are deliberate:
+#: THE RATE CARD (founder sign-off, 14 Sep 2026 — `docs/PIPECAT-MIGRATION.md` §12). Six
+#: rungs from ₹2,000 to ₹50,000, each with a Sarvam (Clear) and a Cartesia (Studio) ₹/min.
+#: Three properties are deliberate:
 #:
-#: * **The Cartesia column falls FASTER than the Sarvam one** (8.00 → 6.00, a 25% fall,
-#:   against 5.00 → 4.50, a 10% fall). Cartesia's cost is a monthly SUBSCRIPTION with an
-#:   included allotment, so the per-minute cost of a Cartesia minute falls as volume
-#:   amortises the fee (`rates.cartesia_cost_inr_per_call_minute`), and the card passes that
-#:   shape on. ⚠ It does not fall for ever: past the allotment the vendor's overage rate
-#:   applies and the curve turns back up towards `rates.CARTESIA_COST_FLOOR_INR_PER_MIN`,
-#:   which is why every rung carries a break-even volume
+#: * **The Clear column is FLAT at ₹4.00** across all six rungs. It used to fall 5.00 →
+#:   4.50; the founder replaced the ladder with one number (14 Sep 2026 — the decision is
+#:   recorded, its rationale is not, so none is invented here). What the code can say is
+#:   that the Clear floor does not amortise the way the Studio one does: every Clear leg is
+#:   a per-minute or per-character published price, with no monthly allotment to spread, so
+#:   a falling Clear rate would have been a discount against a cost that never fell. The
+#:   `starter` rung's Clear rate is what `CreditPacksOut.list_rate_inr_per_min` publishes;
+#:   flat means that number now describes every rung.
+#: * **The Studio column still falls**, 7.00 → 5.50 in even ₹0.30 steps, a 21.4% fall.
+#:   Cartesia's cost is a monthly SUBSCRIPTION with an included allotment, so the
+#:   per-minute cost of a Cartesia minute really does fall as volume amortises the fee
+#:   (`rates.cartesia_cost_inr_per_call_minute`), and the card passes that shape on. ⚠ It
+#:   does not fall for ever: past the allotment the vendor's overage rate applies and the
+#:   curve turns back up towards `rates.CARTESIA_COST_FLOOR_INR_PER_MIN`, which is why
+#:   every rung carries a break-even volume
 #:   (`rates.cartesia_rung_breakeven_call_minutes`) and the ops console prints it.
-#: * **`starter` keeps ₹5.00 on the Sarvam column** — the rate every existing client was
-#:   sold at (`Settings.self_serve_inr_per_min`), so this card raises nobody's price. It is
-#:   also what `CreditPacksOut.list_rate_inr_per_min` publishes.
+#: * **THIS CARD CUTS EVERY PRICE AND EIGHT OF ITS TWELVE CELLS EARN UNDER 20%** — the
+#:   whole Clear column at 17.2%, and Studio's `pro` (18.8%) and `max` (14.4%) rungs.
+#:   Nothing is below COST, so the console warns rather than refuses. It is the founder's
+#:   deliberate opening price to win the first clients; see the module docstring's margin
+#:   section before "correcting" a thin cell.
 #:
 #: ⚠ **THE BONUS PERCENTAGES ARE GONE, NOT SET TO ZERO BY OVERSIGHT.** They were the margin
 #: model until D-547 (`effective = list / (1 + bonus)`); the rates below ARE the margin
@@ -190,38 +209,38 @@ PACK_CATALOGUE: Final[tuple[CreditPack, ...]] = (
     CreditPack(
         pack_id="starter",
         amount_inr=Decimal("2000"),
-        sarvam_inr_per_min=Decimal("5.00"),
-        cartesia_inr_per_min=Decimal("8.00"),
+        sarvam_inr_per_min=Decimal("4.00"),
+        cartesia_inr_per_min=Decimal("7.00"),
     ),
     CreditPack(
         pack_id="growth",
         amount_inr=Decimal("5000"),
-        sarvam_inr_per_min=Decimal("5.00"),
-        cartesia_inr_per_min=Decimal("7.00"),
+        sarvam_inr_per_min=Decimal("4.00"),
+        cartesia_inr_per_min=Decimal("6.70"),
     ),
     CreditPack(
         pack_id="scale",
         amount_inr=Decimal("10000"),
-        sarvam_inr_per_min=Decimal("4.85"),
-        cartesia_inr_per_min=Decimal("6.75"),
+        sarvam_inr_per_min=Decimal("4.00"),
+        cartesia_inr_per_min=Decimal("6.40"),
     ),
     CreditPack(
         pack_id="plus",
         amount_inr=Decimal("15000"),
-        sarvam_inr_per_min=Decimal("4.70"),
-        cartesia_inr_per_min=Decimal("6.50"),
+        sarvam_inr_per_min=Decimal("4.00"),
+        cartesia_inr_per_min=Decimal("6.10"),
     ),
     CreditPack(
         pack_id="pro",
         amount_inr=Decimal("25000"),
-        sarvam_inr_per_min=Decimal("4.60"),
-        cartesia_inr_per_min=Decimal("6.25"),
+        sarvam_inr_per_min=Decimal("4.00"),
+        cartesia_inr_per_min=Decimal("5.80"),
     ),
     CreditPack(
         pack_id="max",
         amount_inr=Decimal("50000"),
-        sarvam_inr_per_min=Decimal("4.50"),
-        cartesia_inr_per_min=Decimal("6.00"),
+        sarvam_inr_per_min=Decimal("4.00"),
+        cartesia_inr_per_min=Decimal("5.50"),
         best_value=True,
     ),
 )
