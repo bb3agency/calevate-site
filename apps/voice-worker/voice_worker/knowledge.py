@@ -301,12 +301,19 @@ _TOKEN_RE: Final[re.Pattern[str]] = re.compile(
 #: golden_transcripts.json` shows Saaras returning in every question ("Appointment ela book
 #: cheskovali?"). It is deliberately short: a word wrongly listed here is a question the
 #: agent cannot answer, which is a worse failure than a word wrongly kept.
+#:
+#: "us" IS NOT HERE, AND THAT IS A GUARD SPEAKING, NOT A LINGUIST. `scripts/check_model_
+#: residency.py` refuses a bare `"us"` anywhere in `apps/` that is not a `Final` constant's
+#: value, because OpenAI's residency regions are two-letter and a loose one is a region pin
+#: no check can see. Its own docstring names a future locale or dict key as the cost and
+#: calls the trade correct. Dropping the pronoun is the right side of this list's bias
+#: anyway: "us" is never a topic word, and a query carrying it loses nothing.
 _QUERY_STOPWORDS: Final[frozenset[str]] = frozenset(
     {
         # English
         "a", "an", "and", "any", "are", "at", "be", "by", "can", "could", "do", "does",
         "for", "from", "have", "how", "i", "in", "is", "it", "me", "my", "of", "on", "or",
-        "please", "tell", "that", "the", "there", "this", "to", "us", "was", "we", "what",
+        "please", "tell", "that", "the", "there", "this", "to", "was", "we", "what",
         "when", "where", "which", "who", "will", "with", "would", "you", "your",
         # Tenglish / romanised Telugu function words
         "ela", "emi", "enti", "ekkada", "eppudu", "evaru", "kavali", "meeru", "mee",
