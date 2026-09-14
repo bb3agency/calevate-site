@@ -77,9 +77,10 @@ dimensions is **5,003,292 B**. So the choice is worth 3.9x and the few-hundred-e
 the phone rings — and a pack that times out is answered `temporarily_unavailable`, which is
 strictly worse than the lexical-only pack it replaced. ⚠ **WHETHER 5 MB FITS IN THAT BUDGET
 IS STILL UNMEASURED**: the budget is an assumption (its own docstring says so), a size is
-not a transfer time, and nobody has timed the fetch from `ap-south`. float32 is also what every vector store holds; cosine
-over it is the industry default, and the precision the JSON form would preserve is
-precision the ranking cannot use.
+not a transfer time, and nobody has timed the fetch from `ap-south`.
+
+float32 is also what every vector store holds; cosine over it is the industry default, and
+the precision the JSON form would preserve is precision the ranking cannot use.
 
 **THE VECTORS ARE NOT IN THE DIGEST AND THE EMBEDDING DECLARATION IS. THAT IS THE ONE
 NON-OBVIOUS CHOICE IN THIS FILE, SO HERE IS THE WHOLE ARGUMENT.** A vector is a DERIVED
