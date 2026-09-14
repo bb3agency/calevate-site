@@ -235,9 +235,24 @@ def allocate_paise(parts: Sequence[Decimal], total: Decimal) -> tuple[Decimal, .
     Raises when `total` is not the parts' own total (a caller pairing a breakdown with a
     figure summed from somewhere else), because the alternative is to silently return
     parts that do not add up — the exact failure this function was written to end.
+
+    **AND RAISES WHEN `total` IS NOT A WHOLE NUMBER OF PAISE**, which is the same guard and
+    used to be a hole in it. `owed` is an `int()` of a quotient and `int()` truncates
+    towards zero, so a total carrying sub-paisa digits left half a paisa still owed, read
+    as `0` owed, passed `0 <= owed <= len(parts)` and RETURNED — parts that do not add up,
+    from the function whose one promise is that they do. `allocate_paise([₹10.005],
+    ₹10.005)` answered `(₹10.00,)`; `([₹0.0050], ₹0.0050)` answered `(₹0.00,)` and the
+    whole amount vanished. Every caller today passes `to_paise(...)`, so it reached no
+    invoice — which is why it is closed now, while that is still true. Only the TOTAL is
+    constrained: the PARTS may carry any precision, and dividing them is the whole job.
     """
     if not parts:
         return ()
+    if total != total.quantize(PAISE, rounding=ROUND_FLOOR):
+        raise ValueError(
+            f"allocate_paise: {total} is not a whole number of paise, so no allocation of "
+            "it can be exact — quantize the total before splitting it"
+        )
     floors = [part.quantize(PAISE, rounding=ROUND_FLOOR) for part in parts]
     owed = int((total - sum(floors, Decimal("0"))) / PAISE)
     if not 0 <= owed <= len(parts):

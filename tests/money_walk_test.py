@@ -351,6 +351,39 @@ def test_allocate_paise_refuses_a_total_that_is_not_the_parts_total() -> None:
     assert allocate_paise([], Decimal("0.00")) == ()
 
 
+def test_allocate_paise_refuses_a_total_that_is_not_a_whole_number_of_paise() -> None:
+    """**THE HOLE IN THE GUARD ABOVE**: a total carrying sub-paisa digits was neither
+    allocated nor refused — it was silently answered with parts that do not add up.
+
+    `owed = int((total - sum(floors)) / PAISE)` truncates towards zero, so half a paisa
+    still owed reads as `0` owed, lands inside `0 <= owed <= len(parts)`, and the function
+    returns. `allocate_paise([₹10.005], ₹10.005)` gave `(₹10.00,)` — a part a full half-
+    paisa from its own exact value, against a docstring that promises "the parts sum to
+    `total` exactly" and a guard whose stated job is the caller "pairing a breakdown with a
+    figure summed from somewhere else".
+
+    Every caller today passes `to_paise(...)`, so this was not reaching an invoice. That is
+    the reason to close it now rather than a reason not to: the function is exported, the
+    promise is absolute, and the next caller to compute a total any other way gets a
+    breakdown that does not add up and no error saying so. Money guards fail safe or they
+    are decoration.
+
+    ₹0.0050 is the case that shows it is not a rounding quibble: the whole amount vanishes.
+    """
+    with pytest.raises(ValueError, match="whole number of paise"):
+        allocate_paise([Decimal("10.005")], Decimal("10.005"))
+    with pytest.raises(ValueError, match="whole number of paise"):
+        allocate_paise([Decimal("0.0050")], Decimal("0.0050"))
+    with pytest.raises(ValueError, match="whole number of paise"):
+        allocate_paise([Decimal("1.0000"), Decimal("2.0001")], Decimal("3.0001"))
+    # The PARTS may carry any precision — that is the whole point of the allocation.
+    # It is only the TOTAL, the figure a client is charged, that must be paise.
+    assert allocate_paise([Decimal("3.3333"), Decimal("6.6667")], Decimal("10.00")) == (
+        Decimal("3.33"),
+        Decimal("6.67"),
+    )
+
+
 # ============================================================================
 # 3. The IST month roll, with work in flight
 # ============================================================================
