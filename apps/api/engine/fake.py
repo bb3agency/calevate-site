@@ -1379,7 +1379,19 @@ class FakeEngine:
         return hmac.new(self._webhook_secret.encode(), body, hashlib.sha256).hexdigest()
 
     def parse_webhook(self, payload: dict[str, Any]) -> CallEvent:
-        status = str(payload.get("status") or "completed")
+        # AN ABSENT STATUS IS NOT A COMPLETED CALL, and this line defaulted to
+        # `"completed"`. `_normalized_status` fails closed on a status it does not
+        # RECOGNISE, and the default one field away failed OPEN on a status that was never
+        # SENT — so the adapter that refuses `"some-new-status-2027"` settled a payload
+        # carrying no status at all as a success. `status` is what decides whether a call
+        # is settled, metered and extracted, so that is the one wrong answer with a cost.
+        #
+        # `or ""` is the shape `bolna.py::_snapshot` and `cartesia.py` already use (both
+        # map the empty string through their table and land on `failed`), so this is the
+        # existing answer applied rather than a second one invented. The empty `raw_status`
+        # that results is honest: the sender said nothing, and the forensic row records
+        # that rather than a word we supplied on its behalf.
+        status = str(payload.get("status") or "")
         normalized = _STATUS_MAP.get(status, "failed")
         return CallEvent(
             call_id=str(payload.get("id") or payload.get("execution_id") or ""),

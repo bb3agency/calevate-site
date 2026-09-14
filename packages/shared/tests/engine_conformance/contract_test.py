@@ -1030,6 +1030,31 @@ async def test_unknown_vendor_status_degrades_to_failed(engine: VoiceEngine) -> 
     assert event.status == "failed"
 
 
+async def test_a_payload_with_no_status_at_all_is_not_a_success(engine: VoiceEngine) -> None:
+    """The clause above pins the UNKNOWN status. This pins the ABSENT one, and they are
+    different failures with the same remedy.
+
+    An adapter that falls closed on `"some-new-status-2027"` can still fall OPEN on a
+    payload that names no status at all, because the default is chosen at a different line
+    from the map — and a default is exactly where nobody looks. `status` is what decides
+    whether a call is settled, metered and extracted, so an absent one that reads as
+    `completed` settles a call on the strength of a field the sender never sent. At an
+    unsigned endpoint the sender chooses which fields to omit.
+
+    `failed` is not asserted, because it is not the only honest answer — an adapter whose
+    vendor always sends a status may reasonably treat absence as `unknown` or refuse the
+    payload outright. What is forbidden is the one answer that cannot be honest: reporting
+    a call we know nothing about as having succeeded.
+    """
+    event = engine.parse_webhook({"id": "exec_yyy", "agent_id": "agent_xyz"})
+    assert event.status != "completed", (
+        "a payload that names no status was reported as a completed call — the one status "
+        "that settles, meters and extracts it. Fail closed on the absent field as well as "
+        "on the unrecognised one."
+    )
+    assert event.status in VALID_STATUSES
+
+
 #: The smallest thing that is unambiguously a PDF. The conformance stub asserts the file
 #: part starts with it, which is what stops an adapter passing the KB clauses while
 #: uploading the approved TEXT — the exact body shape D-354 found on the wire.
