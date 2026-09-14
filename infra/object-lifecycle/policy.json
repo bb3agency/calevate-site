@@ -51,6 +51,16 @@
       }
     },
     {
+      "ID": "carrier-compliance-growth-ceiling-not-retention",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "carrier-compliance/"
+      },
+      "Expiration": {
+        "Days": 2555
+      }
+    },
+    {
       "ID": "abort-incomplete-multipart-uploads",
       "Status": "Enabled",
       "Filter": {

@@ -106,6 +106,35 @@ UPLOADS_PREFIX = "kb-uploads/"
 # yet. It is not needed yet either: a pack is a few hundred KB at the very top of §8.2's
 # sizing, so a hundred agents republishing daily for a year is single-digit GB.
 PACKS_PREFIX = "knowledge-packs/"
+# A client's CARRIER COMPLIANCE submission (`storage.carrier_document_key`) — the signed
+# application and the supporting document behind it, the evidence a telecom carrier
+# accepted this business. A CEILING, at the same number as the three above, and it is
+# here because it was MISSING: this prefix has been written since the carrier-application
+# flow shipped and appeared in no rule, no constant in this file and no assertion in
+# `tests/object_lifecycle_test.py` — the only prefix in the bucket with nothing bounding
+# it at all. `test_no_prefix_storage_writes_is_missing_from_this_file` derives the set
+# from `storage.py` now, so a seventh cannot land the same way.
+#
+# **7 YEARS IS THE BUCKET'S CEILING CONVENTION AND NOT A RETENTION PERIOD, and the
+# distinction is the whole reason this number can be chosen here at all.** How long a
+# carrier registration must be evidenced for is a REGULATOR'S ANSWER nobody in this repo
+# has (UNKNOWN — no TRAI/DLT page has been read for it, and the carrier's own terms are
+# not in this tree), and inventing one would be hard rule 11. What a ceiling decides is
+# only "may these bytes grow without bound", and the answer to that is no whatever the
+# legal period turns out to be, because 2555 days is longer than any period this product
+# has ever been asked to keep anything for. If a real period lands and it is SHORTER, it
+# belongs in a per-tenant mechanism like every other real retention clock here, not in a
+# bucket rule measured from an object's creation.
+CARRIER_DOCUMENTS_PREFIX = "carrier-compliance/"
+
+#: Prefixes deliberately left with NO expiry rule, each with the argument for it.
+#:
+#: ⚠ EMPTY, AND KEPT AS A NAMED EMPTY RATHER THAN OMITTED —
+#: `tests/migration_rls_bracket_test.UNAUDITED_PRE_EXISTING`'s pattern. An entry here is a
+#: prefix somebody decided may grow without bound; the register is where that decision has
+#: to be written down instead of being inferred from a rule's absence, which is exactly how
+#: `carrier-compliance/` went unbounded for its whole life.
+UNBOUNDED_PREFIXES: dict[str, str] = {}
 
 
 class PolicyError(Exception):

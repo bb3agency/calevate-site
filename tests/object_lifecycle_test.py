@@ -48,6 +48,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 import pytest
+from apps.workers import storage
 from apps.workers.retention import RECORDING_FLOOR_DAYS
 from apps.workers.storage import delivery_body_key, kb_object_key, payload_key, recording_key
 from calevate_shared.knowledge_pack import pack_object_key
@@ -255,6 +256,56 @@ def test_every_written_prefix_is_covered_by_some_rule(policy: dict) -> None:
     ):
         assert any(written.startswith(prefix) for prefix in covered), (
             f"nothing expires {written!r} — it accumulates forever"
+        )
+
+
+def test_no_prefix_storage_writes_is_missing_from_this_file(policy: dict) -> None:
+    """THE REVERSE DIRECTION, and it is why a sixth prefix could land unnoticed.
+
+    Every check above enumerates the key builders BY HAND — `recording_key`,
+    `payload_key`, `kb_object_key`, `pack_object_key`, `delivery_body_key` — so a prefix
+    added to `storage.py` after they were written is invisible to all of them. That is the
+    count-in-prose defect hard rule 4 exists for, applied to a list of buckets instead of a
+    list of tables, and it had already happened: `CARRIER_DOCUMENT_PREFIX` has been in
+    `storage.py` since the carrier-application flow shipped, carries a client's signed
+    application and the identity document behind it, and appeared in no rule, no constant
+    in `apply_lifecycle.py` and no assertion here.
+
+    So the set is DERIVED. `storage.py`'s `*_PREFIX` module constants are the source of
+    truth for what this system puts in the bucket, and each one must be either bounded by
+    an enabled expiry rule or listed in `apply_lifecycle.UNBOUNDED_PREFIXES` with a reason
+    a reviewer can weigh — `check_rls_coverage`'s standard for an exemption, at its number,
+    so the two registers cannot drift into different standards of proof.
+
+    `recordings/` is deliberately not derivable: `recording_key` spells it inline and the
+    tests above pin it explicitly, which is the stronger check of the two for the one
+    prefix whose bytes are a caller's voice.
+    """
+    covered = {
+        rule.get("Filter", {}).get("Prefix", "")
+        for rule in policy["Rules"]
+        if rule["Status"] == "Enabled" and rule.get("Expiration", {}).get("Days") is not None
+    }
+    written = {
+        f"{value.rstrip('/')}/"
+        for name, value in vars(storage).items()
+        if name.endswith("_PREFIX") and isinstance(value, str) and value
+    }
+    assert written, "no `*_PREFIX` constant found in storage.py — this guard sees nothing"
+
+    for prefix in sorted(written):
+        if any(prefix.startswith(rule) for rule in covered if rule):
+            continue
+        reason = applier.UNBOUNDED_PREFIXES.get(prefix)
+        assert reason is not None, (
+            f"{prefix!r} is written by `apps/workers/storage.py` and nothing bounds it: no "
+            "enabled expiry rule matches it and it is not registered in "
+            "`apply_lifecycle.UNBOUNDED_PREFIXES`. Either give it a ceiling or say in one "
+            "sentence why it may grow without one"
+        )
+        assert len(reason) >= 40, (
+            f"the reason registered for {prefix!r} is too short to be an argument — an "
+            "exemption list nobody has to justify an entry in is where a register rots"
         )
 
 
