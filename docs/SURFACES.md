@@ -384,6 +384,19 @@ Admin realm (`/admin/…`)
   second live token for one address is refused: without a way to see and cancel the first,
   an operator whose token was lost was stuck for 72 hours, and the client-realm revoke
   cannot help an account whose owner has not signed in yet.
+- **Who holds a client account** (`/admin/tenants/{id}/members`;
+  `GET` the roster, `PATCH .../{user_id}` the role, `DELETE .../{user_id}` the access —
+  D-602). The surface the invitation list above stops at: an invitation is a key in an
+  inbox, and this is a key that has been USED. It carries four facts that screen cannot —
+  the role, the joining date, whether the person ever verified their address, and how many
+  of the client's leads are assigned to them — because removal does not unassign anybody's
+  work, so the count has to be beside the decision rather than only in its answer.
+  Deactivated people are LISTED rather than hidden (the client's own picker hides them),
+  because their membership still counts toward the last-owner rule. The removal takes the
+  composed step-up and the role change deliberately does not: a role change is one click
+  back on the same screen, and a removal has no undo on our side at all — the way back is a
+  fresh invitation the person must redeem themselves. Nobody is ADDED here, and no person is
+  deactivated here (`users` is global and crosses tenants).
 - **Two-speed publishing controls**, on that same page: **Apply to live calls** /
   **Undo** (`POST …/apply` with the staged version as the CAS token, `POST …/undo`) and
   the **per-agent call cap** (`PATCH …/call-cap`, applies immediately — a live agent is

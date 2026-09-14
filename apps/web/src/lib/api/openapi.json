@@ -185,7 +185,7 @@
       },
       "AddVoiceFormOut": {
         "additionalProperties": false,
-        "description": "EVERYTHING THE ADD FORM NEEDS, from the server.\n\nThe browser composes none of it. Which providers exist, which models run on them, which\nlanguages this product sells and why ElevenLabs is refused are all facts with a single\nsource in `agents/voices.py` and `agents/voice_admission.py`, and a second copy in\nTypeScript is the copy that goes stale the day a model changes.",
+        "description": "EVERYTHING THE ADD FORM NEEDS, from the server.\n\nThe browser composes none of it. Which providers exist, which models run on them, which\nlanguages this product sells and why ElevenLabs is refused are all facts with a single\nsource in `agents/languages.py`, `agents/voices.py` and `agents/voice_admission.py`,\nand a second copy in\nTypeScript is the copy that goes stale the day a model changes.",
         "properties": {
           "languages": {
             "items": {
@@ -20751,6 +20751,118 @@
         "title": "SubmitOut",
         "type": "object"
       },
+      "TeamMemberOut": {
+        "additionalProperties": false,
+        "description": "One person who can sign in to this client's account right now.\n\n**The address is here in full, and that is the same disclosure `PendingInviteOut`\nalready makes one screen away** \u2014 not a widening of it. `email` is a\n`CONTACT_PII_FIELD`, which `scripts/check_redaction_exposure.py` permits on a route\nthat declares a permission (D-436), and this read declares one, runs in the tenant's\nown RLS scope and records an impersonation read. It is here because the operator is\nabout to revoke somebody's access BY NAME and `name` cannot carry that weight: it is\nNULLABLE (an invitee who typed no name has none) and it is not unique, so a console\noffering \"Remove Ramesh\" against a team with two would be a control whose target the\noperator cannot verify. The client-realm `MemberOut` omits the address for the\nopposite reason and both are right \u2014 that one is an assignee picker for colleagues\nwho already know each other, and nothing on it acts on a person.\n\n`leads_assigned` is on the ROSTER and not only in the removal's answer, because it is\nthe fact that decides the act. Removal does not unassign anybody's work\n(`members.remove_member` argues why), so an operator who sees the number afterwards\nhas already made a pile of leads nobody's business; seeing it first is how that\nbecomes a conversation with the client instead.",
+        "properties": {
+          "deactivated": {
+            "title": "Deactivated",
+            "type": "boolean"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "email_verified": {
+            "title": "Email Verified",
+            "type": "boolean"
+          },
+          "joined_at": {
+            "format": "date-time",
+            "title": "Joined At",
+            "type": "string"
+          },
+          "leads_assigned": {
+            "title": "Leads Assigned",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "name",
+          "email",
+          "role",
+          "joined_at",
+          "email_verified",
+          "deactivated",
+          "leads_assigned"
+        ],
+        "title": "TeamMemberOut",
+        "type": "object"
+      },
+      "TeamMemberRemovedOut": {
+        "additionalProperties": false,
+        "description": "What the removal did, in the words the operator has to read back to the client.\n\nNAMED `Team...` RATHER THAN `MemberRemovedOut`, which is what it was called for one\ncommit. `tenancy/routes.py` already exports a model of that name and a structurally\nidentical shape, and two same-named models make the generator emit BOTH under\ncollision-qualified keys (`apps__api__tenancy__routes__MemberRemovedOut`) \u2014 which\nsilently breaks every `components[\"schemas\"][\"MemberRemovedOut\"]` alias already\nwritten in `lib/api/members.ts`. That is the exact failure `scripts/\ncheck_openapi_fresh.py` records in its own docstring, and it is invisible to\n`tsc` on the branch that causes it, because the frontend compiles against a snapshot\nnobody regenerated.",
+        "properties": {
+          "leads_still_assigned": {
+            "title": "Leads Still Assigned",
+            "type": "integer"
+          },
+          "previous_role": {
+            "title": "Previous Role",
+            "type": "string"
+          },
+          "user_id": {
+            "format": "uuid",
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "previous_role",
+          "leads_still_assigned"
+        ],
+        "title": "TeamMemberRemovedOut",
+        "type": "object"
+      },
+      "TeamMemberRoleIn": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_role": {
+            "enum": [
+              "owner",
+              "staff"
+            ],
+            "title": "Expected Role",
+            "type": "string"
+          },
+          "role": {
+            "enum": [
+              "owner",
+              "staff"
+            ],
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "expected_role"
+        ],
+        "title": "TeamMemberRoleIn",
+        "type": "object"
+      },
       "TemplateOut": {
         "additionalProperties": false,
         "properties": {
@@ -29500,6 +29612,189 @@
           "admin"
         ],
         "x-calevate-permission": "billing:read"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/members": {
+      "get": {
+        "description": "Everyone holding a membership of this account: their role, when they redeemed their invitation, whether they have verified their address, whether the person has been deactivated platform-wide, and how many of this client's leads are assigned to them. This is the surface the invitation list stops at \u2014 an invitation is a key in an inbox, and this is a key that has been used. A tenant id that names no client answers 404 rather than an empty list, because 'nobody has access to this account' is a claim that must not be made about a typo.",
+        "operationId": "list_tenant_members_v1_admin_tenants__tenant_id__members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 200,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/TeamMemberOut"
+                  },
+                  "title": "Response List Tenant Members V1 Admin Tenants  Tenant Id  Members Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Who can sign in to this client's account right now",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "org:read"
+      }
+    },
+    "/v1/admin/tenants/{tenant_id}/members/{user_id}": {
+      "delete": {
+        "description": "Deletes the membership: the person can no longer sign in to this account, from their very next request. Their user account, the leads they own and the timeline entries naming them all survive \u2014 the leads stay assigned to them, and the count is returned so it can be said out loud. Needs the header `X-Confirm-Action: remove_member_access:<tenant_id>:<user_id>` and a second factor proved recently. Refused with 409 `last_owner_protected` for the only owner, and with 409 `member_removed_elsewhere` if somebody removed them first. THERE IS NO UNDO: the way back is a fresh invitation the person must redeem themselves.",
+        "operationId": "remove_tenant_member_v1_admin_tenants__tenant_id__members__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "x-confirm-action",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Confirm-Action"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamMemberRemovedOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Take somebody's access to this client's account away",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
+      },
+      "patch": {
+        "description": "Changes one person's role. `expected_role` must be the role the console was showing: if the client changed it themselves in the meantime the request is refused with 409 `member_role_changed_elsewhere` rather than applying a click made against a stale picture. Demoting the last owner is refused with 409 `last_owner_protected` \u2014 an account with no owner cannot invite anybody, change a role or manage its own settings. Setting the role somebody already holds is a no-op and writes no audit row.",
+        "operationId": "set_tenant_member_role_v1_admin_tenants__tenant_id__members__user_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tenant_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tenant Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TeamMemberRoleIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamMemberOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Move somebody between owner and staff on this client's account",
+        "tags": [
+          "admin"
+        ],
+        "x-calevate-permission": "admin:tenants"
       }
     },
     "/v1/admin/tenants/{tenant_id}/numbers": {

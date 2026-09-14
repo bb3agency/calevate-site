@@ -421,7 +421,27 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # scheduled for November. They are DIFFERENT strings (`record_rate_card:` /
     # `cancel_rate_card:`) for `close_and_schedule_erasure`'s reason one entry up: a
     # confirmation captured to schedule a change must not be replayable to withdraw one.
-    assert sites == 36, f"found {sites} step-up call sites, expected 36; the census went stale"
+    #
+    # THE THIRTY-SEVENTH IS TAKING ONE PERSON'S ACCESS TO ONE CLIENT ACCOUNT AWAY
+    # (`admin/members_routes.py::remove_tenant_member`, D-602). It is the only entry whose
+    # ground is neither "it outlives the session" nor "it destroys data": the membership
+    # row is small and the person's user account, leads and timeline entries all survive
+    # it. What puts it here is that WE CANNOT PUT IT BACK. Every other reversible act on
+    # this console is undone by the same operator on the same screen — which is exactly why
+    # the reversible half of `set_tenant_status` LOST its gate, three entries up — and the
+    # repair for this one is a fresh invitation that the removed person must themselves
+    # receive and redeem. An operator who removes the wrong owner has handed the fix to
+    # somebody who can no longer sign in.
+    #
+    # Its SIBLING on the same router takes no gate and that asymmetry is the argument:
+    # `set_tenant_member_role` moves somebody between owner and staff, which is one click
+    # back on the screen they are already looking at, and ceremony there would teach an
+    # operator to type past ceremony on the route where it matters.
+    #
+    # The confirmation carries BOTH ids (`remove_member_access:<tenant>:<user>`). The
+    # tenant alone would let a header captured for the departed receptionist be replayed
+    # against the owner listed above them — one row's distance on that screen.
+    assert sites == 37, f"found {sites} step-up call sites, expected 37; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

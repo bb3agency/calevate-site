@@ -98,6 +98,7 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.admin.closure_routes import router as tenant_closure_router
     from apps.api.admin.health_routes import router as client_health_router
     from apps.api.admin.holds_routes import router as hold_queue_router
+    from apps.api.admin.members_routes import router as tenant_members_router
     from apps.api.admin.number_routes import router as number_supply_router
     from apps.api.admin.operator_routes import router as operator_router
     from apps.api.admin.routes import router as admin_router
@@ -340,6 +341,12 @@ def _mount_routers(application: FastAPI) -> None:
     # reason that one is: `/v1/admin/tenants/{tenant_id}` on `admin_router` would swallow
     # any literal segment declared later, and both of these name their tenant in the path.
     application.include_router(tenant_closure_router)
+    # D-602. Mounted here for the reason the two above it are: `/v1/admin/tenants/
+    # {tenant_id}` lives on `admin_router`, and a router declaring a literal segment after
+    # that path parameter must be included AFTER it or the parameterised route swallows
+    # the literal. Beside the closure router specifically because both are the operator's
+    # half of the same subject — who holds this account, and when it ends.
+    application.include_router(tenant_members_router)
     application.include_router(dlt_registration_router)
     application.include_router(kyc_router)
     # The RESELLER stage: our carrier approves each client business separately before a

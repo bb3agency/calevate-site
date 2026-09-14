@@ -1720,6 +1720,50 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/admin/tenants/{tenant_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Who can sign in to this client's account right now
+         * @description Everyone holding a membership of this account: their role, when they redeemed their invitation, whether they have verified their address, whether the person has been deactivated platform-wide, and how many of this client's leads are assigned to them. This is the surface the invitation list stops at — an invitation is a key in an inbox, and this is a key that has been used. A tenant id that names no client answers 404 rather than an empty list, because 'nobody has access to this account' is a claim that must not be made about a typo.
+         */
+        get: operations["list_tenant_members_v1_admin_tenants__tenant_id__members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/admin/tenants/{tenant_id}/members/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Take somebody's access to this client's account away
+         * @description Deletes the membership: the person can no longer sign in to this account, from their very next request. Their user account, the leads they own and the timeline entries naming them all survive — the leads stay assigned to them, and the count is returned so it can be said out loud. Needs the header `X-Confirm-Action: remove_member_access:<tenant_id>:<user_id>` and a second factor proved recently. Refused with 409 `last_owner_protected` for the only owner, and with 409 `member_removed_elsewhere` if somebody removed them first. THERE IS NO UNDO: the way back is a fresh invitation the person must redeem themselves.
+         */
+        delete: operations["remove_tenant_member_v1_admin_tenants__tenant_id__members__user_id__delete"];
+        options?: never;
+        head?: never;
+        /**
+         * Move somebody between owner and staff on this client's account
+         * @description Changes one person's role. `expected_role` must be the role the console was showing: if the client changed it themselves in the meantime the request is refused with 409 `member_role_changed_elsewhere` rather than applying a click made against a stale picture. Demoting the last owner is refused with 409 `last_owner_protected` — an account with no owner cannot invite anybody, change a role or manage its own settings. Setting the role somebody already holds is a no-op and writes no audit row.
+         */
+        patch: operations["set_tenant_member_role_v1_admin_tenants__tenant_id__members__user_id__patch"];
+        trace?: never;
+    };
     "/v1/admin/tenants/{tenant_id}/numbers": {
         parameters: {
             query?: never;
@@ -6623,7 +6667,8 @@ export interface components {
          *
          *     The browser composes none of it. Which providers exist, which models run on them, which
          *     languages this product sells and why ElevenLabs is refused are all facts with a single
-         *     source in `agents/voices.py` and `agents/voice_admission.py`, and a second copy in
+         *     source in `agents/languages.py`, `agents/voices.py` and `agents/voice_admission.py`,
+         *     and a second copy in
          *     TypeScript is the copy that goes stale the day a model changes.
          */
         AddVoiceFormOut: {
@@ -15574,6 +15619,90 @@ export interface components {
             /** Version */
             version: number;
         };
+        /**
+         * TeamMemberOut
+         * @description One person who can sign in to this client's account right now.
+         *
+         *     **The address is here in full, and that is the same disclosure `PendingInviteOut`
+         *     already makes one screen away** — not a widening of it. `email` is a
+         *     `CONTACT_PII_FIELD`, which `scripts/check_redaction_exposure.py` permits on a route
+         *     that declares a permission (D-436), and this read declares one, runs in the tenant's
+         *     own RLS scope and records an impersonation read. It is here because the operator is
+         *     about to revoke somebody's access BY NAME and `name` cannot carry that weight: it is
+         *     NULLABLE (an invitee who typed no name has none) and it is not unique, so a console
+         *     offering "Remove Ramesh" against a team with two would be a control whose target the
+         *     operator cannot verify. The client-realm `MemberOut` omits the address for the
+         *     opposite reason and both are right — that one is an assignee picker for colleagues
+         *     who already know each other, and nothing on it acts on a person.
+         *
+         *     `leads_assigned` is on the ROSTER and not only in the removal's answer, because it is
+         *     the fact that decides the act. Removal does not unassign anybody's work
+         *     (`members.remove_member` argues why), so an operator who sees the number afterwards
+         *     has already made a pile of leads nobody's business; seeing it first is how that
+         *     becomes a conversation with the client instead.
+         */
+        TeamMemberOut: {
+            /** Deactivated */
+            deactivated: boolean;
+            /** Email */
+            email: string;
+            /** Email Verified */
+            email_verified: boolean;
+            /**
+             * Joined At
+             * Format: date-time
+             */
+            joined_at: string;
+            /** Leads Assigned */
+            leads_assigned: number;
+            /** Name */
+            name: string | null;
+            /** Role */
+            role: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
+        /**
+         * TeamMemberRemovedOut
+         * @description What the removal did, in the words the operator has to read back to the client.
+         *
+         *     NAMED `Team...` RATHER THAN `MemberRemovedOut`, which is what it was called for one
+         *     commit. `tenancy/routes.py` already exports a model of that name and a structurally
+         *     identical shape, and two same-named models make the generator emit BOTH under
+         *     collision-qualified keys (`apps__api__tenancy__routes__MemberRemovedOut`) — which
+         *     silently breaks every `components["schemas"]["MemberRemovedOut"]` alias already
+         *     written in `lib/api/members.ts`. That is the exact failure `scripts/
+         *     check_openapi_fresh.py` records in its own docstring, and it is invisible to
+         *     `tsc` on the branch that causes it, because the frontend compiles against a snapshot
+         *     nobody regenerated.
+         */
+        TeamMemberRemovedOut: {
+            /** Leads Still Assigned */
+            leads_still_assigned: number;
+            /** Previous Role */
+            previous_role: string;
+            /**
+             * User Id
+             * Format: uuid
+             */
+            user_id: string;
+        };
+        /** TeamMemberRoleIn */
+        TeamMemberRoleIn: {
+            /**
+             * Expected Role
+             * @enum {string}
+             */
+            expected_role: "owner" | "staff";
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "owner" | "staff";
+        };
         /** TemplateOut */
         TemplateOut: {
             /** Body */
@@ -20267,6 +20396,109 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MarginOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_tenant_members_v1_admin_tenants__tenant_id__members_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                tenant_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMemberOut"][];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    remove_tenant_member_v1_admin_tenants__tenant_id__members__user_id__delete: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                tenant_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMemberRemovedOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    set_tenant_member_role_v1_admin_tenants__tenant_id__members__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                tenant_id: string;
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TeamMemberRoleIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TeamMemberOut"];
                 };
             };
             /** @description RFC-9457 problem+json */
