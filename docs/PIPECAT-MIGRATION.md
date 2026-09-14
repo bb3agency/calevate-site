@@ -303,6 +303,11 @@ hold for it to be safe, and §11 sizes the box for real volumes.
 
 ### 8.1 Why the in-call KB is not a network call
 
+⚠ **THIS SECTION SAID "ZERO NETWORK PER TURN" FULL STOP AND THAT BECAME TRUE-OF-ALMOST-EVERY-
+TURN ON 14 SEP 2026 (§8.1a).** The lexical arm below is unchanged and still answers the
+overwhelming majority; a DENSE second arm now fires on the turns it answers `not_found` or
+`ambiguous`, and that arm is one hosted request. Read both halves before quoting either.
+
 Box 1 fetches the agent's `KnowledgePack` ONCE at session start and searches it in-process
 for the rest of the call. **Measured: 0.501 ms p50 per lookup, zero network per turn.** The
 alternative — box 1 asking box 3 on every question — costs 30–50 ms of network, and makes
@@ -312,6 +317,54 @@ no retry affordance: a caller hears the hesitation.
 This is why "use Supermemory for the KB" and "the in-call KB is a pack in memory" are not in
 conflict. Box 3 is where documents LIVE and where the pack is BUILT (at publish, once). Box 1
 is where a question is ANSWERED. Nothing about adopting Supermemory changes that split.
+
+### 8.1a The dense second arm (pack format v2, 14 Sep 2026)
+
+**WHAT MOVED IS A MEASUREMENT.** The founder ran `scripts/gemini_embedding_harness.py`
+against the live Gemini API with their own key — `models/gemini-embedding-001`, 3072
+dimensions, n=24, English-only index. [VENDOR-PUBLISHED, founder-relayed live run, 14 Sep
+2026. `ai.google.dev` is egress-blocked from the build container and nobody here has read a
+vendor page for this model.]
+
+| Query form | Gemini recall@1 | recall@3 | MRR | This index (§9.4) |
+|---|---|---|---|---|
+| English | 0.9583 | 1.000 | 0.9722 | 0.833 |
+| Tenglish | **1.0000** | 1.000 | 1.0000 | 0.583 |
+| **Telugu script** | **0.9583** | 1.000 | 0.9792 | **0.083 — 22 of 24 `not_found`** |
+
+The Telugu-script row is the finding: two hits in twenty-four becomes twenty-three. That is
+not a better ranking of the same answers, it is the removal of the English-paraphrase
+dependency §9.4 calls load-bearing.
+
+**THE CORPUS SIDE COSTS A CALL NOTHING.** Passage vectors are computed at PUBLISH
+(`apps/api/kb/pack_vectors.py`) and travel inside the pack as base64 float32 — ~16 KB per
+3072-dim entry against ~60 KB as JSON decimals, which is what keeps a few-hundred-entry pack
+inside `storage.PACK_FETCH_BUDGET_S` while the phone rings. What is left on the call path is
+ONE query vector.
+
+**IT FIRES ONLY ON `not_found` AND `ambiguous`** — turns where the agent was about to tell
+the caller it has nothing. The ~0.5 ms `found` path is unchanged, which is the §4(b) finding
+(unconditional fusion makes cells WORSE) respected rather than re-learned.
+
+**IT CAN ONLY ADD.** A dense pass below `knowledge.DENSE_MIN_COSINE` leaves the lexical
+answer standing, so a badly-set threshold costs at worst today's behaviour. The one case
+where it makes a turn worse is deliberate: a FAILED query embedding answers
+`temporarily_unavailable` rather than `not_found`, because once the code has consulted a
+second arm it has said the first is not authoritative, and "this business publishes nothing
+about that" would then be a claim about a client's business made out of our own outage.
+
+**IT IS OFF UNTIL AN OPERATOR ATTESTS A PRICE.** ⚠ The Gemini embedding price is UNVERIFIED
+(§10.4) and hard rule 7's pre-flight is asked BEFORE the provider is called, so
+`pack_embedding_is_billable()` is False today, packs are built with no vectors, and the arm
+is structurally unreachable. What closes it is one figure from a vendor invoice in the ops
+console — an input outside this repository, not an engineering task.
+
+**Budget:** `embedding.EMBED_BUDGET_S` = 1.2 s, strictly below `FUNCTION_CALL_TIMEOUT_SECS`
+(2.0 s) so a hung encoder still returns the honest word INSIDE the tool call. ⚠ That number
+is an ASSUMPTION with a measurement beside it: five POSTs to the live route from the build
+container on 14 Sep 2026 took 0.24–0.51 s including TLS (~0.16 s warm), against an INVALID
+key so no inference ran and over the wrong network. The real figure is larger and is UNKNOWN
+until the first live call from Pipecat Cloud `ap-south` measures it (§3.6).
 
 ### 8.2 What the pack contains, and how big it is
 
@@ -435,6 +488,12 @@ language code.
 
 ### 9.2 English-only indexing
 
+⚠ **THIS IS THE LEXICAL INDEX, AND SINCE 14 SEP 2026 IT IS NOT THE ONLY ONE (§8.1a).** The
+dense arm embeds the client's OWN WORDS together with the gloss and reads the source language
+directly, which is why its Telugu-script row is 0.9583 against this one's 0.083. Everything
+below remains exactly right about the arm it describes; "the index is English-only" is no
+longer a statement about in-call retrieval as a whole.
+
 **Store BOTH, index ONE.** Every chunk keeps the client's original text (for display,
 provenance and the client-facing record) and an English gloss. **Only the English is
 indexed and searched.** Justification is measured, not assumed
@@ -491,7 +550,9 @@ none):
 
 **SO THE ENGLISH PARAPHRASE IS LOAD-BEARING, NOT A CONVENIENCE.** If it ever stops — a prompt
 edit, a model swap, a tool description that stops asking for it — in-call retrieval does not
-degrade, **it stops**, and 0.083 is the number it stops at. That conclusion is what
+degrade, **it stops**, and 0.083 is the number it stops at. ⚠ **AND THAT IS WHY §8.1a EXISTS:
+the dense arm is the floor under this failure**, measured at 0.9583 on the same Telugu-script
+row — but only once a price is attested, so until then the sentence stands unqualified. That conclusion is what
 generalises: the index has no tokens in common with any non-Latin Indic script, so every
 language in §9.5 depends on step 2 exactly as Telugu does, and a change to the search tool's
 description is a change to all of them at once.
@@ -596,6 +657,13 @@ published by Sarvam in rupees and do not. The **LLM** leg is struck at `LIST_PRI
 TRD §10's fifteen cost points.
 
 ### 10.4 Embedding cost is not a per-minute cost
+
+⚠ **"ZERO EMBEDDINGS ON THE CALL PATH" WAS TRUE UNTIL 14 SEP 2026 AND §8.1a IS THE CHANGE.**
+The dense fallback buys ONE query embedding on each turn the lexical arm answers `not_found`
+or `ambiguous` — a short question, on a minority of turns, against the per-call figures
+below, so it does not move the per-minute model. It is also OFF until the price this section
+says is unverified has been attested, which is the same fact stated twice: hard rule 7 will
+not let an unpriced embedding reach `unit_cost_paid`, so it will not let one be bought.
 
 **Zero embeddings on the call path** — the pack is lexical. Embeddings occur twice per CALL
 (caller-memory read at start, write at end, ~165 tokens total) and once per DOCUMENT at
