@@ -93,6 +93,15 @@ BODIES: dict[str, dict[str, Any] | None] = {
         "experiment_id": str(uuid.uuid4())
     },
     "PATCH /v1/admin/tenants/{tenant_id}/agents/{agent_id}/call-cap": {"max_call_duration_s": 300},
+    # THE TEAM ROSTER (D-602). A CAS body, so BOTH roles are required or the route answers
+    # `kind=validation` before it ever looks the tenant up — which is exactly the mask this
+    # census exists to strip off: a 422 there would hide whatever the route really does
+    # about an account that is not there.
+    "PATCH /v1/admin/tenants/{tenant_id}/members/{user_id}": {
+        "role": "staff",
+        "expected_role": "owner",
+    },
+    "GET /v1/admin/tenants/{tenant_id}/members": None,
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt": {"body": PROMPT_BODY},
     "POST /v1/admin/tenants/{tenant_id}/agents/{agent_id}/prompt/rollback": {"version": 1},
     # THE CATALOGUE'S OWN DEFAULT, not a literal. A voice id is `<tts_model>:<speaker>`
@@ -296,6 +305,19 @@ def _confirmation_for(key: str, ids: dict[str, str]) -> str | None:
 #: `impersonation_reads_test.ADMIN_CONSOLE_GETS`: an entry that stops matching a live
 #: route fails, so this cannot quietly become the place defects go.
 NOT_A_404: dict[str, str] = {
+    "DELETE /v1/admin/tenants/{tenant_id}/members/{user_id}": (
+        "the step-up gate answers BEFORE the tenant is looked up, and that ordering is "
+        "correct rather than convenient: re-authentication is a statement about the "
+        "OPERATOR, not about the account, so asking it first is what stops a stale "
+        "privileged session from probing which tenant ids exist by reading the difference "
+        "between 404 and 403. The 403 it answers is `step_up_required`, which names no "
+        "client state and is identical for a real account and an absent one — the property "
+        "this census is defending, reached the other way round. Its two siblings on the "
+        "same screen (the roster read and the role change) are ordinary 404s, so a "
+        "mistyped id is still caught the moment the screen loads. CLOSED BY: nothing; "
+        "moving the lookup in front of the gate would trade an operator-scoped answer for "
+        "an account-scoped one and make the probe work."
+    ),
     "GET /v1/admin/tenants/{tenant_id}/erasure": (
         "the ONE surface whose subject is the deletion. `tenant_erasure_routes` argues it "
         "at module level: `tenant_exists` treats a soft-deleted tenant as absent, so "
