@@ -33,6 +33,7 @@ from voice_worker.knowledge import (
     _TOKEN_RE,
     AMBIGUITY_MARGIN,
     INDIAN_SCRIPT_NAMES,
+    DenseIndex,
     LexicalIndex,
     PackCache,
     SessionKnowledge,
@@ -336,10 +337,16 @@ async def test_a_pack_that_does_not_load_is_a_state_not_an_exception(
 
 @pytest.mark.asyncio
 async def test_an_unknown_format_version_is_refused_rather_than_half_parsed() -> None:
+    """A version NEWER than anything this build understands is refused whole.
+
+    `format_version=3` rather than 2: 2 is what the builder writes today and 1 is still
+    served (`test_a_version_one_pack_still_answers_lexically`), so the version that proves
+    this rule has to be one `SUPPORTED_PACK_FORMAT_VERSIONS` genuinely does not contain.
+    """
     entries = clinic_entries()
     digest = KnowledgePack.digest(CLINIC_TENANT, CLINIC_AGENT, entries)
     future = KnowledgePack(
-        format_version=2,
+        format_version=3,
         tenant_id=CLINIC_TENANT,
         agent_id=CLINIC_AGENT,
         content_sha256=digest,
@@ -416,7 +423,7 @@ def test_a_cached_pack_whose_identity_disagrees_is_evicted_not_served() -> None:
     agent, and a disagreeing entry is REMOVED so the next caller cannot be handed it."""
     cache = PackCache()
     pack = build_pack(CLINIC_TENANT, CLINIC_AGENT, clinic_entries())
-    cache.put(pack, LexicalIndex(pack.entries))
+    cache.put(pack, LexicalIndex(pack.entries), DenseIndex(pack))
 
     assert cache.get(pack.content_sha256, tenant_id=ESTATE_TENANT, agent_id=ESTATE_AGENT) is None
     assert cache.keys == ()
@@ -451,10 +458,10 @@ def test_the_cache_is_bounded_and_evicts_least_recently_used() -> None:
         for n in range(3)
     ]
     for pack in packs[:2]:
-        cache.put(pack, LexicalIndex(pack.entries))
+        cache.put(pack, LexicalIndex(pack.entries), DenseIndex(pack))
     # Touch the oldest so it is no longer least-recently-used.
     cache.get(packs[0].content_sha256, tenant_id=packs[0].tenant_id, agent_id=packs[0].agent_id)
-    cache.put(packs[2], LexicalIndex(packs[2].entries))
+    cache.put(packs[2], LexicalIndex(packs[2].entries), DenseIndex(packs[2]))
 
     assert len(cache) == 2
     assert packs[1].content_sha256 not in cache.keys

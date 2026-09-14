@@ -122,10 +122,21 @@ async def test_an_unglossed_chunk_is_carried_with_no_gloss_rather_than_dropped()
     assert built.entries[0].text == "The clinic opens at 9 am."
 
 
-async def test_a_pack_carries_no_vector_field_at_all() -> None:
-    """Version 1 is text-only and that is a measurement, not an omission
-    (`knowledge_pack.py:25-43`). `kb_chunks.embedding` is in the very table the builder
-    reads, so the way this regresses is somebody adding one field to a SELECT."""
+async def test_the_pack_never_carries_the_dashboard_index_vector() -> None:
+    """Version 2 carries vectors, and `kb_chunks.embedding` is STILL not where they come from.
+
+    That column holds `text-embedding-3-small` at 1536 dimensions for the dashboard's
+    pgvector index; the pack's dense arm compares against a query vector from
+    `kb/pack_vectors.EMBEDDING_MODEL`, and two encoders' vectors are not comparable however
+    similar the numbers look. A dot product between them computes happily and means nothing,
+    so the way this regresses — somebody adding one field to a SELECT in `_ENTRIES_SQL` —
+    would produce a dense arm that ranks confidently and wrongly with nothing in any log.
+
+    The entry's field set is asserted as an EQUALITY so a new field has to be argued for
+    here, and `vector_f32_b64` is asserted `None` because no operator has attested the Gemini
+    embedding price in a test process (`pack_vectors.pack_embedding_is_billable`), which is
+    hard rule 7's pre-flight declining before a provider is ever called.
+    """
     tenant_id, agent_id = await _tenant_with_published_knowledge("The clinic opens at 9 am.")
     async with tenant_session(tenant_id) as session:
         built = await kb_pack.build_pack(session, tenant_id=tenant_id, agent_id=agent_id)
@@ -136,7 +147,10 @@ async def test_a_pack_carries_no_vector_field_at_all() -> None:
         "document_version",
         "text",
         "gloss",
+        "vector_f32_b64",
     }
+    assert built.entries[0].vector_f32_b64 is None
+    assert built.embedding_model is None and built.embedding_dimensions is None
 
 
 async def test_a_withdrawn_source_leaves_the_pack() -> None:
