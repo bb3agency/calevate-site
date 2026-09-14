@@ -63,12 +63,19 @@ PACK_FETCH_BUDGET_S: Final[float] = 2.0
 BUCKET_ENV: Final[str] = "OBJECT_STORE_BUCKET"
 ENDPOINT_ENV: Final[str] = "OBJECT_STORE_ENDPOINT"
 
-#: The codes S3 uses for "that object is not there". Absent is a different fact from
+#: The codes S3 uses for "that OBJECT is not there". Absent is a different fact from
 #: unreachable and the two must not merge: `knowledge.load_session_knowledge` answers
 #: `absent` to one and `fetch_failed` to the other, and only one of them should page
 #: anybody. Same set as `apps/workers/storage.read_kb_object`, which is the same question
 #: asked of the same store.
-_MISSING_CODES: Final[frozenset[str]] = frozenset({"NoSuchKey", "NoSuchBucket", "404", "NotFound"})
+#:
+#: ⚠ **`NoSuchBucket` WAS IN THIS SET AND IS NOT A MISSING OBJECT.** It says the BUCKET is
+#: not there, which is one misspelled `OBJECT_STORE_BUCKET` away and is a deploy fault, not
+#: a client who published nothing — and with it here every call of every tenant on that
+#: container reported the benign, permanent state while the operator's only log line said
+#: the clients had emptied their own knowledge bases. It also broke the parity this comment
+#: claims: `read_kb_object` never matched it.
+_MISSING_CODES: Final[frozenset[str]] = frozenset({"NoSuchKey", "404", "NotFound"})
 
 
 class ObjectStoreNotConfiguredError(RuntimeError):
@@ -100,9 +107,19 @@ def _client(endpoint: str) -> Any:
 
     **THE TIMEOUTS ARE THE REAL BOUND.** `asyncio.timeout` in `fetch` stops the AWAIT; only
     these stop the SOCKET, so without them a hung read would leave a thread holding a
-    connection for the life of the process. `max_attempts=1` — no retry — because a retry
-    inside a fixed wall-clock budget spends it twice and hands the caller the same silence;
-    the pack is fetched once per session and the next session retries it anyway.
+    connection for the life of the process. NO RETRY, because a retry inside a fixed
+    wall-clock budget spends it twice and hands the caller the same silence; the pack is
+    fetched once per session and the next session retries it anyway.
+
+    **`total_max_attempts`, NOT `max_attempts`, AND THIS LINE READ `max_attempts=1` WHILE
+    CLAIMING "no retry".** They are different keys with different units: botocore's own
+    `Config` docstring (VERIFIED-VENDOR-SPEC, `botocore/config.py` as installed in this
+    tree's lockfile, read 14 Sep 2026) defines `max_attempts` as "the maximum number of
+    RETRY attempts" and `total_max_attempts` as the total "includ[ing] the initial request,
+    so a value of 1 indicates that no requests will be retried". So `max_attempts=1` bought
+    exactly the second round trip the comment said it refused — and the `asyncio.timeout`
+    in `fetch` hides it, releasing the caller after one budget while the THREAD goes on to
+    a second, holding the connection the paragraph above exists to bound.
     """
     return boto3.Session().client(
         "s3",
@@ -112,7 +129,7 @@ def _client(endpoint: str) -> Any:
             signature_version="s3v4",
             connect_timeout=PACK_FETCH_BUDGET_S,
             read_timeout=PACK_FETCH_BUDGET_S,
-            retries={"max_attempts": 1},
+            retries={"total_max_attempts": 1},
         ),
     )
 

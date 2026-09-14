@@ -182,6 +182,83 @@ async def test_a_withdrawn_source_leaves_the_pack() -> None:
     assert built.entries == ()
 
 
+async def test_every_real_path_leaves_the_two_is_active_flags_agreeing() -> None:
+    """THE INVARIANT THE THREE READERS OF THIS PROJECTION DISAGREE ABOUT IN WRITING.
+
+    `kb/pack._LIVE_CHUNK` asks for `c.is_active AND s.is_active`;
+    `retrieval/pgvector._SEARCH_SQL`'s scope and `workers/kb_embeddings._CLAIM_SQL` ask
+    only for `c.is_active`. Two spellings of "live" is the drift the quality bar calls a
+    defect even while both agree, and the reason they DO agree is not in any of the three
+    statements — it is that every writer of `kb_sources.is_active` converges the projection
+    in the same transaction (`_DEACTIVATE_SQL` on the publish path, the explicit flip on
+    the withdrawal path). Nothing asserted that, so the day a fourth path archived a source
+    without it, the pack would drop a chunk the dashboard and the embedding sweep would
+    both keep.
+
+    The test above manufactures the divergence with a hand-written UPDATE, deliberately, to
+    pin which flag the builder reads. This one is its complement: it runs the paths a
+    client can actually reach — two versions of one named source, a second independent
+    source, and a withdrawal — and asserts no row is left disagreeing.
+    """
+    tenant_id, agent_id = await _tenant_with_published_knowledge(
+        "Trouser alteration is eighty rupees.", "Stitched clothes are ready in four days."
+    )
+    async with tenant_session(tenant_id) as session:
+        # A second version of the FIRST source's name, which archives its predecessor.
+        republished = await kb_service.submit_source(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Fees 0",
+            body="Trouser alteration is ninety rupees.",
+        )
+        await kb_service.approve_source(session, source_id=republished["id"], approved_by=None)
+        await kb_service.publish_source(
+            session, tenant_id=tenant_id, source_id=uuid.UUID(str(republished["id"]))
+        )
+        # ...and a withdrawal of the second source, the other writer of that flag.
+        withdrawn = (
+            await session.execute(
+                text("SELECT id FROM kb_sources WHERE tenant_id = :t AND name = 'Fees 1'"),
+                {"t": tenant_id},
+            )
+        ).scalar_one()
+        await kb_service.withdraw_source(
+            session, tenant_id=tenant_id, source_id=uuid.UUID(str(withdrawn))
+        )
+
+    async with tenant_session(tenant_id) as session:
+        disagreeing = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM kb_chunks c JOIN kb_sources s ON s.id = c.source_id "
+                    "WHERE c.tenant_id = :t AND c.is_active <> s.is_active"
+                ),
+                {"t": tenant_id},
+            )
+        ).scalar_one()
+        # And the two spellings select the same set, which is the property that actually
+        # matters — a count of zero above is how it is achieved, not what is promised.
+        both = (
+            await session.execute(
+                text(
+                    "SELECT count(*) FROM kb_chunks c JOIN kb_sources s ON s.id = c.source_id "
+                    "WHERE c.tenant_id = :t AND c.is_active AND s.is_active"
+                ),
+                {"t": tenant_id},
+            )
+        ).scalar_one()
+        projection_only = (
+            await session.execute(
+                text("SELECT count(*) FROM kb_chunks c WHERE c.tenant_id = :t AND c.is_active"),
+                {"t": tenant_id},
+            )
+        ).scalar_one()
+
+    assert disagreeing == 0
+    assert both == projection_only == 1
+
+
 async def test_an_agent_with_nothing_published_gets_an_empty_pack_and_not_an_error() -> None:
     """The error ladder: a clinic that has uploaded nothing is a valid state. The worker
     must be able to answer `not_found` (a fact about the corpus) rather than
