@@ -1594,8 +1594,12 @@ vendor's Pro overage rate over one call-minute of characters). Telephony is in n
 because the client pays their own carrier (D-474).
 
 ⚠ **THE CARTESIA FIGURE WAS ₹4.3639 UNTIL 9 SEP 2026 AND THE MARGINS IN THE TABLE ABOVE
-MOVED WITH IT** — the Cartesia column now runs 30.1% at ₹8.00 down to **6.8%** at ₹6.00,
-where it used to read 45.5% down to 27.3%. Nothing was repriced: the old floor was the $49
+MOVED WITH IT** — on the card then in force the Cartesia column went from reading 45.5%
+down to 27.3% to reading 30.1% at ₹8.00 down to **6.8%** at ₹6.00. ⚠ **BOTH HALVES HAVE
+MOVED AGAIN SINCE AND NEITHER PAIR IS TODAY'S**: D-592 halved the engine leg (the floors are
+₹3.3111 and ₹4.7099) and D-601 cut the card (Clear flat ₹4.00, Studio 7.00 → 5.50). The
+twelve margins in force are computed, never quoted — `credit_packs.card_margins`, tabulated
+in `docs/PIPECAT-MIGRATION.md` §12. Nothing was repriced: the old floor was the $49
 Startup plan fee spread over the ~2,315 call-minutes at which its allotment is exactly
 consumed, i.e. the cheapest a Cartesia minute can EVER be, at a volume this platform has
 never run. It was a best case wearing a floor's name, and the ops console printed it under
@@ -1711,15 +1715,19 @@ to reconcile — do not build on it without direct verification.)*
 > robotic voices". That is consistent with **Bulbul v2** and not with v3, and it is the
 > evidence that settles which Sarvam model sits behind `rates.sarvam_per_min`. Their ₹7
 > premium is Cartesia; **so is our second voice, since D-547.** Our Sarvam voice is
-> **Bulbul v3** at ₹5.00 falling to ₹4.50 by pack — two rungs above their cheapest — and
-> our Cartesia voice is **Sonic 3.5** at ₹8.00 on the entry pack, passing under their ₹7
-> only at the ₹10,000 pack (₹6.75) and reaching ₹6.00 at ₹50,000. We start ABOVE them on
-> the same vendor's voice, for the reason this whole section exists: they pay nothing at
-> the orchestration layer and we pay a platform fee.
+> **Bulbul v3** at a flat **₹4.00** by pack — ₹1 above their cheapest tier — and our
+> Cartesia voice is **Sonic 3.5** at **₹7.00** on the entry pack, level with their premium,
+> falling under it from the ₹5,000 pack (₹6.70) and reaching **₹5.50** at ₹50,000. ⚠ **THIS
+> READ "₹5.00 falling to ₹4.50" AND "₹8.00 ... reaching ₹6.00" UNTIL D-601 (14 Sep 2026)**,
+> and the conclusion under it moved with the card: we no longer start ABOVE them on the same
+> vendor's voice — we start level on Studio and go under. The reason the gap existed at all
+> is unchanged and is why this section exists: they pay nothing at the orchestration layer
+> and we pay a platform fee, so the room we have is the room D-592's cheaper engine leg
+> bought us.
 >
 > So the honest competitive line is **not** "they undercut us on the same voice" — it is
-> that our only voice is better than the one they sell at ₹3 and priced 29% under the one
-> they sell at ₹7. ⚠ **WHAT IS STILL UNVERIFIED, AND MUST NOT BE WRITTEN AS FACT:** whether
+> that our everyday voice is better than the one they sell at ₹3 and priced **43% under**
+> the one they sell at ₹7 (it was 29% under at ₹5.00, before D-601 cut it to ₹4.00). ⚠ **WHAT IS STILL UNVERIFIED, AND MUST NOT BE WRITTEN AS FACT:** whether
 > Bulbul v3 *matches* Cartesia's quality. That is an ear judgement nobody in this tree has
 > made on Telugu clinic sentences (§5 already lists it as "ear-test at verification"), so
 > "premium voice at the standard price" stays a claim awaiting a dated founder attestation.

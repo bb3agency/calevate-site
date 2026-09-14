@@ -179,7 +179,7 @@ export function formatAmountINR(amount: string): string {
  * The pack that delivers this voice's "from" rate, or the last pack if none matches.
  *
  * PER VOICE since D-547, and it has to be: the two columns fall at different speeds
- * (Cartesia 8.00 → 6.00 against Sarvam 5.00 → 4.50), so "the cheapest pack" is a question
+ * (Studio 7.00 → 5.50 against a FLAT Clear 4.00), so "the cheapest pack" is a question
  * with two answers and the old single-rate form silently answered the Sarvam one for both.
  * It matched on `effective_rate_inr_per_min`, a field that is now deprecated and holds the
  * Sarvam figure for unmigrated readers — which is exactly how a caller asking about the

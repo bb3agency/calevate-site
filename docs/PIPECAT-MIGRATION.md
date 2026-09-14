@@ -251,7 +251,7 @@ three seconds per turn.
 | 13 | Golden caller-language → English-hit set in CI | **FIRST ARM LANDED 14 Sep 2026**: `tests/in_call_retrieval_recall_test.py` scores the real pack and the real search, no wiring needed. What remains is a second language's corpus. §9.4 |
 | 14 | Supermemory on box 2 behind `RetrievalProvider`; embedding pointed at Gemini and PROVEN non-local | §8.3's `top` check |
 | 15 | `kb_chunks` and our lexical search retire; `kb_documents` ledger stays | step 14 |
-| 16 | Apply the new rate card (§12) — catalogue plus the wide fixture update | nothing; it is the next piece of work |
+| 16 | Apply the new rate card (§12) — catalogue plus the wide fixture update | **DONE, 14 Sep 2026.** `PACK_CATALOGUE` carries Clear ₹4.00 flat and Studio 7.00 → 5.50; sixteen test files and three web surfaces moved with it |
 
 **Nothing before step 6 needs an account.** Pipecat is a library; the worker runs locally.
 
@@ -639,18 +639,49 @@ behaviour), not vendor-published. Supermemory publishes no sizing guidance at al
 
 ## 12. WHAT CHANGED IN THE RATE CARD
 
-⚠ **DECIDED, NOT YET APPLIED.** Founder decision, 14 Sep 2026: **Clear ₹4.00 flat; Studio
-₹7.00 at the ₹2,000 pack down to ₹5.50 at the ₹50,000 pack.** Middle Studio rungs
-interpolated at even ₹0.30 steps. `PACK_CATALOGUE` still carries the OLD card
-(Clear 5.00→4.50, Studio 8.00→6.00) as of this writing; §6 step 16 applies it.
+✅ **APPLIED, 14 Sep 2026.** Founder decision of the same day: **Clear ₹4.00 flat; Studio
+₹7.00 at the ₹2,000 pack down to ₹5.50 at the ₹50,000 pack**, middle Studio rungs at even
+₹0.30 steps. `billing/credit_packs.PACK_CATALOGUE` carries it; the card it replaced was
+Clear 5.00→4.50, Studio 8.00→6.00.
 
-The change is one edit to the catalogue and a WIDE test update: the old rates are pinned as
-literals, and as arithmetic derived from them, across `credit_lots_wiring`,
-`credit_refund_lots`, `credit_lot_reprice`, `public_rate_card`, `list_rate_card`,
-`cartesia_volume`, `ops_rate_card_write`, `cost_floor`, `credit_packs` and
-`credit_lots_helpers` — roughly twenty assertions plus prose. It was attempted and reverted
-rather than rushed: a card is money, and a half-checked substitution across fixtures that do
-arithmetic on the old numbers is how a wrong rate reaches an invoice.
+The change was one edit to the catalogue and a WIDE test update: the old rates were pinned
+as literals, and as arithmetic derived from them, across sixteen test files. It had been
+attempted and reverted once rather than rushed, because a half-checked substitution across
+fixtures that do arithmetic on the old numbers is how a wrong rate reaches an invoice.
+
+**WHAT THE SECOND ATTEMPT DID DIFFERENTLY, AND THE FOUR SITES THAT NEEDED MORE THAN A
+SUBSTITUTION.** Every rate that was an assertion ABOUT THE CARD IN FORCE is now derived
+from `PACK_CATALOGUE` rather than retyped, so the next move of the card is a one-line
+change. Four tests were not substitutions at all — a flat Clear column deletes the
+difference they were built on, and a blind replace would have left each one passing while
+proving nothing:
+
+* `credit_lot_reprice::test_the_next_call_is_charged_at_the_replacements_rate` re-priced a
+  `growth` lot to `max` and charged a CLEAR minute. Both rungs now sell Clear at ₹4.00, so
+  it would have passed whether or not the re-price did anything. Moved to Studio.
+* `credit_refund_lots::test_a_refunded_purchase_does_not_price_the_clients_next_top_up` had
+  the identical problem: a phantom `max` lot and a real `starter` lot price Clear the same,
+  so the money defect it guards became invisible. Moved to Studio.
+* `credit_lot_reprice::test_a_reprice_that_raises_both_tiers_names_both_of_them` can no
+  longer be reached from ANY pair of catalogue packs — no pack raises Clear against another
+  — so the plural branch of the refusal message is now driven from a lot opened at rates
+  below every rung, which is what a bespoke `override` lot holds.
+* `cost_floor::test_the_approved_card_clears_both_floors_and_every_rung_clears_target`
+  asserted the opposite of the truth and is renamed: it now asserts the POSTURE (below cost
+  is refused, under target is warned) and reads the twelve margins back rather than
+  encoding the rule in them.
+
+`tests/credit_lots_helpers.GROWTH` / `PLUS` deliberately KEEP the 7 Sep figures. A lot's
+rates are frozen for the life of its credit, so a wallet really does hold rows priced at
+cards no longer sold — and with Clear flat, fixtures rebuilt from today's catalogue could
+not show a call splitting across two lots at two Clear rates at all.
+
+**THREE FRONTEND SURFACES CARRIED A SENTENCE, NOT A RATE, AND ALL THREE WERE FALSE.** No
+page holds a price — every figure renders from the API — but `billing/WhatCallsCost.tsx`
+rendered "₹4.00 a minute, down to ₹4.00 on the largest pack", `pricing/page.tsx`'s section
+heading promised "the rate comes down as the pack gets bigger" above a table with a voice
+switch, and `marketing/roiCalculator.tsx` said "Down to ₹X/min on the deepest pack" in both
+voice captions. Each now derives the claim from the card, per column.
 
 | Pack | Clear | Clear margin | Studio | Studio margin |
 |---|---|---|---|---|
@@ -662,8 +693,20 @@ arithmetic on the old numbers is how a wrong rate reaches an invoice.
 | max ₹50,000 | ₹4.00 | 17.2% | ₹5.50 | 14.4% |
 
 **8 of 12 cells sit under the 20% gross-margin target.** None is under COST, so the ops console
-warns rather than refuses. This is a deliberate price cut to win the first clients, recorded as
-a decision rather than absorbed silently. To hold 20% instead: Clear ₹4.15, Studio floor ₹5.90.
+warns rather than refuses — eight WARNING lines in its card preview, which
+`tests/ops_rate_card_write_test.py` now pins by count and by set. This is a deliberate price cut
+to win the first clients, recorded as a decision rather than absorbed silently. To hold 20%
+instead: Clear ₹4.15, Studio floor ₹5.90. **Do not "fix" a thin cell by nudging a rate** — it is
+the founder's number, and the guard's job is to make it visible.
 
-`credit_packs.py::PACK_CATALOGUE` is the single source; every pricing surface renders from the
-API, so no frontend file carries a price.
+Two consequences of the cut that are worth having written down:
+
+* **The Studio break-even volumes all moved out.** A rung stops losing money at a higher
+  monthly volume when its rate is lower: 82 / 87 / 93 / 99 / 106 / 114 platform call-minutes
+  a month (were 69 / 82 / 86 / 91 / 96 / 101). At the ops console's bottom ladder rung —
+  100 call-minutes, ₹6.0211 a minute — `pro` and `max` are under water, where only `max` was.
+* **The ROI calculator's case got STRONGER, by lowering our own side.** The published
+  comparison's gap widened from ₹12,000 to ₹22,400 a month at its default inputs.
+
+`credit_packs.py::PACK_CATALOGUE` is the single source, and the margin figures above are
+recomputed from it against `rates.cost_floor_inr_per_min` rather than copied.

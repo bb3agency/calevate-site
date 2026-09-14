@@ -28,7 +28,8 @@ bundle (D-469). **A voice tier is never a bill**: what a Cartesia call actually 
 per character is Phase D's `TtsPriceAttestation`; everything here is the margin MODEL.
 
 ⚠ **THE APPROVED CARD IS BELOW THE 20% TARGET ON ITS WHOLE SARVAM COLUMN AND ABOVE COST
-THROUGHOUT** — 17.6% at ₹5.00 down to 8.4% at ₹4.50 against a ₹4.1211 floor. That is the
+THROUGHOUT** — 17.2% at a flat ₹4.00 against a ₹3.3111 floor (it read 17.6% at ₹5.00 down
+to 8.4% at ₹4.50 against ₹4.1211 before D-592 moved the floor and D-601 the card). That is the
 founder's card (plan §2.2) read against a floor re-derived without telephony, and it is
 why the guard REFUSES below cost and only REPORTS below target. Do not "fix" a
 below-target row by moving the floor.
@@ -1986,8 +1987,10 @@ class RateMargin:
     `cost` is CARRIED rather than left to the caller because there are two floors now
     (D-547) and a verdict that does not say which one it was struck against is a verdict a
     reader has to guess at — the ops console's card preview renders twelve of these side by
-    side, six against ₹4.1211 and six against ₹5.5899 (⚠ the second read ₹4.3639 until
-    D-556 replaced a best case with the worst marginal cost).
+    side, six against `SELF_SERVE_COST_FLOOR_INR_PER_MIN` and six against
+    `CARTESIA_COST_FLOOR_INR_PER_MIN` (₹3.3111 and ₹4.7099 since D-592 halved the engine
+    leg; ⚠ this named ₹4.1211 and ₹5.5899, and the second of those read ₹4.3639 until D-556
+    replaced a best case with the worst marginal cost).
     """
 
     rate: Decimal
