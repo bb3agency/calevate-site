@@ -19,10 +19,22 @@ WHY A SWEEP AND NOT AN ENQUEUE FROM `kb.service.submit_source`. A cron that sele
 provider outage, a chunk written by a path nobody has invented yet, and a row that existed
 before this feature all converge on the next tick with no reconciliation code. An enqueue
 would need exactly that reconciliation to be trustworthy, which is the sweep, so the sweep
-is the one mechanism rather than the second one. Timeliness is not a cost here because
-nothing BLOCKS on a gloss: `retrieval/compiled_facts.py` reads it live from `kb_documents`,
-so a gloss that lands after its source was published starts working immediately, with no
-prompt re-mint and no republish.
+is the one mechanism rather than the second one. Timeliness is not a cost on the T0 leg
+because nothing blocks on a gloss there: `retrieval/compiled_facts.py` reads it live from
+`kb_documents`, so a late gloss starts ranking immediately, with no prompt re-mint and no
+republish.
+
+⚠ **"NO REPUBLISH" WAS TRUE OF THAT LEG AND THIS PARAGRAPH ONCE SAID IT OF THE WHOLE
+FEATURE, WHICH WAS WRONG.** `kb_chunks.tsv` — the sparse arm of T3's hybrid search — is
+built from the chunk's text AND its gloss and is FROZEN AT PUBLISH by
+`kb.service.project_chunks`. The normal ordering publishes first (a reviewer approves and
+publishes in one sitting; this sweep fires at :12 and :42), so the key was built before the
+English half of it existed and nothing rebuilt it — permanently, since only a republish of
+that same source passes that way again. The consequence is not a degraded match but no
+match at all: a Latin-script question and a Telugu-script passage share no lexemes, so
+`tsv @@ q` is false and the arm returns nothing. So this sweep now RE-KEYS what it glosses,
+through `kb.service.refresh_projection_keys` — the same `_TSV_SQL` the publish uses, never
+a second spelling of the key.
 
 THE SPEND CONTROLS, because this job costs real money on a timer and nothing above it
 says no:
@@ -85,6 +97,7 @@ from apps.api.core.settings import get_settings
 from apps.api.crm.assist import ASSIST_FEATURE_KB_GLOSS
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb.gloss import GLOSS_NOT_NEEDED, GLOSS_PENDING, GLOSS_READY, needs_gloss
+from apps.api.kb.service import refresh_projection_keys
 from apps.workers import chat
 from apps.workers.extraction import AZURE_PROVIDER, azure_credentials
 
@@ -109,6 +122,15 @@ MAX_CHUNKS_PER_TICK: Final = 60
 
 #: Per tenant, so one account pasting a 200-page manual cannot consume the whole tick.
 MAX_CHUNKS_PER_TENANT: Final = 20
+
+#: Projection rows RE-KEYED per tenant per tick (`kb.service.refresh_projection_keys`).
+#: A ceiling rather than "all of them" for `MAX_CHUNKS_PER_TICK`'s reason applied to a
+#: statement instead of to a provider: this runs over every tenant holding knowledge, and an
+#: UPDATE whose size is a client's whole corpus is the shape that turns a background tick
+#: into a lock-held incident. Much larger than the gloss budget because the work is one
+#: statement and no money — a tick can only make 60 keys stale, so 200 drains any backlog a
+#: tick can create and still bounds the one-off catch-up over rows that predate the fix.
+MAX_REKEY_ROWS_PER_TENANT: Final = 200
 
 #: The output valve (`EXTRACTION_MAX_TOKENS`' shape). A chunk is at most
 #: `kb.service.MAX_CHUNK_CHARS` (700) characters and its English rendering is asked to be
@@ -250,6 +272,43 @@ async def _gloss_one(
     return True
 
 
+async def _rekey_one_tenant(tenant_id: UUID) -> int:
+    """Re-key this tenant's stale projection rows. Returns rows written; never raises.
+
+    **ITS OWN TRANSACTION, AFTER THE GLOSS TRANSACTION HAS COMMITTED, AND THAT ORDER IS THE
+    POINT.** Inside the gloss transaction a failure here would roll back glosses we had
+    already PAID a provider for, and the next tick would buy the identical translations to
+    reach the identical failure — the unbounded spend-and-forget loop `kb_embeddings`'
+    price pre-flight exists to refuse. So the work we bought commits first and the derived
+    key is rebuilt after, which is also why this may swallow.
+
+    **WHAT IT MAY NOT DO IS SWALLOW SILENTLY.** A stale sparse key is invisible from every
+    screen: retrieval keeps answering, one arm short, on exactly the cross-script questions
+    this whole feature exists for. The publish path has a client in front of it and fails
+    the publish loudly; a timer has nobody, so the alarm IS the report. It is `attention`
+    and not a page because nothing is lost and the next tick tries the same rows again —
+    the refresh is difference-driven, so a tick that failed leaves its work selectable.
+    """
+    try:
+        async with tenant_session(tenant_id) as session:
+            return await refresh_projection_keys(
+                session, tenant_id=tenant_id, limit=MAX_REKEY_ROWS_PER_TENANT
+            )
+    except Exception as failure:
+        alert(
+            "CORE_LOGIC",
+            "kb_gloss_rekey_failed",
+            detail=(
+                "an English gloss was stored but the retrieval projection's sparse key "
+                "could not be rebuilt from it, so cross-script questions keep missing "
+                "these chunks until a later tick succeeds"
+            ),
+            tenant_id=str(tenant_id),
+            error=type(failure).__name__,
+        )
+        return 0
+
+
 async def tenants_holding_knowledge() -> list[UUID]:
     """Every tenant that holds a knowledge source, from D-368's index.
 
@@ -331,39 +390,54 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
     budget = MAX_CHUNKS_PER_TICK
     translated = 0
     not_needed = 0
+    rekeyed = 0
     for tenant_id in tenants:
-        if budget <= 0:
-            break
-        try:
-            async with tenant_session(tenant_id) as session:
-                rows = (
-                    await session.execute(
-                        text(_CLAIM_SQL), {"limit": min(MAX_CHUNKS_PER_TENANT, budget)}
-                    )
-                ).all()
-                for row in rows:
-                    budget -= 1
-                    if await _gloss_one(
-                        session,
-                        tenant_id=tenant_id,
-                        chunk_id=UUID(str(row[0])),
-                        content=str(row[1]),
-                        leg=leg,
-                        model=model,
-                    ):
-                        translated += 1
-                    else:
-                        not_needed += 1
-        except (httpx.HTTPError, TimeoutError) as failure:
-            # The provider, for THIS tenant. Every claim in the transaction rolls back, so
-            # the chunks stay `pending` and the next tick picks them up — the correct
-            # response to a transient failure, at a cost of thirty minutes.
-            log.warning(
-                "kb_gloss_provider_failed",
-                extra={"tenant_id": str(tenant_id), "error": type(failure).__name__},
-            )
-        except Exception:
-            log.exception("kb_gloss_tenant_failed", extra={"tenant_id": str(tenant_id)})
+        # THE PAID HALF IS BUDGETED; THE RE-KEY BELOW IS NOT, AND THE LOOP NO LONGER BREAKS.
+        # It used to `break` the moment the tick's translations were spent, which was right
+        # while the only work here cost money. The re-key costs one statement and no
+        # provider call, and it has to reach tenants this tick bought nothing for: a row
+        # left stale by a publish that raced a gloss commit belongs to a tenant whose chunks
+        # are all settled, so a budgeted loop would never look at it again. What it costs is
+        # one short transaction per tenant holding knowledge, twice an hour.
+        if budget > 0:
+            try:
+                async with tenant_session(tenant_id) as session:
+                    rows = (
+                        await session.execute(
+                            text(_CLAIM_SQL), {"limit": min(MAX_CHUNKS_PER_TENANT, budget)}
+                        )
+                    ).all()
+                    for row in rows:
+                        budget -= 1
+                        if await _gloss_one(
+                            session,
+                            tenant_id=tenant_id,
+                            chunk_id=UUID(str(row[0])),
+                            content=str(row[1]),
+                            leg=leg,
+                            model=model,
+                        ):
+                            translated += 1
+                        else:
+                            not_needed += 1
+            except (httpx.HTTPError, TimeoutError) as failure:
+                # The provider, for THIS tenant. Every claim in the transaction rolls back,
+                # so the chunks stay `pending` and the next tick picks them up — the correct
+                # response to a transient failure, at a cost of thirty minutes.
+                log.warning(
+                    "kb_gloss_provider_failed",
+                    extra={"tenant_id": str(tenant_id), "error": type(failure).__name__},
+                )
+            except Exception:
+                log.exception("kb_gloss_tenant_failed", extra={"tenant_id": str(tenant_id)})
+
+        # ONE RE-KEY PER TENANT, NOT ONE PER DOCUMENT. Every chunk this tick glossed for
+        # this tenant is already committed, and the statement selects by DIFFERENCE, so a
+        # single call covers every source and every agent the tenant has — where a
+        # per-document call would recompute the same tenant's candidate set up to twenty
+        # times a tick to write the same rows. It runs whether or not this tick glossed
+        # anything here, for the reason above.
+        rekeyed += await _rekey_one_tenant(tenant_id)
 
     log.info(
         "kb_gloss_tick",
@@ -371,10 +445,11 @@ async def write_knowledge_glosses(ctx: dict[str, Any]) -> str:
             "tenants": len(tenants),
             "translated": translated,
             "not_needed": not_needed,
+            "rekeyed": rekeyed,
             "budget_left": budget,
         },
     )
-    return f"translated={translated} not_needed={not_needed}"
+    return f"translated={translated} not_needed={not_needed} rekeyed={rekeyed}"
 
 
 __all__ = [
@@ -383,6 +458,7 @@ __all__ = [
     "MAX_CHUNKS_PER_TENANT",
     "MAX_CHUNKS_PER_TICK",
     "MAX_GLOSS_CHARS",
+    "MAX_REKEY_ROWS_PER_TENANT",
     "tenants_holding_knowledge",
     "write_knowledge_glosses",
 ]

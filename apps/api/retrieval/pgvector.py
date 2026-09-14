@@ -194,9 +194,19 @@ LIMIT :k
 #: vector CHANGES what the same question returns while neither of the first two moves, and a
 #: cache that could not see that would keep serving the sparse-only answer for its whole TTL
 #: after the sweep landed.
+#:
+#: **THE FOURTH TERM IS THE SAME ARGUMENT ONE COLUMN OVER, AND IT GENERALISES THE THIRD.** A
+#: chunk gaining its English GLOSS re-keys its `tsv` (`kb.service.refresh_projection_keys`)
+#: and so changes what a cross-script question returns, while the count, the version and the
+#: embedded tally all stand still — the exact defect the third term was added for, on the
+#: arm that fires when the dense one cannot. `max(updated_at)` rather than a fourth
+#: FILTERed count because it is a property of the TABLE rather than of one feature: every
+#: writer of this projection stamps it, so the next column somebody derives here cannot
+#: reintroduce this bug. No join, so the measured cost of the epoch read does not move.
 _EPOCH_SQL: Final = f"""
 SELECT count(*), coalesce(max(c.version), 0),
-       count(*) FILTER (WHERE c.embed_state = '{EMBED_READY}')
+       count(*) FILTER (WHERE c.embed_state = '{EMBED_READY}'),
+       coalesce(extract(epoch FROM max(c.updated_at)) * 1000000, 0)
 FROM kb_chunks c
 WHERE c.tenant_id = :tid AND c.is_active
   AND (CAST(:aid AS uuid) IS NULL OR c.agent_id = CAST(:aid AS uuid))
@@ -322,13 +332,23 @@ class PgVectorRetriever:
         )
 
     async def knowledge_epoch(self, request: RetrievalRequest) -> str:
-        """`<live chunks>:<max version>:<embedded>` for this tenant and scope.
+        """`<live chunks>:<max version>:<embedded>:<last write>` for this tenant and scope.
 
         A STAMP DERIVED FROM THE DATA, not an event, for the port's stated reason: a cache
         invalidated by a publish HOOK is correct only while every writer remembers to call
-        it, and the failure is silent and lands as a stale answer. All three terms are
+        it, and the failure is silent and lands as a stale answer. All four terms are
         needed — a republish moves the version, an archive or a new source moves the count,
-        and the sweep landing a vector moves neither while changing every answer.
+        the sweep landing a vector moves neither while changing every answer, and a late
+        English gloss re-keying `tsv` moves none of the first three while changing what
+        every cross-script question returns.
+
+        The last term is the projection's own `max(updated_at)`, in microseconds so the
+        stamp stays a string of integers. THE COST, STATED: it is a clock, not content, so
+        FLOWS §7's rollback — which flips `is_active` back and stamps the rows — lands on a
+        NEW key rather than re-exposing the entries computed from the identical corpus, the
+        property `compiled_facts.knowledge_epoch` argues for its own stamp. That buys a
+        miss and a recompute, never a wrong answer, and the three content terms stay in
+        front of it so the common cases still key on content.
         """
         row = (
             await self._session.execute(
@@ -336,8 +356,8 @@ class PgVectorRetriever:
             )
         ).first()
         if row is None:  # pragma: no cover - an aggregate always returns one row
-            return "0:0:0"
-        return f"{int(row[0])}:{int(row[1])}:{int(row[2])}"
+            return "0:0:0:0"
+        return f"{int(row[0])}:{int(row[1])}:{int(row[2])}:{int(row[3])}"
 
 
 __all__ = ["PROVIDER_NAME", "TS_CONFIG", "PgVectorRetriever"]
