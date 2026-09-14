@@ -47,7 +47,7 @@ actually_emits_is_the_best_form` is what says so out loud.
 **⚠ THE TELUGU-SCRIPT NUMBER IS A REAL RESULT AND IT IS NOT A BUG TO BE FIXED HERE.** 0.083
 recall@1, 22 of 24 answered `not_found`: a Telugu-script question put STRAIGHT at an English
 index retrieves essentially nothing, and transliteration does not rescue it (romanised
-Telugu is not English — `voice_worker.knowledge.transliterate_telugu`'s own docstring says
+Telugu is not English — `voice_worker.knowledge.transliterate_indic`'s own docstring says
 so). That is the measured cost of §9.2, and it is affordable only because step 2 stands
 between the caller and this index. **It is pinned here as the load-bearing dependency it is:
 if the LLM ever stops paraphrasing into English — a prompt edit, a model swap, a tool

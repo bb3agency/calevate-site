@@ -80,29 +80,58 @@ able to move a form that did):
   stripped, so `ḍākṭar` also matches a corpus that spelled it `dakter`. Marks are stripped
   only where the base character is Latin: dropping them from Telugu would delete the vowel
   signs and turn the script into consonant soup;
-* **transliterated** — produced only when the text contains Telugu script (U+0C00-U+0C7F).
+* **transliterated** — produced only when the text contains a BRAHMIC script (see
+  `INDIAN_SCRIPT_NAMES`); Perso-Arabic is detected and deliberately not transliterated, for
+  the reason `transliterate_indic` records.
 
-⚠ **TRANSLITERATION IS NOT TRANSLATION AND MUST NEVER BE DESCRIBED AS ONE.** It produces
-ROMANISED TELUGU: `డాక్టర్` becomes `ḍākṭar`, which does **not** lexically match an English
-gloss containing "doctor" and was never going to. What it buys is narrower and real — a
-query in Telugu script has ZERO tokens in common with a Latin-script corpus, and after
-transliteration it has a chance of matching the romanised words a Tenglish-written entry
-contains. It converts an impossible match into a possible one; it does not translate.
+⚠ **TRANSLITERATION IS NOT TRANSLATION AND MUST NEVER BE DESCRIBED AS ONE.** It produces a
+ROMANISED form of the SAME language: `డాక్టర్` becomes `ḍākṭar`, `डॉक्टर` becomes `ḍôkṭara`,
+neither of which lexically matches an English gloss containing "doctor" and neither of which
+was ever going to. What it buys is narrower and real — a query in an Indian script has ZERO
+tokens in common with a Latin-script corpus, and after transliteration it has a chance of
+matching the romanised words a code-mixed entry contains. It converts an impossible match
+into a possible one; it does not translate.
 
 **The reason the lexical arm works in production is different, and it is measured.** Saaras
 returns **Tenglish** — Telugu grammar in Latin script, studded with English nouns
 ("Appointment ela book cheskovali?", `tests/fixtures/golden_transcripts.json`). Those nouns
 are already Latin and already match the English gloss, with no transliteration involved.
-Transliteration is the fallback for the Telugu-script minority of turns, not the mechanism.
+Transliteration is the fallback for the Indian-script minority of turns, not the mechanism.
 
 **NO LLM CALL, EVER, ON THIS PATH.** A translation hop mid-turn is a network round trip,
 which is the single thing this design exists to avoid. A question we cannot resolve is
 `ambiguous`, and the agent asks one clarifying question — which costs nothing and is what a
 human receptionist does.
 
-The transliterator is a mapping in this module (`_TELUGU_*` below), not a dependency: it is
-~90 codepoints of table plus three rules, and hard rule 9 makes a new transitive dependency
-tree a cost to be justified rather than a convenience.
+**IS IT WORTH KEEPING AT ALL? MEASURED, AND YES — BARELY, AND THAT IS THE HONEST ANSWER.**
+`tests/in_call_retrieval_recall_test.py` scores a Telugu-script question against an
+English-only index at **0.083 recall@1, 22 of 24 `not_found`**, which reads like a table of
+dead code. It is not: ABLATING the transliterated form (the same harness, 14 Sep 2026, with
+`transliterate_indic` replaced by the identity function) takes that row to **0.000 recall@1,
+24 of 24 `not_found`**, while `query_en` (0.833) and `query_tenglish` (0.583) do not move at
+all. So the form earns two facts out of twenty-four and costs nothing anywhere else, and the
+CI floor of 0.04 in that file is a floor UNDER a live mechanism rather than over a corpse.
+Two facts on a phone call are two callers who got an answer.
+
+Those two are the shape the mechanism actually has: a proper noun or a loanword the corpus
+spells in Latin the same way the romaniser spells it. That is why it is NOT worth nine
+hand-written tables — and why it did not need them.
+
+**ONE TABLE FOR NINE SCRIPTS, KEYED ON UNICODE'S OWN NAMES.** Every Brahmic script encodes
+the same akshara inventory, and the Unicode character NAME says which akshara a codepoint
+is, in a vocabulary that is identical across the blocks: U+0C15 is `TELUGU LETTER KA`,
+U+0915 is `DEVANAGARI LETTER KA`, U+0B95 is `TAMIL LETTER KA`. So the table below is keyed
+on the name ELEMENT (`KA`, `VOWEL SIGN AA`, `SIGN VIRAMA`) and the codepoints are looked up
+from `unicodedata` — the standard library's copy of UnicodeData.txt — rather than typed.
+Not one codepoint of any script is written out in this module, which is the point: a
+hand-typed range or a hand-typed table is a claim about the outside world under hard rule
+11, and this one derives itself from the authority instead.
+
+Rejected: nine transliteration tables (nine claims nobody in this repo can verify, for a
+mechanism worth 2/24 on the one script we measured); a transliteration dependency (hard
+rule 9 — a new transitive tree for ~90 lines); and romanising straight from the name element
+itself (`TELUGU LETTER TTA` → `tta`, where the corpus and the mark-folder both want `t` —
+the element table is what converts Unicode's spelling into a matchable one).
 
 ## The cache, and the tenancy property it has by construction
 
@@ -131,11 +160,13 @@ from __future__ import annotations
 
 import math
 import re
+import sys
 import time
 import unicodedata
 from collections import OrderedDict
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Final, Literal, Protocol
 from uuid import UUID
 
@@ -203,87 +234,359 @@ DEFAULT_TOP_K: Final[int] = 3
 #: pool size is 50 CONTAINERS, which is not a number of packs and is not this number.
 MAX_CACHED_PACKS: Final[int] = 8
 
-#: The Telugu Unicode block. Presence of any codepoint in it is what turns the
-#: transliterated query form on.
-_TELUGU_BLOCK_START: Final[int] = 0x0C00
-_TELUGU_BLOCK_END: Final[int] = 0x0C7F
-
 #: Why a pack could not be loaded. Each is an OPERATOR-facing word: the caller only ever
 #: hears the agent say it cannot verify something right now.
 UnavailableReason = Literal["fetch_failed", "absent", "unsupported_format", "identity_mismatch"]
 
 
 # ---------------------------------------------------------------------------------------
-# Transliteration — Telugu script to romanised Telugu. A table, not a dependency.
+# Script detection and romanisation. ONE element table, nine scripts, zero typed codepoints.
 # ---------------------------------------------------------------------------------------
 
+#: The Unicode scripts the languages our speech vendors process are written in, spelled as
+#: the first word of `unicodedata.name()` for every codepoint in them. That spelling is the
+#: lookup key AND the detector: `unicodedata` is the standard library's copy of
+#: UnicodeData.txt, so nothing here is a range somebody remembered.
+#:
+#: The list is derived from the VENDOR's own tables, read this session in the installed
+#: pipecat 1.10.0 (`pipecat-ai==1.10.0`, `.venv/lib/python3.12/site-packages/pipecat/`):
+#:
+#:   * STT, `services/sarvam/stt.py:801-826` — `SUPPORTED_LANGUAGES` for
+#:     `saaras:v3-realtime` holds 24 entries: `auto` plus 23 languages (as, bn, brx, doi,
+#:     en, gu, hi, kn, kok, ks, mai, ml, mni, mr, ne, or, pa, sa, sat, sd, ta, te, ur).
+#:   * TTS, `services/sarvam/tts.py:218-242` — 11 India locales, a SUBSET of the above.
+#:
+#: ⚠ **THE LANGUAGE LIST IS THE VENDOR FACT; WHICH SCRIPT EACH LANGUAGE IS WRITTEN IN IS
+#: NOT** — the per-entry comments below are general knowledge, not something read from a
+#: source this session (hard rule 11). Nothing here depends on that mapping being right or
+#: exhaustive: detection reads the SCRIPT of the text in front of it, so a language written
+#: in a script this set does not name simply scores its Latin tokens and is answered
+#: honestly. The comments are a reader's aid; the set is the contract.
+#:
+#: ⚠ **THE TWO FILES SPELL ODIA DIFFERENTLY AND NEITHER SPELLING IS A SCRIPT NAME.** STT's
+#: `SUPPORTED_LANGUAGES` says `or-IN` (`stt.py:809`) while both its own enum map
+#: (`stt.py:86`) and TTS (`tts.py:234-235`) say `od-IN`. It does not reach this module —
+#: what we key on is the SCRIPT, whose Unicode name is `ORIYA` — and it is recorded because
+#: a caller who round-trips a locale code between those two tables will hit it.
+#:
+#: **THE SCRIPTS OF `sat-IN` AND `mni-IN` ARE DELIBERATELY ABSENT, AND THAT IS A STATED GAP
+#: RATHER THAN AN OVERSIGHT.** Neither is named here, so a question written in one is not
+#: detected, scores whatever Latin tokens it contains, and is answered `not_found` rather
+#: than wrongly — the same outcome a Perso-Arabic question gets, and the right one. Adding a
+#: script is adding its name to this set; adding its ROMANISATION is adding name elements to
+#: the tables below, and neither is done on a guess about a script nobody here can read.
+INDIAN_SCRIPT_NAMES: Final[frozenset[str]] = frozenset(
+    {
+        "BENGALI",  # bn-IN, as-IN
+        "DEVANAGARI",  # hi-IN, mr-IN, mai-IN, kok-IN, ne-IN, sa-IN, brx-IN, doi-IN
+        "GUJARATI",  # gu-IN
+        "GURMUKHI",  # pa-IN
+        "KANNADA",  # kn-IN
+        "MALAYALAM",  # ml-IN
+        "ORIYA",  # or-IN / od-IN
+        "TAMIL",  # ta-IN
+        "TELUGU",  # te-IN
+        "ARABIC",  # ur-IN, sd-IN, ks-IN — DETECTED, not romanised. See below.
+    }
+)
+
+#: The subset that is an ABUGIDA and therefore romanisable by the one algorithm in
+#: `transliterate_indic`: a consonant carries an inherent vowel, a vowel sign replaces it,
+#: a virama removes it.
+#:
+#: **PERSO-ARABIC IS OUT ON PURPOSE AND THE REASON IS NOT EFFORT.** It is an abjad: Urdu and
+#: Sindhi do not write short vowels, so `کلینک` romanises to the consonant skeleton `klnk`
+#: — which is not the spelling any corpus in this repo uses and matches nothing, while
+#: looking exactly like a word to the next reader. Transliteration's only measured payoff is
+#: a loanword the corpus happens to spell the same way (see the module docstring's 2-of-24),
+#: and a skeleton cannot collect it. Detection still covers Urdu and Sindhi: the question
+#: tokenises, scores its Latin terms and is answered honestly.
+_BRAHMIC_SCRIPT_NAMES: Final[frozenset[str]] = INDIAN_SCRIPT_NAMES - {"ARABIC"}
+
 # `fmt: off` around the tables below: these are GRIDS, and the formatter's magic-trailing-
-# comma rule would explode ~150 codepoints to one per line. A transliteration table read
-# one row per character is unreviewable; read as a grid it is checkable against a chart.
+# comma rule would explode them to one entry per line. A romanisation table read one row
+# per akshara is unreviewable; read as a grid it is checkable against a chart.
 # fmt: off
-#: Independent vowels (U+0C05..U+0C14, plus the two vocalic letters at U+0C60/U+0C61).
-_TELUGU_VOWELS: Final[dict[str, str]] = {
-    "అ": "a", "ఆ": "ā", "ఇ": "i", "ఈ": "ī",
-    "ఉ": "u", "ఊ": "ū", "ఋ": "r̥", "ఌ": "l̥",
-    "ఎ": "e", "ఏ": "ē", "ఐ": "ai",
-    "ఒ": "o", "ఓ": "ō", "ఔ": "au",
-    "ౠ": "r̥̄", "ౡ": "l̥̄",
+#: Name element → vowel, for BOTH `<SCRIPT> LETTER <E>` (independent) and
+#: `<SCRIPT> VOWEL SIGN <E>` (dependent). Unicode uses one element vocabulary for both, and
+#: so does this table; what differs is what the algorithm does with the inherent vowel.
+#: ISO 15919 values, because the mark-folded form (`_fold_latin_marks`) reduces them to the
+#: bare Latin letter a code-mixed corpus actually writes: `ā`→`a`, `ē`→`e`, `r̥`→`r`.
+_VOWEL_ELEMENTS: Final[dict[str, str]] = {
+    "A": "a", "AA": "ā", "I": "i", "II": "ī", "ARCHAIC II": "ī",
+    "U": "u", "UU": "ū", "UE": "u", "UUE": "ū",
+    "VOCALIC R": "r̥", "VOCALIC RR": "r̥̄", "VOCALIC L": "l̥", "VOCALIC LL": "l̥̄",
+    "E": "e", "EE": "ē", "AI": "ai", "AY": "ai",
+    "O": "o", "OO": "ō", "AU": "au", "AW": "au", "OE": "o", "OOE": "ō",
+    "SHORT A": "a", "SHORT E": "e", "SHORT O": "o",
+    "CANDRA A": "ê", "CANDRA E": "ê", "CANDRA O": "ô", "CANDRA LONG E": "ê",
+    "PRISHTHAMATRA E": "e",
 }
 # fmt: on
 
 # fmt: off
-#: Consonants (U+0C15..U+0C39). Each carries the inherent vowel `a`, which a vowel SIGN
-#: replaces and the virama removes — the two rules in `transliterate_telugu`.
-_TELUGU_CONSONANTS: Final[dict[str, str]] = {
-    "క": "k", "ఖ": "kh", "గ": "g", "ఘ": "gh", "ఙ": "ṅ",
-    "చ": "c", "ఛ": "ch", "జ": "j", "ఝ": "jh", "ఞ": "ñ",
-    "ట": "ṭ", "ఠ": "ṭh", "డ": "ḍ", "ఢ": "ḍh", "ణ": "ṇ",
-    "త": "t", "థ": "th", "ద": "d", "ధ": "dh", "న": "n",
-    "ప": "p", "ఫ": "ph", "బ": "b", "భ": "bh", "మ": "m",
-    "య": "y", "ర": "r", "ఱ": "ṟ", "ల": "l", "ళ": "ḷ",
-    "ఴ": "ḻ", "వ": "v", "శ": "ś", "ష": "ṣ", "స": "s",
-    "హ": "h",
+#: Name element → consonant WITHOUT its inherent vowel. The algorithm adds the `a`.
+#:
+#: The retroflex/dental distinction is Unicode's doubled-letter convention (`TTA` is ట/ट/ட,
+#: `TA` is త/त/த), and it is kept as ISO's underdot rather than flattened here, because the
+#: mark fold flattens it downstream and the unfolded form is the one that matches a corpus
+#: romanised WITH diacritics.
+_CONSONANT_ELEMENTS: Final[dict[str, str]] = {
+    "KA": "k", "KHA": "kh", "GA": "g", "GHA": "gh", "NGA": "ṅ",
+    "CA": "c", "CHA": "ch", "JA": "j", "JHA": "jh", "NYA": "ñ",
+    "TTA": "ṭ", "TTHA": "ṭh", "DDA": "ḍ", "DDHA": "ḍh", "NNA": "ṇ",
+    "TA": "t", "THA": "th", "DA": "d", "DHA": "dh", "NA": "n",
+    "PA": "p", "PHA": "ph", "BA": "b", "BHA": "bh", "MA": "m",
+    "YA": "y", "RA": "r", "RRA": "ṟ", "LA": "l", "LLA": "ḷ", "LLLA": "ḻ",
+    "VA": "v", "SHA": "ś", "SSA": "ṣ", "SA": "s", "HA": "h",
+    # Tamil and Malayalam extras: the alveolar nasal, the alveolar stop, the alveolar rhotic.
+    "NNNA": "ṉ", "TTTA": "ṯ", "RRRA": "ṟ",
+    # Assamese, which Unicode encodes as two Bengali letters of its own (bn-IN/as-IN share
+    # the block): ৰ is Assamese `ra` and ৱ is Assamese `wa`.
+    "RA WITH MIDDLE DIAGONAL": "r", "RA WITH LOWER DIAGONAL": "w", "WA": "w",
+    # Perso-Arabic borrowings written in Devanagari and Gurmukhi — Urdu and Sindhi words as
+    # Hindi and Punjabi spell them.
+    "QA": "q", "KHHA": "kh", "GHHA": "gh", "ZA": "z", "FA": "f", "ZHA": "zh",
+    "RHA": "ṛh", "DDDHA": "ṛ", "YYA": "y",
+    # Sindhi implosives and the affricates Telugu writes for Marathi loans.
+    "GGA": "g", "JJA": "j", "BBA": "b", "DDDA": "d", "MARWARI DDA": "ḍ",
+    "DZA": "dz", "TSA": "ts", "HEAVY YA": "y",
 }
 # fmt: on
 
 # fmt: off
-#: Dependent vowel signs (U+0C3E..U+0C4C). Each REPLACES the inherent `a` of the consonant
-#: it follows.
-_TELUGU_VOWEL_SIGNS: Final[dict[str, str]] = {
-    "ా": "ā", "ి": "i", "ీ": "ī", "ు": "u", "ూ": "ū",
-    "ృ": "r̥", "ౄ": "r̥̄", "ె": "e", "ే": "ē", "ై": "ai",
-    "ొ": "o", "ో": "ō", "ౌ": "au",
+#: Consonants that carry NO inherent vowel: Malayalam's chillu letters and the Bengali
+#: khanda ta are, by definition, a consonant at the end of a syllable. Emitting the `a`
+#: would turn `മലയാളം`-final `ൻ` into `na` and lengthen every word that ends in one.
+_DEAD_CONSONANT_ELEMENTS: Final[dict[str, str]] = {
+    "CHILLU K": "k", "CHILLU L": "l", "CHILLU LL": "ḷ", "CHILLU LLL": "ḻ",
+    "CHILLU M": "m", "CHILLU N": "n", "CHILLU NN": "ṇ", "CHILLU RR": "ṟ",
+    "CHILLU Y": "y", "KHANDA TA": "t",
+    # Telugu/Kannada nakaara pollu and Malayalam dot reph: the same idea under other names,
+    # a syllable-final nasal and a syllable-final rhotic.
+    "NAKAARA POLLU": "n", "DOT REPH": "r",
 }
 # fmt: on
 
-# fmt: off
-#: Anusvara, visarga, candrabindu and the Telugu digits — carried so a number in a question
-#: ("౧౦ గంటలు") tokenises as the same digits the corpus spells in ASCII.
-_TELUGU_SIGNS: Final[dict[str, str]] = {
-    # ⚠ ANUSVARA IS ROMANISED `n`, NOT ISO 15919's `ṁ`, AND THAT IS A DELIBERATE
-    # DEPARTURE FROM THE STANDARD. The output of this function is never shown to anybody —
-    # it exists only to be matched lexically against a corpus that Tenglish speakers wrote,
-    # and Tenglish writes the anusvara as `n` ("undi", "bangaram", "chandamama"). `ṁ` is
-    # the correct scholarly romanisation and matches nothing.
-    "ఁ": "n", "ం": "n", "ః": "h",  # noqa: RUF001
-    "౦": "0", "౧": "1", "౨": "2", "౩": "3", "౪": "4",  # noqa: RUF001
-    "౫": "5", "౬": "6", "౭": "7", "౮": "8", "౯": "9",
+#: Name element (the WHOLE rest of the name, not a suffix) → romanisation, for the marks
+#: that are neither a consonant nor a vowel.
+#:
+#: ⚠ ANUSVARA IS ROMANISED `n`, NOT ISO 15919's `ṁ`, AND THAT IS A DELIBERATE DEPARTURE FROM
+#: THE STANDARD. The output of this function is never shown to anybody — it exists only to
+#: be matched lexically against a corpus that code-mixing speakers wrote, and they write the
+#: nasal as `n` ("undi", "bangaram", "Bengaluru"). `ṁ` is the correct scholarly romanisation
+#: and matches nothing. Gurmukhi's bindi, adak bindi and tippi are the same nasal by other
+#: names, and Devanagari's candrabindu likewise.
+_SIGN_ELEMENTS: Final[dict[str, str]] = {
+    "SIGN ANUSVARA": "n",
+    "SIGN CANDRABINDU": "n",
+    "SIGN BINDI": "n",
+    "SIGN ADAK BINDI": "n",
+    "TIPPI": "n",
+    "SIGN VISARGA": "h",
+    # Gemination (Gurmukhi addak) and the elided-vowel mark: written, but not a sound this
+    # romanisation can spell without lookahead, and silence matches better than a guess.
+    "ADDAK": "",
+    "SIGN AVAGRAHA": "",
 }
-# fmt: on
 
-#: Virama: deletes the inherent vowel of the preceding consonant, which is what makes
-#: `డాక్టర్` come out as `ḍākṭar` rather than `ḍākaṭara`.
-_TELUGU_VIRAMA: Final[str] = "్"
+#: What one codepoint does to the romanisation in progress. A closed set, so the walk in
+#: `transliterate_indic` is a dispatch rather than a chain of membership tests.
+_Akshara = Literal["consonant", "dead_consonant", "standalone", "vowel_sign", "virama", "nukta"]
 
 _INHERENT_VOWEL: Final[str] = "a"
 
-#: A token starts with an alphanumeric and may continue with COMBINING MARKS as well.
-#: The trailing class is not decoration: Telugu vowel signs and the virama are category Mn
-#: and Mc, so a plain `\w+` splits `ఆరోగ్యశ్రీ` into four fragments at the signs, and the
-#: Latin combining marks the transliterator emits (`r̥`) break a token the same way.
+
+def _script_of(ch: str) -> str | None:
+    """Which of `INDIAN_SCRIPT_NAMES` `ch` belongs to, by its Unicode NAME, else `None`.
+
+    The ASCII short-circuit is not premature optimisation: the overwhelming majority of
+    characters this module ever sees are ASCII (§9.1 step 2 hands this index an English
+    query), and `unicodedata.name` is a table lookup we can skip for all of them.
+    """
+    if ch.isascii():
+        return None
+    head = unicodedata.name(ch, "").partition(" ")[0]
+    return head if head in INDIAN_SCRIPT_NAMES else None
+
+
+@lru_cache(maxsize=4096)
+def _classify(ch: str) -> tuple[_Akshara, str] | None:
+    """One codepoint's romanisation role, derived from `unicodedata.name()`.
+
+    `None` means "not a Brahmic character this table knows", and the caller passes it
+    through untouched — a Latin letter, a digit, a space, a Perso-Arabic letter, or an
+    akshara of a script the element tables do not cover all take that path.
+
+    Cached because a phone conversation reuses a small alphabet many times over, and the
+    cache is bounded because unbounded is a leak (`MAX_CACHED_PACKS` has the same reasoning
+    one layer up). 4096 is several times the combined repertoire of the nine scripts.
+    """
+    script = _script_of(ch)
+    if script is None or script not in _BRAHMIC_SCRIPT_NAMES:
+        return None
+    element = unicodedata.name(ch, "").partition(" ")[2]
+    if element in _SIGN_ELEMENTS:
+        return ("standalone", _SIGN_ELEMENTS[element])
+    if element.endswith("VIRAMA"):
+        # Malayalam spells its own two ("circular", "vertical bar") alongside the plain one,
+        # and all three do the same thing to the inherent vowel.
+        return ("virama", "")
+    if element.endswith("NUKTA"):
+        return ("nukta", "")
+    letter = element.removeprefix("LETTER ") if element.startswith("LETTER ") else None
+    if letter is not None:
+        if letter in _CONSONANT_ELEMENTS:
+            return ("consonant", _CONSONANT_ELEMENTS[letter])
+        if letter in _DEAD_CONSONANT_ELEMENTS:
+            return ("dead_consonant", _DEAD_CONSONANT_ELEMENTS[letter])
+        if letter in _VOWEL_ELEMENTS:
+            return ("standalone", _VOWEL_ELEMENTS[letter])
+        return None
+    if element.startswith("VOWEL SIGN "):
+        sign = _VOWEL_ELEMENTS.get(element.removeprefix("VOWEL SIGN "))
+        return None if sign is None else ("vowel_sign", sign)
+    if element.startswith("DIGIT "):
+        # `unicodedata.digit` rather than a ten-row table per script, so "౧౦ గంటలు" and
+        # "१० बजे" both tokenise as the ASCII digits an English corpus spells.
+        digit = unicodedata.digit(ch, None)
+        return None if digit is None else ("standalone", str(digit))
+    return None
+
+
+def indian_scripts_in(text: str) -> frozenset[str]:
+    """Which of `INDIAN_SCRIPT_NAMES` occur in `text`. Empty for pure Latin.
+
+    A SET rather than a bool because "which script" is the question a caller mixing two of
+    them asks, and because a test can then assert a script by name instead of asserting that
+    something non-Latin was noticed.
+    """
+    return frozenset(script for script in (_script_of(ch) for ch in text) if script is not None)
+
+
+def has_indian_script(text: str) -> bool:
+    """Is any of `text` written in a script one of our vendors' Indian languages uses?"""
+    return any(_script_of(ch) is not None for ch in text)
+
+
+def transliterate_indic(text: str) -> str:
+    """Brahmic script → the SAME language romanised. Deterministic, table-driven, no model.
+
+    ⚠ **This is not a translation.** `డాక్టర్` → `ḍākṭar` and `डॉक्टर` → `ḍôkṭara`, neither
+    of which will match an English gloss saying "doctor". See the module docstring for what
+    it does buy, and for the ablation that says the buy is real but small.
+
+    **THE TRAILING `a` IN `ḍôkṭara` IS CORRECT HERE AND IS NOT A BUG TO BE FIXED.** Hindi
+    deletes that final schwa in speech and Devanagari does not write the virama for it, so a
+    faithful romanisation keeps it. Deleting it would take a SCHWA-DELETION RULE, which is a
+    property of the LANGUAGE (Hindi and Bengali delete it, Marathi partly, Telugu and Tamil
+    never) and not of the script — and the script is all this module can see. Guessing the
+    language from the script would be wrong for Marathi in the same block as Hindi, and the
+    two facts this form is worth do not pay for it (see the module docstring's ablation).
+
+    Characters this table does not know — Latin, Perso-Arabic, punctuation, an akshara of a
+    script we do not cover — pass through untouched, so a code-mixed sentence with a few
+    Indic words in it comes out wholly Latin rather than half-transliterated.
+
+    The algorithm is the abugida rule and nothing else: a consonant carries an inherent `a`
+    which the NEXT character either replaces (a vowel sign), removes (a virama) or leaves
+    standing (anything else, including end of text).
+    """
+    out: list[str] = []
+    pending_consonant = False
+    for ch in text:
+        classified = _classify(ch)
+        if classified is None:
+            if pending_consonant:
+                out.append(_INHERENT_VOWEL)
+                pending_consonant = False
+            out.append(ch)
+            continue
+        kind, roman = classified
+        if kind == "consonant":
+            if pending_consonant:
+                out.append(_INHERENT_VOWEL)
+            out.append(roman)
+            pending_consonant = True
+        elif kind == "dead_consonant":
+            if pending_consonant:
+                out.append(_INHERENT_VOWEL)
+            out.append(roman)
+            pending_consonant = False
+        elif kind == "vowel_sign":
+            # The sign supplies the vowel, so the inherent one is never emitted.
+            out.append(roman)
+            pending_consonant = False
+        elif kind == "virama":
+            # Bare consonant: drop the inherent vowel entirely. This is what makes `డాక్టర్`
+            # come out as `ḍākṭar` rather than `ḍākaṭara`.
+            pending_consonant = False
+        elif kind == "nukta":
+            # Modifies the consonant already emitted (`ज` + nukta = `ज़`), so it must NOT
+            # close the syllable — the inherent vowel is still pending behind it.
+            continue
+        else:  # "standalone": an independent vowel, a digit, an anusvara, a visarga.
+            if pending_consonant:
+                out.append(_INHERENT_VOWEL)
+                pending_consonant = False
+            out.append(roman)
+    if pending_consonant:
+        out.append(_INHERENT_VOWEL)
+    return "".join(out)
+
+
+#: Unicode general categories of a COMBINING MARK: non-spacing, spacing-combining,
+#: enclosing. Every Indian script's vowel signs, viramas, nuktas and anusvaras are one of
+#: these, and so are the Latin marks `transliterate_indic` emits (`r̥`, `ā`).
+_MARK_CATEGORIES: Final[frozenset[str]] = frozenset({"Mc", "Me", "Mn"})
+
+
+def _combining_mark_ranges() -> str:
+    r"""Every combining mark Unicode has, as a regex character class, DERIVED not typed.
+
+    A token has to continue across marks: a plain `\w+` splits Telugu `ఆరోగ్యశ్రీ` into four
+    fragments at the vowel signs and Devanagari `अपॉइंटमेंट` into five, because `\w` is
+    alphanumeric and a vowel sign is category Mc. Python's `re` has no `\p{M}`, so the class
+    has to be enumerated — and enumerating it from `unicodedata.category` is the difference
+    between a fact and a recollection (hard rule 11: a range typed from memory is a claim
+    about Unicode, and this one reads the standard library's own table).
+
+    **EVERY PLANE, NOT JUST THE BMP, AND THE 96ms DIFFERENCE IS THE CHEAPEST THING IN THIS
+    FILE.** The first draft scanned U+0000..U+FFFF (5.8ms) on the premise that no script we
+    cover keeps a combining mark above it. That premise was TRUE on Python 3.11's Unicode
+    14.0 and FALSE on the Unicode 15.0 this repo runs, which added the Arabic Extended-C
+    marks at U+10EFC..U+10EFF — so the cheap scan silently stopped covering Urdu and Sindhi
+    between two interpreter versions, with no error anywhere. A full scan costs ~102ms
+    against ~6ms (measured 14 Sep 2026, CPython 3.12.3 / unidata 15.0.0), once at IMPORT —
+    a container start, never a turn, and this module is imported beside `pipecat` — and it
+    has no premise in it at all. A hundred milliseconds of cold start is worth more than a
+    claim about Unicode that a patch release can quietly falsify.
+    """
+    marks = [
+        cp for cp in range(sys.maxunicode + 1) if unicodedata.category(chr(cp)) in _MARK_CATEGORIES
+    ]
+    spans: list[tuple[int, int]] = []
+    for cp in marks:
+        if spans and cp == spans[-1][1] + 1:
+            spans[-1] = (spans[-1][0], cp)
+        else:
+            spans.append((cp, cp))
+    # `\U` with EIGHT digits for every codepoint, never `\u` with four. A five-digit `\u`
+    # escape does not fail — `re` reads the first four and treats the fifth as a literal, so
+    # `\u1D165-\u1D169` silently becomes the RANGE `5` to `U+1D16`, which swallows `?`, `a`
+    # and most of ASCII. The class then matched every character and the tokeniser stopped
+    # splitting on punctuation at all. Nothing raised; one unrelated assertion caught it.
+    return "".join(
+        f"\\U{low:08X}" if low == high else f"\\U{low:08X}-\\U{high:08X}" for low, high in spans
+    )
+
+
+#: A token starts with an alphanumeric and may continue with combining marks as well, so an
+#: akshara cluster and a romanisation carrying diacritics are each ONE token.
 _TOKEN_RE: Final[re.Pattern[str]] = re.compile(
-    r"[^\W_](?:[^\W_]|[\u0300-\u036F\u0C00-\u0C7F])*", re.UNICODE
+    rf"[^\W_](?:[^\W_]|[{_combining_mark_ranges()}])*", re.UNICODE
 )
+
 
 # fmt: off
 #: Function words dropped from the QUERY and kept in the INDEX.
@@ -308,6 +611,15 @@ _TOKEN_RE: Final[re.Pattern[str]] = re.compile(
 #: no check can see. Its own docstring names a future locale or dict key as the cost and
 #: calls the trade correct. Dropping the pronoun is the right side of this list's bias
 #: anyway: "us" is never a topic word, and a query carrying it loses nothing.
+#:
+#: ⚠ **IT IS STILL ENGLISH + TENGLISH ONLY, AND THAT IS A DELIBERATE NON-DECISION, NOT AN
+#: OVERSIGHT LEFT BY THE SCRIPT GENERALISATION.** Romanised Hindi `hai`/`kya`, Tamil `enna`
+#: and their nine cousins are absent, so they reach the gate as content words. That is the
+#: SAFE side of this list's own stated bias: an unlisted function word can only fail to
+#: match a corpus that does not contain it, while a wrongly listed one deletes a question
+#: the agent could have answered. Filling it in would take the thing every other line here
+#: has and this one would not — a recording of a real call in that language. It is a
+#: measurement to take, not a list to guess.
 _QUERY_STOPWORDS: Final[frozenset[str]] = frozenset(
     {
         # English
@@ -324,59 +636,14 @@ _QUERY_STOPWORDS: Final[frozenset[str]] = frozenset(
 # fmt: on
 
 
-def has_telugu_script(text: str) -> bool:
-    """Does `text` contain a codepoint in the Telugu block (U+0C00-U+0C7F)?"""
-    return any(_TELUGU_BLOCK_START <= ord(ch) <= _TELUGU_BLOCK_END for ch in text)
-
-
-def transliterate_telugu(text: str) -> str:
-    """Telugu script → ROMANISED TELUGU. Deterministic, table-driven, no model.
-
-    ⚠ **This is not a translation.** `డాక్టర్` → `ḍākṭar`, which will not match an English
-    gloss saying "doctor". See the module docstring for what it does buy and why that is
-    still worth the table.
-
-    Non-Telugu characters pass through untouched, so a Tenglish sentence with a few Telugu
-    words in it comes out wholly Latin rather than half-transliterated.
-    """
-    out: list[str] = []
-    pending_consonant = False
-    for ch in text:
-        if ch in _TELUGU_CONSONANTS:
-            if pending_consonant:
-                out.append(_INHERENT_VOWEL)
-            out.append(_TELUGU_CONSONANTS[ch])
-            pending_consonant = True
-            continue
-        if ch in _TELUGU_VOWEL_SIGNS:
-            # The sign supplies the vowel, so the inherent one is never emitted.
-            out.append(_TELUGU_VOWEL_SIGNS[ch])
-            pending_consonant = False
-            continue
-        if ch == _TELUGU_VIRAMA:
-            # Bare consonant: drop the inherent vowel entirely.
-            pending_consonant = False
-            continue
-        if pending_consonant:
-            out.append(_INHERENT_VOWEL)
-            pending_consonant = False
-        if ch in _TELUGU_VOWELS:
-            out.append(_TELUGU_VOWELS[ch])
-        elif ch in _TELUGU_SIGNS:
-            out.append(_TELUGU_SIGNS[ch])
-        else:
-            out.append(ch)
-    if pending_consonant:
-        out.append(_INHERENT_VOWEL)
-    return "".join(out)
-
-
 def _fold_latin_marks(text: str) -> str:
     """Strip combining marks, but ONLY where the base character is Latin.
 
     `ḍākṭar` → `dakțar`-without-marks → `daktar`, so a corpus that romanised without
-    diacritics still matches. Applying the same fold to Telugu would delete the vowel signs
-    — `కాలం` would become `కలం`, a different word — so the base character decides.
+    diacritics still matches. Applying the same fold to an Indian script would delete the
+    vowel signs — Telugu `కాలం` would become `కలం` and Devanagari `काम` would become `कम`,
+    different words in both — so the base character decides, script by script and for every
+    script at once.
     """
     decomposed = unicodedata.normalize("NFD", text)
     out: list[str] = []
@@ -414,8 +681,11 @@ def query_forms(question: str) -> tuple[tuple[str, ...], ...]:
         _tokenise(question, fold_marks=False),
         _tokenise(question, fold_marks=True),
     ]
-    if has_telugu_script(question):
-        candidates.append(_tokenise(transliterate_telugu(question), fold_marks=True))
+    # Brahmic only: `transliterate_indic` is the identity on Perso-Arabic (and on Latin),
+    # so building the form for an Urdu question would cost a walk to produce a duplicate the
+    # de-duplication below would drop anyway.
+    if indian_scripts_in(question) - {"ARABIC"}:
+        candidates.append(_tokenise(transliterate_indic(question), fold_marks=True))
     for raw_form in candidates:
         form = tuple(token for token in raw_form if token not in _QUERY_STOPWORDS)
         if form and form not in forms:
@@ -892,6 +1162,7 @@ __all__ = [
     "BM25_K1",
     "DEFAULT_TOP_K",
     "DF_GATE_MIN_ENTRIES",
+    "INDIAN_SCRIPT_NAMES",
     "MAX_CACHED_PACKS",
     "MAX_INFORMATIVE_DF_RATIO",
     "KnowledgeAnswer",
@@ -900,8 +1171,9 @@ __all__ = [
     "PackFetcher",
     "SessionKnowledge",
     "UnavailableReason",
-    "has_telugu_script",
+    "has_indian_script",
+    "indian_scripts_in",
     "load_session_knowledge",
     "query_forms",
-    "transliterate_telugu",
+    "transliterate_indic",
 ]

@@ -1,16 +1,26 @@
-"""In-call knowledge search: the four states, the gate, and the cross-tenant cache property.
+"""In-call knowledge search: the four states, the gate, the cross-tenant cache, every script.
 
 Everything here drives the real thing — a real `KnowledgePack`, a real BM25 index, real
-Telugu and Tenglish questions. The only fake is the object-storage fetcher, which is a
-protocol precisely so this file needs no network (`voice_worker.knowledge.PackFetcher`).
+questions in real scripts. The only fake is the object-storage fetcher, which is a protocol
+precisely so this file needs no network (`voice_worker.knowledge.PackFetcher`).
 
-The Telugu and Tenglish fixtures below follow `tests/fixtures/golden_transcripts.json`'s
-register: Telugu grammar in Latin script studded with English nouns, which is the form
-`docs/evidence/telugu-embedding-quality.md` §2.1 records Sarvam Saaras actually returning.
+The Tenglish fixtures follow `tests/fixtures/golden_transcripts.json`'s register: Telugu
+grammar in Latin script studded with English nouns, which is the form `docs/evidence/
+telugu-embedding-quality.md` §2.1 records Sarvam Saaras actually returning.
+
+**THE SCRIPT FIXTURES ARE REAL SENTENCES, ONE PER SCRIPT, AND THAT IS LOAD-BEARING.** The
+product is not Telugu-first: it has to answer a caller in any Indian language our speech
+vendors process, and a script suite written in lorem ipsum or in one script's words
+transliterated into another's letters would prove nothing about the abugida rules the
+romaniser applies. `_SCRIPT_SAMPLES` below is an ordinary small-business question — when do
+you open, how much, do you deliver — written once per script, so the assertions are about
+text a real caller could have said.
 """
 
 from __future__ import annotations
 
+import sys
+import unicodedata
 from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID, uuid4
@@ -19,14 +29,19 @@ import pytest
 from calevate_shared.knowledge_pack import KnowledgePack, PackEntry, pack_object_key
 from loguru import logger
 from voice_worker.knowledge import (
+    _BRAHMIC_SCRIPT_NAMES,
+    _TOKEN_RE,
     AMBIGUITY_MARGIN,
+    INDIAN_SCRIPT_NAMES,
     LexicalIndex,
     PackCache,
     SessionKnowledge,
-    has_telugu_script,
+    _classify,
+    has_indian_script,
+    indian_scripts_in,
     load_session_knowledge,
     query_forms,
-    transliterate_telugu,
+    transliterate_indic,
 )
 
 # ---------------------------------------------------------------------------------------
@@ -143,10 +158,26 @@ async def load_clinic(
 
 
 def test_transliteration_is_akshara_correct() -> None:
-    """The virama deletes the inherent vowel; a vowel sign replaces it."""
-    assert transliterate_telugu("డాక్టర్") == "ḍākṭar"
-    assert transliterate_telugu("ఆరోగ్యశ్రీ") == "ārōgyaśrī"
-    assert transliterate_telugu("appointment") == "appointment"
+    """The virama deletes the inherent vowel; a vowel sign replaces it.
+
+    Telugu and Devanagari side by side, because the rule is the SCRIPT-INDEPENDENT abugida
+    rule and these two exercise it from different blocks with one table. The Telugu values
+    are unchanged from the hand-written table this replaced, which is how we know the
+    generalisation did not quietly move the one script we have a measurement for.
+    """
+    assert transliterate_indic("డాక్టర్") == "ḍākṭar"
+    assert transliterate_indic("ఆరోగ్యశ్రీ") == "ārōgyaśrī"
+    assert transliterate_indic("appointment") == "appointment"
+    # Devanagari: the same virama, the same inherent vowel, no second table.
+    assert transliterate_indic("दुकान") == "dukāna"
+    assert transliterate_indic("मुंबई") == "munbaī"
+
+
+def test_a_final_schwa_is_kept_because_deleting_it_needs_a_language_we_do_not_have() -> None:
+    """Hindi speech drops the last `a` of `डॉक्टर`; Devanagari does not write that, and this
+    module sees a SCRIPT and never a language. The romanisation is faithful to what is
+    written — see `transliterate_indic`'s docstring for why guessing is worse."""
+    assert transliterate_indic("डॉक्टर") == "ḍôkṭara"
 
 
 def test_transliteration_is_not_translation() -> None:
@@ -155,12 +186,13 @@ def test_transliteration_is_not_translation() -> None:
     If this ever starts passing as equality, somebody has quietly added a translation hop —
     which on this path is a network round trip mid-turn, the one thing the design forbids.
     """
-    assert "doctor" not in transliterate_telugu("డాక్టర్")
-    assert has_telugu_script("డాక్టర్")
-    assert not has_telugu_script("Appointment ela book cheskovali?")
+    assert "doctor" not in transliterate_indic("డాక్టర్")
+    assert "doctor" not in transliterate_indic("डॉक्टर")
+    assert has_indian_script("డాక్టర్")
+    assert not has_indian_script("Appointment ela book cheskovali?")
 
 
-def test_query_forms_add_transliteration_only_for_telugu_script() -> None:
+def test_query_forms_add_transliteration_only_for_an_indian_script() -> None:
     tenglish = query_forms("Appointment ela book cheskovali?")
     assert tenglish == (("appointment", "book"),)  # `ela`/`cheskovali` are function words
 
@@ -499,3 +531,249 @@ def test_the_ambiguity_margin_is_a_fraction_not_a_score() -> None:
     """It is compared against `(top - runner_up) / top`, so it has to live in (0, 1) — a
     value outside that would make every answer ambiguous or none of them."""
     assert 0.0 < AMBIGUITY_MARGIN < 1.0
+
+
+# ---------------------------------------------------------------------------------------
+# Every script our speech vendors can process, not just the one we happened to start with.
+# ---------------------------------------------------------------------------------------
+
+#: One ordinary small-business question per script: opening time, price, delivery, a size.
+#: Real words in every case — a transliterated-into-the-wrong-alphabet sample would exercise
+#: the tables without exercising the orthography, which is the whole thing under test.
+#:
+#: ⚠ WHAT THIS SUITE ASSERTS IS SCRIPT HANDLING, NOT TRANSLATION. Nobody here is claiming a
+#: gloss for these sentences, and nothing in the module produces one (`transliterate_indic`
+#: is romanisation, never translation). The assertions are about detection, the abugida
+#: rules and the four outcomes.
+#:
+#: The script → language mapping is the vendor's, read from the installed pipecat 1.10.0
+#: (`pipecat/services/sarvam/stt.py:800-825` for STT's 25 codes, `.../tts.py:218-242` for
+#: TTS's 11 locales) — see `INDIAN_SCRIPT_NAMES` for the derivation and for the two vendor
+#: languages (Santali, Manipuri) whose scripts are deliberately not covered.
+_SCRIPT_SAMPLES: tuple[tuple[str, str], ...] = (
+    ("TELUGU", "దుకాణం ఉదయం ఎన్ని గంటలకు తెరుస్తారు?"),  # te-IN
+    ("DEVANAGARI", "दुकान कितने बजे खुलती है?"),  # hi-IN, mr-IN, kok-IN, mai-IN
+    ("BENGALI", "দোকান কখন খোলে?"),  # bn-IN, as-IN
+    ("GUJARATI", "દુકાન કેટલા વાગે ખૂલે છે?"),  # gu-IN
+    ("GURMUKHI", "ਦੁਕਾਨ ਕਿੰਨੇ ਵਜੇ ਖੁੱਲ੍ਹਦੀ ਹੈ?"),  # pa-IN
+    ("KANNADA", "ಅಂಗಡಿ ಎಷ್ಟು ಗಂಟೆಗೆ ತೆರೆಯುತ್ತದೆ?"),  # kn-IN
+    ("MALAYALAM", "കട എപ്പോൾ തുറക്കും?"),  # ml-IN
+    ("ORIYA", "ଦୋକାନ କେତେବେଳେ ଖୋଲେ?"),  # or-IN / od-IN — the two spellings, one script
+    ("TAMIL", "கடை எத்தனை மணிக்கு திறக்கும்?"),  # ta-IN
+    ("ARABIC", "دکان کتنے بجے کھلتی ہے؟"),  # ur-IN, and sd-IN in the same script
+)
+
+
+@pytest.mark.parametrize(("script", "question"), _SCRIPT_SAMPLES)
+def test_every_vendor_script_is_detected_as_itself(script: str, question: str) -> None:
+    """Detection names the script, and names ONLY that script."""
+    assert indian_scripts_in(question) == frozenset({script})
+    assert has_indian_script(question)
+
+
+def test_a_latin_question_is_not_mistaken_for_an_indian_one() -> None:
+    """The form production actually runs (`docs/PIPECAT-MIGRATION.md` §9.1 step 2 hands this
+    index an ENGLISH query) must not pick up a transliteration pass it has no use for."""
+    for question in (
+        "What time does the shop open on Sunday?",
+        "Appointment ela book cheskovali?",  # Tenglish is Latin script, whatever else it is
+        "Delivery charge ₹40 — UPI ok?",  # a currency sign and a dash are not a script
+    ):
+        assert indian_scripts_in(question) == frozenset()
+        assert not has_indian_script(question)
+        assert transliterate_indic(question) == question
+
+
+def test_a_question_mixing_two_scripts_reports_both_and_romanises_both() -> None:
+    """A caller who says an English noun, a Telugu verb and a Hindi auxiliary in one breath
+    is ordinary, not exotic. Every Indic run romanises; the Latin run is left alone."""
+    mixed = "Delivery ఎప్పుడు होगी?"
+    assert indian_scripts_in(mixed) == frozenset({"TELUGU", "DEVANAGARI"})
+
+    romanised = transliterate_indic(mixed)
+    assert indian_scripts_in(romanised) == frozenset()  # nothing left half-transliterated
+    assert "Delivery" in romanised
+
+    forms = query_forms(mixed)
+    assert any("delivery" in form for form in forms)
+
+
+@pytest.mark.parametrize(("script", "question"), _SCRIPT_SAMPLES)
+def test_query_forms_are_usable_for_every_script(script: str, question: str) -> None:
+    """Usable means two things, and the Perso-Arabic row differs on the second.
+
+    For every script: at least one form, and no form is empty — a question in an Indian
+    script must never arrive at the index as nothing at all.
+
+    For a BRAHMIC script only: one of those forms is the romanised one, and it is plain
+    mark-folded Latin, which is the form that can share a token with an English corpus.
+    Perso-Arabic gets no such form on purpose (`_BRAHMIC_SCRIPT_NAMES` records why: Urdu
+    writes no short vowels, so the romanisation would be a consonant skeleton that matches
+    nothing while looking like a word).
+    """
+    forms = query_forms(question)
+    assert forms
+    assert all(form for form in forms)
+
+    latin_forms = [form for form in forms if all(token.isascii() for token in form)]
+    if script == "ARABIC":
+        assert not latin_forms
+    else:
+        assert latin_forms, "a Brahmic question must reach the index in a Latin form too"
+        assert all(token.isalnum() for form in latin_forms for token in form)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("script", "question"), _SCRIPT_SAMPLES)
+async def test_search_answers_every_script_and_never_raises(script: str, question: str) -> None:
+    """THE PUBLIC CONTRACT, over the whole vendor script list.
+
+    "It did not raise" is not the assertion — an outcome that matches its evidence is. The
+    Telugu row is the one that FINDS something, and that is not a fixture accident worth
+    hiding: this pack has a Telugu-script passage about opening hours, the Telugu question
+    shares a written word with it, and the raw query form is the one that carries the match
+    (no romanisation involved). Every other script asks the same question of a pack that
+    holds nothing in it, and gets the word for an absence.
+
+    Both halves matter. A tokeniser that shattered a script into nothing would answer
+    `not_found` too — which is why `test_query_forms_are_usable_for_every_script` stands
+    beside this one — and a gate that answered `found` for all of them would be the §4(b)
+    trap the module exists to avoid.
+    """
+    session, _pack, _fetcher, _cache = await load_clinic()
+    answer = session.search(question)
+
+    assert answer.outcome in {"found", "ambiguous", "not_found", "temporarily_unavailable"}
+    assert answer.outcome == ("found" if script == "TELUGU" else "not_found")
+    assert bool(answer.passages) is (answer.outcome != "not_found")
+    assert answer.elapsed_ms > 0.0
+
+
+@pytest.mark.asyncio
+async def test_an_unavailable_session_still_answers_every_script() -> None:
+    """The failure state has to be script-blind too: the load failed before any question was
+    asked, so every script gets the same word and none of them reaches the tokeniser."""
+    session = await load_session_knowledge(
+        tenant_id=CLINIC_TENANT,
+        agent_id=CLINIC_AGENT,
+        content_sha256="0" * 64,
+        fetcher=ExplodingFetcher(),
+        cache=PackCache(),
+    )
+    for _script, question in _SCRIPT_SAMPLES:
+        assert session.search(question).outcome == "temporarily_unavailable"
+
+
+@pytest.mark.asyncio
+async def test_a_devanagari_question_reaches_a_latin_entry_the_way_a_telugu_one_does() -> None:
+    """The mechanism transliteration is worth, proved on a SECOND script and a second block.
+
+    `tests/in_call_retrieval_recall_test.py` measures the whole of it at 2 facts in 24, and
+    this is the shape those two have: a word the corpus spells in Latin exactly as the
+    romaniser spells it — a dish, a brand, a place. `समोसा` → `samōsā` → mark-folded
+    `samosa`, and the entry says "samosa". Before transliteration the question and the
+    corpus share NOT ONE token, which is the first assertion here.
+
+    What it does NOT do is translate: `मिठाई` would romanise to `miṭhāī` and would not reach
+    an entry that says "sweets". That negative is asserted for Telugu in
+    `test_transliteration_is_not_translation` and holds identically here, one table for both.
+    """
+    entries = (
+        _entry(uuid4(), "Samosa is fried fresh every evening at six."),
+        _entry(uuid4(), "The shop is closed on Tuesday."),
+    )
+    pack = build_pack(CLINIC_TENANT, CLINIC_AGENT, entries)
+    fetcher = DictFetcher()
+    fetcher.store(pack)
+    session = await load_session_knowledge(
+        tenant_id=CLINIC_TENANT,
+        agent_id=CLINIC_AGENT,
+        content_sha256=pack.content_sha256,
+        fetcher=fetcher,
+        cache=PackCache(),
+    )
+    index = session.index
+    assert index is not None
+
+    question = "समोसा कितने बजे बनता है?"
+    assert index.search([query_forms(question)[0]]) == {}  # nothing, without transliteration
+
+    answer = session.search(question)
+    assert answer.outcome == "found"
+    assert answer.passages[0].text.startswith("Samosa")
+
+
+# ---------------------------------------------------------------------------------------
+# The tables are checked against `unicodedata`, which is the authority they were built from.
+# ---------------------------------------------------------------------------------------
+
+#: Letters of a covered script that `_classify` deliberately does not romanise. All three are
+#: non-phonemic: two Vedic anusvara LETTERS (the ordinary anusvara is a SIGN and is mapped)
+#: and the Devanagari glottal stop, which is a transcription mark for other languages. None
+#: occurs in a sentence a caller would say to a shop.
+_UNROMANISED_LETTERS: frozenset[str] = frozenset(
+    {
+        "BENGALI LETTER VEDIC ANUSVARA",
+        "MALAYALAM LETTER VEDIC ANUSVARA",
+        "DEVANAGARI LETTER GLOTTAL STOP",
+    }
+)
+
+
+def test_every_letter_and_vowel_sign_of_every_covered_script_romanises() -> None:
+    """THE TABLE IS VERIFIED AGAINST ITS SOURCE, not against the person who typed it.
+
+    `knowledge.py` types no codepoints: it keys on the name ELEMENT and lets `unicodedata`
+    supply the characters. This walks the other way — every codepoint whose Unicode name
+    says it is a LETTER or a VOWEL SIGN of a script we cover must come back romanised, or be
+    one of the three named above.
+
+    If a Unicode upgrade adds a letter to one of these scripts, THIS is the test that fails,
+    and the failure is the decision it asks for: what does the new letter romanise to?
+    """
+    unromanised = set()
+    for codepoint in range(0x110000):
+        character = chr(codepoint)
+        name = unicodedata.name(character, "")
+        script, _, element = name.partition(" ")
+        if script not in _BRAHMIC_SCRIPT_NAMES:
+            continue
+        if not element.startswith(("LETTER ", "VOWEL SIGN ")):
+            continue
+        if _classify(character) is None:
+            unromanised.add(name)
+
+    assert unromanised == _UNROMANISED_LETTERS
+
+
+def test_the_mark_class_covers_every_script_including_above_the_bmp() -> None:
+    """The character class is DERIVED, and this is what says the derivation is complete.
+
+    It is here because the first draft of `_combining_mark_ranges` scanned the BMP only, on
+    a premise — "no script we cover keeps a combining mark above U+FFFF" — that was true on
+    Unicode 14.0 and FALSE on the 15.0 this repo runs, which put the Arabic Extended-C marks
+    at U+10EFC. Nothing would have failed: Urdu tokens would just have started splitting in
+    a later interpreter. So the assertion is over the WHOLE repertoire of every covered
+    script, and it is written against `unicodedata` rather than against a range.
+    """
+    uncovered = [
+        unicodedata.name(chr(codepoint), "")
+        for codepoint in range(sys.maxunicode + 1)
+        if unicodedata.category(chr(codepoint)) in {"Mc", "Me", "Mn"}
+        and unicodedata.name(chr(codepoint), "").partition(" ")[0] in INDIAN_SCRIPT_NAMES
+        and not _TOKEN_RE.fullmatch("a" + chr(codepoint))
+    ]
+    assert uncovered == []
+
+
+@pytest.mark.parametrize(("script", "question"), _SCRIPT_SAMPLES)
+def test_the_tokeniser_does_not_split_a_word_at_its_vowel_signs(script: str, question: str) -> None:
+    """A vowel sign is category Mc and `\\w` is alphanumeric, so the naive pattern shatters
+    every akshara cluster. One token per written word is the property; the word count comes
+    from the spaces in the sample, which is a fact about the string and not about the
+    language."""
+    words = question.rstrip("?؟").split()
+    forms = query_forms(question)
+    assert forms
+    assert len(forms[0]) <= len(words)
+    assert len(forms[0]) >= 1
