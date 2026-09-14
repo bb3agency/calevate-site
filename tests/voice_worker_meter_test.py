@@ -44,6 +44,7 @@ from voice_worker.meter import (
     RateRefusedError,
     RuntimePriceUnknownError,
     RuntimeUsage,
+    SpeechQuantityMissingError,
     TokenUsageNotComparableError,
 )
 
@@ -400,6 +401,7 @@ def test_every_refusal_shares_one_base_so_a_zero_substitution_is_greppable() -> 
         LlmModelUnnamedError,
         LlmModelAmbiguousError,
         LlmTotalTokensMissingError,
+        SpeechQuantityMissingError,
     ):
         assert issubclass(error, LegNotMeterableError)
         assert error.kind == "business_rule"
@@ -434,3 +436,49 @@ def test_a_leg_that_reported_nothing_is_absent_rather_than_refused() -> None:
     rows = meter.metered_rows(carrier=CDR, runtime=RUNTIME)
 
     assert {row.leg for row in rows} == {MeteredLeg.CARRIER, MeteredLeg.RUNTIME}
+
+
+# --- an unreadable speech report is an absence, never a zero ----------------------------
+
+
+def test_stt_reports_we_could_not_read_refuse_the_leg_rather_than_vanish() -> None:
+    """A transcriber that reported N times and named no `audio_seconds` in any of them is
+    NOT a call that transcribed nothing.
+
+    `ServiceUsageRecord.audio_seconds` is `float | None` at source (pipecat-ai 1.10.0,
+    `pipecat/observers/service_metrics_observer.py:107`), so a report with no quantity is a
+    shape the vendor type permits. Dropping it left `_stt_reports` at zero, and `_stt_rows`
+    reads zero as "the transcriber never reported on this call" and returns no row at all —
+    so the STT leg silently left the bill. That is `LlmTotalTokensMissingError`'s argument
+    ("dropping such a report would under-meter the leg silently") one leg over.
+    """
+    meter = CallMeter(rates=FakeRates())
+    meter.observe(ServiceUsageRecord(kind=ServiceUsageKind.STT, processor="p", timestamp=1.0))
+
+    with pytest.raises(LegNotMeterableError) as refusal:
+        meter.metered_rows(carrier=CDR, runtime=RUNTIME)
+    assert refusal.value.leg is MeteredLeg.STT
+
+
+def test_tts_reports_we_could_not_read_refuse_the_leg_rather_than_vanish() -> None:
+    """The same hole on the synthesiser leg: `characters` is `int | None` at source
+    (`service_metrics_observer.py:108`), and a report carrying none used to be dropped."""
+    meter = CallMeter(rates=FakeRates())
+    meter.observe(ServiceUsageRecord(kind=ServiceUsageKind.TTS, processor="p", timestamp=1.0))
+
+    with pytest.raises(LegNotMeterableError) as refusal:
+        meter.metered_rows(carrier=CDR, runtime=RUNTIME)
+    assert refusal.value.leg is MeteredLeg.TTS
+
+
+def test_an_unreadable_speech_report_still_refuses_when_other_reports_were_fine() -> None:
+    """The dangerous direction: reports we COULD read make the leg look healthy, so a
+    partially-unreadable leg used to settle at a quantity that was short by however much the
+    dropped reports carried. A short quantity is a wrong price, not a missing one."""
+    meter = CallMeter(rates=FakeRates())
+    meter.observe(stt(10.0))
+    meter.observe(ServiceUsageRecord(kind=ServiceUsageKind.STT, processor="p", timestamp=1.0))
+
+    with pytest.raises(LegNotMeterableError) as refusal:
+        meter.metered_rows(carrier=CDR, runtime=RUNTIME)
+    assert refusal.value.leg is MeteredLeg.STT

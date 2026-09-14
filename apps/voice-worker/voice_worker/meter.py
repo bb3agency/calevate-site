@@ -89,6 +89,7 @@ __all__ = [
     "RateRefusedError",
     "RuntimePriceUnknownError",
     "RuntimeUsage",
+    "SpeechQuantityMissingError",
     "TokenUsageNotComparableError",
     "UsageRow",
 ]
@@ -293,6 +294,51 @@ class TokenUsageNotComparableError(LegNotMeterableError):
                 "Check which provider this agent's in-call LLM leg actually ran on. Bill "
                 "nothing from this session until it is explained: total_tokens is the figure "
                 "of record and must never be reconstructed from the parts."
+            ),
+        )
+
+
+class SpeechQuantityMissingError(LegNotMeterableError):
+    """A speech service reported usage and named no quantity, so its leg cannot be summed.
+
+    `ServiceUsageRecord.audio_seconds` and `.characters` are both OPTIONAL at source
+    (`pipecat/observers/service_metrics_observer.py:107-108`, pipecat-ai 1.10.0), so a
+    report with no number in it is a shape the vendor's own type permits. It used to be
+    dropped by `observe` with a bare `return`, incrementing no counter — and `_stt_rows` /
+    `_tts_rows` read a zero report count as "the service never reported on this call" and
+    returned NO ROW. So a leg we failed to read and a leg that genuinely did not happen
+    settled identically, and the failure direction was the expensive one: the leg left the
+    bill silently.
+
+    That is `LlmTotalTokensMissingError`'s argument — "dropping such a report would
+    under-meter the leg silently, which is the shape of the defect this whole module exists
+    to prevent" — which was written for the language leg and true of all three. The two
+    speech legs now remember what they could not read and refuse here, exactly as the
+    language leg does.
+
+    ONE CLASS FOR BOTH LEGS, unlike the three LLM refusals, because the operator's question
+    and answer are identical on either — "which service, how many reports, go and find out
+    why it reported no quantity" — and `leg` already carries the half that differs. The LLM
+    trio are separate because they name three DIFFERENT causes (no total, no model, two
+    models) with three different remediations.
+    """
+
+    def __init__(self, *, leg: MeteredLeg, processor: str, reports: int) -> None:
+        quantity = "audio_seconds" if leg is MeteredLeg.STT else "characters"
+        super().__init__(
+            leg=leg,
+            code="meter_speech_quantity_missing",
+            detail=(
+                f"{processor!r} reported {leg.value} usage {reports} time(s) with no "
+                f"{quantity}, so part of this session's {leg.value} leg has no quantity to "
+                "price."
+            ),
+            remediation=(
+                "Find out why the service omitted the quantity — a service that reports "
+                "usage without one is misconfigured or has changed its metrics shape. Do "
+                "not settle the call until it is known: the reports that DID carry a "
+                "quantity sum to a short figure, and a short quantity is a wrong price "
+                "rather than a missing one."
             ),
         )
 
@@ -532,6 +578,12 @@ class CallMeter:
         self._llm: dict[str, _LlmTally] = {}
         self._llm_unnamed: list[str] = []
         self._llm_no_total: list[str] = []
+        # What the two speech legs could not READ, remembered for the same reason the three
+        # lists above are: `observe` never raises, so a report we cannot use has to survive
+        # until `metered_rows` runs. Without these, an unreadable report was indistinguish-
+        # able from one that never arrived — see `SpeechQuantityMissingError`.
+        self._stt_no_seconds: list[str] = []
+        self._tts_no_characters: list[str] = []
 
     # -- intake --------------------------------------------------------------------
 
@@ -577,6 +629,11 @@ class CallMeter:
         """
         if record.kind is ServiceUsageKind.STT:
             if record.audio_seconds is None:
+                # REMEMBERED, NOT DROPPED. A bare `return` here made an unreadable report
+                # and an absent one the same event, and `_stt_rows` prices the absent one at
+                # nothing. Refusal is `metered_rows`' job (see the class docstring: observing
+                # never raises), so all this arm does is make sure the fact survives.
+                self._stt_no_seconds.append(record.processor)
                 return
             # `str()` and not `Decimal(float)`: the vendor measures audio seconds as a float
             # (`stt_service.py:251`, bytes / (sample_rate * 2)), and the binary expansion of
@@ -587,6 +644,7 @@ class CallMeter:
             self._stt_processors.add(record.processor)
         elif record.kind is ServiceUsageKind.TTS:
             if record.characters is None:
+                self._tts_no_characters.append(record.processor)
                 return
             # Already an int — `len(text)` at `frame_processor_metrics.py:365`.
             self._tts_characters += record.characters
@@ -684,6 +742,14 @@ class CallMeter:
         return self._rates
 
     def _stt_rows(self) -> list[UsageRow]:
+        # BEFORE the "nothing was reported" arm, because that arm cannot tell the two apart:
+        # an unreadable report leaves `_stt_reports` at zero and would settle as no leg.
+        if self._stt_no_seconds:
+            raise SpeechQuantityMissingError(
+                leg=MeteredLeg.STT,
+                processor=sorted(self._stt_no_seconds)[0],
+                reports=len(self._stt_no_seconds),
+            )
         if self._stt_reports == 0:
             # A CALL THAT TRANSCRIBED NOTHING IS NOT AN UNPRICEABLE CALL. It is a call the
             # transcriber never reported on — an answer that hung up in silence — and there
@@ -713,6 +779,12 @@ class CallMeter:
         ]
 
     def _tts_rows(self) -> list[UsageRow]:
+        if self._tts_no_characters:
+            raise SpeechQuantityMissingError(
+                leg=MeteredLeg.TTS,
+                processor=sorted(self._tts_no_characters)[0],
+                reports=len(self._tts_no_characters),
+            )
         if self._tts_reports == 0:
             return []
         rates = self._rate_card(MeteredLeg.TTS)
