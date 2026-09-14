@@ -177,8 +177,12 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
     -- the in-call knowledge pack this agent's LIVE published corpus was last frozen into
     -- (`calevate_shared.knowledge_pack`); with tenant_id and agent_id it is the whole
     -- object key, which is why no URL is stored. Written by the KB PUBLISH path
-    -- (`kb/service.publish_source`/`withdraw_source` → `kb/pack.refresh_published_pack`),
-    -- never by `publish_agent`: the pack's content is a function of `kb_chunks` alone.
+    -- (`kb/service.publish_source`/`withdraw_source` → `kb/pack.refresh_published_pack`)
+    -- and, through the SAME helper, by the English-gloss sweep (`workers/kb_gloss.py`),
+    -- which rebuilds the pack of every agent whose digest its glosses moved — a pack is
+    -- frozen at publish and the gloss lands afterwards, so without that the in-call index
+    -- would hold no English at all. Never by `publish_agent`: the pack's content is a
+    -- function of `kb_chunks` and `kb_documents` alone.
     -- NOT on `agent_config_versions`, whose ON CONFLICT DO NOTHING is only correct while
     -- every column is a function of its two digests — a T1-T4 publish moves neither.
     -- NULL = nothing published yet, which is what SessionConfig reports as "no knowledge

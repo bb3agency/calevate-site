@@ -17,7 +17,7 @@ WHAT "PUBLISHABLE" MEANS HERE, STATED ONCE. A `kb_chunks` row exists only becaus
 `kb/service.publish_source` put it there for a source with `approved_at IS NOT NULL`
 (`kb/models.py:133-136` records that the approval gate is structural rather than a
 predicate somebody must remember), and it is LIVE when `is_active` is true on both the
-projection and the source it projects. See `_ENTRIES_SQL` for why both are checked.
+projection and the source it projects. See `_LIVE_CHUNKS_FROM` for why both are checked.
 
 **VERSION 1 CARRIES NO VECTORS AND THIS MODULE MUST NOT ADD ONE.** `kb_chunks.embedding`
 is right there in the table this reads and is deliberately not projected: the dense arm
@@ -27,25 +27,29 @@ rules one out at 1-2 threads against a 100ms turn. Adding vectors is a
 
 **WHO CALLS THIS, AND WHY IT IS THE KB PUBLISH PATH AND NOT `publish_agent`.**
 `refresh_published_pack` at the bottom is the entry point, and `kb/service.publish_source`
-and `kb/service.withdraw_source` are its two callers — the only two functions that change
-which of an agent's chunks are live. `publish_agent` was the obvious alternative and is
-wrong twice: it runs for a voice change, a call-cap change and nine other reasons that
+and `kb/service.withdraw_source` are its callers on that path — the only two functions that
+change which of an agent's chunks are live. (`workers/kb_gloss.py` is the third caller and
+is not a publish: it changes what a live chunk SAYS rather than which chunks there are, and
+it reaches the same helper rather than a second one. See the gloss paragraph below.)
+`publish_agent` was the obvious alternative and is wrong twice: it runs for a voice
+change, a call-cap change and nine other reasons that
 cannot move a single chunk, and it does NOT run for the publish that matters most (a T1-T4
 source recompiles no T0 block, so `recompile_t0` returns None and nothing republishes).
 A pack refreshed there would be rebuilt constantly and stale exactly when it mattered.
 
-⚠ **KNOWN GAP, AND IT IS NOT FIXED HERE: A GLOSS THAT LANDS AFTER THE PUBLISH DOES NOT
-REACH THE PACK.** `apps/workers/kb_gloss.py` writes `kb_documents.gloss` on a sweep, minutes
-or hours after a source is published, and says of itself that a late gloss "starts working
-immediately, with no prompt re-mint and no republish" — which is true of
-`retrieval/compiled_facts.py`, which reads the column live, and is NOT true of a pack, which
-is frozen at publish by construction. So a Telugu-script corpus published before its sweep
-runs is packed with `gloss=None`, and until the client next publishes or withdraws anything
-on that agent the in-call search is the 0.250-recall case `kb/gloss.py` measured rather than
-the 0.750 one. What closes it is one call to `refresh_published_pack` from the sweep, on the
-agents whose glosses it just wrote; it is a change to `apps/workers/kb_gloss.py`, which this
-module does not own, and it is recorded here rather than left to be discovered from a
-retrieval number nobody can explain.
+**A GLOSS THAT LANDS AFTER THE PUBLISH NOW REACHES THE PACK, AND THIS PARAGRAPH USED TO
+RECORD IT AS A KNOWN GAP.** `apps/workers/kb_gloss.py` writes `kb_documents.gloss` on a
+sweep, minutes or hours after a source is published, and said of itself that a late gloss
+"starts working immediately, with no prompt re-mint and no republish" — true of
+`retrieval/compiled_facts.py`, which reads the column live, and NOT true of a pack, which is
+frozen at publish by construction. So a Telugu-script corpus published before its sweep ran
+was packed with `gloss=None`, and until the client next published or withdrew anything on
+that agent the in-call search was the 0.250-recall case `kb/gloss.py` measured rather than
+the 0.750 one — permanently, for a client who is happy with their opening hours and never
+publishes them twice. `agents_with_stale_packs` below is the half this module owns: it names
+the agents whose recorded pointer no longer matches the pack their corpus implies, and the
+sweep rebuilds those through `refresh_published_pack`. Not a second builder and not a
+worklist of ids — see that function for why the difference is computed from the digest.
 
 ⚠ **A SUPERSEDED PACK KEEPS THE WORDS THAT WERE IN IT, AND NOTHING DELETES IT BUT THAT
 CEILING.** A client who removes one document gets a new pack without it; the previous pack
@@ -83,36 +87,46 @@ from apps.api.db.ownership import assert_visible
 
 log = get_logger(__name__)
 
-#: One agent's live, published knowledge, joined to the text and the gloss it projects.
+#: **THE ONE SPELLING OF "LIVE", SHARED BY BOTH STATEMENTS BELOW.** `_ENTRIES_SQL` decides
+#: what goes INTO a pack; `_GLOSSED_AGENTS_SQL` decides whose pack is worth re-checking after
+#: a gloss lands. If the two ever disagreed about liveness the staleness scan would skip an
+#: agent whose pack had genuinely moved, and the symptom would be a pack that is simply never
+#: rebuilt — invisible from every screen, which is the exact shape of the defect the scan
+#: exists to close. So the predicate is written once and interpolated, rather than typed
+#: twice and kept in step by proof-reading.
 #:
 #: **BOTH `is_active` FLAGS, AND THE SECOND ONE IS NOT BELT-AND-BRACES.** The projection's
-#: flag is converged onto the source's by `kb/service.py:1966-1972` (`_DEACTIVATE_SQL`),
-#: which runs on the NEXT publish for that agent — so between a source going inactive by
-#: some other path and that publish, `c.is_active` can be true over an archived source. A
-#: pack is a frozen artefact a container caches for the life of a session; baking a
-#: superseded price list into one is not a query that self-corrects on the next tick.
-#: `s.is_active` is what `kb/service.active_knowledge` calls live and it is the only
-#: definition this module accepts.
-#:
-#: **`s.version`, NOT `c.version`, FOR `PackEntry.document_version`.** They are equal by
-#: construction — `_PROJECT_SQL` writes `s.version` into the projection
-#: (`kb/service.py:1951-1958`) — and when a projection is stale the source row is the one
-#: that says which revision a caller was actually answered from. Reading the truth costs
-#: nothing here because the join is already made for `s.is_active`.
+#: flag is converged onto the source's by `kb/service.py` (`_DEACTIVATE_SQL`), which runs on
+#: the NEXT publish for that agent — so between a source going inactive by some other path
+#: and that publish, `c.is_active` can be true over an archived source. A pack is a frozen
+#: artefact a container caches for the life of a session; baking a superseded price list into
+#: one is not a query that self-corrects on the next tick. `s.is_active` is what
+#: `kb/service.active_knowledge` calls live and it is the only definition this module accepts.
 #:
 #: `tenant_id` is re-stated on top of RLS for the reason `retrieval/pgvector.py` re-states
 #: it: RLS cannot see a caller passing tenant A's id on a session opened for tenant B as a
 #: mistake, and that caller would otherwise get B's chunks under A's name.
-#:
-#: No `ORDER BY`: the canonical order is `KnowledgePack.digest`'s and is applied in Python
-#: below, so there is exactly one place that decides it.
-_ENTRIES_SQL: Final = """
-SELECT c.id, c.document_id, s.version, d.content, d.gloss
+_LIVE_CHUNKS_FROM: Final = """
 FROM kb_chunks c
 JOIN kb_sources s ON s.id = c.source_id
 JOIN kb_documents d ON d.id = c.document_id
-WHERE c.tenant_id = :tid AND c.agent_id = :aid
-  AND c.is_active AND s.is_active
+WHERE c.tenant_id = :tid AND c.is_active AND s.is_active
+"""
+
+#: One agent's live, published knowledge, joined to the text and the gloss it projects.
+#:
+#: **`s.version`, NOT `c.version`, FOR `PackEntry.document_version`.** They are equal by
+#: construction — `_PROJECT_SQL` writes `s.version` into the projection — and when a
+#: projection is stale the source row is the one that says which revision a caller was
+#: actually answered from. Reading the truth costs nothing here because the join is already
+#: made for `s.is_active`.
+#:
+#: No `ORDER BY`: the canonical order is `KnowledgePack.digest`'s and is applied in Python
+#: below, so there is exactly one place that decides it.
+_ENTRIES_SQL: Final = f"""
+SELECT c.id, c.document_id, s.version, d.content, d.gloss
+{_LIVE_CHUNKS_FROM}
+  AND c.agent_id = :aid
 """
 
 
@@ -265,8 +279,10 @@ async def refresh_published_pack(
 ) -> str | None:
     """Freeze this agent's live knowledge and point `agents.knowledge_pack_sha256` at it.
 
-    THE ONE ENTRY POINT FROM THE PUBLISH PATH (`docs/PIPECAT-MIGRATION.md` §6 step 12).
-    `publish_pack` stores the bytes; this is what makes them findable, because a pack
+    THE ONE ENTRY POINT FOR EVERY WRITER OF `agents.knowledge_pack_sha256`
+    (`docs/PIPECAT-MIGRATION.md` §6 step 12): the KB publish path, the withdrawal path, and
+    the English-gloss sweep, which all arrive here rather than each freezing a pack its own
+    way. `publish_pack` stores the bytes; this is what makes them findable, because a pack
     nothing names is a pack no session will ever load. Returns the id it recorded, or
     `None` when the pack could not be built or stored — see the posture below.
 
@@ -336,4 +352,89 @@ async def refresh_published_pack(
     return pack_id
 
 
-__all__ = ["build_pack", "publish_pack", "read_entries", "refresh_published_pack"]
+#: The agents this tenant has whose pack COULD have been overtaken by a gloss, with the id
+#: their `agents` row currently points at. The cheap half of the difference; `d.gloss IS NOT
+#: NULL` is what makes it cheap and it is also what makes it exact FOR THIS CALLER: the only
+#: thing the gloss sweep changes about a pack's contents is `PackEntry.gloss`, so an agent
+#: with no glossed live chunk anywhere cannot have a pack this sweep made stale.
+#:
+#: **DISTINCT OVER THE PAIR IS ONE ROW PER AGENT**, because `knowledge_pack_sha256` is
+#: functionally dependent on `agent_id` — the join is to the agent row, not to a chunk.
+#:
+#: `LIMIT` after `ORDER BY 1` so the bound is deterministic rather than whatever the planner
+#: returned first: a tenant over the ceiling gets the same prefix every tick, which is a
+#: starvation the caller's constant is sized to make unreachable and which would otherwise be
+#: an intermittent one nobody could reproduce.
+_GLOSSED_AGENTS_SQL: Final = f"""
+SELECT DISTINCT g.agent_id, a.knowledge_pack_sha256
+FROM (SELECT c.agent_id {_LIVE_CHUNKS_FROM} AND d.gloss IS NOT NULL) g
+JOIN agents a ON a.id = g.agent_id AND a.tenant_id = :tid
+ORDER BY 1
+LIMIT :limit
+"""
+
+
+async def agents_with_stale_packs(
+    session: AsyncSession, *, tenant_id: UUID, limit: int
+) -> list[UUID]:
+    """Agents whose recorded pack id is not the one their live knowledge now implies.
+
+    WHAT THIS IS FOR. `workers/kb_gloss.py` writes `kb_documents.gloss` on a half-hourly
+    sweep, and the normal ordering — a reviewer approves and publishes in one sitting —
+    publishes BEFORE that sweep ever runs. A pack is frozen at publish by construction, so
+    the English half of every entry landed after the artefact the agent answers out of had
+    already been sealed, and nothing reopened it until the client happened to publish or
+    withdraw something else on that agent. Feed the result to `refresh_published_pack`.
+
+    **THE DIFFERENCE IS THE DIGEST, AND THAT IS THE LOAD-BEARING CHOICE.** The sweep could
+    hand over the document ids it just glossed; `kb/service.refresh_projection_keys` argues
+    at length why a worklist is the wrong instrument one table over, and every word of it
+    applies here with one more reason on top. A pack is CONTENT-ADDRESSED: the id in
+    `agents.knowledge_pack_sha256` is a hash of exactly the entries `read_entries` returns,
+    so "is this agent's pack stale?" has a total answer that costs one indexed read and no
+    bookkeeping. That answer converges on rows nobody told us about — a publish that raced a
+    gloss commit, every agent published before this function existed — and, unlike a
+    worklist, it does NOT go quiet when the rebuild fails: a storage outage leaves the
+    pointer where it was, so the digest still differs and the next tick selects the same
+    agent. A worklist would have consumed the id and moved on.
+
+    **REJECTED: a marker column, or comparing `kb_documents.updated_at` against
+    `agents.updated_at`.** The timestamp comparison is the cheaper-looking one and it is
+    WRONG in the silent direction: `agents.updated_at` moves for a voice change, a call-cap
+    change and nine other reasons, so any unrelated edit landing after the gloss pushes the
+    agent out of the candidate set permanently. A new column would work and buys nothing the
+    digest does not already give — the repo would then hold two answers to "which pack does
+    this corpus imply", which is the drift the quality bar calls a defect even while both
+    agree.
+
+    **IT REUSES `read_entries` AND `KnowledgePack.digest` RATHER THAN HASHING IN SQL.** A
+    `sha256` expression over a canonical JSON built in Postgres would be a second spelling of
+    the pack id, and the failure mode of a second spelling here is a rebuild loop: every tick
+    would disagree with the artefact and re-store a pack that had not changed.
+
+    Run on the CALLER's tenant-scoped session (hard rule 1); `tenant_id` is re-stated on both
+    halves on top of RLS for `_LIVE_CHUNKS_FROM`'s reason. READ-ONLY and lock-free, so the
+    caller can scan a tenant without holding anything across the storage round trips that
+    the refresh of a stale agent then costs.
+
+    `limit` is the caller's, because the budget belongs to the tick.
+    """
+    candidates = (
+        await session.execute(text(_GLOSSED_AGENTS_SQL), {"tid": tenant_id, "limit": limit})
+    ).all()
+    stale: list[UUID] = []
+    for row in candidates:
+        agent_id = UUID(str(row[0]))
+        entries = await read_entries(session, tenant_id=tenant_id, agent_id=agent_id)
+        if KnowledgePack.digest(tenant_id, agent_id, entries) != row[1]:
+            stale.append(agent_id)
+    return stale
+
+
+__all__ = [
+    "agents_with_stale_packs",
+    "build_pack",
+    "publish_pack",
+    "read_entries",
+    "refresh_published_pack",
+]

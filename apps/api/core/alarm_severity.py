@@ -570,6 +570,12 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # cross-script questions keep missing those chunks. Degraded retrieval on one arm, and
     # the next tick re-selects the same rows by difference — attention, never a page.
     "kb_gloss_rekey_failed": "attention",
+    # The gloss was bought and stored and the FROZEN IN-CALL PACK built from it was not
+    # rebuilt, so the agent keeps answering the phone out of a pack with no English in it —
+    # 0.083 recall@1 on a Telugu-script question (`tests/in_call_retrieval_recall_test.py`,
+    # measured 14 Sep 2026). Worse than its sparse-key twin above and still not a page: the
+    # scan selects by difference, so the next tick re-selects exactly the same agents.
+    "kb_gloss_pack_refresh_failed": "attention",
     "caller_embed_unusable_response": "attention",
     "caller_embed_unmeterable": "attention",
     "caller_embed_worklist_failed": "attention",
