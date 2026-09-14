@@ -158,6 +158,7 @@ from calevate_shared.engine import (
     render_caller_memory,
 )
 from calevate_shared.events import CallEvent, CallStatus, Speaker, TranscriptTurn
+from calevate_shared.languages import offered_language_tags
 from calevate_shared.model_lifecycle import TTS_MODEL_LIFECYCLE
 from pydantic import ValidationError
 
@@ -566,7 +567,7 @@ def _cartesia_language(language: str) -> str:
     @`ae03977f`), and Cartesia's own per-snapshot language lists are two-letter codes —
     `te` is on `sonic-3.5-2026-05-04`'s 42 (VENDOR-PUBLISHED, `docs.cartesia.ai`, read
     7 Sep 2026, relayed in `docs/PLAN-CREDIT-LOTS-AND-VOICE-TIERS.md` ADDENDUM 1/3, whose
-    worked block is `"language": "te"`). `agents/voices.Language` is BCP-47
+    worked block is `"language": "te"`). `agents/languages.Language` is BCP-47
     (`te-IN`/`hi-IN`/`en-IN`), so the region subtag is dropped here and nowhere else: a
     second place that split this string would be a second definition of the vendor's
     vocabulary living outside the adapter.
@@ -2079,10 +2080,25 @@ _VOICE_CONFIG_PATH: Final = "/api/v1/voice-config/tts"
 _VOICE_LIST_PATH: Final = "/api/v1/voice-config/tts/voices"
 
 #: THEIR bare BCP-47 filter -> OUR product language code. Their parameter takes `en`, `hi`,
-#: `ta` (`get_providers.md`); `agents/voices.Language` spells the three the product sells
-#: as `te-IN`, `hi-IN`, `en-IN`. Telugu first, because that is the order a picker renders
-#: (BRD §1) and the order the union below preserves.
-_VOICE_LANGUAGES: Final[dict[str, str]] = {"te": "te-IN", "hi": "hi-IN", "en": "en-IN"}
+#: `ta` (`get_providers.md`); the product sells `te-IN`, `hi-IN`, `en-IN`. Telugu first,
+#: because that is the order a picker renders (BRD §1) and the order the union below
+#: preserves — `offered_language_tags()` is ordered, so this map inherits it.
+#:
+#: **THE MAP STAYS IN THE ADAPTER (hard rule 2) AND ITS VALUES DERIVE.** Which languages we
+#: sell is not a vendor fact and was typed here as a third copy of the same three tags;
+#: which PARAMETER their route takes is a vendor fact and is nobody's business but this
+#: file's. So the values come from the declaration and the SHAPE stays here.
+#:
+#: The key is the tag's primary subtag, which is what their parameter is documented to be —
+#: NOT a vendor spelling derived from ours. If an offered language ever has a vendor code
+#: that is not its own primary subtag (Sarvam spells Odia `od`, not `or` — see
+#: `calevate_shared.languages.KNOWN_WIRE_CODE_ANOMALIES`), this must become an explicit
+#: per-language map rather than a split. `tests/product_languages_test.py::test_no_offered_
+#: language_has_a_vendor_spelling_of_its_own` is what makes that a failing test on the day
+#: the language is offered, rather than an empty voice listing on the day somebody looks.
+_VOICE_LANGUAGES: Final[dict[str, str]] = {
+    tag.split("-", 1)[0]: tag for tag in offered_language_tags()
+}
 
 #: Their own documented default, and their example's value (`get_all.md`). Not
 #: `_LISTING_PAGE_SIZE` (50): that constant is the AGENT/knowledge-base routes' documented

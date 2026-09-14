@@ -54,8 +54,8 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import lifecycle
+from apps.api.agents.languages import LANGUAGE_LABELS, PRODUCT_LANGUAGES, OfferedLanguage
 from apps.api.agents.models import AGENT_DIRECTIONS, AgentDirection
-from apps.api.agents.voices import Language
 from apps.api.campaigns import service as campaigns_service
 from apps.api.copilot.actions import (
     DOES_IT,
@@ -72,24 +72,18 @@ from apps.api.copilot.sanitize import strip_invisible
 from apps.api.core.errors import ProblemError
 from apps.api.db.ownership import assert_visible
 
-#: The three languages an agent can be born speaking (`agents/voices.Language`), read off
-#: that Literal rather than retyped so a fourth language reaches the model's enum the day it
-#: reaches the column's.
-_LANGUAGES: Final[tuple[str, ...]] = ("te-IN", "hi-IN", "en-IN")
-
 #: The longest an agent's name may be — `AgentCreateIn.name`'s own ceiling, which the
 #: column and the create form already agree on. Stated as a constant so the refusal the
 #: model reads and the constraint the database holds are the same number.
 _MAX_AGENT_NAME: Final = 120
 
 
-#: How a language reads in a sentence a person approves. Machine tags are what the column
-#: holds; "Telugu" is what somebody checking a card needs to see.
-_LANGUAGE_LABELS: Final[dict[str, str]] = {
-    "te-IN": "Telugu",
-    "hi-IN": "Hindi",
-    "en-IN": "Indian English",
-}
+#: HOW A LANGUAGE READS IN A SENTENCE A PERSON APPROVES — `agents/languages.LANGUAGE_
+#: LABELS`, not a second table. Machine tags are what the column holds; "Telugu" is what
+#: somebody checking a card needs to see, and the card and the picker have to call it the
+#: same thing or the person approving cannot match one to the other. This file carried its
+#: own copy, which is how `en-IN` read "Indian English" here and "English (India)" on every
+#: screen that shows it.
 
 #: And the same for the calling direction, which is the field the founder's own request
 #: turned on ("should handle outbound calling").
@@ -117,7 +111,7 @@ class _AgentCreateArgs(BaseModel):
 
     name: str
     direction: AgentDirection
-    language_primary: Language
+    language_primary: OfferedLanguage
 
 
 async def _plan_agent_create(
@@ -169,11 +163,11 @@ async def _plan_agent_create(
         summary=(
             f"Create a draft voice agent called “{name}” that "
             f"{_DIRECTION_LABELS[parsed.direction]}, speaking "
-            f"{_LANGUAGE_LABELS[parsed.language_primary]}. It starts as a DRAFT: it answers "
+            f"{LANGUAGE_LABELS[parsed.language_primary]}. It starts as a DRAFT: it answers "
             "nothing and calls nobody until it has a script and somebody publishes it."
         ),
         current=None,
-        proposed=f"{name} — draft, {_LANGUAGE_LABELS[parsed.language_primary]}",
+        proposed=f"{name} — draft, {LANGUAGE_LABELS[parsed.language_primary]}",
         cost=None,
         reversal=(
             "A draft reaches no caller. You can rename it, or archive it, from the Agents screen."
@@ -268,10 +262,14 @@ AGENT_CREATE: Final = ActionTool(
             },
             "language_primary": {
                 "type": "string",
-                "enum": list(_LANGUAGES),
+                "enum": list(PRODUCT_LANGUAGES),
+                # COMPOSED, not typed: this sentence is the model's only statement of what
+                # the tags mean, and a hand-written one is the copy that keeps a retired
+                # language on offer to the assistant after every screen has dropped it.
                 "description": (
-                    "The language it mainly speaks to callers in: te-IN Telugu, hi-IN "
-                    "Hindi, en-IN Indian English."
+                    "The language it mainly speaks to callers in: "
+                    + ", ".join(f"{tag} {label}" for tag, label in LANGUAGE_LABELS.items())
+                    + "."
                 ),
             },
         },

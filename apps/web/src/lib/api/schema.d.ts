@@ -6903,8 +6903,11 @@ export interface components {
             id: string;
             /** Inbound Number Count */
             inbound_number_count: number;
-            /** Language Primary */
-            language_primary: string;
+            /**
+             * Language Primary
+             * @enum {string}
+             */
+            language_primary: "te-IN" | "hi-IN" | "en-IN";
             /** Llm Model */
             llm_model: string | null;
             /** Llm Model Effective */
@@ -11114,8 +11117,11 @@ export interface components {
             escalation_contacts: {
                 [key: string]: string | null;
             }[];
-            /** Language Primary */
-            language_primary: string;
+            /**
+             * Language Primary
+             * @enum {string}
+             */
+            language_primary: "te-IN" | "hi-IN" | "en-IN";
             /** Languages */
             languages: string[];
             /** Owner Present */

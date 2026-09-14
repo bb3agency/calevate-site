@@ -24,6 +24,7 @@ from uuid import UUID
 from calevate_shared.extraction import ExtractionField
 from pydantic import BaseModel, ConfigDict
 
+from apps.api.agents.languages import Language
 from apps.api.agents.llm_models import LlmModelSource
 from apps.api.agents.models import AgentDirection, AgentStatus
 from apps.api.compliance.disclosure import TRUTHFUL_ANSWER_PROMISE
@@ -48,7 +49,13 @@ class AgentOut(BaseModel):
     status: AgentStatus
     #: Set only while `status == "archived"`; a CHECK constraint holds the pair together.
     archived_at: datetime | None
-    language_primary: str
+    #: TYPED for `direction`'s reason above, and it could not be until the column was
+    #: bounded: `agents.language_primary` was a bare `Text` with no CHECK, so a row could
+    #: hold anything and a Literal here would have turned a schema fault into a 500 on a
+    #: roster read. Migration `c7a41e8b52d9` closes that end, `ck_agents_language_primary_
+    #: offered` is the constraint, and the screens get an exhaustive union instead of a
+    #: string they have to guard (`apps/web/src/lib/agentState.LANGUAGE_NAMES`).
+    language_primary: Language
     # THE LEGACY BUNDLE, kept on the wire for step 1 of D-163's two-step deprecation:
     # both sentences joined whatever the toggles say. Read it as "the notices this agent
     # HAS", never as "what it says" — `opening_line` below is what it says.

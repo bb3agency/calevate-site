@@ -15,7 +15,7 @@ NOT mounted here — the integrator wires this router into `main.py`.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request
@@ -23,6 +23,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from scripts.seed import VERTICAL_TEMPLATES
 
 from apps.api.admin.service import DISCLOSURE_TEMPLATES
+from apps.api.agents.languages import OfferedLanguage
 from apps.api.core.auth import client_request_ip, current_identity
 from apps.api.core.errors import ProblemError
 from apps.api.core.logging import get_logger
@@ -44,9 +45,10 @@ Identity = Annotated[UUID, Depends(current_identity)]
 
 # The languages an agent can actually disclose itself in. Not a free string: hard rule
 # 5 says the disclosure line is never null, and `create_organization` derives it from
-# this map — an unknown language would silently fall back to English on a Telugu-first
-# product (D-36).
-Language = Literal["te-IN", "hi-IN", "en-IN"]
+# `compliance/disclosure.AI_DISCLOSURE_TEMPLATES` — an unknown language would silently
+# fall back to English on a Telugu-first product (D-36). It used to declare its OWN
+# Literal of the same three tags, which is the copy that would have kept accepting a
+# language after the product stopped selling it.
 
 
 class SignupIn(BaseModel):
@@ -58,7 +60,7 @@ class SignupIn(BaseModel):
     # and immutable once set.
     slug: str | None = Field(default=None, min_length=3, max_length=40)
     vertical_template: str = Field(default="clinic", max_length=40)
-    language: Language = "te-IN"
+    language: OfferedLanguage = "te-IN"
     billing_email: EmailStr | None = None
     # `managed` is deliberately not in this Literal: it is the invoiced motion, the one
     # with no wallet gate in front of it, and it is not self-assignable.

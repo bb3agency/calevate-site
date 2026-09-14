@@ -722,6 +722,11 @@
             "type": "integer"
           },
           "language_primary": {
+            "enum": [
+              "te-IN",
+              "hi-IN",
+              "en-IN"
+            ],
             "title": "Language Primary",
             "type": "string"
           },
@@ -10463,6 +10468,11 @@
             "type": "array"
           },
           "language_primary": {
+            "enum": [
+              "te-IN",
+              "hi-IN",
+              "en-IN"
+            ],
             "title": "Language Primary",
             "type": "string"
           },

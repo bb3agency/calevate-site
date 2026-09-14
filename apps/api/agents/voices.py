@@ -245,14 +245,20 @@ from calevate_shared.engine import SpeechControl, VoiceEngine
 from calevate_shared.model_lifecycle import TTS_MODEL_LIFECYCLE, TtsProvider
 from pydantic import BaseModel, ConfigDict
 
+from apps.api.agents.languages import Language
 from apps.api.billing.rates import voice_tier_label
 
-# The languages the PRODUCT sells today (`CreateOrgIn.language`), Telugu first — we are
-# Telugu-first (BRD §1), so the ordering here is the ordering a picker should render.
-# A subset of the vendor's own 11-code TTS enum (VERIFIED-VENDOR-SDK: sarvamai==0.1.31
-# (PyPI wheel), `types/text_to_speech_language.py`, read 27 Aug 2026), not a claim about
-# the other eight.
-Language = Literal["te-IN", "hi-IN", "en-IN"]
+# `Language` MOVED TO `agents/languages.py` AND IS IMPORTED, NOT DECLARED (see that
+# module's docstring). It was declared here while "which languages do we sell" had nowhere
+# else to live, and that made the answer a property of the VOICE CATALOGUE — so the copilot
+# and the org-create route imported a catalogue to learn a commercial fact, and the vendor
+# capability behind it (Sarvam's 11-language TTS enum, which this comment used to cite)
+# looked like the same question. It is not: the speech stack can converse in eleven
+# languages (`calevate_shared.languages`), and the product sells three.
+#
+# Imported and NOT re-exported: `Voice.languages` below is annotated with it, and every
+# other caller takes it from `agents/languages.py`. Two import paths to one name is the
+# same drift in a smaller font.
 
 # The TTS models this product runs on — one per provider. Not an exhaustive list of what
 # either vendor sells; kept as a Literal (rather than a bare str) so a catalogue entry cannot
@@ -784,7 +790,6 @@ __all__ = [
     "CatalogueSource",
     "CurationState",
     "Gender",
-    "Language",
     "TtsModel",
     "Voice",
     "VoiceOrigin",

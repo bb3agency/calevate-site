@@ -110,11 +110,11 @@ from calevate_shared.engine import EngineVoice, EngineVoiceListing, VoiceEngine
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.languages import Language
 from apps.api.agents.models import PlatformVoiceCatalogEntry
 from apps.api.agents.voice_curation import CuratedVoice, read_one_curated_voice
 from apps.api.agents.voices import (
     ADDED_CURATION_STATE,
-    Language,
     TtsModel,
     VoiceProvider,
     provider_of_tts_model,

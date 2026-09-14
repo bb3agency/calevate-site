@@ -28,6 +28,7 @@ from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from sqlalchemy.orm import Mapped, mapped_column
 
+from apps.api.agents.languages import PRODUCT_LANGUAGES
 from apps.api.db.base import Base, PKMixin, TimestampMixin
 
 #: WHICH WAY AN AGENT'S CALLS GO, as a type rather than as three strings.
@@ -146,6 +147,23 @@ class Agent(PKMixin, TimestampMixin, Base):
     __tablename__ = "agents"
     __table_args__ = (
         CheckConstraint(f"direction IN {AGENT_DIRECTIONS!r}", name="direction_enum"),
+        # WHICH LANGUAGE THE AGENT SPEAKS, bounded at last (migration c7a41e8b52d9).
+        #
+        # It was a bare `Text` with a server default and NOTHING else: no FK, no CHECK. So
+        # `xx-IN` stored cleanly, and what it cost was not a bad row on a screen — it was
+        # `compliance/disclosure._rendered` falling back to English for an agent somebody
+        # configured in a language, and `agents/handoff.py` doing the same, silently, on a
+        # live call. A column that cannot refuse a value is a column every reader has to
+        # guard, and three of the readers here speak sentences to callers.
+        #
+        # DERIVED from the offered set (D-104), like `direction` above and for its reason:
+        # a fourth product language changes the Literal and this CHECK in one edit, or it
+        # changes neither. It admits the OFFERED three and not the eleven the speech stack
+        # can converse in — `calevate_shared.languages` holds that distinction and
+        # `tests/product_languages_test.py` holds this constraint to the narrower side.
+        CheckConstraint(
+            f"language_primary IN {PRODUCT_LANGUAGES!r}", name="language_primary_offered"
+        ),
         CheckConstraint(f"status IN {AGENT_STATUSES!r}", name="status_enum"),
         # `archived` and `archived_at` are two spellings of one fact (migration
         # e4b90d27c1f6), so the constraint is an EQUIVALENCE rather than an implication:

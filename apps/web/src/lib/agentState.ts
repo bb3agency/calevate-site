@@ -108,15 +108,38 @@ export const DIRECTION_COPY: Record<string, { label: string; hint: string }> = {
  *
  * `Record<AgentLanguage, string>` over the GENERATED union, not `Record<string, string>`:
  * a fourth language on the server is then a type error here rather than an unnamed option
- * in a picker. An agent whose stored `language_primary` is not one of these — a value
- * retired since it was written — still falls back to its own code at every call site,
- * because `AgentOut.language_primary` remains a bare string on the wire.
+ * in a picker. Every screen in BOTH realms reads its language names from this table — the
+ * admin wizard and the signup form used to carry their own, which is how one language had
+ * three names in one product.
+ *
+ * The names match the server's (`calevate_shared.languages`, `english_name`), which is
+ * what the copilot's confirmation cards now render: a card that says "speaking English
+ * (India)" and a picker that offered "Indian English" are the same choice, and the person
+ * approving should not have to work that out.
+ *
+ * `AgentOut.language_primary` is now the same union rather than a bare string — the column
+ * carries a CHECK (migration c7a41e8b52d9) and the response model is typed — so the
+ * fallback arms at the call sites below are for the value a screen holds MID-EDIT, not for
+ * a stored language this table has never heard of.
  */
 export const LANGUAGE_NAMES: Record<AgentLanguage, string> = {
   "te-IN": "Telugu",
   "hi-IN": "Hindi",
   "en-IN": "English (India)",
 };
+
+/**
+ * The same three as a list, in the same order (Telugu first — BRD §1 and the column's
+ * server default), for every picker that renders options rather than looking one up.
+ *
+ * Derived from the table above so an option list cannot go stale against the names beside
+ * it. `Object.keys` is typed back to the union because that is what it holds: TypeScript
+ * widens it to `string[]` for soundness reasons about extra properties that a `Record`
+ * literal of a closed union does not have.
+ */
+export const LANGUAGE_CHOICES: { value: AgentLanguage; label: string }[] = (
+  Object.keys(LANGUAGE_NAMES) as AgentLanguage[]
+).map((value) => ({ value, label: LANGUAGE_NAMES[value] }));
 
 export const STATUS_COPY: Record<string, { label: string; hint: string }> = {
   draft: {

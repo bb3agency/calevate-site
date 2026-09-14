@@ -13,7 +13,7 @@ import {
   RestrictionNote,
 } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
-import { LANGUAGE_NAMES } from "@/lib/agentState";
+import { LANGUAGE_CHOICES, LANGUAGE_NAMES } from "@/lib/agentState";
 import {
   useCreateAgent,
   type Agent,
@@ -175,10 +175,7 @@ export function BuildAgent({ slug }: { slug: string }) {
               label: "What language does it speak?",
               type: "select",
               value: language,
-              options: Object.entries(LANGUAGE_NAMES).map(([code, label]) => ({
-                value: code,
-                label,
-              })),
+              options: LANGUAGE_CHOICES.map(({ value, label }) => ({ value, label })),
             },
             {
               id: "new-agent-cap",
@@ -304,9 +301,9 @@ export function BuildAgent({ slug }: { slug: string }) {
                   }}
                   className={FIELD}
                 >
-                  {Object.entries(LANGUAGE_NAMES).map(([code, label]) => (
-                    <option key={code} value={code}>
-                      {label}
+                  {LANGUAGE_CHOICES.map((choice) => (
+                    <option key={choice.value} value={choice.value}>
+                      {choice.label}
                     </option>
                   ))}
                 </select>

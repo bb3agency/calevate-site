@@ -57,6 +57,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import lifecycle, roster
+
+# The languages the product sells, imported rather than respelled. `OfferedLanguage` and
+# not the bare `Literal`: same OpenAPI enum, and a refusal written for the person holding
+# the request — pydantic's own "Input should be 'te-IN', ..." is dropped by the validation
+# handler on purpose (`core/errors._LIBRARY_PHRASINGS`), so a bare Literal here refuses
+# `xx-IN` with a field name and no reason.
+from apps.api.agents.languages import OfferedLanguage
 from apps.api.agents.llm_models import (
     validate_llm_model,
 )
@@ -74,10 +81,6 @@ from apps.api.agents.publishing import (
 )
 from apps.api.agents.schemas import AgentOut
 from apps.api.agents.service import publish_agent
-
-# The languages the product sells, imported rather than respelled: this repo already
-# carries three copies of that Literal and a fourth is the D-103 defect class.
-from apps.api.agents.voices import Language
 from apps.api.compliance.audit import write_audit
 from apps.api.compliance.disclosure import TRUTHFUL_ANSWER_PROMISE
 from apps.api.core.auth import assert_view_as_may, client_request_ip, requires
@@ -320,7 +323,7 @@ class AgentCreateIn(BaseModel):
     #: capability, and because an agent that can only be called is the safe default: an
     #: `outbound` default would make "I clicked create" the first step of a dialling motion.
     direction: AgentDirection = "inbound"
-    language_primary: Language = "te-IN"
+    language_primary: OfferedLanguage = "te-IN"
     #: The cost-runaway guard. `null` means the platform default (600s), never unlimited.
     max_call_duration_s: int | None = Field(default=None, ge=CALL_CAP_MIN_S, le=CALL_CAP_MAX_S)
 
@@ -360,7 +363,7 @@ class AgentUpdateIn(BaseModel):
 
     name: str | None = Field(default=None, min_length=1, max_length=120)
     direction: AgentDirection | None = None
-    language_primary: Language | None = None
+    language_primary: OfferedLanguage | None = None
     #: `null` clears the agent's own choice and falls back to the account default. A value
     #: outside the allow-list is refused by `validate_llm_model` with the permitted ones
     #: named — not by a `Literal` here, which would bake today's allow-list into the wire

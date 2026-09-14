@@ -2,14 +2,28 @@
 hear.
 
 WHY THIS FILE EXISTS. Nothing in this repository declared an agent's languages. What
-existed instead was the same three strings spelled five times — `agents/voices.py::
-Language`, `agents/voice_sync._PRODUCT_LANGUAGES`, `copilot/agent_actions._LANGUAGES`
-and `_LANGUAGE_LABELS`, `engine/bolna._VOICE_LANGUAGES`, and `apps/web/src/app/admin/new/
-languages.ts` — each a `te-IN`/`hi-IN`/`en-IN` tuple with its own labels, none of them
-derived from the other. That is the "one way per problem" defect on a value the picker,
-the publish path, the DLT script review and the disclosure copy all read. It is also a
-list that cannot GROW: a product sold as Telugu-first to Indian SMBs has to be able to
-answer a Marathi caller, and adding Marathi today means finding all five copies.
+existed instead was the same three strings spelled independently in TWELVE places —
+`agents/voices.py::Language`, `agents/voice_sync._PRODUCT_LANGUAGES`,
+`copilot/agent_actions._LANGUAGES` and a second `_LANGUAGE_LABELS`,
+`engine/bolna._VOICE_LANGUAGES`, `admin/routes.CreateOrgIn.language`,
+`tenancy/signup_routes.Language`, and three tables of labels in the frontend
+(`admin/new/languages.ts`, `lib/api/signup.ts`, `lib/agentState.ts`) plus a union
+hand-written twice in `admin/ops/voices/page.tsx` — each its own `te-IN`/`hi-IN`/`en-IN`
+tuple with its own labels, none derived from another. That is the "one way per problem"
+defect on a value the picker, the publish path, the DLT script review and the disclosure
+copy all read, and it had already drifted: `en-IN` was "Indian English" on the copilot's
+confirmation card and "English (India)" on every screen that card refers to.
+
+**EVERY ONE OF THOSE NOW DERIVES FROM HERE**, with exactly two exceptions that cannot:
+`agents/languages.Language` (Pydantic needs a static `Literal` to emit the OpenAPI enum
+the whole typed frontend is built on) and migration `c7a41e8b52d9` (a migration is a
+snapshot of the schema on the day it ran). Both are held equal to `offered_language_
+tags()` by `tests/product_languages_test.py`, which also walks every source file in
+`apps/` and `packages/shared/src` and fails if any of them starts spelling the set again.
+It was also a list that could not GROW: a product sold as Telugu-first to Indian SMBs has
+to be able to answer a Marathi caller, and adding Marathi used to mean finding all twelve
+copies. It is now one line here plus the things a language genuinely needs — see
+`OFFERED_LANGUAGE_IDS`.
 
 **THE DISTINCTION THIS FILE EXISTS TO PROTECT: STT HEARS MORE THAN TTS CAN SPEAK.**
 Sarvam's own SDK declares 23 languages its speech-to-text accepts and 11 its text-to-
@@ -18,8 +32,22 @@ Offer a caller one of the other twelve and you have built an agent that understa
 question perfectly and then cannot say anything back — a failure that does not appear in
 any test, any staging click-through or any screenshot, only on a live call with a real
 customer on the line. So "understood" and "answerable" are TWO FIELDS here and are never
-collapsed into one boolean, and `conversational_languages()` is the only thing a picker
-may render.
+collapsed into one boolean, and nothing wider than `conversational_languages()` may ever
+reach a picker.
+
+**CAPABLE IS NOT OFFERED, AND THE TWO ARE SEPARATE DECLARATIONS ON PURPOSE.** Eleven
+languages are conversational; the product SELLS three (`OFFERED_LANGUAGE_IDS` below, and
+`offered_languages()` is what every picker, column, enum and label in `apps/` derives
+from). Widening the capability set is a VENDOR fact and lands here when somebody reads a
+vendor's list; widening the offer is a COMMERCIAL decision — a language needs disclosure
+and recording sentences written in it (`compliance/disclosure.py`), a voice the engine
+account actually holds, and somebody willing to answer a caller's second question in it —
+and it belongs to the founder, not to whoever is editing this file. Collapsing the two
+would make reading a vendor's SDK put eight languages on a client's screen.
+
+The containment runs one way and is asserted, not assumed: every offered language is
+conversational (`tests/product_languages_test.py`), so the dead-air failure above cannot
+be reached by widening the offer.
 
 WHERE THE VENDOR FACTS COME FROM
 --------------------------------------------------------------------------------------
@@ -118,6 +146,7 @@ from typing import Final, Literal
 __all__ = [
     "KNOWN_WIRE_CODE_ANOMALIES",
     "LANGUAGES",
+    "OFFERED_LANGUAGE_IDS",
     "STT_LANGUAGES_PIPECAT_CANNOT_LABEL",
     "UNVERIFIED_VENDOR_LEGS",
     "VERIFIED_VENDOR_LEGS",
@@ -132,6 +161,8 @@ __all__ = [
     "conversational_languages",
     "find_language",
     "get_language",
+    "offered_language_tags",
+    "offered_languages",
 ]
 
 #: Our own stable identifier for a language. It is NOT a BCP-47 code and NOT a vendor
@@ -575,6 +606,43 @@ def conversational_languages() -> tuple[Language, ...]:
     reply.
     """
     return tuple(row for row in _ROWS if row.conversational)
+
+
+#: WHAT THE PRODUCT SELLS, which is a commercial fact and not a vendor one.
+#:
+#: Three of the eleven conversational languages, Telugu first (BRD §1, and the server
+#: default of `agents.language_primary`). It is a SEPARATE declaration from the capability
+#: table above for the reason the module docstring gives: reading a vendor's SDK must never
+#: be able to put a language on a client's screen.
+#:
+#: **ADDING ONE IS NOT AN EDIT TO THIS LINE.** A new offered language needs, in the same
+#: change: the tag in `apps/api/agents/languages.Language` (the Pydantic/OpenAPI enum), the
+#: three spoken sentences in `apps/api/compliance/disclosure.py`, the handover sentence in
+#: `apps/api/agents/handoff.py`, a voice in the engine account's catalogue, and the CHECK
+#: constraint on `agents.language_primary` widened by a migration. `tests/product_languages_
+#: test.py` fails on each of those that is missing, so the requirement is enforced rather
+#: than remembered — except the VOICE, which is operational (an engine account's own
+#: catalogue, synced and curated) and which no test in this tree can see.
+OFFERED_LANGUAGE_IDS: Final[tuple[LanguageId, ...]] = ("telugu", "hindi", "english_india")
+
+
+def offered_languages() -> tuple[Language, ...]:
+    """The languages this product SELLS today, in the order a picker renders them.
+
+    A subset of `conversational_languages()` and never wider — see the module docstring.
+    Rows rather than tags so a caller that needs a label, a script or a text direction has
+    it without a second lookup table.
+    """
+    return tuple(LANGUAGES[language_id] for language_id in OFFERED_LANGUAGE_IDS)
+
+
+def offered_language_tags() -> tuple[str, ...]:
+    """The same three, as the BCP-47 tags our own wire and our own columns carry.
+
+    OUR tags, never a vendor's: `wire_code()` is the only thing that may reach a vendor,
+    and the Odia trap in the module docstring is why the two cannot be the same function.
+    """
+    return tuple(row.bcp47 for row in offered_languages())
 
 
 def comprehension_only_languages() -> tuple[Language, ...]:
