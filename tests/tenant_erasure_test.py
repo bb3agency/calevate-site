@@ -821,3 +821,41 @@ async def test_the_written_request_names_the_clients_knowledge_bases_too() -> No
         "the written deletion request does not name this client's knowledge bases, so "
         "their uploaded documents can never be found again on a shared vendor account"
     )
+
+
+def test_the_knowledge_limitation_names_the_copies_that_exist_and_no_others() -> None:
+    """A register that names a store we do not run, and omits one we do, is worse than a
+    short one: it is a compliance document a client is invited to act on.
+
+    TWO INDEPENDENT ERRORS, both in the knowledge-base entry:
+
+    * It told the client their knowledge is also held by "the managed retrieval service".
+      There is none. D-502 reversed D-28 — `docs/DATA-MODEL.md` says so in those words —
+      and `retrieval/service.get_retriever` offers exactly two implementations, both of
+      them the Postgres this product already runs (`compiled-facts` and `pgvector`).
+    * It did not name the FROZEN PACK. D-599 stores each agent's published knowledge as a
+      content-addressed object under `knowledge-packs/` (`kb/pack.publish_pack`), which is
+      what a voice container fetches and answers out of, and `kb/pack.py` records — as a
+      measurement, not an assumption — that no path in `apps/workers/` or
+      `apps/api/compliance/` deletes anything under that prefix. A tenant erasure therefore
+      does not reach it, and neither does the account's own knowledge-base retention
+      period, which this very entry offers the client as the thing that does.
+
+    Keyword assertions rather than a pinned sentence, for the reason the rest of this
+    register is keyword-pinned: the wording is meant to be improvable and the FACTS are
+    not.
+    """
+    limitations = " ".join(tenant_erasure.TENANT_ERASURE_LIMITATIONS).lower()
+    entries = [e for e in tenant_erasure.TENANT_ERASURE_EXCEPTIONS if e.keyword == "knowledge base"]
+    assert len(entries) == 1
+    structured = f"{entries[0].why} {entries[0].authority}".lower()
+
+    for half, name in ((limitations, "prose"), (structured, "structured")):
+        assert "managed retrieval service" not in half, (
+            f"the {name} half names a vector service this product does not run (D-502) — "
+            "a client reading it would go looking for a vendor to send a deletion request to"
+        )
+        assert "pack" in half, (
+            f"the {name} half omits the frozen knowledge pack, the copy the agent answers "
+            "out of and the one no erasure arm and no retention clock reaches"
+        )
