@@ -116,7 +116,7 @@ from apps.api.crm.assist import ASSIST_FEATURE_KB_GLOSS
 from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.kb.gloss import GLOSS_NOT_NEEDED, GLOSS_PENDING, GLOSS_READY, needs_gloss
 from apps.api.kb.pack import agents_with_stale_packs, refresh_published_pack
-from apps.api.kb.service import refresh_projection_keys
+from apps.api.kb.service import refresh_projection_keys, try_lock_agent_publishes
 from apps.workers import chat
 from apps.workers.extraction import AZURE_PROVIDER, azure_credentials
 
@@ -359,6 +359,13 @@ async def _refresh_packs_one_tenant(tenant_id: UUID) -> int:
     one agent's storage stall cannot pin another agent's row and one agent's database failure
     cannot roll back a pointer already moved for its neighbour.
 
+    **AND THAT IS EXACTLY WHY THE REFRESH — NOT THE SCAN — TAKES THE PUBLISH LOCK.** The
+    candidate list is a set of HINTS the moment the scan's transaction ends; only the
+    per-agent transaction below can be exclusive with the publish it is racing, because an
+    advisory lock lives and dies with the transaction that took it. A lock around the scan
+    would read as diligence and protect nothing. See the comment at the call site for the
+    interleaving, and `kb/service.try_lock_agent_publishes` for why it is the TRY form.
+
     **THE FAILURE POSTURE IS `refresh_published_pack`'s, UNCHANGED, AND THAT IS WHY IT IS
     REUSED RATHER THAN RE-ARGUED.** A storage failure there keeps the OLD pointer (so the
     agent answers from a pack that provably exists — stale, never absent), alerts
@@ -400,6 +407,35 @@ async def _refresh_packs_one_tenant(tenant_id: UUID) -> int:
         # level would hand the same prefix to every future tick and never reach the tail.
         try:
             async with tenant_session(tenant_id) as session:
+                # SERIALIZED AGAINST THAT AGENT'S PUBLISHES, IN THE TRANSACTION THAT DOES
+                # THE WORK, and the interleaving it closes is a LOST UPDATE rather than a
+                # torn read. `refresh_published_pack` is a read-then-write whose middle is
+                # an object-store GET and possibly a PUT: it reads the corpus, freezes it,
+                # and only then points `agents.knowledge_pack_sha256` at the result. A
+                # publish committing inside that gap has already written the pointer for
+                # the corpus it just made live — under `_lock_agent_publishes`, in one
+                # transaction — and this UPDATE then blocks on that same agents row, is
+                # re-checked against the committed version under READ COMMITTED, finds the
+                # publisher's id genuinely `IS DISTINCT FROM` ours, and overwrites it. The
+                # client withdrew a price list and their agent goes on reciting it out of a
+                # pack this sweep re-pointed at, because we read the corpus one commit too
+                # early. Not theoretical: the gap is the length of a storage round trip and
+                # the loser is always the sweep, since the publisher commits first.
+                #
+                # TRY, NEVER WAIT — `try_lock_agent_publishes` argues it, and it is the
+                # whole reason this is not the blocking form: a publish holds this key
+                # across its engine round trips, which the adapter's throttle ladder prices
+                # in minutes, and a client's Publish button must never queue behind a timer.
+                #
+                # SKIPPING COSTS NOTHING because the selection is a DIFFERENCE and not a
+                # worklist: an agent passed over here consumed nothing, its pointer still
+                # disagrees with its corpus, and the next tick's `agents_with_stale_packs`
+                # selects it again — as it does for a tick that failed on the store. The
+                # publish we deferred to usually settles it outright: `publish_source` ends
+                # in `refresh_published_pack` itself, so the pack the sweep wanted to build
+                # is very often already built by the time the lock frees.
+                if not await try_lock_agent_publishes(session, agent_id=agent_id):
+                    continue
                 if (
                     await refresh_published_pack(session, tenant_id=tenant_id, agent_id=agent_id)
                     is not None

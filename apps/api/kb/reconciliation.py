@@ -220,7 +220,11 @@ async def handles_if_no_publish_in_flight(
     **TRY, NEVER WAIT.** The blocking form would work and is wrong: it would make an
     operator's Publish button queue behind a background job they did not ask for, which
     is a cost `_lock_agent_publishes` accepts between two publishes (both of which a human
-    is waiting on) and should not accept for a sweep.
+    is waiting on) and should not accept for a sweep. That argument is now
+    `kb/service.try_lock_agent_publishes`' own, because the in-call PACK sweep needs the
+    identical instrument on the identical key (`workers/kb_gloss.py`) and this module used
+    to hold the only copy of the SQL — the drift `publish_lock_key` exists to refuse,
+    one level up from the key itself.
 
     THE CALLER MUST READ TWICE, and this function cannot do that for it: the engine round
     trip happens between the two reads and this module may not make one (hard rule 2).
@@ -234,15 +238,9 @@ async def handles_if_no_publish_in_flight(
     and the agent is skipped. `apps/workers/kb_reconciliation.py::_observe_one` is that
     caller and the only one.
     """
-    from apps.api.kb.service import publish_lock_key, recorded_handles_of_agent
+    from apps.api.kb.service import recorded_handles_of_agent, try_lock_agent_publishes
 
-    acquired = (
-        await session.execute(
-            text("SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))"),
-            {"key": publish_lock_key(agent_id)},
-        )
-    ).scalar()
-    if not acquired:
+    if not await try_lock_agent_publishes(session, agent_id=agent_id):
         return None
     # WHICH vendor object is this route for? Read under the same lock and in the same
     # tenant session as the handles below, so the answer belongs to the same instant.

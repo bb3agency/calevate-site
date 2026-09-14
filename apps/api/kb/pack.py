@@ -453,6 +453,17 @@ async def agents_with_stale_packs(
     caller can scan a tenant without holding anything across the storage round trips that
     the refresh of a stale agent then costs.
 
+    **WHAT LOCK-FREE MEANS HERE, STATED SO NOBODY READS IT AS A GUARANTEE.** Every id
+    returned is a HINT about an instant that has already passed: a publish committing after
+    the scan makes an agent named here no longer stale, or an agent not named here newly so.
+    That is harmless for the second (the next tick catches it — the selection is a difference,
+    not a worklist) and it is NOT harmless for the first, because `refresh_published_pack`
+    would then re-point the agent at a pack frozen from the corpus the publish replaced. The
+    serialization for that belongs to the caller's REFRESH transaction and cannot be bought
+    here — an advisory lock is released at the end of the transaction that took it, and this
+    scan's transaction is over before the first refresh begins. `workers/kb_gloss.py` takes
+    `kb/service.try_lock_agent_publishes` per agent, in the transaction that does the work.
+
     `limit` is the caller's, because the budget belongs to the tick.
     """
     candidates = (
