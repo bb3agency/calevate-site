@@ -268,6 +268,73 @@ def _assert_cost_is_re_derivable(cost: CostBreakdown) -> None:
     )
 
 
+def _assert_snapshot_is_ours(snapshot: ExecutionSnapshot, engine: VoiceEngine) -> None:
+    """Hard rule 2 stated over ONE snapshot, wherever the snapshot came from.
+
+    Written as a helper rather than inline because there are TWO routes a snapshot reaches
+    us by — the authenticated single fetch and the reconciliation listing — and for as long
+    as the checks lived inside the fetch clause the listing route was normalized only by
+    hope. That is not a hypothetical: `pipecat` places no dial (its carrier REST surface is
+    unread, `DIAL_REFUSAL_CODES`), so the fetch clause returns early on it and EVERY
+    statement this suite makes about a normalized snapshot was, on the newest adapter,
+    made about nothing at all.
+
+    One function, called from both, so a clause added here cannot apply to one route and
+    not the other — which is the drift that produced the gap in the first place.
+    """
+    assert isinstance(snapshot, ExecutionSnapshot)
+    assert snapshot.status in VALID_STATUSES, (
+        f"{snapshot.raw_status!r} reached a caller as {snapshot.status!r}, which is not "
+        "one of ours — the vendor's vocabulary crossed the boundary"
+    )
+    assert snapshot.engine_call_id, "a snapshot with no id is a call nothing can file"
+    # The ONLY bridge from their world to a tenant. The reconciliation poller has no
+    # webhook payload to read this from, so an adapter that omits it makes every repaired
+    # call unmappable, silently.
+    assert snapshot.engine_agent_ref, "a snapshot must carry the engine's agent ref"
+    # Direction decides which obligations attach — DNC, calling hours, 140/160 series.
+    # The Literal already bounds it; what this pins is that a row carries the vocabulary
+    # a compliance decision is made from rather than whatever the vendor spelled.
+    assert snapshot.direction in ("inbound", "outbound")
+    # WHICH ADAPTER PRODUCED THIS ROW. `calls.engine` is read to decide which adapter
+    # re-fetches a call and which webhook verifier its deliveries are held to, so a row
+    # wearing another engine's name sends both to the wrong place.
+    assert snapshot.engine == engine.name, (
+        f"this adapter files its executions under {snapshot.engine!r} while answering to "
+        f"{engine.name!r} — the poller would hand the repair to a different adapter"
+    )
+    if snapshot.cost is not None:
+        assert isinstance(snapshot.cost.total_inr, Decimal), "money is NUMERIC, never float"
+        assert snapshot.cost.total_inr >= 0
+        _assert_cost_is_re_derivable(snapshot.cost)
+    _assert_turns_are_ours(snapshot)
+
+
+def _assert_turns_are_ours(snapshot: ExecutionSnapshot) -> None:
+    """The transcript half of the same rule, for a snapshot that carries one.
+
+    Guarded on presence rather than asserted into existence: a listing row legitimately
+    carries no transcript on an engine whose listing is a summary, and demanding one there
+    would be this suite inventing a vendor contract. Where turns ARE carried they are
+    OURS — `idx` dense from zero, `speaker` in our two words and never the vendor's label,
+    and every turn filed under the call it came from. `transcripts` is tenant-scoped and
+    keyed by call, so a turn carrying another call's id is a transcript written into the
+    wrong call and potentially onto the wrong tenant's dashboard.
+    """
+    turns = snapshot.transcript
+    if not turns:
+        return
+    assert [t.idx for t in turns] == list(range(len(turns))), (
+        "turn indices are not dense and ascending from zero — extraction, redaction and "
+        "the call-detail view all index by `idx`"
+    )
+    assert all(t.speaker in ("agent", "caller") for t in turns)
+    assert all(t.text.strip() for t in turns)
+    assert all(t.call_id == snapshot.engine_call_id for t in turns), (
+        "a transcript turn is attributed to a call other than the one it came from"
+    )
+
+
 async def test_adapter_satisfies_the_protocol(engine: VoiceEngine) -> None:
     """A runtime_checkable Protocol only checks method NAMES — which is exactly the
     check that catches a half-written adapter being wired into config."""
@@ -778,18 +845,7 @@ async def test_execution_snapshot_is_fully_normalized(engine: VoiceEngine) -> No
     if handle is None:
         return  # this adapter refuses to dial at all — see `_place_call`
     snapshot = await engine.get_execution(handle)
-
-    assert isinstance(snapshot, ExecutionSnapshot)
-    assert snapshot.status in VALID_STATUSES
-    assert snapshot.engine_call_id
-    # The ONLY bridge from their world to a tenant. The reconciliation poller — the
-    # guarantee of record under D-31 — has no webhook payload to read this from, so an
-    # adapter that omits it makes every repaired call unmappable, silently.
-    assert snapshot.engine_agent_ref, "a snapshot must carry the engine's agent ref"
-    if snapshot.cost is not None:
-        assert isinstance(snapshot.cost.total_inr, Decimal), "money is NUMERIC, never float"
-        assert snapshot.cost.total_inr >= 0
-        _assert_cost_is_re_derivable(snapshot.cost)
+    _assert_snapshot_is_ours(snapshot, engine)
 
 
 async def test_get_execution_carries_the_vendors_own_document_for_the_archive(
@@ -955,6 +1011,44 @@ async def test_a_full_listing_page_tells_the_caller_it_may_be_truncated(
     assert listing.incomplete_reason is not None, "the poller alerts on the REASON"
 
 
+async def test_a_listing_row_is_as_normalized_as_a_fetched_one(
+    saturated_engine: VoiceEngine,
+) -> None:
+    """THE CLAUSE THAT PUTS THE POLLER'S ROWS UNDER HARD RULE 2.
+
+    Two routes produce an `ExecutionSnapshot` and until now only one of them was held to
+    OUR shape. `test_execution_snapshot_is_fully_normalized` reads a snapshot back from a
+    DIAL, and everything this suite says about normalization it says about that one row.
+    The listing route — the route D-31 makes the guarantee of record, the one that carries
+    every call whose at-most-once webhook was lost — was checked for four things (a type,
+    a status, an id, an agent ref) and for nothing about what is INSIDE a row.
+
+    Two adapters walked straight through that. A listing whose rows carried another call's
+    transcript turns, and a listing whose turn indices were reversed, were both conformant:
+    the transcript checks lived in the dial clause, so a transcript that only ever reaches
+    us by reconciliation was normalized by nobody. Extraction and redaction run off polled
+    calls exactly as they run off webhook calls.
+
+    AND IT IS THE ONLY ROUTE `pipecat` HAS. That adapter places no dial — the carrier's
+    REST surface is unread and it refuses by name — so `_place_call` returns None and the
+    entire fetch half of this suite returns early on it. Before this clause, the newest
+    adapter in the tree, written against a vendor nobody here has called, made no
+    checkable statement about a normalized snapshot at all.
+
+    `saturated_engine` is the subject because it is the fixture that GUARANTEES rows: the
+    clause above already asserts its listing is non-empty for every adapter in the roster,
+    so this one cannot pass by finding nothing to look at.
+    """
+    listing = await saturated_engine.list_executions(since=datetime.now(UTC) - timedelta(hours=1))
+
+    assert listing.snapshots, (
+        "this adapter's saturated listing returned no rows, so every assertion below "
+        "would pass without measuring anything"
+    )
+    for row in listing.snapshots:
+        _assert_snapshot_is_ours(row, saturated_engine)
+
+
 async def test_webhook_verification_reports_its_method(engine: VoiceEngine) -> None:
     """An adapter may not dress an unsigned event up as verified. `method` is how the
     receiver knows whether it holds proof (`hmac`) or a hint (`source_ip`/`none`)."""
@@ -1053,6 +1147,140 @@ async def test_a_payload_with_no_status_at_all_is_not_a_success(engine: VoiceEng
         "on the unrecognised one."
     )
     assert event.status in VALID_STATUSES
+
+
+async def test_an_outbound_call_is_not_reported_as_an_inbound_one(engine: VoiceEngine) -> None:
+    """The clause `test_webhook_parses_into_our_event` cannot make about itself.
+
+    That clause feeds an INBOUND payload and checks the event says inbound, and its own
+    comment says why direction matters: DNC, calling hours and the 140/160-series rules
+    attach to the OUTBOUND side. But an adapter that hard-codes `direction="inbound"`
+    satisfies it perfectly — the fixture and the hard-coded answer agree. The audit's
+    `_DirectionLiar` saboteur (`tests/engine_audit_test.py`) hard-codes the OTHER value and
+    is caught, and its docstring says in as many words that "the same hole passes an
+    adapter that gets it wrong the other way". This is that hole, closed.
+
+    The two mistakes are not symmetrical and this is the expensive one. Calling an inbound
+    call outbound over-regulates: a call the caller placed gets checked against DNC and
+    calling hours it never needed. Calling an OUTBOUND call inbound under-regulates —
+    every campaign dial arrives looking like a call the customer made, and the obligations
+    that attach to the side we dialled attach to nothing.
+
+    THE ABSENT FIELD IS PINNED THE SAME WAY, for `test_a_payload_with_no_status_at_all_is_
+    not_a_success`'s reason: the default is chosen at a different line from the map and a
+    default is where nobody looks. `outbound` is not asserted as the only honest answer to
+    an unstated direction — an adapter may refuse the payload — but reading silence as
+    `inbound` is the one answer that quietly drops a compliance obligation, and at an
+    unsigned endpoint the sender is the one who chooses which fields to omit.
+    """
+    stated = engine.parse_webhook(
+        {
+            "id": "exec_out_1",
+            "execution_id": "exec_out_1",
+            "agent_id": "agent_xyz",
+            "status": "completed",
+            "direction": "outbound",
+            "telephony_data": {"call_type": "outbound"},
+        }
+    )
+    assert stated.direction == "outbound", (
+        "the payload says this call was placed BY US and the event says the customer "
+        "placed it — every outbound obligation (DNC, calling hours, 140/160 series) "
+        "attaches to a side this adapter never reports"
+    )
+
+    unstated = engine.parse_webhook(
+        {"id": "exec_out_2", "agent_id": "agent_xyz", "status": "completed"}
+    )
+    assert unstated.direction != "inbound", (
+        "a payload that names no direction was reported as a call the customer placed, "
+        "which is the reading that drops an obligation rather than adding one"
+    )
+
+
+async def test_a_payload_may_not_name_its_own_tenant_or_its_own_engine(
+    engine: VoiceEngine,
+) -> None:
+    """Hard rule 1 and the adapter's own identity, against a sender who supplies both.
+
+    `test_webhook_parses_into_our_event` asserts `tenant_id is None` — over a payload that
+    carries no `tenant_id` key. Nothing is being resisted there: an adapter that copies
+    whatever the body offers passes it, because the body offered nothing. The clause is
+    satisfied by doing nothing, which is not a clause.
+
+    Bolna signs nothing (D-31), so the receiver's authenticity control is a source-IP hint
+    and the BODY is chosen entirely by whoever sends it. A `tenant_id` read out of that
+    body is a cross-tenant write with a webhook for a delivery mechanism: one POST files a
+    call, its transcript and its cost into somebody else's dashboard. `tenant_id` and
+    `agent_id` are ours, resolved by looking `engine_agent_ref` up in the agents table, and
+    an adapter may not shortcut that lookup no matter how convenient the body makes it.
+
+    `engine` is here for the same reason and is the same shape of mistake. It decides which
+    adapter re-fetches the call and which verifier its deliveries are held to, so a payload
+    that renames the engine moves a delivery onto another engine's authenticity rules —
+    including, if it names one, an engine whose rules are weaker than this one's.
+    """
+    event = engine.parse_webhook(
+        {
+            "id": "exec_hostile",
+            "execution_id": "exec_hostile",
+            "agent_id": "agent_xyz",
+            "status": "completed",
+            # None of these three is a field any vendor sends. They are what a stranger
+            # who found an unsigned URL would send.
+            "tenant_id": "0199a0b0-0000-7000-8000-00000000dead",
+            "organization_id": "0199a0b0-0000-7000-8000-00000000dead",
+            "engine": "an-engine-we-never-deployed",
+        }
+    )
+    assert event.tenant_id is None, (
+        "this adapter took a tenant from the request body — at an unsigned endpoint that "
+        "is one POST away from filing a call into another client's dashboard"
+    )
+    assert event.agent_id is None, "our agent id is resolved from the ref, never supplied"
+    assert event.engine == engine.name, (
+        f"the payload renamed the engine to {event.engine!r} and this adapter agreed — "
+        "the delivery would be re-fetched and re-verified as a different engine's"
+    )
+    # The VENDOR's ref still arrives: it is the only thing in the body we do read, and it
+    # is read as a lookup key rather than as an answer.
+    assert event.engine_agent_ref == "agent_xyz"
+
+
+async def test_a_status_that_is_not_even_a_string_is_not_a_success(engine: VoiceEngine) -> None:
+    """The third member of the family, after the UNRECOGNISED status and the ABSENT one.
+
+    Those two pin what happens when the sender names a status we do not know and when the
+    sender names none. This pins the case where the sender names something that is not a
+    status at all — a nested object, a list — and it is a distinct failure with a distinct
+    cost, because it lands one layer below the status map. The map is asked a question
+    about a string; hand it a dict and either the lookup misses and the DEFAULT answers
+    (and the default is where the absent-status defect lived) or nothing answers and the
+    parse raises.
+
+    BOTH WRONG ANSWERS ARE REFUSED HERE AND THEY ARE REFUSED FOR DIFFERENT REASONS.
+    Reporting `completed` settles, meters and extracts a call on the strength of a field
+    that was never sent in a form anyone could read. RAISING is the other one: the webhook
+    receiver must ack in under 500ms (hard rule 3) and an adapter that throws on a body
+    shape gives a stranger who found the unsigned URL a one-line way to make the endpoint
+    answer 500 — the payload is a hint, and a hint we cannot read is a hint we drop.
+
+    `failed` is not demanded, for the absent-status clause's reason: an adapter whose
+    vendor always sends a well-formed status may honestly report `unknown` shapes as
+    something else in our vocabulary. What is forbidden is the success and the crash.
+    """
+    for malformed in ({"state": "completed"}, ["completed"], 200, True):
+        event = engine.parse_webhook(
+            {"id": "exec_shape", "agent_id": "agent_xyz", "status": malformed}
+        )
+        assert event.status in VALID_STATUSES, (
+            f"a status of {type(malformed).__name__} normalized to {event.status!r}, "
+            "which is not in our vocabulary"
+        )
+        assert event.status != "completed", (
+            f"a status sent as {type(malformed).__name__} was reported as a completed "
+            "call — the one status that settles, meters and extracts it"
+        )
 
 
 #: The smallest thing that is unambiguously a PDF. The conformance stub asserts the file
