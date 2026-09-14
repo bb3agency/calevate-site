@@ -142,9 +142,17 @@ async def test_the_card_resolves_to_the_greatest_effective_from_at_or_before_the
     async with untenanted_session() as session:
         before = await card_at(session, at=first + timedelta(microseconds=1))
         after = await card_at(session, at=second + timedelta(seconds=1))
-    assert before["plus"]["sarvam"] == Decimal("4.70")
-    assert after["plus"]["sarvam"] == Decimal("4.45")
-    assert after["plus"]["cartesia"] == Decimal("6.25")
+    # DERIVED from the catalogue the first card was recorded FROM, and from the ₹0.25 cut
+    # this test applies to build the second. Typed rates here (₹4.70 / ₹4.45 / ₹6.25) were
+    # the `plus` rung of the 7 Sep card, and they said nothing about the property under
+    # test — which is that the LATER card does not reach back. A rate card the founder
+    # moves must not turn a resolution test red.
+    plus = next(pack for pack in PACK_CATALOGUE if pack.pack_id == "plus")
+    cut = Decimal("0.25")
+    assert before["plus"]["sarvam"] == plus.sarvam_inr_per_min
+    assert before["plus"]["cartesia"] == plus.cartesia_inr_per_min
+    assert after["plus"]["sarvam"] == plus.sarvam_inr_per_min - cut
+    assert after["plus"]["cartesia"] == plus.cartesia_inr_per_min - cut
 
 
 async def test_an_instant_before_any_card_falls_back_to_the_static_catalogue() -> None:
@@ -203,7 +211,11 @@ async def test_a_key_this_build_cannot_interpret_is_skipped_not_fatal() -> None:
     async with untenanted_session() as session:
         card = await card_at(session, at=at + timedelta(seconds=1))
     assert set(card) == {pack.pack_id for pack in PACK_CATALOGUE}
-    assert card["plus"]["cartesia"] == Decimal("6.50")
+    # Derived: the recorded card IS the live catalogue here, so the readable cell must be
+    # the catalogue's — the point being that the four junk keys changed nothing, not that
+    # `plus` costs any particular figure.
+    plus = next(pack for pack in PACK_CATALOGUE if pack.pack_id == "plus")
+    assert card["plus"]["cartesia"] == plus.cartesia_inr_per_min
 
 
 async def test_a_card_is_resolved_at_an_aware_instant_only() -> None:

@@ -5,9 +5,10 @@ D-547 that write dates the WHOLE credit-pack card (`billing/list_rates.record_ca
 than one number, and before it writes anything it does two things:
 
 1. **Previews all twelve margins**, one log line each, thin rows at `warning`. The operator
-   who pressed Save gets the number beside the act — the whole Sarvam column is deliberately
-   under the 20% target (`tests/cost_floor_test.py` says by how much), so "thin" is the
-   normal state and the console must say so rather than imply a problem.
+   who pressed Save gets the number beside the act — eight of the twelve cells on the
+   founder's 14 Sep card are deliberately under the 20% target
+   (`tests/cost_floor_test.py` says by how much), so "thin" is the normal state and the
+   console must say so rather than imply a problem.
 2. **Refuses a card that breaks a cost floor or invariant 6**, with a problem+json an
    operator can act on, and writes NOTHING.
 
@@ -28,7 +29,7 @@ from decimal import Decimal
 from uuid import UUID
 
 import pytest
-from apps.api.billing.credit_packs import PACK_CATALOGUE
+from apps.api.billing.credit_packs import PACK_CATALOGUE, card_margins
 from apps.api.billing.list_rates import SELF_SERVE_PER_MIN, pack_rate_key
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import untenanted_session
@@ -136,16 +137,21 @@ async def test_the_approved_card_is_written_and_every_margin_is_previewed(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
     """The happy path, and the preview that goes with it: twelve log lines, one per cell,
-    each carrying the rate, the floor it was judged against and whether it is thin. The
-    ⚠ **THIS USED TO ASSERT THAT ONLY THE SARVAM COLUMN WAS THIN, AND SINCE D-556 IT IS
-    NOT.** The Cartesia floor was ₹4.3639 — the $49 Startup plan fee spread over the volume
-    at which its allotment is exactly consumed, i.e. the plan's best possible minute — so
-    every Cartesia rung read as comfortably above target. Against the honest floor
-    (₹5.5899 then, ₹4.7099 since D-592 — the worst MARGINAL cost either way) four of the six
-    were thin as well until that change; none is now. Nothing was
-    repriced; the yardstick stopped flattering us. So the assertion is on the SET of thin
-    rows rather than on a column, and an operator reading only warnings still sees every
-    rung that is under target."""
+    each carrying the rate, the floor it was judged against and whether it is thin.
+
+    ⚠ **THE SET OF THIN ROWS HAS MOVED THREE TIMES AND IS NOT THE PROPERTY.** It was the
+    Sarvam column alone; then D-556 replaced the flattering ₹4.3639 Cartesia floor (the $49
+    Startup plan fee spread over the volume at which its allotment is exactly consumed —
+    the plan's BEST possible minute) with the worst MARGINAL cost and four Studio rungs
+    joined it; then D-592 halved the engine leg, the floors fell to ₹3.3111 / ₹4.7099 and
+    nothing was thin at all; then the founder's 14 Sep card put eight of the twelve back
+    under target. Only that last move was a repricing — the others were the yardstick.
+
+    So what is asserted is the RULE the console follows: a cell is logged at WARNING
+    exactly when the margin guard calls it thin, and thinness never blocks the write. The
+    set is read back from the same card the console previewed, so the test and the screen
+    cannot come to disagree, and an operator reading only warnings still sees every rung
+    that is under target."""
     admin = await _admin()
     with caplog.at_level(logging.INFO, logger=config_routes.log.name):
         async with untenanted_session() as session:
@@ -154,14 +160,19 @@ async def test_the_approved_card_is_written_and_every_margin_is_previewed(
             )
     previews = [r for r in caplog.records if r.msg == "rate_card_margin_preview"]
     assert len(previews) == len(PACK_CATALOGUE) * 2
-    # ⚠ **NOTHING IS THIN ANY MORE, AND NOTHING WAS REPRICED.** This asserted a SET of
-    # six thin cells — the whole Sarvam column plus four Studio rungs — because the floors
-    # were ₹4.1211 and ₹5.5899. D-592 moved the engine leg from Bolna's $0.02/min BYOK fee
-    # to Pipecat's $0.01/min active minute and the floors fell to ₹3.3111 and ₹4.7099, at
-    # which every cell on the card clears the 20% target. The preview still emits one line
-    # per cell; none of them is a warning.
+    # WARNING exactly on the cells the margin guard calls thin, derived from the same card
+    # the console previewed. The COUNT is pinned beside it so a card that quietly stopped
+    # being the thin one is still a red test: on the founder's 14 Sep card it is eight of
+    # twelve — the whole Clear column at 17.2%, plus Studio's `pro` (18.8%) and `max`
+    # (14.4%).
     thin = [r for r in previews if r.levelno == logging.WARNING]
-    assert {(r.pack_id, r.voice_tier) for r in thin} == set()
+    expected_thin = {
+        (pack_id, voice)
+        for pack_id, voice, verdict in card_margins(PACK_CATALOGUE)
+        if verdict.below_target
+    }
+    assert {(r.pack_id, r.voice_tier) for r in thin} == expected_thin
+    assert len(expected_thin) == 8, "the founder's 14 Sep card prices eight of twelve thin"
     # Money in a log line is a STRING (hard rule 7): a float here is a float somebody
     # quotes back.
     assert all(isinstance(r.inr_per_min, str) for r in previews)
