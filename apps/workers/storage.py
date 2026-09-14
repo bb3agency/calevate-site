@@ -703,6 +703,32 @@ async def store_carrier_document(*, key: str, data: bytes, content_type: str) ->
     )
 
 
+async def store_knowledge_pack(*, key: str, data: bytes) -> str:
+    """Put one in-call knowledge pack (`calevate_shared.knowledge_pack`). RAISES when the
+    store refuses.
+
+    `store_kb_object`'s contract, for a variant of its reason: these bytes ARE the artefact
+    the voice worker loads while the phone is ringing, so a publish that answered success
+    without them would leave an agent that believes it has knowledge and retrieves nothing.
+    Failing loudly keeps the published pack id and the stored object one fact.
+
+    NO `content_type` PARAMETER, unlike its two siblings: a pack is always the JSON this
+    repository serialised, never a document somebody uploaded whose type has to be decided
+    from a filename. A parameter here would be a knob with one correct setting, and a
+    second spelling of `application/json` for somebody to change in only one place.
+
+    THE KEY IS NOT LOGGED (hard rule 6) — it names a tenant, an agent and the content hash
+    of that client's approved knowledge — and `_put_document` never logs it either.
+    """
+    return await _put_document(
+        key=key,
+        data=data,
+        content_type="application/json",
+        log_event="knowledge_pack_store_failed",
+        refusal="Object storage refused the knowledge pack",
+    )
+
+
 DELIVERY_BODY_PREFIX = "webhook-bodies"
 
 # Per delivery. A lead payload is a few hundred bytes; 64 KiB is room for an unusually
