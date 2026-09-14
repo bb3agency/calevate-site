@@ -454,10 +454,16 @@ ERASURE_LIMITATIONS: tuple[str, ...] = (
     "there: removing a line from a live price list would change what the agent says on "
     "the next call, and the voice platform holds its own copy of the same source. So if "
     "the count below is not zero, removing this person from that content is a manual "
-    "step on both copies. Superseded versions are no longer kept for ever — every "
-    "version this client has replaced or had rejected is deleted once it passes their "
-    "knowledge-base retention period — but the version currently live is kept for as "
-    "long as it is live.",
+    "step on both copies. Superseded versions of the documents themselves are no longer "
+    "kept for ever — every version this client has replaced or had rejected is deleted "
+    "once it passes their knowledge-base retention period — but the version currently "
+    "live is kept for as long as it is live. One copy outlives even that, and it is "
+    "named here rather than left to be discovered: each time this client publishes, the "
+    "approved text is frozen into a sealed knowledge pack that the agent answers out of "
+    "during a call. A pack is never edited, and no erasure and no retention period "
+    "deletes one — so a pack published before a manual removal still contains the "
+    "sentence it was removed from, and a request to erase it is a request Calevate has "
+    "to carry out by hand.",
     "Backups: this erasure runs against the live systems, and a backup taken BEFORE it "
     f"still contains the erased records until that backup ages out — up to "
     f"{BACKUP_WINDOW_DAYS} days. Backups are never searched or edited to remove one "
@@ -718,7 +724,12 @@ ERASURE_EXCEPTIONS: tuple[ErasureLimitation, ...] = (
             "see what the sentence is for. Versions the client has replaced or had "
             "rejected are no longer kept indefinitely: they are deleted once they pass "
             "this account's knowledge-base retention period. The live version is kept "
-            "while it is live."
+            "while it is live. A THIRD COPY IS NAMED BECAUSE THAT CLOCK DOES NOT REACH "
+            "IT: publishing freezes the approved text into a sealed, content-addressed "
+            "knowledge pack, which is the copy an agent actually answers out of on a "
+            "call. Packs are never rewritten and nothing deletes a superseded one, so a "
+            "pack published before a removal still holds the sentence, and taking it out "
+            "of the packs is a separate manual act on Calevate's side."
         ),
         # SECURITY-COMPLIANCE §4 is the scope; D-179 closed our two halves;
         # DATA-MODEL §9 carries the `kb` retention category.

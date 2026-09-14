@@ -702,3 +702,43 @@ async def test_no_knowledge_base_content_reaches_the_logs_or_the_proof(
     filed = json.dumps(certificate(stored if isinstance(stored, dict) else json.loads(str(stored))))
     for secret in (KB_STAFF_NAME, KB_STAFF_PHONE, phone):
         assert secret not in filed, f"{secret!r} reached the certificate"
+
+
+def test_the_knowledge_base_entry_names_the_frozen_pack_the_agent_answers_out_of() -> None:
+    """The register's "superseded versions expire" is true of our DATABASE and of nothing
+    else, and until this test it read as the whole story.
+
+    D-599 froze each agent's published knowledge into a content-addressed PACK under
+    `knowledge-packs/` (`kb/pack.publish_pack`, `calevate_shared.knowledge_pack.
+    pack_object_key`), and that pack is what a voice container actually fetches and answers
+    out of. `kb/pack.py` states the consequence outright, measured rather than assumed: "no
+    path in `apps/workers/` or `apps/api/compliance/` deletes anything under this prefix".
+    The only thing that reaches it is `infra/object-lifecycle/policy.json`'s
+    `knowledge-packs-growth-ceiling-not-retention` — 2555 days, bucket-wide, measured from
+    the object's own creation, and its own comment argues it is a growth ceiling and NOT a
+    retention period.
+
+    So a data principal whose number was in an approved line reads today that superseded
+    versions are deleted once they pass the account's knowledge-base retention period —
+    which is true of `kb_sources`/`kb_documents` and false of every pack ever written from
+    them. That is the certificate understating where the number survives, which is the one
+    thing an erasure register may not do.
+
+    Asserted on BOTH halves of the register, because they are index-paired and the pairing
+    is what stops one being narrowed while the other stays wide.
+    """
+    kb = [e for e in ERASURE_EXCEPTIONS if e.outcome == KB_OUTCOME]
+    assert len(kb) == 1
+    prose = ERASURE_LIMITATIONS[ERASURE_EXCEPTIONS.index(kb[0])]
+    structured = f"{kb[0].why} {kb[0].authority}"
+
+    for text_half, name in ((prose, "prose"), (structured, "structured")):
+        lowered = text_half.lower()
+        assert "pack" in lowered, (
+            f"the {name} half of the knowledge-base entry does not mention the frozen "
+            "knowledge pack, which is the copy the agent answers out of and the one "
+            "nothing deletes"
+        )
+        # The claim that has to be BOUNDED, not merely accompanied: "expires" must not be
+        # left standing as if it covered every copy.
+        assert "retention period" in lowered
