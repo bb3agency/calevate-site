@@ -751,7 +751,45 @@ class Settings(BaseSettings):
     # A closed `Literal` rather than a bounded string: a typo must be refused at the console
     # and at boot, not resolved to a silent fallback, and a new store is a decision-log entry
     # rather than a value somebody typed.
-    retrieval_provider: Literal["compiled-facts", "pgvector"] = "compiled-facts"
+    retrieval_provider: Literal["compiled-facts", "pgvector", "supermemory"] = "compiled-facts"
+    # WHERE A SELF-HOSTED SUPERMEMORY ANSWERS, or None on every deployment that has none.
+    #
+    # `supermemory` is the third value above (`docs/PIPECAT-MIGRATION.md` §8, 14 Sep 2026):
+    # box 3, running ON box 2 until the first client. **It is never on the call path** — the
+    # in-call knowledge pack is fetched once per session and searched in the worker's own
+    # memory (§8.1), and nothing in `apps/voice-worker` or `apps/voice-runtime` reads this.
+    #
+    # THREE FIELDS RATHER THAN ONE, because they fail differently and an operator fixes them
+    # in different places: this is a URL on our own box, the next is a credential the vendor
+    # generates at install, and the third names a MODEL whose price hard rule 7 has to be
+    # able to look up. A deployment missing any of them runs the Postgres retriever and says
+    # which one was missing (`retrieval/service.get_retriever`).
+    #
+    # ⚠ NOTHING IN THIS REPOSITORY HAS READ SUPERMEMORY'S API DOCUMENTATION. `supermemory.ai`
+    # is egress-blocked from the build container (§8.5) and the product is not installed, so
+    # every path, request key and response key the adapter uses is an ASSUMPTION collected in
+    # `apps/api/retrieval/supermemory_wire.ASSUMED_CONTRACT`. That is why this is a BASE URL
+    # and not a full endpoint: the half we know (which host and port an operator started it
+    # on) is config, and the half we are guessing is in one correctable object.
+    supermemory_base_url: str | None = Field(default=None, max_length=200, pattern=r"^https?://")
+    # THE CREDENTIAL. Auto-generated at install and, on the local build, the ONE key for the
+    # whole server — §8.4: scoped per-tenant keys are an Enterprise feature, so this key
+    # addresses every tenant's documents and the tenant wall stays on our side of the wire.
+    # Sealed into `platform_secrets` by name (`core/platform_config._SECRET_NAME_FRAGMENTS`
+    # matches `api_key`), never plaintext in `platform_settings`.
+    supermemory_api_key: str | None = None
+    # WHICH MODEL THE SUPERMEMORY INSTALL EMBEDS WITH — read by hard rule 7's pre-flight, and
+    # never sent. Spelled exactly as `billing/rates.llm_price_is_billable` expects (the same
+    # identifier `usage_events.meta.model` would carry), because a search costs an embedding
+    # on OUR vendor account and an unpriced one cannot reach `unit_cost_paid`.
+    #
+    # NO DEFAULT, deliberately. §8.3 mandates a non-local embedding provider on box 2's
+    # current shape (a CPU-bound local encoder would contend with Postgres and the API for
+    # the same core), and `SUPERMEMORY_EMBEDDING_MODEL` is set in THEIR environment — which
+    # GitHub issue #1336 reports is sometimes ignored outright, state UNVERIFIED. Defaulting
+    # this would be asserting which model is running on evidence we do not have; leaving it
+    # None means the provider is not selected until an operator has looked.
+    supermemory_embedding_model: str | None = Field(default=None, max_length=100)
     azure_openai_deployments: str = Field(
         default="",
         max_length=512,

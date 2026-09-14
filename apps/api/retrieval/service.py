@@ -42,7 +42,10 @@ from apps.api.retrieval import cache
 from apps.api.retrieval.compiled_facts import CompiledFactsRetriever
 from apps.api.retrieval.embedding import embedding_leg, embedding_price_is_billable
 from apps.api.retrieval.pgvector import PROVIDER_NAME as PGVECTOR_PROVIDER
+from apps.api.retrieval.pgvector import PgVectorRetriever
 from apps.api.retrieval.routing import RouteDecision, classify
+from apps.api.retrieval.supermemory import PROVIDER_NAME as SUPERMEMORY_PROVIDER
+from apps.api.retrieval.supermemory import supermemory_t3
 from apps.api.retrieval.tiered import KnowledgeRetriever
 
 log = get_logger(__name__)
@@ -65,8 +68,17 @@ def get_retriever(session: AsyncSession) -> RetrievalProvider:
     it degrades to T0 — which is a strictly working system — and says so at ERROR, because
     unlike a missing credential this is a CONTRADICTION between two settings an operator set
     and only they can resolve it.
+
+    **THE THIRD BRANCH IS THE ONE THE PORT WAS BUILT FOR** (`docs/PIPECAT-MIGRATION.md` §8,
+    14 Sep 2026). `supermemory` swaps the T3 MEMBER of the composite and nothing else: T0
+    still answers out of the compiled block, and the store it replaces becomes the thing it
+    falls back TO, per request, so an unreachable box 3 costs a log line rather than a
+    client's question. A deployment that names it without configuring it takes the same
+    degrade the pgvector branch takes, with the missing precondition named
+    (`supermemory.supermemory_t3`).
     """
-    if get_settings().retrieval_provider != PGVECTOR_PROVIDER:
+    provider = get_settings().retrieval_provider
+    if provider not in (PGVECTOR_PROVIDER, SUPERMEMORY_PROVIDER):
         return CompiledFactsRetriever(session)
     if embedding_leg() is None or not embedding_price_is_billable():
         log.error(
@@ -77,7 +89,19 @@ def get_retriever(session: AsyncSession) -> RetrievalProvider:
                 "priced": embedding_price_is_billable(),
             },
         )
+        # NOT reached for `supermemory` on the way to box 3 — this is the state of the
+        # FALLBACK store, and a deployment whose Postgres dense arm is unconfigured can
+        # still have a working box 3. It degrades all the way to T0 only because the
+        # fallback would too, and a T3 answer that cannot be backed by anything if box 3
+        # blinks is a worse promise than the one T0 keeps.
         return CompiledFactsRetriever(session)
+    if provider == SUPERMEMORY_PROVIDER:
+        t3 = supermemory_t3(session, fallback=PgVectorRetriever(session))
+        if t3 is not None:
+            return KnowledgeRetriever(session, t3=t3)
+        # Unconfigured, and `supermemory_t3` has already said which precondition failed.
+        # Falling through to the Postgres composite rather than to T0: the store that was
+        # about to be the fallback is a strictly better answer than no store at all.
     return KnowledgeRetriever(session)
 
 
