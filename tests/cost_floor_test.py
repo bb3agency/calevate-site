@@ -726,3 +726,38 @@ def test_a_per_minute_cost_refuses_a_month_with_no_minutes(volume: Decimal) -> N
     for plan in CARTESIA_PLANS:
         with pytest.raises(ValueError, match="positive monthly volume"):
             plan.tts_inr_per_call_minute(volume, usd_inr=CARTESIA_EVIDENCE_USD_INR)
+
+
+def test_the_modelled_cartesia_curve_rounds_exactly_once_like_the_measured_one() -> None:
+    """**DOUBLE QUANTIZATION on the "COSTS US" curve.** `cartesia_cost_inr_per_call_minute`
+    says of itself "Quantized ONCE, here, after the legs are summed exactly" — and it was
+    not. Its TTS leg arrived from `CartesiaPlan.tts_inr_per_call_minute`, which quantizes to
+    `MONEY_Q` on the way out, so the sum rounded the division to a paisa-tenth and then
+    rounded again.
+
+    IT HID AT THE FROZEN RATE AND ONLY APPEARS AT A LIVE ONE. At ₹88 the shared legs are
+    exactly ₹1.6211 — four decimals — so the second quantize is a no-op and the error is
+    zero. `ops/fx_rates.py` stores a published quote at SIX decimals
+    (`_RATE_QUANTUM = Decimal(1).scaleb(-6)`), and the founder's decision of 9 Sep 2026 is
+    that this curve converts at the live quote. At ₹88.123456 the engine leg is
+    ₹0.88123456, the shared sum is no longer 4dp, and the two roundings disagree.
+
+    ASSERTED AGAINST THE ONE-ROUNDING ARITHMETIC RATHER THAN A TYPED NUMBER, because a typed
+    number would have to be re-typed the day a leg moves. `cartesia_measured_cost_inr_per_
+    call_minute` — the MEASURED twin, which divides exactly and quantizes once — is the
+    shape this must match, and the mismatch between the two doors was the tell.
+
+    FAILS IF: anything on this path quantizes before the legs are summed.
+    """
+    live = Decimal("88.123456")  # six decimals, the shape ops/fx_rates.py actually stores
+    shared = ex_tts_cost_inr_per_min_at(live)
+    assert shared != shared.quantize(MONEY_Q, rounding=ROUNDING), (
+        "this test needs a rate at which the shared legs are NOT already at MONEY_Q, "
+        "or it proves nothing"
+    )
+    for minutes in (Decimal(n) for n in (2, 3, 4, 7, 10, 100, 200, 1000, 2500)):
+        plan = cartesia_cheapest_plan(minutes, usd_inr=live)
+        rounded_once = (
+            shared + plan.monthly_inr(minutes, usd_inr=live) / minutes
+        ).quantize(MONEY_Q, rounding=ROUNDING)
+        assert cartesia_cost_inr_per_call_minute(minutes, usd_inr=live) == rounded_once, minutes

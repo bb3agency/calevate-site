@@ -1453,19 +1453,40 @@ class CartesiaPlan:
             call_minutes * TTS_ASSUMED_CHARS_PER_CALL_MINUTE[1], usd_inr=usd_inr
         )
 
-    def tts_inr_per_call_minute(self, call_minutes: Decimal, *, usd_inr: Decimal) -> Decimal:
-        """This plan's TTS cost for ONE call-minute at that monthly volume, at `MONEY_Q`.
+    def exact_tts_inr_per_call_minute(self, call_minutes: Decimal, *, usd_inr: Decimal) -> Decimal:
+        """This plan's TTS cost for ONE call-minute at that monthly volume, EXACT.
 
-        `monthly_inr(v) / v`. Raises on a non-positive volume: "what does a minute cost in a
-        month with no minutes" has no answer, and returning the whole fee (or a zero) would
-        put a number on a screen that means neither.
+        `monthly_inr(v) / v`, UNQUANTIZED — the door for anything that SUMS this leg with
+        another before a human reads it, which is `tts_rate_inr_per_char`'s contract one
+        level up: multiply (or divide) exactly, quantize once at the end.
+
+        ⚠ **IT EXISTS BECAUSE THE ALL-IN CURVE WAS ROUNDING TWICE.**
+        `cartesia_cost_inr_per_call_minute` took the quantized twin below and quantized the
+        sum again, which is a different answer from rounding once and is the defect
+        `docs/BUILD-LOG.md` records against an invoice line. It hid at
+        `CARTESIA_EVIDENCE_USD_INR`, where the shared legs land exactly on `MONEY_Q` and the
+        second rounding cannot bite; `ops/fx_rates.py` stores a published quote at SIX
+        decimals, and the founder's decision of 9 Sep 2026 puts that quote on this curve.
+
+        Raises on a non-positive volume for the quantized twin's reason, and the guard is
+        here rather than duplicated there: "what does a minute cost in a month with no
+        minutes" has no answer at any precision.
         """
         if call_minutes <= 0:
             raise ValueError(
                 "a per-minute cost needs a positive monthly volume to divide by; "
                 f"got {call_minutes}"
             )
-        return (self.monthly_inr(call_minutes, usd_inr=usd_inr) / call_minutes).quantize(
+        return self.monthly_inr(call_minutes, usd_inr=usd_inr) / call_minutes
+
+    def tts_inr_per_call_minute(self, call_minutes: Decimal, *, usd_inr: Decimal) -> Decimal:
+        """This plan's TTS cost for ONE call-minute at that monthly volume, at `MONEY_Q`.
+
+        **THE DISPLAY DOOR: this leg and nothing added to it.** A caller that goes on to add
+        the shared legs must use `exact_tts_inr_per_call_minute` and quantize the sum once —
+        rounding here and again there is two roundings, and gives a different rupee.
+        """
+        return self.exact_tts_inr_per_call_minute(call_minutes, usd_inr=usd_inr).quantize(
             MONEY_Q, rounding=ROUNDING
         )
 
@@ -1579,7 +1600,9 @@ def cartesia_cost_inr_per_call_minute(call_minutes: Decimal, *, usd_inr: Decimal
     """
     return (
         ex_tts_cost_inr_per_min_at(usd_inr)
-        + cartesia_tts_inr_per_call_minute(call_minutes, usd_inr=usd_inr)
+        + cartesia_cheapest_plan(call_minutes, usd_inr=usd_inr).exact_tts_inr_per_call_minute(
+            call_minutes, usd_inr=usd_inr
+        )
     ).quantize(MONEY_Q, rounding=ROUNDING)
 
 
