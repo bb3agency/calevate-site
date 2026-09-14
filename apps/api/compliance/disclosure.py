@@ -82,6 +82,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from calevate_shared.languages import get_language
+
 from apps.api.compliance.optout import SpokenTurn, normalize_utterance
 
 __all__ = [
@@ -111,7 +113,12 @@ TRUTHFUL_ANSWER_PROMISE = (
 #: The language every template table falls back to. Telugu is the product default (D-36)
 #: but English is the FALLBACK, because a template rendered in a language the business
 #: does not speak is worse than one rendered in the lingua franca.
-DEFAULT_LANGUAGE = "en-IN"
+#:
+#: The TAG is read off the one declaration rather than typed: this constant answers WHICH
+#: language, and `calevate_shared.languages` answers how that language is spelled. The
+#: import is safe from anywhere in this tree — `calevate_shared` imports no app code (the
+#: first import-linter contract), so it closes none of the cycles this module sits inside.
+DEFAULT_LANGUAGE = get_language("english_india").bcp47
 
 #: Sentence one: **"you are talking to an AI"** — the TRAI/UCC-side obligation.
 #:

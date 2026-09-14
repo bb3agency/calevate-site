@@ -57,6 +57,7 @@ from typing import Any, Final
 from uuid import UUID
 
 from calevate_shared.engine import E164, HandoffSpec
+from calevate_shared.languages import get_language
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -85,16 +86,19 @@ HANDOFF_TRIGGER_DEFAULT: Final = (
     "an answer for. Do not hand over merely because you do not know something."
 )
 
-#: The language every template table here falls back to, and it is `compliance/disclosure.
-#: DEFAULT_LANGUAGE`'s value SPELLED AGAIN rather than imported — for the reason
-#: `business_hours.py` re-spells `DAYS`, verified rather than assumed: importing that
-#: module from here closes an import cycle (`agents/service` → this → `compliance/
-#: disclosure` → `compliance/optout` → `compliance/service` → `agents/service`), which is
-#: the exact loop `agents/assist_leg.py` documents and which `import apps.api.main` refuses
-#: outright. English rather than Telugu for that module's stated reason: a template
-#: rendered in a language the business does not speak is worse than one in the lingua
-#: franca.
-_FALLBACK_LANGUAGE: Final = "en-IN"
+#: The language every template table here falls back to. English rather than Telugu for
+#: `compliance/disclosure.DEFAULT_LANGUAGE`'s stated reason: a template rendered in a
+#: language the business does not speak is worse than one in the lingua franca.
+#:
+#: ⚠ **IT IS NO LONGER A HAND-TYPED TAG, AND THE REASON IT WAS ONE STILL HOLDS FOR THE
+#: MODULE IT NAMED.** This used to re-spell `disclosure.DEFAULT_LANGUAGE` because importing
+#: `compliance/disclosure` from here closes a real cycle (`agents/service` → this →
+#: `compliance/disclosure` → `compliance/optout` → `compliance/service` → `agents/service`)
+#: that `import apps.api.main` refuses outright. That argument was about THAT module, not
+#: about the string: `calevate_shared` imports no app code at all (the first import-linter
+#: contract), so taking the tag from the declaration closes nothing. The two constants now
+#: agree because they read one row, not because two comments say they should.
+_FALLBACK_LANGUAGE: Final = get_language("english_india").bcp47
 
 #: WHAT THE CALLER HEARS while the handover is placed, per language.
 #:

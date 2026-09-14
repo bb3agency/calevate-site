@@ -60,6 +60,12 @@ export type SetCurationOut = Schemas["SetCurationOut"];
 
 /** The facts an operator types for ONE voice — every one of them checked on the server. */
 export type AddVoiceIn = Schemas["AddVoiceIn"];
+
+/** The languages a curated voice may be filed under, off the GENERATED request type.
+ *  Named here because the page needs it twice — the callback signature and the submit —
+ *  and the page spelled the three-tag union out by hand in both places — the union the
+ *  server would stop accepting without either copy noticing. */
+export type AddVoiceLanguages = AddVoiceIn["languages"];
 export type AddVoiceOut = Schemas["AddVoiceOut"];
 
 /** The form's options, composed on the server — see `AddVoiceFormOut` there for why. */

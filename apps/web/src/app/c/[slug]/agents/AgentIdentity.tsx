@@ -41,7 +41,7 @@ import {
   RestrictionNote,
 } from "@/components/ui";
 import { useFormValidation } from "@/components/formValidation";
-import { LANGUAGE_NAMES, isDeleted } from "@/lib/agentState";
+import { LANGUAGE_CHOICES, LANGUAGE_NAMES, isDeleted } from "@/lib/agentState";
 import {
   useUpdateAgent,
   type Agent,
@@ -157,9 +157,9 @@ export function AgentIdentity({ agent }: { agent: Agent }) {
           {language === null && (
             <option value={agent.language_primary}>{agent.language_primary}</option>
           )}
-          {Object.entries(LANGUAGE_NAMES).map(([code, label]) => (
-            <option key={code} value={code}>
-              {label}
+          {LANGUAGE_CHOICES.map((choice) => (
+            <option key={choice.value} value={choice.value}>
+              {choice.label}
             </option>
           ))}
         </select>

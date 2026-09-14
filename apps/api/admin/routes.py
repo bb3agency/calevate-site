@@ -36,6 +36,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.admin import intake, service
 from apps.api.agents import service as agents_service
+from apps.api.agents.languages import Language, OfferedLanguage
 from apps.api.authn.service import enqueue_invitation_email
 from apps.api.authn.stepup import REAUTH_MAX_AGE
 from apps.api.billing import rates as billing_rates
@@ -203,7 +204,10 @@ class CreateOrgIn(BaseModel):
     slug: str | None = Field(default=None, max_length=40)
     vertical_template: Vertical = "clinic"
     billing_email: EmailStr | None = None
-    language: Literal["te-IN", "hi-IN", "en-IN"] = "te-IN"
+    #: The new account's first agent speaks this. Imported, not respelled inline — see
+    #: `agents/languages.py`; `OfferedLanguage` carries the same OpenAPI enum and refuses
+    #: an unoffered tag with a sentence naming the three that work.
+    language: OfferedLanguage = "te-IN"
 
 
 class CreateOrgOut(BaseModel):
@@ -1105,7 +1109,9 @@ class IntakeStateOut(BaseModel):
     saved_at: datetime | None
     # The agent's own primary. Without it `languages` is unrenderable by anyone who did
     # not just choose the primary themselves — see `read_intake` for the full argument.
-    language_primary: str
+    # TYPED since the column carries its CHECK (migration c7a41e8b52d9): the wizard gets
+    # the same union the agents screens get, rather than a string it has to guard.
+    language_primary: Language
     # Whether anybody has accepted into this account yet, so the wizard can stop
     # offering an owner invite that has already been redeemed. False covers "never
     # invited", "invite outstanding" and "link expired" alike — all three are states in

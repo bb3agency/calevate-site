@@ -8,7 +8,7 @@ and a vendor wire code quietly normalised to its BCP-47 tag. So the intersection
 re-derived from `support()` rather than read off `conversational`, and the anomaly ledger
 is compared against a set computed from the rows.
 
-The three languages the product SELLS today (`agents/voices.py::Language`) are pinned by
+The three languages the product SELLS today (`agents/languages.py::Language`) are pinned by
 name, because that is a promise a client can read on the marketing site and not an
 internal invariant — if one of them ever stops being conversational, the failure belongs
 here and not on a call.
@@ -155,8 +155,12 @@ def test_the_odia_spelling_discrepancy_is_captured_and_not_normalised() -> None:
 
 
 def test_the_languages_the_product_promises_today_are_conversational() -> None:
-    """`agents/voices.py::Language` sells these three and the marketing site names them.
-    Pinned by tag rather than by id, because the tag is what those surfaces carry."""
+    """`agents/languages.py::Language` sells these three and the marketing site names
+    them. Pinned by tag rather than by id, because the tag is what those surfaces carry —
+    and by LITERAL tag rather than through `offered_language_tags()`, deliberately: this
+    is the promise a client can read, so widening the offer must fail here and be
+    re-argued, not pass because both sides moved. `tests/product_languages_test.py` holds
+    the other direction (every surface derives from the offer)."""
     conversational = {row.bcp47 for row in conversational_languages()}
     for promised in ("te-IN", "hi-IN", "en-IN"):
         assert promised in conversational, f"{promised} is sold today and must stay answerable"

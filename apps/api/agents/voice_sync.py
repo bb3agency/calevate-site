@@ -84,9 +84,9 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.languages import PRODUCT_LANGUAGES
 from apps.api.agents.models import PlatformVoiceCatalogEntry
 from apps.api.agents.voices import (
-    Language,
     TtsModel,
     Voice,
     catalogue_note,
@@ -98,11 +98,6 @@ from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 
 log = get_logger(__name__)
-
-#: The product's own language codes, in the order a picker renders them (Telugu first,
-#: BRD §1). Derived from `voices.Language` rather than retyped so a fourth product language
-#: reaches this filter by existing.
-_PRODUCT_LANGUAGES: Final[tuple[Language, ...]] = ("te-IN", "hi-IN", "en-IN")
 
 #: What an operator is told when a sync read nothing. Authored, stable, and it names the
 #: one thing they can act on — this string is an alert label, not prose.
@@ -176,7 +171,7 @@ def voice_from_engine(entry: EngineVoice) -> Voice | None:
     if model is None or provider is None:
         return None
     languages = tuple(
-        language for language in _PRODUCT_LANGUAGES if language in set(entry.languages)
+        language for language in PRODUCT_LANGUAGES if language in set(entry.languages)
     )
     if not languages:
         return None
@@ -422,7 +417,7 @@ def voice_from_row(row: PlatformVoiceCatalogEntry) -> Voice | None:
     provider = provider_of_tts_model(row.tts_model) if model is not None else None
     if model is None or provider is None:
         return None
-    languages = tuple(language for language in _PRODUCT_LANGUAGES if language in set(row.languages))
+    languages = tuple(language for language in PRODUCT_LANGUAGES if language in set(row.languages))
     if not languages:
         return None
     return Voice(

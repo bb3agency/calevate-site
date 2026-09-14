@@ -102,7 +102,7 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
     ),
     "POST /v1/ops/voices": BoundedByConstruction(
         by=(
-            "`voice.languages` on the ONE voice this call added — `agents/voices.Language`, "
+            "`voice.languages` on the ONE voice this call added — `agents/languages.Language`, "
             "three codes — exactly as the PATCH below. There is no collection of anybody's "
             "rows in the response at all: an add answers with the row it wrote, two counts "
             "and two sentences, and a `limit` on it would mean returning fewer languages "

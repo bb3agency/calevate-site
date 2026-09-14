@@ -82,6 +82,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.agents.languages import Language
 from apps.api.agents.voice_admission import (
     OUR_PROVIDERS,
     UNPUBLISHABLE_CLONING_PROVIDERS,
@@ -102,7 +103,6 @@ from apps.api.agents.voice_offer import offerability_of
 from apps.api.agents.voice_sync import load_voice_catalogue
 from apps.api.agents.voices import (
     CurationState,
-    Language,
     TtsModel,
     Voice,
     VoiceOrigin,
@@ -269,12 +269,13 @@ class AddVoiceFormOut(Strict):
 
     The browser composes none of it. Which providers exist, which models run on them, which
     languages this product sells and why ElevenLabs is refused are all facts with a single
-    source in `agents/voices.py` and `agents/voice_admission.py`, and a second copy in
+    source in `agents/languages.py`, `agents/voices.py` and `agents/voice_admission.py`,
+    and a second copy in
     TypeScript is the copy that goes stale the day a model changes.
     """
 
     providers: list[VoiceProviderOptionOut]
-    #: The product's languages, Telugu first — `voices.Language`, in picker order.
+    #: The product's languages, Telugu first — `agents/languages.Language`, in picker order.
     languages: list[Language]
     #: Where the operator gets the voice id and the name. A URL in server-composed copy
     #: rather than in the page, so it is stated once.

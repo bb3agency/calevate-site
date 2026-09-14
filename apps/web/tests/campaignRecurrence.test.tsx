@@ -51,7 +51,9 @@ const AGENT: Agent = {
   name: "Outbound follow-up",
   direction: "outbound",
   status: "live",
-  language_primary: "te",
+  // `te-IN`, not `te`: the column now carries a CHECK and `AgentOut` a union, so a
+  // fixture holding a tag the server cannot store no longer compiles.
+  language_primary: "te-IN",
   // Hard rule 5: an agent ALWAYS carries a non-null disclosure line, and an outbound
   // campaign agent is the case the rule exists for. This fixture omitted it entirely —
   // `as unknown as Agent` is why nobody noticed.

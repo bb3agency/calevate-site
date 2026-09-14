@@ -34,6 +34,7 @@ import {
   useRefreshVoiceCatalogue,
   useSetVoiceCuration,
   type AddVoiceForm,
+  type AddVoiceLanguages,
   type CuratedVoice,
   type CuratedVoices,
   type CurationState,
@@ -287,7 +288,7 @@ function AddVoiceCard({
     tts_model: string;
     engine_voice_id: string;
     label: string;
-    languages: ("te-IN" | "hi-IN" | "en-IN")[];
+    languages: AddVoiceLanguages;
   }) => void;
 }) {
   const selectable = form.providers.filter((option) => option.selectable);
@@ -329,7 +330,11 @@ function AddVoiceCard({
             tts_model: model,
             engine_voice_id: voiceId.trim(),
             label: label.trim(),
-            languages: languages as ("te-IN" | "hi-IN" | "en-IN")[],
+            // The checkbox state is `string[]` (it is built from `form.languages`, which
+            // the SERVER composed), and the request type is the narrower union. One
+            // assertion at the boundary, against the generated type rather than against
+            // three tags typed here — the copies this replaced could outlive the enum.
+            languages: languages as AddVoiceLanguages,
           });
         }}
       >
