@@ -99,20 +99,36 @@ def test_no_pack_sells_a_minute_below_its_voices_cost_floor() -> None:
 
 
 def test_the_guard_has_teeth_on_a_below_cost_rate() -> None:
-    """The assertion above is not vacuously true: a ₹4.00 Sarvam rate is under the ₹4.1211
-    floor and is REFUSED, not warned. A rate that clears cost but misses the 20% target is
-    the other posture — reported, not refused — and the whole approved Sarvam column is in
-    that band, so the two must be distinguishable."""
-    below_cost = _pack("greedy", "50000", "4.00", "6.00")
+    """The assertion above is not vacuously true: a rate UNDER the floor is REFUSED, not
+    warned. A rate that clears cost but misses the 20% target is the other posture —
+    reported, not refused — and the two must be distinguishable.
+
+    ⚠ **THE RATE IS DERIVED NOW, AND THE LITERAL IS WHY.** It was ₹4.00, typed against a
+    ₹4.1211 floor. D-592 moved the engine leg from Bolna's $0.02/min BYOK fee to Pipecat's
+    $0.01/min active minute, the floor fell to ₹3.3111, and ₹4.00 became a rate that CLEARS
+    cost — so a test named "the guard has teeth" was asserting that a profitable rate gets
+    refused. A literal on the wrong side of a moving line is the failure mode; half the
+    floor cannot land on the wrong side of it.
+
+    ⚠ The docstring also said "the whole approved Sarvam column is in that band". It is not,
+    since the same change: every rung on both columns now clears the 20% target.
+    """
+    half_floor = (cost_floor_inr_per_min("sarvam") / 2).quantize(Decimal("0.01"))
+    below_cost = _pack("greedy", "50000", str(half_floor), "6.00")
     verdict = pack_rate_margin(below_cost, voice="sarvam")
     assert verdict.below_cost is True
     assert [f for f in card_refusals((below_cost,)) if "below cost" in f]
 
-    thin = pack_rate_margin(_pack("thin", "50000", "4.50", "6.00"), voice="sarvam")
+    # DERIVED for the same reason as the rate above: a literal ₹4.50 was thin against a
+    # ₹4.1211 floor and earns 26% against ₹3.3111. Ten paisa over the floor is thin at any
+    # floor — the property this half of the test is actually about.
+    thin_rate = (cost_floor_inr_per_min("sarvam") + Decimal("0.10")).quantize(Decimal("0.01"))
+    thin_pack = _pack("thin", "50000", str(thin_rate), "6.00")
+    thin = pack_rate_margin(thin_pack, voice="sarvam")
     assert thin.below_cost is False
     assert thin.below_target is True
     assert thin.margin is not None and thin.margin < MIN_MARGIN
-    assert card_refusals((_pack("thin", "50000", "4.50", "6.00"),)) == []
+    assert card_refusals((thin_pack,)) == []
 
 
 def test_a_zero_rate_is_below_cost_and_has_no_margin_to_display() -> None:

@@ -928,36 +928,36 @@ def stt_cost_inr(duration_s: int) -> Decimal:
 #
 # THE LEGS, with the evidence class of each (hard rule 11):
 #
-#   engine platform fee  ₹1.76  VERIFIED-VENDOR-DOCS — "**Call pricing**: $0.02/min
-#                               platform fee (plus provider charges)"
-#                               (`bolna-findings/mirror/pages/
-#                               frequently-asked-questions.md:39`, the hash-pinned
-#                               mirror, read 7 Sep 2026) at the ₹88/$ this section uses.
-#                               ⚠ **UPGRADED FROM REPORTED, AND THE UPGRADE IS THE
-#                               POINT.** This was a founder's dashboard screenshot
-#                               (TRD §10.4, "observed at 2¢/min ≈ ₹1.76"; marked
-#                               UNVERIFIED — pilot gate 12 at
-#                               `docs/PRODUCTION-READINESS.md` §A1 row 12 H) until the
-#                               vendor's own FAQ was read in the mirror and said the
-#                               same number. Gate 12 is NOT closed by it: what the FAQ
-#                               proves is the published rate, not OUR commercial term,
-#                               and an invoice is still what settles that.
-#                               ⚠ **AND THE VENDOR PUBLISHES A SECOND, DIFFERENT
-#                               PER-MINUTE FIGURE THAT NO PAGE RECONCILES WITH IT:**
-#                               `pricing/preferred-models.md:11` states a flat
-#                               "$0.06/min (₹5.52/min)" that BUNDLES ASR + LLM + TTS.
-#                               It is a different line item, not a different fee — BYOK
-#                               explicitly opts out of the bundled components
-#                               ("Bolna does not charge for those components. You only
-#                               pay your providers directly, plus Bolna's platform fee",
-#                               `pricing/call-pricing.md:75`) and we are BYOK on all
-#                               three. So $0.02 is the leg for our shape. Recorded
-#                               rather than resolved: if an invoice ever shows $0.06 on
-#                               a BYOK call, this floor is ₹3.52 too low and every
-#                               margin below is wrong by that much.
-#                               ⚠ Billing GRANULARITY for the BYOK fee is **UNKNOWN**
-#                               (the 30-second pulse is documented for the Pilot plan
-#                               only), so per-minute is what the model assumes.
+#   engine compute       ₹0.95  VERIFIED-VENDOR-DOCS — Pipecat Cloud's published
+#                               "$0.01/min active" for the container that runs the
+#                               conversation, one session per instance
+#                               (`docs.pipecat.ai/pipecat-cloud/pricing`, recorded with
+#                               that citation at `docs/evidence/
+#                               engine-replacement-comet-2026-09-06.md:93,103,122`; the
+#                               evidence file notes the vendor's page shows NO date) at
+#                               the ₹95/$ this section uses.
+#                               ⚠ **THIS ROW REPLACED BOLNA'S $0.02/min BYOK PLATFORM
+#                               FEE (D-592), AND IT IS A DIFFERENT KIND OF CHARGE.**
+#                               Bolna rented us an engine and billed a fee on top of our
+#                               own vendor spend; Pipecat rents us the CONTAINER our own
+#                               worker runs in. The shape is the same — per active
+#                               call-minute, BYOK for speech and language — which is why
+#                               it lands on the same constant rather than a new one.
+#                               ⚠ **RESERVED CAPACITY IS NOT IN THIS ROW AND MUST NOT
+#                               BE.** The same page prices a warm instance at
+#                               $0.0005/min whether or not a call is on it —
+#                               $21.60/instance/month, ₹2,052 at ₹95 — which is a FIXED
+#                               cost of standing up the platform, like the VPS, not a
+#                               cost of the marginal minute. Folding it in would require
+#                               a utilisation assumption (₹/min = 0.95 + 2052/minutes),
+#                               and an unmeasured assumption baked into a floor is how a
+#                               floor stops meaning anything. It is carried as
+#                               `ENGINE_RESERVED_INSTANCE_USD_PER_MIN` below, priced in
+#                               the runway rather than the per-minute floor.
+#                               ⚠ Billing GRANULARITY is **UNKNOWN** — no Pipecat page
+#                               read here states the rounding unit for an active minute,
+#                               so per-minute is what the model assumes, exactly as it
+#                               did for the fee this row replaced.
 #   STT                  ₹0.50  VENDOR-PUBLISHED — `STT_INR_PER_HOUR` / 60, per the Sarvam
 #                               catalogue reading recorded on that constant.
 #   LLM                  ₹0.24  ESTIMATE over a VENDOR-PUBLISHED list price — the
@@ -972,7 +972,7 @@ def stt_cost_inr(duration_s: int) -> Decimal:
 #                               at the TOP of `TTS_ASSUMED_CHARS_PER_CALL_MINUTE` (540
 #                               chars/min, itself unmeasured — pilot gate 12).
 #   ─────────────────────────
-#   Sarvam floor         ₹4.1211/min  (1.76 + 0.50 + 0.2411 + 1.62)
+#   Sarvam floor         ₹3.3111/min  (0.95 + 0.50 + 0.2411 + 1.62)
 #
 # ⚠ **EVIDENCE CLASS OF THE SUM: ESTIMATE**, and it is now the SPEAKING RATE rather than the
 # fee that caps it — the fee was upgraded to VERIFIED-VENDOR-DOCS above, and the weakest
@@ -984,21 +984,36 @@ def stt_cost_inr(duration_s: int) -> Decimal:
 # margin and reaches no bill (`unit_cost_paid` is hard rule 7's subject; this is not it).
 # A pooled measurement at twenty or more calls is what replaces the band.
 
-#: The engine's BYOK platform fee for one call-minute, in the unit the VENDOR publishes it
-#: in. $0.02/min, VERIFIED-VENDOR-DOCS — see the leg table above for the citation, for why
-#: the vendor's other published per-minute figure ($0.06 bundled) is a different line item,
-#: and for the granularity question that is still open.
-ENGINE_PLATFORM_FEE_USD_PER_MIN: Final[Decimal] = Decimal("0.02")
+#: What the engine charges for one ACTIVE call-minute, in the unit the VENDOR publishes it
+#: in. $0.01/min, VERIFIED-VENDOR-DOCS — see the leg table above for the citation, for why
+#: reserved capacity is deliberately not in this number, and for the granularity question
+#: that is still open. The NAME is unchanged across the Bolna→Pipecat move (D-592) because
+#: the leg is the same leg: per active call-minute, on top of BYOK speech and language.
+ENGINE_PLATFORM_FEE_USD_PER_MIN: Final[Decimal] = Decimal("0.01")
 
-#: The conversion the whole per-minute cost model is struck at: ₹88 = US$1.00. The rate
-#: TRD §10.4 used for the same fee and the rate the Cartesia evidence file states at every
-#: line, kept as one constant here rather than two so a floor comparison is not secretly a
-#: comparison of two exchange rates. NOT `LIST_PRICE_USD_INR` (₹95.66, the LLM card's own
-#: strike, which is a fact about a different card); `tests/cost_floor_test.py` computes the
-#: Cartesia floor under that one too and shows the card clears either.
-COST_MODEL_USD_INR: Final[Decimal] = Decimal("88")
+#: What a WARM instance costs per minute whether or not a call is on it — $0.0005/min, one
+#: session per instance (same citation as the leg table's engine row). **DELIBERATELY NOT
+#: SUMMED INTO ANY FLOOR**: it is a fixed cost of standing up the platform, like the VPS,
+#: and converting it to ₹/min needs a utilisation figure nobody has measured. One warm slot
+#: is $21.60/month (43,200 min), ₹2,052 at `COST_MODEL_USD_INR`. Carried here so the runway
+#: and the capacity plan have one place to read it instead of re-deriving it each time.
+ENGINE_RESERVED_INSTANCE_USD_PER_MIN: Final[Decimal] = Decimal("0.0005")
 
-#: ₹1.76 — DERIVED, so a conversion change and a fee change are distinguishable. Written as
+#: The conversion the whole per-minute cost model is struck at: ₹95 = US$1.00, the rate the
+#: founder states is current (14 Sep 2026). Kept as one constant so a floor comparison is
+#: not secretly a comparison of two exchange rates. NOT `LIST_PRICE_USD_INR` (₹95.66, the
+#: LLM card's own strike, which is a fact about a different card and must not be collapsed
+#: into this one even now that the two nearly agree — re-striking that card reprices every
+#: account, TRD §10's fifteen cost points included).
+#:
+#: ⚠ **THIS WAS ₹88, AND THE MOVE BROKE AN ALIAS THAT USED TO BE FREE.**
+#: `CARTESIA_EVIDENCE_USD_INR` was defined as this constant, on the ground that the two
+#: happened to agree; they no longer do, because that one is a fact about what a DOCUMENT
+#: states and this one is a rate that moves. Its own comment named this line as the one
+#: that would move, and this is it. Nothing else aliases this constant.
+COST_MODEL_USD_INR: Final[Decimal] = Decimal("95")
+
+#: ₹0.95 — DERIVED, so a conversion change and a fee change are distinguishable. Written as
 #: a rupee literal until D-547; the vendor states dollars, and restating their number in our
 #: currency was a place a re-read could not land.
 ENGINE_PLATFORM_FEE_INR_PER_MIN: Final[Decimal] = (
@@ -1265,12 +1280,21 @@ SELF_SERVE_COST_FLOOR_INR_PER_MIN: Final[Decimal] = sarvam_cost_floor_at(
 # So the plan actually bought is settled by OPERATIONS §2 gate 53's load test, not by this
 # module, and every surface that renders the ladder says so.
 
-#: The USD→INR conversion the whole Cartesia leg is struck at — which is `COST_MODEL_USD_INR`,
-#: the same rate the engine fee leg above uses, so the two legs of one floor are not
-#: converted at two rates. Aliased rather than re-typed, and kept as its own name because the
-#: EVIDENCE differs: this one is the Cartesia reading's stated assumption, that one is TRD
-#: §10.4's. If they ever have to diverge, this is the line that moves.
-CARTESIA_EVIDENCE_USD_INR: Final[Decimal] = COST_MODEL_USD_INR
+#: The USD→INR conversion the CARTESIA leg is struck at: ₹88, the rate
+#: `docs/evidence/cartesia-tts-verification-2026-09-06.md` states at every line. It was an
+#: alias of `COST_MODEL_USD_INR` while the two agreed, and its own comment named this line
+#: as the one that moves when they diverge. D-592 moved the cost model to ₹95; this did not
+#: move, because it is the rate a READING was struck at and that reading did not change.
+#:
+#: ⚠ **SO A CARTESIA FLOOR NOW CONVERTS ITS ENGINE LEG AT 95 AND ITS TTS LEG AT 88**, which
+#: is the thing the alias existed to prevent. It is deliberate and it is BOUNDED rather than
+#: tolerated: `tests/cost_floor_test.py::test_the_cartesia_floor_holds_at_the_llm_cards_
+#: conversion_too` already computes the whole floor at a single higher rate and shows the
+#: card clears that too, which is the property the single-rate alias was protecting. The
+#: honest close is to RE-READ Cartesia's pricing at the current rate and move this constant
+#: with a fresh citation — not to restate the evidence file as saying ₹95, which it does
+#: not, and not to freeze the cost model at a rate the founder says is stale.
+CARTESIA_EVIDENCE_USD_INR: Final[Decimal] = Decimal("88")
 
 #: One million credits — the unit the vendor quotes an overage rate in. Named because the
 #: per-character conversion below divides by it and a bare `1000000` in that expression is
@@ -2298,6 +2322,7 @@ __all__ = [
     "ENGINE_PLATFORM_FEE_INR_PER_MIN",
     "ENGINE_PLATFORM_FEE_USD_PER_MIN",
     "ENGINE_REPORTS_TTS_MODEL",
+    "ENGINE_RESERVED_INSTANCE_USD_PER_MIN",
     "ENGINE_TTS_MODEL_GENERATION_VERIFIED",
     "LIST_PRICE_USD_INR",
     "MIN_GROSS_MARGIN",

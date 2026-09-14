@@ -746,10 +746,11 @@ async def test_terms_that_price_a_minute_below_cost_are_refused() -> None:
     """The one shape nobody intends. ₹7,000 for 2,000 minutes is ₹3.50/min against the cost
     floor — it loses money on every minute, and worse the harder the client uses it.
 
-    ⚠ The floor is READ, not typed. It was ₹3.70 until D-547 re-derived it from named legs
-    without telephony (the client pays the carrier, D-474) and it became ₹4.1211; a test
-    asserting the literal would have to be edited every time a vendor price moves, which is
-    the one edit that quietly turns a money guard into a rubber stamp.
+    ⚠ The floor is READ, not typed — and so is the FEE now. It was ₹3.70 until D-547
+    re-derived it without telephony (₹4.1211), then ₹3.3111 when D-592 put the engine leg on
+    Pipecat's active minute. The floor was already read here; the ₹7,000 fee was not, and at
+    ₹3.50/min it drifted from "comfortably below cost" to "profitable" without anyone
+    touching this file. Both sides are derived now.
     """
     tenant_id = await _tenant()
     token = await _make_admin("operator")
@@ -757,7 +758,18 @@ async def test_terms_that_price_a_minute_below_cost_are_refused() -> None:
     response = await _post(
         token,
         tenant_id,
-        {"monthly_fee_inr": "7000.00", "included_minutes": 2000, "overage_rate_inr": "8.0000"},
+        {
+            # DERIVED: 90% of the floor over 2,000 minutes. It was a flat ₹7,000 (₹3.50/min)
+            # until D-592 halved the engine leg and pulled the floor to ₹3.3111, at which
+            # ₹3.50 CLEARS cost and this test was asserting a refusal that could not happen.
+            "monthly_fee_inr": str(
+                (SELF_SERVE_COST_FLOOR_INR_PER_MIN * Decimal("0.9") * 2000).quantize(
+                    Decimal("0.01")
+                )
+            ),
+            "included_minutes": 2000,
+            "overage_rate_inr": "8.0000",
+        },
     )
 
     assert response.status_code == 422, response.text

@@ -103,7 +103,7 @@ async def _store_rate(admin: UUID, *, pack_id: str, voice: str, rate: str) -> No
 
 
 async def test_a_card_that_sells_below_cost_is_refused_and_writes_nothing() -> None:
-    """The veto. A ₹3.00 Sarvam rate is under the ₹4.1211 floor; the operator gets a
+    """The veto. A ₹3.00 Sarvam rate is under the ₹3.3111 floor; the operator gets a
     problem+json naming the pack and the append-only history is untouched — which matters
     more than the refusal itself, because a card recorded in error cannot be edited out."""
     admin = await _admin()
@@ -141,7 +141,8 @@ async def test_the_approved_card_is_written_and_every_margin_is_previewed(
     NOT.** The Cartesia floor was ₹4.3639 — the $49 Startup plan fee spread over the volume
     at which its allotment is exactly consumed, i.e. the plan's best possible minute — so
     every Cartesia rung read as comfortably above target. Against the honest floor
-    (₹5.5899, the worst MARGINAL cost) four of the six are thin as well. Nothing was
+    (₹5.5899 then, ₹4.7099 since D-592 — the worst MARGINAL cost either way) four of the six
+    were thin as well until that change; none is now. Nothing was
     repriced; the yardstick stopped flattering us. So the assertion is on the SET of thin
     rows rather than on a column, and an operator reading only warnings still sees every
     rung that is under target."""
@@ -153,22 +154,14 @@ async def test_the_approved_card_is_written_and_every_margin_is_previewed(
             )
     previews = [r for r in caplog.records if r.msg == "rate_card_margin_preview"]
     assert len(previews) == len(PACK_CATALOGUE) * 2
+    # ⚠ **NOTHING IS THIN ANY MORE, AND NOTHING WAS REPRICED.** This asserted a SET of
+    # six thin cells — the whole Sarvam column plus four Studio rungs — because the floors
+    # were ₹4.1211 and ₹5.5899. D-592 moved the engine leg from Bolna's $0.02/min BYOK fee
+    # to Pipecat's $0.01/min active minute and the floors fell to ₹3.3111 and ₹4.7099, at
+    # which every cell on the card clears the 20% target. The preview still emits one line
+    # per cell; none of them is a warning.
     thin = [r for r in previews if r.levelno == logging.WARNING]
-    assert {r.pack_id for r in thin} == {pack.pack_id for pack in PACK_CATALOGUE}
-    assert {(r.pack_id, r.voice_tier) for r in thin} == {
-        ("starter", "sarvam"),
-        ("growth", "sarvam"),
-        ("scale", "sarvam"),
-        ("plus", "sarvam"),
-        ("pro", "sarvam"),
-        ("max", "sarvam"),
-        # The four cheapest Studio rungs, against the honest floor (D-556). `starter`
-        # (₹8.00, 30.1%) and `growth` (₹7.00, 20.1%) still clear the 20% target.
-        ("scale", "cartesia"),
-        ("plus", "cartesia"),
-        ("pro", "cartesia"),
-        ("max", "cartesia"),
-    }
+    assert {(r.pack_id, r.voice_tier) for r in thin} == set()
     # Money in a log line is a STRING (hard rule 7): a float here is a float somebody
     # quotes back.
     assert all(isinstance(r.inr_per_min, str) for r in previews)

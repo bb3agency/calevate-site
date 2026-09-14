@@ -61,10 +61,18 @@ def test_a_committed_rate_is_the_fee_divided_by_the_minutes_it_buys() -> None:
 
 
 def test_a_bundle_priced_under_the_cost_floor_is_named_as_below_cost() -> None:
-    # ₹7,000 for 2,000 minutes is ₹3.50/min — under the ₹3.70 floor, so every minute the
-    # client uses loses money. This is the shape the write path refuses outright.
-    m = committed_plan_margin(monthly_fee=Decimal("7000.00"), included_min=2000, overage_rate=None)
-    assert m.effective_committed_rate == Decimal("3.50")
+    # A rate DERIVED as 90% of the floor, so every minute the client uses loses money. This
+    # is the shape the write path refuses outright.
+    #
+    # ⚠ It was a flat ₹7,000 / 2,000 min = ₹3.50, typed when the floor was ₹3.70 and still
+    # under it at ₹4.1211. D-592 moved the engine leg to Pipecat's active minute, the floor
+    # fell to ₹3.3111, and ₹3.50 became a PROFITABLE rate — so the test asserting it was
+    # refused was asserting the opposite of the truth. A literal on the wrong side of a
+    # moving line is the failure mode; the fee is derived now.
+    under = (SELF_SERVE_COST_FLOOR_INR_PER_MIN * Decimal("0.9")).quantize(Decimal("0.01"))
+    m = committed_plan_margin(monthly_fee=under * 2000, included_min=2000, overage_rate=None)
+    assert under < SELF_SERVE_COST_FLOOR_INR_PER_MIN
+    assert m.effective_committed_rate == under
     assert m.below_cost() == ("committed",)
     # Disjoint: a below-cost rate is not ALSO reported as below-target, or the write path
     # would refuse and warn about the same number.
