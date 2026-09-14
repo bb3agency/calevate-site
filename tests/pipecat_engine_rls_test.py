@@ -13,11 +13,15 @@ vanish from the account listing, which is the one instrument that can find a str
 document at all.
 
 `pipecat_kb_objects` CARRIES A DELIBERATE GLOBAL-READ EXEMPTION and this file is where that
-is held to its stated shape: the exemption is for SELECT only, on `engine_kb_routes`'
-pattern, because `list_account_kb`'s question ("which objects does no tenant of ours
-claim?") cannot be asked from a tenant session. So the clauses below assert the exemption's
-NARROWNESS — an untenanted session may read and may not write — rather than treating it as
-a table without tenancy. `pipecat_agents` has no exemption and is plain FORCEd isolation.
+is held to its stated shape: the exemption is for SELECT only, and for the UNTENANTED
+session only, on `engine_kb_routes`' pattern, because `list_account_kb`'s question ("which
+objects does no tenant of ours claim?") cannot be asked from a tenant session. So the
+clauses below assert the exemption's NARROWNESS in both of its dimensions — an untenanted
+session may read and may not write, and a NEIGHBOUR may do neither — rather than treating
+it as a table without tenancy. The second dimension is new: the policy was
+`FOR SELECT USING (true)`, which is OR'd into every session's SELECT, so a tenant session
+could read a neighbour's handle; migration `d7c2f4a91b83` narrowed it to `<guc> IS NULL`.
+`pipecat_agents` has no exemption and is plain FORCEd isolation.
 
 SHARED DATABASE DISCIPLINE: two organisations minted here, every assertion scoped to their
 own ids, nothing counted globally.
@@ -90,9 +94,19 @@ async def test_one_tenant_sees_none_of_anothers_engine_rows() -> None:
                 {"mine": mine_ref, "theirs": theirs_ref},
             )
         ).scalar_one()
-        # The KB object is deliberately NOT counted the same way: its read is global by
-        # design, so the clause that matters for it is the write one below.
         assert agents == 1, "a tenant session saw another tenant's engine agent record"
+        # THE KB OBJECT IS COUNTED THE SAME WAY NOW, and this line used to say it could
+        # not be. Its read exemption was `FOR SELECT USING (true)`, which is OR'd into
+        # EVERY session's SELECT and therefore let a neighbour read the handle too;
+        # migration `d7c2f4a91b83` narrowed it to `<guc> IS NULL`, so the exemption still
+        # answers `list_account_kb`'s untenanted question and answers nobody else's.
+        objects = (
+            await session.execute(
+                text("SELECT count(*) FROM pipecat_kb_objects WHERE handle IN (:mine, :theirs)"),
+                {"mine": mine_handle, "theirs": theirs_handle},
+            )
+        ).scalar_one()
+        assert objects == 1, "a tenant session saw another tenant's knowledge object handle"
 
         script = (
             await session.execute(

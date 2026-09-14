@@ -1,10 +1,13 @@
-"""The two engine route tables: reads are global, writes belong to the row's own tenant.
+"""The two engine route tables: the UNTENANTED read is global, everything else is tenanted.
 
 `engine_agent_routes` and `engine_kb_routes` are the two entries in
 `db/registry.RLS_EXEMPT_TENANT_COLUMNS` that CARRY a `tenant_id` and are not policied on
-it for reads — an engine webhook arrives with only a vendor agent id and no session, and
-the KB orphan question ("which objects on this account does no tenant of ours claim") is
-unaskable from a tenant session. Both exemptions are arguments about READING.
+it for reads FROM A SESSION WITH NO TENANT — an engine webhook arrives with only a vendor
+agent id and no session, and the KB orphan question ("which objects on this account does
+no tenant of ours claim") is unaskable from a tenant session. Both exemptions are
+arguments about READING, and about reading from NO TENANT: neither of them ever argued
+that a client's own session should see a neighbour's row, which is what
+`FOR SELECT USING (true)` gave them until migration `d7c2f4a91b83`.
 
 Until migration `b8e2d47f0c19` the write policy on both was
 `tenant_id = <guc> OR <guc> IS NULL`, so a session with NO `app.tenant_id` could INSERT,
@@ -17,18 +20,18 @@ client's inbound calls into another client's agent.
 
 WHAT THIS FILE PINS, and why each half needs its own test:
 
-  * the cross-tenant zero-rows property in the shape it can hold HERE. A SELECT is
-    deliberately global (the exemption), so "zero rows" is about the write verbs: tenant
-    B's session UPDATEs and DELETEs zero of tenant A's rows, and RE-TENANTING raises
-    rather than silently succeeding, because `WITH CHECK` judges the row you are trying to
-    leave behind;
-  * the same three for an UNTENANTED session, which is the newly closed hole;
+  * the cross-tenant zero-rows property on EVERY verb. Tenant B's session SELECTs zero of
+    tenant A's rows (`d7c2f4a91b83`; it counted them until then), UPDATEs and DELETEs zero
+    of them, and RE-TENANTING raises rather than silently succeeding, because `WITH CHECK`
+    judges the row you are trying to leave behind;
+  * the write verbs for an UNTENANTED session, which `b8e2d47f0c19` closed;
   * that the SWEEP STILL WORKS, which is the reason this was not a revert: the drift
     stamp is the one write that legitimately crosses no boundary and is still done from
     the row's own tenant, and its untenanted form now writes nothing;
-  * that the READ is still global, because the sweeps' batch read and the inbound webhook
-    resolution both depend on it and a narrowing there would look like a security fix
-    while breaking every inbound call.
+  * that the UNTENANTED read still works, because the sweeps' batch read and the inbound
+    webhook resolution both depend on it: narrowing that arm — as opposed to the
+    tenant-session one `d7c2f4a91b83` removed — would look like a security fix while
+    breaking every inbound call.
 """
 
 from __future__ import annotations
@@ -146,6 +149,48 @@ async def test_another_tenants_session_writes_zero_rows_on_either_route_table(
         routes.tenant,
         True,
     )
+
+
+async def test_a_neighbours_session_reads_none_of_another_tenants_routes(
+    routes: _Routes,
+) -> None:
+    """The READ half of hard rule 1, which these two tables did not hold until migration
+    `d7c2f4a91b83`.
+
+    Both `*_global_read` policies were `FOR SELECT USING (true)`. Permissive policies are
+    OR'd per command, so that arm applied to EVERY session and not only to the untenanted
+    one it was granted for: measured as `calevate_app` on 14 Sep 2026, tenant B's session
+    counted 1 of tenant A's rows on each table. Nothing in either exemption's reasoning
+    asks for that — every question it names (an inbound webhook carrying only a vendor id,
+    the drift batch read, the KB orphan sweep) is one a tenant session cannot ask at all —
+    so the arm is now `<guc> IS NULL` and this is the zero-rows proof.
+    """
+    async with tenant_session(routes.other) as session:
+        agent_rows = (
+            await session.execute(
+                text("SELECT count(*) FROM engine_agent_routes WHERE engine_agent_ref = :r"),
+                {"r": routes.ref},
+            )
+        ).scalar_one()
+        kb_rows = (
+            await session.execute(
+                text("SELECT count(*) FROM engine_kb_routes WHERE engine_kb_ref = :r"),
+                {"r": routes.ref},
+            )
+        ).scalar_one()
+    assert agent_rows == 0, "a neighbour read another client's inbound route"
+    assert kb_rows == 0, "a neighbour read another client's knowledge claim"
+
+    # THE CONTROL: the OWNER still sees its own row, so the zero above is isolation rather
+    # than a policy that now hides the table from everybody.
+    async with tenant_session(routes.tenant) as session:
+        mine = (
+            await session.execute(
+                text("SELECT count(*) FROM engine_agent_routes WHERE engine_agent_ref = :r"),
+                {"r": routes.ref},
+            )
+        ).scalar_one()
+    assert mine == 1, "the owning tenant lost sight of its own route"
 
 
 async def test_a_tenant_cannot_claim_another_tenants_route_by_re_tenanting_it(
@@ -331,9 +376,11 @@ async def test_the_read_is_still_global_on_both_tables(routes: _Routes) -> None:
 async def test_neither_write_policy_admits_a_session_with_no_tenant(routes: _Routes) -> None:
     """The catalogue, not the behaviour — read from `pg_policy` so that a future migration
     re-adding the `OR <guc> IS NULL` arm fails HERE, next to the reasoning, and not only
-    in `scripts/check_rls_coverage.py`. `USING (true)` on the `*_global_read` policies is
-    the exemption and is asserted to still be `FOR SELECT`: the same expression on any
-    other command is the whole defect, one verb wider."""
+    in `scripts/check_rls_coverage.py`. The `*_global_read` policies are the exemption and
+    are asserted on BOTH of their bounds: `FOR SELECT` (the same expression on any other
+    command is the whole defect, one verb wider) and `<guc> IS NULL` (migration
+    `d7c2f4a91b83` — they were `USING (true)`, which is one SESSION SHAPE wider and is
+    what `test_a_neighbours_session_reads_none_of_another_tenants_routes` measures)."""
     async with untenanted_session() as session:
         rows = (
             await session.execute(
@@ -353,4 +400,12 @@ async def test_neither_write_policy_admits_a_session_with_no_tenant(routes: _Rou
                     f"{table}.{name} admits a session with no tenant again: {expression}"
                 )
         else:
-            assert cmd == "r", f"{table}.{name} is USING (true) on {cmd}, not on SELECT alone"
+            assert cmd == "r", f"{table}.{name} is the read exemption on {cmd}, not on SELECT alone"
+            # THE OTHER BOUND, and the one that was missing until `d7c2f4a91b83`. A
+            # `FOR SELECT` policy is still OR'd into every SELECT, so `USING (true)` here
+            # defeats `tenant_isolation` for a TENANT session too — not only for the
+            # untenanted one the exemption was bought for.
+            assert using is not None and "app.tenant_id" in using, (
+                f"{table}.{name} does not read the tenant GUC ({using}): a read exemption "
+                "not keyed on 'no tenant is set' is a cross-tenant read"
+            )
