@@ -27,6 +27,7 @@ for a script a Latin-script question cannot reach.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 
 import pytest
@@ -248,6 +249,64 @@ async def test_the_scan_is_bounded_and_the_rest_is_first_next_tick(s3: FakeS3) -
 
     assert len(one) == 1
     assert none == ()
+
+
+async def test_two_publishers_of_one_source_leave_the_pointer_on_the_version_that_won(
+    s3: FakeS3,
+) -> None:
+    """The pack half of `kb_publish_atomicity_test`'s concurrent-publish race.
+
+    Two approved versions of one name, published together. The advisory lock serializes
+    them, so the second publisher reads the corpus AFTER the first committed, archives it,
+    and writes its own pointer last — which is the only ordering under which the pointer
+    and the live version are the same fact. Without it the two builds would race on one
+    column and the agent could spend the rest of the pack's life answering out of the
+    version that LOST, with every one of our rows still reporting the winner.
+
+    Which version wins is the scheduler's and is not asserted; that the pack names the
+    winner is.
+    """
+    raw_tenant, raw_agent = await _tenant_with_published_agent()
+    tenant_id, agent_id = uuid.UUID(str(raw_tenant)), uuid.UUID(str(raw_agent))
+    prices = ("Trouser alteration is eighty rupees.", "Trouser alteration is ninety rupees.")
+    submitted = []
+    async with tenant_session(tenant_id) as session:
+        for body in prices:
+            row = await kb_service.submit_source(
+                session, tenant_id=tenant_id, agent_id=agent_id, name="Fees", body=body
+            )
+            await kb_service.approve_source(session, source_id=row["id"], approved_by=None)
+            submitted.append(uuid.UUID(str(row["id"])))
+
+    both_ready = asyncio.Barrier(2)
+
+    async def publish(source_id: uuid.UUID) -> None:
+        async with tenant_session(tenant_id) as session:
+            await both_ready.wait()
+            await kb_service.publish_source(session, tenant_id=tenant_id, source_id=source_id)
+
+    await asyncio.gather(*(publish(source_id) for source_id in submitted))
+
+    async with tenant_session(tenant_id) as session:
+        live = (
+            await session.execute(
+                text(
+                    "SELECT d.content FROM kb_documents d JOIN kb_sources s ON s.id = d.source_id "
+                    "WHERE s.agent_id = :a AND s.is_active"
+                ),
+                {"a": agent_id},
+            )
+        ).scalars()
+        live_text = sorted(str(row) for row in live)
+
+    packed = await _pack_the_worker_would_load(s3, tenant_id, agent_id)
+    assert sorted(entry.text for entry in packed.entries) == live_text
+    assert len(live_text) == 1
+
+    # ...and nothing is left for the sweep to repair, which is the same statement made by
+    # the mechanism that would catch it if this ordering were ever broken.
+    async with tenant_session(tenant_id) as session:
+        assert await kb_pack.agents_with_stale_packs(session, tenant_id=tenant_id, limit=50) == ()
 
 
 def test_the_gloss_tick_bounds_how_many_agents_it_scans_per_tenant() -> None:
