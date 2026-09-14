@@ -28,9 +28,10 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
-from uuid import uuid4
+from typing import Any, cast
+from uuid import UUID, uuid4
 
 import pytest
 from calevate_shared.engine import (
@@ -39,7 +40,10 @@ from calevate_shared.engine import (
     google_openai_compat_base_url,
 )
 from calevate_shared.events import CallEvent, TranscriptTurn
+from calevate_shared.knowledge_pack import KnowledgePack, PackEntry, pack_object_key
 from loguru import logger
+from pipecat.adapters.schemas.function_schema import FunctionSchema
+from pipecat.adapters.schemas.tools_schema import ToolsSchema
 from pipecat.audio.turn.smart_turn.base_smart_turn import STOP_SECS, SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -57,6 +61,8 @@ from pipecat.processors.aggregators.llm_response_universal import (
     UserTurnStoppedMessage,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.services.azure.llm import AzureLLMService
+from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.sarvam.stt import MODEL_CONFIGS as SARVAM_STT_MODEL_CONFIGS
 from pipecat.services.sarvam.stt import SarvamRealtimeSTTService, SarvamSTTService
@@ -66,6 +72,18 @@ from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 from pipecat.workers.runner import WorkerRunner
 from pydantic import ValidationError
 from voice_worker import pipeline, vendor_logging
+from voice_worker.knowledge import (
+    LexicalIndex,
+    PackCache,
+    SessionKnowledge,
+    load_session_knowledge,
+)
+
+# Stable document ids, so a provenance assertion names a document rather than a uuid the
+# fixture invented one line earlier.
+HOURS_DOC = UUID("0199c0de-0001-7000-8000-00000000000a")
+CONSULTATION_DOC = UUID("0199c0de-0001-7000-8000-00000000000b")
+SCAN_DOC = UUID("0199c0de-0001-7000-8000-00000000000c")
 
 # --------------------------------------------------------------------------------------
 # Fakes. Deliberately NOT subclasses of the vendor service base classes: a stub that
@@ -553,3 +571,422 @@ def test_vendor_log_guard_drops_debug_and_the_content_bearing_warning() -> None:
         vendor_logging._reset_for_tests()
         logger.remove()
         vendor_logging.install_vendor_log_guard()
+
+
+# --------------------------------------------------------------------------------------
+# 5. The in-call knowledge base, wired as a tool (§6 step 11, §9.1 step 2).
+#
+# The search itself is `tests/voice_worker_knowledge_test.py`'s subject and is not re-tested
+# here. What this section is for is the SEAM: that the tool is advertised at all, that a
+# real vendor LLM service registers its handler, and that each of the five things the
+# lookup can say arrives at the model as a different word — because the failure that costs
+# a client is an agent that answers "we don't offer that" out of a failed fetch.
+# --------------------------------------------------------------------------------------
+
+
+def knowledge_entries() -> tuple[PackEntry, ...]:
+    """A small published corpus. Two of the six exist to make `ambiguous` reachable.
+
+    The Telugu-script entry with an English gloss is the §9.2 shape — store both, index the
+    English — so the `found` assertion below is over the passage the client published and
+    not over the retrieval key written for the ranker.
+    """
+    return (
+        PackEntry(
+            chunk_id=uuid4(),
+            document_id=HOURS_DOC,
+            document_version=3,
+            text="క్లినిక్ ఉదయం 9 గంటల నుండి రాత్రి 8 గంటల వరకు తెరిచి ఉంటుంది.",
+            gloss="The clinic is open from 9 am to 8 pm on weekdays.",
+        ),
+        PackEntry(
+            chunk_id=uuid4(),
+            document_id=CONSULTATION_DOC,
+            document_version=1,
+            text="Consultation fee is five hundred rupees.",
+        ),
+        PackEntry(
+            chunk_id=uuid4(),
+            document_id=SCAN_DOC,
+            document_version=1,
+            text="Scan fee is five hundred rupees.",
+        ),
+    )
+
+
+def build_knowledge(config: pipeline.SessionConfig) -> tuple[SessionKnowledge, str]:
+    """A loaded `SessionKnowledge` for `config`'s tenant and agent, and its digest."""
+    entries = knowledge_entries()
+    digest = KnowledgePack.digest(config.tenant_id, config.agent_id, entries)
+    pack = KnowledgePack(
+        tenant_id=config.tenant_id,
+        agent_id=config.agent_id,
+        content_sha256=digest,
+        built_at=datetime(2026, 9, 14, 6, 0, tzinfo=UTC),
+        entries=entries,
+    )
+    return (
+        SessionKnowledge(
+            tenant_id=pack.tenant_id,
+            agent_id=pack.agent_id,
+            pack=pack,
+            index=LexicalIndex(pack.entries),
+            requested_digest=digest,
+        ),
+        digest,
+    )
+
+
+async def invoke_tool(schema: FunctionSchema, question: str) -> dict[str, Any]:
+    """Call the advertised tool the way the service would, and return what the model gets.
+
+    `FunctionCallParams` is a plain dataclass with no runtime validation, so the three
+    fields this handler never touches (`llm`, `pipeline_worker`, `context`) are stand-ins:
+    building a real LLM service and a real worker to reach a handler that reads only
+    `arguments` and `result_callback` would make this a test about the framework.
+    """
+    captured: list[Any] = []
+
+    async def result_callback(result: Any, *, properties: Any = None) -> None:
+        captured.append(result)
+
+    handler = schema.handler
+    assert handler is not None, "the schema carries no handler; nothing would run"
+    await handler(
+        FunctionCallParams(
+            function_name=schema.name,
+            tool_call_id="tool-call-1",
+            arguments={pipeline.KNOWLEDGE_TOOL_QUESTION_PARAM: question},
+            llm=cast(Any, None),
+            pipeline_worker=cast(Any, None),
+            context=cast(Any, None),
+            result_callback=cast(Any, result_callback),
+        )
+    )
+    assert len(captured) == 1, "the tool must answer exactly once"
+    return cast(dict[str, Any], captured[0])
+
+
+def assembled_tool(
+    knowledge: SessionKnowledge | None, **config_overrides: Any
+) -> tuple[pipeline.AssembledCall, FunctionSchema]:
+    """Assemble a call and hand back the ONE tool its context advertises."""
+    call = pipeline.assemble_call(
+        config=make_config(**config_overrides),
+        legs=pipeline.VendorLegs(
+            stt=_PassThrough("s"), llm=_PassThrough("l"), tts=_PassThrough("t")
+        ),
+        transport=FakeTransport(),
+        sink=RecordingSink(),
+        knowledge=knowledge,
+    )
+    tools = call.context.tools
+    assert isinstance(tools, ToolsSchema)
+    (schema,) = tools.standard_tools
+    return call, schema
+
+
+def test_the_tool_is_advertised_and_its_description_tells_the_model_to_search_in_english() -> None:
+    """The description IS the design (§9.2), so the sentence that carries it is asserted.
+
+    0.042 against Telugu script and 0.625 against English is a measurement
+    (`docs/evidence/telugu-embedding-quality.md` §4), and the only thing standing between
+    this product and the first number is that this string says ENGLISH. A refactor that
+    tidies the description into something shorter fails here.
+    """
+    config = make_config()
+    knowledge, _digest = build_knowledge(config)
+    _call, schema = assembled_tool(knowledge)
+
+    assert schema.name == pipeline.KNOWLEDGE_TOOL_NAME
+    assert schema.required == [pipeline.KNOWLEDGE_TOOL_QUESTION_PARAM]
+    assert schema.properties[pipeline.KNOWLEDGE_TOOL_QUESTION_PARAM]["type"] == "string"
+    assert "ENGLISH" in schema.description
+    # Every outcome word the payload can carry is explained to the model, or it has no way
+    # to tell "we published nothing" from "I could not look".
+    for outcome in ("found", "ambiguous", "not_found", "temporarily_unavailable"):
+        assert outcome in schema.description
+    assert pipeline.KNOWLEDGE_OUTCOME_NO_PACK in schema.description
+
+
+def test_a_real_vendor_llm_service_registers_the_schemas_handler() -> None:
+    """The registration path itself, through the real service rather than by assertion.
+
+    `_sync_registered_tool_handlers` is what the base service runs on every
+    `LLMContextFrame` ("the single path for keeping handlers in step with the advertised
+    tools", `pipecat/services/llm_service.py:1318-1330`, read 14 Sep 2026). Driving it with
+    OUR context is what proves a `FunctionSchema` carrying its own handler needs no
+    `register_function` call — the claim `build_knowledge_tool`'s docstring makes.
+    """
+    config = make_config()
+    knowledge, _digest = build_knowledge(config)
+    call, _schema = assembled_tool(knowledge)
+    llm = pipeline.build_vendor_legs(config, CREDENTIALS).llm
+    assert isinstance(llm, AzureLLMService)
+
+    assert not llm.has_function(pipeline.KNOWLEDGE_TOOL_NAME)
+    llm._sync_registered_tool_handlers(call.context.tools)
+    assert llm.has_function(pipeline.KNOWLEDGE_TOOL_NAME)
+
+
+async def test_a_found_answer_reaches_the_model_as_published_words_with_its_revision() -> None:
+    config = make_config()
+    knowledge, _digest = build_knowledge(config)
+    _call, schema = assembled_tool(knowledge)
+
+    payload = await invoke_tool(schema, "what are the clinic timings")
+
+    assert payload["outcome"] == "found"
+    assert "only these passages" in payload["guidance"]
+    top = payload["passages"][0]
+    # The client's OWN published text, not the English gloss the ranker matched on.
+    assert top["text"].startswith("క్లినిక్")
+    assert "9 am to 8 pm" not in top["text"]
+    # Provenance travels, so a dispute can be answered with the exact revision quoted.
+    assert top["source_id"] == str(HOURS_DOC)
+    assert top["document_version"] == 3
+
+
+async def test_the_four_silences_are_four_different_words_to_the_model() -> None:
+    """The whole reason the payload carries an outcome at all.
+
+    An empty passage list would collapse these into one, and a model handed nothing
+    reliably tells the caller the business does not do the thing — which is a claim about
+    a client's business made on the strength of a failed object fetch.
+    """
+    config = make_config()
+    knowledge, digest = build_knowledge(config)
+
+    # nothing published on the subject.
+    _call, schema = assembled_tool(knowledge)
+    not_found = await invoke_tool(schema, "do you sell tractor tyres")
+    assert not_found["outcome"] == "not_found"
+    assert not_found["passages"] == []
+
+    # two documents, same fee, one category word: the caller named a class, not a thing.
+    ambiguous = await invoke_tool(schema, "what is the fee")
+    assert ambiguous["outcome"] == "ambiguous"
+    assert {passage["source_id"] for passage in ambiguous["passages"]} == {
+        str(CONSULTATION_DOC),
+        str(SCAN_DOC),
+    }
+    assert "tells them apart" in ambiguous["guidance"]
+
+    # the pack did not load. The agent HAS a knowledge base; it could not be consulted.
+    outage = SessionKnowledge(
+        tenant_id=config.tenant_id,
+        agent_id=config.agent_id,
+        unavailable_reason="fetch_failed",
+        requested_digest=digest,
+    )
+    _outage_call, outage_schema = assembled_tool(outage, knowledge_pack_sha256=digest)
+    unavailable = await invoke_tool(outage_schema, "what are the clinic timings")
+    assert unavailable["outcome"] == "temporarily_unavailable"
+    assert "did not look" in unavailable["guidance"]
+
+    # no pack at all — an ordinary agent, not an error.
+    _bare_call, bare_schema = assembled_tool(None)
+    absent = await invoke_tool(bare_schema, "what are the clinic timings")
+    assert absent["outcome"] == pipeline.KNOWLEDGE_OUTCOME_NO_PACK
+
+    assert (
+        len(
+            {
+                not_found["outcome"],
+                ambiguous["outcome"],
+                unavailable["outcome"],
+                absent["outcome"],
+            }
+        )
+        == 4
+    )
+
+
+async def test_an_agent_with_no_knowledge_base_still_assembles_a_working_pipeline() -> None:
+    """`knowledge=None` is a complete state, and the tool exists anyway.
+
+    A tool that appeared only when a pack loaded would let the model answer from its own
+    priors with no sign anything was missing — an invented fact told to a caller in a
+    client's name.
+    """
+    sink = RecordingSink()
+    transport = FakeTransport()
+    llm = FakeLLM("నమస్కారం")
+    call = pipeline.assemble_call(
+        config=make_config(),
+        legs=pipeline.VendorLegs(stt=_PassThrough("fake-stt"), llm=llm, tts=_PassThrough("f-tts")),
+        transport=transport,
+        sink=sink,
+    )
+    assert call.knowledge is None
+    tools = call.context.tools
+    assert isinstance(tools, ToolsSchema)
+    assert [schema.name for schema in tools.standard_tools] == [pipeline.KNOWLEDGE_TOOL_NAME]
+
+    worker = call.worker
+    started = asyncio.Event()
+
+    @worker.event_handler("on_pipeline_started")
+    async def _started(_worker: Any, _frame: Any) -> None:
+        started.set()
+
+    runner = WorkerRunner(handle_sigint=False)
+    await runner.add_workers(worker)
+    run = asyncio.create_task(runner.run())
+    try:
+        await asyncio.wait_for(started.wait(), timeout=20)
+        await worker.queue_frame(LLMRunFrame())
+        for _ in range(200):
+            if sink.turns:
+                break
+            await asyncio.sleep(0.01)
+        await worker.stop_when_done()
+        await asyncio.wait_for(run, timeout=20)
+    finally:
+        if not run.done():
+            run.cancel()
+
+    assert [turn.text for turn in sink.turns if turn.speaker == "agent"] == ["నమస్కారం"]
+    assert [event.status for event in sink.events] == ["in_progress", "completed"]
+
+
+async def test_a_configured_pack_nobody_loaded_is_an_outage_and_says_so_to_an_operator() -> None:
+    """The wiring defect has its own log line, and does NOT become `no_knowledge_base`.
+
+    From the caller's seat an unloaded pack and an unreachable one are the same silence, so
+    the model is told the same thing. An operator is told the difference, once, at assembly
+    — the digest is an id and therefore loggable (hard rule 6).
+    """
+    captured: list[str] = []
+
+    def sink_log(message: Any) -> None:
+        captured.append(str(message) + repr(message.record["extra"]))
+
+    handler = logger.add(sink_log, level="DEBUG")
+    try:
+        _call, schema = assembled_tool(None, knowledge_pack_sha256="a" * 64)
+    finally:
+        logger.remove(handler)
+
+    payload = await invoke_tool(schema, "what are the clinic timings")
+    assert payload["outcome"] == "temporarily_unavailable"
+
+    blob = "\n".join(captured)
+    assert "knowledge pack configured but not loaded" in blob
+    assert "a" * 64 in blob
+
+
+async def test_the_tool_path_logs_no_question_and_no_passage() -> None:
+    """Hard rule 6 at the seam this change adds.
+
+    `knowledge._log_answer` is already proven not to leak in its own suite; what is new
+    here is a tool handler standing between the model and that call, and a tool handler is
+    exactly where somebody adds "just log what was asked" next.
+    """
+    config = make_config()
+    knowledge, _digest = build_knowledge(config)
+    _call, schema = assembled_tool(knowledge)
+    captured: list[str] = []
+
+    def sink_log(message: Any) -> None:
+        captured.append(str(message) + repr(message.record["extra"]))
+
+    handler = logger.add(sink_log, level="DEBUG")
+    try:
+        payload = await invoke_tool(schema, "what is the consultation fee")
+    finally:
+        logger.remove(handler)
+
+    assert payload["outcome"] == "found"
+    blob = "\n".join(captured)
+    assert blob, "the lookup logged nothing at all, so this test proves nothing"
+    for forbidden in (
+        "what is the consultation fee",  # the caller's question, rewritten or not
+        "Consultation fee is five hundred rupees.",  # the passage
+        "The clinic is open from 9 am to 8 pm",  # a gloss
+    ):
+        assert forbidden not in blob
+    assert "found" in blob and "elapsed_ms" in blob
+
+
+async def test_a_blank_or_missing_question_is_not_found_rather_than_a_crashed_tool() -> None:
+    """A handler that raised would reach the model as "the function failed and returned no
+    result" (`pipecat/services/llm_service.py:301-303`) — strictly less useful to a caller
+    than the honest word, and on a phone call the difference is what the agent says next."""
+    config = make_config()
+    knowledge, _digest = build_knowledge(config)
+    _call, schema = assembled_tool(knowledge)
+    handler = schema.handler
+    assert handler is not None
+
+    captured: list[Any] = []
+
+    async def result_callback(result: Any, *, properties: Any = None) -> None:
+        captured.append(result)
+
+    for arguments in ({}, {pipeline.KNOWLEDGE_TOOL_QUESTION_PARAM: None}):
+        await handler(
+            FunctionCallParams(
+                function_name=schema.name,
+                tool_call_id="tool-call-1",
+                arguments=arguments,
+                llm=cast(Any, None),
+                pipeline_worker=cast(Any, None),
+                context=cast(Any, None),
+                result_callback=cast(Any, result_callback),
+            )
+        )
+    assert [result["outcome"] for result in captured] == ["not_found", "not_found"]
+
+
+async def test_the_digest_on_the_config_is_the_object_key_the_fetcher_is_asked_for() -> None:
+    """The seam end to end: config digest -> `pack_object_key` -> pack -> the tool's answer.
+
+    This is the one test here that goes through the real `load_session_knowledge`, because
+    the thing being checked is the CONTRACT between `SessionConfig.knowledge_pack_sha256`
+    and the object store — that the field an entrypoint reads is the field that decides
+    which object is fetched, and not a second spelling of it.
+    """
+    entries = knowledge_entries()
+    tenant_id, agent_id = uuid4(), uuid4()
+    digest = KnowledgePack.digest(tenant_id, agent_id, entries)
+    pack = KnowledgePack(
+        tenant_id=tenant_id,
+        agent_id=agent_id,
+        content_sha256=digest,
+        built_at=datetime(2026, 9, 14, 6, 0, tzinfo=UTC),
+        entries=entries,
+    )
+    asked: list[str] = []
+    objects = {pack_object_key(tenant_id, agent_id, digest): pack.model_dump_json().encode()}
+
+    class Fetcher:
+        async def fetch(self, object_key: str) -> bytes | None:
+            asked.append(object_key)
+            return objects.get(object_key)
+
+    config = make_config(tenant_id=tenant_id, agent_id=agent_id, knowledge_pack_sha256=digest)
+    knowledge = await load_session_knowledge(
+        tenant_id=config.tenant_id,
+        agent_id=config.agent_id,
+        content_sha256=cast(str, config.knowledge_pack_sha256),
+        fetcher=Fetcher(),
+        cache=PackCache(),
+    )
+    assert asked == [pack_object_key(tenant_id, agent_id, digest)]
+
+    call = pipeline.assemble_call(
+        config=config,
+        legs=pipeline.VendorLegs(
+            stt=_PassThrough("s"), llm=_PassThrough("l"), tts=_PassThrough("t")
+        ),
+        transport=FakeTransport(),
+        sink=RecordingSink(),
+        knowledge=knowledge,
+    )
+    assert call.knowledge is knowledge
+    tools = call.context.tools
+    assert isinstance(tools, ToolsSchema)
+    (schema,) = tools.standard_tools
+    payload = await invoke_tool(schema, "what are the clinic timings")
+    assert payload["outcome"] == "found"

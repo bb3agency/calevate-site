@@ -51,6 +51,8 @@ from calevate_shared.engine import (
     google_openai_compat_base_url,
 )
 from calevate_shared.events import CallDirection, CallEvent, CallStatus, TranscriptTurn
+from loguru import logger
+from pipecat.adapters.schemas.function_schema import FunctionSchema
 from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
@@ -66,6 +68,7 @@ from pipecat.processors.aggregators.llm_response_universal import (
 )
 from pipecat.processors.frame_processor import FrameProcessor
 from pipecat.services.azure.llm import AzureLLMService
+from pipecat.services.llm_service import FunctionCallParams
 from pipecat.services.openai.llm import OpenAILLMService
 from pipecat.services.sarvam.stt import SarvamSTTService
 from pipecat.services.sarvam.tts import SarvamTTSService
@@ -74,6 +77,7 @@ from pipecat.transports.base_transport import BaseTransport
 from pipecat.turns.user_stop import TurnAnalyzerUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
+from voice_worker.knowledge import DEFAULT_TOP_K, SessionKnowledge
 from voice_worker.vendor_logging import install_vendor_log_guard
 
 # ---------------------------------------------------------------------------------------
@@ -202,6 +206,18 @@ class SessionConfig:
     #: Whether the agent speaks first. Queued as an `LLMRunFrame` from the transport's
     #: connect event — the shipped pattern (`examples/voice/voice-cartesia.py:112-119`).
     greet_first: bool = True
+    #: Which published knowledge pack this agent answers out of — the CONTENT DIGEST, which
+    #: with `tenant_id` and `agent_id` is the whole object key (`pack_object_key`). It is a
+    #: digest and not a URL because the pack is content-addressed and immutable (D-599): a
+    #: version can be named, fetched, cached across sessions and compared, and a config
+    #: version that carries it names exactly the words this call could have quoted.
+    #:
+    #: **`None` MEANS THE AGENT HAS NO PUBLISHED KNOWLEDGE BASE, WHICH IS AN ORDINARY
+    #: STATE AND NOT AN ERROR.** Most agents on day one have none — an appointment-taking
+    #: receptionist needs a calendar, not a corpus — and the search tool is still
+    #: advertised, still answers, and says which of the two silences it is (see
+    #: `knowledge_tool_payload`: `no_knowledge_base` is not `temporarily_unavailable`).
+    knowledge_pack_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -646,6 +662,209 @@ def build_vendor_legs(config: SessionConfig, credentials: VendorCredentials) -> 
 
 
 # ---------------------------------------------------------------------------------------
+# The in-call knowledge base, as a tool the model may call. §6 step 11, §9.1 step 2.
+# ---------------------------------------------------------------------------------------
+
+#: The tool's name as the model sees it. A VERB and its object, because that is what the
+#: model is choosing between — `knowledge_base` alone reads like a place rather than an
+#: action, and every other name in the turn ("end the call", "book a slot") is a verb.
+KNOWLEDGE_TOOL_NAME: Final[str] = "search_knowledge_base"
+
+#: The tool's one parameter.
+KNOWLEDGE_TOOL_QUESTION_PARAM: Final[str] = "question"
+
+#: **THIS STRING IS A PROMPT, NOT A COMMENT.** It is the only instruction the model gets
+#: about how to use the index, it is read on every turn, and the sentence that matters most
+#: is the one about English.
+#:
+#: **WHY ENGLISH IS AN INSTRUCTION AND NOT A TRANSLATION HOP.** The index is English-only
+#: (§9.2), and that is measured rather than assumed: word-matching a Tenglish query against
+#: a Telugu-script corpus scored **0.042** recall@1 and against an English one **0.625**
+#: (`docs/evidence/telugu-embedding-quality.md` §4, n=24). So a query that arrives in Telugu
+#: script retrieves approximately nothing. The cheap repair everybody reaches for — a
+#: translation call before the search — is rejected: it is a second model on a 100 ms
+#: budget for a thing the model in the loop is already doing, since writing an English
+#: query is part of its own reading of the turn (§9.1 step 2). The model answers the caller
+#: in the caller's language; only the QUERY is English.
+#:
+#: The rest of the string is there because the failure it prevents is a confident lie: a
+#: model that does not know `temporarily_unavailable` from `not_found` will tell a caller
+#: "we don't offer that" when the truth is "I could not check". The payload carries the
+#: distinction (`knowledge_tool_payload`) and this tells the model to honour it.
+KNOWLEDGE_TOOL_DESCRIPTION: Final[str] = (
+    "Search this business's published knowledge base for facts about its services, "
+    "prices, timings, location, policies and offers. Call this before answering any "
+    "question of fact about the business; never answer one from memory. "
+    "WRITE THE QUESTION IN ENGLISH even when the caller spoke Telugu, Hindi or a mix — "
+    "the index is English-only and a non-English query will find nothing. "
+    "Reply to the caller in the language the caller used. "
+    "The result carries an 'outcome' you must respect: 'found' means answer only from the "
+    "passages given; 'ambiguous' means two different documents match, so ask the caller "
+    "one short clarifying question instead of guessing; 'not_found' means this business "
+    "has published nothing about it, so say you do not have that information and offer to "
+    "take a message; 'temporarily_unavailable' and 'no_knowledge_base' mean you could not "
+    "check at all, so say you cannot look it up right now — never say the business has no "
+    "answer when you were unable to look."
+)
+
+#: The word the payload carries when this agent has no pack at all, as distinct from a pack
+#: that failed to load. It sits BESIDE `RetrievalOutcome`'s four rather than inside them,
+#: and the extra word is deliberate: `RetrievalOutcome` is the contract of a SEARCH, and no
+#: search ran here. Folding it into `not_found` would tell the model the business has
+#: published nothing on the subject, which is a claim about the client's knowledge base
+#: made on the strength of it not existing; folding it into `temporarily_unavailable` would
+#: promise the caller a later answer that no retry will ever produce.
+KNOWLEDGE_OUTCOME_NO_PACK: Final[str] = "no_knowledge_base"
+
+#: What the model should DO about each outcome, carried in the payload beside the outcome
+#: word. Duplicating the tool description's guidance on purpose: the description is read
+#: once when tools are advertised, the payload is read in the same breath as the result,
+#: and the failure being guarded against (an agent that invents an answer after a failed
+#: lookup) is a live compliance problem rather than a cosmetic one.
+_KNOWLEDGE_GUIDANCE: Final[dict[str, str]] = {
+    "found": (
+        "Answer using only these passages. Do not add facts that are not in them. "
+        "Reply in the caller's language."
+    ),
+    "ambiguous": (
+        "Two different published documents match this question about equally. Do not pick "
+        "one. Ask the caller one short question that tells them apart."
+    ),
+    "not_found": (
+        "This business has published nothing about this. Say you do not have that "
+        "information, and offer to take a message or pass it to a person."
+    ),
+    "temporarily_unavailable": (
+        "The knowledge base could not be consulted for this call. Say you are unable to "
+        "check that right now. Do NOT say the business has no answer — you did not look."
+    ),
+    KNOWLEDGE_OUTCOME_NO_PACK: (
+        "This agent has no published knowledge base, so there is nothing to search. Say "
+        "you do not have that information and offer to take a message or pass it to a "
+        "person. Do NOT claim the business does not offer the thing asked about."
+    ),
+}
+
+
+def knowledge_tool_payload(
+    knowledge: SessionKnowledge | None,
+    question: str,
+    *,
+    pack_configured: bool,
+    k: int = DEFAULT_TOP_K,
+) -> dict[str, Any]:
+    """What the model gets back from one lookup: the outcome word, what to do, the passages.
+
+    **THE OUTCOME WORD IS THE PAYLOAD'S REASON FOR EXISTING.** A bare list of passages
+    collapses four different silences into one — and an empty list, to a model, reads as
+    "the business has nothing on this", which is a statement about a client's business that
+    we would be making on the strength of a failed S3 fetch. `SessionKnowledge.search`
+    already distinguishes them and never raises (its own docstring), so the distinction
+    exists; this function's job is to carry it rather than flatten it.
+
+    **`pack_configured` IS WHY THERE ARE FIVE WORDS AND NOT FOUR.** `knowledge is None` has
+    two causes that must not be confused: this agent published no knowledge base (ordinary,
+    permanent, `no_knowledge_base`), or the entrypoint was supposed to load one and did not
+    (a wiring defect, and from the caller's seat indistinguishable from an outage, so
+    `temporarily_unavailable`). `SessionConfig.knowledge_pack_sha256` is what tells them
+    apart, and `assemble_call` logs the second case for an operator.
+
+    **NOTHING HERE LOGS (HARD RULE 6).** The question, the passages and the glosses are all
+    conversation content. The one log line on this path is `knowledge._log_answer`, which
+    emits ids, the outcome word, a count and `elapsed_ms` and nothing else; a second log
+    call here would be a second author of the rule's compliance. Pipecat's own
+    `"Calling function [...] with arguments {...}"` DOES carry the question, and is
+    inaudible for the same reason every vendor line is: it is DEBUG, and
+    `vendor_logging.install_vendor_log_guard` floors the vendor at INFO
+    (`pipecat/services/llm_service.py:1616`, read 14 Sep 2026).
+    """
+    if knowledge is None:
+        outcome = "temporarily_unavailable" if pack_configured else KNOWLEDGE_OUTCOME_NO_PACK
+        return {"outcome": outcome, "guidance": _KNOWLEDGE_GUIDANCE[outcome], "passages": []}
+
+    answer = knowledge.search(question, k=k)
+    return {
+        "outcome": answer.outcome,
+        "guidance": _KNOWLEDGE_GUIDANCE[answer.outcome],
+        # The entry's own published words, never the gloss — `SessionKnowledge._passage`
+        # makes that choice and this just carries it. `document_version` travels because a
+        # pack is frozen at publish, so an answer can name the exact revision it quoted,
+        # which is what a dispute asks for.
+        "passages": [
+            {
+                "text": passage.text,
+                "source_id": str(passage.provenance.source_id),
+                "document_version": passage.provenance.document_version,
+            }
+            for passage in answer.passages
+        ],
+    }
+
+
+def build_knowledge_tool(
+    knowledge: SessionKnowledge | None,
+    *,
+    pack_configured: bool,
+    k: int = DEFAULT_TOP_K,
+) -> FunctionSchema:
+    """The search, as a tool the LLM may call. ALWAYS built, even with no pack to search.
+
+    **A `FunctionSchema` CARRYING ITS OWN `handler`, WHICH IS THE 1.10.0 WAY AND NOT THE
+    ONE MOST EXAMPLES SHOW.** Three registration paths exist in the installed package and
+    two are wrong here:
+
+    - `LLMService.register_function(name, handler)` (`pipecat/services/llm_service.py:917`)
+      needs a concrete `LLMService`, and `VendorLegs.llm` is typed `FrameProcessor` on
+      purpose so a test can put a stub in the slot. Reaching through that type to register
+      would undo the seam the dataclass exists for.
+    - `register_direct_function` (`llm_service.py:1024`) is DEPRECATED since 1.4.0 and its
+      own docstring says to list tools in `LLMContext(tools=[...])` instead.
+    - A schema with a handler is registered automatically for any context that advertises
+      it (`llm_service.py:1256-1265`), so ONE object both advertises the tool to the
+      provider and carries what runs — there is no second place to forget.
+
+    **WHY IT IS ADVERTISED EVEN WHEN THERE IS NOTHING TO SEARCH.** A tool that appears only
+    when a pack loaded makes the outage invisible to the model: with no tool, it answers
+    from the prompt and its own priors, which on a phone call is an invented fact told to a
+    caller in a client's name. Advertised-and-honest is the whole of hard rule 5's posture
+    applied to the client's facts, and it is why `load_session_knowledge` returns a STATE
+    rather than raising.
+
+    `k` is fixed at assembly rather than exposed as a parameter: how many passages an
+    answer rests on is ours to decide, and a model asking for twenty would be a model
+    choosing its own context budget.
+    """
+
+    async def _search(params: FunctionCallParams) -> None:
+        # Absent, non-string or blank all become "": `SessionKnowledge.search` handles an
+        # empty question (no query forms -> `not_found`) and a `TypeError` raised inside a
+        # tool handler would reach the model as "the function failed and returned no
+        # result" (`llm_service.py:301-303`) — strictly less useful than the honest word.
+        raw = params.arguments.get(KNOWLEDGE_TOOL_QUESTION_PARAM)
+        question = raw if isinstance(raw, str) else ""
+        await params.result_callback(
+            knowledge_tool_payload(knowledge, question, pack_configured=pack_configured, k=k)
+        )
+
+    return FunctionSchema(
+        name=KNOWLEDGE_TOOL_NAME,
+        description=KNOWLEDGE_TOOL_DESCRIPTION,
+        properties={
+            KNOWLEDGE_TOOL_QUESTION_PARAM: {
+                "type": "string",
+                "description": (
+                    "The caller's question, rewritten in ENGLISH as a short search query. "
+                    "Keep the specific words (service, product, document or place names); "
+                    "drop greetings and filler."
+                ),
+            }
+        },
+        required=[KNOWLEDGE_TOOL_QUESTION_PARAM],
+        handler=_search,
+    )
+
+
+# ---------------------------------------------------------------------------------------
 # Assembly.
 # ---------------------------------------------------------------------------------------
 
@@ -706,6 +925,10 @@ class AssembledCall:
     prompt_matches_config_version: bool = field(default=False)
     #: Carried from `SessionConfig` so `start_conversation` reads one object.
     greet_first: bool = field(default=True)
+    #: The pack this call answers out of, or `None` when there is none to answer out of.
+    #: Held so an entrypoint can log `knowledge.unavailable_reason` without re-deriving it,
+    #: and so a test can assert which session the advertised tool closed over.
+    knowledge: SessionKnowledge | None = field(default=None)
 
     async def start_conversation(self) -> bool:
         """Make the agent speak first, if this agent does.
@@ -741,6 +964,7 @@ def assemble_call(
     legs: VendorLegs,
     transport: BaseTransport,
     sink: NormalizedEventSink,
+    knowledge: SessionKnowledge | None = None,
     stop_secs: float = SMART_TURN_STOP_SECS,
 ) -> AssembledCall:
     """Assemble the §4 pipeline for one call.
@@ -749,10 +973,42 @@ def assemble_call(
     step 6 and gated on an account in the India data region — and because a pipeline that
     can only be exercised with a carrier is a pipeline nobody can test (§6 step 4 asks for
     exactly this: a local run against a fake transport).
+
+    **`knowledge` IS AN ARGUMENT FOR THE SAME REASON `transport` IS, AND THAT IS WHY THIS
+    FUNCTION STAYED SYNCHRONOUS.** `load_session_knowledge` is the one awaitable on this
+    path (it reads object storage once), and the obvious move — make the assembler `async`
+    and let it load — would buy nothing and cost the property that makes step 4 testable:
+    a synchronous assembler can be exercised with no network, no event loop and no object
+    store, which is exactly what `transport` being an argument bought and what a carrier-
+    free local run needs. The entrypoint awaits the load WHILE THE PHONE IS RINGING —
+    wall clock nobody is waiting on (`load_session_knowledge`'s own docstring) — and hands
+    the result in. `None` is a complete state, not an omission: see `build_knowledge_tool`.
     """
     install_vendor_log_guard()
 
-    context = LLMContext(messages=[{"role": "system", "content": config.system_prompt}])
+    pack_configured = config.knowledge_pack_sha256 is not None
+    if pack_configured and knowledge is None:
+        # A WIRING defect, not a runtime one: this agent published a pack and the entrypoint
+        # did not load it. It is logged here, once, rather than on every lookup — and the
+        # tool still answers, as `temporarily_unavailable`, because from the caller's seat
+        # an unloaded pack and an unreachable one are the same silence. The digest is an id
+        # (hard rule 6) and is logged so an operator can find the object.
+        logger.error(
+            "knowledge pack configured but not loaded",
+            call_id=config.call_id,
+            tenant_id=str(config.tenant_id),
+            agent_id=str(config.agent_id),
+            digest=config.knowledge_pack_sha256,
+        )
+
+    context = LLMContext(
+        messages=[{"role": "system", "content": config.system_prompt}],
+        # ONE tool, always advertised. `LLMContext` normalises a plain list into a
+        # `ToolsSchema` itself (`pipecat/processors/aggregators/llm_context.py:493-499`),
+        # and the LLM service registers a schema's own handler when it sees the context
+        # (`pipecat/services/llm_service.py:1256-1265`) — so nothing else has to be wired.
+        tools=[build_knowledge_tool(knowledge, pack_configured=pack_configured)],
+    )
     aggregators = LLMContextAggregatorPair(
         context,
         user_params=build_user_aggregator_params(stop_secs),
@@ -809,12 +1065,17 @@ def assemble_call(
         observed_prompt_sha256=observed,
         prompt_matches_config_version=observed == config.prompt_sha256,
         greet_first=config.greet_first,
+        knowledge=knowledge,
     )
 
 
 __all__ = [
     "ENGINE_NAME",
     "FUNCTION_CALL_TIMEOUT_SECS",
+    "KNOWLEDGE_OUTCOME_NO_PACK",
+    "KNOWLEDGE_TOOL_DESCRIPTION",
+    "KNOWLEDGE_TOOL_NAME",
+    "KNOWLEDGE_TOOL_QUESTION_PARAM",
     "SMART_TURN_STOP_SECS",
     "STT_MODEL",
     "TELEPHONY_SAMPLE_RATE_HZ",
@@ -826,7 +1087,9 @@ __all__ = [
     "VendorCredentials",
     "VendorLegs",
     "assemble_call",
+    "build_knowledge_tool",
     "build_user_aggregator_params",
     "build_vendor_legs",
+    "knowledge_tool_payload",
     "recompute_prompt_sha256",
 ]
