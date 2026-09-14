@@ -193,7 +193,7 @@ From the API reference, corrected for 1.10.0:
 
 ```
 transport.input()
-  → STT            SarvamSTTService, saaras:v4, Language.TE_IN
+  → STT            SarvamSTTService, saaras:v4, language auto-detected (§9.1, §9.5)
   → user aggregator    LLMUserAggregatorParams  ← VAD LIVES HERE, not on TransportParams
   → LLM            BYOK: Azure / OpenAI / Gemini, our keys
   → TTS            Sarvam bulbul:v3 today; Gnani staged (D-593); Cartesia on Studio
@@ -248,7 +248,7 @@ three seconds per turn.
 | 10 | Bolna adapter deleted, one commit | a real Pipecat call has happened |
 | 11 | Wire `voice_worker/knowledge.py` into `pipeline.py` — `SessionConfig` carries the pack digest, `assemble_call` awaits `load_session_knowledge`, `SessionKnowledge.search` registers as a tool | steps 3-4. **The pack builder and the search are BUILT AND TESTED; nothing calls them.** §8 |
 | 12 | Give `kb/pack.py::publish_pack` a caller on the publish path, and an object-lifecycle rule for `knowledge-packs/` | step 11 |
-| 13 | Golden Telugu/Hindi → English-hit set in CI | step 11. §9.4 |
+| 13 | Golden caller-language → English-hit set in CI | **FIRST ARM LANDED 14 Sep 2026**: `tests/in_call_retrieval_recall_test.py` scores the real pack and the real search, no wiring needed. What remains is a second language's corpus. §9.4 |
 | 14 | Supermemory on box 2 behind `RetrievalProvider`; embedding pointed at Gemini and PROVEN non-local | §8.3's `top` check |
 | 15 | `kb_chunks` and our lexical search retire; `kb_documents` ledger stays | step 14 |
 | 16 | Apply the new rate card (§12) — catalogue plus the wide fixture update | nothing; it is the next piece of work |
@@ -395,27 +395,43 @@ nothing, which the empirical check above catches in one upload.
 
 ## 9. THE LANGUAGE PATH, END TO END
 
-The design question: a caller speaks Telugu, Hindi or English — often mixing them — and must
-be answered in the same language, with KB retrieval working throughout.
+The design question: a caller speaks an Indian language — often mixing it with English —
+and must be answered in the same language, with KB retrieval working throughout.
+
+⚠ **THIS SECTION READ AS A TELUGU DESIGN UNTIL 14 SEP 2026, AND THAT WAS A SCOPE ERROR, NOT
+A SIMPLIFICATION.** Nothing in the mechanism is Telugu-specific. The model paraphrases the
+caller's question **into English** before the index is touched (§9.1 step 2), and a
+paraphrase is written from whatever the model has just read — Telugu, Marathi, Bengali or a
+sentence that switches script mid-clause. Telugu is the language the MEASUREMENTS were taken
+in, because that is the corpus this repository has; it is not the design's reach. **The
+reach is set by the two vendor legs, not by us: Sarvam STT understands 17 language codes and
+Sarvam TTS speaks 11, and an agent converses only in the intersection** — §9.5, which also
+records the product constraint that follows from those two lists not matching. (D-600.)
 
 ### 9.1 The turn, in order
 
 1. Caller speaks. **Sarvam STT** transcribes. Saaras v3/v4 default to `"unknown"` =
-   auto-detect [VERIFIED: `pipecat/services/sarvam/stt.py:118,207-208`, installed 1.10.0], and
-   the language map carries `te-IN`, `hi-IN`, `en-IN` (`stt.py:79-87`).
+   auto-detect [VERIFIED-VENDOR-SDK: `pipecat/services/sarvam/stt.py:118,207-208`, installed
+   `pipecat-ai==1.10.0`, re-read 14 Sep 2026], so nobody has to declare the language up
+   front, and what may come back is §9.5's list rather than a language we configured.
 2. **The LLM reads the transcript.** If it needs a fact it calls the search tool and **writes
    the query itself, in English**. No translation hop, no extra vendor: writing an English
    query is part of the model's own reading, the same way it would answer in English if asked.
    [VERIFIED: `llm_service.py:917,1024` `register_function`/`register_direct_function`;
-   `google/llm.py:213,367` passes `tools`.]
+   `google/llm.py:213,367` passes `tools`.] **THIS IS THE STEP THAT MAKES THE PATH
+   LANGUAGE-GENERAL**, and it is also the step §9.4 shows is load-bearing: the index never
+   sees the source language, so adding a source language costs the index nothing.
 3. **Search runs in the worker's memory** over the English index. 0.5 ms.
 4. **The LLM composes the reply in the caller's language.**
-5. **Sarvam TTS speaks it.** `target_language_code` per request (`sarvam/tts.py:564,1060`);
-   `te-IN` / `hi-IN` / `en-IN` all present (`tts.py:223,227,241`).
+5. **Sarvam TTS speaks it.** `target_language_code` is sent per request on the HTTP leg and
+   in the opening config on the websocket leg (`sarvam/tts.py:564,1060`); the 11 locales it
+   may be set to are §9.5's.
 
 **STT is ears, the LLM is the brain and does all translating in both directions, TTS is the
 mouth.** TTS does not translate; this was a live misunderstanding on 14 Sep 2026 and is
-recorded so it is not repeated.
+recorded so it is not repeated. It is also why the language count is a vendor fact rather
+than a feature we build per language: adding Kannada is not a code path, it is a voice and a
+language code.
 
 ### 9.2 English-only indexing
 
@@ -424,10 +440,20 @@ provenance and the client-facing record) and an English gloss. **Only the Englis
 indexed and searched.** Justification is measured, not assumed
 (`docs/evidence/telugu-embedding-quality.md`, n=24): matching query words against
 Telugu-script text scored **0.042**; against English, **0.625**. Since step 2 above guarantees
-every query arrives in English, the Telugu text in the index is pure noise.
+every query arrives in English, the source-language text in the index is pure noise.
 
-Do NOT store romanised Telugu as a searchable form: there is no standard spelling, so it
-multiplies index entries without adding recall.
+**What that pair of numbers is evidence FOR is the mechanism, not the language.** A lexical
+index shares no tokens with text written in a script the index does not contain, and that is
+a property of tokens rather than of Telugu — so the same design applies to every language in
+§9.5. ⚠ **MEASURED-HERE IN TELUGU ONLY** (`docs/evidence/telugu-embedding-quality.md`, 31 Aug
+2026; re-measured end-to-end 14 Sep 2026, §9.4). Devanagari, Bengali, Tamil, Kannada,
+Malayalam, Gujarati, Gurmukhi and Odia are **UNMEASURED**: the design expects them to behave
+the same way and nobody has run the corpus. Reasoning from one script to the rest is how the
+numbers would stop meaning anything, so they are labelled rather than assumed.
+
+Do NOT store romanised source text as a searchable form — Tenglish, Hinglish or any of the
+rest. There is no standard spelling for any of them, so it multiplies index entries without
+adding recall, and §9.4 has the number for what romanisation is worth against this index.
 
 ### 9.3 The one OPEN question on this path
 
@@ -436,6 +462,7 @@ multiplies index entries without adding recall.
 `docs.sarvam.ai` is egress-blocked from this container. Pipecat CAN change the setting
 mid-session (`TTSUpdateSettingsFrame`, `pipecat/frames/frames.py:2375`), so if a per-turn flip
 turns out to be necessary the mechanism exists; what is unknown is whether it is necessary.
+It is one question for all 11 languages, not one per language.
 
 A Comet brief covering this sits in `docs/evidence/` (Part 2 of the 14 Sep 2026 vendor brief).
 Until it is answered, no code assumes either behaviour.
@@ -444,9 +471,80 @@ Until it is answered, no code assumes either behaviour.
 
 The failure mode is not translation — it is a bad English paraphrase ("doctor timings" vs
 "when is the doctor available"). Three things absorb it: the English gloss, top-3 results, and
-the `ambiguous` state. What closes it properly is a **golden set of Telugu/Hindi questions →
-expected English hit, run in CI**, so a regression is a red test rather than a bad call.
-That harness does not exist yet and is step 11 in §6.
+the `ambiguous` state. What closes it properly is a **golden set of questions in the caller's
+language → expected English hit, run in CI**, so a regression is a red test rather than a bad
+call. That is step 13 in §6, and **its first arm landed on 14 Sep 2026**:
+`tests/in_call_retrieval_recall_test.py` scores the real pack, the real index and the real
+`SessionKnowledge.search` over the 24-fact Telugu corpus asked three ways, plus a
+hand-written code-mixed set.
+
+**MEASURED-HERE, 14 Sep 2026** (`tests/in_call_retrieval_recall_test.py`, n=24, English-only
+index, `DEFAULT_TOP_K`=3; recall counted over the passages the caller's turn would actually
+have received, so an `ambiguous` answer contributes its two and a `not_found` contributes
+none):
+
+| Query form reaching the index | recall@1 | Outcome |
+|---|---|---|
+| English — **the form step 2 actually emits** | **0.833** | the control, and it wins |
+| Romanised (Tenglish), unparaphrased | **0.583** | degrades gradually |
+| Telugu script, unparaphrased | **0.083** | **22 of 24 answered `not_found`** |
+
+**SO THE ENGLISH PARAPHRASE IS LOAD-BEARING, NOT A CONVENIENCE.** If it ever stops — a prompt
+edit, a model swap, a tool description that stops asking for it — in-call retrieval does not
+degrade, **it stops**, and 0.083 is the number it stops at. That conclusion is what
+generalises: the index has no tokens in common with any non-Latin Indic script, so every
+language in §9.5 depends on step 2 exactly as Telugu does, and a change to the search tool's
+description is a change to all of them at once.
+
+A fourth set, ten code-mixed questions (Telugu or Hindi words inside an English sentence),
+scored **1.000**. ⚠ **It is not comparable with the three rows above and must not be quoted
+beside them.** The test's own docstring says why: ten topically disjoint facts against
+twenty-four related ones, and the English nouns a code-mixed speaker keeps — "delivery",
+"UPI", "parking" — are themselves the match. It is evidence that the register works, not
+that the harder corpus is fine.
+
+### 9.5 WHAT AN AGENT CAN HEAR IS NOT WHAT IT CAN SPEAK
+
+[VERIFIED-VENDOR-SDK: `pipecat-ai==1.10.0` as installed in `.venv`, read 14 Sep 2026.]
+
+**Sarvam STT — 17 codes** (`pipecat/services/sarvam/stt.py:738-755`, the inbound map
+`_map_language_code_to_enum`): `as-IN`, `bn-IN`, `en-IN`, `en-US`, `gu-IN`, `hi-IN`, `kn-IN`,
+`kok-IN`, `mai-IN`, `ml-IN`, `mr-IN`, `od-IN`, `pa-IN`, `sd-IN`, `ta-IN`, `te-IN`, `ur-IN`.
+
+**Sarvam TTS — 11 India locales** (`pipecat/services/sarvam/tts.py:219-243`): `bn-IN`,
+`en-IN`, `gu-IN`, `hi-IN`, `kn-IN`, `ml-IN`, `mr-IN`, `od-IN`, `pa-IN`, `ta-IN`, `te-IN`.
+
+**An agent converses in the INTERSECTION, and the intersection is the smaller list.**
+Assamese, Konkani, Maithili, Sindhi and Urdu can be **heard and not answered**: STT will
+return a clean transcript, the LLM will read it, and there is no voice to say the reply in.
+
+⚠ **THAT IS A PRODUCT CONSTRAINT, NOT A FOOTNOTE, AND IT IS DISCOVERED ON A LIVE CALL IF IT
+IS NOT ENFORCED BEFORE ONE.** An agent whose configured language has no TTS leg is an agent
+that listens politely and cannot reply — the worst shape a failure can take on a phone call,
+because it looks like the product working right up until the moment it has to speak. The
+enforceable form is the same one hard rule 5 uses for the disclosure lines: an agent may only
+be configured in, and may only be published in, a language present in BOTH lists. The
+conversational set is therefore **11 languages**, and it is the number to quote to a client.
+
+⚠ **THE ODIA TRAP IS REAL, AND IT IS INSIDE ONE FILE.** Odia is spelled **two different ways
+by the same installed package**, both for the same `Language.OR_IN`:
+
+| Where | Emits | Line |
+|---|---|---|
+| STT, batch/saaras path (`language_to_sarvam_language`) | `od-IN` | `stt.py:86` |
+| STT, inbound code → enum map | `od-IN` | `stt.py:748` |
+| STT, **realtime** path (`language_to_sarvam_realtime_language`) | **`or-IN`** | `stt.py:877` |
+| STT, realtime `SUPPORTED_LANGUAGES` set | **`or-IN`** | `stt.py:809` |
+| TTS (`language_to_sarvam_language`) | `od-IN` | `tts.py:235` |
+
+So the wire value depends on which Sarvam leg is being spoken to, and the two legs disagree
+inside one vendor SDK. Never hard-code either spelling, never carry Odia as a string in our
+own config, and never assume a code that round-trips on one leg round-trips on the other:
+pass `Language.OR_IN` and let each service's own mapper emit its own spelling. ⚠ **WHICH
+SPELLING SARVAM'S API ACTUALLY ACCEPTS ON EACH LEG IS UNKNOWN** — `docs.sarvam.ai` is
+egress-blocked from this container, so what is verified is what the SDK sends, not what the
+vendor takes. Odia is the one language in the 11 that must be proven on a real call before it
+is offered to a client.
 
 ---
 
