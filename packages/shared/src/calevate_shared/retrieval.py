@@ -164,6 +164,15 @@ class Provenance(BaseModel):
     #: block, which is an ARTIFACT of many sources plus the intake answers — claiming one
     #: source id for it would be a citation that does not check out.
     source_id: UUID | None = None
+    #: WHICH REVISION of `source_id` this passage came from, where the implementation knows
+    #: it. Added for the in-call knowledge pack (D-599), which does: a pack is frozen at
+    #: publish, so an answer given on a call can name the exact words that were published
+    #: when it was given — which is what a dispute actually asks for and what a version
+    #: rendered into `label` can only approximate. `None` where it is genuinely unknowable:
+    #: compiled T0 is an artifact of many sources at possibly different revisions, and
+    #: claiming one number for it would be the same citation-that-does-not-check-out this
+    #: type's `source_id` comment refuses one line up.
+    document_version: int | None = Field(default=None, ge=1)
 
 
 class Passage(BaseModel):
