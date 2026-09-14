@@ -23,8 +23,10 @@ and the itemisation now divide the rupees the wallet was actually debited.
 TWO MORE MONEY FIXES ARE PINNED HERE because they live on the same seam:
 
 * **the fallback is a PAIR** — one number cannot price two voices, and the one number it
-  was is the SARVAM list price, so a Studio minute on a wallet with no open lot was debited
-  at ₹5.00 against a card that sells it at ₹8.00 (cost floor ₹4.36);
+  was is the CLEAR list price, so a Studio minute on a wallet with no open lot was debited
+  at the Clear rate against a card that sells it dearer. (When the defect was found those
+  figures were ₹5.00 against ₹8.00; the card has moved twice since and the two rates are
+  read off it below rather than typed.);
 * **a lot takes its rates from the dated CARD**, not from the `PACK_CATALOGUE` constant, so
   a card recorded in the ops console is no longer inert.
 
@@ -56,15 +58,27 @@ from apps.api.core.settings import Settings
 from apps.api.db.session import tenant_session, untenanted_session
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from apps.api.billing.credit_packs import PACK_CATALOGUE
 from tests.credit_lots_helpers import PLUS, credit_entry, make_tenant
 
-#: The ₹15,000 rung: ₹4.70 Sarvam, ₹6.50 Cartesia. Chosen because BOTH differ from the
-#: ₹5.00 list price, so a figure derived from the list rate can never coincide with the
-#: ledger's by luck.
+#: A LOT'S OWN FROZEN RATES — the `plus` rung as the 7 Sep card sold it, which is what a
+#: client who bought then is still holding (`credit_lots_helpers` says why these are not
+#: today's catalogue). Chosen because BOTH differ from the list rate, so a figure derived
+#: from the list rate can never coincide with the ledger's by luck. The assertion below
+#: checks that they still do, so this file cannot go quietly vacuous if a future card
+#: happens to land on one of them.
 PLUS_SARVAM, PLUS_CARTESIA = PLUS
 
-#: The list card's own rates (the smallest pack), which is what a wallet with no lot pays.
-LIST_SARVAM, LIST_CARTESIA = Decimal("5.00"), Decimal("8.00")
+#: The list card's own rates — the smallest pack's, which is what a wallet with no lot
+#: pays. DERIVED: the entry rung is the definition of the list rate
+#: (`billing/list_rates.card_list_rate`), and the founder moves it without warning.
+LIST_SARVAM = PACK_CATALOGUE[0].sarvam_inr_per_min
+LIST_CARTESIA = PACK_CATALOGUE[0].cartesia_inr_per_min
+
+assert LIST_SARVAM != PLUS_SARVAM and LIST_CARTESIA != PLUS_CARTESIA, (
+    "this suite distinguishes a lot's frozen rate from the list rate by their VALUES; "
+    "if a card ever makes them equal, the fixtures above must move, not the assertions"
+)
 
 
 async def _prepaid(tenant_id: UUID) -> None:
@@ -152,20 +166,22 @@ async def _wallet_at_the_plus_rung(minutes: Decimal) -> tuple[UUID, Decimal]:
 
 
 async def test_the_statement_reports_what_the_wallet_was_charged_not_the_list_rate() -> None:
-    """40 minutes on the ₹15,000 rung is ₹188.00, not the ₹200.00 the list price gives.
+    """40 minutes on a lot frozen at the ₹15,000 rung is ₹188.00 — what the wallet was
+    actually debited — and the list rate gives another figure entirely.
 
-    A 6.4% overstatement on the client's own screen, beside per-voice figures that already
-    said ₹188.00 — the two disagreeing on one panel is the failure this whole design exists
-    to make impossible.
+    When the defect was found the list rate was the DEARER of the two (₹5.00 against the
+    lot's ₹4.70), so the screen overstated the month by 6.4% beside per-voice figures that
+    already said ₹188.00. Since the founder's card of 14 Sep 2026 the list rate is ₹4.00
+    and the same defect would UNDERstate it. The direction was never the property: two
+    figures on one panel disagreeing is, and that is what is asserted.
     """
     tenant_id, charged = await _wallet_at_the_plus_rung(Decimal("40"))
-    assert charged == Decimal("188.0000"), "40 x ₹4.70, off the lot"
+    assert charged == Decimal("40") * PLUS_SARVAM, "40 minutes off the lot, at the lot's rate"
 
     async with tenant_session(tenant_id) as session:
         summary = await usage_summary(session, tenant_id=tenant_id)
 
     at_the_list_rate = to_paise(Decimal("40") * LIST_SARVAM)
-    assert at_the_list_rate == Decimal("200.00"), "the figure the defect published"
     assert summary["month_charges_inr"] == to_paise(charged)
     assert summary["month_charges_inr"] != at_the_list_rate
     # And the per-voice pair the same screen renders adds to it exactly, which is the
@@ -194,7 +210,9 @@ async def test_a_closed_month_reports_the_ledger_too_so_the_month_does_not_move_
 
 async def test_the_margin_panel_books_the_revenue_the_ledger_recorded() -> None:
     """Revenue and what the client owes are one number seen from two sides. The panel
-    overstated it by the same 6.4% and reported a margin nobody was ever charged."""
+    priced the month at the list rate instead and reported a margin nobody was ever
+    charged (a 6.4% overstatement at the card in force when it was found; a different
+    figure and the other direction at today's, which is why neither is asserted)."""
     tenant_id, charged = await _wallet_at_the_plus_rung(Decimal("40"))
     async with tenant_session(tenant_id) as session:
         margin = await margin_for_tenant(session, tenant_id=tenant_id)
@@ -292,7 +310,7 @@ async def test_a_managed_tenant_still_prices_from_the_plan_and_not_from_a_wallet
 
 
 async def test_the_list_card_prices_both_voices_and_not_just_the_cheaper_one() -> None:
-    """`RateCard.list_rates()` is the smallest pack — ₹5.00 Sarvam AND ₹8.00 Cartesia."""
+    """`RateCard.list_rates()` is the smallest pack — its Clear rate AND its Studio one."""
     async with tenant_session(await make_tenant()) as session:
         card = await rate_card_at(session, at=datetime.now(UTC))
     assert card.list_rates() == LotRates(LIST_SARVAM, LIST_CARTESIA)
@@ -304,8 +322,10 @@ async def test_a_studio_minute_on_a_wallet_with_no_lot_is_charged_at_the_studio_
     """THE DEFECT: the pipeline handed `CallDemand` ONE number — the Sarvam list price —
     for both voices, so a Studio minute on an empty or overdrawn wallet (a new tenant
     before their first pack, a wallet after a full reversal, a migrated negative balance)
-    was debited at ₹5.00 against a card that sells it at ₹8.00 and a cost floor of ₹4.36.
-    Below the card and a hair above cost, on exactly the accounts nobody is watching."""
+    was debited at the CLEAR list rate against a card that sells a Studio minute dearer.
+    Below the card, on exactly the accounts nobody is watching. (The figures when it was
+    found were ₹5.00 against ₹8.00 and a ₹4.36 floor; all three have moved since, and none
+    of them is the property — the property is that the voice chooses the column.)"""
     tenant_id = await make_tenant()
     await _prepaid(tenant_id)
     async with tenant_session(tenant_id) as session:
@@ -321,8 +341,8 @@ async def test_a_studio_minute_on_a_wallet_with_no_lot_is_charged_at_the_studio_
                 fallback_rates=card.list_rates(),
             ),
         )
-    assert charged == Decimal("80.0000"), "10 x ₹8.00"
-    assert charged != Decimal("50.0000"), "and NOT 10 x the Sarvam list price"
+    assert charged == Decimal("10") * LIST_CARTESIA, "10 x the Studio list rate"
+    assert charged != Decimal("10") * LIST_SARVAM, "and NOT 10 x the Clear list price"
 
 
 def test_a_demand_cannot_disagree_with_its_own_fallback_rate() -> None:
@@ -386,8 +406,10 @@ async def test_a_recorded_card_prices_the_lot_a_purchase_opens() -> None:
         )
         # A cell nobody recorded still answers the CATALOGUE, per cell — the only reading
         # that does not silently drop a pack the card predates.
+        deepest = PACK_CATALOGUE[-1]
+        assert deepest.pack_id == "max"
         assert card.for_purchase(pack_id="max", amount_inr=Decimal("50000")) == LotRates(
-            Decimal("4.50"), Decimal("6.00")
+            deepest.sarvam_inr_per_min, deepest.cartesia_inr_per_min
         )
     finally:
         await _purge_card_rows()

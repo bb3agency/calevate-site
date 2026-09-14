@@ -36,7 +36,27 @@ from apps.api.core.errors import ProblemError
 from apps.api.db.session import tenant_session
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
+from apps.api.billing.credit_packs import PACK_CATALOGUE, CreditPack, pack_by_id
 from tests.credit_lots_helpers import GROWTH, PLUS, add_lot, credit_entry, lot_rows, make_tenant
+
+
+def _pack(pack_id: str) -> CreditPack:
+    """The live catalogue rung, for the assertions that are ABOUT the card in force.
+
+    The lot fixtures (`GROWTH`, `PLUS`) are deliberately NOT this: they are a
+    superseded card's frozen rates, which is what a real wallet holds
+    (`tests/credit_lots_helpers` argues it). This is for `rate_card_at`'s answers,
+    which must track the catalogue and must not be typed beside it.
+    """
+    pack = pack_by_id(pack_id)
+    assert pack is not None, pack_id
+    return pack
+
+
+def _rates(pack_id: str) -> billing.LotRates:
+    """That rung's two rates as the card sells them."""
+    pack = _pack(pack_id)
+    return billing.LotRates(pack.sarvam_inr_per_min, pack.cartesia_inr_per_min)
 
 
 async def _balance(tenant_id: UUID) -> Decimal:
@@ -72,10 +92,15 @@ async def _open_remaining(tenant_id: UUID) -> Decimal:
 async def test_a_call_splits_across_two_lots_and_each_part_is_priced_at_its_own_lot() -> None:
     """The worked example from the plan's definition of done, driven through the seam.
 
-    ₹100 left of a ₹15,000 pack (₹4.70/min) with a ₹2,000 pack (₹5.00/min) behind it, and
-    a 30-minute call. The first lot pays for 21.276595 minutes and stops; the rest is
-    charged at the SECOND lot's rate. One `usage` row, two splits, and the row's delta is
-    the sum of them — which is the invariant every statement is re-derived from.
+    ₹100 left of a lot frozen at ₹4.70/min with a ₹5.00/min lot behind it, and a 30-minute
+    call. The first lot pays for 21.276595 minutes and stops; the rest is charged at the
+    SECOND lot's rate. One `usage` row, two splits, and the row's delta is the sum of them —
+    which is the invariant every statement is re-derived from.
+
+    ⚠ The two rate pairs are a SUPERSEDED card's (`tests/credit_lots_helpers` says why they
+    stay that way): the founder's card of 14 Sep 2026 prices a Clear minute the same on all
+    six rungs, so two live rungs could not show a Clear split at two rates at all. A lot's
+    rates are frozen for the life of its credit, so these are rows a real wallet holds.
     """
     tenant_id = await make_tenant()
     await add_lot(tenant_id, credits_inr="100.00", rates=PLUS, pack_id="plus")
@@ -126,7 +151,7 @@ async def test_a_cartesia_call_is_priced_at_the_lots_cartesia_column() -> None:
                 fallback_rates=LotRates(Decimal("5.00"), Decimal("5.00")),
             ),
         )
-    assert charged == Decimal("70.0000")  # 10 x the growth pack's ₹7.00 Cartesia rate
+    assert charged == Decimal("70.0000")  # 10 x the LOT's frozen ₹7.00 Studio rate
     splits = (await _usage_meta(tenant_id, str(call_id)))["meta"]["lots"]
     assert splits[0]["voice_tier"] == "cartesia"
     assert splits[0]["inr_per_min"] == "7.0000"
@@ -339,24 +364,23 @@ async def _card() -> billing.RateCard:
 
 async def test_a_free_amount_takes_the_largest_pack_it_could_have_bought() -> None:
     """₹6,000 buys no pack, but it is more than the ₹5,000 rung — so it is sold at that
-    rung's rates. Monotone, and it punishes nobody for topping up between the rungs."""
-    assert (await _card()).for_amount(Decimal("6000")) == billing.LotRates(
-        Decimal("5.00"), Decimal("7.00")
-    )
+    rung's rates. Monotone, and it punishes nobody for topping up between the rungs.
+
+    The RUNG is the answer and the rates are read off it: which rung a free amount lands on
+    is this function's decision, and what that rung costs is the founder's."""
+    assert (await _card()).for_amount(Decimal("6000")) == _rates("growth")
 
 
 async def test_a_free_amount_below_the_first_rung_takes_the_list_rates() -> None:
     """₹500 affords no pack at all. The smallest pack's rates are the floor, which is the
     only answer that is neither a gift nor a punishment."""
-    assert (await _card()).for_amount(Decimal("500")) == billing.LotRates(
-        Decimal("5.00"), Decimal("8.00")
-    )
+    assert (await _card()).for_amount(Decimal("500")) == _rates("starter")
 
 
 async def test_a_purchase_naming_a_pack_takes_that_packs_rates() -> None:
-    assert (await _card()).for_purchase(
-        pack_id="max", amount_inr=Decimal("50000")
-    ) == billing.LotRates(Decimal("4.50"), Decimal("6.00"))
+    assert (await _card()).for_purchase(pack_id="max", amount_inr=Decimal("50000")) == _rates(
+        "max"
+    )
 
 
 async def test_a_purchase_naming_a_pack_this_build_no_longer_offers_falls_to_the_amount() -> None:
@@ -365,13 +389,13 @@ async def test_a_purchase_naming_a_pack_this_build_no_longer_offers_falls_to_the
     same reading of an unknown pack for the same reason)."""
     assert (await _card()).for_purchase(
         pack_id="retired-pack", amount_inr=Decimal("6000")
-    ) == billing.LotRates(Decimal("5.00"), Decimal("7.00"))
+    ) == _rates("growth")
 
 
 async def test_a_gift_is_spent_at_the_list_price() -> None:
     """Plan §0 Q4: otherwise a ₹50,000 grant would buy a cheaper minute than a ₹50,000
     purchase, and the card would be a suggestion."""
-    assert (await _card()).list_rates() == billing.LotRates(Decimal("5.00"), Decimal("8.00"))
+    assert (await _card()).list_rates() == _rates(PACK_CATALOGUE[0].pack_id)
 
 
 # --- corrections ------------------------------------------------------------------
