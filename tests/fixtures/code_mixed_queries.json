@@ -1,0 +1,62 @@
+[
+  {
+    "fact_id": "shop_hours",
+    "language_mix": "te-en",
+    "passage_en": "The shop is open from 10 am to 9 pm on Monday to Saturday. On Sunday it closes early, at 2 pm.",
+    "query_code_mixed": "Sunday roju shop enni gantalaku close chestaru?"
+  },
+  {
+    "fact_id": "shop_delivery",
+    "language_mix": "hi-en",
+    "passage_en": "Home delivery is free for orders above 500 rupees within 5 km. Below that a delivery charge of 40 rupees applies.",
+    "query_code_mixed": "Ghar pe home delivery karte ho kya, kitna charge lagta hai?"
+  },
+  {
+    "fact_id": "shop_returns",
+    "language_mix": "te-en",
+    "passage_en": "Any item can be returned within 7 days if you bring the bill. Opened food packets are not taken back.",
+    "query_code_mixed": "Bill unte return cheyochaa, entha rojula lopu?"
+  },
+  {
+    "fact_id": "shop_payment",
+    "language_mix": "hi-en",
+    "passage_en": "We accept UPI, cash and card. There is no extra charge for paying by card.",
+    "query_code_mixed": "UPI se payment le lete ho kya, ya sirf cash?"
+  },
+  {
+    "fact_id": "shop_rice_price",
+    "language_mix": "te-en",
+    "passage_en": "A 25 kg bag of sona masoori rice costs 1450 rupees. The 10 kg pack is 620 rupees.",
+    "query_code_mixed": "Sona masoori rice 25 kg bag rate entha?"
+  },
+  {
+    "fact_id": "shop_repair",
+    "language_mix": "hi-en",
+    "passage_en": "Mobile phone repairs are returned in two working days. An estimate is given before any work is started.",
+    "query_code_mixed": "Mobile repair ke liye kitne din lagte hain?"
+  },
+  {
+    "fact_id": "shop_tailoring",
+    "language_mix": "te-en",
+    "passage_en": "Tailoring measurements are taken only between 4 pm and 8 pm, and it is better to take an appointment on the shop number.",
+    "query_code_mixed": "Tailoring measurement ki appointment kavala, ee time lo?"
+  },
+  {
+    "fact_id": "shop_offer",
+    "language_mix": "hi-en",
+    "passage_en": "During the Diwali week there is a 10 percent discount on all steel vessels and gift boxes.",
+    "query_code_mixed": "Diwali pe koi discount offer hai kya vessels pe?"
+  },
+  {
+    "fact_id": "shop_credit",
+    "language_mix": "te-en",
+    "passage_en": "Regular customers can keep a monthly credit account and settle the total on the first week of the next month.",
+    "query_code_mixed": "Monthly credit account pettukovacha, next month settle chesthe saripotunda?"
+  },
+  {
+    "fact_id": "shop_parking",
+    "language_mix": "hi-en",
+    "passage_en": "Two wheelers can be parked in front of the shop. There is no car parking, the nearest one is in the lane behind.",
+    "query_code_mixed": "Shop ke bahar scooter parking milegi kya?"
+  }
+]
