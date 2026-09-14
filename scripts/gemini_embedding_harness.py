@@ -15,6 +15,7 @@ The embedding MODEL is discovered from the live models list, never named from me
 RUN:
     export GOOGLE_API_KEY='...'
     uv run python -m scripts.gemini_embedding_harness tests/fixtures/telugu_gloss_corpus.json
+    uv run python -m scripts.gemini_embedding_harness <corpus> embedding-2   # pin a model
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ import urllib.request
 from calevate_shared.engine import google_openai_compat_base_url
 
 BASE = google_openai_compat_base_url()
-RESULT_PATH = "/tmp/gemini_embedding_result.json"
+RESULT_PATH_TEMPLATE = "/tmp/gemini_embedding_result_{model}.json"
 
 
 def _call(url: str, key: str, payload: dict | None = None) -> dict:
@@ -80,7 +81,17 @@ def main() -> None:
     picked = embedding_models(key)
     if not picked:
         raise SystemExit("\nNo embedding-capable model visible to this key.")
-    model = picked[0]
+    # A SECOND ARGUMENT PINS THE MODEL, because choosing one later is not a config change —
+    # it is a re-embedding of every client's corpus. Comparing two before anything is indexed
+    # costs one run; comparing them afterwards costs a migration.
+    wanted = sys.argv[2] if len(sys.argv) > 2 else ""
+    if wanted:
+        matches = [n for n in picked if wanted in n]
+        if not matches:
+            raise SystemExit(f"\nNo embedding model matching {wanted!r}. Seen: {picked}")
+        model = matches[0]
+    else:
+        model = picked[0]
     print(f"\nusing: {model}\n")
 
     index = [embed(key, model, row["passage_en"]) for row in corpus]
@@ -107,9 +118,10 @@ def main() -> None:
         }
         print(f"{form:<16} {hits1 / n:>9.3f} {hits3 / n:>9.3f} {rr / n:>7.3f}")
 
-    with open(RESULT_PATH, "w", encoding="utf-8") as fh:
+    result_path = RESULT_PATH_TEMPLATE.format(model=model.rsplit("/", 1)[-1])
+    with open(result_path, "w", encoding="utf-8") as fh:
         json.dump(out, fh, indent=2, ensure_ascii=False)
-    print(f"\nRESULT JSON ({RESULT_PATH}):\n")
+    print(f"\nRESULT JSON ({result_path}):\n")
     print(json.dumps(out, indent=2, ensure_ascii=False))
     print("\nlexical baselines already measured here: Tenglish->English 0.625, bge-base-en 0.667")
     print(
