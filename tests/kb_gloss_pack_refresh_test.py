@@ -34,6 +34,7 @@ import uuid
 from typing import Any
 
 import pytest
+from apps.api.agents import lifecycle as agent_lifecycle
 from apps.api.db.session import tenant_session
 from apps.api.kb import pack as kb_pack
 from apps.api.kb import service as kb_service
@@ -42,7 +43,7 @@ from calevate_shared.knowledge_pack import pack_object_key
 from sqlalchemy import text
 from tests.conftest import FakeS3
 from tests.kb_gloss_test import _RecordingProvider, _run_sweep, _unique
-from tests.kb_workflow_test import _tenant_with_published_agent
+from tests.kb_workflow_test import _tenant_with_published_agent, give_agent_a_script
 
 pytestmark = pytest.mark.rls
 
@@ -281,3 +282,222 @@ async def test_the_scan_cannot_see_a_neighbours_agent(s3: FakeS3) -> None:
         assert await kb_pack.agents_with_stale_packs(session, tenant_id=tenant_a, limit=25) == [
             agent_a
         ]
+
+
+# --- 5. The publish lock -------------------------------------------------------------
+
+
+async def _try_take_publish_lock(tenant_id: uuid.UUID, agent_id: uuid.UUID) -> bool:
+    """Could a NEW transaction take this agent's publish lock right now? On its own connection.
+
+    A separate session on purpose: `pg_try_advisory_xact_lock` is re-entrant within one
+    transaction, so a probe that reused the sweep's session would answer True however
+    firmly the lock was held and the test would pass for an unlocked refresh.
+    """
+    async with tenant_session(tenant_id) as probe:
+        return bool(
+            (
+                await probe.execute(
+                    text("SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))"),
+                    {"key": kb_service.publish_lock_key(agent_id)},
+                )
+            ).scalar()
+        )
+
+
+async def test_the_refresh_holds_the_publish_lock_while_it_rebuilds(
+    monkeypatch: pytest.MonkeyPatch, s3: FakeS3
+) -> None:
+    """THE LOCK IS TAKEN, asserted at the only instant where it matters.
+
+    Not "the helper was called" — that is a test of a line rather than of a property, and it
+    would pass for a lock taken in the SCAN's transaction and released before any of this
+    work, which is the plausible wrong fix. So the probe runs from a second connection at
+    the moment `refresh_published_pack` is doing the read-freeze-point that a publish must
+    not interleave with, and asserts the key is unavailable there. The control on the far
+    side of the tick is what makes that mean "held for the transaction" rather than "leaked
+    forever": an xact lock is released by COMMIT, so a free key afterwards is the postcondition.
+    """
+    tenant_id, agent_id = await _published_telugu_agent(TAILOR_TELUGU)
+    assert await _try_take_publish_lock(tenant_id, agent_id), "the fixture left the key held"
+
+    held_during_refresh: list[bool] = []
+    real = kb_gloss.refresh_published_pack
+
+    async def _probing(session: Any, *, tenant_id: uuid.UUID, agent_id: uuid.UUID) -> str | None:
+        held_during_refresh.append(not await _try_take_publish_lock(tenant_id, agent_id))
+        result: str | None = await real(session, tenant_id=tenant_id, agent_id=agent_id)
+        return result
+
+    monkeypatch.setattr(kb_gloss, "refresh_published_pack", _probing)
+
+    assert (
+        await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
+        == "translated=1 not_needed=0 rekeyed=1 repacked=1"
+    )
+    assert held_during_refresh == [True], "the pack was rebuilt without the agent's publish lock"
+    assert await _try_take_publish_lock(tenant_id, agent_id), "the lock outlived its transaction"
+
+
+async def test_a_publish_in_flight_makes_the_sweep_skip_that_agent(
+    monkeypatch: pytest.MonkeyPatch, s3: FakeS3
+) -> None:
+    """THE GAP THIS CLOSES, built as the interleaving rather than asserted as a call.
+
+    A publish transaction takes `_lock_agent_publishes` before its first read and holds it to
+    COMMIT, and it ENDS in `refresh_published_pack` — so it has already written the pointer
+    for the corpus it is making live. Without a lock here the sweep's own read-freeze-point,
+    which straddles an object-store round trip, commits AFTER that and wins: its UPDATE waits
+    on the same `agents` row, is re-checked against the committed version under READ COMMITTED,
+    finds the publisher's id genuinely `IS DISTINCT FROM` its own, and replaces it with a pack
+    frozen from the corpus the publish replaced. The client's agent then recites a withdrawn
+    price list, out of an artefact this sweep pointed at.
+
+    The publisher is stood in for by its LOCK and not by a second concurrent publish: the lock
+    is the entire protocol between the two — the publisher's own code path is exercised by
+    `tests/kb_publish_atomicity_test.py` — and a real interleaved publish would be timing, not
+    a proof. What is asserted is the three things a skip has to be: the tick RETURNS (no
+    blocking, which is the other plausible fix and would put a client behind a timer), the
+    POINTER is untouched, and NOTHING IS ALARMED, because being overtaken by a publish is a
+    routine outcome and not a failure anybody should be woken for.
+
+    The gloss itself still lands, which is the point of taking this lock at the REFRESH and
+    not around the tick: the money was spent, the translation is committed, and only the
+    derived rebuild defers.
+    """
+    tenant_id, agent_id = await _published_telugu_agent(TAILOR_TELUGU)
+    before = await _pointer(tenant_id, agent_id)
+
+    fired: list[tuple[str, str]] = []
+    monkeypatch.setattr(kb_pack, "alert", lambda stage, code, **kw: fired.append((stage, code)))
+    monkeypatch.setattr(kb_gloss, "alert", lambda stage, code, **kw: fired.append((stage, code)))
+
+    async with tenant_session(tenant_id) as publisher:
+        await publisher.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": kb_service.publish_lock_key(agent_id)},
+        )
+        assert (
+            await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
+            == "translated=1 not_needed=0 rekeyed=1 repacked=0"
+        )
+
+    assert await _pointer(tenant_id, agent_id) == before, "the sweep re-pointed a publishing agent"
+    assert fired == [], "an ordinary lock contention was alarmed"
+
+
+async def test_an_agent_skipped_for_the_lock_is_repacked_on_the_next_tick(
+    monkeypatch: pytest.MonkeyPatch, s3: FakeS3
+) -> None:
+    """A SKIP DEFERS AND NEVER DROPS, which is what makes the try-lock free to use.
+
+    Nothing is re-queued and nothing is replayed: `agents_with_stale_packs` computes a
+    DIFFERENCE, so an agent passed over consumed no marker and its pointer still disagrees
+    with its corpus. This is the half that a worklist of glossed document ids could not
+    give — it would have consumed those ids on the tick that was locked out.
+
+    Second tick translates NOTHING (`translated=0`), which is the load-bearing detail: the
+    deferral costs the derived rebuild and never a second model call for text we already
+    paid to translate.
+    """
+    tenant_id, agent_id = await _published_telugu_agent(TAILOR_TELUGU)
+    before = await _pointer(tenant_id, agent_id)
+
+    async with tenant_session(tenant_id) as publisher:
+        await publisher.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": kb_service.publish_lock_key(agent_id)},
+        )
+        await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
+    assert await _pointer(tenant_id, agent_id) == before
+
+    # The publish has committed; its lock went with it. The very next tick picks the agent up.
+    assert (
+        await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
+        == "translated=0 not_needed=0 rekeyed=0 repacked=1"
+    )
+    after = await _pointer(tenant_id, agent_id)
+    assert after is not None and after != before
+    assert _glosses_in_pack(s3, tenant_id, agent_id, after) == [TAILOR_ENGLISH]
+
+
+async def _second_agent_with_published_source(tenant_id: uuid.UUID, body: str) -> uuid.UUID:
+    """A SECOND agent on an existing tenant, with one live Telugu source of its own.
+
+    Through `agents.lifecycle.create_agent` and never a hand-written INSERT, for that
+    function's own stated reason: it is the one insert into `agents` on any path that
+    produces an agent a client uses, and four of the columns it fills are hard rule 5.
+    The engine ref, its route and the applied script are then supplied the way
+    `_tenant_with_published_agent` supplies them: `publish_source` reads
+    `agents.engine_agent_ref` to attach to, and it ends in a T0 recompile that re-publishes
+    a LIVE agent — which `agents/service._assert_has_a_script` refuses for an agent nobody
+    has written a greeting for. A draft agent flipped to `live` with no `prompt_versions`
+    row is a state production cannot reach, which is `give_agent_a_script`'s whole argument.
+    """
+    async with tenant_session(tenant_id) as session:
+        agent_id = await agent_lifecycle.create_agent(
+            session,
+            tenant_id=tenant_id,
+            name="Second counter",
+            direction="inbound",
+            language_primary="te-IN",
+        )
+        ref = f"fakeagent_kb_{uuid.uuid4().hex[:8]}"
+        await session.execute(
+            text("UPDATE agents SET engine_agent_ref = :r, status = 'live' WHERE id = :a"),
+            {"r": ref, "a": agent_id},
+        )
+        await session.execute(
+            text(
+                "INSERT INTO engine_agent_routes (engine, engine_agent_ref, tenant_id, "
+                "agent_id, active, created_at, updated_at) "
+                "VALUES ('fake', :r, :t, :a, true, now(), now())"
+            ),
+            {"r": ref, "t": tenant_id, "a": agent_id},
+        )
+    await give_agent_a_script(tenant_id, agent_id)
+    async with tenant_session(tenant_id) as session:
+        submitted = await kb_service.submit_source(
+            session, tenant_id=tenant_id, agent_id=agent_id, name="Shop B", body=_unique(body)
+        )
+        await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
+        await kb_service.publish_source(
+            session, tenant_id=tenant_id, source_id=uuid.UUID(str(submitted["id"]))
+        )
+    return agent_id
+
+
+async def test_one_agents_publish_does_not_hold_up_its_neighbour(
+    monkeypatch: pytest.MonkeyPatch, s3: FakeS3
+) -> None:
+    """THE KEY IS THE AGENT, so a skip is one agent wide and not one tenant wide.
+
+    The `continue` sits inside the per-agent loop rather than around it, and this is the
+    assertion that can tell those apart: one tenant, two agents, one of them mid-publish. A
+    lock taken per TENANT — or a skip that broke out of the loop — would strand the other
+    agent's pack for thirty minutes because a neighbour was being edited, which is the shape
+    `MAX_PACK_AGENTS_PER_TENANT`'s own comment refuses on starvation grounds.
+    """
+    tenant_id, busy_agent = await _published_telugu_agent(TAILOR_TELUGU)
+    quiet_agent = await _second_agent_with_published_source(tenant_id, BLOUSE_TELUGU)
+
+    busy_before = await _pointer(tenant_id, busy_agent)
+    quiet_before = await _pointer(tenant_id, quiet_agent)
+
+    both = f"{TAILOR_ENGLISH} {BLOUSE_ENGLISH}"
+    async with tenant_session(tenant_id) as publisher:
+        await publisher.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+            {"key": kb_service.publish_lock_key(busy_agent)},
+        )
+        assert (
+            await _run_sweep(monkeypatch, _RecordingProvider(both), only=tenant_id)
+            == "translated=2 not_needed=0 rekeyed=2 repacked=1"
+        )
+
+    assert await _pointer(tenant_id, busy_agent) == busy_before, "the publishing agent was repacked"
+    quiet_after = await _pointer(tenant_id, quiet_agent)
+    assert quiet_after is not None and quiet_after != quiet_before, (
+        "a neighbour's publish stranded this agent's pack"
+    )
+    assert _glosses_in_pack(s3, tenant_id, quiet_agent, quiet_after) == [both]

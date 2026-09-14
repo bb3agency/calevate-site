@@ -954,6 +954,45 @@ async def _lock_agent_publishes(session: AsyncSession, *, agent_id: UUID) -> Non
     )
 
 
+async def try_lock_agent_publishes(session: AsyncSession, *, agent_id: UUID) -> bool:
+    """Take `_lock_agent_publishes`' lock IF IT IS FREE. True if this transaction now holds it.
+
+    THE NON-BLOCKING HALF OF ONE MECHANISM, and it lives here rather than being spelled
+    inline by each background caller because `publish_lock_key`'s own docstring already
+    makes the argument for one home: a lock whose key — or whose SQL — can drift is not a
+    lock. There are two background readers of an agent's publish state now (the KB drift
+    sweep in `kb/reconciliation.py`, the in-call pack sweep in `workers/kb_gloss.py`), and a
+    second copy of `pg_try_advisory_xact_lock(hashtextextended(...))` is the second way of
+    doing one thing the quality bar calls a defect even while both copies agree.
+
+    **TRY, NEVER WAIT, AND THAT IS THE WHOLE REASON THIS IS NOT `_lock_agent_publishes`.**
+    The blocking form works and is wrong for every caller of this function: it would put a
+    client's Publish button behind a background job nobody asked for. `_lock_agent_publishes`
+    accepts that cost because both sides of it are publishes a human is waiting on; a timer
+    has no such claim. A False answer means "somebody is mid-publish, come back next tick",
+    which costs a difference-driven sweep nothing — the work it skipped was never consumed.
+
+    Held to COMMIT or ROLLBACK, like every advisory lock in this repo (BACKEND-PATTERNS §5),
+    so the caller gets exclusivity for exactly the transaction it does its work in and has no
+    TTL to outlive. It follows that a caller must take this in the SAME transaction as the
+    work it protects: a lock taken during a scan and released before the write it was meant
+    to serialize protects nothing, which is precisely the defect shape this exists to close.
+
+    Re-entrant, which matters when reading the call sites: the publish path already holds
+    this key by the time it reaches `kb/pack.refresh_published_pack`, so a caller that took
+    it here and then reached the same helper would hold it twice on one transaction rather
+    than deadlock against itself.
+    """
+    return bool(
+        (
+            await session.execute(
+                text("SELECT pg_try_advisory_xact_lock(hashtextextended(:key, 0))"),
+                {"key": publish_lock_key(agent_id)},
+            )
+        ).scalar()
+    )
+
+
 async def _superseded_versions(
     session: AsyncSession, *, agent_id: UUID, name: str, keep: UUID
 ) -> list[tuple[UUID, str | None]]:
@@ -2171,4 +2210,5 @@ __all__ = [
     "refresh_projection_keys",
     "reject_source",
     "submit_source",
+    "try_lock_agent_publishes",
 ]
