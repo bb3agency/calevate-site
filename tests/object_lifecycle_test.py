@@ -50,6 +50,7 @@ from uuid import uuid4
 import pytest
 from apps.workers.retention import RECORDING_FLOOR_DAYS
 from apps.workers.storage import delivery_body_key, kb_object_key, payload_key, recording_key
+from calevate_shared.knowledge_pack import pack_object_key
 from scripts.seed import DEFAULT_RETENTION_POLICIES
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -209,6 +210,15 @@ def test_rule_prefixes_match_the_keys_storage_actually_writes(policy: dict) -> N
         "a client's uploaded document would accumulate under a prefix nothing bounds"
     )
 
+    assert applier.PACKS_PREFIX in prefixes
+    written_pack = pack_object_key(uuid4(), uuid4(), "a" * 64)
+    assert written_pack.startswith(applier.PACKS_PREFIX), (
+        f"pack_object_key() now writes {written_pack!r}, which no lifecycle rule matches — "
+        "and a knowledge pack is the one object here that NOTHING ELSE ever deletes: it is "
+        "immutable and content-addressed, so every correction a client makes leaves the "
+        "previous pack behind for ever"
+    )
+
     assert written_body.startswith(applier.BODIES_PREFIX), (
         f"delivery_body_key() now writes {written_body!r}, which no lifecycle rule "
         "matches — an orphaned CRM payload would sit in the bucket forever"
@@ -241,10 +251,42 @@ def test_every_written_prefix_is_covered_by_some_rule(policy: dict) -> None:
         recording_key(uuid4(), uuid4()),
         payload_key(tenant_id=uuid4(), call_id=uuid4(), engine="bolna", execution_id="exec-1"),
         kb_object_key(tenant_id=uuid4(), upload_id=uuid4(), slot="original", suffix="pdf"),
+        pack_object_key(uuid4(), uuid4(), "b" * 64),
     ):
         assert any(written.startswith(prefix) for prefix in covered), (
             f"nothing expires {written!r} — it accumulates forever"
         )
+
+
+def test_the_knowledge_pack_rule_is_a_ceiling_and_not_a_retention_mechanism(
+    policy: dict,
+) -> None:
+    """A short expiry on `knowledge-packs/` deletes exactly the WRONG objects, and this is
+    the test that says so before somebody tidies up storage costs.
+
+    S3 expiry runs from an object's CREATION. A pack is rebuilt only when a client changes
+    their knowledge, so the pack a live agent answers out of gets OLDER the longer that
+    client's knowledge has been correct — the best-behaved client on the platform is the
+    one whose live pack expires first. The symptom is an agent that retrieves nothing while
+    every screen reports its knowledge as published, and nothing anywhere reports it.
+
+    So the floor asserted here is the other growth ceilings' number: whatever this rule
+    says, it may not be shorter than the prefix whose objects are ALSO the live artefact
+    (`kb-uploads/`, which holds the very documents these packs are built from). The real
+    reclamation mechanism is a reference-aware sweep that does not exist yet —
+    `apply_lifecycle.PACKS_PREFIX` carries the whole argument and what is UNKNOWN in it.
+    """
+    by_prefix = {prefix: days for _, prefix, days in _enabled_expiry_rules(policy)}
+    packs = by_prefix.get(applier.PACKS_PREFIX)
+    assert packs is not None, (
+        "nothing expires knowledge-packs/ — immutable, content-addressed objects that "
+        "no other mechanism ever removes accumulate for ever"
+    )
+    assert packs >= by_prefix[applier.UPLOADS_PREFIX], (
+        f"knowledge-packs/ expires after {packs}d, sooner than the uploads those packs are "
+        "built from. A pack outlives the source document or the agent loses its knowledge "
+        "with nobody to notice"
+    )
 
 
 # --- 4. It is a valid S3 lifecycle document -----------------------------------------

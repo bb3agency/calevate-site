@@ -39,6 +39,7 @@ from apps.api.db.result import rowcount_of
 from apps.api.db.transition import transition_status
 from apps.api.engine import get_engine, require_capability
 from apps.api.kb.models import KB_STATUSES
+from apps.api.kb.pack import refresh_published_pack
 from apps.api.kb.pdf_render import (
     ApprovedChunk,
     KnowledgePdfError,
@@ -1835,12 +1836,25 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
         agent_id=agent_id,
         knowledge=await active_knowledge(session, agent_id=agent_id),
     )
+    # THE IN-CALL PACK (D-599, `docs/PIPECAT-MIGRATION.md` §6 step 12). LAST, for the T0
+    # recompile's own reason and one more: it reads the projection `project_chunks` has
+    # just written, so it has to run after it, and it must not run before the activation
+    # flip for the same reason the recompile must not — it would freeze the set this
+    # publish is replacing and every call for the life of that pack would answer from it.
+    #
+    # It cannot fail the publish and it does not go quiet either; see
+    # `kb/pack.refresh_published_pack` for the posture and what it alerts.
+    pack_id = await refresh_published_pack(session, tenant_id=tenant_id, agent_id=agent_id)
     log.info(
         "kb_published",
         extra={
             "source_id": str(source_id),
             "version": version,
             "prompt_version": prompt_version,
+            # The pack's NAME, which is a digest of approved text and not the text (hard
+            # rule 6) — and `None` when the refresh failed, which is the line that says a
+            # publish is live on every surface except the phone.
+            "pack_id": pack_id,
         },
     )
     return int(version)
@@ -1917,12 +1931,20 @@ async def withdraw_source(session: AsyncSession, *, tenant_id: UUID, source_id: 
         agent_id=agent_id,
         knowledge=await active_knowledge(session, agent_id=agent_id),
     )
+    # AND THE PACK, for `publish_source`'s reason in the other direction: a withdrawal that
+    # left the pack alone would take the source off every screen, out of the prompt and off
+    # the vendor's knowledge base while the worker went on answering out of a frozen copy
+    # of it — the one place a withdrawn price list would survive, and the loudest one.
+    # Withdrawing the last source publishes an EMPTY pack rather than clearing the pointer;
+    # the helper argues why.
+    pack_id = await refresh_published_pack(session, tenant_id=tenant_id, agent_id=agent_id)
     log.info(
         "kb_withdrawn",
         extra={
             "source_id": str(source_id),
             "detached": withdrawn,
             "prompt_version": prompt_version,
+            "pack_id": pack_id,
         },
     )
     return withdrawn

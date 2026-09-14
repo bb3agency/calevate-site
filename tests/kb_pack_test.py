@@ -41,6 +41,8 @@ from calevate_shared.knowledge_pack import (
     pack_object_key,
 )
 from sqlalchemy import text
+from sqlalchemy.exc import OperationalError
+from sqlalchemy.ext.asyncio import AsyncSession
 from tests.conftest import FakeS3
 from tests.kb_workflow_test import _tenant_with_published_agent
 
@@ -318,6 +320,162 @@ async def test_adding_knowledge_mints_a_new_key_and_leaves_the_old_one_readable(
     assert second != first
     assert pack_object_key(tenant_id, agent_id, first) in s3.objects
     assert pack_object_key(tenant_id, agent_id, second) in s3.objects
+
+
+# --- 5. The caller. A builder nothing calls is a builder that is not in the product ----
+#
+# `docs/PIPECAT-MIGRATION.md` §6 step 12. Everything above proves the pack is BUILT
+# correctly; this section proves it is built AT ALL — on the publish path, without the
+# publish depending on it, and with the resulting id somewhere the call path can read.
+
+
+async def _pointer(session: AsyncSession, agent_id: uuid.UUID) -> str | None:
+    row = (
+        await session.execute(
+            text("SELECT knowledge_pack_sha256 FROM agents WHERE id = :aid"), {"aid": agent_id}
+        )
+    ).first()
+    assert row is not None
+    return None if row[0] is None else str(row[0])
+
+
+async def _updated_at(session: AsyncSession, agent_id: uuid.UUID) -> object:
+    row = (
+        await session.execute(
+            text("SELECT updated_at FROM agents WHERE id = :aid"), {"aid": agent_id}
+        )
+    ).first()
+    assert row is not None
+    return row[0]
+
+
+async def test_publishing_knowledge_stores_the_pack_and_points_the_agent_at_it(
+    s3: FakeS3,
+) -> None:
+    """The seam, end to end: a client publishes a source and the object a session will
+    fetch exists, at the key the pointer names.
+
+    The assertion is on the KEY rather than on "some object was written", because the
+    pointer and the object are only useful together — `pack_object_key(tenant, agent, sha)`
+    is the whole address, which is why no URL is stored.
+    """
+    tenant_id, agent_id = await _tenant_with_published_knowledge("The clinic opens at 9 am.")
+
+    async with tenant_session(tenant_id) as session:
+        recorded = await _pointer(session, agent_id)
+        built = await kb_pack.build_pack(session, tenant_id=tenant_id, agent_id=agent_id)
+
+    assert recorded is not None, "publish_source built no pack: the worker has nothing to load"
+    assert recorded == built.content_sha256, "the pointer names a corpus that is not the live one"
+    assert pack_object_key(tenant_id, agent_id, recorded) in s3.objects
+
+
+async def test_withdrawing_the_last_source_points_at_an_empty_pack_rather_than_at_nothing(
+    s3: FakeS3,
+) -> None:
+    """A withdrawal that left the pack alone would leave the ONE copy of a withdrawn price
+    list in the only place that talks to callers.
+
+    And the pointer moves to an EMPTY pack rather than to NULL: "this client withdrew
+    everything" and "this client has never written anything down" are different facts, and
+    `SessionConfig.knowledge_pack_sha256 = None` is only ever the second.
+    """
+    tenant_id, agent_id = await _tenant_with_published_knowledge("We are shut on Sunday.")
+    async with tenant_session(tenant_id) as session:
+        before = await _pointer(session, agent_id)
+        source_id = (
+            await session.execute(
+                text("SELECT id FROM kb_sources WHERE agent_id = :aid"), {"aid": agent_id}
+            )
+        ).scalar_one()
+        await kb_service.withdraw_source(session, tenant_id=tenant_id, source_id=source_id)
+        after = await _pointer(session, agent_id)
+
+    assert before is not None and after is not None
+    assert after != before
+    assert json.loads(s3.objects[pack_object_key(tenant_id, agent_id, after)])["entries"] == []
+    # The superseded pack is still readable: a call that started before the withdrawal is
+    # holding that id and must not have the object pulled out from under it.
+    assert pack_object_key(tenant_id, agent_id, before) in s3.objects
+
+
+async def test_a_store_that_refuses_does_not_fail_the_publish_and_does_not_go_quiet(
+    s3: FakeS3, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The posture, asserted in all three of its halves at once.
+
+    The client's correction still publishes (the knowledge base is their authored record
+    and a derived artefact may not veto it); the pointer stays on the pack that genuinely
+    exists, so the agent answers stale-but-real rather than losing its knowledge to a
+    pointer at nothing; and somebody is told, because "published" on every screen while the
+    phone answers from last week is the silent success this repo refuses by name.
+    """
+    tenant_id, agent_id = await _tenant_with_published_knowledge("The clinic opens at 9 am.")
+    async with tenant_session(tenant_id) as session:
+        first = await _pointer(session, agent_id)
+
+    fired: list[tuple[str, str]] = []
+    monkeypatch.setattr(kb_pack, "alert", lambda stage, code, **kw: fired.append((stage, code)))
+    s3.fail = True
+
+    async with tenant_session(tenant_id) as session:
+        submitted = await kb_service.submit_source(
+            session,
+            tenant_id=tenant_id,
+            agent_id=agent_id,
+            name="Sundays",
+            body="We are shut on Sunday.",
+        )
+        await kb_service.approve_source(session, source_id=submitted["id"], approved_by=None)
+        version = await kb_service.publish_source(
+            session, tenant_id=tenant_id, source_id=uuid.UUID(str(submitted["id"]))
+        )
+        assert version == 1, "the publish itself was taken down by a storage failure"
+        assert await _pointer(session, agent_id) == first
+
+    assert fired == [("CORE_LOGIC", "knowledge_pack_publish_failed")]
+
+
+async def test_a_refresh_that_changes_nothing_does_not_touch_the_agent_row(s3: FakeS3) -> None:
+    """`IS DISTINCT FROM` in `_RECORD_PACK_SQL`, and it is not micro-optimisation: the
+    column is a pointer at an immutable object, so re-stamping it with the value it already
+    holds moves `updated_at` — the timestamp every "when did this agent last change?"
+    screen reads — for a change that did not happen."""
+    tenant_id, agent_id = await _tenant_with_published_knowledge("The clinic opens at 9 am.")
+    async with tenant_session(tenant_id) as session:
+        stamped = await _updated_at(session, agent_id)
+        again = await kb_pack.refresh_published_pack(
+            session, tenant_id=tenant_id, agent_id=agent_id
+        )
+        assert again == await _pointer(session, agent_id)
+        assert await _updated_at(session, agent_id) == stamped
+
+
+async def test_a_database_failure_is_re_raised_rather_than_survived(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The one exception class the posture does NOT swallow.
+
+    By the time SQLAlchemy raises, the caller's transaction is already aborted and every
+    later statement in the publish will fail anyway — so catching it here would convert a
+    clean rollback with a real traceback into an incomprehensible error at COMMIT, three
+    functions later, about a statement nobody ran. Only the storage half is survivable.
+    """
+    tenant_id, agent_id = await _tenant_with_published_agent()
+
+    async def _boom(*args: object, **kwargs: object) -> str:
+        raise OperationalError("SELECT 1", {}, Exception("connection closed"))
+
+    fired: list[str] = []
+    monkeypatch.setattr(kb_pack, "publish_pack", _boom)
+    monkeypatch.setattr(kb_pack, "alert", lambda stage, code, **kw: fired.append(code))
+
+    async with tenant_session(tenant_id) as session:
+        with pytest.raises(OperationalError):
+            await kb_pack.refresh_published_pack(
+                session, tenant_id=uuid.UUID(str(tenant_id)), agent_id=uuid.UUID(str(agent_id))
+            )
+    assert fired == [], "a database failure was reported as a storage failure"
 
 
 # --- 4. Hard rule 1 -------------------------------------------------------------------

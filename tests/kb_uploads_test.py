@@ -30,6 +30,7 @@ from apps.api.db.session import tenant_session, untenanted_session
 from apps.api.engine import get_engine
 from apps.api.kb import service, uploads
 from apps.workers import kb_ingest
+from apps.workers.storage import KB_UPLOAD_PREFIX
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
 from tests.conftest import FakeS3
@@ -466,7 +467,13 @@ async def test_removing_an_upload_withdraws_the_vendors_copy_and_then_the_bytes(
                 {"s": row["source_id"]},
             )
         ).scalar() == 0, "a claim on a vendor object outlived the object"
-    assert s3.objects == {}, "the client's document is still in the bucket"
+    # THE CLIENT'S DOCUMENT, not the whole bucket, and the narrowing is D-599's doing.
+    # Removing the last source empties this agent's live corpus, which re-freezes it as an
+    # EMPTY knowledge pack under `knowledge-packs/` (`kb/pack.refresh_published_pack`) —
+    # an object this removal is supposed to leave behind, carrying no entry and therefore
+    # none of the client's words. What must be gone is everything under the upload prefix.
+    leftover = [key for key in s3.objects if key.startswith(f"{KB_UPLOAD_PREFIX}/")]
+    assert leftover == [], "the client's document is still in the bucket"
 
 
 # --- 7. The sweep re-drives exactly what the model says is retryable -----------------

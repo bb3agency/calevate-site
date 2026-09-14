@@ -551,6 +551,13 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_kb_account_listing_incomplete": "attention",
     "engine_kb_orphans_detected": "attention",
     "kb_orphan_sweep_abandoned": "attention",
+    # ONE CLIENT'S KNOWLEDGE IS LIVE EVERYWHERE EXCEPT ON THE PHONE: the publish committed
+    # and the in-call pack could not be built or stored, so the agent keeps answering out
+    # of the pack it last loaded. Bounded to one agent, self-healing on the next publish of
+    # any source on it, and the corrected price is already on every screen — `attention`,
+    # not a page. What it is NOT is `record`: the client has been told the correction is
+    # live, and on the one surface that talks to their callers it is not.
+    "knowledge_pack_publish_failed": "attention",
     "kb_embed_unmeterable": "attention",
     "kb_embed_unusable_response": "attention",
     # THE SCHEMA CONTRADICTS THE DEPLOYMENT: the column is not as wide as the vectors this

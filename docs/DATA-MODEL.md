@@ -173,6 +173,17 @@ agents(id, tenant_id, name, direction ENUM[inbound,outbound,both],
   live_prompt_id → prompt_versions,          -- a4e7b2c95d18
   live_tts_voice, live_tts_provider,         -- c8b3f14e7a29; NULL = nothing recorded as
                                              -- sent, never "in sync" (no backfill: see D-74)
+  knowledge_pack_sha256 TEXT,                -- b5d3a91e7c64, D-599. The content digest of
+    -- the in-call knowledge pack this agent's LIVE published corpus was last frozen into
+    -- (`calevate_shared.knowledge_pack`); with tenant_id and agent_id it is the whole
+    -- object key, which is why no URL is stored. Written by the KB PUBLISH path
+    -- (`kb/service.publish_source`/`withdraw_source` → `kb/pack.refresh_published_pack`),
+    -- never by `publish_agent`: the pack's content is a function of `kb_chunks` alone.
+    -- NOT on `agent_config_versions`, whose ON CONFLICT DO NOTHING is only correct while
+    -- every column is a function of its two digests — a T1-T4 publish moves neither.
+    -- NULL = nothing published yet, which is what SessionConfig reports as "no knowledge
+    -- base"; withdrawing the last source points at an EMPTY pack instead, so "withdrew
+    -- everything" and "never wrote anything down" stay two facts.
   max_call_duration_s)                       -- the per-agent cost-runaway ceiling
 prompt_versions(id, tenant_id, agent_id, version INT, body TEXT, compiled_t0_context TEXT,
   notes TEXT, created_by, published_at, UNIQUE(agent_id,version))   -- full history + rollback

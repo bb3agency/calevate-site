@@ -75,6 +75,37 @@ BODIES_PREFIX = "webhook-bodies/"
 # What this rule bounds is the residue neither of those names: an object stored by a
 # request whose transaction then rolled back.
 UPLOADS_PREFIX = "kb-uploads/"
+# The frozen in-call knowledge packs (D-599, `calevate_shared.knowledge_pack.
+# pack_object_key`). A CEILING, at the same number as the two above, and the reasoning is
+# worth stating because the obvious alternative is wrong in a way that is invisible until a
+# call goes quiet.
+#
+# These objects are IMMUTABLE AND CONTENT-ADDRESSED: a new pack is a new key and the old
+# key is never rewritten, so nothing ever tidies itself up — a client correcting a price
+# every week leaves one small object per correction for ever. That is the growth this rule
+# bounds.
+#
+# **WHY NOTHING SHORTER, WHICH IS THE WHOLE ARGUMENT.** S3 expiry is measured from an
+# object's CREATION, not from its last read, and the pack a live agent answers out of is
+# whichever one its knowledge last produced — so the LONGER a client's knowledge has been
+# correct, the closer their pack is to expiry. A 90- or 365-day rule would therefore delete
+# the live pack of the best-behaved client on the platform and leave the churning one's
+# alone, and the symptom is an agent that retrieves nothing while every screen says its
+# knowledge is published. `knowledge-packs/` is the one prefix here where a short expiry
+# targets exactly the wrong objects.
+#
+# **UNKNOWN: whether R2 offers any last-ACCESS-based expiry.** `developers.cloudflare.com`
+# is egress-blocked from this container and nobody has read the page, so no such rule is
+# written. The conservative option is this one: the same 7-year ceiling the other two
+# growth-bounded prefixes carry, which makes the residual risk an unedited knowledge base
+# older than seven years rather than one older than a quarter.
+#
+# **WHAT WOULD ACTUALLY RECLAIM THE SPACE is a reference-aware sweep** — delete a pack no
+# `agents.knowledge_pack_sha256` names and no warm container can still be holding — which
+# this file cannot express, because a bucket rule cannot read a database. It does not exist
+# yet. It is not needed yet either: a pack is a few hundred KB at the very top of §8.2's
+# sizing, so a hundred agents republishing daily for a year is single-digit GB.
+PACKS_PREFIX = "knowledge-packs/"
 
 
 class PolicyError(Exception):

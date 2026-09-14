@@ -41,6 +41,16 @@
       }
     },
     {
+      "ID": "knowledge-packs-growth-ceiling-not-retention",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": "knowledge-packs/"
+      },
+      "Expiration": {
+        "Days": 2555
+      }
+    },
+    {
       "ID": "abort-incomplete-multipart-uploads",
       "Status": "Enabled",
       "Filter": {

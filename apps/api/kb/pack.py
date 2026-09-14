@@ -25,13 +25,45 @@ needs a query encoder in the worker, and `knowledge_pack.py:25-43` is the measur
 rules one out at 1-2 threads against a 100ms turn. Adding vectors is a
 `PACK_FORMAT_VERSION` bump, not a column somebody slips into the SELECT.
 
-⚠ **`knowledge-packs/` HAS NO OBJECT-LIFECYCLE RULE YET.** Every other prefix this product
-writes carries a growth ceiling in `infra/object-lifecycle/policy.json`; this one does not,
-so a client republishing knowledge daily accumulates one small object per distinct corpus
-for ever. It is NOT fixed here because that file is the only resource `infra/terraform`
-manages, and CLAUDE.md forbids touching `infra/` prod without plan output in the PR — which
-nobody can produce from this container. It is an infra change with an owner, not an
-oversight. Nothing expires these objects in the meantime.
+**WHO CALLS THIS, AND WHY IT IS THE KB PUBLISH PATH AND NOT `publish_agent`.**
+`refresh_published_pack` at the bottom is the entry point, and `kb/service.publish_source`
+and `kb/service.withdraw_source` are its two callers — the only two functions that change
+which of an agent's chunks are live. `publish_agent` was the obvious alternative and is
+wrong twice: it runs for a voice change, a call-cap change and nine other reasons that
+cannot move a single chunk, and it does NOT run for the publish that matters most (a T1-T4
+source recompiles no T0 block, so `recompile_t0` returns None and nothing republishes).
+A pack refreshed there would be rebuilt constantly and stale exactly when it mattered.
+
+⚠ **KNOWN GAP, AND IT IS NOT FIXED HERE: A GLOSS THAT LANDS AFTER THE PUBLISH DOES NOT
+REACH THE PACK.** `apps/workers/kb_gloss.py` writes `kb_documents.gloss` on a sweep, minutes
+or hours after a source is published, and says of itself that a late gloss "starts working
+immediately, with no prompt re-mint and no republish" — which is true of
+`retrieval/compiled_facts.py`, which reads the column live, and is NOT true of a pack, which
+is frozen at publish by construction. So a Telugu-script corpus published before its sweep
+runs is packed with `gloss=None`, and until the client next publishes or withdraws anything
+on that agent the in-call search is the 0.250-recall case `kb/gloss.py` measured rather than
+the 0.750 one. What closes it is one call to `refresh_published_pack` from the sweep, on the
+agents whose glosses it just wrote; it is a change to `apps/workers/kb_gloss.py`, which this
+module does not own, and it is recorded here rather than left to be discovered from a
+retrieval number nobody can explain.
+
+⚠ **A SUPERSEDED PACK KEEPS THE WORDS THAT WERE IN IT, AND NOTHING DELETES IT BUT THAT
+CEILING.** A client who removes one document gets a new pack without it; the previous pack
+stays at its own key, holding the approved text as it was — measured, not assumed: no path
+in `apps/workers/` or `apps/api/compliance/` deletes anything under this prefix (the only
+function that names it is `storage.store_knowledge_pack`). That is tolerable because a pack
+holds a BUSINESS's own published knowledge and no data principal's data — no number, no
+transcript, no caller — which is why `scripts/check_erasure_coverage` has nothing to reach
+here. It is NOT tolerable silently, so: a tenant offboarding does not currently reach these
+objects, and the reference-aware sweep named below is where both this and the space belong.
+
+**`knowledge-packs/` NOW CARRIES AN OBJECT-LIFECYCLE RULE** — `infra/object-lifecycle/
+policy.json`, `knowledge-packs-growth-ceiling-not-retention`, pinned by
+`tests/object_lifecycle_test.py`. It is a growth CEILING and not a retention mechanism, and
+the rule's own comment in `apply_lifecycle.py` argues why nothing shorter is safe: an
+expiry is measured from an object's creation, so any ceiling low enough to reclaim space
+would eventually delete the live pack of the best-behaved client on the platform — the one
+whose price list has not needed correcting.
 """
 
 from __future__ import annotations
@@ -42,8 +74,10 @@ from uuid import UUID
 
 from calevate_shared.knowledge_pack import KnowledgePack, PackEntry, pack_object_key
 from sqlalchemy import text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from apps.api.core.alerting import alert
 from apps.api.core.logging import get_logger
 from apps.api.db.ownership import assert_visible
 
@@ -214,4 +248,92 @@ async def publish_pack(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
     return pack.content_sha256
 
 
-__all__ = ["build_pack", "publish_pack", "read_entries"]
+#: Where the call path reads the pack id from. `IS DISTINCT FROM` so a republish that
+#: changed nothing writes no row at all: the column is a pointer at an immutable object, so
+#: re-stamping it with the value it already holds would move `updated_at` — the timestamp
+#: every "when did this agent last change?" screen reads — for a change that did not happen.
+#:
+#: `tenant_id` is re-stated on top of RLS for `_ENTRIES_SQL`'s reason.
+_RECORD_PACK_SQL: Final = """
+UPDATE agents SET knowledge_pack_sha256 = :sha, updated_at = now()
+WHERE id = :aid AND tenant_id = :tid AND knowledge_pack_sha256 IS DISTINCT FROM :sha
+"""
+
+
+async def refresh_published_pack(
+    session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
+) -> str | None:
+    """Freeze this agent's live knowledge and point `agents.knowledge_pack_sha256` at it.
+
+    THE ONE ENTRY POINT FROM THE PUBLISH PATH (`docs/PIPECAT-MIGRATION.md` §6 step 12).
+    `publish_pack` stores the bytes; this is what makes them findable, because a pack
+    nothing names is a pack no session will ever load. Returns the id it recorded, or
+    `None` when the pack could not be built or stored — see the posture below.
+
+    **THE POSTURE ON FAILURE: THE PUBLISH SURVIVES, THE POINTER DOES NOT MOVE, AND SOMEBODY
+    IS TOLD.** Three options were available and two are worse:
+
+    * **Raise.** The client corrected a price, the vendor took the new document, the
+      activation flip committed — and then an object store blip rolls all of it back and
+      the screen says the publish failed. The knowledge base is the client's authored
+      record; the pack is a derived artefact of it, and a derived artefact must not be able
+      to veto the thing it derives from. This is `route_inbound_numbers`' rule in
+      `publish_agent`, for the same reason.
+    * **Swallow.** Then a client who fixed a wrong price sees "published", the agent keeps
+      quoting the old one out of the pack it already holds, and nothing anywhere says so.
+      That is the silent success CLAUDE.md's quality bar refuses by name.
+    * **What it does:** keep the OLD pointer (so the agent answers from the last pack that
+      genuinely exists — stale, but coherent and provably the words of a real publish),
+      fire `knowledge_pack_publish_failed`, and return None. The next publish or withdrawal
+      of any source on this agent retries it from scratch; the pack is content-addressed,
+      so the retry is free when nothing else changed.
+
+    **A DATABASE FAILURE IS RE-RAISED AND IS NOT PART OF THAT POSTURE.** By the time
+    SQLAlchemy raises, the caller's transaction is already aborted — every later statement
+    in the publish will fail anyway — so catching it here would turn a clean rollback with
+    a real traceback into an incomprehensible error at COMMIT, three functions later, about
+    a statement nobody ran. Only the storage half is survivable, so only the storage half
+    is survived.
+
+    **THE OBJECT IS WRITTEN BEFORE THE POINTER COMMITS, AND THAT ORDER IS DELIBERATE.** If
+    the caller's transaction rolls back after the store succeeded, an unreferenced pack
+    stays in the bucket — immutable, content-addressed, a few hundred bytes, matched by the
+    `knowledge-packs/` lifecycle rule, and re-used rather than re-written if that same
+    corpus is ever published again. The other order would put a pointer to nothing in a
+    column the call path trusts, which costs a live agent its knowledge.
+
+    **AN EMPTY CORPUS STILL GETS A PACK AND A POINTER.** Withdrawing the last source
+    publishes a pack with no entries rather than clearing the column, so "this client
+    withdrew everything" and "this client has never written anything down" stay two states
+    (`SessionConfig.knowledge_pack_sha256 = None` is only ever the second). The rejected
+    alternative — NULL for an empty pack — saves one ~200-byte object and costs the worker
+    the ability to tell those apart at all.
+    """
+    try:
+        pack_id = await publish_pack(session, tenant_id=tenant_id, agent_id=agent_id)
+    except SQLAlchemyError:
+        raise
+    except Exception as exc:
+        # Ids and OUR OWN sentence (hard rules 6 and the alerting contract): never the
+        # store's body, which quotes the key, which names the tenant and the agent.
+        alert(
+            "CORE_LOGIC",
+            "knowledge_pack_publish_failed",
+            detail=(
+                "a client's knowledge was published but the in-call knowledge pack could "
+                "not be built or stored, so their agent keeps answering from the pack it "
+                "last loaded — the correction they just made is live on every other "
+                f"surface and not on the phone. Refusal: {exc.__class__.__name__}."
+            ),
+            tenant_id=str(tenant_id),
+            agent_id=str(agent_id),
+        )
+        return None
+
+    await session.execute(
+        text(_RECORD_PACK_SQL), {"sha": pack_id, "aid": agent_id, "tid": tenant_id}
+    )
+    return pack_id
+
+
+__all__ = ["build_pack", "publish_pack", "read_entries", "refresh_published_pack"]

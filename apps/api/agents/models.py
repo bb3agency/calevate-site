@@ -202,6 +202,15 @@ class Agent(PKMixin, TimestampMixin, Base):
             "length(btrim(caller_memory_notice_line)) > 0",
             name="ck_agents_caller_memory_notice_nonempty",
         ),
+        # The in-call knowledge pack's id, or NULL (migration b5d3a91e7c64). Hex and
+        # lower-case for `agent_config_versions.prompt_sha256`'s reason: the value is
+        # COMPARED — the worker's fetch is this digest spliced into an object key — so a
+        # truncated or upper-cased one is an agent that retrieves nothing and nothing that
+        # reports it. NULL is admitted explicitly: it is the "nothing published" state.
+        CheckConstraint(
+            "knowledge_pack_sha256 IS NULL OR knowledge_pack_sha256 ~ '^[0-9a-f]{64}$'",
+            name="knowledge_pack_sha256_hex",
+        ),
         # The cost-runaway guard's range. NULL is admitted EXPLICITLY (it is the "use
         # the platform default" sentinel), not by the accident that a NULL-returning
         # CHECK passes. Migration a4e7b2c95d18.
@@ -246,6 +255,23 @@ class Agent(PKMixin, TimestampMixin, Base):
     # other half.
     live_tts_voice: Mapped[str | None] = mapped_column(Text)
     live_tts_provider: Mapped[str | None] = mapped_column(Text)
+    # WHICH FROZEN KNOWLEDGE THE CALL PATH LOADS (D-599, migration b5d3a91e7c64): the
+    # `content_sha256` of the pack `kb/pack.publish_pack` last stored for this agent, which
+    # with `tenant_id` and `agent_id` is the whole object key (`pack_object_key`). A digest
+    # and not a URL, because the pack is immutable and content-addressed: a key cannot mean
+    # two things, so this column names exactly the words a call could have quoted.
+    #
+    # It is written by the KB PUBLISH path (`kb/service.publish_source`/`withdraw_source`
+    # through `kb/pack.refresh_published_pack`) and not by `publish_agent`, because the
+    # pack's content is a function of `kb_chunks` alone — an agent republished for a voice
+    # change has the same knowledge it had a second earlier.
+    #
+    # NULL = no pack has ever been stored for this agent (the ordinary day-one state, and
+    # what `SessionConfig.knowledge_pack_sha256 = None` reports). It is deliberately NOT
+    # cleared when a client withdraws their last source: that publishes an EMPTY pack and
+    # points this at it, so "the corpus is empty" and "there is no corpus" stay two
+    # different answers to a caller (`knowledge_pack.RetrievalOutcome`).
+    knowledge_pack_sha256: Mapped[str | None] = mapped_column(Text)
     # WHAT A READ-BACK CONFIRMED, as opposed to what we sent (migration c1f6a94d2b07).
     # `live_prompt_id` and `live_tts_voice` above record the config `publish_agent`
     # HANDED the engine on the strength of a 2xx; these two record what
