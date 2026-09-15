@@ -1843,11 +1843,13 @@ whether it imports the module at container start or at first session; and what a
 "active minute" bills (`docs/PIPECAT-MIGRATION.md` §7, §3.5 P-1), which is why
 `meter.RuntimeUsage` is an operator attestation rather than a rate.
 
-**Two things in this repository still stop a call even once all of the above is done**, and
-they are ours rather than a vendor's: the normalized event writer
-(`boot.build_event_sink`, §6 step 11's next wave) and the route from a dialed number to a
-tenant and an agent (`bot.resolve_call_identity`, §6 step 6). Both refuse by name at boot
-or at the session, so the container cannot answer a phone and lose the conversation.
+**One thing in this repository still stops a call even once all of the above is done**, and
+it is ours rather than a vendor's: the normalized event writer (`boot.build_event_sink`,
+§6 step 11's next wave). It refuses by name at boot, so the container cannot answer a phone
+and lose the conversation. The second item this paragraph used to name — the route to a
+tenant and an agent — is BUILT (D-610): `bot.resolve_call_identity` reads the agent ref off
+the path of the socket the carrier connected to, which `apps/voice-runtime/carrier_routes.py`
+put there in the answer document. It still refuses by name when that path carries no ref.
 
 
 Cross-references: TRD §1 (deployables) · OPERATIONS §5–6 (SLOs, drills) ·

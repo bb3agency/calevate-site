@@ -406,6 +406,17 @@ class Settings(BaseSettings):
     #: `bolna_api_key` reused — that key authenticates US to THEM and would be travelling in
     #: the opposite direction, so a leak of one would be a leak of the other.
     bolna_caller_data_token: str | None = Field(default=None, max_length=256)
+    #: The `wss://` base of the DEPLOYED voice worker, which the carrier is sent to by the
+    #: answer document (`apps/voice-runtime/carrier_routes.py`, D-610).
+    #:
+    #: NOT A SECRET and not derivable: it is the address Pipecat Cloud gives our deployed
+    #: agent, and that hostname scheme is UNKNOWN from this container (`docs.pipecat.ai`
+    #: is egress-blocked). ABSENT => the answer route REFUSES with a named problem rather
+    #: than serving a document that points at nothing — a call that connects to a guessed
+    #: host rings and dies in silence, which is the failure a caller notices and nobody
+    #: else does. Configuration rather than a constant because the same code has to serve
+    #: a local run, a staging deployment and production without a rebuild.
+    pipecat_stream_base_url: str | None = Field(default=None, max_length=512)
     # Bolna quotes cost in USD cents; the adapter converts at capture and STAMPS the rate
     # it used into usage_events.meta so any ledger row can be re-derived (hard rule 7).
     #

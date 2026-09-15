@@ -295,6 +295,12 @@ ALLOWED_THIRD_PARTY: frozenset[str] = frozenset(
         # deliberately, because it runs while a caller is on the line.
         "tool_routes",
         "engine_intake",
+        # The carrier's answer document (D-610). It imports `apps.api.core`'s error
+        # ladder, logger and settings plus `calevate_shared.engine`'s ref parser, and
+        # NOTHING of `voice_worker` — which is the whole reason the renderer moved here
+        # rather than the route importing it: that package drags `pipecat-ai`, ONNX turn
+        # detection and three vendor SDKs, and this assertion is what would catch it.
+        "carrier_routes",
         # The web layer.
         "fastapi",
         "starlette",

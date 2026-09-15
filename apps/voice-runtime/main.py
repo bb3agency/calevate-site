@@ -29,6 +29,7 @@ from contextlib import suppress
 from apps.api.core.bootstrap import create_app
 from apps.api.core.errors import install_error_handlers
 from apps.api.core.platform_config import start_config_refresher, stop_config_refresher
+from carrier_routes import router as carrier_router
 from fastapi import FastAPI
 from tool_routes import router as tool_router
 from webhook_routes import router as webhook_router
@@ -98,3 +99,10 @@ app.include_router(webhook_router)
 # because it is on the caller's audio path: the engine invokes it mid-call and the
 # 500ms discipline above applies to it exactly as it does to the webhook receiver.
 app.include_router(tool_router)
+# The carrier's HTTP leg (D-610): the answer document that tells Plivo which WebSocket to
+# stream to. Mounted here rather than in `apps/api` for the same reason the tool routes
+# are — it is on the call's critical path, a caller is listening to silence while it is
+# answered, and a dashboard deploy must not be able to stop a phone from being picked up.
+# It does no IO at all; `carrier_routes`' docstring argues why that makes hard rule 3's
+# budget structural here rather than measured.
+app.include_router(carrier_router)
