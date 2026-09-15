@@ -45,6 +45,7 @@ re-deriving it from a character count.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Final
 
 import httpx
@@ -150,21 +151,32 @@ class GeminiQueryEmbedder:
         cannot be compared with.
         """
         try:
-            response = await self._client.post(
-                f"{google_openai_compat_base_url()}/embeddings",
-                headers={
-                    "Authorization": f"Bearer {self._api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": self._model,
-                    "input": question,
-                    "dimensions": self._dimensions,
-                },
-                timeout=self._budget_s,
-            )
-            response.raise_for_status()
-            body = response.json()
+            # TWO TIMERS, MEASURING DIFFERENT THINGS. `httpx`'s `timeout=` is PER PHASE —
+            # connect, write, read and pool each get the value separately — so a request
+            # that spends the budget connecting and the budget again reading has honoured
+            # it and taken 2x `EMBED_BUDGET_S`, which is `FUNCTION_CALL_TIMEOUT_SECS` gone
+            # and the model told only that "the function failed and returned no result".
+            # The budget's whole argument is a WALL CLOCK inside the tool call, and
+            # `asyncio.timeout` is the only thing here that keeps one. Same pair, same
+            # reason, as `memory.ApiCallerMemoryReader.recall`: the httpx value stays
+            # because it is what closes the socket rather than merely abandoning the
+            # coroutine holding it.
+            async with asyncio.timeout(self._budget_s):
+                response = await self._client.post(
+                    f"{google_openai_compat_base_url()}/embeddings",
+                    headers={
+                        "Authorization": f"Bearer {self._api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": self._model,
+                        "input": question,
+                        "dimensions": self._dimensions,
+                    },
+                    timeout=self._budget_s,
+                )
+                response.raise_for_status()
+                body = response.json()
         # Broad and narrowed nowhere: a timeout, a refused connection, a 5xx, a 401 on a
         # rotated key and a body that is not JSON all mean the same thing to the caller — we
         # did not get a vector — and none of them may reach the pipeline as an exception. The
