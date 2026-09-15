@@ -169,9 +169,9 @@ GNANI_TTS_SAMPLE_WIDTH: Final[int] = 2
 class CalevateGnaniTTSService(GnaniTTSService):  # type: ignore[misc]
     """`pipecat-gnani`'s WebSocket TTS, with gaps 2 and 3 of the module docstring filled.
 
-    Subclassed rather than forked: a fork would take the vendor's 1 057 lines into this
-    repository and end the possibility of an upgrade, while these two overrides are
-    deleted by a plugin release and nothing else moves.
+    Subclassed rather than forked: a fork would take the vendor's 2 075 lines into this
+    repository and end the possibility of an upgrade, while each of the three overrides
+    below is deleted by a plugin release and nothing else moves.
     """
 
     async def _connect(self) -> None:
