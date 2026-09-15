@@ -224,6 +224,15 @@ ERASURE_EXEMPT: dict[str, str] = {
         "in any case. Published to the data principal: ERASURE_LIMITATIONS 'consent "
         "records', ERASURE_EXCEPTIONS keyword 'consent'."
     ),
+    "call_metering_refusals": (
+        "Append-only record that ONE leg of ONE call could not be honestly priced, written "
+        "instead of a zero that would meter real spend as free (hard rule 7). It carries no "
+        "personal data of its own and no column one could be put in: every field is an id, a "
+        "machine code, or prose this repository authored in `voice_worker/meter.py`. Deleting "
+        "a row would erase the evidence that an invoice was short, not anything about the "
+        "caller. Same shape and same grounds as `usage_events` beneath it. Published: "
+        "ERASURE_LIMITATIONS 'billing records'."
+    ),
     "usage_events": (
         "Append-only ledger of minutes and money, linked to a call and carrying no "
         "personal data of its own. Deleting a row would silently rewrite a closed billing "
