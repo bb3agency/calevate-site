@@ -100,11 +100,15 @@ UPLOADS_PREFIX = "kb-uploads/"
 # growth-bounded prefixes carry, which makes the residual risk an unedited knowledge base
 # older than seven years rather than one older than a quarter.
 #
-# **WHAT WOULD ACTUALLY RECLAIM THE SPACE is a reference-aware sweep** — delete a pack no
-# `agents.knowledge_pack_sha256` names and no warm container can still be holding — which
-# this file cannot express, because a bucket rule cannot read a database. It does not exist
-# yet. It is not needed yet either: a pack is a few hundred KB at the very top of §8.2's
-# sizing, so a hundred agents republishing daily for a year is single-digit GB.
+# **WHAT ACTUALLY RECLAIMS THE SPACE is a reference-aware sweep, and it now exists**:
+# `apps/workers/pack_gc.py` (D-611) deletes a pack no `agents.knowledge_pack_sha256` names,
+# after a seven-day grace that covers the publish path's store-before-pointer write order.
+# This file cannot express that and never will, because a bucket rule cannot read a
+# database — which is why the rule below stays exactly where it is rather than being
+# shortened now that something else is doing the reclaiming. The two are not alternatives:
+# the sweep reclaims what it can positively attribute to a live tenant, and this ceiling is
+# the backstop under everything it refuses to touch (a closed tenant's objects, a key this
+# platform did not write, an object the store reports no age for).
 PACKS_PREFIX = "knowledge-packs/"
 # A client's CARRIER COMPLIANCE submission (`storage.carrier_document_key`) — the signed
 # application and the supporting document behind it, the evidence a telecom carrier

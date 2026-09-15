@@ -106,13 +106,14 @@ import hashlib
 import json
 import struct
 from datetime import datetime
-from typing import Literal
+from typing import Final, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 __all__ = [
     "PACK_FORMAT_VERSION",
+    "PACK_OBJECT_PREFIX",
     "SUPPORTED_PACK_FORMAT_VERSIONS",
     "KnowledgePack",
     "PackEntry",
@@ -120,6 +121,7 @@ __all__ = [
     "decode_vector",
     "encode_vector",
     "pack_object_key",
+    "parse_pack_object_key",
 ]
 
 #: Bumped when the on-the-wire shape changes. What a BUILDER writes.
@@ -343,6 +345,14 @@ class KnowledgePack(BaseModel):
         return hashlib.sha256(canonical.encode()).hexdigest()
 
 
+#: The one spelling of the prefix, shared by the builder, the parser, the collector and
+#: `infra/object-lifecycle/apply_lifecycle.PACKS_PREFIX` (which cannot import this package
+#: — it is a standalone operator script — and is pinned against it by
+#: `tests/object_lifecycle_test.py` instead).
+PACK_OBJECT_PREFIX: Final = "knowledge-packs/"
+_PACK_OBJECT_SUFFIX: Final = ".json"
+
+
 def pack_object_key(tenant_id: UUID, agent_id: UUID, content_sha256: str) -> str:
     """Where the pack lives in object storage.
 
@@ -351,4 +361,42 @@ def pack_object_key(tenant_id: UUID, agent_id: UUID, content_sha256: str) -> str
     an immutable object needs no versioning from the store — a new pack is a new key, and
     the old one stays readable for any call still holding it.
     """
-    return f"knowledge-packs/{tenant_id}/{agent_id}/{content_sha256}.json"
+    return f"{PACK_OBJECT_PREFIX}{tenant_id}/{agent_id}/{content_sha256}.json"
+
+
+def parse_pack_object_key(key: str) -> tuple[UUID, UUID, str] | None:
+    """`(tenant_id, agent_id, content_sha256)` for a key this module wrote, else `None`.
+
+    THE INVERSE OF `pack_object_key`, AND IT LIVES HERE FOR THAT REASON ALONE. The
+    collector (`apps/workers/pack_gc.py`) deletes on the strength of what a key means, so
+    the parse and the build must be one author's answer: a second spelling that agreed
+    about today's keys and disagreed about some edge would either strand objects for ever
+    or, far worse, attribute one agent's pack to another agent's reference set.
+
+    **`None` IS A REFUSAL, NOT AN ERROR, AND THE ONE CALLER MAY NEVER DELETE ON IT.** An
+    unparseable key under our prefix is something in our bucket that this function did not
+    write; it is reported and left alone. Strictness is the whole value — the UUIDs are
+    parsed rather than pattern-matched, and the digest must be exactly 64 lowercase hex
+    characters, which is what `ck_agents_knowledge_pack_sha256_hex` already requires of the
+    column the key is compared against (migration `b5d3a91e7c64`). A looser parse would let
+    `.../deadbeef.json.bak` read as a pack.
+    """
+    if not key.startswith(PACK_OBJECT_PREFIX) or not key.endswith(_PACK_OBJECT_SUFFIX):
+        return None
+    body = key[len(PACK_OBJECT_PREFIX) : -len(_PACK_OBJECT_SUFFIX)]
+    parts = body.split("/")
+    if len(parts) != 3:
+        return None
+    raw_tenant, raw_agent, digest = parts
+    if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+        return None
+    try:
+        tenant_id = UUID(raw_tenant)
+        agent_id = UUID(raw_agent)
+    except ValueError:
+        return None
+    # `UUID("...")` accepts braces, urn: prefixes and stray hyphens, so a key that parses
+    # is not yet a key WE wrote. Round-tripping is the only check that proves it.
+    if pack_object_key(tenant_id, agent_id, digest) != key:
+        return None
+    return tenant_id, agent_id, digest

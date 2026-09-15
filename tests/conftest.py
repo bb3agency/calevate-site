@@ -596,6 +596,13 @@ class FakeS3:
 
     def __init__(self) -> None:
         self.objects: dict[str, bytes] = {}
+        #: When this store says each object was written. A REAL store reports
+        #: `LastModified` on every listed object and `workers/pack_gc.py` deletes on the
+        #: strength of it, so a fake that omitted it would let that sweep's grace period
+        #: pass every test by never being satisfied. Keys planted directly into `objects`
+        #: deliberately get NO entry here — "age unknown" is a state the collector has to
+        #: fail closed on, and it needs a way to be produced.
+        self.written_at: dict[str, datetime] = {}
         self.fail = False
 
     def _check(self) -> None:
@@ -607,6 +614,7 @@ class FakeS3:
     def put_object(self, *, Bucket: str, Key: str, Body: bytes, **_: Any) -> dict[str, Any]:
         self._check()
         self.objects[Key] = Body
+        self.written_at[Key] = datetime.now(UTC)
         return {}
 
     def get_object(self, *, Bucket: str, Key: str) -> dict[str, Any]:
@@ -619,6 +627,7 @@ class FakeS3:
         self._check()
         for item in Delete["Objects"]:
             self.objects.pop(item["Key"], None)
+            self.written_at.pop(item["Key"], None)
         return {}
 
     def get_paginator(self, name: str) -> Any:
@@ -628,9 +637,16 @@ class FakeS3:
             def paginate(self, *, Bucket: str, Prefix: str) -> Iterator[dict[str, Any]]:
                 store._check()
                 keys = sorted(key for key in store.objects if key.startswith(Prefix))
+
+                def _row(key: str) -> dict[str, Any]:
+                    stamp = store.written_at.get(key)
+                    # The field is ABSENT rather than null when unknown, which is what a
+                    # store that does not report it looks like on the wire.
+                    return {"Key": key} if stamp is None else {"Key": key, "LastModified": stamp}
+
                 # Two pages, so a caller that reads only the first is caught.
-                yield {"Contents": [{"Key": key} for key in keys[:1]]}
-                yield {"Contents": [{"Key": key} for key in keys[1:]]}
+                yield {"Contents": [_row(key) for key in keys[:1]]}
+                yield {"Contents": [_row(key) for key in keys[1:]]}
 
         return _Paginator()
 

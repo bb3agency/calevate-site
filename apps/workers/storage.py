@@ -28,6 +28,7 @@ import json
 import os
 import threading
 from collections.abc import Iterable, Sequence
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 from uuid import UUID
@@ -915,18 +916,43 @@ async def read_delivery_body(key: str) -> dict[str, Any] | None:
     return document if isinstance(document, dict) else None
 
 
-async def keys_under(prefix: str) -> list[str]:
-    """Every object under one prefix. RAISES on failure, deliberately.
+@dataclass(frozen=True, slots=True)
+class StoredObject:
+    """One object as the store reports it: its key and when the store says it was written.
 
-    The DPDP erasure calls this, and an erasure that treats "the store did not answer"
-    as "there was nothing there" writes a certificate claiming a deletion it did not
-    perform. Loud and retried beats quiet and false.
+    `last_modified` is the STORE's clock, not ours, and the one consumer that reads it
+    (`workers/pack_gc.py`) treats it as the age of an immutable object rather than as an
+    instant to compare against a database timestamp — see `PACK_GRACE_S` for why that
+    distinction is what makes clock skew a non-issue here.
 
-    Not delivery-body-specific, and its name no longer says so — the archived engine
-    payloads (D-126) are enumerated by their own `{tenant}/{call}` prefix through this
-    same function, exactly as `delete_objects` is already shared by every store in this
-    module. Two listings for one question is how the second one grows a different
-    failure contract.
+    `None` is possible and is NOT read as "new": a store that gives no timestamp is a
+    store we cannot age an object against, and every caller must fail closed on it
+    (`kb/orphans._too_new` takes the same position for the same reason).
+    """
+
+    key: str
+    last_modified: datetime | None
+
+
+async def objects_under(prefix: str) -> list[StoredObject]:
+    """Every object under one prefix, with its store-reported write time.
+
+    THE ONE LISTING IN THIS MODULE. `keys_under` below is a projection of this, not a
+    second implementation: the erasure needs keys and the pack collector needs keys and
+    ages, and two paginators would be two failure contracts for one question — which is
+    the drift this function's own docstring warned about before there was a second caller
+    to make it real.
+
+    RAISES on failure, deliberately. The DPDP erasure calls this (through `keys_under`),
+    and an erasure that treats "the store did not answer" as "there was nothing there"
+    writes a certificate claiming a deletion it did not perform. Loud and retried beats
+    quiet and false. The pack collector needs the identical contract for a different
+    reason: a listing it believes is complete and is not would report live packs as
+    unreferenced.
+
+    Not delivery-body-specific — the archived engine payloads (D-126) are enumerated by
+    their own `{tenant}/{call}` prefix through here too, exactly as `delete_objects` is
+    already shared by every store in this module.
 
     THE WHOLE PAGINATION RUNS IN ONE THREAD HOP, not one hop per page. `paginate` returns
     a lazy iterator that issues a request per `next()`, so awaiting page by page would put
@@ -935,17 +961,36 @@ async def keys_under(prefix: str) -> list[str]:
     yields.
     """
 
-    def _list() -> list[str]:
-        keys: list[str] = []
+    def _list() -> list[StoredObject]:
+        found: list[StoredObject] = []
         paginator = _client().get_paginator("list_objects_v2")
         for page in paginator.paginate(Bucket=get_settings().object_store_bucket, Prefix=prefix):
-            keys += [str(item["Key"]) for item in page.get("Contents", [])]
-        return keys
+            for item in page.get("Contents", []):
+                stamp = item.get("LastModified")
+                found.append(
+                    StoredObject(
+                        key=str(item["Key"]),
+                        # botocore returns an aware datetime; anything else is a stub or a
+                        # store that omitted the field, and both mean "age unknown".
+                        last_modified=stamp if isinstance(stamp, datetime) else None,
+                    )
+                )
+        return found
 
     try:
         return await asyncio.to_thread(_list)
     except (BotoCoreError, ClientError) as exc:
         raise StorageUnavailableError(f"object list failed: {type(exc).__name__}") from exc
+
+
+async def keys_under(prefix: str) -> list[str]:
+    """Every object key under one prefix. RAISES on failure — `objects_under`'s contract.
+
+    Kept as its own name because every erasure caller asks only "which keys", and making
+    each of them drop a field it does not use would put the projection in five places
+    instead of one.
+    """
+    return [obj.key for obj in await objects_under(prefix)]
 
 
 async def delete_objects(keys: Sequence[str]) -> int:
