@@ -149,9 +149,10 @@ async def test_a_running_pipeline_writes_its_call_and_its_turns_and_they_survive
     agent_rows = [row for row in rows if row[0] == "agent"]
     assert agent_rows, "the assistant aggregator's turn never reached the database"
     assert agent_rows[0][1] == _REPLY
-    # HARD RULE 5 on the live path: the default view is populated at write time, not left
-    # for a later pass. `NormalizedEventBoundary` hands the sink `text_redacted=None`
-    # (asserted in `voice_worker_pipeline_test`); the row must not carry that NULL.
+    # HARD RULE 5 on the live path: the column every content reader names is populated at
+    # write time, not left for a later pass that does not run for this engine.
+    # `NormalizedEventBoundary` hands the sink `text_redacted=None` (asserted in
+    # `voice_worker_pipeline_test`); the ROW must not carry that NULL.
     assert agent_rows[0][2] is not None
 
 

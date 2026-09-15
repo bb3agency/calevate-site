@@ -269,11 +269,29 @@ class DatabaseEventSink:
         **`text_redacted` IS FILLED HERE AND `NormalizedEventBoundary` LEAVES IT `None` —
         BOTH ARE CORRECT AND THE SPLIT IS THE POINT.** The boundary converts a vendor object
         into our model and does nothing else; redaction is a property of the ROW, not of the
-        event, and `COALESCE(text_redacted, text)` is how every reader in this repository
-        asks for the default view (`apps/workers/pipeline.py::_AGENT_TRANSCRIPT_SQL`,
-        hard rule 5). A row written with `text_redacted` NULL therefore serves RAW TEXT to
-        the dashboard for as long as it stays that way — which is why it is not written that
-        way here and left for a later pass to fix.
+        event.
+
+        **WHAT A NULL IN THAT COLUMN ACTUALLY COSTS, CHECKED RATHER THAN ASSUMED.** This
+        paragraph first said a NULL "serves RAW TEXT to the dashboard", on the strength of a
+        `COALESCE(text_redacted, text)` the author had seen and not opened. That is wrong in
+        the direction that matters, and the truth is worse for a different reason. Every
+        CONTENT reader in this repository names `text_redacted` and only `text_redacted` —
+        `apps/api/crm/assist.py::_TURNS_SQL` ("THE COLUMN IS `text_redacted` AND THE RAW ONE
+        IS NOT NAMED IN THIS FILE", `:270-279`) and `apps/workers/caller_memory_distil.py::
+        _TURNS_SQL`, which SKIPS a turn whose redaction has not landed and says why
+        (`:235-242`). The two places that do COALESCE ask for a `length()` and never a
+        character (`apps/workers/pipeline.py:3112-3128`,
+        `apps/api/billing/tts_speaking_rate.py:107`), so they engage no rule.
+
+        So a turn written with `text_redacted` NULL is not a leak — it is INVISIBLE. It does
+        not reach the client's transcript, the copilot or caller memory, and it stays
+        invisible: the pass that would fill it is `apps/workers/pipeline.py::
+        _persist_transcript`, which runs off the reconciliation poller, and
+        `PipecatEngine.executions()` returns nothing for an `owned_runtime` call today
+        (`apps/api/engine/pipecat.py:538-555`). Writing the column here is therefore what
+        makes the worker's turns exist for the product at all, and doing it with the
+        repository's one redactor is what keeps hard rule 5's promise about which column
+        that is.
         """
         self._check_identity(call_id=turn.call_id)
         # The one call. `RedactionResult.kinds` says WHAT was found and is loggable; the

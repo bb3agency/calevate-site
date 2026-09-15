@@ -168,9 +168,12 @@ async def test_a_call_event_and_its_turns_persist_under_the_calling_tenant() -> 
     idx, speaker, raw, redacted, lang, start_ms, end_ms = turns[0]
     assert (idx, speaker, lang, start_ms, end_ms) == (0, "caller", "te-IN", 0, 1500)
     assert raw == "my number is 9876543210"
-    # HARD RULE 5's whole point: `text_redacted` is what every reader gets by default, via
-    # `COALESCE(text_redacted, text)`. A NULL here would serve the raw number to the
-    # dashboard, which is why this asserts the value rather than that the column is set.
+    # HARD RULE 5: `text_redacted` is the column every CONTENT reader names — and names
+    # EXCLUSIVELY, skipping a turn that has none (`crm/assist.py::_TURNS_SQL`,
+    # `workers/caller_memory_distil.py::_TURNS_SQL`). A NULL here is therefore a turn that
+    # never reaches the client at all, and nothing downstream would fill it: the pass that
+    # would runs off a poller that returns nothing for this engine. So the VALUE is
+    # asserted, not merely that the column is set.
     assert redacted is not None
     assert "9876543210" not in redacted
     assert redacted != raw
