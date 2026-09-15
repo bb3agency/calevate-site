@@ -121,6 +121,7 @@ from apps.api.core.platform_config import (
 from apps.api.core.rbac import permission_meta
 from apps.api.core.settings import (
     ENV_ONLY_DISPLAY,
+    ENV_ONLY_FOREIGN_ENV,
     effective_env,
     env_declares,
     env_var_for,
@@ -290,7 +291,20 @@ class BootstrapKeyOut(BaseModel):
     #: Why it can never move into the store.
     reason: str
     #: True when this deployment's environment declares it. Presence, never the value.
+    #:
+    #: ⚠ ONLY MEANINGFUL WHEN `held_by` IS NULL — see that field.
     configured: bool
+    #: Which environment holds this variable, when it is NOT this deployment's (D-614).
+    #:
+    #: `None` for every key whose home is a host this deployment runs on, which is all six
+    #: bootstrap keys and `resend_api_key`. Non-null for the carrier pair, whose reader is
+    #: the voice worker's container on Pipecat Cloud — so `configured: false` there is the
+    #: CORRECT and permanent state on this host, and a console that rendered it as a fault
+    #: would be telling an operator to install a live carrier credential on a box with no
+    #: reader for it. The console renders this INSTEAD of a configured/not-configured
+    #: verdict rather than beside one: two answers to "is this set up?" on one row is the
+    #: screen contradicting itself.
+    held_by: str | None = None
 
 
 class ConfigOut(BaseModel):
@@ -496,6 +510,7 @@ async def read_config(session: GlobalSession, _: ConfigOperator) -> ConfigOut:
                 env_var=env_var_for(key),
                 reason=reason,
                 configured=env_declares(key, environ),
+                held_by=ENV_ONLY_FOREIGN_ENV.get(key),
             )
             for key, reason in sorted(ENV_ONLY_DISPLAY.items())
         ],

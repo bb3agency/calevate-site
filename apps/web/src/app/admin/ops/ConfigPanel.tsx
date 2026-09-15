@@ -626,10 +626,83 @@ export function ConfigPanel({ access }: { access: { allowed: boolean; reason: st
                 </ul>
               </section>
             ))}
+            <EnvOnlyKeys keys={state.config.bootstrap} />
           </>
         )}
       </div>
     </Card>
+  );
+}
+
+/**
+ * The keys this console can NEVER change, with the reason — `GET /v1/ops/config`'s
+ * `bootstrap` list, rendered for the first time (D-614).
+ *
+ * ## Why an absence had to become a sentence
+ *
+ * The API has published this list since the env-only categories existed, and nothing in
+ * the web console read it. So the surface built precisely to stop "an operator looking for
+ * `APP_ENV` found nothing at all, which reads identically to *this build does not have
+ * that setting*" (`ops/config_routes.BootstrapKeyOut`) went on rendering exactly that
+ * nothing. A payload nobody displays is the same defect as a field nobody wrote.
+ *
+ * ## Two rows that look alike and are not
+ *
+ * `configured` is `env_declares` on the host that answered. For `APP_ENV` or
+ * `PLATFORM_KEK` that is a real verdict: the variable belongs in this deployment's
+ * environment, so its absence is a fault. For a key carrying `held_by` it is not a verdict
+ * at all — `PLIVO_AUTH_ID` belongs in the voice worker's Pipecat Cloud secret set, and a
+ * VPS declaring it would be a VPS holding a live carrier credential with no reader. So a
+ * `held_by` row renders WHERE the value lives and no verdict, rather than a red badge an
+ * operator would "fix" by putting the credential in the wrong place. One row, one answer.
+ *
+ * NO VALUES, EVER — the API sends none (two of these keys open the credential store), and
+ * there is nothing on this row for one to be rendered into.
+ */
+function EnvOnlyKeys({ keys }: { keys: ConfigList["bootstrap"] }) {
+  if (keys.length === 0) return null;
+  return (
+    <section className="space-y-2">
+      <div>
+        <h3 className="text-sm font-semibold text-ink">Set outside this console</h3>
+        <p className="text-xs text-ink-faint">
+          Real settings this deployment uses that can never be stored here. Each row says
+          why, and where the value goes instead. Values are never shown.
+        </p>
+      </div>
+      <ul className="space-y-2">
+        {keys.map((entry) => (
+          <li
+            key={entry.key}
+            className="rounded-card border border-line bg-surface-muted px-3 py-2"
+          >
+            <div className="flex flex-wrap items-center gap-2">
+              <Lock aria-hidden className="h-4 w-4 text-ink-faint" />
+              <span className="text-sm font-medium text-ink">{settingLabel(entry.key)}</span>
+              <MonoValue>{entry.env_var}</MonoValue>
+              {entry.held_by ? (
+                <span className="text-xs text-ink-muted">
+                  Held by {entry.held_by} — not by this deployment.
+                </span>
+              ) : entry.configured ? (
+                <span className="inline-flex items-center gap-1 text-xs text-ink-muted">
+                  <CheckCircle2 aria-hidden className="h-3.5 w-3.5" />
+                  Set in this deployment&apos;s environment
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 text-xs text-amber-800 dark:text-amber-300">
+                  <TriangleAlert aria-hidden className="h-3.5 w-3.5" />
+                  Not set in this deployment&apos;s environment
+                </span>
+              )}
+            </div>
+            <p className="mt-1 text-xs text-ink-muted">
+              Cannot be set here because {entry.reason}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

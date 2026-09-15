@@ -1144,6 +1144,61 @@ describe("a write the server did not perform", () => {
   });
 });
 
+describe("the keys this console can never change", () => {
+  // D-614. The API has published `bootstrap` since D-101 and the console rendered NONE of
+  // it, so the surface built to stop "an operator looking for APP_ENV found nothing at
+  // all" produced exactly that nothing. These two rows look alike and mean opposite
+  // things, which is the whole reason the section needed a test rather than a glance.
+  const envOnly = () =>
+    configList([configField()], {
+      bootstrap: [
+        {
+          key: "app_env",
+          env_var: "APP_ENV",
+          reason: "it decides whether dev tokens are accepted.",
+          configured: false,
+          held_by: null,
+        },
+        {
+          key: "plivo_auth_id",
+          env_var: "PLIVO_AUTH_ID",
+          reason:
+            "the carrier credential is read by the voice worker's own telephony serializer.",
+          configured: false,
+          held_by: "the Pipecat Cloud secret set for `calevate-voice-worker`",
+        },
+      ],
+    });
+
+  it("names each key, its variable and why it cannot be set here", async () => {
+    const { container } = renderOps(opsRoutes({ [OPS_CONFIG_PATH]: envOnly() }));
+
+    await screen.findByText("Set outside this console");
+    expect(container.textContent).toContain("APP_ENV");
+    expect(container.textContent).toContain("PLIVO_AUTH_ID");
+    expect(container.textContent).toContain(
+      "it decides whether dev tokens are accepted.",
+    );
+    // No form, ever: the API refuses the write and a box here would be the field that
+    // silently does nothing.
+    expect(screen.queryByLabelText(/New value/)).toBeNull();
+  });
+
+  it("calls an unset key a fault only when this deployment is the one that holds it", async () => {
+    const { container } = renderOps(opsRoutes({ [OPS_CONFIG_PATH]: envOnly() }));
+
+    await screen.findByText("Set outside this console");
+    // `APP_ENV` belongs here and is missing — a real fault, said once.
+    expectTextCount(container, "Not set in this deployment's environment", 1);
+    // `PLIVO_AUTH_ID` is missing for the correct reason: it belongs in a vendor's secret
+    // set, and a VPS declaring it would be a VPS holding a live carrier credential with
+    // no reader. It gets the location, not a verdict.
+    expect(container.textContent).toContain(
+      "Held by the Pipecat Cloud secret set for `calevate-voice-worker`",
+    );
+  });
+});
+
 describe("a key the environment pins", () => {
   it("offers no form, states the reason, and survives the value moving underneath", async () => {
     const pinned = (value: string) =>

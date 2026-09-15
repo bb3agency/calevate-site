@@ -122,30 +122,31 @@ DRILL_ENV_KEYS: dict[str, str] = {
 # `/var/www/calevate/.env`, and it does not construct `Settings` at all — that type demands
 # `APP_ENV`, `REDIS_URL` and the rest of `BOOTSTRAP_REQUIRED`, none of which exist in that
 # container (`voice_worker/boot.py` carries the full argument). So the two directions this
-# file usually enforces both point the wrong way for these four: a `Settings` field would
-# be one no process reads, and a line in `.env.example` would tell an operator to put a
-# value somewhere it is never looked for.
+# file usually enforces both point the wrong way for the two below: a `Settings` field
+# would be one no process reads and no operator could act on, and a line in `.env.example`
+# would tell an operator to put a value somewhere it is never looked for. (A CREDENTIAL is
+# the case where that reasoning stops — see the carrier note below the next paragraph.)
 #
 # WHAT REPLACES THE FAIL-FAST PROPERTY, because it genuinely still applies:
 # `voice_worker.boot.load_worker_config` refuses to start the container and names every
 # missing variable at once — which is strictly earlier than `Settings` would fail, since it
-# runs before any call is admitted. The three keys below that the worker ALSO needs and
-# that ARE `Settings` fields (`DATABASE_URL`, `OBJECT_STORE_*`, `SARVAM_API_KEY`,
-# `CARTESIA_API_KEY`, the three LLM credentials) are deliberately spelled the same in both
+# runs before any call is admitted. The keys the worker ALSO needs that ARE `Settings`
+# fields (`DATABASE_URL`, `OBJECT_STORE_*`, `SARVAM_API_KEY`, `CARTESIA_API_KEY`, the three
+# LLM credentials, and now the carrier pair) are deliberately spelled the same in both
 # places and so need no entry here: one value, one name, two homes.
+# ⚠ `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` USED TO BE THE FIRST TWO ENTRIES HERE AND ARE
+# NOW `Settings` FIELDS (D-614). Nothing about their READER changed — Pipecat's own
+# serializer still reads them out of that container's process environment, and no VPS
+# process reads them at all — but "not a Settings field" was answering a question nobody
+# asked. What made them undiscoverable was that they were in no REGISTER: `Settings` is
+# what `env_var_for`, `env_declares`, `ENV_ONLY_DISPLAY` and `GET /v1/ops/config`'s
+# env-only panel are all derived from, so a credential outside it has no row anywhere an
+# operator looks. They are declared there now, classified `ENV_ONLY` with their own reason
+# (`core/settings.ENV_ONLY_REASONS`) so the console shows them and refuses to store them,
+# and tagged in `ENV_ONLY_FOREIGN_ENV` so their absence from THIS host renders as the
+# correct state rather than as a fault. The other two entries below stay: neither is a
+# credential and neither has a second home.
 CONTAINER_ENV_KEYS: dict[str, str] = {
-    "PLIVO_AUTH_ID": (
-        "apps/voice-worker/voice_worker/boot.py — read by PIPECAT, not by us: "
-        "`runner.utils._create_telephony_transport` builds `PlivoFrameSerializer("
-        'auth_id=os.getenv("PLIVO_AUTH_ID", ""), ...)`. The worker checks it at boot '
-        "because the serializer raises only at the first SESSION, and without it the "
-        "EndFrame hang-up (DELETE /v1/Account/{auth_id}/Call/{call_id}/) cannot run — a "
-        "leg nobody hung up is a leg the carrier goes on billing."
-    ),
-    "PLIVO_AUTH_TOKEN": (
-        "The other half of the pair above, with the same owner, the same reader and the "
-        "same consequence."
-    ),
     "VOICE_WORKER_DRAIN_GRACE_SECONDS": (
         "apps/voice-worker/voice_worker/boot.py — how long a container being replaced may "
         "spend settling the call it is carrying. A variable rather than a constant because "
