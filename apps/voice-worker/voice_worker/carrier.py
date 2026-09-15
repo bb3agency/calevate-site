@@ -25,7 +25,7 @@ the shipped client of that protocol, read in this session at
   encoding — `serializers/plivo.py:139-163`, `:224-254`;
 * the handshake: a `start` message carrying `start.streamId` and `start.callId`, which is
   also how the runner DETECTS Plivo — `runner/utils.py:89-96`, `:257-262`;
-* the answer document a carrier is served — `runner/run.py:1435-1438`;
+* the stream URL's shape, a path segment — `runner/run.py:1410-1414`;
 * the hangup, the ONE Plivo REST endpoint in the whole tree —
   `serializers/plivo.py:184`.
 
@@ -37,12 +37,24 @@ the shipped client of that protocol, read in this session at
    `None` for Plivo (`runner/utils.py:250-262`) — so this module does NOT route a call by
    the number that was dialled. See `route_of` for what it routes on instead, which is a
    design that does not need the answer.
-2. **Whether Plivo's answer XML accepts any attribute beyond the four Pipecat's own
-   template sets.** `plivo_answer_document` emits exactly that template's attributes and
-   no others.
+2. **Whether Plivo signs the HTTP request that fetches the answer document.** That leg
+   is not here — see the next section — and nothing in the installed Pipecat tree
+   verifies a Plivo request signature.
 3. **Every carrier REST call except the hangup** — placing a call, listing a CDR, binding a
    number. `apps/api/engine/pipecat.py` refuses each by name for this reason and this
    module adds no second guess; see `OUTBOUND_DIAL_UNKNOWN` below.
+
+WHERE THE ANSWER DOCUMENT WENT (D-610)
+======================================
+`plivo_answer_document`, `ANSWER_DOCUMENT_CONTENT_TYPE` and `plivo_stream_url` used to
+live in this module, beside the transport that consumes their result, and this docstring
+already admitted the problem: *"WHO SERVES IT IS NOT THIS PROCESS … this container has no
+HTTP server"*. They are now in `apps/voice-runtime/carrier_routes.py`, which is the
+process that really serves them and which cannot import this module (it drags
+`pipecat-ai`, ONNX turn detection and three vendor SDKs, and hard rule 3 forbids heavy
+imports there BY NAME). MOVED rather than copied: two renderers of one wire format is the
+"one way per problem" defect even while both agree. This module keeps the half that runs
+inside the call — the handshake, the transport, `route_of` and `start_carrier_call`.
 
 HARD RULE 5 IS NOT ENFORCED HERE, AND THAT IS DELIBERATE
 ========================================================
@@ -64,11 +76,9 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import Any, Final
-from urllib.parse import quote
 from uuid import UUID
-from xml.etree.ElementTree import Element, tostring
 
-from calevate_shared.engine import EngineAgentRef, parse_owned_runtime_agent_ref
+from calevate_shared.engine import parse_owned_runtime_agent_ref
 from calevate_shared.events import CallDirection
 from loguru import logger
 from pipecat.runner.utils import parse_telephony_websocket
@@ -230,9 +240,9 @@ def route_of(token: str) -> CallRoute:
     ids (`calevate_shared.engine.owned_runtime_agent_ref`), it is minted by our own control
     plane on publish, and putting it in the stream URL is the shape Pipecat's own runner
     recommends for telephony ("URL path segment: `/ws/<token>`", `runner/run.py:1414`).
-    `plivo_answer_document` is what puts it there, and the number → agent decision is then
-    made where a tenant session exists — on the screen that binds the number — rather than
-    on the call.
+    `carrier_routes.plivo_stream_url` in the voice-runtime is what puts it there, and the
+    number → agent decision is then made where a tenant session exists — on the screen
+    that binds the number — rather than on the call.
 
     **THE TOKEN IS NEVER ECHOED INTO THE REFUSAL.** It is attacker-controlled (anything can
     connect to a WebSocket URL), and a message that quoted it would put an arbitrary string
@@ -246,63 +256,6 @@ def route_of(token: str) -> CallRoute:
         )
     tenant_id, agent_id = parsed
     return CallRoute(tenant_id=tenant_id, agent_id=agent_id)
-
-
-def plivo_stream_url(base_wss_url: str, ref: EngineAgentRef) -> str:
-    """The URL to hand the carrier for one agent: the base, then the route as a path segment.
-
-    `quote` with no safe characters, because the ref contains colons and a carrier that
-    normalised them would hand us back a token `route_of` cannot parse. `%3A` round-trips
-    through every ASGI server in this tree.
-
-    A PATH SEGMENT rather than a query parameter or a header: Pipecat's own runner calls
-    that the recommended form for telephony providers (`runner/run.py:1410-1414`), and a
-    provider that drops a query string on a redirect is a failure with no error.
-    """
-    return f"{base_wss_url.rstrip('/')}/{quote(ref, safe='')}"
-
-
-def plivo_answer_document(stream_url: str) -> str:
-    """The XML a carrier is served when a call arrives, as one string.
-
-    **THE SHAPE IS PIPECAT'S OWN TEMPLATE, NOT A GUESS** (`runner/run.py:1435-1438`):
-
-        <Response><Stream bidirectional="true" keepCallAlive="true"
-                          contentType="audio/x-mulaw;rate=8000">wss://.../ws</Stream></Response>
-
-    Every attribute is copied from there and none is added. What each one MEANS is Plivo's
-    documentation to state and that host is egress-blocked here, so this function is a
-    renderer of a verified template rather than a claim about the vendor's grammar.
-
-    **BUILT WITH AN XML SERIALIZER RATHER THAN AN f-STRING.** The URL carries a `%`-encoded
-    ref and, one day, whatever a caller's number turns into; an f-string would put an
-    unescaped `&` straight into a document a carrier must parse. This is a wire value, and
-    hand-rolling the escaping of one is the class of defect the quality bar names.
-
-    ⚠ WHO SERVES IT IS NOT THIS PROCESS. The carrier fetches this document over HTTP before
-    any WebSocket exists, and this container has no HTTP server (`apps/voice-worker`'s
-    `pyproject.toml`: "it needs a database client and not an HTTP server"). It is rendered
-    here because the grammar belongs beside the transport that consumes its result; the
-    route that returns it is `apps/voice-runtime`'s to mount when the account lands, and
-    `content_type` below is what it must serve it as.
-    """
-    stream = Element(
-        "Stream",
-        {
-            "bidirectional": "true",
-            "keepCallAlive": "true",
-            "contentType": f"audio/x-mulaw;rate={TELEPHONY_SAMPLE_RATE_HZ}",
-        },
-    )
-    stream.text = stream_url
-    response = Element("Response")
-    response.append(stream)
-    return '<?xml version="1.0" encoding="UTF-8"?>\n' + tostring(response, encoding="unicode")
-
-
-#: What `plivo_answer_document` must be served as. Pipecat's runner answers its own
-#: template with `media_type="application/xml"` (`runner/run.py:1456`).
-ANSWER_DOCUMENT_CONTENT_TYPE: Final = "application/xml"
 
 
 def build_plivo_transport(
@@ -487,7 +440,6 @@ def place_outbound_call(*_args: Any, **_kwargs: Any) -> AssembledCall:
 
 
 __all__ = [
-    "ANSWER_DOCUMENT_CONTENT_TYPE",
     "CLIENT_CONNECTED_EVENT",
     "OUTBOUND_DIAL_UNKNOWN",
     "PLIVO_TRANSPORT_TYPE",
@@ -501,8 +453,6 @@ __all__ = [
     "arm_first_turn",
     "build_plivo_transport",
     "place_outbound_call",
-    "plivo_answer_document",
-    "plivo_stream_url",
     "read_plivo_handshake",
     "route_of",
     "start_carrier_call",

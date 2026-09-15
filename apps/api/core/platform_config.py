@@ -666,6 +666,12 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # (`compliance/caller_data_routes._authorized`) — nothing captures it at boot, so a
     # rotation is in force on the next inbound call.
     "bolna_caller_data_token": AppliesRule(LIVE),
+    # Read per request inside the handler, from the settings snapshot
+    # (`apps/voice-runtime/carrier_routes._stream_base_url`) — nothing captures it at boot,
+    # so an operator who points a redeployed worker somewhere new is in force on the next
+    # call the carrier fetches an answer document for, with no restart of the
+    # latency-critical service.
+    "pipecat_stream_base_url": AppliesRule(LIVE),
     "sarvam_api_key": AppliesRule(LIVE),  # workers/extraction.get_extractor(), per job
     # ⚠ THIS COMMENT SAID "nothing sends it anywhere" AND THAT HAS BEEN FALSE SINCE D-456.
     # It described the state D-127/D-410 left — the AI Studio Developer API disqualified,

@@ -8,8 +8,10 @@ first to make:
 1. **Every Plivo-shaped fact we build on is read back out of the installed
    `pipecat-ai==1.10.0` tree rather than restated.** `www.plivo.com` is egress-blocked from
    this container, so Pipecat's source is the only primary source available (hard rule 11);
-   a dependency bump that moves the envelope, the encoding or the answer document fails
-   HERE, where somebody is looking, instead of on a live call.
+   a dependency bump that moves the envelope or the encoding fails HERE, where somebody
+   is looking, instead of on a live call. (The ANSWER DOCUMENT's own template is asserted
+   the same way one deployable over, in `tests/voice_runtime_carrier_answer_test.py`,
+   because D-610 moved the renderer to the process that serves it.)
 2. **The inbound path runs end to end** — a route token off a stream URL, a real database
    read under a real RLS policy, the published config version, the agent's knowledge, an
    assembled pipeline, and the agent speaking first — against a fake transport with no
@@ -29,14 +31,12 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-import re
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, ClassVar, cast
-from urllib.parse import unquote, urlparse
-from xml.etree.ElementTree import fromstring
+from urllib.parse import quote
 
 import pytest
 from apps.api.db.session import tenant_session
@@ -100,39 +100,6 @@ def _pipecat_source(relative: str) -> str:
 # --------------------------------------------------------------------------------------
 # 1. The Plivo facts, each against the installed source that gave it to us.
 # --------------------------------------------------------------------------------------
-
-
-def test_the_answer_document_is_pipecats_own_template_and_not_our_reading_of_it() -> None:
-    """`plivo_answer_document` must render exactly the element the shipped runner renders.
-
-    The template is extracted from `pipecat/runner/run.py` and parsed, rather than copied
-    into this file — a copy would assert that we still agree with ourselves. What is
-    compared is the tag and the full attribute set, because the ATTRIBUTES are the part we
-    could not verify any other way (Plivo's own grammar is egress-blocked here).
-    """
-    source = _pipecat_source("runner/run.py")
-    match = re.search(r"<Response>\s*(<Stream [^>]*>)[^<]*</Stream>\s*</Response>", source)
-    assert match, "pipecat no longer ships a Plivo answer template at the shape we read"
-    theirs = fromstring(match.group(1) + "</Stream>")
-
-    ours = fromstring(carrier.plivo_answer_document("wss://voice.example.invalid/ws/token"))
-
-    assert ours.tag == "Response"
-    (stream,) = list(ours)
-    assert stream.tag == theirs.tag == "Stream"
-    assert stream.attrib == theirs.attrib
-    assert stream.text == "wss://voice.example.invalid/ws/token"
-    assert carrier.ANSWER_DOCUMENT_CONTENT_TYPE == "application/xml"
-
-
-def test_the_answer_document_escapes_a_url_rather_than_concatenating_it() -> None:
-    """A wire value with an `&` in it must not break the document a carrier parses."""
-    url = "wss://voice.example.invalid/ws/a?x=1&y=2"
-    document = carrier.plivo_answer_document(url)
-
-    assert "&amp;" in document
-    (stream,) = list(fromstring(document))
-    assert stream.text == url
 
 
 async def test_the_handshake_fields_are_the_ones_pipecat_parses_for_plivo() -> None:
@@ -269,13 +236,16 @@ def test_no_outbound_dial_is_invented_and_the_refusal_says_why() -> None:
 # --------------------------------------------------------------------------------------
 
 
-def test_a_stream_url_round_trips_to_the_agent_it_names() -> None:
-    """Mint -> URL -> the path segment a carrier connects back to -> the same two ids."""
-    tenant_id, agent_id = uuid.uuid4(), uuid.uuid4()
-    ref = owned_runtime_agent_ref(str(tenant_id), str(agent_id))
+def test_an_agent_ref_is_the_token_a_carrier_connects_back_with() -> None:
+    """Mint -> the path segment a carrier connects back to -> the same two ids.
 
-    url = carrier.plivo_stream_url("wss://voice.example.invalid/ws", ref)
-    token = unquote(urlparse(url).path.rsplit("/", 1)[-1])
+    The URL-BUILDING half of this round trip is in the voice-runtime now (D-610:
+    `carrier_routes.plivo_stream_url`, whose own test closes the loop across both
+    deployables). What this asserts is the half that lives here: the token this worker
+    reads off a socket resolves to the agent the control plane minted it for.
+    """
+    tenant_id, agent_id = uuid.uuid4(), uuid.uuid4()
+    token = owned_runtime_agent_ref(str(tenant_id), str(agent_id))
 
     assert carrier.route_of(token) == carrier.CallRoute(tenant_id=tenant_id, agent_id=agent_id)
 
@@ -402,11 +372,7 @@ async def test_a_call_arrives_and_the_agent_is_loaded_assembled_and_speaks_first
 
     call = await carrier.start_carrier_call(
         tenant_connection,
-        token=unquote(
-            urlparse(carrier.plivo_stream_url("wss://voice.example.invalid/ws", ref)).path.rsplit(
-                "/", 1
-            )[-1]
-        ),
+        token=ref,
         call_id="call-carrier-1",
         direction="inbound",
         transport=transport,
@@ -642,3 +608,69 @@ async def test_the_transport_is_built_from_the_handshake_and_the_carrier_secrets
     assert params.audio_in_sample_rate == carrier.TELEPHONY_SAMPLE_RATE_HZ
     assert params.audio_out_sample_rate == carrier.TELEPHONY_SAMPLE_RATE_HZ
     assert carrier.CLIENT_CONNECTED_EVENT in transport._event_handlers
+
+
+# --------------------------------------------------------------------------------------
+# 5. The container entrypoint's half of the route (D-610).
+#
+# `bot.py` IS the socket entrypoint — Pipecat Cloud terminates the WebSocket and calls
+# `bot(runner_args)` — so what step 6 was missing there was never a second entrypoint, it
+# was the ROUTE. These drive `resolve_call_identity` directly, because the thing worth
+# asserting is that it reads the ref off the URL and refuses rather than falling back to
+# anything about the dialled number.
+# --------------------------------------------------------------------------------------
+
+
+@dataclass
+class _RunnerArgsWithPath:
+    """Enough of `WebSocketRunnerArguments` to carry a URL path (`runner/types.py:205`)."""
+
+    websocket: Any
+
+
+@dataclass
+class _UrlSaying:
+    path: str
+
+
+class _SocketAt:
+    def __init__(self, path: str) -> None:
+        self.url = _UrlSaying(path=path)
+
+
+async def test_the_entrypoint_routes_a_call_by_the_ref_in_the_sockets_url() -> None:
+    """The other half of the answer document: the ref goes out in a URL and comes back."""
+    import bot
+
+    tenant_id, agent_id = uuid.uuid4(), uuid.uuid4()
+    ref = owned_runtime_agent_ref(str(tenant_id), str(agent_id))
+    args = _RunnerArgsWithPath(websocket=_SocketAt(f"/ws/{quote(ref, safe='')}"))
+
+    call_id, routed_tenant, routed_agent, direction = await bot.resolve_call_identity(
+        cast(Any, args)
+    )
+
+    assert (routed_tenant, routed_agent) == (tenant_id, agent_id)
+    assert direction == "inbound"
+    # OURS, not the carrier's (§1.2): a uuid this process minted, not an id off the wire.
+    assert uuid.UUID(call_id).version == 7
+
+
+@pytest.mark.parametrize(
+    "websocket",
+    [None, _SocketAt("/ws"), _SocketAt("/ws/not-a-token")],
+    ids=["no-socket", "no-segment", "unparseable"],
+)
+async def test_the_entrypoint_refuses_rather_than_guessing_whose_call_it_is(
+    websocket: Any,
+) -> None:
+    """No socket, no path segment, or a segment naming no agent: all refuse.
+
+    The refusal is the SAFE direction of being wrong about the one UNKNOWN on this leg
+    (whether Pipecat Cloud preserves the socket's URL path). An agent picked by a guess
+    would run one client's prompt on another client's caller.
+    """
+    import bot
+
+    with pytest.raises(carrier.UnroutableCallError):
+        await bot.resolve_call_identity(cast(Any, _RunnerArgsWithPath(websocket=websocket)))

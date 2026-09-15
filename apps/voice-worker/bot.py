@@ -23,13 +23,21 @@ runtime, admission control, the readiness state, and the shutdown that settles o
 every in-flight leg. Not complete, each as a NAMED refusal rather than a silent hole:
 
   * the normalized event writer (`boot.build_event_sink`) — §6 step 11's next wave;
-  * turning a ringing number into a tenant, an agent and OUR `call_id`
-    (`resolve_call_identity`) — §6 step 6, gated on the Plivo account (BLOCKER-1).
+  * the normalized event writer (`boot.build_event_sink`) — §6 step 11's next wave.
 
-So this container refuses to serve a call today, loudly, at the first thing it cannot do.
-That is deliberate: the alternative shapes — a sink that discards, an identity invented
-from the dialed number — both produce a container that answers the phone and lies about
-what happened on it.
+**`resolve_call_identity` IS NOW BUILT (D-610)** and it is the second half of one design:
+the answer document `apps/voice-runtime/carrier_routes.py` serves puts the agent ref in
+the stream URL's path, and this reads it back off the socket the carrier connected to.
+The route is the URL and NEVER the dialled number (D-603, hard rule 1) — resolving a
+number before its tenant is known would be a cross-tenant read, and Pipecat's Plivo parser
+leaves `from`/`to` `None` anyway. What still waits on the Plivo account (BLOCKER-1) is
+configuration: the carrier credentials `create_transport` reads, a number, and
+`PIPECAT_STREAM_BASE_URL`.
+
+So this container still refuses to serve a call it cannot record, loudly, at the first
+thing it cannot do. That is deliberate: the alternative shapes — a sink that discards, an
+identity invented from the dialed number — both produce a container that answers the phone
+and lies about what happened on it.
 """
 
 from __future__ import annotations
@@ -38,6 +46,7 @@ import asyncio
 import sys
 from collections.abc import Callable
 from typing import Any, Final
+from urllib.parse import unquote
 from uuid import UUID
 
 from calevate_shared.events import CallDirection
@@ -47,6 +56,7 @@ from pipecat.runner.utils import create_transport
 from pipecat.transports.base_transport import TransportParams
 from pipecat.transports.websocket.fastapi import FastAPIWebsocketParams
 from pipecat.workers.runner import WorkerRunner
+from uuid_utils.compat import uuid7
 from voice_worker.boot import (
     WorkerConfig,
     WorkerRuntime,
@@ -55,6 +65,7 @@ from voice_worker.boot import (
     open_runtime,
     tenant_connection,
 )
+from voice_worker.carrier import UnroutableCallError, arm_first_turn, route_of
 from voice_worker.config import load_session_config
 from voice_worker.lifecycle import ReadinessFile, SessionRegistry, ShutdownSignal
 from voice_worker.session import open_session
@@ -81,18 +92,17 @@ _runtime_lock: asyncio.Lock | None = None
 _drain_task: asyncio.Task[None] | None = None
 
 
-class CallRoutingNotBuiltError(RuntimeError):
-    """We cannot say whose call this is, so we will not answer it.
-
-    The Plivo handshake gives us the carrier's identifiers and the two numbers
-    (`CallData.call_id`, `.to_number`, `.from_number`); it cannot give us a tenant, an
-    agent or OUR `call_id`, which §1.2 makes ours precisely so the CDR is reconciled
-    AGAINST it rather than being its source. The lookup that turns a dialed number into
-    those three is §6 step 6 and is gated on the Plivo account (BLOCKER-1).
-
-    Refusing is the only safe branch: an agent picked by a guess would run one client's
-    prompt on another client's caller, which is the failure hard rule 1 exists for.
-    """
+#: The direction of every call this entrypoint can serve today.
+#:
+#: A CONSTANT RATHER THAN SOMETHING READ OFF THE WIRE, and it is honest rather than lazy:
+#: the only way a media stream reaches this process is a carrier answering a ringing
+#: number, because the request that PLACES a call is UNKNOWN here and refuses by name
+#: (`carrier.OUTBOUND_DIAL_UNKNOWN`). Nothing on the Plivo handshake distinguishes the two
+#: directions either (`runner/utils.py:257-262` maps two fields and neither is one), so a
+#: value "read" from the wire would be this constant wearing a lookup. When the dial is
+#: written it will carry its own direction into the session, exactly as
+#: `carrier.start_carrier_call` already takes one.
+INBOUND: Final[CallDirection] = "inbound"
 
 
 async def container(config: WorkerConfig | None = None) -> tuple[WorkerRuntime, SessionRegistry]:
@@ -142,15 +152,58 @@ async def _drain_on_signal() -> None:
     logger.info("voice worker drained", settled=report.settled, cut=len(report.cut))
 
 
+def _route_token(runner_args: RunnerArguments) -> str:
+    """The last path segment of the URL the carrier connected to, or a refusal.
+
+    **THE TOKEN IS IN THE URL BECAUSE WE PUT IT THERE.** `apps/voice-runtime/
+    carrier_routes.py` mints the stream URL with the agent ref as a path segment — the
+    form Pipecat's own runner recommends for telephony providers
+    (`runner/run.py:1410-1414`), and the one its own `/ws/{token}` route reads
+    (`:1480-1483`) — so reading it back here is the other half of one design, not a guess
+    about a vendor field.
+
+    ⚠ **UNKNOWN: whether Pipecat Cloud preserves the PATH of the socket it terminates.**
+    `docs.pipecat.ai` is egress-blocked from this container, and the platform hands the bot
+    a `WebSocketRunnerArguments` with nothing but the socket (`runner/run.py:538`). If the
+    path is rewritten, THIS REFUSES — loudly, with a sentence naming the unknown — and no
+    call is answered by a guessed agent. That is the safe direction of being wrong, and it
+    is the reason no fallback to `call_data.to_number` exists: hard rule 1 (D-603) forbids
+    resolving a number before its tenant is known, so the fallback would be the failure.
+    """
+    websocket = getattr(runner_args, "websocket", None)
+    if websocket is None:
+        raise UnroutableCallError(
+            "this session carries no WebSocket, so there is no stream URL to read an "
+            "agent ref from (docs/PIPECAT-MIGRATION.md §6 step 6)"
+        )
+    path = str(getattr(getattr(websocket, "url", None), "path", "") or "")
+    token = unquote(path.rsplit("/", 1)[-1])
+    if not token:
+        raise UnroutableCallError(
+            "the carrier connected to a stream URL with no path segment, so it names no "
+            "agent (UNKNOWN: whether Pipecat Cloud preserves the socket's URL path)"
+        )
+    return token
+
+
 async def resolve_call_identity(
     runner_args: RunnerArguments,
 ) -> tuple[str, UUID, UUID, CallDirection]:
-    """(our call_id, tenant, agent, direction) for the session on the wire. Not built."""
-    raise CallRoutingNotBuiltError(
-        "no route from a dialed number to a tenant and an agent exists yet "
-        "(docs/PIPECAT-MIGRATION.md §6 step 6, BLOCKER-1: a Plivo account in the India "
-        f"data region). Session {runner_args.session_id!r} refused."
-    )
+    """(our call_id, tenant, agent, direction) for the session on the wire.
+
+    **OUR `call_id` IS MINTED HERE AND READ FROM NOWHERE** (§1.2). The carrier's CDR is
+    the authority on the FACTS of a call and our worker on its CONTENT, and the
+    reconciliation only works if the two ids are independent: an id taken from the
+    carrier's handshake would make our record a copy of theirs rather than a second
+    witness. `uuid7` so the id sorts by time, which is what every other id in this tree
+    does (`sink.py` mints the call ref from it).
+
+    `async` although nothing here awaits: this is the seam a future outbound path enters
+    through, and a caller that has already written `await` does not have to be edited when
+    it does. Changing it back would be a change to `bot()` for no behaviour.
+    """
+    route = route_of(_route_token(runner_args))
+    return str(uuid7()), route.tenant_id, route.agent_id, INBOUND
 
 
 async def bot(runner_args: RunnerArguments) -> None:
@@ -184,6 +237,13 @@ async def bot(runner_args: RunnerArguments) -> None:
         fetcher=runtime.fetcher,
         embedder=runtime.embedder,
     )
+
+    # THE AGENT SPEAKS FIRST, OR WE REFUSE TO PRETEND IT WILL (D-163, and
+    # `carrier.CarrierWiringError` for why this raises). `assemble_call` deliberately does
+    # not register the greeting — a fake transport has no connect event — so the
+    # ENTRYPOINT does it, and this is the entrypoint. Without it a caller hears a click
+    # and then nothing, on every call, with a green deploy.
+    arm_first_turn(transport, call, call_id=call_id)
 
     registry.admit(call_id, call)
     try:
