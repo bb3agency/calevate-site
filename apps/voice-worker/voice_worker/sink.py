@@ -59,6 +59,7 @@ from typing import Final
 from uuid import UUID
 
 from apps.workers.redaction import redact
+from calevate_shared.engine import pipecat_call_ref
 from calevate_shared.events import (
     TERMINAL_STATUSES,
     CallDirection,
@@ -81,6 +82,8 @@ from uuid_utils.compat import uuid7
 
 from voice_worker.db import WorkerDatabase
 from voice_worker.meter import CallMeter, CarrierCdr, LegNotMeterableError, RuntimeUsage, UsageRow
+from voice_worker.outbox import enqueue_outbox_once
+from voice_worker.pipeline import ENGINE_NAME
 
 #: The call row, minted or converged on. `apps/workers/pipeline.py::_upsert_call_row`'s
 #: statement with the columns this worker is the author of and no others.
@@ -155,6 +158,36 @@ INSERT INTO call_metering_refusals (id, tenant_id, call_id, leg, code, detail, r
 VALUES (:id, :tid, :cid, :leg, :code, :detail, :remediation, :at, now())
 """
 
+#: The ARQ job the post-call pipeline runs under — extraction, the CRM columns, the lead,
+#: the hot-lead alert. `apps/workers/pipeline.POSTCALL_JOB`, RESTATED AS A LITERAL RATHER
+#: THAN IMPORTED, and the duplication is deliberate and tested rather than accidental.
+#:
+#: Importing it would drag `apps.workers.pipeline` — and through it `apps.api.engine`,
+#: `apps.api.db.session` and the whole monolith — into a voice container whose entire
+#: dependency argument is that it carries none of that (`pyproject.toml`, `db.py`,
+#: `storage.py`). `apps/workers/pipeline.py:136-145` records the same trade for
+#: `billing.service.INBOUND_CUTOVER_JOB` and the same reason it must be a module-level
+#: constant and not an inline literal: `scripts/check_job_wiring.py` resolves a job name
+#: only as a literal or a module-level constant IN THE FILE THAT ENQUEUES IT, and an
+#: unresolvable name is exactly the hole its shape 3 hides in.
+#:
+#: `tests/voice_worker_postcall_test.py::test_the_worker_and_the_fleet_name_one_job`
+#: is what holds the two spellings in step.
+POSTCALL_JOB: Final = "run_post_call_pipeline"
+
+#: What makes the promise idempotent. The KEY NAMES THE SIDE EFFECT AND NOT THE ROW
+#: (`enqueue_outbox_once`'s own rule: "a key containing a fresh uuid is a key that dedupes
+#: nothing"), and the side effect here is "this call's post-call pipeline", once, ever.
+#:
+#: **KEYED ON `calls.id` AND NOT ON THE ENGINE CALL REF**, which is the narrower of the two
+#: and the correct one: `calls.engine_call_id` is the unique key the row converges on, so
+#: the surrogate id is one-to-one with it, and every OTHER consumer of this pipeline
+#: already addresses a call by `calls.id` — including `job_id_for(POSTCALL_JOB,
+#: str(call_id))`, the ARQ-level dedupe the dispatcher applies on top of this one.
+#: `post-call:` prefixed for the reason the existing keyspaces are (`hot-lead:`,
+#: `campaign-escalation:`): a reader of the column can tell what promised it.
+_POSTCALL_DEDUPE_PREFIX: Final = "post-call:"
+
 
 class SinkIdentityError(RuntimeError):
     """An event named a tenant, agent or call this sink was not built for.
@@ -181,6 +214,10 @@ class Settlement:
     rows: int
     refusal_code: str | None = None
     refusal_leg: str | None = None
+    #: Whether THIS settlement wrote the outbox row that starts the post-call pipeline.
+    #: `False` on a re-settlement is the correct and expected answer — the promise was
+    #: already on the books and the pipeline must run once, not twice (`_enqueue_post_call`).
+    post_call_enqueued: bool = False
 
 
 class DatabaseEventSink:
@@ -225,6 +262,17 @@ class DatabaseEventSink:
         """
         self._db = database
         self._call_id = call_id
+        #: What lands in `calls.engine_call_id` — the idempotency key every writer of that
+        #: row converges on, and the handle `apps/api/engine/pipecat.py` is later handed
+        #: back as `get_execution(call_id)`.
+        #:
+        #: **MINTED HERE RATHER THAN TAKEN AS A FIFTH ARGUMENT**, because this is the only
+        #: place that has both halves by construction and the only place that writes the
+        #: column. A caller that had to assemble it could assemble it wrongly, and the
+        #: failure would be silent and late: the adapter parses the tenant back OUT of this
+        #: string to find the row under RLS (`pipecat_call_ref`), so a plain uuid here is a
+        #: call whose post-call pipeline can never read its own transcript.
+        self._engine_call_id = pipecat_call_ref(tenant_id, call_id)
         self._tenant_id = tenant_id
         self._agent_id = agent_id
         self._direction = direction
@@ -284,14 +332,20 @@ class DatabaseEventSink:
         `apps/api/billing/tts_speaking_rate.py:107`), so they engage no rule.
 
         So a turn written with `text_redacted` NULL is not a leak — it is INVISIBLE. It does
-        not reach the client's transcript, the copilot or caller memory, and it stays
-        invisible: the pass that would fill it is `apps/workers/pipeline.py::
-        _persist_transcript`, which runs off the reconciliation poller, and
-        `PipecatEngine.executions()` returns nothing for an `owned_runtime` call today
-        (`apps/api/engine/pipecat.py:538-555`). Writing the column here is therefore what
-        makes the worker's turns exist for the product at all, and doing it with the
-        repository's one redactor is what keeps hard rule 5's promise about which column
-        that is.
+        not reach the client's transcript, the copilot or caller memory. ⚠ **AND IT USED TO
+        STAY INVISIBLE FOR EVER, WHICH IS NO LONGER TRUE AND THIS PARAGRAPH USED TO SAY IT
+        WAS.** The pass that fills that column downstream is `apps/workers/pipeline.py::
+        _persist_transcript`, and until D-607 it had no way to run on this engine: it rides
+        the post-call pipeline, which rode the reconciliation poller, and
+        `PipecatEngine.list_executions` reports nothing for an `owned_runtime` call by
+        design. `settle` now writes the outbox row that starts that pipeline in its own
+        transaction, so the downstream pass DOES run.
+
+        Writing the column here is still right and is not made redundant by that. It is what
+        makes a turn visible WHILE THE CALL IS HAPPENING and for the minutes between hang-up
+        and the dispatcher's next tick, and it is what a call whose pipeline is retrying
+        still has. Doing it with the repository's one redactor is what keeps hard rule 5's
+        promise about which column that is.
         """
         self._check_identity(call_id=turn.call_id)
         # The one call. `RedactionResult.kinds` says WHAT was found and is loggable; the
@@ -343,6 +397,15 @@ class DatabaseEventSink:
         the LLM row would leave an append-only ledger holding a call that cost a third of
         what it cost, with no UPDATE available to finish it.
 
+        **AND THE POST-CALL TRIGGER IS INSIDE THAT SAME TRANSACTION (D-607).** The outbox row
+        that starts `run_post_call_pipeline` commits with the ledger and with the call row, so
+        a settled call cannot exist without its trigger and a trigger cannot exist without
+        the row that justifies it. The cost of putting it here is stated rather than hidden:
+        a settlement that RAISES rolls the trigger back with everything else, so a call whose
+        settlement crashed has no pipeline — which is the correct pairing (nothing claims to
+        have settled) and is loud (the exception reaches `runtime.run_call`), rather than a
+        half-written call quietly carrying a promise about a ledger that was never written.
+
         **CALLED AFTER THE PIPELINE HAS DRAINED, NEVER FROM INSIDE ITS TEARDOWN.**
         `CallMeter.attach` states the reason: usage reports arrive as their own tasks, so a
         report pushed in the last instants of a session is only counted if the loop gets one
@@ -359,72 +422,148 @@ class DatabaseEventSink:
         call when the CDR lands.
         """
         occurred_at = at or datetime.now(UTC)
+        refusal: LegNotMeterableError | None = None
+        rows: tuple[UsageRow, ...] = ()
         try:
             rows = meter.metered_rows(carrier=carrier, runtime=runtime)
-        except LegNotMeterableError as refusal:
-            await self._record_refusal(refusal, at=occurred_at)
-            return Settlement(rows=0, refusal_code=refusal.code, refusal_leg=refusal.leg.value)
-        return await self._write_usage(rows, at=occurred_at)
+        except LegNotMeterableError as caught:
+            refusal = caught
 
-    async def _write_usage(self, rows: tuple[UsageRow, ...], *, at: datetime) -> Settlement:
-        if not rows:
-            # A call with nothing to meter. `meter.py` distinguishes this from a call it
-            # cannot price and so does this: no rows, no refusal, nothing to record.
-            return Settlement(rows=0)
+        # ONE TRANSACTION FOR ALL THREE WRITES, AND THAT IS THE WHOLE GUARANTEE (D-607).
+        # The call row, the ledger (or the refusal that stands in for it) and the outbox
+        # row that triggers the post-call pipeline commit together or not at all. Before
+        # this there were three transactions and one of the three branches — a call with
+        # nothing to meter — opened none at all; a crash between them could leave a settled
+        # call with no trigger, which on this engine means no extraction, no CRM columns
+        # and no lead, silently and for ever (there is no poller behind it: `PipecatEngine.
+        # list_executions` reports nothing by design, `apps/api/engine/pipecat.py`).
         async with self._lock, self._db.tenant_connection(self._tenant_id) as connection:
             call_row_id = await self._ensure_call_row(connection)
-            for row in rows:
-                await connection.execute(
-                    text(_INSERT_USAGE_SQL),
-                    {
-                        "id": uuid7(),
-                        "tid": self._tenant_id,
-                        "cid": call_row_id,
-                        "unit": row.unit_type,
-                        "qty": row.qty,
-                        "cost": row.unit_cost_inr,
-                        "at": at,
-                        "meta": _meta_json(row),
-                    },
-                )
+            if refusal is not None:
+                await self._write_refusal(connection, call_row_id, refusal, at=occurred_at)
+            else:
+                await self._write_usage(connection, call_row_id, rows, at=occurred_at)
+            enqueued = await self._enqueue_post_call(connection, call_row_id)
+
+        if refusal is not None:
+            # `error` and not `warning`: an unmetered call is spend we absorbed and cannot
+            # bill, and it is the state `admin/health.py::calls_unmetered` stops the board
+            # for.
+            logger.error(
+                "call leg not meterable",
+                call_id=self._call_id,
+                tenant_id=str(self._tenant_id),
+                leg=refusal.leg.value,
+                code=refusal.code,
+                post_call_enqueued=enqueued,
+            )
+            return Settlement(
+                rows=0,
+                refusal_code=refusal.code,
+                refusal_leg=refusal.leg.value,
+                post_call_enqueued=enqueued,
+            )
         logger.info(
             "call settled",
             call_id=self._call_id,
             tenant_id=str(self._tenant_id),
             legs=",".join(sorted({row.leg.value for row in rows})),
             rows=len(rows),
+            post_call_enqueued=enqueued,
         )
-        return Settlement(rows=len(rows))
+        return Settlement(rows=len(rows), post_call_enqueued=enqueued)
 
-    async def _record_refusal(self, refusal: LegNotMeterableError, *, at: datetime) -> None:
-        async with self._lock, self._db.tenant_connection(self._tenant_id) as connection:
-            call_row_id = await self._ensure_call_row(connection)
+    async def _write_usage(
+        self,
+        connection: AsyncConnection,
+        call_row_id: UUID,
+        rows: tuple[UsageRow, ...],
+        *,
+        at: datetime,
+    ) -> None:
+        """The metered legs. Zero rows writes nothing and is not an error — `meter.py`
+        distinguishes a call with nothing to meter from one it cannot price, and so does
+        this."""
+        for row in rows:
             await connection.execute(
-                text(_INSERT_REFUSAL_SQL),
+                text(_INSERT_USAGE_SQL),
                 {
                     "id": uuid7(),
                     "tid": self._tenant_id,
                     "cid": call_row_id,
-                    "leg": refusal.leg.value,
-                    "code": refusal.code,
-                    # OUR OWN PROSE, from `meter.py`'s refusal classes. Every one of these
-                    # strings is authored in this repository and quotes no payload, no
-                    # transcript and no number — which is the same bar `core/alerting.alert`
-                    # sets for its `detail` ("a message we authored — never a payload").
-                    "detail": refusal.detail,
-                    "remediation": refusal.remediation,
+                    "unit": row.unit_type,
+                    "qty": row.qty,
+                    "cost": row.unit_cost_inr,
                     "at": at,
+                    "meta": _meta_json(row),
                 },
             )
-        # `error` and not `warning`: an unmetered call is spend we absorbed and cannot bill,
-        # and it is the state `admin/health.py::calls_unmetered` stops the board for.
-        logger.error(
-            "call leg not meterable",
-            call_id=self._call_id,
-            tenant_id=str(self._tenant_id),
-            leg=refusal.leg.value,
-            code=refusal.code,
+
+    async def _write_refusal(
+        self,
+        connection: AsyncConnection,
+        call_row_id: UUID,
+        refusal: LegNotMeterableError,
+        *,
+        at: datetime,
+    ) -> None:
+        await connection.execute(
+            text(_INSERT_REFUSAL_SQL),
+            {
+                "id": uuid7(),
+                "tid": self._tenant_id,
+                "cid": call_row_id,
+                "leg": refusal.leg.value,
+                "code": refusal.code,
+                # OUR OWN PROSE, from `meter.py`'s refusal classes. Every one of these
+                # strings is authored in this repository and quotes no payload, no
+                # transcript and no number — which is the same bar `core/alerting.alert`
+                # sets for its `detail` ("a message we authored — never a payload").
+                "detail": refusal.detail,
+                "remediation": refusal.remediation,
+                "at": at,
+            },
         )
+
+    async def _enqueue_post_call(self, connection: AsyncConnection, call_row_id: UUID) -> bool:
+        """Promise the post-call pipeline, in the settlement's own transaction. Once ever.
+
+        **WHY A ROW AND NOT A JOB.** This container can reach Postgres and nothing else;
+        it holds no Redis client and must not grow one (`pyproject.toml` declares no arq
+        and no redis, and an enqueue that failed after the ledger committed would be a
+        call that settled and never extracted). The outbox is this repository's existing
+        answer to exactly that — BACKEND-PATTERNS §4 — and `dispatch_outbox` on its
+        ten-second beat is the half that owns Redis.
+
+        **WHY THE POST-CALL PIPELINE AND NOT THE INGEST JOB.** `ingest_engine_event` exists
+        to turn a vendor's webhook into a call row: it fetches the execution, resolves the
+        tenant from `engine_agent_routes` and upserts `calls`. This worker has already done
+        all three — it IS the engine — so routing through ingest would re-derive facts it
+        wrote itself and would need an `engine_agent_ref` it has no reason to carry.
+        `run_post_call_pipeline` is the entry point the Bolna path reaches after that
+        resolution, and it is the SAME function, not a copy: extraction, the moments, the
+        knowledge gaps, the lead, the hot-lead alert and the CRM fan-out all run there.
+
+        **IDEMPOTENT AT THE DATABASE.** A re-settlement of the same call — a retried
+        container, a second `settle()` after a resumed session — hits the partial unique
+        index on `dedupe_key` and writes nothing, exactly as the `usage_events` insert next
+        to it converges with `ON CONFLICT DO NOTHING`. `False` here therefore means "it was
+        already promised", never "it failed".
+        """
+        message_id = await enqueue_outbox_once(
+            connection,
+            job=POSTCALL_JOB,
+            payload={
+                "tenant_id": str(self._tenant_id),
+                "call_id": str(call_row_id),
+                "engine": ENGINE_NAME,
+                # The ENGINE-SPACE handle, which is what `get_execution` takes and what
+                # the adapter parses this call's tenant back out of. Never the bare uuid.
+                "execution_id": self._engine_call_id,
+            },
+            dedupe_key=f"{_POSTCALL_DEDUPE_PREFIX}{call_row_id}",
+        )
+        return message_id is not None
 
     # -- internals -----------------------------------------------------------------------
 
@@ -493,7 +632,7 @@ class DatabaseEventSink:
                     "id": uuid7(),
                     "tid": self._tenant_id,
                     "aid": self._agent_id,
-                    "ecid": self._call_id,
+                    "ecid": self._engine_call_id,
                     "dir": self._direction,
                     "status": status,
                     "started": started_at,
@@ -507,7 +646,7 @@ class DatabaseEventSink:
             row = (
                 await connection.execute(
                     text("SELECT id FROM calls WHERE engine_call_id = :ecid"),
-                    {"ecid": self._call_id},
+                    {"ecid": self._engine_call_id},
                 )
             ).first()
             if row is None:  # pragma: no cover - only on a concurrent delete

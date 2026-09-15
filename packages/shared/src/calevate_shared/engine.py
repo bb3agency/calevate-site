@@ -36,6 +36,61 @@ CallHandle = str
 # cannot serve here: the engine has never seen it, so it addresses nothing on their side.
 EngineKBRef = str
 
+#: The word every ref the `pipecat` adapter mints starts with. ONE home for it, because
+#: two deployables now spell it: `apps/api/engine/pipecat.py` mints the AGENT ref and
+#: `apps/voice-worker/voice_worker/sink.py` mints the CALL ref, and neither may import the
+#: other (hard rule 2 — the worker does not carry the monolith, `apps/voice-worker/
+#: pyproject.toml`). Its own word rather than the engine name, so a ref cannot be mistaken
+#: for a vendor id in a log line.
+PIPECAT_REF_PREFIX: Final = "pipecat"
+
+
+def pipecat_call_ref(tenant_id: UUID | str, call_id: UUID | str) -> str:
+    """`pipecat:<tenant>:<call>` — the handle this engine gives ONE call.
+
+    **IT NAMES THE TENANT INSTEAD OF NEEDING A TABLE TO FIND ONE, AND THAT IS THE
+    DECISION.** `apps/api/engine/pipecat.py::engine_agent_ref_for` already took it for the
+    agent ref and records the argument in full: with no incoming webhook and ids we mint,
+    the attribution table is redundant and the resolution becomes a PARSE instead of a
+    query. The call ref needs it more sharply than the agent ref does. `VoiceEngine.
+    get_execution(call_id)` carries no tenant, the runtime's record of a call lives in
+    `calls`, and `calls` is FORCE-RLS'd — so an adapter reading it back needs a tenant
+    BEFORE it can see a row. The three ways to get one were: widen the policy (never),
+    add a global `engine_call_id → tenant` routing table on `engine_agent_routes`' pattern
+    (a table, a migration and a second row per call to keep in step with `calls`), or mint
+    the tenant into the id we already control. This is the third, and it is the one that
+    adds no schema and cannot fall out of step, because there is only one copy.
+
+    ⚠ **IT IS AN ENGINE-SPACE ID AND NOTHING MAY PARSE IT OUTSIDE THE ADAPTER.**
+    `calls.engine_call_id` is opaque everywhere else in this repository by design, exactly
+    as a Bolna execution id is; `tenant_of_pipecat_ref` is the only reader, and it lives
+    here so the producer and the consumer cannot drift.
+    """
+    return f"{PIPECAT_REF_PREFIX}:{tenant_id}:{call_id}"
+
+
+def tenant_of_pipecat_ref(ref: str) -> UUID | None:
+    """The tenant a `pipecat:<tenant>:<id>` ref names, or `None` when we did not mint it.
+
+    **ONE PARSER FOR BOTH REF KINDS, BECAUSE THERE IS ONE SHAPE.** The agent ref and the
+    call ref differ only in what their third segment addresses, and the tenant sits in the
+    same place in both — so `apps/api/engine/pipecat.py::_tenant_of` delegates here rather
+    than keeping a second copy of the same four lines. Two parsers for one format is the
+    drift the quality bar treats as a defect even while both are right.
+
+    `None` and not an exception: a `calls` row carrying a foreign `engine_call_id` is what
+    a deployment that has run another engine looks like, and the caller's job is to report
+    "no record of that call" rather than to crash. Never guesses a tenant (hard rule 1).
+    """
+    parts = ref.split(":")
+    if len(parts) != 3 or parts[0] != PIPECAT_REF_PREFIX:
+        return None
+    try:
+        return UUID(parts[1])
+    except ValueError:
+        return None
+
+
 NumberSeries = Literal["140", "160", "standard"]
 
 #: The prefix of the agent handle an engine we RUN mints for itself (D-592).
@@ -5429,6 +5484,7 @@ __all__ = [
     "E164",
     "MAX_CALLER_MEMORY_CHARS",
     "OWNED_RUNTIME_REF_PREFIX",
+    "PIPECAT_REF_PREFIX",
     "PLATFORM_RULES_PREAMBLE",
     "VOICE_STYLE_GUIDANCE",
     "WEBHOOK_AUTH_BY_ENGINE",
@@ -5487,5 +5543,7 @@ __all__ = [
     "fill_caller_memory_slot",
     "owned_runtime_agent_ref",
     "parse_owned_runtime_agent_ref",
+    "pipecat_call_ref",
     "render_caller_memory",
+    "tenant_of_pipecat_ref",
 ]

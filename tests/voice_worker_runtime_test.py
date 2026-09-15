@@ -36,6 +36,7 @@ import pytest
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
 from apps.api.engine.pipecat import PipecatEngine
+from calevate_shared.engine import pipecat_call_ref
 from pipecat.frames.frames import LLMRunFrame
 from pipecat.workers.runner import WorkerRunner
 from sqlalchemy import text
@@ -115,7 +116,7 @@ async def test_a_running_pipeline_writes_its_call_and_its_turns_and_they_survive
                             "SELECT count(*) FROM transcript_turns t "
                             "JOIN calls c ON c.id = t.call_id WHERE c.engine_call_id = :c"
                         ),
-                        {"c": call_id},
+                        {"c": pipecat_call_ref(tenant_id, call_id)},
                     )
                 ).scalar_one()
             if turns:
@@ -131,7 +132,8 @@ async def test_a_running_pipeline_writes_its_call_and_its_turns_and_they_survive
     async with tenant_session(tenant_id) as db:
         status, row_id = (
             await db.execute(
-                text("SELECT status, id FROM calls WHERE engine_call_id = :c"), {"c": call_id}
+                text("SELECT status, id FROM calls WHERE engine_call_id = :c"),
+                {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).one()
         rows = (
@@ -196,7 +198,8 @@ async def test_a_pipeline_cancelled_mid_call_still_holds_everything_it_had_accep
     async with tenant_session(tenant_id) as db:
         row = (
             await db.execute(
-                text("SELECT id, status FROM calls WHERE engine_call_id = :c"), {"c": call_id}
+                text("SELECT id, status FROM calls WHERE engine_call_id = :c"),
+                {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).one()
         rows = (
@@ -292,7 +295,7 @@ async def test_the_runner_is_not_asked_to_handle_sigterm_because_it_cancels(
                     "SELECT count(*) FROM call_metering_refusals r "
                     "JOIN calls c ON c.id = r.call_id WHERE c.engine_call_id = :c"
                 ),
-                {"c": call_id},
+                {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).scalar_one()
     assert refusals == 1
