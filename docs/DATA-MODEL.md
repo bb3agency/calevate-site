@@ -580,9 +580,48 @@ kb_retrieval_logs(id, tenant_id, call_id, query, tier ENUM[t0,t1,t2,t3,t4],
 
 ```
 usage_events(id, tenant_id, call_id NULL, unit_type ENUM[telephony_s,stt_s,tts_chars,
-  tts_kchars,llm_tok_in,llm_tok_out,platform_min,number_rental,other,
-  ai_assist_ktok_in,ai_assist_ktok_out], qty NUMERIC, unit_cost_paid NUMERIC,
+  tts_kchars,llm_tok_in,llm_tok_out,llm_ktok_in,llm_ktok_out,platform_min,number_rental,
+  other,ai_assist_ktok_in,ai_assist_ktok_out], qty NUMERIC, unit_cost_paid NUMERIC,
   occurred_at, meta JSONB)                          -- INSERT-only; no UPDATE/DELETE grants
+-- `llm_tok_*` vs `llm_ktok_*` (D-592, migration a3f1c6e82d47) — the same split `tts_chars`
+--   vs `tts_kchars` makes one leg down, for the same reason, arriving from the other
+--   engine. `llm_tok_in`/`llm_tok_out` carry the RENTED engine's reported leg charge at
+--   `qty = 1`: Bolna bills the language leg with no token count (TRD §5), so there is no
+--   quantity to price against. On an `owned_runtime` call WE run the model, Pipecat's
+--   `LLMTokenUsage` reports real counts (PIPECAT-MIGRATION §1.3), and the count belongs in
+--   `qty` with the attested per-thousand rate in `unit_cost_paid`. Two unit types rather
+--   than a re-reading of the old two, because a `qty` whose unit depends on which engine
+--   ran the call is a column no reader can sum — and this ledger is append-only, so the
+--   ambiguity would be permanent. THOUSANDS for `ai_assist_ktok_*`'s arithmetic:
+--   `unit_cost_paid` is NUMERIC(12,4) and `gpt-4o-mini` input at ~₹0.0000144 a token
+--   stores as 0.0000, i.e. the input leg of every call metered as exactly free.
+-- INDEX ux_usage_events_tenant_call_ktok UNIQUE (tenant_id, call_id, unit_type)
+--   WHERE call_id IS NOT NULL AND unit_type IN ('llm_ktok_in','llm_ktok_out')
+--   (a3f1c6e82d47). A THIRD disjoint partial key, on `ux_usage_events_tenant_call_kchars`'
+--   pattern and for its reason. NO `created_at` floor, unlike its two siblings: the floors
+--   exist to exempt rows written before the index, and these two unit types had no rows at
+--   all — the CHECK constraint made them unwritable until that migration ran.
+
+call_metering_refusals(id, tenant_id, call_id, leg, code, detail, remediation,
+  occurred_at, created_at)                          -- INSERT-only; no UPDATE/DELETE grants
+-- A LEG OF ONE CALL THAT COULD NOT BE HONESTLY PRICED (D-592, migration a3f1c6e82d47).
+--   Hard rule 7 wants OUR real cost on every `usage_events` row, and PIPECAT-MIGRATION §1.3
+--   meters five legs independently — so five refusals are now possible where one was, and
+--   a refused leg has no honest representation in that ledger: `qty = 0` meters real spend
+--   as free, and omitting the row is indistinguishable from a call that had no such leg.
+--   `apps/voice-worker/voice_worker/sink.py` writes one row here instead, carrying the four
+--   fields `meter.py`'s `LegNotMeterableError` family already produces.
+-- APPEND-ONLY for `usage_events`' reason applied to the hole beside it: the row exists
+--   precisely because a leg could not reach that ledger, and an UPDATE could only rewrite
+--   why. A later settlement that succeeds writes `usage_events` rows; "this call was
+--   unmetered until the CDR arrived" stays true afterwards, which is the fact an operator
+--   needs once the invoice is out.
+-- NO PII, GUARANTEED BY THE SCHEMA: every column is an id, a machine code, or prose this
+--   repository authored. `call_id` is ON DELETE RESTRICT exactly as `usage_events.call_id`
+--   is — an append-only row a cascade can delete is not append-only.
+-- INDEX ix_call_metering_refusals_tenant_occurred (tenant_id, occurred_at DESC) — "what is
+--   unmetered, newest first", which is the only question this table is read for, beside
+--   `admin/health.py::calls_unmetered`.
 -- `tts_chars` vs `tts_kchars` (D-547, migration f4b90c1d7e26) — TWO synthesizer units,
 --   because there are two ways to know what synthesis cost and they are not the same
 --   measurement. `tts_chars` carries the ENGINE's own reported leg charge at `qty = 1`
