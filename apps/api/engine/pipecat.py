@@ -81,6 +81,7 @@ from uuid import UUID
 
 from calevate_shared.engine import (
     E164,
+    PIPECAT_REF_PREFIX,
     AccountKBListing,
     AccountKBObject,
     AgentConfig,
@@ -104,8 +105,16 @@ from calevate_shared.engine import (
     RecallOutcome,
     WebhookAuthMethod,
     WebhookVerdict,
+    tenant_of_pipecat_ref,
 )
-from calevate_shared.events import CallEvent, CallStatus
+from calevate_shared.events import (
+    TERMINAL_STATUSES,
+    CallDirection,
+    CallEvent,
+    CallStatus,
+    Speaker,
+    TranscriptTurn,
+)
 from sqlalchemy import text
 
 from apps.api.agents.config_versions import Attestation, latest_attestation, mint_config_version
@@ -532,32 +541,171 @@ class SqlControlPlane:
         )
 
     async def execution(self, call_id: str) -> ExecutionSnapshot | None:
-        """None, always, and it is a fact rather than a stub — see `executions`."""
-        return None
+        """One session the runtime recorded, read back out of the rows it wrote (D-603).
+
+        **THIS IS NOT THE THING `executions` REFUSES TO DO, AND THE DIFFERENCE IS THE WHOLE
+        ARGUMENT.** That method is the POLLER's, and D-31 promotes the poller from safety
+        net to guarantee of record precisely because the vendor's listing is an INDEPENDENT
+        authority — a listing built from `calls` would be the poller comparing our store
+        with itself, so it still answers nothing and its docstring still says why. This one
+        is a POINT READ for a call somebody already told us about: `apps/voice-worker`
+        committed the outbox row that started this pipeline in the same transaction as the
+        call row, so the existence of the call is not in question here and nothing is being
+        corroborated. What is being fetched is CONTENT — the transcript and the disposition
+        — and on this engine we ARE the engine (§1.2: *"the transcript, the turns and the
+        outcome are ours because nobody else ever had them"*), so our rows are the primary
+        record rather than a second opinion about somebody else's.
+
+        **WHY IT PARSES THE TENANT OUT OF THE ID.** `calls` is FORCE-RLS'd and this
+        signature carries no tenant, so a row is unreachable until one is chosen — and
+        choosing one is hard rule 1's whole subject. The three ways were: widen the policy
+        (never), add a global `engine_call_id → tenant` routing table on
+        `engine_agent_routes`' pattern, or mint the tenant into the id we already control.
+        `pipecat_call_ref` is the third, on the argument `engine_agent_ref_for` records for
+        the agent ref — with no incoming webhook and ids we mint, the resolution is a parse
+        instead of a query. A ref this adapter did not mint parses to `None` and is
+        reported as "no record", never guessed at.
+
+        **WHAT IT DELIBERATELY LEAVES EMPTY, AND WHY EACH ONE IS THE HONEST ANSWER.**
+
+        * `cost` — `None`, so `apps/workers/pipeline.py`'s metering stage does not run.
+          That is not a gap: the worker already wrote this call's `usage_events` rows at
+          settlement from the meter that watched the session, and a second pass pricing the
+          same legs off a snapshot would be two writers of one append-only ledger.
+        * `latency` — `None`. The worker records no per-turn timings today; inventing a
+          `CallLatency()` would read as "the engine reported an object we could parse
+          nothing out of", which is a different and false claim (`ExecutionSnapshot
+          .latency`).
+        * `raw_document` — `None`. There is no vendor document: the rows below ARE the
+          record, and `_archive_engine_document` answers `none_offered`.
+        * `recording_url` — whatever the row holds, which is `NULL` until something records
+          audio. The worker does not (BLOCKER-1: the carrier leg is not built).
+        * `from_e164`/`to_e164` — read from the row rather than assumed absent. The worker
+          leaves them `NULL` because §1.2 gives the party numbers to the carrier's CDR, so
+          today they are `None` and `_upsert_lead` correctly declines to file a lead under
+          a number nobody witnessed; the day the reconciliation fills those columns this
+          method starts returning them with no edit.
+        * `billable_ready` — `False` unless the CDR has been reconciled, which nothing does
+          yet. §1.2 again: *"the billable quantity is now witnessed by the party that
+          charges for it"*, and nothing here may stand in for that.
+
+        Hard rule 6: this returns transcript TEXT, which is what the extraction stage
+        consumes and what `transcript_turns.text` already holds. It is never logged — the
+        log line below is ids and counts.
+        """
+        tenant_id = tenant_of_pipecat_ref(call_id)
+        if tenant_id is None:
+            # A handle this adapter never minted — a deployment that has run another
+            # engine, or a caller that passed `calls.id` where the engine-space id belongs.
+            # Reported as "no record", because inventing a tenant to go looking with is the
+            # one thing hard rule 1 forbids outright.
+            return None
+        async with tenant_session(tenant_id) as session:
+            row = (
+                await session.execute(
+                    text(
+                        "SELECT id, agent_id, direction, status, started_at, ended_at, "
+                        "       duration_s, from_e164, to_e164, recording_url "
+                        "FROM calls WHERE engine_call_id = :ecid AND tenant_id = :tid"
+                    ),
+                    {"ecid": call_id, "tid": tenant_id},
+                )
+            ).first()
+            if row is None:
+                return None
+            turns = (
+                await session.execute(
+                    text(
+                        "SELECT idx, speaker, text, text_redacted, lang, start_ms, end_ms "
+                        "FROM transcript_turns WHERE call_id = :cid AND tenant_id = :tid "
+                        "ORDER BY idx"
+                    ),
+                    {"cid": row[0], "tid": tenant_id},
+                )
+            ).all()
+        status = cast(CallStatus, str(row[3]))
+        log.info(
+            "pipecat_execution_read",
+            extra={
+                "tenant_id": str(tenant_id),
+                "call_id": str(row[0]),
+                "status": status,
+                "turn_count": len(turns),
+            },
+        )
+        return ExecutionSnapshot(
+            engine_call_id=call_id,
+            engine_agent_ref=engine_agent_ref_for(str(tenant_id), str(row[1])),
+            direction=cast(CallDirection, str(row[2])),
+            status=status,
+            # OUR OWN VOCABULARY IS THE RAW ONE HERE, and that is not a shortcut. `raw_status`
+            # exists so an adapter can report what the vendor said before the mapping; this
+            # engine has no vendor and no second vocabulary, so the two are the same string
+            # and a made-up second spelling would be an invention.
+            raw_status=status,
+            terminal=status in TERMINAL_STATUSES,
+            billable_ready=False,
+            started_at=row[4],
+            ended_at=row[5],
+            duration_s=row[6],
+            from_e164=row[7],
+            to_e164=row[8],
+            recording_url=row[9],
+            transcript=[
+                TranscriptTurn(
+                    call_id=call_id,
+                    idx=int(turn[0]),
+                    speaker=cast(Speaker, str(turn[1])),
+                    text=str(turn[2]),
+                    text_redacted=turn[3],
+                    lang=turn[4],
+                    start_ms=turn[5],
+                    end_ms=turn[6],
+                )
+                for turn in turns
+            ],
+            # `PipecatEngine.name`, read off the class rather than spelled again: that
+            # attribute is what `all_credential_env_keys` and the factory key off, and a
+            # third spelling of the engine name is the drift `tests/engine_name_drift_test.py`
+            # exists to catch.
+            engine=PipecatEngine.name,
+        )
 
     async def executions(self, *, since: datetime) -> tuple[ExecutionSnapshot, ...]:
         """Empty, always, and the system is CONSISTENT rather than unfinished.
-
-        The sessions this would read are written by `apps/voice-worker/` at hang-up
-        (`PIPECAT-MIGRATION.md` §2, step 4 of its §6), and no dial can have happened yet
-        because `start_outbound_call` refuses every one of them on this engine. So "no
-        sessions" is the true answer for as long as it is the true answer, and the day the
-        worker writes its first one this is the method that grows a query rather than the
-        place a stub gets discovered.
 
         **IT DOES NOT READ `calls`**, and that is §9.2's warning taken literally: D-31
         promotes the poller from safety net to guarantee of record because the vendor's
         listing is an INDEPENDENT authority, and a `list_executions` that read the table
         `apps/workers/pipeline.py` writes FROM `list_executions` would be the poller
-        comparing our store with itself. The independence survives only if the runtime
-        keeps its own record, which is what the worker will write.
+        comparing our store with itself.
+
+        ⚠ **`execution()` NOW DOES READ `calls`, AND THE TWO ARE NOT IN CONTRADICTION
+        (D-603).** That method is a POINT READ for a call the worker's own settlement
+        transaction already attested through the outbox — nothing is being corroborated, and
+        what it fetches is CONTENT, which §1.2 gives to us outright because nobody else ever
+        had it. This one is the DISCOVERY question, "which calls happened that you have not
+        heard about", and answering it from the table that holds what we have heard about is
+        the tautology D-31 warns of. It stays empty until the runtime keeps a record of its
+        own that is independent of `calls` — or, more likely, until §1.2's other half lands
+        and the reconciliation reads the CARRIER's CDR, which is a genuinely independent
+        authority and is the one this engine is entitled to.
+
+        No dial can have happened yet in any case: `start_outbound_call` refuses every one
+        of them on this engine (BLOCKER-1).
         """
         return ()
 
 
 #: The prefix every ref this adapter mints starts with. Its own word rather than the engine
 #: name, so a ref cannot be mistaken for a vendor id in a log line.
-_REF_PREFIX: Final = "pipecat"
+#:
+#: **THE LITERAL MOVED TO `calevate_shared.engine.PIPECAT_REF_PREFIX` AND THIS IS NOW AN
+#: ALIAS**, because a second deployable mints refs with it: `apps/voice-worker/
+#: voice_worker/sink.py` mints the CALL ref and cannot import this module (hard rule 2).
+#: One home for the word, two importers; spelling it twice is the drift the quality bar
+#: refuses.
+_REF_PREFIX: Final = PIPECAT_REF_PREFIX
 
 
 def engine_agent_ref_for(tenant_id: str, agent_id: str) -> EngineAgentRef:
@@ -579,14 +727,15 @@ def engine_agent_ref_for(tenant_id: str, agent_id: str) -> EngineAgentRef:
 
 
 def _tenant_of(ref: EngineAgentRef) -> UUID | None:
-    """The tenant a ref names, or None if this adapter did not mint it."""
-    parts = ref.split(":")
-    if len(parts) != 3 or parts[0] != _REF_PREFIX:
-        return None
-    try:
-        return UUID(parts[1])
-    except ValueError:
-        return None
+    """The tenant an AGENT ref names, or None if this adapter did not mint it.
+
+    Delegated rather than open-coded: the agent ref and the call ref
+    (`calevate_shared.engine.pipecat_call_ref`) are one format with one tenant position,
+    and the worker cannot import this module to reuse a parser that lived here — so the
+    parser lives in `calevate_shared` and both callers use it. The four lines this
+    replaced were byte-identical to it.
+    """
+    return tenant_of_pipecat_ref(ref)
 
 
 def _claimed_source(kb_id: str) -> UUID | None:
@@ -992,12 +1141,18 @@ class PipecatEngine:
         )
 
     async def get_execution(self, call_id: str) -> ExecutionSnapshot:
-        """One session the runtime recorded — and today there are none, so this RAISES.
+        """One session the runtime recorded, or a refusal — never a fabricated snapshot.
 
         *"Reading an execution the engine never placed is reported"*: a fabricated
         `status="failed"` snapshot is the worst available answer, because it is
         indistinguishable from a real failed call and the poller would record a repair for
         a phantom.
+
+        ⚠ **THIS SAID "TODAY THERE ARE NONE, SO THIS RAISES" AND THAT IS NO LONGER TRUE
+        (D-603).** `SqlControlPlane.execution` reads the call and its turns back out of the
+        rows `apps/voice-worker` wrote, which is what lets a settled call reach the post-call
+        pipeline at all. The refusal below is now the answer for a call this engine really
+        has no record of, rather than for every call.
 
         §1.2 SPLITS THE GUARANTEE AND THIS IS THE "CONTENT" HALF: the transcript, the turns
         and the outcome are ours because nobody else ever had them. The FACTS half — did it

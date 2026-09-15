@@ -227,6 +227,12 @@ class WorkerRuntime:
             drained=drained,
             settled_rows=settlement.rows,
             refusal_code=settlement.refusal_code,
+            # Whether this settlement PROMISED the post-call pipeline (D-603). `False` on a
+            # re-settlement is correct and expected; `False` on a container's only
+            # settlement of a call is the line an operator needs, because it means the
+            # extraction, the CRM columns and the lead for that call are with somebody
+            # else's promise or with nobody's.
+            post_call_enqueued=settlement.post_call_enqueued,
         )
         return CallOutcome(call_id=call_id, drained=drained, settlement=settlement)
 

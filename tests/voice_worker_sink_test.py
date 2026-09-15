@@ -31,6 +31,7 @@ from typing import Any
 import pytest
 from apps.api.core.settings import get_settings
 from apps.api.db.session import tenant_session
+from calevate_shared.engine import pipecat_call_ref
 from calevate_shared.events import CallEvent, TranscriptTurn
 from loguru import logger
 from sqlalchemy import text
@@ -144,7 +145,7 @@ async def test_a_call_event_and_its_turns_persist_under_the_calling_tenant() -> 
                     "SELECT id, tenant_id, agent_id, direction, status, from_e164, to_e164 "
                     "FROM calls WHERE engine_call_id = :c"
                 ),
-                {"c": call_id},
+                {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).one()
         turns = (
@@ -204,7 +205,7 @@ async def test_a_turn_that_arrives_before_the_started_event_still_lands() -> Non
                     "SELECT count(*) FROM transcript_turns t JOIN calls c ON c.id = t.call_id "
                     "WHERE c.engine_call_id = :c"
                 ),
-                {"c": call_id},
+                {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).scalar_one()
     assert count == 1
@@ -234,7 +235,8 @@ async def test_a_status_never_moves_backwards_off_a_terminal_row() -> None:
     async with tenant_session(tenant_id) as db:
         status = (
             await db.execute(
-                text("SELECT status FROM calls WHERE engine_call_id = :c"), {"c": call_id}
+                text("SELECT status FROM calls WHERE engine_call_id = :c"),
+                {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).scalar_one()
     assert status == "completed"
@@ -262,7 +264,8 @@ async def test_an_event_naming_another_tenant_is_refused_before_it_reaches_the_d
         async with tenant_session(tenant_id) as db:
             planted = (
                 await db.execute(
-                    text("SELECT count(*) FROM calls WHERE engine_call_id = :c"), {"c": call_id}
+                    text("SELECT count(*) FROM calls WHERE engine_call_id = :c"),
+                    {"c": pipecat_call_ref(tenant_id, call_id)},
                 )
             ).scalar_one()
         assert planted == 0
@@ -340,7 +343,7 @@ async def test_five_priced_legs_become_five_ledger_rows_and_the_new_unit_types_a
                     "FROM usage_events u JOIN calls c ON c.id = u.call_id "
                     "WHERE c.engine_call_id = :c ORDER BY u.unit_type"
                 ),
-                {"c": call_id},
+                {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).all()
 
@@ -395,7 +398,7 @@ async def test_a_leg_that_cannot_be_priced_records_an_absence_and_meters_nothing
                     "SELECT count(*) FROM usage_events u JOIN calls c ON c.id = u.call_id "
                     "WHERE c.engine_call_id = :c"
                 ),
-                {"c": call_id},
+                {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).scalar_one()
         refusals = (
@@ -405,7 +408,7 @@ async def test_a_leg_that_cannot_be_priced_records_an_absence_and_meters_nothing
                     "FROM call_metering_refusals r JOIN calls c ON c.id = r.call_id "
                     "WHERE c.engine_call_id = :c"
                 ),
-                {"c": call_id},
+                {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).all()
 
@@ -437,7 +440,11 @@ async def test_a_call_with_nothing_to_meter_writes_neither_a_row_nor_a_refusal()
     finally:
         await database.aclose()
 
-    assert settlement == type(settlement)(rows=0)
+    # `post_call_enqueued=True` even here, and that is the point rather than an accident:
+    # a call with no leg to price still has a transcript, so its post-call pipeline — the
+    # extraction, the CRM columns, the lead — is owed exactly as much as a priced call's
+    # (D-603). The metering answer and the pipeline trigger are separate facts.
+    assert settlement == type(settlement)(rows=0, post_call_enqueued=True)
     async with tenant_session(tenant_id) as db:
         refusals = (
             await db.execute(
@@ -445,7 +452,7 @@ async def test_a_call_with_nothing_to_meter_writes_neither_a_row_nor_a_refusal()
                     "SELECT count(*) FROM call_metering_refusals r "
                     "JOIN calls c ON c.id = r.call_id WHERE c.engine_call_id = :c"
                 ),
-                {"c": call_id},
+                {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).scalar_one()
     assert refusals == 0
@@ -490,7 +497,7 @@ async def test_a_settlement_that_fails_part_way_writes_no_row_at_all() -> None:
                     "SELECT count(*) FROM usage_events u JOIN calls c ON c.id = u.call_id "
                     "WHERE c.engine_call_id = :c"
                 ),
-                {"c": call_id},
+                {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).scalar_one()
         # The CALL row survives, because it was written by an earlier, separate transaction.
@@ -498,7 +505,8 @@ async def test_a_settlement_that_fails_part_way_writes_no_row_at_all() -> None:
         # its money — which is exactly what `calls_unmetered` looks for.
         call_rows = (
             await db.execute(
-                text("SELECT count(*) FROM calls WHERE engine_call_id = :c"), {"c": call_id}
+                text("SELECT count(*) FROM calls WHERE engine_call_id = :c"),
+                {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).scalar_one()
     assert metered == 0, "two legs committed without the third — the settlement was partial"
@@ -531,7 +539,7 @@ async def test_settling_twice_converges_on_one_row_per_leg() -> None:
                     "JOIN calls c ON c.id = u.call_id WHERE c.engine_call_id = :c "
                     "GROUP BY u.unit_type"
                 ),
-                {"c": call_id},
+                {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).all()
     assert dict(counts) == {
@@ -574,7 +582,10 @@ async def test_a_neighbour_sees_zero_rows_on_every_table_this_sink_writes() -> N
     # empty table.
     async with tenant_session(tenant_id) as db:
         owner_call = (
-            await db.execute(text("SELECT id FROM calls WHERE engine_call_id = :c"), {"c": call_id})
+            await db.execute(
+                text("SELECT id FROM calls WHERE engine_call_id = :c"),
+                {"c": pipecat_call_ref(tenant_id, call_id)},
+            )
         ).scalar_one()
         for table in ("transcript_turns", "usage_events", "call_metering_refusals"):
             planted = (
@@ -588,7 +599,8 @@ async def test_a_neighbour_sees_zero_rows_on_every_table_this_sink_writes() -> N
     async with tenant_session(neighbour_id) as db:
         assert (
             await db.execute(
-                text("SELECT count(*) FROM calls WHERE engine_call_id = :c"), {"c": call_id}
+                text("SELECT count(*) FROM calls WHERE engine_call_id = :c"),
+                {"c": pipecat_call_ref(tenant_id, call_id)},
             )
         ).scalar_one() == 0
         for table in ("transcript_turns", "usage_events", "call_metering_refusals"):
@@ -617,7 +629,10 @@ async def test_a_neighbour_cannot_write_a_refusal_against_someone_elses_call() -
 
     async with tenant_session(tenant_id) as db:
         owner_call = (
-            await db.execute(text("SELECT id FROM calls WHERE engine_call_id = :c"), {"c": call_id})
+            await db.execute(
+                text("SELECT id FROM calls WHERE engine_call_id = :c"),
+                {"c": pipecat_call_ref(tenant_id, call_id)},
+            )
         ).scalar_one()
 
     with pytest.raises(Exception):  # noqa: B017 - psycopg raises its own RLS violation type
