@@ -137,6 +137,12 @@ async function renderKnowledge(
     // the PASTED-TEXT ladder, and an unrouted endpoint would leave a second `role="alert"`
     // on the screen for the reason `STAFF_CURATION` above records.
     "/v1/kb/uploads": [],
+    // The delivery answer (`/v1/kb/delivery`). Routed EMPTY rather than left out, for the
+    // reason `STAFF_CURATION` records above: an unrouted endpoint throws inside its
+    // `queryFn`, React Query turns that into `isError`, and `KnowledgeDelivery` renders a
+    // failed read as a `ProblemNotice` — a permanent second `role="alert"` racing every
+    // test on this screen that expects one.
+    "/v1/kb/delivery": { items: [], not_delivered_count: 0 },
     ...over,
   });
 }

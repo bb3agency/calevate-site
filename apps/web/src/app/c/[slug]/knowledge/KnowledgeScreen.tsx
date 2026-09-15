@@ -9,6 +9,7 @@ import { useAgents } from "@/lib/api/agents";
 import { useKbSources, useSubmitKnowledge } from "@/lib/api/kb";
 
 import { AddDocument } from "./AddDocument";
+import { KnowledgeDelivery } from "./KnowledgeDelivery";
 import { AddKnowledgeForm } from "./AddKnowledgeForm";
 import { SubmittedList } from "./SubmittedList";
 import { UploadList } from "./UploadList";
@@ -202,6 +203,14 @@ export function KnowledgeScreen() {
             the form on the left instead of under the documents it belongs beside — and
             the two panels are one answer to one question ("what have I taught it"). */}
         <div className="space-y-5 lg:col-span-7">
+          {/* FIRST in this column, above the two "what have I taught it" lists, because
+              it answers the question a client arrives with. Those lists end at
+              "approved"; this is the only place on any screen that says whether the
+              approved words are what the agent is actually answering callers out of
+              (`apps/api/kb/delivery.py`). A client who published an hour ago and is
+              wondering why the phone has not caught up should not have to scroll past
+              two queues that both say everything is fine. */}
+          <KnowledgeDelivery />
           <UploadList agentNames={agentNames} />
           <SubmittedList agentNames={agentNames} sources={sources} />
         </div>

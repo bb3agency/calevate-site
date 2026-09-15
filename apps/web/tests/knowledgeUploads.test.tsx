@@ -90,6 +90,9 @@ async function renderKnowledge(
     "/v1/kb/sources": [],
     "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
     "/v1/kb/uploads": uploads,
+    // Routed empty: this file is about the DOCUMENT ladder, and an unrouted endpoint
+    // would leave a permanent `role="alert"` from `KnowledgeDelivery` on every screen here.
+    "/v1/kb/delivery": { items: [], not_delivered_count: 0 },
     ...over,
   });
 }
