@@ -241,7 +241,7 @@ three seconds per turn.
 | 3 | `apps/api/engine/pipecat.py` — categories B then A then C | step 2 |
 | 4 | The worker pipeline, Sarvam TTS, local run against a fake transport | step 1 |
 | 5 | Conformance suite green for `pipecat` | **GREEN, 14 Sep 2026 — and it was green before it meant anything.** `uv run pytest packages/shared/tests/engine_conformance`: 386 passed, 6 skipped, `pipecat` among the seven subjects, no adapter changed. The audit found the green was thinner on this adapter than on any other, for a structural reason rather than a missing test: `pipecat` places no dial (its carrier REST surface is unread, §7/BLOCKER-1), so `_place_call` returns None and every clause that reads a snapshot back from a call returned early on it. The whole normalization half of the contract — our status vocabulary, the agent ref, turn order, speaker tags, per-call turn attribution — was being asserted about nothing on the newest adapter in the tree. Closed by `test_a_listing_row_is_as_normalized_as_a_fetched_one`, which holds every row of the LISTING route to the same `_assert_snapshot_is_ours` the fetch route is held to; that route is the one `pipecat` has, and the one D-31 makes the guarantee of record for every adapter. Three more clauses landed with it — direction towards `inbound`, a tenant/engine name taken from the payload body, a status that is not a string — each proved real by a saboteur the suite ACCEPTED beforehand (`tests/engine_audit_test.py::SABOTEURS`, +6 entries). **STILL UNMEASURED ON THIS ADAPTER, AND GATED ON STEP 6, NOT ON A TEST:** `billable_ready` against a real call (§1.2 says it may never honestly be True until a CDR can be read), the `raw_document` archive clause (an `owned_runtime` engine's far side is our own database, so there is no vendor document to archive — this may be a clause that never applies here rather than one that is waiting), and `end_call`. Say the suite is green; do not say the adapter is exercised as hard as `bolna`. |
-| 6 | Carrier wiring, first real call | Plivo account in the **India data region** (BLOCKER-1) |
+| 6 | Carrier wiring, first real call | **THE TRANSPORT LANDED 15 Sep 2026; THE CALL HAS NOT HAPPENED, AND THOSE ARE NOT THE SAME CLAIM.** What is built and tested with no account and no socket (`apps/voice-worker/voice_worker/carrier.py`, `tests/voice_worker_carrier_test.py`): the Plivo transport (`PlivoFrameSerializer` + `FastAPIWebsocketTransport`, 8 kHz both ways, no WAV header), the answer document, the stream URL, the handshake narrowing, and the whole INBOUND path — a route token off the stream URL → `(tenant, agent)` → an RLS-scoped read of the published config version → the knowledge pack → `assemble_call` → the agent speaking first from the transport's own connect event. **THE ROUTE IS THE URL, NOT THE DIALLED NUMBER**: Pipecat's Plivo parser leaves `from`/`to` `None` (`runner/utils.py:257-262`), so the stream URL carries the agent ref the control plane already mints (`calevate_shared.engine.owned_runtime_agent_ref`) and the number → agent decision stays on the screen that binds the number, where a tenant session exists. **Hard rule 5 now binds this leg**: `config.load_session_config` refuses an agent with no `ai_disclosure_line` and a prompt that has lost the truthful-answer floor — an inbound call reaches neither the column CHECK nor `check_dispatch`. **WHAT REMAINS IS AN ACCOUNT, PLUS TWO THINGS THAT NEED IT**: (a) a Plivo account in the **India data region** (BLOCKER-1) with its `auth_id`/`auth_token` in the ops console and a number pointed at our answer URL — an external blocker, not engineering; (b) the HTTP half — the route that serves `plivo_answer_document` and accepts the WebSocket — which is one mount in `apps/voice-runtime` and is deliberately NOT written against an unread vendor grammar; (c) **OUTBOUND DIAL IS UNBUILT AND REFUSES BY NAME** (`carrier.place_outbound_call`): Pipecat's whole tree holds one Plivo REST endpoint, the hangup (`serializers/plivo.py:184`), and the request that places a call is UNKNOWN here. Step 6 is DONE when a real call has happened, and it has not |
 | 7 | Metering reconciled against the Plivo CDR | step 6 |
 | 8 | `GnaniTTSService` | Gnani Q1 |
 | 9 | `Clear` flips to Gnani; Sarvam TTS retires | step 8 + price attested |
@@ -263,6 +263,21 @@ three seconds per turn.
   page claims. It moved to `pre-build-blockers` §3.6 beside M-1..M-5. Let the media land
   where it lands until a measured call says otherwise.
 - What a Pipecat "active minute" bills (§3.5 P-1). It changes the cost model, not the shape.
+- **Everything about the Plivo wire that Pipecat's own source does not show.**
+  `www.plivo.com` and `api.plivo.com` are egress-blocked here (re-measured 13 Sep 2026, §10
+  of `pre-build-blockers`), so the carrier module cites PIPECAT SOURCE and nothing else.
+  Three named gaps, each labelled at its point of use in
+  `apps/voice-worker/voice_worker/carrier.py`:
+  1. **The dialled and calling numbers on an inbound stream.** Pipecat's parser populates
+     `from`/`to` for Telnyx and Exotel and leaves both `None` for Plivo
+     (`runner/utils.py:250-262`). Whether the carrier sends them at all is UNKNOWN. The
+     routing design does not need the answer and must not be changed to depend on one
+     until it is verified.
+  2. **Whether Plivo's `<Stream>` accepts any attribute beyond the four Pipecat's shipped
+     template sets** (`runner/run.py:1435-1438`). We emit exactly those four.
+  3. **Every carrier REST call except the hangup** — placing a call, reading a CDR, binding
+     a number to a URL. `carrier.place_outbound_call` and `engine/pipecat.py`'s carrier
+     methods refuse by name rather than guess.
 - Whether `sonic-3.5` is a real Cartesia identifier — **it appears nowhere in Pipecat's
   source**, whose own default is `sonic-3.6`, and Pipecat validates no Cartesia id at all. Our
   value stays REPORTED. Do not silently "fix" it to match a library that would accept anything.
