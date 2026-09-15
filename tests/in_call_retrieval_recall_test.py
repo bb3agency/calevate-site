@@ -45,32 +45,44 @@ Telugu. `INDIAN_SCRIPT_NAMES` claims ten scripts from one element table, and a c
 second script had ever tested is a claim. It did not survive intact — see
 `test_a_nukta_changes_the_consonant_it_sits_under`.
 
-**MEASURED 14 Sep 2026, at the commit that wrote this file** (n=24, English-only index,
-`DEFAULT_TOP_K`=3):
+**WHAT THE TWO DEPTHS MEAN, SINCE 15 Sep 2026.** `recall@1` counts a fact only when its
+passage scores STRICTLY above the passage below the cut — the fact was the unambiguous best
+match, and no tie-break could have taken it. `recall@3` counts it when it reached the model
+at all, `ambiguous`'s two passages included. `_recall`'s docstring argues both, and the
+paragraph under the first table is why the distinction had to be made rather than assumed.
+
+**MEASURED 14 Sep 2026, at the commit that wrote this file, re-measured under the
+deterministic rules 15 Sep** (n=24, English-only index, `DEFAULT_TOP_K`=3):
 
     query form        recall@1   recall@3   outcomes
     query_en           0.833      0.875     20 found, 4 ambiguous
-    query_tenglish     0.625      0.708     17 found, 4 ambiguous, 3 not_found
+    query_tenglish     0.583      0.708     17 found, 4 ambiguous, 3 not_found
     query_te           0.083      0.083      2 found, 22 not_found
     code-mixed (n=10)  1.000      1.000     10 found
 
-⚠ **THE `query_tenglish` RECALL@1 IN THAT TABLE READ 0.583 UNTIL 15 Sep 2026 AND THE CODE
-HAS NEVER PRODUCED IT.** Re-measured at the unmodified commit this branch started from, the
-figure is 0.625 — fifteen of twenty-four, not fourteen — with the same outcome census the
-table already carried (17 found, 4 ambiguous, 3 not_found). Nothing in the retrieval path
-changed; the number was simply transcribed wrong when this file was written, and it had
-already been copied into `docs/PIPECAT-MIGRATION.md` §9.4, which is corrected in the same
-commit. It is left visible here rather than quietly overwritten because it is the exact
-failure hard rule 11 describes: a figure in our own tree is a CLAIM, and a claim that gets
-quoted downstream without anyone re-running the measurement is how a wrong number becomes a
-product fact. The floor below is unaffected — it sat under both readings.
+⚠ **THAT `query_tenglish` FIGURE WAS BRIEFLY "CORRECTED" TO 0.625 AND THE CORRECTION WAS
+WRONG. READ THIS BEFORE TRUSTING ANY NUMBER IN THIS FILE.** On 15 Sep somebody re-ran the
+harness, got 0.625 where the table said 0.583, concluded the original had been transcribed
+wrong, and pushed 0.625 into this docstring and into `docs/PIPECAT-MIGRATION.md` §9.4 —
+citing hard rule 11 while doing it. **Both readings were real and neither was a measurement.**
+`re_amenities` scores 2.1917654896 against a competitor scoring exactly 2.1917654896, and
+`_search` was breaking that tie on `str(chunk_id)`, which `_pack_from` derives from a fixture
+LABEL. So the published number depended on a string nobody had ever thought of as an input,
+and re-running the measurement reproduced the coin flip instead of catching it.
+
+The lesson is narrower and sharper than "verify before you state": **re-running a measurement
+is not verification if the measurement is not deterministic, and nothing said so.** It is now
+said by `test_the_numbers_do_not_depend_on_the_fixture_label`, which sweeps the label and
+asserts one value — and by the tie rule in `_recall`, under which this question is a MISS at
+rank 1 in every world, because equal-best is not best. 0.583 is what that gives, and it is
+stable. The floor was never in question; it sat under every reading.
 
 **THE HINDI ARM, MEASURED 15 Sep 2026** (n=24, same index, same `DEFAULT_TOP_K`=3,
 `tests/fixtures/hindi_gloss_corpus.json`):
 
     query form        recall@1   recall@3   outcomes
     query_en           0.917      1.000     20 found, 4 ambiguous
-    query_hinglish     0.750      0.833     18 found, 4 ambiguous, 2 not_found
+    query_hinglish     0.750      0.792     18 found, 4 ambiguous, 2 not_found
     query_hi           0.083      0.083      2 found, 22 not_found
 
 **READ THE TWO TABLES AS TWO CORPORA, NOT AS TELUGU AGAINST HINDI.** Hindi scores higher on
@@ -216,7 +228,7 @@ _CODE_MIXED_RECALL_AT_3_FLOOR: Final[float] = 0.90
 _HI_EN_RECALL_AT_1_FLOOR: Final[float] = 0.87  # measured 0.917
 _HI_EN_RECALL_AT_3_FLOOR: Final[float] = 0.95  # measured 1.000
 _HINGLISH_RECALL_AT_1_FLOOR: Final[float] = 0.70  # measured 0.750
-_HINGLISH_RECALL_AT_3_FLOOR: Final[float] = 0.79  # measured 0.833
+_HINGLISH_RECALL_AT_3_FLOOR: Final[float] = 0.75  # measured 0.792
 
 #: ⚠ NOT A QUALITY BAR, for the same reason `_TELUGU_SCRIPT_RECALL_AT_1_FLOOR` is not: a
 #: tripwire under a form already at 0.083 (2 of 24 found, 22 `not_found`). That it is the
@@ -270,12 +282,27 @@ def _pack_from(facts: list[dict[str, Any]], label: str) -> tuple[SessionKnowledg
     return session, documents
 
 
+#: ONE RANK DEEPER THAN THE CALLER IS EVER HANDED, AND THE EXTRA RANK IS NEVER SCORED.
+#: `_recall` needs the score of the first passage BELOW each cut to know whether a tie
+#: straddles it (see its docstring); that score is invisible if the search returns exactly
+#: as many passages as we score. So the harness asks for `DEFAULT_TOP_K + 1` and uses the
+#: last one solely as a boundary probe — `passages[:k]` is still exactly the set the
+#: caller's turn would have received, because `_search` slices the same ranking. An
+#: `ambiguous` answer ignores `k` and returns its two passages either way.
+_PROBE_K: Final[int] = DEFAULT_TOP_K + 1
+
+
 def _hits(
     session: SessionKnowledge, documents: dict[UUID, str], question: str
-) -> tuple[list[str], str]:
-    """The `fact_id`s this turn would have handed the model, best first, and the outcome."""
-    answer = session.search(question)
-    return [documents[p.provenance.source_id] for p in answer.passages], answer.outcome
+) -> tuple[list[str], list[float], str]:
+    """The `fact_id`s this turn would have handed the model, best first, their scores, and
+    the outcome. See `_PROBE_K` for why one more rank comes back than is ever scored."""
+    answer = session.search(question, k=_PROBE_K)
+    return (
+        [documents[p.provenance.source_id] for p in answer.passages],
+        [p.score for p in answer.passages],
+        answer.outcome,
+    )
 
 
 def _recall(facts: list[dict[str, Any]], query_key: str, label: str) -> tuple[float, float, dict]:
@@ -285,26 +312,50 @@ def _recall(facts: list[dict[str, Any]], query_key: str, label: str) -> tuple[fl
     (two near-equal candidates, neither the right one) and a confident wrong `found` all
     cost the caller the same thing.
 
-    ⚠ **BOTH DEPTHS COME OUT OF ONE PACK, AND THAT IS LOAD-BEARING RATHER THAN TIDY** (found
-    15 Sep 2026). `SessionKnowledge._search` breaks a score tie on `str(chunk_id)` — stable
-    for a given pack, which is what production needs — and `_pack_from` derives chunk ids
-    from the `label`. So measuring recall@1 and recall@3 under two different labels ranks
-    tied entries two different ways and reports two numbers off the same corpus: the Hindi
-    romanised row read 0.875, 0.833 or 0.792 purely by choice of label. Taking one pack for
-    both depths makes the label unobservable, which is the only honest shape for a harness
-    whose whole job is to produce a number somebody will quote.
+    ⚠ **A TIE AT THE CUT IS NOT A HIT, AND THAT IS THE WHOLE DIFFERENCE BETWEEN A NUMBER AND
+    A COIN FLIP** (15 Sep 2026). BM25 produces exact ties — `re_amenities` scores
+    2.1917654896 against a competitor's 2.1917654896 — and at an exact tie there IS no rank
+    1: whichever entry `_search`'s tie-break puts first, the data did not put it there.
+    Counting such a fact as recall@1 reports "the correct fact was the best match" on
+    evidence that says "the correct fact was EQUAL-best", so this scores a hit at `k` only
+    when the fact's own passage scores STRICTLY higher than the passage just below the cut.
+    The two depths then mean two different, and separately useful, things:
+
+      * **recall@1** — the fact was the unambiguous best match. No tie-break could take it.
+      * **recall@3** — the fact reached the model at all, which is what §9.4 is about.
+
+    An `ambiguous` answer still contributes its two passages to recall@3, unchanged: the
+    model really is handed both, and the caller really can be answered from them. What it no
+    longer does is contribute to recall@1 when its two scores are equal.
+
+    ⚠ **BOTH DEPTHS COME OUT OF ONE PACK, AND THAT IS LOAD-BEARING RATHER THAN TIDY.**
+    `_pack_from` derives chunk ids from the `label`, so measuring the two depths under two
+    labels ranks tied entries two different ways and reports two numbers off one corpus.
+    Taking one pack for both makes the label unobservable at the depths; the strict-score
+    rule above and `_search`'s position tie-break make it unobservable at the ties.
+    `test_the_numbers_do_not_depend_on_the_fixture_label` is the assertion, and it is the
+    thing that stops all of this coming back.
     """
     session, documents = _pack_from(facts, label)
     outcomes: dict[str, int] = {}
     at_1 = 0
     at_k = 0
     for fact in facts:
-        got, outcome = _hits(session, documents, fact[query_key])
+        got, scores, outcome = _hits(session, documents, fact[query_key])
         outcomes[outcome] = outcomes.get(outcome, 0) + 1
-        if fact["fact_id"] in got[:1]:
-            at_1 += 1
-        if fact["fact_id"] in got[:DEFAULT_TOP_K]:
-            at_k += 1
+        for cut, counter in ((1, "at_1"), (DEFAULT_TOP_K, "at_k")):
+            if fact["fact_id"] not in got[:cut]:
+                continue
+            # The passage at index `cut` is the first one BELOW the cut. If the fact ties it,
+            # the fact's membership of the top `cut` was decided by the tie-break, not by the
+            # search, and this refuses to call that a hit. No passage there means the ranking
+            # ran out before the cut, so nothing could have displaced it.
+            if len(scores) > cut and scores[got.index(fact["fact_id"])] <= scores[cut]:
+                continue
+            if counter == "at_1":
+                at_1 += 1
+            else:
+                at_k += 1
     return at_1 / len(facts), at_k / len(facts), outcomes
 
 
@@ -436,7 +487,7 @@ def test_no_code_mixed_question_is_answered_with_silence() -> None:
     silent = [
         fact["fact_id"]
         for fact in _CODE_MIXED
-        if _hits(session, documents, fact["query_code_mixed"])[1] == "not_found"
+        if _hits(session, documents, fact["query_code_mixed"])[2] == "not_found"
     ]
     assert not silent, f"code-mixed questions answered not_found: {silent}"
 
@@ -462,7 +513,7 @@ def test_hinglish_queries_hold_their_recall_floor() -> None:
     hai?" — which is what Saaras returns for a Hindi caller when nobody paraphrases.
 
     The Tenglish row's counterpart, and like it not the in-call path (§9.1 step 2 paraphrases
-    first). Measured 0.750/0.833. FAILS IF the graceful degradation stops being graceful.
+    first). Measured 0.750/0.792. FAILS IF the graceful degradation stops being graceful.
 
     ⚠ It scores ABOVE the Tenglish row and that is not a statement that Hindi retrieves
     better: a Hinglish speaker keeps more English nouns than a Tenglish speaker does, and
@@ -565,6 +616,52 @@ def test_a_nukta_changes_the_consonant_it_sits_under() -> None:
     assert transliterate_indic("ਜ਼ਰੂਰੀ") == "zarūrī"
 
 
+# --- the property that makes every number above a measurement ---------------------------
+
+#: The corpus/form pairs every floor in this file is derived from. One place, so the sweep
+#: below cannot fall behind the tests it is guarding.
+_MEASURED_ROWS: Final[tuple[tuple[str, list[dict[str, Any]], str], ...]] = (
+    ("telugu query_en", _CORPUS, "query_en"),
+    ("telugu query_tenglish", _CORPUS, "query_tenglish"),
+    ("telugu query_te", _CORPUS, "query_te"),
+    ("code-mixed", _CODE_MIXED, "query_code_mixed"),
+    ("hindi query_en", _HINDI_CORPUS, "query_en"),
+    ("hindi query_hinglish", _HINDI_CORPUS, "query_hinglish"),
+    ("hindi query_hi", _HINDI_CORPUS, "query_hi"),
+)
+
+
+def test_the_numbers_do_not_depend_on_the_fixture_label() -> None:
+    """EVERY ROW ABOVE MUST BE A PROPERTY OF RETRIEVAL AND OF NOTHING ELSE.
+
+    `_pack_from` derives its tenant, agent, document and chunk ids from a `label` that is
+    pure harness bookkeeping — it names nothing a client has and reaches no scoring rule. So
+    sweeping the label must not move a single figure. It did: BM25 ties exactly, `_search`
+    broke those ties on `str(chunk_id)`, and the same corpus reported Telugu `query_tenglish`
+    recall@1 as 0.583 or 0.625 and Hindi `query_hinglish` recall@3 as 0.792 or 0.833 purely
+    by which string the harness happened to pass. Both readings were then written into this
+    file's docstring and into `docs/PIPECAT-MIGRATION.md` §9.4 as findings.
+
+    Two changes closed it and this is the assertion over both: `_search` now breaks ties by
+    pack POSITION (the rule `DenseIndex.search` already used, and the order production packs
+    are stored in — `kb/pack.py:171`), and `_recall` refuses to score a fact that merely TIES
+    the passage below the cut.
+
+    FAILS IF anything reintroduces an id-dependent ordering — a tie-break on a uuid, a dict
+    iteration order reaching a rank, a cache keyed on something incidental. It is worth more
+    than any floor here, because a floor only catches a number that got worse and this
+    catches a number that was never real.
+    """
+    labels = ("corpus-en", "a", "zzz", "q7", "sweep-4", "0199c0de")
+    for name, facts, query_key in _MEASURED_ROWS:
+        readings = {_recall(facts, query_key, label)[:2] for label in labels}
+        assert len(readings) == 1, (
+            f"{name}: recall moved with the fixture label — {sorted(readings)}. "
+            "The label names nothing in the product; a number that depends on it is not a "
+            "measurement. Read this test's docstring."
+        )
+
+
 def test_the_whole_golden_set_runs_without_a_network_a_model_or_a_database() -> None:
     """The property that lets this live in CI at all: a pack in memory, a BM25 index, a dict
     walk. FAILS IF an answer ever comes back `temporarily_unavailable`, which is the state
@@ -579,5 +676,5 @@ def test_the_whole_golden_set_runs_without_a_network_a_model_or_a_database() -> 
     ):
         session, documents = _pack_from(facts, label)
         for fact in facts:
-            _, outcome = _hits(session, documents, fact[key])
+            *_, outcome = _hits(session, documents, fact[key])
             assert outcome != "temporarily_unavailable"
