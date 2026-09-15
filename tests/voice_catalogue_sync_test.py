@@ -31,6 +31,7 @@ from apps.api.agents.voices import (
     voice_tier,
 )
 from apps.api.db.session import untenanted_session
+from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES, OWNED_RUNTIME_CAPABILITIES
 from calevate_shared.engine import EngineVoice, EngineVoiceListing
 from sqlalchemy import delete, text
 from tests.voice_fixture import seed_platform_voices
@@ -238,6 +239,13 @@ class _StubEngine:
     """
 
     name = "stub"
+    #: THE SECOND FIELD the sync TOUCHES (D-615). A stub that carried only `list_voices`
+    #: was a `VoiceEngine` missing the attribute that says whether that listing is a
+    #: SECOND OPINION at all — so every clause below was written against an engine whose
+    #: answer to that question was undefined. `DEFAULT_FAKE_CAPABILITIES` is
+    #: `control_plane`, i.e. a vendor holding a catalogue of its own, which is the shape
+    #: every clause in this file is about.
+    capabilities = DEFAULT_FAKE_CAPABILITIES
 
     def __init__(self, listing: EngineVoiceListing) -> None:
         self._listing = listing
@@ -559,3 +567,94 @@ async def test_a_voice_that_comes_back_keeps_the_state_it_was_put_away_with() ->
         ).one()
     assert withdrawn is None, "a returning voice was left marked withdrawn"
     assert state == "archived", "a returning voice came back un-curated"
+
+
+class _OwnedRuntimeStubEngine(_StubEngine):
+    """The same stub declaring `agent_hosting="owned_runtime"` — an engine that IS us.
+
+    `OWNED_RUNTIME_CAPABILITIES` rather than `PIPECAT_CAPABILITIES` for `_StubEngine`'s own
+    reason: the axis under test is the HOSTING SHAPE, and the fixture set is the one the
+    conformance suite already exercises that shape with.
+    """
+
+    name = "stub-owned-runtime"
+    capabilities = OWNED_RUNTIME_CAPABILITIES
+
+
+async def test_a_sync_does_nothing_on_an_engine_that_has_no_catalogue_of_its_own() -> None:
+    """D-615: the sync is a SECOND OPINION, and on `owned_runtime` there is nobody to ask.
+
+    `PipecatEngine.list_voices` reads `platform_voice_catalog WHERE origin = 'operator'` —
+    the table this function writes — so a sync there fed its own output back in. The prune
+    arm made that worse than pointless: an operator-origin listing is COMPLETE, so on the
+    first tick after the engine changed, every row the operator had not attested (every
+    `synced` row a previous engine cached) would be stamped `withdrawn_at` and vanish from
+    the picker, with nothing anywhere saying why.
+
+    The stub still RETURNS a listing, so a guard that had been removed would prune and this
+    clause would fail on the withdrawal rather than on the counters.
+    """
+    await _clear()
+    try:
+        async with untenanted_session() as session:
+            await sync_voice_catalogue(
+                session,
+                _StubEngine(
+                    EngineVoiceListing(
+                        voices=(_engine_voice(), _engine_voice(voice_id="ritu", label="Ritu")),
+                        complete=True,
+                    )
+                ),
+            )
+            await session.commit()
+
+        async with untenanted_session() as session:
+            result = await sync_voice_catalogue(
+                session,
+                _OwnedRuntimeStubEngine(
+                    EngineVoiceListing(voices=(_engine_voice(),), complete=True)
+                ),
+            )
+            await session.commit()
+
+        assert result.skipped_reason is not None, "the sync ran against an engine that is us"
+        assert result.installed is False
+        assert result.pruned is None, "a skipped sync reported a prune"
+
+        async with untenanted_session() as session:
+            withdrawn = (
+                await session.execute(
+                    text(
+                        "SELECT count(*) FROM platform_voice_catalog WHERE withdrawn_at IS NOT NULL"
+                    )
+                )
+            ).scalar_one()
+        assert withdrawn == 0, "the catalogue was pruned against itself"
+
+        async with untenanted_session() as session:
+            cached = await read_cached_catalogue(session)
+        assert {voice.speaker for voice in cached} == {"shubh", "ritu"}
+    finally:
+        await _clear()
+
+
+async def test_a_skipped_sync_is_not_the_empty_listing_alarm() -> None:
+    """The two zeroes are different facts and must not collapse into one.
+
+    `written == 0` means the engine was asked and answered with nothing usable — a revoked
+    credential, most likely — and it alerts. A skip means nobody was asked. A deployment
+    whose operator has not attested a voice yet is in the second state, and reporting it as
+    the first sends them to check a credential this engine does not have
+    (`PipecatEngine.credential_env_keys` is empty).
+    """
+    await _clear()
+    try:
+        async with untenanted_session() as session:
+            result = await sync_voice_catalogue(
+                session, _OwnedRuntimeStubEngine(EngineVoiceListing(voices=(), complete=True))
+            )
+        assert result.skipped_reason is not None
+        assert result.written == 0
+        assert result.seen == 0
+    finally:
+        await _clear()

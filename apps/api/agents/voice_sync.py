@@ -134,6 +134,14 @@ class VoiceSyncResult:
     pruned: int | None
     complete: bool
     incomplete_reason: str | None = None
+    #: Why no sync was ATTEMPTED, or None if one was (D-615).
+    #:
+    #: NOT `written == 0`, which is this module's other zero and means the opposite thing:
+    #: that the engine was asked and answered with nothing usable, which is an ALARM and a
+    #: standing catalogue. This one means nobody was asked, because on this engine there is
+    #: nobody to ask — see `sync_voice_catalogue`. The console and the cron read it to say
+    #: so, and `installed` stays False either way because neither writes a catalogue.
+    skipped_reason: str | None = None
 
     @property
     def installed(self) -> bool:
@@ -242,7 +250,42 @@ async def sync_voice_catalogue(
     The caller COMMITS. This function never does, for `BACKEND-PATTERNS`' reason: the ARQ
     job wants the write and the snapshot install to be one act, and an ops route wants the
     write inside the request's transaction with its audit row.
+
+    **AND IT DOES NOTHING AT ALL ON AN ENGINE THAT IS US (D-615).** Everything above is an
+    argument about a SECOND OPINION: the vendor's list is an authority we do not control,
+    which is why an empty one is refused, an incomplete one never prunes, and a curated row
+    is never overwritten. On `agent_hosting="owned_runtime"` there is no vendor —
+    `PipecatEngine.list_voices` reads `platform_voice_catalog WHERE origin = 'operator'`,
+    which is THIS TABLE — so a sync there reads its own output and writes it back, and the
+    adapter records the circularity rather than leaving it to be found
+    (`engine/pipecat.py::SqlControlPlane.voices`). Two things make that worse than merely
+    pointless, which is why this is a refusal and not a shrug:
+
+    * **the prune arm is live.** An operator-origin listing is complete, so every row the
+      operator has not attested — every `synced` row a previous engine cached — is stamped
+      `withdrawn_at` on the first tick after the engine changes. The table would be pruned
+      against itself.
+    * **the empty-listing alarm fires on a correct state.** A deployment whose operator has
+      not attested a voice yet has no operator rows, which is not a revoked credential; the
+      alarm's own remediation ("check the engine credential") names a credential this engine
+      does not have (`PipecatEngine.credential_env_keys` is empty).
+
+    The catalogue on such an engine is maintained by `voice_admission.admit_voice`, which is
+    the operator attesting a voice — the only authority left once the vendor is gone.
     """
+    if not engine.capabilities.lists_voices_independently():
+        # A STATED NO-OP, the shape `workers/engine_violations._sweep` uses for an engine
+        # with no violations surface: the caller gets a result that says which of "nothing
+        # to do" and "we could not look" happened, rather than a zero that reads like both.
+        reason = (
+            "this voice platform has no catalogue of its own — its voices are the ones an "
+            "operator attested here, so there is nothing to re-read"
+        )
+        log.info(
+            "voice_catalogue_sync_skipped",
+            extra={"engine": engine.name, "reason": "engine_has_no_independent_catalogue"},
+        )
+        return VoiceSyncResult(seen=0, written=0, pruned=None, complete=True, skipped_reason=reason)
     listing = await engine.list_voices()
     pairs = offerable_pairs(listing)
     voices = _ordered([voice for _, voice in pairs])

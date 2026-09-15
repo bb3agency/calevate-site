@@ -51,6 +51,7 @@ from apps.api.agents.voices import (
 )
 from apps.api.core.errors import ProblemError
 from apps.api.db.session import untenanted_session
+from apps.api.engine.fake import DEFAULT_FAKE_CAPABILITIES, OWNED_RUNTIME_CAPABILITIES
 from calevate_shared.engine import EngineVoice, EngineVoiceListing
 from sqlalchemy import text
 from tests.voice_fixture import seed_platform_voices
@@ -115,6 +116,13 @@ class _StubEngine:
     """
 
     name = "stub"
+    #: THE SECOND FIELD admission TOUCHES (D-615). A stub that carried only `list_voices`
+    #: was a `VoiceEngine` missing the attribute that says whether that listing is a
+    #: SECOND OPINION at all — so every clause below was written against an engine whose
+    #: answer to that question was undefined. `DEFAULT_FAKE_CAPABILITIES` is
+    #: `control_plane`, i.e. a vendor holding a catalogue of its own, which is the shape
+    #: every clause in this file is about.
+    capabilities = DEFAULT_FAKE_CAPABILITIES
 
     def __init__(self, listing: EngineVoiceListing | None) -> None:
         self._listing = listing
@@ -444,3 +452,71 @@ async def test_the_console_opens_on_decided_rows_and_says_how_many_it_is_not_sho
     assert CLONE_VOICE_ID in shown
     assert "sonic-3.5:undecided" not in shown, "the opening screen is a curation chore again"
     assert "sonic-3.5:undecided" in {row.voice.id for row in everything}
+
+
+class _OwnedRuntimeStubEngine(_StubEngine):
+    """An engine that IS us: its `list_voices` is a read of the very table admission writes.
+
+    `list_voices` RAISES here on purpose. On the real adapter it would return the
+    operator-origin rows, and for a voice nobody has admitted yet that is an empty listing;
+    raising is the stronger statement, because it fails the clause below if admission ever
+    consults a catalogue on this shape at all rather than merely finding it empty.
+    """
+
+    name = "stub-owned-runtime"
+    capabilities = OWNED_RUNTIME_CAPABILITIES
+
+    def __init__(self) -> None:
+        super().__init__(None)
+
+
+async def test_the_first_voice_can_be_admitted_on_an_engine_that_is_us() -> None:
+    """D-615, AND IT IS A DEADLOCK RATHER THAN A STRICTNESS.
+
+    Grounds 3-5 check the operator's typed facts against the ENGINE's list, because a voice
+    the engine does not carry earns a live 400 at publish (D-585). On
+    `agent_hosting="owned_runtime"` that list is `platform_voice_catalog WHERE origin =
+    'operator'` — the rows admission itself writes — so the row being added is the row that
+    must already be there. Since D-588 deleted the compiled seed, a fresh `ENGINE=pipecat`
+    deployment therefore had no voices, could never gain one, and no agent on it could be
+    published with a voice at all.
+
+    The operator is the authority once the vendor is gone, which is what `origin =
+    'operator'` has meant since D-590, so the typed facts stand and the row records that
+    provenance.
+    """
+    facts = _facts()
+    async with untenanted_session() as session:
+        row = await admit_voice(session, _OwnedRuntimeStubEngine(), facts)  # type: ignore[arg-type]
+        await session.commit()
+
+    assert row.voice.speaker == CLONE_ID
+    assert row.voice.label == CLONE_NAME
+    assert row.voice.languages == ("te-IN",)
+
+    async with untenanted_session() as session:
+        origin, is_custom = (
+            await session.execute(
+                text(
+                    "SELECT origin, is_custom FROM platform_voice_catalog "
+                    "WHERE engine_voice_id = :vid"
+                ),
+                {"vid": CLONE_ID},
+            )
+        ).one()
+    assert origin == "operator", "a voice nothing corroborated was filed as a synced row"
+    # NOT a claim either way: `is_custom` is the PLATFORM's own `source` enum, and an engine
+    # that minted nothing has no such fact. The contract's default stands and the field is
+    # display-only (`voice_curation_routes`).
+    assert is_custom is False
+
+
+async def test_the_platform_check_still_runs_on_an_engine_that_has_a_catalogue() -> None:
+    """The other half: D-615 must not let the attestation path leak onto a rented engine.
+
+    Same facts, same absent voice, an engine whose `agent_hosting` is `control_plane` — and
+    the refusal that exists because a voice the platform does not list fails at publish.
+    """
+    with pytest.raises(ProblemError) as refusal:
+        await _add(_facts(), _listing(_engine_voice(voice_id="someone-else")))
+    assert refusal.value.code == "voice_not_on_platform"

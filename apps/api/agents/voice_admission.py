@@ -414,6 +414,70 @@ def check_languages(entry: EngineVoice, *, languages: tuple[Language, ...]) -> t
     return languages
 
 
+async def _corroborate(
+    engine: VoiceEngine, facts: VoiceFacts, *, tts_model: TtsModel
+) -> tuple[EngineVoice, str, tuple[Language, ...]]:
+    """The platform's own row for this voice and the two facts it settles — or, on an engine
+    that has no catalogue of its own, the operator's attestation standing alone (D-615).
+
+    **WHY THERE IS A SECOND PATH AT ALL, AND WHY IT IS NOT A WEAKENING.** Grounds 3-5 exist
+    because the ENGINE's list is an authority we do not control: a voice it does not carry
+    earns a live `400` at publish, so checking is what stops a row that saves and fails on a
+    client's phone line (D-585). `capabilities.lists_voices_independently()` is the question
+    "is there such an authority", and on `agent_hosting="owned_runtime"` the answer is no —
+    `PipecatEngine.list_voices` returns `platform_voice_catalog WHERE origin = 'operator'`,
+    i.e. the rows THIS FUNCTION writes.
+
+    So on that engine the checks were not strict, they were **circular, and they closed the
+    product**: the first voice can never be admitted, because the row admission is asked to
+    create is the row it demands to find first, and since D-588 deleted the seed a fresh
+    deployment starts with none. An empty catalogue is an agent nobody can publish a voice
+    for. That is the state `ENGINE=pipecat` shipped in.
+
+    What replaces the engine as the authority is the OPERATOR, which is exactly what D-590's
+    `origin = 'operator'` already means: a row somebody typed and attested. So the typed
+    facts stand as typed, and the row records that provenance — nothing here pretends a
+    platform confirmed them. ⚠ The corresponding LOSS is stated rather than papered over:
+    on this engine a mistyped `engine_voice_id` is no longer caught at admission and will
+    surface as a failed synthesis on a call, because there is no list left to catch it
+    against. The two speech vendors' own catalogues are the authority that could
+    (`api.cartesia.ai`, `docs.sarvam.ai`) and both are EGRESS-BLOCKED from this container —
+    an operator-attested row is the honest answer until a worker-side pre-flight exists.
+    """
+    if engine.capabilities.lists_voices_independently():
+        listing = await read_platform_listing(engine)
+        entry = find_on_platform(
+            listing, tts_model=tts_model, engine_voice_id=facts.engine_voice_id
+        )
+        return (
+            entry,
+            check_label(entry, label=facts.label),
+            check_languages(entry, languages=facts.languages),
+        )
+    log.info(
+        # The operator's own decision, recorded as such: this is the line that distinguishes
+        # a row nothing corroborated from one the platform confirmed, and `origin` carries
+        # the same fact in the table.
+        "voice_admitted_on_attestation_alone",
+        extra={"engine": engine.name, "tts_model": tts_model},
+    )
+    return (
+        EngineVoice(
+            voice_id=facts.engine_voice_id,
+            label=facts.label,
+            tts_model=tts_model,
+            languages=facts.languages,
+            # NOT PASSED, so the contract's own default stands. `is_custom` is the
+            # PLATFORM's `source` enum — whether the voice platform minted this voice — and
+            # on an engine that minted nothing there is no such fact to carry. The Add Voice
+            # form does not ask, and inventing True or False would be a claim (hard rule 11);
+            # the field is display-only in the ops list (`voice_curation_routes`).
+        ),
+        facts.label,
+        facts.languages,
+    )
+
+
 async def admit_voice(
     session: AsyncSession,
     engine: VoiceEngine,
@@ -440,10 +504,7 @@ async def admit_voice(
     """
     check_provider(facts.provider)
     model = check_model_matches_provider(provider=facts.provider, tts_model=facts.tts_model)
-    listing = await read_platform_listing(engine)
-    entry = find_on_platform(listing, tts_model=model, engine_voice_id=facts.engine_voice_id)
-    label = check_label(entry, label=facts.label)
-    languages = check_languages(entry, languages=facts.languages)
+    entry, label, languages = await _corroborate(engine, facts, tts_model=model)
 
     stamp = now or datetime.now(UTC)
     voice_id = voice_id_for(model, facts.engine_voice_id)

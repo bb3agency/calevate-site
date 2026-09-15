@@ -194,25 +194,59 @@ def verify_source(engine: str, source_ip: str | None) -> IntakeVerdict:
             ok=False, method="hmac", reason="signature verification not implemented"
         )
     if method == "none":
-        # An engine that declares NO authenticity control at all. Today that is the fake
-        # engine, and it is by design — that is how the whole pipeline runs offline
-        # (DEV-SETUP §3). Which makes this route an unauthenticated write endpoint, and
-        # the route table is identical in every environment: on a prod box running
-        # ENGINE=bolna, `/hooks/v1/engine/fake` would hand any stranger who found the URL
-        # an inbox claim, a forensic row and an ARQ job.
+        # An engine that declares NO authenticity control at all. Which makes this route an
+        # unauthenticated write endpoint, and the route table is identical in every
+        # environment: on a prod box running ENGINE=bolna, `/hooks/v1/engine/fake` would
+        # hand any stranger who found the URL an inbox claim, a forensic row and an ARQ job.
         #
-        # So the door is open exactly where that engine IS this deployment's engine.
-        # Matched against the declared method and the requested name rather than against
-        # the literal `"fake"`, which is what this used to do: a hard-coded vendor name in
-        # the latency-critical receiver is the thing D-93 removed from the branch above,
-        # and leaving one here meant the same class of drift survived in the same
-        # function. The generalisation changes no answer today — `fake` is the only
-        # engine declaring `none` — and it makes the gate follow the declaration.
-        if get_settings().engine == engine:
-            return IntakeVerdict(ok=True, method="none", reason="fake engine")
-        return IntakeVerdict(
-            ok=False, method="none", reason="fake engine is not enabled in this environment"
-        )
+        # TWO GATES, AND THE SECOND ONE IS NEW (D-615). The first is that the engine IS this
+        # deployment's engine — matched against the declared method and the requested name
+        # rather than against the literal `"fake"`, which is what this used to do: a
+        # hard-coded vendor name in the latency-critical receiver is the thing D-93 removed
+        # from the branch above.
+        #
+        # ⚠ **THAT FIRST GATE WAS THE WHOLE ADMISSION RULE, AND IT STOPPED BEING ENOUGH THE
+        # DAY A PRODUCTION ENGINE DECLARED `none`.** `fake` earned the open door by being a
+        # DEV INSTRUMENT — it is how the whole pipeline runs offline (DEV-SETUP §3) — not by
+        # declaring `none`, and the rule was written when those two facts had one member
+        # between them. `pipecat` declares `none` for the opposite reason: NOTHING EXTERNAL
+        # CALLS IT (`PIPECAT-MIGRATION.md` §3D; the worker is inside our own trust boundary
+        # and writes to the database directly), so on a deployment running `ENGINE=pipecat`
+        # the first gate OPENED `/hooks/v1/engine/pipecat` to any stranger who found the URL
+        # — an engine with no deliverer at all admitting deliveries. `PipecatEngine.
+        # verify_webhook` and `WEBHOOK_AUTH_BY_ENGINE`'s `pipecat` entry both record that
+        # this is the receiver's to fix and not theirs to re-label: `hmac` there would fail
+        # closed by claiming this engine signs its webhooks, which is false.
+        #
+        # So the second gate is the ENVIRONMENT, which is what actually separates the two
+        # cases and is the fact `fake`'s licence always rested on. `local` is this repo's
+        # existing spelling for "a developer's own machine" (D-49 gates dev tokens on the
+        # same comparison), and outside it an engine that can prove nothing about a delivery
+        # admits none. The conformance suite states the division this implements: an adapter
+        # that verifies nothing "is allowed … but it must say so, in `method='none'` … the
+        # receiver's own per-engine check is what keeps such an adapter out of production".
+        #
+        # It costs nothing on any engine that really is called from outside: `bolna` is
+        # `source_ip` and `cartesia` is `hmac`. What it costs `pipecat` is nothing at all —
+        # there is no delivery to lose — and what it costs `fake` on a staging or production
+        # box is the ability to drive the pipeline by POSTing at it, which is the capability
+        # being removed on purpose.
+        settings = get_settings()
+        if settings.engine != engine:
+            return IntakeVerdict(
+                ok=False, method="none", reason="this engine is not enabled in this environment"
+            )
+        if settings.app_env != "local":
+            # NAMED SEPARATELY from the gate above, because the two send an operator to
+            # different places: "not this deployment's engine" is a stranger probing a URL,
+            # and this one is a real delivery attempt against an engine whose events cannot
+            # be authenticated anywhere but a developer's machine.
+            return IntakeVerdict(
+                ok=False,
+                method="none",
+                reason="an engine that verifies nothing is admitted only under APP_ENV=local",
+            )
+        return IntakeVerdict(ok=True, method="none", reason="engine verifies nothing")
     return IntakeVerdict(ok=False, method="none", reason="unknown engine")
 
 
