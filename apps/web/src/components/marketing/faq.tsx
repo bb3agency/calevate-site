@@ -114,6 +114,20 @@ const QUESTIONS: { q: string; a: string }[] = [
      * A buyer who read "the material you upload" would look for a control that does not
      * exist, which is a broken promise in the UI as well as a false sentence here.
      *
+     * ⚠ **EVERY GROUND IN THE PARAGRAPH ABOVE WAS RE-READ ON 15 SEP 2026 AND THREE OF THEM
+     * HAD FLIPPED.** `BOLNA_CAPABILITIES.knowledge_base` is `True` (`apps/api/engine/bolna.py:3636`),
+     * `attach_kb` is BUILT and uploads the approved document to the engine's own store
+     * (`bolna.py:5420`, D-488, reached from `kb/service.publish_source`), and this console DOES
+     * have a file input (`apps/web/src/app/c/[slug]/knowledge/AddDocument.tsx:133`, behind
+     * `POST /v1/kb/uploads` — D-534). `PIPECAT_CAPABILITIES.knowledge_base` is `True` too, with
+     * an in-process pack search registered as a call tool (`docs/PIPECAT-MIGRATION.md` §8.1).
+     * `POST /v1/kb/sources` is the one that held: still text-only
+     * (`kb/service.py:77`). **The COPY below is therefore conservative rather than false** and
+     * is left as it stands; what is corrected is the evidence, because a ground quoted from a
+     * constant nobody re-read is hard rule 11's whole subject. `docs/TRD.md:802` still says
+     * in-call retrieval is "T0 and nothing else" — that is a conflict with the code above, and
+     * `docs/` wins, so it is FLAGGED here rather than silently resolved by a copy sweep.
+     *
      * The replacement is not an apology. Built-in facts answer FASTER than a lookup, and
      * that is the sentence a buyer should get.
      */

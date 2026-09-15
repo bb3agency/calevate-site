@@ -11,34 +11,65 @@ import { relPosix } from "./repoPaths";
  * THE KNOWLEDGE-BASE CLAIM, guarded across every surface at once — including the copy a
  * render test cannot reach.
  *
- * ## The fact this guard is aimed at
+ * ## ⚠ THIS GUARD WAS AIMED AT A PRODUCT THAT NO LONGER EXISTS (re-aimed 15 Sep 2026)
  *
- * **In-call retrieval is T0 and nothing else.** The facts a person approves are compiled
- * into the agent's own system prompt at publish time and travel with it; nothing is
- * looked up while a caller is on the line, and no document is read at any point. Verified
- * at source rather than recalled:
+ * Every ground it cited had flipped, and the guard went on failing builds for sentences
+ * that had become TRUE. What it said, and what the tree says now — each re-read at source
+ * this session rather than carried forward:
  *
- * - `docs/TRD.md:948` — "the honest statement of the shipped system is: in-call retrieval
- *   is T0 and nothing else".
- * - `apps/api/engine/bolna.py:2484` — `BOLNA_CAPABILITIES.knowledge_base = False`.
- * - `apps/api/engine/bolna.py:3536` — `attach_kb` RAISES: "The voice platform's knowledge
- *   base accepts documents, not text."
- * - `apps/api/kb/__init__.py` — the vector store is explicitly NOT ours; `kb_chunks` +
- *   pgvector are CONTINGENCY, and this module "never [stores] an embedding".
- * - `apps/api/kb/routes.py:44` — `POST /v1/kb/sources` declares `kind: "text" | "url" |
- *   "file"` and the service REFUSES the last two. Text is the only shape that works.
- * - `apps/api/agents/t0.py` — the compiler that splices approved knowledge into
- *   `[T0 FACTS]` / "Published knowledge:" at publish time. That is the whole mechanism.
- * - This console has no file input at all: `grep 'type="file"' apps/web/src` is empty.
+ * - "`apps/api/engine/bolna.py:2484` — `BOLNA_CAPABILITIES.knowledge_base = False`" —
+ *   it is `True` (`apps/api/engine/bolna.py:3636`).
+ * - "`attach_kb` RAISES" — it does not. D-488 built the real one
+ *   (`apps/api/engine/bolna.py:5420`): the approved document is uploaded, waited for, and
+ *   the agent's `vector_ids` are PATCHed to reference it. `kb/service.publish_source`
+ *   calls it behind `require_capability("knowledge_base")` (`kb/service.py:1643,1731`), so
+ *   a published source really is in the engine's own store.
+ * - "the vector store is explicitly NOT ours" — D-502 reversed D-28; `pgvector` is an
+ *   extension in the Postgres this repo already runs.
+ * - "This console has no file input at all: `grep 'type=\"file\"' apps/web/src` is empty" —
+ *   it is not. `POST /v1/kb/uploads` ships (`apps/api/kb/routes.py:231`), the conversion
+ *   seam is real (`calevate_shared.document_ingest.CONVERTIBLE_KINDS` = docx, txt, csv,
+ *   xlsx, image, with PDF passing through as the document itself), and the control is
+ *   `apps/web/src/app/c/[slug]/knowledge/AddDocument.tsx:133`.
+ * - "in-call retrieval is T0 and nothing else (`docs/TRD.md:948`)" — that sentence is at
+ *   `docs/TRD.md:802` and is now the stale half of a conflict this file does not get to
+ *   resolve: `docs/` is authoritative, and it still describes the engine KB as unbuilt
+ *   while the code above ships it. FLAGGED, not silently picked. On the engine we are
+ *   migrating to the claim is false twice over — `PIPECAT_CAPABILITIES.knowledge_base` is
+ *   `True` (`apps/api/engine/pipecat.py:229`) and the worker registers an in-process pack
+ *   search as a CALL TOOL (`docs/PIPECAT-MIGRATION.md` §6 step 11, §8.1).
+ *
+ * `POST /v1/kb/sources` is the one ground that held: it still takes TEXT only
+ * (`apps/api/kb/service.py:77`, `SUPPORTED_SUBMISSION_KINDS = {"text"}`). That governs the
+ * PASTE box and not the screen, because a file and a link come in through the uploads
+ * endpoint instead.
+ *
+ * ## What it guards NOW
+ *
+ * Retrieval is no longer the thing the product cannot do, so a ban on the word is a ban on
+ * the truth. Three constraints survive, and the patterns below are cut to them:
+ *
+ * 1. **We do not train on, fine-tune on, or learn from a client's material**, and no agent
+ *    answers an arbitrary question. Unchanged, and the one shape carried over untouched.
+ * 2. **Nothing a client submits reaches a caller until it has been approved AND
+ *    published.** Ingest is asynchronous (`kb/uploads.py` — `UPLOAD_RECEIVED`,
+ *    `UPLOAD_CONVERTING`, "a per-item status a client can read while the engine indexes
+ *    asynchronously"), approval is a human step (FLOWS §7, `kb/service.approve_source`),
+ *    and `approved` is still not `live` — the two-step ladder `SubmittedList.tsx` exists
+ *    for. Copy that couples adding knowledge to an immediacy word promises a state the
+ *    product does not have.
+ * 3. **We read what a client GIVES us, never their systems.** There is no connector that
+ *    reads a client's website, drive, inbox or CRM for answers: a link is fetched once at
+ *    submission through `integrations/egress_guard.assert_public_http_url` and re-fetched
+ *    only by the change sweep, and everything else arrives as bytes a person uploaded.
  *
  * ## Why a source scan and not only a render assertion
  *
  * `publicLanding.test.tsx` and `knowledgeApproval.test.tsx` pin the rendered sentences on
  * the two screens that carry the claim, and those are the stronger assertions where they
  * apply. But a good deal of the copy that promises things is never in either render tree:
- * a `useCopilotSurface` field's `help` (the assist panel's own words — and that is exactly
- * where "It is split into chunks and retrieved during calls" was found), a `placeholder`
- * an operator copies into a message to a client, a `NoticeBox` behind a state no fixture
+ * a `useCopilotSurface` field's `help` (the assist panel's own words), a `placeholder` an
+ * operator copies into a message to a client, a `NoticeBox` behind a state no fixture
  * produces. A scan of the STRING LITERALS reaches all of it.
  *
  * Literals only, via the TypeScript parser — never a `grep` over the file text. Half the
@@ -49,16 +80,11 @@ import { relPosix } from "./repoPaths";
  * ## Why the patterns are narrow, and what that costs
  *
  * A ban wide enough to fire on an honest sentence gets deleted by the first person it
- * inconveniences, and then nothing guards the real claim. So:
- *
- * - "upload" is NOT banned on its own. It is honest about a client's own systems, about a
- *   campaign list, and about anything a human reads. It is banned within one sentence of
- *   the agent's KNOWLEDGE, which is the only place the product cannot honour it.
- * - The retrieval verbs are banned only when they are pointed at a CALL or at the client's
- *   own documents — "retrieved during calls", "searches your documents". "Preview",
- *   "submit" and "review" are the words this workflow is actually made of and stay legal.
- * - Every pattern is bounded by `[^.]{0,N}` so it cannot span a sentence boundary and
- *   weld two innocent phrases into a false hit.
+ * inconveniences, and then nothing guards the real claim. So "upload" is not banned at all
+ * any more — a client really can upload a price list and the agent really does answer from
+ * it — and the retrieval verbs are legal. What is banned is the IMMEDIACY beside them and
+ * the SYSTEM beside them, each bounded by `[^.]{0,N}` so it cannot span a sentence
+ * boundary and weld two innocent phrases into a false hit.
  *
  * The cost is the allowlist below: a handful of real sentences that trip a pattern for a
  * reason, each with the reason written down. An empty allowlist would be a lie about how
@@ -82,33 +108,33 @@ interface BannedShape {
 
 const BANNED: readonly BannedShape[] = [
   {
-    name: "look-it-up-mid-call",
-    pattern: /\b(retriev\w+|search\w+|looks? up|fetch\w+)\b[^.]{0,40}\b(during|mid|on)[- ]?(a )?calls?\b/i,
-    why: "nothing is retrieved during a call — approved facts are already in the prompt (docs/TRD.md:948)",
-    fires: "It is split into chunks and retrieved during calls.",
-    quietOn: "It opens by saying it is an AI, and answers from what you approved.",
-  },
-  {
-    name: "searches-your-documents",
+    // WAS `upload-it-and-the-agent-will-know` AND `knowledge-you-uploaded`, both of which
+    // banned a thing the product now does (D-534 shipped the uploads door). What it could
+    // never do is make it live without a person: `publish_source` runs after approval, and
+    // conversion and indexing are asynchronous before that.
+    name: "live-the-moment-you-add-it",
     pattern:
-      /\b(search\w*|looks? up|reads?|scans?|consults?)\b[^.]{0,40}\byour\b[^.]{0,30}\b(documents?|files?|pdfs?|knowledge base|material)\b/i,
-    why: "there is no document store to search: the vector store is not ours and no embedding path exists (apps/api/kb/__init__.py)",
-    fires: "The agent searches your documents for the answer.",
-    quietOn: "Your account manager reviews everything you add before it goes live.",
+      /\b(upload\w*|add\w*|paste\w*|submit\w*|send\w*)\b[^.]{0,60}\b(knowledge|price list|rate card|brochure|catalogue|menu|faq|document|documents)\b[^.]{0,60}\b(immediately|instantly|right away|straight away|at once|within seconds|in seconds)\b/i,
+    why: "knowledge is converted, then approved by a person, then published before any caller hears it (apps/api/kb/uploads.py, apps/api/kb/service.py::approve_source, FLOWS §7); `approved` is not `live`",
+    fires: "Upload your price list and the agent answers from it immediately.",
+    quietOn:
+      "Your prices and timings are built into the agent before it takes a call, so the answer comes back straight away.",
   },
   {
-    name: "upload-it-and-the-agent-will-know",
-    pattern: /\bupload\w*\b[^.]{0,60}\b(knowledge|price list|rate card|brochure|catalogue|faq)\b/i,
-    why: 'POST /v1/kb/sources takes text and refuses kind="file"/"url" (apps/api/kb/routes.py:44); this console has no file input at all',
-    fires: "Upload your price list and the agent will answer from it.",
-    quietOn: "Paste in a list. It works through it and retries the no-answers.",
-  },
-  {
-    name: "knowledge-you-uploaded",
-    pattern: /\bknowledge\b[^.]{0,60}\bupload\w*/i,
-    why: "knowledge is written or pasted as text, never uploaded — the same missing control, said the other way round",
-    fires: "The knowledge base you uploaded is answered from on every call.",
-    quietOn: "Knowledge you submit is reviewed before it goes live.",
+    // WAS `searches-your-documents`, which banned the retrieval verb outright. The verb is
+    // honest now; what is not is the OBJECT. Nothing reads a client's own systems.
+    name: "reads-your-systems",
+    pattern:
+      /\b(read\w*|search\w*|scan\w*|look\w* up|crawl\w*|index\w*)\b[^.]{0,40}\byour\b[^.]{0,30}\b(website|site|drive|dropbox|inbox|mailbox|email|crm|database|server|systems?|files? on)\b/i,
+    why: "there is no connector that reads a client's own systems: a link is fetched once at submission through integrations/egress_guard.assert_public_http_url, and everything else is bytes a person uploaded",
+    fires: "The agent searches your website and your CRM for the answer.",
+    // The legal set's own sentence about lead DELIVERY, which is the direction that is
+    // real: we push finished leads OUT to a client's system on their instruction. That is
+    // why `connect` and `sync` are not in the verb list — they are the delivery verbs, and
+    // banning them fired on `src/lib/legal/terms.ts` §3, an operative clause in a published
+    // document that is accurate.
+    quietOn:
+      "delivers them to your dashboard and, if you connect one, to your own system.",
   },
   {
     name: "open-genre-ai-promise",
@@ -126,51 +152,21 @@ const BANNED: readonly BannedShape[] = [
  * pattern name, so an allowlist entry cannot silently cover a second sentence that appears
  * later in the same file.
  *
- * The legal set is the whole of it, and the judgement is deliberate. Those documents use
- * "upload" in its ordinary sense — content a client puts into the service — in clauses
- * about ownership, warranty and erasure scope. That is loose rather than FALSE: a client
- * really does put knowledge content in, and it really is theirs. Correcting the word there
- * is an edit to a published document's operative text, which under
- * `src/lib/legal/versions.ts` means a new revision in this mirror AND in
- * `apps/api/legal/catalogue.py`, with the drift check across both. That belongs to whoever
- * owns the legal surface, with `docs/LEGAL-SURFACE.md`'s findings list in front of them —
- * not to a copy sweep. It is recorded here so the next reader inherits the decision rather
- * than the silence.
+ * ⚠ **EMPTY SINCE THE 15 SEP 2026 RE-AIM, AND THAT IS A MEASUREMENT RATHER THAN A CLAIM OF
+ * VIRTUE.** It held eight entries, and every one of them was a legal-set clause using
+ * "upload" in its ordinary sense — content a client puts into the service — which the two
+ * retired `upload*` patterns fired on. Those patterns are gone because the product now
+ * does the thing they banned, so the sentences they excused no longer trip anything and an
+ * allowlist repeating them would excuse nothing. The mechanism stays wired: the scan below
+ * consults it on every hit, so the next honest sentence that trips a pattern is one entry
+ * away from being recorded WITH ITS REASON rather than being fixed by widening a regex.
+ *
+ * The judgement that put the legal set here in the first place still stands and is worth
+ * inheriting: correcting a word in a published document's operative text means a new
+ * revision in this mirror AND in `apps/api/legal/catalogue.py`, with the drift check across
+ * both. That belongs to whoever owns the legal surface, not to a copy sweep.
  */
-const ALLOWED: readonly { readonly text: string; readonly why: string }[] = [
-  {
-    text: "knowledge content a client uploads",
-    why: "legal set (privacy §11, subprocessors): 'upload' in its ordinary sense, in a retention/erasure clause. Not a retrieval claim.",
-  },
-  {
-    text: "Knowledge content a client uploaded",
-    why: "legal set (privacy §12, erasure scope): same word, same clause family.",
-  },
-  {
-    text: "Knowledge content you uploaded",
-    why: "legal set (DPA): same, addressed to the client.",
-  },
-  {
-    text: "knowledge content, uploaded",
-    why: "legal set (terms): an inventory of what a client puts in — knowledge content, uploaded lists, settings.",
-  },
-  {
-    text: "knowledge content you uploaded",
-    why: "legal set (terms, exit rights): what the client takes away with them.",
-  },
-  {
-    text: "knowledge documents, extraction schemas and uploaded",
-    why: "legal set (terms, client responsibilities): the client's own content, warranted by them.",
-  },
-  {
-    text: "uploaded knowledge",
-    why: "legal set (DPA, the retention correction): describes the same store as the row above it.",
-  },
-  {
-    text: "Uploading anyone else's personal data into your agent's knowledge",
-    why: "acceptable-use PROHIBITION. It bans a thing; it does not offer one, and it must keep covering pasted text.",
-  },
-];
+const ALLOWED: readonly { readonly text: string; readonly why: string }[] = [];
 
 /** Every `.ts`/`.tsx` under `src`, minus the generated wire client. */
 function sourceFiles(dir: string, out: string[] = []): string[] {

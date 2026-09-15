@@ -156,7 +156,29 @@ const GROUPS: { title: string; hint: string; prefixes: string[] }[] = [
   {
     title: "Voice engine",
     hint: "Which platform places the calls, and how it is reached.",
-    prefixes: ["engine", "bolna_", "cartesia_", "webhook_base_url"],
+    // `plivo_` and not `pipecat_`: the owned runtime's telephony credentials are the two
+    // names the tree already fixes (`apps/voice-worker/voice_worker/boot.py` —
+    // `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN`, read by Pipecat's own Plivo serializer), and
+    // no module anywhere binds a `PIPECAT_*` credential. Neither key is in
+    // `core/platform_config.FIELD_APPLIES` yet, so this prefix matches nothing today and
+    // renders no group — `grouped()` filters to the titles that got fields. It is here so
+    // that the console-managed half, when it lands, appears under the engine rather than
+    // under "Other", whose hint tells an operator the console has no opinion about it.
+    prefixes: ["engine", "bolna_", "cartesia_", "plivo_", "webhook_base_url"],
+  },
+  {
+    // THE SPEECH LEGS, WHICH BECAME OURS TO SET AND HAD NO GROUP (D-592). `sarvam_stt_model`
+    // and `stt_autodetect_language` both landed in "Other" — the one bucket whose hint tells
+    // an operator the console has no opinion about a setting — and they decide what an agent
+    // HEARS on every call. That was survivable while a rented engine ran its own transcriber;
+    // it stopped being survivable when the conversation loop moved into a container we deploy
+    // and imports `sarvamai` directly (`apps/voice-worker/`, hard rule 2's third home). The
+    // prefixes are the ones `core/platform_config.FIELD_APPLIES` actually classifies today,
+    // read rather than recalled; a key matching none of them still lands in "Other" and is
+    // still editable, which is what makes adding a group safe.
+    title: "Speech",
+    hint: "What an agent hears and how it speaks. On the runtime we host, these are ours to set rather than the platform's.",
+    prefixes: ["sarvam_", "stt_"],
   },
   {
     title: "Money",
@@ -195,9 +217,17 @@ const GROUPS: { title: string; hint: string; prefixes: string[] }[] = [
     // `bolna_llm_credential_name` deliberately stays under Voice engine: it names a
     // credential in BOLNA's console, so an operator correcting it is working on the
     // engine's side of the seam, not ours.
+    //
+    // ⚠ `platform_llm_model` BELONGS HERE AND WAS IN "Other". It is the platform rung of
+    // `agent → organization → platform` and it is a LIVE setting, so it decides which model
+    // answers for every account that has chosen nothing — the same blast radius the note
+    // above describes for `azure_openai_model`, on a wider set of accounts. It could not be
+    // reached by the `azure_openai_` prefix because it deliberately is not an Azure field:
+    // its value is a model on any declared leg (`multi-provider-byok`, D-456 as superseded
+    // on the offering question), which is precisely why it exists as its own setting.
     title: "Language model",
-    hint: "Which Azure OpenAI resource and deployment answer, running in East US 2.",
-    prefixes: ["azure_openai_"],
+    hint: "Which model answers, and the Azure resource and deployment behind the Azure leg of it.",
+    prefixes: ["azure_openai_", "platform_llm_model"],
   },
   {
     // NOT "authentication has no console-managed setting at all now", which is what

@@ -12,11 +12,27 @@ import type { EngineDriftState } from "./opsSurfaceState";
  * ## Why this panel exists at all
  *
  * `publish_agent` reads the agent back and refuses a proven mismatch, so at the moment of
- * publishing, "live" means something. Two divergences appear AFTERWARDS and neither
+ * publishing, "live" means something. Divergences appear AFTERWARDS and none of them
  * involves any code of ours running: somebody edits the agent in the vendor's own
  * dashboard, or a publish fails on our side after the vendor committed. Both leave every
  * table we own agreeing with itself and wrong, and until the half-hourly sweep existed
  * they were found only by whoever thought to open one agent's screen.
+ *
+ * ⚠ **"TWO DIVERGENCES, BOTH AT A VENDOR" WAS THE WHOLE LIST AND IS NO LONGER (D-592).**
+ * On an `owned_runtime` engine there is no vendor and no vendor console: the far side of
+ * this comparison is `apps/voice-worker`, and `VoiceEngine.get_agent`'s contract says so
+ * in as many words — *"the running worker recomputes the prompt digest from what is in
+ * its memory and writes it to `agent_config_attestations`, and THAT is what this method
+ * reports"* (`packages/shared/src/calevate_shared/engine.py`, the `get_agent` docstring).
+ * So a drift there means the worker is running a config version the control plane did not
+ * publish, and an unreadable agent means NO WORKER HAS ATTESTED — a process that may not
+ * be up, not a supplier having a slow afternoon. The two readings are different work for
+ * an operator, and this panel cannot tell them apart: `PlatformStateOut` carries no engine
+ * name (nor does `EngineDriftOut`), so nothing on the wire says which engine produced
+ * these counts. The prose below is therefore written to be TRUE ON BOTH and to name
+ * neither mechanism — it used to name only the vendor one. Publishing the engine on the
+ * platform read is what would let this panel say which; that is a backend change and is
+ * recorded as one rather than guessed at here.
  *
  * ## Three numbers, not one, and the middle one is the point
  *
@@ -54,8 +70,8 @@ export function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
       <div className="space-y-4">
         <p className="text-sm text-ink-muted">
           Every half hour a sweep reads live agents back off the voice platform and
-          compares them with what we published. It only ever reads — an agent edited on the
-          vendor&apos;s own console stays exactly as they left it.
+          compares them with what we published. It only ever reads &mdash; whatever a live
+          agent is running now, it is still running after the sweep.
         </p>
 
         {drift.status === "loading" && <Skeleton rows={2} />}
@@ -99,9 +115,10 @@ export function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
             <p className="mt-1">
               Oldest divergence: <span className="font-semibold">{formatIST(read.oldest_drift_at)}</span>.
               These agents are answering callers with a script, greeting or voice other
-              than the one we published. Open each agent to see what differs — publishing
-              again from here would overwrite whatever was changed on the vendor&apos;s
-              console.
+              than the one we published. Open each agent to see what differs &mdash;
+              publishing again from here would overwrite whatever is live now, which may
+              be a deliberate emergency change made while our side was the thing that was
+              down.
             </p>
           </NoticeBox>
         )}
@@ -114,7 +131,7 @@ export function EngineDriftPanel({ drift }: { drift: EngineDriftState }) {
           >
             <p className="mt-1">
               {read.undetermined > 0
-                ? `${formatCount(read.undetermined)} could not be read back — that is the voice platform not answering, not a drifted agent, and it will be retried on the next sweep.`
+                ? `${formatCount(read.undetermined)} could not be read back — that is not a drifted agent, and it will be retried on the next sweep. It means the voice platform did not answer for them: on a rented platform that is usually the supplier, and on the runtime we host ourselves it means no worker has reported what it is running, so check that the worker is up if it persists.`
                 : "No divergence found."}
             </p>
           </NoticeBox>

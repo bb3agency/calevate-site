@@ -24,6 +24,25 @@
  * The copy on this panel says both, in the client's words, once. It does not repeat them
  * per row, and it does not soften them.
  *
+ * ⚠ **"THE PLATFORM THIS PRODUCT RUNS ON" IS NOW A VARIABLE, AND THIS PANEL CANNOT READ
+ * IT (D-592).** Both sentences above are true of `bolna`, whose `in_call_handoff` is
+ * `True` (`apps/api/engine/bolna.py`). On the runtime we host ourselves it is `False`
+ * (`PIPECAT_CAPABILITIES`, `apps/api/engine/pipecat.py:234`), and the capability's own
+ * authored remediation says what that means for this screen in as many words:
+ * *"the people on this agent's handover list would never be rung"*
+ * (`apps/api/engine/capabilities.py::_REMEDIATION["in_call_handoff"]`). So on that engine
+ * the verdict above the list would read as working while nothing could ever happen.
+ *
+ * It is NOT fixable here and it is not fixable by rewording: `GET …/handoff` runs no
+ * `require_capability` and `HandoffOut` carries no engine or capability field
+ * (`apps/api/agents/handoff_routes.py` — `unavailable_reason` is about the DUTY ROSTER,
+ * not about the platform), so nothing on the wire could drive the notice. The fix is the
+ * route asking the capability and putting the refusal on the response, the way
+ * `KbDriftOut.engine_supports_knowledge_base` and `VerificationOut.publishable` already
+ * do. Recorded here rather than solved with a hardcoded sentence, because a panel that
+ * guessed which engine was running would be wrong in exactly the direction that costs a
+ * caller.
+ *
  * ## Why the whole list saves at once
  *
  * The ORDER is the product, so "move Priya above Ravi and switch Ravi off while he is

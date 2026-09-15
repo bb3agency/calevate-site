@@ -443,7 +443,7 @@ function Report({ report }: { report: EngineLatencyReport }) {
         <Card title="How long a reply takes, by engine and region">
           <EmptyState
             title="No timed replies in this window"
-            hint="The engine records these on every call, so an empty window means either that no calls finished in this period, or that the calls that did finish came back with no timings. Widen the window before assuming the second."
+            hint="An empty window means one of three things, and they are not the same: no call finished in this period; calls finished and came back with no timings; or the engine placing them reports no per-turn timings at all, in which case this report will stay empty however wide the window. Widen the window before assuming either of the last two."
           />
         </Card>
       ) : (
@@ -504,12 +504,18 @@ function BudgetPanel({ budget }: { budget: LatencyBudget }) {
         <BudgetItem
           label="Looking something up"
           value={budget.retrieval_ms}
-          /* NOT "nothing measures it YET" — nothing PERFORMS it. In-call retrieval is T0
-             and nothing else (`docs/TRD.md:948`): approved facts are compiled into the
-             prompt at publish time, the engine's built-in KB is off
-             (`apps/api/engine/bolna.py:2484`) and no tool does a mid-reply lookup. The
-             engine's budget is still shown, because the sum below is cut from it. */
-          note="The engine's own budget for a mid-reply lookup. Our agents never do one — the approved facts are already in the prompt — so there is nothing to measure and no row below."
+          /* ⚠ THIS SAID "nothing PERFORMS it" AND CITED A CONSTANT THAT HAS FLIPPED.
+             The ground was `apps/api/engine/bolna.py:2484`, `knowledge_base=False`; that
+             capability is `True` on every engine this deployment can select today (D-488
+             built Bolna's real `attach_kb`, and `PIPECAT_CAPABILITIES.knowledge_base` is
+             True with an in-process pack search registered as a call tool —
+             `docs/PIPECAT-MIGRATION.md` §8.1 and §6 step 11). So a mid-reply lookup CAN
+             happen now. What has not changed is that NOTHING TIMES IT: `LatencyLeg` has no
+             `retrieval` member, the rented engine publishes no block for it and the
+             owned runtime reports no per-turn timings at all, so there is a target here
+             and no distribution anywhere on this screen. The target is still shown,
+             because the sum below is cut from it. */
+          note="Our goal for looking something up in the middle of a reply. Nothing times this stage — neither the rented platform nor the runtime we host reports a figure for it — so it has a goal here and no row below, and an empty row would have read as fast."
         />
         <BudgetItem
           label={LEG_COPY.turn.label}
@@ -534,7 +540,7 @@ function BudgetPanel({ budget }: { budget: LatencyBudget }) {
         <BudgetItem
           label="Getting to the engine and back"
           value={budget.india_us_transit_floor_ms}
-          note="The engine runs our calls on servers in the United States and our callers are in India. This is the shortest round trip the supplier publishes for that, and it is on every reply."
+          note="The shortest India-to-United-States round trip our rented voice platform publishes, counted on every reply because that platform runs our calls from there. It is a figure from that supplier's own guide rather than anything measured here, and it is in this budget whichever engine is placing calls — so on a runtime hosted closer to the caller it overstates the trip."
         />
         <BudgetItem
           label="Everything, at best"

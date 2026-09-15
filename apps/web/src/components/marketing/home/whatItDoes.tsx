@@ -25,8 +25,12 @@ import { Band, Chapter, HOME } from "./band";
  *  1. inbound answering — `apps/api/agents/models.py:43` (`AgentDirection`), 24/7 default
  *     per `apps/api/agents/business_hours.py`;
  *  2. outbound follow-up — `apps/api/campaigns/service.py` + the retry ladder in
- *     `apps/workers/campaign_dispatch.py:1147`; contacts are PASTED (there is no file input
- *     anywhere in this console, `grep 'type="file"' apps/web/src` returns nothing);
+ *     `apps/workers/campaign_dispatch.py:1147`; contacts are PASTED — the CAMPAIGN screens
+ *     take no file. ⚠ THE REASON THIS GAVE IS DEAD: it said "there is no file input
+ *     anywhere in this console, `grep 'type=\"file\"' apps/web/src` returns nothing", and
+ *     that grep now returns `app/c/[slug]/knowledge/AddDocument.tsx:133` (D-534 shipped
+ *     `POST /v1/kb/uploads`). The campaign claim still stands; the console-wide one does
+ *     not, and a true claim resting on a false reason is the shape hard rule 11 exists for;
  *  3. qualification — `apps/api/crm/schemas.py:29`, `apps/workers/pipeline.py:179`;
  *  4. appointments and callbacks — the `calendar` action kind
  *     (`apps/api/actions/models.py:53`, `apps/api/actions/calendar.py`, gated by
@@ -36,11 +40,18 @@ import { Band, Chapter, HOME } from "./band";
  *  5. delivery — the signed outbound webhook (`X-Calevate-Signature` over
  *     `{timestamp}.{body}`, `apps/api/integrations/service.py:176`), the Sheets leg
  *     (`apps/workers/sheets_sync.py`) and the CSV export (`apps/api/crm/routes.py:1017`);
- *  6. knowledge — T0 and nothing else (`docs/TRD.md:948`): the facts a person approves are
- *     compiled into the agent's own prompt at publish time (`apps/api/agents/t0.py`,
- *     `apps/api/kb/service.py:437::approve_source`). There is no document upload —
- *     `POST /v1/kb/sources` takes TEXT and refuses `url`/`file` (`apps/api/kb/routes.py:44`)
- *     — so the card may not offer one, and says the better true thing instead.
+ *  6. knowledge — the facts a person approves are compiled into the agent's own prompt at
+ *     publish time (`apps/api/agents/t0.py`, `apps/api/kb/service.py::approve_source`), and
+ *     THAT IS NO LONGER THE WHOLE OF IT. Re-read 15 Sep 2026: `POST /v1/kb/sources` is
+ *     still text-only (`kb/service.py:77`), but `POST /v1/kb/uploads` takes a document or
+ *     a link (D-534), and a published source is attached to the engine's own knowledge
+ *     base — `BOLNA_CAPABILITIES.knowledge_base` is `True` (`apps/api/engine/bolna.py:3636`)
+ *     and `attach_kb` is built (`bolna.py:5420`, D-488). `docs/TRD.md:802` still says
+ *     "in-call retrieval is T0 and nothing else"; `docs/` is authoritative, so the conflict
+ *     is FLAGGED rather than resolved here. The card's copy is UNDERSTATED as a result
+ *     rather than false, and understating is the safe direction on a CPA 2019
+ *     representation — it is left for whoever re-writes this chapter with the docs set
+ *     reconciled.
  */
 
 const CAPABILITIES: readonly {
