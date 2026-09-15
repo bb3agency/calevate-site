@@ -71,6 +71,7 @@ from xml.etree.ElementTree import Element, tostring
 from calevate_shared.engine import EngineAgentRef, parse_owned_runtime_agent_ref
 from calevate_shared.events import CallDirection
 from loguru import logger
+from pipecat.runner.utils import parse_telephony_websocket
 from pipecat.serializers.plivo import PlivoFrameSerializer
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.transports.websocket.fastapi import (
@@ -95,6 +96,11 @@ from voice_worker.session import start_session
 #: `AssembledCall.start_conversation` is documented as belonging to it, and this module is
 #: the entrypoint that does the one-line registration.
 CLIENT_CONNECTED_EVENT: Final = "on_client_connected"
+
+#: What Pipecat's telephony auto-detection calls our carrier (`runner/utils.py:89-96`), and
+#: the value `create_transport` switches on (`:532`). ONE deployment, ONE carrier: anything
+#: else on this socket is refused rather than served with the wrong serializer.
+PLIVO_TRANSPORT_TYPE: Final = "plivo"
 
 #: Why no outbound dial exists in this module, in the words an operator gets.
 #:
@@ -185,6 +191,31 @@ class PlivoHandshake:
                 "connection cannot be answered or hung up"
             )
         return cls(stream_id=str(stream_id), carrier_call_id=str(carrier_call_id))
+
+
+async def read_plivo_handshake(websocket: Any) -> PlivoHandshake:
+    """The first two messages off a carrier socket, as OUR handshake — or a refusal.
+
+    **IT REFUSES A CARRIER THAT IS NOT OURS RATHER THAN GUESSING WHAT IT MEANT.**
+    `parse_telephony_websocket` auto-detects across four providers and will happily hand
+    back `twilio`, `telnyx`, `exotel` or `unknown` (`runner/utils.py:62-110`), and each of
+    those carries different field names on a `CallData` whose every field is optional. A
+    mount that passed any of them to `build_plivo_transport` would build a serializer for
+    the wrong protocol — a connected call with silence on it. One deployment, one carrier,
+    and the check is here so the next entrypoint inherits it.
+
+    Using Pipecat's own parser rather than reading the socket ourselves is the point: the
+    detection rule and the field names are the vendor-shaped part, and they belong to the
+    library that ships them. The parse is cached on the websocket, so a caller may call
+    this and then let the transport read the rest of the stream (`runner/utils.py:172-183`).
+    """
+    transport_type, call_data = await parse_telephony_websocket(websocket)
+    if transport_type != PLIVO_TRANSPORT_TYPE:
+        raise UnroutableCallError(
+            f"this socket speaks {transport_type!r}, and this deployment's carrier is "
+            f"{PLIVO_TRANSPORT_TYPE!r}"
+        )
+    return PlivoHandshake.from_call_data(call_data)
 
 
 def route_of(token: str) -> CallRoute:
@@ -459,6 +490,7 @@ __all__ = [
     "ANSWER_DOCUMENT_CONTENT_TYPE",
     "CLIENT_CONNECTED_EVENT",
     "OUTBOUND_DIAL_UNKNOWN",
+    "PLIVO_TRANSPORT_TYPE",
     "CallRoute",
     "CarrierNotWrittenError",
     "CarrierWiringError",
@@ -471,6 +503,7 @@ __all__ = [
     "place_outbound_call",
     "plivo_answer_document",
     "plivo_stream_url",
+    "read_plivo_handshake",
     "route_of",
     "start_carrier_call",
 ]

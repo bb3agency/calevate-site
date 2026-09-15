@@ -66,6 +66,26 @@ class _SetupWithRate:
     audio_in_sample_rate: int = carrier.TELEPHONY_SAMPLE_RATE_HZ
 
 
+class _SocketSaying:
+    """A websocket that says `connected`, then one start message, and nothing else.
+
+    Two messages because that is what `parse_telephony_websocket` reads
+    (`runner/utils.py:185-208`); `headers` because the parser's callers read it.
+    """
+
+    headers: ClassVar[dict[str, str]] = {}
+
+    def __init__(self, start_message: str) -> None:
+        self._start = start_message
+
+    def iter_text(self) -> Any:
+        async def _messages() -> Any:
+            yield '{"event": "connected"}'
+            yield self._start
+
+        return _messages()
+
+
 def _pipecat_source(relative: str) -> str:
     """One file of the INSTALLED pipecat tree, as text.
 
@@ -124,28 +144,50 @@ async def test_the_handshake_fields_are_the_ones_pipecat_parses_for_plivo() -> N
     around: those two are populated for Telnyx and Exotel and are `None` here.
     """
 
-    class _Socket:
-        headers: ClassVar[dict[str, str]] = {}
+    socket = _SocketSaying(
+        '{"event": "start", "start": {"streamId": "stream-1", "callId": "carrier-call-1"}}'
+    )
+    transport_type, call_data = await parse_telephony_websocket(socket)
 
-        def iter_text(self) -> Any:
-            async def _messages() -> Any:
-                yield '{"event": "connected"}'
-                yield (
-                    '{"event": "start", "start": {"streamId": "stream-1", '
-                    '"callId": "carrier-call-1"}}'
-                )
-
-            return _messages()
-
-    transport_type, call_data = await parse_telephony_websocket(_Socket())
-
-    assert transport_type == "plivo"
+    assert transport_type == carrier.PLIVO_TRANSPORT_TYPE == "plivo"
     assert call_data.from_number is None and call_data.to_number is None
 
     handshake = carrier.PlivoHandshake.from_call_data(call_data)
     assert handshake.stream_id == "stream-1"
     assert handshake.carrier_call_id == "carrier-call-1"
     assert set(carrier.PlivoHandshake.__dataclass_fields__) == {"stream_id", "carrier_call_id"}
+
+
+async def test_the_handshake_reader_uses_pipecats_detection_and_agrees_with_it() -> None:
+    """`read_plivo_handshake` is the door a mount will use, so it is driven whole."""
+    socket = _SocketSaying(
+        '{"event": "start", "start": {"streamId": "stream-2", "callId": "carrier-call-2"}}'
+    )
+
+    handshake = await carrier.read_plivo_handshake(socket)
+
+    assert handshake == carrier.PlivoHandshake(
+        stream_id="stream-2", carrier_call_id="carrier-call-2"
+    )
+
+
+async def test_a_socket_from_another_carrier_is_refused_rather_than_mis_serialized() -> None:
+    """Pipecat's parser spans four providers; this deployment has one.
+
+    A Twilio start message really does detect as `twilio` (`runner/utils.py:62-110`), and a
+    mount that handed that `CallData` to `build_plivo_transport` would connect a call and
+    put silence on it — the serializer would be speaking the wrong protocol. The refusal is
+    what makes that impossible rather than unlikely.
+    """
+    socket = _SocketSaying(
+        '{"event": "start", "start": {"streamSid": "MZ1", "callSid": "CA1", '
+        '"customParameters": {}}}'
+    )
+
+    with pytest.raises(carrier.UnroutableCallError) as refusal:
+        await carrier.read_plivo_handshake(socket)
+
+    assert "twilio" in str(refusal.value) and "plivo" in str(refusal.value)
 
 
 async def test_a_handshake_missing_its_ids_is_refused_rather_than_answered() -> None:
