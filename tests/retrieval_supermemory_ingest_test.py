@@ -26,6 +26,8 @@ from __future__ import annotations
 import inspect
 import logging
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -62,14 +64,20 @@ _MODEL = "fixture-embedding-model"
 _BODY = "Consultation costs 500 rupees and Sunday is closed."
 
 
-@pytest.fixture
-def attested_price() -> Any:
+@contextmanager
+def attested_price() -> Iterator[LlmPriceAttestation]:
     """An operator attestation for `_MODEL`. **The only thing that makes box 3 writable.**
 
     No embedding price has been read from a vendor page in this container, so
     `llm_price_is_billable` is False for every embedding model in the tree until somebody
-    enters their own invoice figure — which makes this fixture the documentation of what an
-    operator must do before one byte is written to box 3.
+    enters their own invoice figure — which makes this the documentation of what an operator
+    must do before one byte is written to box 3.
+
+    A CONTEXT MANAGER RATHER THAN A FIXTURE, so `tests/kb_index_documents_rls_test.py` can
+    build its own `box3` on the same definition: a fixture imported into a second module and
+    re-declared as a parameter there is the shape ruff refuses (F811), and two spellings of
+    "a priced, configured box 3" is how the tenancy test and the seam test would come to
+    disagree about what configured means.
     """
     attestation = LlmPriceAttestation(
         model=_MODEL,
@@ -80,8 +88,10 @@ def attested_price() -> Any:
         source="fixture",
     )
     install_llm_price_attestations(lambda: {_MODEL: attestation})
-    yield attestation
-    install_llm_price_attestations(None)
+    try:
+        yield attestation
+    finally:
+        install_llm_price_attestations(None)
 
 
 class FakeVendor:
@@ -112,7 +122,15 @@ class FakeVendor:
 
 
 @pytest.fixture
-def box3(monkeypatch: pytest.MonkeyPatch, attested_price: Any) -> FakeVendor:
+def priced() -> Iterator[LlmPriceAttestation]:
+    """The attestation alone, for the tests that build their own vendor. `box3` is the pair
+    (price + reachable transport); this is the half that gates the write path existing."""
+    with attested_price() as attestation:
+        yield attestation
+
+
+@pytest.fixture
+def box3(monkeypatch: pytest.MonkeyPatch) -> Iterator[FakeVendor]:
     """A configured, priced, reachable box 3. Patched at the TRANSPORT and nowhere else.
 
     The publish path builds its own indexer through `supermemory_indexer`, which is the
@@ -120,8 +138,9 @@ def box3(monkeypatch: pytest.MonkeyPatch, attested_price: Any) -> FakeVendor:
     call site, with only the socket replaced.
     """
     vendor = FakeVendor()
-    _configure(monkeypatch, vendor)
-    return vendor
+    with attested_price():
+        _configure(monkeypatch, vendor)
+        yield vendor
 
 
 def _configure(monkeypatch: pytest.MonkeyPatch, vendor: FakeVendor) -> None:
@@ -397,7 +416,7 @@ def test_the_erasure_coverage_guard_can_see_this_table() -> None:
 
 
 async def test_box_three_being_down_does_not_fail_a_publish_and_the_sweep_converges(
-    monkeypatch: pytest.MonkeyPatch, attested_price: Any, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch, priced: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
     """§8.5's promise on the write side, and the reconciliation that makes it honest.
 
@@ -512,16 +531,16 @@ async def test_a_metered_ingest_writes_the_usage_it_was_told_about(box3: FakeVen
 
 
 async def test_an_ingest_with_no_usage_block_records_nothing_and_says_so(
-    monkeypatch: pytest.MonkeyPatch, attested_price: Any, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch, priced: Any, caplog: pytest.LogCaptureFixture
 ) -> None:
     """**WHETHER THE VENDOR REPORTS USAGE AT ALL IS UNKNOWN** — nobody here has read a
     response. A `0` would be a ledger row asserting the document was embedded for free and
     an estimate from the text's length would be a number we invented reaching
     `unit_cost_paid`, so the answer is an ERROR and no row."""
     silent = FakeVendor(usage=False)
-    _configure(monkeypatch, silent)
     tenant_id, agent_id = await _tenant_with_published_agent()
 
+    _configure(monkeypatch, silent)
     with caplog.at_level(logging.ERROR):
         await _publish(tenant_id, agent_id)
 
