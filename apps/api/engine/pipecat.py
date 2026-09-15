@@ -81,11 +81,7 @@ from uuid import UUID
 
 from calevate_shared.engine import (
     E164,
-<<<<<<< HEAD
-    OWNED_RUNTIME_REF_PREFIX,
-=======
     PIPECAT_REF_PREFIX,
->>>>>>> worktree-agent-postcall-outbox
     AccountKBListing,
     AccountKBObject,
     AgentConfig,
@@ -109,10 +105,7 @@ from calevate_shared.engine import (
     RecallOutcome,
     WebhookAuthMethod,
     WebhookVerdict,
-<<<<<<< HEAD
     owned_runtime_agent_ref,
-    parse_owned_runtime_agent_ref,
-=======
     tenant_of_pipecat_ref,
 )
 from calevate_shared.events import (
@@ -122,7 +115,6 @@ from calevate_shared.events import (
     CallStatus,
     Speaker,
     TranscriptTurn,
->>>>>>> worktree-agent-postcall-outbox
 )
 from sqlalchemy import text
 
@@ -709,21 +701,15 @@ class SqlControlPlane:
 #: The prefix every ref this adapter mints starts with. Its own word rather than the engine
 #: name, so a ref cannot be mistaken for a vendor id in a log line.
 #:
-<<<<<<< HEAD
-#: RE-EXPORTED FROM THE CONTRACT PACKAGE, NOT DECLARED HERE (D-592, step 6): the WORKER
-#: parses this same grammar off the WebSocket URL a carrier connects to
-#: (`voice_worker/carrier.py`), and it is a different deployable that cannot import this
-#: module. Two spellings of one grammar would be two programs disagreeing about which
-#: agent a ringing phone reaches.
-_REF_PREFIX: Final = OWNED_RUNTIME_REF_PREFIX
-=======
-#: **THE LITERAL MOVED TO `calevate_shared.engine.PIPECAT_REF_PREFIX` AND THIS IS NOW AN
-#: ALIAS**, because a second deployable mints refs with it: `apps/voice-worker/
-#: voice_worker/sink.py` mints the CALL ref and cannot import this module (hard rule 2).
-#: One home for the word, two importers; spelling it twice is the drift the quality bar
-#: refuses.
+#: RE-EXPORTED FROM THE CONTRACT PACKAGE, NOT DECLARED HERE. THREE deployables now speak
+#: this grammar and none of them may import the others: the WORKER parses it off the
+#: WebSocket URL a carrier connects to (`voice_worker/carrier.py`, agent refs) and mints
+#: the CALL ref at settlement (`voice_worker/sink.py`), and this adapter reads both back.
+#: Two spellings would be two programs disagreeing about which agent a ringing phone
+#: reaches — which is exactly what happened: D-603 and D-607 landed `OWNED_RUNTIME_REF_
+#: PREFIX` and `PIPECAT_REF_PREFIX` as two `Final = "pipecat"` declarations in one file.
+#: Collapsed to one at integration.
 _REF_PREFIX: Final = PIPECAT_REF_PREFIX
->>>>>>> worktree-agent-postcall-outbox
 
 
 def engine_agent_ref_for(tenant_id: str, agent_id: str) -> EngineAgentRef:
@@ -749,11 +735,6 @@ def engine_agent_ref_for(tenant_id: str, agent_id: str) -> EngineAgentRef:
 
 
 def _tenant_of(ref: EngineAgentRef) -> UUID | None:
-<<<<<<< HEAD
-    """The tenant a ref names, or None if this adapter did not mint it."""
-    parsed = parse_owned_runtime_agent_ref(ref)
-    return None if parsed is None else parsed[0]
-=======
     """The tenant an AGENT ref names, or None if this adapter did not mint it.
 
     Delegated rather than open-coded: the agent ref and the call ref
@@ -763,7 +744,6 @@ def _tenant_of(ref: EngineAgentRef) -> UUID | None:
     replaced were byte-identical to it.
     """
     return tenant_of_pipecat_ref(ref)
->>>>>>> worktree-agent-postcall-outbox
 
 
 def _claimed_source(kb_id: str) -> UUID | None:

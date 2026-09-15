@@ -104,7 +104,13 @@ NumberSeries = Literal["140", "160", "standard"]
 #: a carrier connects to — so a second spelling of this grammar would be two programs
 #: disagreeing about which agent a ringing phone reaches. One grammar, in the contract
 #: package both of them already depend on.
-OWNED_RUNTIME_REF_PREFIX: Final = "pipecat"
+#:
+#: ⚠ **THIS WAS DECLARED TWICE, AND THE COMMENT ABOVE IS WHY THAT MATTERED.** D-603 and
+#: D-607 were written in parallel and each added its own `Final = "pipecat"` —
+#: `OWNED_RUNTIME_REF_PREFIX` here and `PIPECAT_REF_PREFIX` above — to this one file. The
+#: literal now has ONE home (`PIPECAT_REF_PREFIX`) and this name is gone; the agent-ref and
+#: call-ref helpers below share it, which is what makes "one grammar" true rather than
+#: merely asserted.
 
 
 def owned_runtime_agent_ref(tenant_id: str, agent_id: str) -> EngineAgentRef:
@@ -113,7 +119,7 @@ def owned_runtime_agent_ref(tenant_id: str, agent_id: str) -> EngineAgentRef:
     Stable by construction (the conformance suite's ref-stability clause): the same agent
     published twice is the same ref, with no round trip to find out.
     """
-    return f"{OWNED_RUNTIME_REF_PREFIX}:{tenant_id}:{agent_id}"
+    return f"{PIPECAT_REF_PREFIX}:{tenant_id}:{agent_id}"
 
 
 def parse_owned_runtime_agent_ref(ref: EngineAgentRef) -> tuple[UUID, UUID] | None:
@@ -126,7 +132,7 @@ def parse_owned_runtime_agent_ref(ref: EngineAgentRef) -> tuple[UUID, UUID] | No
     trust an unparsed id.
     """
     parts = ref.split(":")
-    if len(parts) != 3 or parts[0] != OWNED_RUNTIME_REF_PREFIX:
+    if len(parts) != 3 or parts[0] != PIPECAT_REF_PREFIX:
         return None
     try:
         return UUID(parts[1]), UUID(parts[2])
@@ -5483,7 +5489,6 @@ __all__ = [
     "CLIENT_SCRIPT_OPEN",
     "E164",
     "MAX_CALLER_MEMORY_CHARS",
-    "OWNED_RUNTIME_REF_PREFIX",
     "PIPECAT_REF_PREFIX",
     "PLATFORM_RULES_PREAMBLE",
     "VOICE_STYLE_GUIDANCE",
