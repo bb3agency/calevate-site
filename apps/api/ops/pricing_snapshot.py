@@ -138,7 +138,15 @@ def _to_attestation(record: AttestedModelPrice) -> LlmPriceAttestation | None:
 
     `read_on` is the attestation's own date (`attested_at.date()`) — the store keeps no
     separate "read on" instant, and the date the operator wrote it is the best available
-    reading of when they read it. Returns `None` rather than raising if the record cannot
+    reading of when they read it.
+
+    `output_usd_per_mtok` PASSES THROUGH AS `None` where the store holds NULL (D-608), which
+    is every EMBEDDING attestation: the vendor bills no output leg, and `LlmPriceAttestation`
+    carries the same distinction. It is NOT coerced to a zero here — a zero is what that
+    dataclass refuses, and the coercion would turn a fact about the vendor into the exact
+    figure the guard exists to catch.
+
+    Returns `None` rather than raising if the record cannot
     satisfy `LlmPriceAttestation`'s invariants (a non-positive price should be impossible
     after the write-path and CHECK both refuse it, but one malformed legacy row must not
     blank every OTHER model's price — the fail-safe direction).

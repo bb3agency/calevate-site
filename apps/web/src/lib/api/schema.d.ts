@@ -5915,6 +5915,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/ops/embedding-prices/{model}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attest one embedding model's vendor price (step-up confirmed, audited)
+         * @description Records what an ENCODER costs this account, read off your own vendor console or invoice, as a NEW effective-dated row — a correction is a later attestation, never an edit. Requires `X-Confirm-Action: attest_embedding_price:<model>`. The figure is USD per million **INPUT** tokens as a decimal string, and there is NO OUTPUT PRICE TO ENTER: an embedding request returns a vector, so the vendor bills no output leg and the column is stored NULL. Until this exists, a client's uploaded knowledge is indexed by word-matching only — nothing is embedded, nothing is charged, and the panel says so with its ground. The model identifier is sent VERBATIM and may contain a slash (`models/gemini-embedding-2`).
+         */
+        post: operations["attest_embedding_model_price_v1_ops_embedding_prices__model__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/ops/engine-latency": {
         parameters: {
             query?: never;
@@ -6092,7 +6112,7 @@ export interface paths {
         };
         /**
          * Every model's and every voice tier's reference price, attested price and status
-         * @description Lists every model in the catalogue with its declared leg, the catalogue's own (possibly unverified) reference price, the operator-attested price if one exists, and whether the model is offerable yet — which needs BOTH its provider credential installed AND a price attested. A model with no attested price is shown as needing one; the reference price is a pre-fill to confirm against a vendor invoice, never the authoritative value. `tts_prices` answers the same three questions for the two VOICE tiers, whose unit is rupees per 1,000 characters rather than dollars per million tokens; a tier with no attested price offers no voices at all.
+         * @description Lists every model in the catalogue with its declared leg, the catalogue's own (possibly unverified) reference price, the operator-attested price if one exists, and whether the model is offerable yet — which needs BOTH its provider credential installed AND a price attested. A model with no attested price is shown as needing one; the reference price is a pre-fill to confirm against a vendor invoice, never the authoritative value. `tts_prices` answers the same three questions for the two VOICE tiers, whose unit is rupees per 1,000 characters rather than dollars per million tokens; a tier with no attested price offers no voices at all. `embedding_prices` answers them for the ENCODERS that turn a client's uploaded knowledge into vectors — priced on INPUT TOKENS ONLY, because an embedding request returns a vector and the vendor bills no output leg. While an encoder has no attested price nothing is embedded and nothing is charged.
          */
         get: operations["list_model_prices_v1_ops_model_prices_get"];
         put?: never;
@@ -6608,6 +6628,10 @@ export interface components {
          *     and the per-tenant ceiling already use.
          */
         AbsorbedAiSpendOut: {
+            /** Kb Requests */
+            kb_requests: number;
+            /** Kb Used Inr */
+            kb_used_inr: string;
             /** Requests */
             requests: number;
             /** Used Inr */
@@ -7171,6 +7195,8 @@ export interface components {
         AiQuotaOut: {
             /** Allowance Inr */
             allowance_inr: string;
+            /** Balance Inr */
+            balance_inr: string;
             /** Extra Available */
             extra_available: boolean;
             /** Extra Block Inr */
@@ -7183,6 +7209,10 @@ export interface components {
             extra_unavailable_reason: string | null;
             /** Included Inr */
             included_inr: string;
+            /** Kb Requests Used */
+            kb_requests_used: number;
+            /** Kb Used Inr */
+            kb_used_inr: string;
             /** Month */
             month: string;
             /** Plan Tier */
@@ -9902,6 +9932,77 @@ export interface components {
              * Format: uuid
              */
             tenant_id: string;
+        };
+        /**
+         * EmbeddingPriceAttestIn
+         * @description One encoder's price, as an operator types it off an invoice.
+         *
+         *     `ModelPriceAttestIn` WITH THE OUTPUT FIELD DELETED rather than made optional, and that
+         *     is the founder's requirement expressed in the type: a form that accepted an output price
+         *     here would be a form somebody fills in. The same three rules otherwise — money as a
+         *     decimal string, `effective_from` optional but timezone-aware when given, evidence
+         *     required.
+         */
+        EmbeddingPriceAttestIn: {
+            /** Effective From */
+            effective_from?: string | null;
+            /** Input Usd Per Mtok */
+            input_usd_per_mtok: string;
+            /** Source Note */
+            source_note: string;
+        };
+        /**
+         * EmbeddingPriceOut
+         * @description One ENCODER, as the same panel renders it (D-608).
+         *
+         *     `ModelPriceOut` with the output leg and the merit judgement removed, and the two
+         *     removals are the whole contract. THERE IS NO `output_usd_per_mtok` AND NO
+         *     `reference_output_usd_per_mtok`: an embedding request returns a vector, the vendor bills
+         *     no output tokens, and a field carrying `null` there would put a box on the form that an
+         *     operator would eventually type a guess into. There is no `withheld_reason` because a
+         *     client never picks an encoder — it is a property of the deployment.
+         *
+         *     MONEY IS A STRING END TO END and NO FIELD CARRIES A DEFAULT — `ModelPriceOut`'s two
+         *     rules, for its two reasons.
+         */
+        EmbeddingPriceOut: {
+            /** Attested At */
+            attested_at: string | null;
+            /** Attested By */
+            attested_by: string | null;
+            /** Credential Installed */
+            credential_installed: boolean;
+            /** Dimensions */
+            dimensions: number;
+            /** Effective From */
+            effective_from: string | null;
+            /** Input Usd Per Mtok */
+            input_usd_per_mtok: string | null;
+            /** Model */
+            model: string;
+            /** Price Attested */
+            price_attested: boolean;
+            /** Provider */
+            provider: string;
+            /** Reference Input Usd Per Mtok */
+            reference_input_usd_per_mtok: string;
+            /** Reference Verified */
+            reference_verified: boolean;
+            /** Source Note */
+            source_note: string | null;
+            /** Usable */
+            usable: boolean;
+            /** Used For */
+            used_for: string;
+        };
+        /**
+         * EmbeddingPriceWriteOut
+         * @description The encoder as it now stands, plus the instant the write was made at.
+         */
+        EmbeddingPriceWriteOut: {
+            /** As Of */
+            as_of: string;
+            price: components["schemas"]["EmbeddingPriceOut"];
         };
         /** EnableIn */
         EnableIn: {
@@ -12979,6 +13080,8 @@ export interface components {
         ModelPricesOut: {
             /** As Of */
             as_of: string;
+            /** Embedding Prices */
+            embedding_prices: components["schemas"]["EmbeddingPriceOut"][];
             /** Prices */
             prices: components["schemas"]["ModelPriceOut"][];
             /** Tts Prices */
@@ -27426,6 +27529,43 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    attest_embedding_model_price_v1_ops_embedding_prices__model__post: {
+        parameters: {
+            query?: never;
+            header?: {
+                "x-confirm-action"?: string | null;
+            };
+            path: {
+                model: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EmbeddingPriceAttestIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmbeddingPriceWriteOut"];
+                };
             };
             /** @description RFC-9457 problem+json */
             default: {

@@ -311,6 +311,27 @@ class AbsorbedAiSpendOut(Strict):
     #: across every assist surface (copilot, re-summarise, script draft), never per model
     #: turn. The number an operator counts, beside the rupees that actually protect us.
     requests: int
+    #: **THE KNOWLEDGE COLUMN (D-608), AND IT IS A COMPONENT OF `used_inr` RATHER THAN A
+    #: SIBLING.** The part of this client's absorbed AI cost that was bought because they
+    #: UPLOADED something: the English gloss beside a Telugu chunk, the OCR pass over a
+    #: photographed price list, the pgvector row behind dashboard search, the pack vector the
+    #: phone agent answers out of, and the managed-retrieval write
+    #: (`billing/models.KB_INGESTION_FEATURES`).
+    #:
+    #: It is published SEPARATELY because it is a different cost curve on the same ledger,
+    #: which is the whole reason those five feature names were split from each other in the
+    #: first place. Dashboard AI scales with how much a client USES the console and arrives
+    #: spread across a month; this scales with how much knowledge they PUT IN, arrives in a
+    #: burst on the day they onboard, and is the figure an operator needs when a new client's
+    #: first month looks alarming. An operator seeing only the merged number cannot tell "the
+    #: copilot is running hot" from "they uploaded a 200-page catalogue once".
+    #:
+    #: Never added to `used_inr` by any caller: the two would double-count the month.
+    kb_used_inr: str
+    #: Distinct request keys among the knowledge rows. Deliberately not rendered as a
+    #: fraction of `requests` — one upload of a long document is many keys and one question
+    #: is one — so the rupee figure is the one both surfaces lead with.
+    kb_requests: int
 
 
 class TenantSpendOut(Strict):
@@ -783,7 +804,12 @@ async def tenant_spend(
         # ran an assist this month. `used_inr` goes through `to_paise` like every other
         # rupee on this response.
         ai_assist=(
-            AbsorbedAiSpendOut(used_inr=str(to_paise(ai.used_inr)), requests=ai.requests_used)
+            AbsorbedAiSpendOut(
+                used_inr=str(to_paise(ai.used_inr)),
+                requests=ai.requests_used,
+                kb_used_inr=str(to_paise(ai.kb_used_inr)),
+                kb_requests=ai.kb_requests_used,
+            )
             if ai.requests_used > 0
             else None
         ),

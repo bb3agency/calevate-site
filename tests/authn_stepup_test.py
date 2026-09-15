@@ -441,7 +441,19 @@ def test_every_dangerous_mutation_takes_the_composed_gate_rather_than_half_of_it
     # The confirmation carries BOTH ids (`remove_member_access:<tenant>:<user>`). The
     # tenant alone would let a header captured for the departed receptionist be replayed
     # against the owner listed above them — one row's distance on that screen.
-    assert sites == 37, f"found {sites} step-up call sites, expected 37; the census went stale"
+    #
+    # THE THIRTY-EIGHTH IS PUTTING A PRICE ON THE ENCODER THAT INDEXES EVERY CLIENT'S
+    # KNOWLEDGE (`ops/model_price_routes.py::attest_embedding_model_price`, D-608). It is
+    # the encoder twin of the model and voice attestations already on this list, and it
+    # belongs here for the reason they do: the figure it writes is append-only, it is what
+    # `unit_cost_paid` is computed from, and a correction is a NEW dated row rather than an
+    # edit — so a wrong figure is not removed, it is superseded, and every row metered in
+    # between keeps the wrong number for ever.
+    #
+    # It carries its OWN prefix (`attest_embedding_price:<model>`) rather than the model
+    # one, so a header captured while pricing a chat model cannot be replayed against the
+    # encoder that decides how every published knowledge pack is built.
+    assert sites == 38, f"found {sites} step-up call sites, expected 38; the census went stale"
 
 
 #: Mutating handlers under `apps/api/ops/` that deliberately take NO step-up, and why.

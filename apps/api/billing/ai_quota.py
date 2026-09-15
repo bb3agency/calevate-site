@@ -142,7 +142,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.billing.lots import AiAssistDemand
-from apps.api.billing.models import AI_ASSIST_UNIT_TYPES
+from apps.api.billing.models import AI_ASSIST_UNIT_TYPES, KB_INGESTION_FEATURES
 from apps.api.billing.plans import ist_month_end, parse_billing_month
 
 # `PREPAID_TIERS` IS IMPORTED, NOT RESPELLED, and this module used to hold its own copy.
@@ -469,6 +469,22 @@ class AiQuota:
     used_inr: Decimal
     #: Distinct request keys this month — the number the screen counts in "82 of ~500".
     requests_used: int
+    #: OF `used_inr`, THE PART BOUGHT BECAUSE THIS CLIENT UPLOADED KNOWLEDGE (D-608) — the
+    #: gloss, the OCR pass, the two vector legs and the managed-retrieval write
+    #: (`billing/models.KB_INGESTION_FEATURES`). A COMPONENT, never a second budget: it is
+    #: already inside `used_inr` and inside `requests_used`, and a screen that added the two
+    #: would double-count a client's month.
+    #:
+    #: It is published as its own figure because its CURVE is different from everything else
+    #: in this total. Dashboard AI is bounded by how much somebody uses the console; this is
+    #: bounded by how much a client uploads, arrives in one burst on the day they onboard,
+    #: and is the one line a client disputing a bill asks about by name.
+    kb_used_inr: Decimal
+    #: Distinct request keys among those rows. Not comparable to `requests_used` as a
+    #: fraction the screen should render — one upload of a fifty-page document is many keys
+    #: and one question is one — which is why the RUPEE figure is the one both surfaces lead
+    #: with.
+    kb_requests_used: int
     #: The block already bought this month, or zero. Read from `credit_ledger`, so the
     #: wallet row IS the record of the acceptance and there is no second state to keep
     #: in step with it.
@@ -501,6 +517,27 @@ class AiQuota:
     @property
     def remaining_inr(self) -> Decimal:
         return max(Decimal("0"), self.allowance_inr - self.used_inr)
+
+    @property
+    def balance_inr(self) -> Decimal:
+        """The allowance minus what was used — **SIGNED, AND ALLOWED TO GO NEGATIVE** (D-608).
+
+        `remaining_inr` above clamps at zero, which is right for the screen's "about N more
+        assists" and wrong for the one state the founder's decision creates. Knowledge
+        embedding is charged to this allowance and is NOT GATED BY IT: no KB ingestion path
+        calls `require_ai_assist`, so a client whose allowance is spent keeps uploading, keeps
+        getting embedded, and goes overdrawn. The founder's words: *"Just take the balance
+        into negative for now / We will decide better on what to do with it next."*
+
+        A clamped figure would report that overdraft as zero, which is the state nobody
+        investigates. This is the honest number, and it is a PROPERTY of the two stored
+        figures rather than a third stored one so it cannot disagree with them.
+
+        There is no dunning, no block and no automatic purchase behind it — that is the part
+        the decision explicitly leaves open, and inventing one here would be answering a
+        question the founder said he had not answered.
+        """
+        return self.allowance_inr - self.used_inr
 
     @property
     def at_ceiling(self) -> bool:
@@ -566,8 +603,19 @@ class AiQuota:
 # row count: one assist writes two rows (in and out) under one key, so counting rows
 # would report double and counting one unit type would under-report an assist that
 # produced no output tokens.
+#
+# THE KB SPLIT RIDES THE SAME SCAN (D-608). Two `FILTER` aggregates rather than a second
+# statement, and the reason is the one `TenantSpendOut` gives about its own header: a second
+# query is a second instant over a table the meter writes to all month, so on an open month
+# the part could exceed the whole by one landing assist — the two numbers silently not
+# adding up, on the screen whose whole promise is that they do. `meta->>'feature'` is the
+# discriminator because it is what `record_ai_assist_usage` writes; there is no unit type to
+# filter on and deliberately no new one (`billing/models.KB_INGESTION_FEATURES`).
 _USAGE_SQL = (
-    "SELECT COALESCE(SUM(qty * COALESCE(unit_cost_paid, 0)), 0), COUNT(DISTINCT ref) "
+    "SELECT COALESCE(SUM(qty * COALESCE(unit_cost_paid, 0)), 0), COUNT(DISTINCT ref), "
+    "COALESCE(SUM(qty * COALESCE(unit_cost_paid, 0)) "
+    "FILTER (WHERE meta->>'feature' = ANY(:kb_features)), 0), "
+    "COUNT(DISTINCT ref) FILTER (WHERE meta->>'feature' = ANY(:kb_features)) "
     "FROM usage_events "
     "WHERE tenant_id = :tid AND unit_type = ANY(:units) AND ref IS NOT NULL "
     # The month is a half-open range on `occurred_at`, not a rendered string: the rendered
@@ -599,6 +647,7 @@ async def read_ai_quota(
             {
                 "tid": tenant_id,
                 "units": list(AI_ASSIST_UNIT_TYPES),
+                "kb_features": list(KB_INGESTION_FEATURES),
                 **_month_bounds(period),
             },
         )
@@ -607,6 +656,8 @@ async def read_ai_quota(
     # discipline `billing/terms.py::_money` keeps.
     used = Decimal(str(row[0] or 0))
     requests = int(row[1] or 0)
+    kb_used = Decimal(str(row[2] or 0))
+    kb_requests = int(row[3] or 0)
 
     tier = await plan_tier_of(session, tenant_id)
     # The wallet row IS the acceptance record (module docstring), so this read answers
@@ -624,6 +675,8 @@ async def read_ai_quota(
         included_inr=AI_QUOTA_INR.get(tier, AI_QUOTA_INR["trial"]),
         used_inr=used,
         requests_used=requests,
+        kb_used_inr=kb_used,
+        kb_requests_used=kb_requests,
         extra_purchased_inr=extra,
         platform_paused=await platform_brake_tripped(session, month=period),
         # THE LIVE SWITCH, read here and nowhere else in this module. It is a `Literal` on
@@ -1245,8 +1298,17 @@ def quota_payload(quota: AiQuota) -> dict[str, Any]:
         "state": quota.state,
         "included_inr": str(to_paise(quota.included_inr)),
         "used_inr": str(to_paise(quota.used_inr)),
+        # THE KNOWLEDGE COLUMN (D-608). A COMPONENT of `used_inr`, published beside it and
+        # never instead of it — the screen labels it so, because two figures that look like
+        # a total and a total are the ones somebody adds.
+        "kb_used_inr": str(to_paise(quota.kb_used_inr)),
+        "kb_requests_used": quota.kb_requests_used,
         "allowance_inr": str(to_paise(quota.allowance_inr)),
         "remaining_inr": str(to_paise(quota.remaining_inr)),
+        # SIGNED, and negative when knowledge uploads have taken the month past its
+        # allowance (D-608). `remaining_inr` beside it is the clamped figure the "about N
+        # more" estimate divides; this is the one that tells the truth about an overdraft.
+        "balance_inr": str(to_paise(quota.balance_inr)),
         "requests_used": quota.requests_used,
         "requests_included": quota.requests_included,
         "requests_remaining": quota.requests_remaining,

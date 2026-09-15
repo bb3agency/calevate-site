@@ -877,6 +877,9 @@ const AI_QUOTA_AT_CEILING = {
   requests_used: 214,
   requests_included: 416,
   requests_remaining: 0,
+  kb_used_inr: "0.00",
+  kb_requests_used: 0,
+  balance_inr: "58.30",
   extra_purchased_inr: null,
   extra_block_inr: "500.00",
   extra_block_requests: 2083,
@@ -1233,6 +1236,45 @@ const OPS_MODEL_PRICES = {
       attested_at: null,
       attested_by: null,
       source_note: null,
+    },
+  ],
+  // THE ENCODER LEG, on the same payload (D-608) and in its two states: one still waiting
+  // for a price (the "indexed by word-matching only" notice and the attestation form
+  // render) and one already priced (the confirmed-figure grid and the provenance rows
+  // render). A one-row fixture would leave half the section's markup unscanned, which is
+  // the whole point of this file.
+  embedding_prices: [
+    {
+      model: "models/gemini-embedding-2",
+      provider: "google",
+      used_for: "the knowledge pack's dense arm",
+      dimensions: 3072,
+      credential_installed: true,
+      price_attested: false,
+      usable: false,
+      input_usd_per_mtok: null,
+      effective_from: null,
+      attested_at: null,
+      attested_by: null,
+      source_note: null,
+      reference_input_usd_per_mtok: "0.20",
+      reference_verified: false,
+    },
+    {
+      model: "text-embedding-3-small",
+      provider: "azure_openai",
+      used_for: "semantic search over a client's own knowledge, their past calls and their leads",
+      dimensions: 1536,
+      credential_installed: true,
+      price_attested: true,
+      usable: true,
+      input_usd_per_mtok: "0.020000",
+      effective_from: "2026-08-01T00:00:00Z",
+      attested_at: "2026-08-01T00:00:00Z",
+      attested_by: "Ops",
+      source_note: "Azure invoice 2026-07, embeddings line",
+      reference_input_usd_per_mtok: "0.02",
+      reference_verified: false,
     },
   ],
 };

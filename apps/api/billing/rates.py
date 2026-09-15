@@ -82,6 +82,7 @@ from typing import Final, Literal
 
 from calevate_shared.engine import (
     AZURE_OPENAI_DEFAULT_MODEL,
+    EMBEDDING_MODELS,
     LLM_MODELS,
     SELECTABLE_LLM_MODELS,
 )
@@ -319,8 +320,17 @@ ROUNDING = ROUND_HALF_UP
 LIST_PRICE_USD_INR: Final = Decimal("95.66")
 
 
-def _usd_mtok_to_inr_ktok(*, input_usd: Decimal, output_usd: Decimal) -> Mapping[str, Decimal]:
+def _usd_mtok_to_inr_ktok(
+    *, input_usd: Decimal, output_usd: Decimal | None
+) -> Mapping[str, Decimal]:
     """USD per MILLION tokens -> `{"in": ₹, "out": ₹}` per THOUSAND, at `LIST_PRICE_USD_INR`.
+
+    `output_usd=None` — a model the vendor bills no output leg for, which is every EMBEDDING
+    model (D-608) — renders `"out"` as an exact quantized ZERO rather than omitting the key.
+    The shape stays two-legged on purpose: `record_ai_assist_usage` writes one
+    `ai_assist_ktok_out` row per assist whatever the model, at `qty = 0` for an embedding, and
+    a mapping that dropped the key would turn that into a `KeyError` on a metering path
+    instead of a ₹0.0000 line an operator can see on the ledger.
 
     ONE conversion, two callers — the catalogue reference table and the operator attestation
     — because a second spelling of `usd * fx / 1000` is a second place for the exchange rate
@@ -331,7 +341,18 @@ def _usd_mtok_to_inr_ktok(*, input_usd: Decimal, output_usd: Decimal) -> Mapping
     """
     return MappingProxyType(
         {
-            leg: (usd * LIST_PRICE_USD_INR / Decimal("1000")).quantize(MONEY_Q, rounding=ROUNDING)
+            leg: (
+                # `rounding=` even on a zero, which cannot round: `money_rounding_mode_
+                # test` refuses an ambient-context `quantize()` anywhere in shipped code,
+                # and it is right to refuse this one too — an exemption for "this literal
+                # happens to be exact" is an exemption the next author copies onto a
+                # literal that is not.
+                Decimal("0").quantize(MONEY_Q, rounding=ROUNDING)
+                if usd is None
+                else (usd * LIST_PRICE_USD_INR / Decimal("1000")).quantize(
+                    MONEY_Q, rounding=ROUNDING
+                )
+            )
             for leg, usd in (("in", input_usd), ("out", output_usd))
         }
     )
@@ -549,7 +570,19 @@ class LlmPriceAttestation:
 
     model: str
     input_usd_per_mtok: Decimal
-    output_usd_per_mtok: Decimal
+    #: USD per MILLION output tokens, or **`None` for a model that has no output charge**.
+    #:
+    #: `None` MEANS "THE VENDOR BILLS NO OUTPUT LEG", NEVER "NOBODY ENTERED IT" (D-608). The
+    #: state arrived with the EMBEDDING models: an embedding request returns a vector, the
+    #: vendor's `usage` block carries no output half, and every metering site already records
+    #: `tokens_out=0` as the truth about it rather than as a default. The alternatives were
+    #: both worse — asking the operator for a figure that does not exist invites a guess onto
+    #: an append-only ledger, and storing a zero would trip the `> 0` guard below, which
+    #: exists so that a model priced at nothing cannot look like a working leg.
+    #:
+    #: `llm_inr_per_ktok` renders it as an exact `0` rupee rate, which is arithmetically the
+    #: same thing on a row whose quantity is always zero and is honest on the one that is not.
+    output_usd_per_mtok: Decimal | None
     #: When the operator read it. Not when the row was written — an operator correcting a
     #: typo is not a fresh reading, and only the reading's own date can say so.
     read_on: date
@@ -561,7 +594,13 @@ class LlmPriceAttestation:
     source: str
 
     def __post_init__(self) -> None:
-        if self.input_usd_per_mtok <= 0 or self.output_usd_per_mtok <= 0:
+        # `is not None and <= 0` rather than `<= 0`, and the distinction is the whole of
+        # D-608's money change: an ABSENT output leg is a fact about the vendor, a ZERO one
+        # is a figure somebody typed. The first is accepted and rendered as ₹0; the second
+        # is refused here exactly as it always was.
+        if self.input_usd_per_mtok <= 0 or (
+            self.output_usd_per_mtok is not None and self.output_usd_per_mtok <= 0
+        ):
             raise ValueError(
                 f"{self.model!r} was attested at a non-positive price "
                 f"({self.input_usd_per_mtok}/{self.output_usd_per_mtok}). A zero here bills "
@@ -639,7 +678,16 @@ def llm_price_is_billable(model: str) -> bool:
     if model in attested_llm_prices():
         return True
     spec = LLM_MODELS.get(model)
-    return spec is not None and spec.price.evidence.verified
+    if spec is not None:
+        return spec.price.evidence.verified
+    # THE ENCODER CATALOGUE IS ASKED SECOND AND UNDER THE SAME TWO GROUNDS (D-608), never
+    # under a looser one. `EMBEDDING_MODELS` carries a one-legged price whose evidence is
+    # `verified=False` on both entries today — Google's page is egress-blocked here and
+    # OpenAI's was never read — so this arm returns False for every encoder until an operator
+    # attests, which is why the pack's dense arm and the dashboard's vector arm are both off
+    # on a fresh deployment and say so in one log line rather than embedding for free.
+    embedding = EMBEDDING_MODELS.get(model)
+    return embedding is not None and embedding.price.evidence.verified
 
 
 def llm_inr_per_ktok(model: str) -> Mapping[str, Decimal]:
@@ -676,10 +724,25 @@ def llm_inr_per_ktok(model: str) -> Mapping[str, Decimal]:
         return _usd_mtok_to_inr_ktok(
             input_usd=spec.price.input_usd_per_mtok, output_usd=spec.price.output_usd_per_mtok
         )
+    embedding = EMBEDDING_MODELS.get(model)
+    if embedding is not None:
+        # The SAME two grounds, one catalogue further along (D-608). `output_usd=None` is the
+        # vendor's own shape and not a missing figure — see `LlmPriceAttestation`.
+        if embedding.price.evidence.verified:
+            return _usd_mtok_to_inr_ktok(
+                input_usd=embedding.price.input_usd_per_mtok, output_usd=None
+            )
+        raise ValueError(
+            f"{model!r} is an embedding model with no billable price. Its catalogue figure "
+            f"({embedding.price.evidence.source}) is not a vendor reading this repository "
+            "can stand behind, and no operator has attested one. Enter the price from the "
+            "vendor invoice in the ops console (model pricing -> embedding models); until "
+            f"then {embedding.used_for} stays off and nothing is charged for it."
+        )
     if spec is None:
         raise ValueError(
             f"{model!r} is not a model this repository knows, so nothing can price it. "
-            f"Known: {sorted(LLM_MODELS)}."
+            f"Known: {sorted(LLM_MODELS)}, embeddings {sorted(EMBEDDING_MODELS)}."
         )
     raise ValueError(
         f"{model!r} has no billable price. Its catalogue figure "

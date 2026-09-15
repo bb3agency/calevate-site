@@ -62,7 +62,7 @@ from voice_worker.knowledge import QueryVector
 #: this container must not import the monolith — and pinned together by
 #: `tests/voice_worker_hybrid_test.py`, so a change on one side is a red test and not a
 #: quietly mismatched encoder.
-EMBEDDING_MODEL: Final[str] = "models/gemini-embedding-001"
+EMBEDDING_MODEL: Final[str] = "models/gemini-embedding-2"
 EMBEDDING_DIMS: Final[int] = 3072
 
 #: Wall clock for the query embedding, and THE NUMBER THAT KEEPS A TURN HONEST.

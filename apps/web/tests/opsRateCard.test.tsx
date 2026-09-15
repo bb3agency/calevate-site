@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ADMIN_ME_PATH, type AdminMe } from "@/app/admin/access";
@@ -18,7 +18,8 @@ import {
   type SpeakingRate,
 } from "@/lib/api/opsRateCard";
 import { OPS_TTS_PRICES_PATH, type TtsPrice } from "@/lib/api/opsTtsPricing";
-import { ttsVerdict } from "@/app/admin/ops/ModelPricingPanel";
+import { embeddingVerdict, ttsVerdict } from "@/app/admin/ops/ModelPricingPanel";
+import { type EmbeddingPrice } from "@/lib/api/opsModelPricing";
 import {
   OPS_CONFIG_PATH,
   type ConfigField,
@@ -307,7 +308,33 @@ const MODEL_PRICES_BASE = {
   // REQUIRED on `ModelPricesOut`. Empty here on purpose: this base is what the "no voice
   // prices" case is rendered from, and `routes()` puts the two real rows on top of it.
   tts_prices: [],
+  // The ENCODER rung (D-608), required on the same payload. Empty for the same reason —
+  // no case in this file is about it, and the panel renders its stated absence rather
+  // than a blank.
+  embedding_prices: [],
 };
+
+/** One ENCODER row, as `GET /v1/ops/model-prices` publishes it (D-608). */
+function embeddingRow(over: Partial<EmbeddingPrice> = {}): EmbeddingPrice {
+  return {
+    model: "models/gemini-embedding-2",
+    provider: "google",
+    used_for:
+      "the knowledge pack's dense arm — the half that answers a question typed in Telugu script",
+    dimensions: 3072,
+    credential_installed: true,
+    price_attested: false,
+    usable: false,
+    input_usd_per_mtok: null,
+    effective_from: null,
+    attested_at: null,
+    attested_by: null,
+    source_note: null,
+    reference_input_usd_per_mtok: "0.20",
+    reference_verified: false,
+    ...over,
+  };
+}
 
 /** One voice row, as `GET /v1/ops/model-prices` publishes it. */
 function ttsRow(over: Partial<TtsPrice> = {}): TtsPrice {
@@ -378,6 +405,7 @@ function routes(extra: Routes = {}): Routes {
     [OPS_MODEL_PRICES_PATH]: {
       ...MODEL_PRICES_BASE,
       tts_prices: [SARVAM_ROW, ttsRow()],
+      embedding_prices: [embeddingRow()],
     },
     [OPS_DASHBOARD_DATA_USE_PATH]: DASHBOARD_DATA_USE,
     [OPS_FX_RATE_PATH]: FX_RATE,
@@ -628,8 +656,14 @@ describe("the voice price that decides whether a tier can be sold", () => {
     );
 
     await screen.findByText(/Voice prices/);
+    // SCOPED TO THE CARTESIA ROW, not "the last Confirm price button on the screen": this
+    // panel now carries three sections that each end in one (D-608 added the encoders
+    // below the voices), so a positional pick silently opened the wrong form.
+    const cartesiaRow = screen
+      .getByText("sonic-3.5")
+      .closest("div.rounded-md") as HTMLElement;
     fireEvent.click(
-      screen.getAllByRole("button", { name: /Confirm price/ }).slice(-1)[0],
+      within(cartesiaRow).getByRole("button", { name: /Confirm price/ }),
     );
     fireEvent.change(
       screen.getByLabelText(/Price \(₹ per 1,000 characters\)/),
@@ -694,6 +728,140 @@ describe("the voice price that decides whether a tier can be sold", () => {
  * rendered case that IS still reachable — a read that failed, so no cells at all — is
  * pinned above by "shows no cells at all when the card could not be read".
  */
+
+describe("the encoder price that decides whether an upload is indexed at all", () => {
+  it("leads with what is switched off, not with a status token", async () => {
+    // D-608. An unpriced encoder is the one row on this panel whose absence is SILENT:
+    // uploads still succeed, the knowledge base still fills, and the agent still answers —
+    // by word-matching, which on a question typed in another script mostly misses. Nothing
+    // errors and nothing turns red, so the screen has to say the consequence in words.
+    const { container } = renderOps(routes());
+
+    await screen.findByText(/Knowledge indexing prices/);
+    expect(container.textContent).toContain("models/gemini-embedding-2");
+    expect(container.textContent).toContain("Google · 3072-number vectors");
+    expect(container.textContent).toContain(
+      "Uploads are being indexed by word-matching only",
+    );
+    expect(container.textContent).toContain("Off — needs a confirmed price");
+    // The unverified pre-fill is labelled as such, never printed as the value.
+    expect(container.textContent).toContain("0.20");
+    expect(container.textContent).toContain("(recorded)");
+  });
+
+  it("never offers a box for an output price, because the vendor charges none", async () => {
+    renderOps(routes());
+
+    await screen.findByText(/Knowledge indexing prices/);
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /Confirm price/ }).slice(-1)[0],
+    );
+    // The form that just opened is the ENCODER's — found by the hint no other form has.
+    const hint = await screen.findByText(/There is no output price to enter/);
+    const form = hint.closest("form") as HTMLFormElement;
+    expect(form).toBeTruthy();
+    expect(
+      form.querySelectorAll("input[inputmode='decimal']").length,
+    ).toBe(1);
+  });
+
+  it("sends the identifier with its slash intact and the step-up bound to the encoder", async () => {
+    // The whole reason this write has its own prefix and a `:path` parameter: the model id
+    // contains a `/`, and percent-encoding it is what proxies normalise or refuse.
+    const path = `POST /v1/ops/embedding-prices/models/gemini-embedding-2`;
+    const { calls } = renderOps(routes({ [path]: { ok: true } }));
+
+    await screen.findByText(/Knowledge indexing prices/);
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /Confirm price/ }).slice(-1)[0],
+    );
+    const hint = await screen.findByText(/There is no output price to enter/);
+    const form = hint.closest("form") as HTMLFormElement;
+    const price = form.querySelector(
+      "input[inputmode='decimal']",
+    ) as HTMLInputElement;
+    fireEvent.change(price, { target: { value: "0.20" } });
+    fireEvent.change(
+      screen.getByPlaceholderText(/Google Cloud billing export/),
+      { target: { value: "Google Cloud billing export 2026-09" } },
+    );
+    fireEvent.change(screen.getByLabelText(/Type CONFIRM/), {
+      target: { value: "CONFIRM" },
+    });
+    fireEvent.submit(form);
+
+    const write = await waitForCall(calls, path);
+    // The exact typed string, and NO output key at all.
+    expect(JSON.parse(write.body ?? "null")).toEqual({
+      input_usd_per_mtok: "0.20",
+      source_note: "Google Cloud billing export 2026-09",
+    });
+    expect(write.headers["X-Confirm-Action"]).toBe(
+      "attest_embedding_price:models/gemini-embedding-2",
+    );
+  });
+
+  it("says an encoder is indexing once it is priced, and drops the warning", async () => {
+    const { container } = renderOps(
+      routes({
+        [OPS_MODEL_PRICES_PATH]: {
+          ...MODEL_PRICES_BASE,
+          tts_prices: [SARVAM_ROW, ttsRow()],
+          embedding_prices: [
+            embeddingRow({
+              price_attested: true,
+              usable: true,
+              input_usd_per_mtok: "0.200000",
+              attested_at: "2026-09-15T06:00:00Z",
+              attested_by: "Ops",
+              source_note: "Google Cloud billing export 2026-09",
+            }),
+          ],
+        },
+      }),
+    );
+
+    await screen.findByText(/Knowledge indexing prices/);
+    expect(container.textContent).toContain("Indexing uploads");
+    expect(container.textContent).not.toContain(
+      "Uploads are being indexed by word-matching only",
+    );
+  });
+
+  it("shows a stated absence rather than a table when the API sent no encoders", async () => {
+    // NOT a zero. "We do not know" and "nothing here costs anything" are opposite claims,
+    // and the second is the one that gets an upload indexed for free on paper.
+    const { container } = renderOps(
+      routes({
+        [OPS_MODEL_PRICES_PATH]: {
+          ...MODEL_PRICES_BASE,
+          tts_prices: [SARVAM_ROW, ttsRow()],
+          embedding_prices: [],
+        },
+      }),
+    );
+
+    await screen.findByText(/Knowledge indexing prices/);
+    expect(container.textContent).toContain(
+      "This deployment did not send any indexing prices",
+    );
+    expect(container.textContent).toContain("not as free");
+  });
+});
+
+describe("reading an encoder row off the wire", () => {
+  it("names the missing half, and never says a client may choose one", () => {
+    expect(embeddingVerdict(embeddingRow()).label).toBe(
+      "Off — needs a confirmed price",
+    );
+    expect(
+      embeddingVerdict(embeddingRow({ credential_installed: false })).label,
+    ).toBe("Off — needs a vendor key and a confirmed price");
+    expect(embeddingVerdict(embeddingRow({ usable: true })).label).toBe(
+      "Indexing uploads",
+    );
+  });
+});
 
 describe("what a margin verdict may say", () => {
   it("never returns a refusal tone for a thin cell — there is no such tone to return", () => {

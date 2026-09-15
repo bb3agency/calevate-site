@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Coins, Sparkles, Wallet } from "lucide-react";
+import { BookUp, Coins, Sparkles, Wallet } from "lucide-react";
 
 import {
   Card,
@@ -114,6 +114,9 @@ export default function AiAssistPage() {
             { key: "requests_included", label: "AI requests included", value: String(quota.data.requests_included) },
             { key: "requests_remaining", label: "AI requests remaining", value: String(quota.data.requests_remaining) },
             { key: "used_inr", label: "Spent on AI help this month (INR)", value: quota.data.used_inr },
+            { key: "kb_used_inr", label: "Of that, spent on adding knowledge (INR)", value: quota.data.kb_used_inr },
+            { key: "kb_requests_used", label: "Knowledge jobs this month", value: String(quota.data.kb_requests_used) },
+            { key: "balance_inr", label: "Allowance left, signed — negative means overdrawn (INR)", value: quota.data.balance_inr },
             { key: "allowance_inr", label: "Allowance for AI help (INR)", value: quota.data.allowance_inr },
             { key: "remaining_inr", label: "Allowance left (INR)", value: quota.data.remaining_inr },
             {
@@ -178,6 +181,23 @@ export default function AiAssistPage() {
                   : "none left this month"
               }
             />
+            {/* KNOWLEDGE, AS ITS OWN TILE (D-608). The founder asked for this cost to be
+                visible in the clients' portal as well as in the console. It is a PART of
+                "AI help used" beside it, so the hint says so in words — two tiles that
+                each read like a total are the two somebody adds together. */}
+            <StatTile
+              label="Preparing what you add"
+              value={formatINR(data.kb_used_inr)}
+              icon={<BookUp className="h-5 w-5" />}
+              tone="soft"
+              hint={
+                data.kb_requests_used > 0
+                  ? `part of the amount used — ${formatCount(data.kb_requests_used)} ${
+                      data.kb_requests_used === 1 ? "job" : "jobs"
+                    } on your documents`
+                  : "part of the amount used — nothing added this month"
+              }
+            />
             <StatTile
               label="Extra added"
               value={data.extra_purchased_inr === null ? "None" : formatINR(data.extra_purchased_inr)}
@@ -195,15 +215,45 @@ export default function AiAssistPage() {
             <dl className="space-y-2 text-sm">
               <Row label="Included with your plan" value={formatINR(data.included_inr)} />
               <Row label="Used so far" value={formatINR(data.used_inr)} />
+              {/* THE KNOWLEDGE LINE, indented under "used so far" and labelled "of which"
+                  (D-608). It is a COMPONENT, so it must never read as a second charge. */}
+              <Row
+                label="— of which, preparing what you added"
+                value={formatINR(data.kb_used_inr)}
+                muted
+              />
               <Row label="Available this month" value={formatINR(data.allowance_inr)} emphasis />
             </dl>
             <p className="mt-3 text-xs text-ink-muted">
               AI help is the assistance built into this console — re-writing a call
-              summary, reshaping notes, answering a question about a call. Calevate pays
-              for it up to the allowance above; past that you can add more for a fixed
-              amount. Your calls, campaigns and leads are never affected by this
+              summary, reshaping notes, answering a question about a call. It also covers
+              <strong className="font-semibold text-ink"> preparing what you add</strong>:
+              when you send us a document or a photograph of a printed page, we read the
+              text out of it, write a short English key beside anything in another script,
+              and index both — so your agent answers from what you approved. Calevate pays
+              for all of it up to the allowance above; past that you can add more for a
+              fixed amount. Your calls, campaigns and leads are never affected by this
               allowance.
             </p>
+            {/* THE OVERDRAFT, IN WORDS, ONLY WHEN IT IS REAL (D-608). Uploading is NOT
+                blocked at the ceiling — the founder decided the balance simply goes
+                negative for now — so a client who keeps uploading past their allowance
+                will see a figure the tiles above cannot show (`remaining_inr` clamps at
+                zero). Saying nothing would be this screen hiding a number it knows. It is
+                deliberately not dressed as a demand: what happens next is undecided, and
+                promising a charge or a block here would be inventing the policy. */}
+            {data.balance_inr.trimStart().startsWith("-") && (
+              <p className="mt-3 text-xs text-ink-muted">
+                You have used{" "}
+                <strong className="font-semibold text-ink">
+                  {formatINR(data.balance_inr.replace("-", ""))}
+                </strong>{" "}
+                more than this month&apos;s allowance, mostly on preparing what you
+                added. Nothing has been charged for it and nothing has stopped — what you
+                send is still being prepared. We will be in touch before anything about
+                that changes.
+              </p>
+            )}
           </Card>
         </>
       )}
@@ -316,15 +366,29 @@ function CeilingReached({ quota, session }: { quota: AiQuota; session: Session }
   );
 }
 
-function Row({ label, value, emphasis }: { label: string; value: string; emphasis?: boolean }) {
+function Row({
+  label,
+  value,
+  emphasis,
+  muted,
+}: {
+  label: string;
+  value: string;
+  emphasis?: boolean;
+  /** A COMPONENT of the row above, not a charge of its own — rendered a step in and a
+   *  shade back so nobody adds it to the total it is already inside (D-608). */
+  muted?: boolean;
+}) {
   return (
-    <div className="flex justify-between gap-4">
-      <dt className="text-ink-muted">{label}</dt>
+    <div className={`flex justify-between gap-4${muted ? " pl-3" : ""}`}>
+      <dt className={muted ? "text-ink-faint" : "text-ink-muted"}>{label}</dt>
       <dd
         className={
           emphasis
             ? "shrink-0 font-semibold tabular-nums text-ink"
-            : "shrink-0 tabular-nums text-ink-muted"
+            : muted
+              ? "shrink-0 tabular-nums text-ink-faint"
+              : "shrink-0 tabular-nums text-ink-muted"
         }
       >
         {value}

@@ -876,9 +876,33 @@ now buy no embeddings at all (the §8.1a dense arm is the one exception, it is s
 OFF until a price is attested, and it is per-TURN-that-failed rather than per call). The
 volume that remains is per-DOCUMENT at publish, which scales with what clients upload and
 not with how much they are rung — and nobody has a client upload figure to multiply, so
-stating one would be a guess dressed as a finding. ⚠ The Gemini embedding PRICE is also
-still **UNVERIFIED** — `ai.google.dev` is egress-blocked (re-measured 14 Sep 2026, CONNECT
-rejected).
+stating one would be a guess dressed as a finding.
+
+⚠ **THE GEMINI EMBEDDING PRICE IS STILL UNVERIFIED IN THIS REPOSITORY, AND THE ENCODER
+MOVED (D-608, 15 Sep 2026).** `ai.google.dev` is egress-blocked from this container
+(re-measured 14 Sep 2026, CONNECT rejected) and nothing since has re-fetched it. What
+changed is which model the leg names and where a price can come from:
+
+* `kb/pack_vectors.EMBEDDING_MODEL` is now **`models/gemini-embedding-2`**, because
+  `gemini-embedding-001` carries **no price on the vendor's page at all** — a model nobody
+  publishes a price for can never be attested against an invoice line, so that leg was
+  unreachable by construction. The recall measurement is a WASH between the two (n=24;
+  1.000/1.000/0.958 against 0.958/0.958/1.000) and must not be read as an upgrade.
+* The vendor lists the new model at **$0.20 per 1M INPUT tokens** standard, $0.10 batch,
+  with **no output charge** — Google pricing page dated 2026-09-11. **EVIDENCE CLASS:
+  VENDOR-PUBLISHED, FOUNDER-RELAYED.** It is a pre-fill on the ops console's form and
+  nothing else; hard rule 7 gives it no path to `unit_cost_paid`.
+* The only door is now open: an operator attests the figure at
+  `POST /v1/ops/embedding-prices/{model}`, **input-only**, and until they do BOTH encoder
+  legs are no-ops, every pack is built lexical-only and nothing is charged.
+
+**WHAT AN ATTESTED PRICE WOULD ACTUALLY BUY IS STILL NOT A NUMBER ANYBODY HERE HAS**, for
+the reason the paragraph above gives: the volume is per-DOCUMENT and scales with client
+uploads. The formula is unchanged — tokens published × the attested input rate — and the
+multiplicand is UNKNOWN until there are clients uploading. What IS now true is that when
+those rupees are spent they are visible per client and on their own, separately from
+dashboard AI, on both the admin spend board (`AbsorbedAiSpendOut.kb_used_inr`) and the
+client's own screen (`AiQuotaOut.kb_used_inr`).
 
 ⚠ **The cost to watch is not embedding — it is Supermemory's per-chunk LLM call at ingestion.**
 A 50-page document is ~200 chunks, each drawing a Gemini *chat* call far larger than an

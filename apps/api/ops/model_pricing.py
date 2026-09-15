@@ -40,7 +40,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Final, cast, get_args
 
-from calevate_shared.engine import LLM_MODELS, LlmProvider
+from calevate_shared.engine import EMBEDDING_MODELS, LLM_MODELS, LlmProvider
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,7 +87,11 @@ class AttestedModelPrice:
 
     model: str
     input_usd_per_mtok: Decimal
-    output_usd_per_mtok: Decimal
+    #: `None` for a model the vendor bills no output leg for — every EMBEDDING model
+    #: (D-608, migration a3f70c19d84b). NOT "the operator left it blank": the column is NULL
+    #: only because there is nothing to charge, and `billing/rates.LlmPriceAttestation`
+    #: carries the same distinction one layer down.
+    output_usd_per_mtok: Decimal | None
     effective_from: datetime
     attested_at: datetime
     #: The operator, by display name where there is one and by id otherwise — never empty,
@@ -636,6 +640,218 @@ def reference_price(model: str) -> tuple[Decimal, Decimal, bool]:
     return price.input_usd_per_mtok, price.output_usd_per_mtok, price.evidence.verified
 
 
+# --- the ENCODER leg: the same act, on a price with one side (D-608) ----------------
+#
+# WHY IT LIVES HERE AND NOT IN A MODULE OF ITS OWN. An operator reading a figure off a
+# vendor invoice performs ONE act whatever it buys, and this repository has already refused
+# to split that act once: D-547 put the VOICE price on the model-pricing panel rather than
+# giving it a second panel, a second audit action and a second effective-dated store. The
+# encoder price is the LLM price with ONE FIELD REMOVED — an embedding request returns a
+# vector, so there is no output leg to charge — which is a smaller difference than the voice
+# one, and it shares the same TABLE as well as the same panel.
+#
+# WHAT IT GATES. Nothing a client picks: an encoder is a property of the deployment, and
+# changing it invalidates every published pack by construction
+# (`calevate_shared.knowledge_pack.KnowledgePack.digest` hashes the declaration). What it
+# gates is whether a knowledge upload may be EMBEDDED AT ALL — hard rule 7 refuses to spend
+# a credential this repository cannot put a price on, so until an operator attests, both
+# encoder legs are no-ops that log their ground and every pack is built lexical-only.
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingOfferability:
+    """One encoder, seen through the same rule its conversational siblings are seen through.
+
+    `ModelOfferability` with `withheld_reason` and `selectable` removed, because neither
+    means anything on this leg: an encoder is never offered to a client, so there is no
+    merit judgement to report and no picker to withhold it from. What remains is exactly the
+    two facts an operator can act on — is the key installed, and has a price been attested —
+    plus the sentence saying what stops working while it has not been (`used_for`).
+
+    `usable` rather than `offerable`, and the rename is the point: the question this answers
+    is "will an upload be embedded", not "may somebody choose this".
+    """
+
+    model: str
+    provider: LlmProvider
+    #: What this encoder buys, in the catalogue's own words, so the panel can say what is
+    #: switched off rather than only that something is.
+    used_for: str
+    #: The width every vector on this leg is written and searched at. Published because an
+    #: operator comparing a vendor invoice to a token count has no other way to tell two
+    #: encoders on one vendor apart.
+    dimensions: int
+    credential_installed: bool
+    price_attested: bool
+    #: The catalogue figure is a first-hand vendor reading (`EmbeddingPrice.evidence
+    #: .verified`). False for BOTH entries today — Google's page is egress-blocked from this
+    #: container and OpenAI's was never read — which is exactly why an attestation is the
+    #: only door.
+    reference_verified: bool
+
+    @property
+    def price_billable(self) -> bool:
+        return self.price_attested or self.reference_verified
+
+    @property
+    def usable(self) -> bool:
+        """Will an upload on this leg actually be embedded right now?
+
+        THE SAME TWO GROUNDS `pack_vectors.embed_entries` checks before it addresses a
+        provider, in the same order, so the panel cannot say "ready" about a leg that will
+        then log `knowledge_pack_embedding_no_provider` on the next publish.
+        """
+        return self.credential_installed and self.price_billable
+
+
+async def embedding_offerability(
+    session: AsyncSession, *, at: datetime
+) -> dict[str, EmbeddingOfferability]:
+    """Every ENCODER's state at instant `at`, keyed by model identifier.
+
+    Over the WHOLE of `EMBEDDING_MODELS` for `model_offerability`'s reason: the panel exists
+    to show which rows still need an operator, and a list that hid the unpriced ones would
+    hide the only rows with work in them.
+    """
+    prices = await attested_model_prices(session, at=at)
+    legs = await installed_llm_legs(session)
+    return {
+        model: EmbeddingOfferability(
+            model=model,
+            provider=spec.provider,
+            used_for=spec.used_for,
+            dimensions=spec.dimensions,
+            credential_installed=spec.provider in legs,
+            price_attested=model in prices,
+            reference_verified=spec.price.evidence.verified,
+        )
+        for model, spec in EMBEDDING_MODELS.items()
+    }
+
+
+def _require_known_embedding_model(model: str) -> None:
+    """Refuse an identifier the encoder catalogue does not carry.
+
+    A SEPARATE refusal from `_require_known_model` and not a widening of it, because the two
+    routes must not accept each other's models: attesting a chat model INPUT-ONLY would
+    write a row whose output leg reads as "the vendor bills nothing" when the vendor bills
+    plenty, and every minute on it would then be under-costed on an append-only ledger.
+    """
+    if model not in EMBEDDING_MODELS:
+        raise ProblemError(
+            kind="not_found",
+            code="embedding_price_unknown_model",
+            title="No such embedding model",
+            detail=f"{model!r} isn't an embedding model in Calevate's catalogue.",
+            remediation=(
+                "The model-prices list shows every encoder this deployment can buy vectors "
+                "from. Adding one is a code change — an encoder decides how every published "
+                "pack is built, so it is not something that can be introduced as a price."
+            ),
+        )
+
+
+async def attest_embedding_price(
+    session: AsyncSession,
+    *,
+    model: str,
+    input_usd_per_mtok: Decimal,
+    effective_from: datetime,
+    source_note: str,
+    actor_id: object,
+) -> AttestedModelPrice:
+    """Record one operator-attested ENCODER price as a NEW effective-dated row.
+
+    `attest_price` with the output leg removed and NOTHING ELSE CHANGED — same table, same
+    append-only discipline, same duplicate-instant refusal, same caller obligations (step-up
+    confirmed, audit row on this session). The output column is written NULL, which is a
+    fact about the vendor rather than a blank the operator left: see migration a3f70c19d84b.
+
+    It is a second FUNCTION rather than an `output=None` default on the first, and the
+    reason is the refusal above: the two catalogues are disjoint and each writer must refuse
+    the other's models. A shared function with an optional argument would let a chat model
+    be attested with no output price by omitting one keyword.
+    """
+    _require_known_embedding_model(model)
+    if input_usd_per_mtok <= 0:
+        raise ProblemError(
+            kind="validation",
+            code="embedding_price_not_positive",
+            title="A price must be greater than zero",
+            detail="The figure is USD per million INPUT tokens and must be strictly positive.",
+            remediation=(
+                "Enter what your invoice says. A zero is refused because it embeds every "
+                "upload at nothing while looking like a working leg "
+                "(billing/rates.LlmPriceAttestation refuses it for the same reason)."
+            ),
+        )
+    existing = (
+        await session.execute(
+            text("SELECT 1 FROM platform_model_prices WHERE model = :m AND effective_from = :ef"),
+            {"m": model, "ef": effective_from},
+        )
+    ).first()
+    if existing is not None:
+        raise ProblemError(
+            kind="conflict",
+            code="embedding_price_duplicate_instant",
+            title="A price already exists for this model at this instant",
+            detail=(
+                f"{model!r} already has an attestation effective from "
+                f"{effective_from.isoformat()}. A correction is a NEW effective instant, "
+                "never an edit of an existing one."
+            ),
+            # PLAIN WORDS, and its chat twin's sentence deliberately NOT copied: that one
+            # names the request field, which is right where an API caller reads it and
+            # wrong twice in one file (`plain_language_guard_test` budgets a machine
+            # spelling at one per file, and the second copy is the one nobody rereads).
+            remediation=(
+                "Confirm it again with a later starting time — leave the time blank for "
+                "'from now on'. Nothing is overwritten: the history is kept on purpose, so "
+                "an invoice re-rendered next year still resolves the price of its month."
+            ),
+        )
+    row = (
+        await session.execute(
+            text(
+                "INSERT INTO platform_model_prices "
+                "(model, effective_from, input_usd_per_mtok, output_usd_per_mtok, "
+                "attested_by, source_note) "
+                "VALUES (:m, :ef, :in, NULL, :by, :note) "
+                "RETURNING attested_at"
+            ),
+            {
+                "m": model,
+                "ef": effective_from,
+                "in": input_usd_per_mtok,
+                "by": actor_id,
+                "note": source_note,
+            },
+        )
+    ).one()
+    return AttestedModelPrice(
+        model=model,
+        input_usd_per_mtok=input_usd_per_mtok,
+        output_usd_per_mtok=None,
+        effective_from=effective_from,
+        attested_at=row[0],
+        attested_by=str(actor_id),
+        source_note=source_note,
+    )
+
+
+def reference_embedding_price(model: str) -> tuple[Decimal, bool]:
+    """The catalogue's own INPUT price for `model`, and whether its evidence is verified.
+
+    `reference_price`'s twin with one leg, for its purpose: the console pre-fills the form
+    GREYED and labelled "unverified — confirm against your vendor invoice", never as the
+    authoritative value. Both entries are unverified today, so the label is on both.
+    """
+    _require_known_embedding_model(model)
+    price = EMBEDDING_MODELS[model].price
+    return price.input_usd_per_mtok, price.evidence.verified
+
+
 # --- the TTS leg: the same act, one vendor further down the call (D-547) ----------
 #
 # WHY IT LIVES HERE. A price an operator reads off their own invoice is one kind of act
@@ -1179,18 +1395,22 @@ __all__ = [
     "PROVIDER_CREDENTIAL",
     "TTS_PROVIDERS",
     "AttestedModelPrice",
+    "EmbeddingOfferability",
     "ModelOfferability",
     "TtsPlanFeeAttestation",
     "TtsPriceAttestation",
+    "attest_embedding_price",
     "attest_price",
     "attest_tts_plan_fee",
     "attest_tts_price",
     "attested_model_prices",
     "attested_tts_plan_fees",
     "attested_tts_prices",
+    "embedding_offerability",
     "installed_llm_legs",
     "model_offerability",
     "offerable_models",
+    "reference_embedding_price",
     "reference_price",
     "reference_tts_plan_fee",
     "reference_tts_price",

@@ -115,7 +115,8 @@ const TENANT_SPEND: TenantSpend = {
   cost_currency: "INR",
   cost_currency_stated: false,
   unattributed: { minutes: "0.0000", cost_inr: "120.00" },
-  ai_assist: { used_inr: "412.50", requests: 87 },
+  // `kb_used_inr` is a COMPONENT of `used_inr` (D-608), never a sibling to add to it.
+  ai_assist: { used_inr: "412.50", requests: 87, kb_used_inr: "96.00", kb_requests: 12 },
   by_unit: [{ unit_type: "telephony_s", qty: "2550", cost_inr: "180000.00" }],
   by_agent: [
     {

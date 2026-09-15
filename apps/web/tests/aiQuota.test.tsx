@@ -59,8 +59,14 @@ function quota(over: Partial<AiQuota> = {}): AiQuota {
     state: "within",
     included_inr: "100.00",
     used_inr: "41.70",
+    // The knowledge column (D-608): a COMPONENT of `used_inr`, never added to it.
+    kb_used_inr: "12.40",
+    kb_requests_used: 3,
     allowance_inr: "100.00",
     remaining_inr: "58.30",
+    // Signed, so an overdraft is visible (D-608). Equal to `remaining_inr` here because
+    // this fixture is not at its ceiling.
+    balance_inr: "58.30",
     requests_used: 82,
     // Producible by the SERVER at today's price: ₹100 included ÷ the ₹0.24 nominal
     // (`gpt-4o-mini`, D-410) is 416, and ₹58.30 remaining is 242. These have now moved
@@ -137,6 +143,59 @@ describe("the allowance panel", () => {
     // expensive direction.
     expect(screen.queryByText(/of about/)).toBeNull();
     expect(screen.queryByText("₹0.00")).toBeNull();
+  });
+
+  it("shows what preparing a client's own material cost, as a part of the month rather than a second charge", async () => {
+    // D-608: the founder asked for this cost in the clients' portal as well as the
+    // console. What the screen must NOT do is let the two figures read as two charges —
+    // ₹41.70 used, of which ₹12.40 was knowledge — so the split is labelled "of which"
+    // and the tile's hint says "part of the amount used".
+    const { container } = await renderClientPage(<AiAssistPage />, {
+      "/v1/me": ME,
+      "/v1/billing/ai-quota": quota(),
+    });
+
+    await screen.findByText("How AI help is billed");
+    expect(container.textContent).toContain("₹12.40");
+    expect(screen.getByText(/of which, preparing what you added/)).toBeTruthy();
+    expect(screen.getByText(/part of the amount used/)).toBeTruthy();
+    // The sum of the two would be ₹54.10, and nothing on the screen may print it.
+    expect(container.textContent).not.toContain("₹54.10");
+  });
+
+  it("says plainly when uploads have taken the month past its allowance, and that nothing stopped", async () => {
+    // THE FOUNDER'S DECISION, ON THE CLIENT'S OWN SCREEN (D-608). `remaining_inr` clamps
+    // at zero, so without the signed `balance_inr` this screen would report an overdraft
+    // as "₹0.00 left" — a number it knows to be wrong. It must also not invent the policy:
+    // no charge is threatened and no block is announced, because neither is decided.
+    const { container } = await renderClientPage(<AiAssistPage />, {
+      "/v1/me": ME,
+      "/v1/billing/ai-quota": quota({
+        state: "ceiling_reached",
+        used_inr: "160.00",
+        kb_used_inr: "130.00",
+        remaining_inr: "0.00",
+        balance_inr: "-60.00",
+        requests_remaining: 0,
+        extra_available: true,
+        extra_unavailable_reason: null,
+      }),
+    });
+
+    await screen.findByText("How AI help is billed");
+    expect(screen.getByText(/more than this month's allowance/)).toBeTruthy();
+    expect(container.textContent).toContain("₹60.00");
+    expect(screen.getByText(/still being prepared/)).toBeTruthy();
+  });
+
+  it("says nothing about an overdraft when there is not one", async () => {
+    await renderClientPage(<AiAssistPage />, {
+      "/v1/me": ME,
+      "/v1/billing/ai-quota": quota(),
+    });
+
+    await screen.findByText("How AI help is billed");
+    expect(screen.queryByText(/more than this month's allowance/)).toBeNull();
   });
 
   it("is limited to the account owner, with the reason", async () => {

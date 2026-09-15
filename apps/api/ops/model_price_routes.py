@@ -64,15 +64,19 @@ from apps.api.core.stepup import StepUpGate
 from apps.api.ops.model_pricing import (
     TTS_PROVIDERS,
     AttestedModelPrice,
+    EmbeddingOfferability,
     ModelOfferability,
     TtsPlanFeeAttestation,
     TtsPriceAttestation,
+    attest_embedding_price,
     attest_price,
     attest_tts_plan_fee,
     attest_tts_price,
     attested_model_prices,
     attested_tts_prices,
+    embedding_offerability,
     model_offerability,
+    reference_embedding_price,
     reference_price,
     reference_tts_plan_fee,
     reference_tts_price,
@@ -93,6 +97,22 @@ router = APIRouter(prefix="/v1/ops/model-prices", tags=["ops"])
 #: module, both mounted in `apps/api/main.py`.
 tts_router = APIRouter(prefix="/v1/ops/tts-prices", tags=["ops"])
 
+#: THE ENCODER PRICE'S OWN PREFIX, for `tts_router`'s reason and for one more of its own
+#: (D-608). The write is not a model price and must not be addressed as one — but the
+#: sharper problem is that an encoder identifier CONTAINS A SLASH: Google's OpenAI-
+#: compatibility surface lists its models as `models/gemini-embedding-2`, which is the
+#: string the wire takes, the string the ledger records and therefore the string that has to
+#: be addressed. `POST /v1/ops/model-prices/{model}` cannot carry it (one path segment), and
+#: percent-encoding the slash was rejected outright: `%2F` inside a path is normalised or
+#: refused by proxies often enough that it is not a thing to build a console on. A `:path`
+#: parameter on its own prefix takes the identifier VERBATIM, with nothing encoded.
+#:
+#: REJECTED, and worth recording because it is the reflex: giving the encoder a URL-safe
+#: ALIAS and mapping it back. That would be a second vocabulary for one model — the ledger
+#: would name one thing, the console another — which is exactly what `pack_vectors
+#: .EMBEDDING_MODEL` refuses when it insists on metering under the wire spelling.
+embedding_router = APIRouter(prefix="/v1/ops/embedding-prices", tags=["ops"])
+
 GlobalSession = Annotated[AsyncSession, Depends(global_db)]
 PriceOperator = Annotated[Principal, Depends(requires("platform:config", realm="admin"))]
 
@@ -108,6 +128,19 @@ ModelId = Annotated[str, Path(max_length=64, pattern=r"^[a-z0-9][a-z0-9.\-]*$")]
 # known providers — `attest_tts_price` refuses an unknown one by name, and a second copy of
 # that vocabulary here is the drift this route avoids.
 TtsProviderId = Annotated[str, Path(max_length=32, pattern=r"^[a-z][a-z0-9_]*$")]
+
+# An ENCODER identifier on the wire. `ModelId`'s character class plus ONE optional interior
+# slash, because that is the shape the two catalogue keys have (`models/gemini-embedding-2`,
+# `text-embedding-3-small`) and nothing wider. Bounded and character-classed for `ModelId`'s
+# reason — it is interpolated into a step-up string and an audit summary. It is NOT an
+# allow-list of the two known encoders: `attest_embedding_price` refuses an unknown one by
+# name, and a second copy of the catalogue here is the drift this route avoids.
+#
+# The pattern is what keeps `:path` honest: without it a `:path` parameter would accept
+# `../..` and any number of segments.
+EmbeddingModelId = Annotated[
+    str, Path(max_length=80, pattern=r"^[a-z0-9][a-z0-9.\-]*(/[a-z0-9][a-z0-9.\-]*)?$")
+]
 
 # The widest a price can be and still fit `NUMERIC(12,6)`: six integer digits. Shared by
 # both attestations because both columns are that type — a figure at or above a million
@@ -142,6 +175,17 @@ def tts_plan_fee_confirmation(provider: str, month: str) -> str:
     literal, because it is an ops procedure a runbook prints.
     """
     return f"attest_tts_plan_fee:{provider}:{month}"
+
+
+def embedding_attest_confirmation(model: str) -> str:
+    """The step-up string for attesting ONE encoder's price.
+
+    ITS OWN PREFIX, not `attest_model_price:`, and the binding is the point: a header
+    captured while pricing a chat model must not be replayable against the encoder that
+    decides how every published pack is built. A named function with a test pinning the
+    literal, because it is an ops procedure a runbook prints.
+    """
+    return f"attest_embedding_price:{model}"
 
 
 def attest_confirmation(model: str) -> str:
@@ -311,6 +355,99 @@ class TtsPriceOut(BaseModel):
     reference_inr_per_1k_chars: str
 
 
+class EmbeddingPriceOut(BaseModel):
+    """One ENCODER, as the same panel renders it (D-608).
+
+    `ModelPriceOut` with the output leg and the merit judgement removed, and the two
+    removals are the whole contract. THERE IS NO `output_usd_per_mtok` AND NO
+    `reference_output_usd_per_mtok`: an embedding request returns a vector, the vendor bills
+    no output tokens, and a field carrying `null` there would put a box on the form that an
+    operator would eventually type a guess into. There is no `withheld_reason` because a
+    client never picks an encoder — it is a property of the deployment.
+
+    MONEY IS A STRING END TO END and NO FIELD CARRIES A DEFAULT — `ModelPriceOut`'s two
+    rules, for its two reasons.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    model: str
+    provider: str
+    #: WHAT STOPS WORKING while this row has no price, in the catalogue's own words. The
+    #: panel prints it instead of leaving an operator to guess what an "encoder" is for.
+    used_for: str
+    #: The width every vector on this leg is written and searched at.
+    dimensions: int
+    credential_installed: bool
+    price_attested: bool
+    #: `credential_installed AND price_billable` — will an upload on this leg actually be
+    #: embedded right now. Deliberately NOT called `offerable`: nothing is offered here.
+    usable: bool
+    #: USD per MILLION **INPUT** tokens, as a string. `null` until attested — a real state
+    #: the console renders as "needs a price", distinct from a zero.
+    input_usd_per_mtok: str | None
+    effective_from: str | None
+    attested_at: str | None
+    attested_by: str | None
+    source_note: str | None
+    #: The CATALOGUE's own input price, pre-filled into the form GREYED.
+    #: `reference_verified` is False for BOTH encoders today — Google's page is
+    #: egress-blocked from this deployment and OpenAI's was never read — so the label reads
+    #: "unverified — confirm against your vendor invoice" on both.
+    reference_input_usd_per_mtok: str
+    reference_verified: bool
+
+
+class EmbeddingPriceAttestIn(BaseModel):
+    """One encoder's price, as an operator types it off an invoice.
+
+    `ModelPriceAttestIn` WITH THE OUTPUT FIELD DELETED rather than made optional, and that
+    is the founder's requirement expressed in the type: a form that accepted an output price
+    here would be a form somebody fills in. The same three rules otherwise — money as a
+    decimal string, `effective_from` optional but timezone-aware when given, evidence
+    required.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: USD per MILLION **INPUT** tokens, as a decimal STRING. Validated to a `Decimal` at
+    #: the boundary; never a JSON number (hard rule 7).
+    input_usd_per_mtok: str
+    #: When this price becomes authoritative. Omit for "from now on"; supply an earlier
+    #: instant to correct the record for a period already elapsed. MUST be timezone-aware.
+    effective_from: datetime | None = None
+    #: WHERE the figure came from, in the operator's words — "Google Cloud billing export
+    #: 2026-09, gemini-embedding-2 input tokens". It is the evidence that makes this an
+    #: attestation rather than a guess, and the reason recorded in `audit_log`.
+    source_note: str = Field(min_length=3, max_length=500)
+
+    @field_validator("source_note")
+    @classmethod
+    def _not_whitespace(cls, value: str) -> str:
+        stripped = value.strip()
+        if len(stripped) < 3:
+            raise ValueError("say where this price came from — a vendor invoice or pricing page")
+        return stripped
+
+    @field_validator("effective_from")
+    @classmethod
+    def _tz_aware(cls, value: datetime | None) -> datetime | None:
+        if value is not None and value.tzinfo is None:
+            raise ValueError(
+                "effective_from must carry a timezone (send an ISO instant with an offset)"
+            )
+        return value
+
+
+class EmbeddingPriceWriteOut(BaseModel):
+    """The encoder as it now stands, plus the instant the write was made at."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    price: EmbeddingPriceOut
+    as_of: str
+
+
 class ModelPricesOut(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -320,6 +457,11 @@ class ModelPricesOut(BaseModel):
     #: a panel that omitted the tier nobody has priced would hide the one row that needs
     #: an operator.
     tts_prices: list[TtsPriceOut]
+    #: The ENCODERS, on the same read (D-608). One row per member of
+    #: `calevate_shared.engine.EMBEDDING_MODELS`, in catalogue order, never a shorter list —
+    #: a panel that omitted the encoder nobody has priced would hide the one row that is
+    #: stopping every client's knowledge upload from being embedded at all.
+    embedding_prices: list[EmbeddingPriceOut]
     #: The instant the attested prices were resolved at (now). A re-render of a past month
     #: would resolve at that month's instant; this surface always shows what is live TODAY.
     as_of: str
@@ -546,6 +688,38 @@ def _row(
     )
 
 
+def _embedding_row(
+    offer: EmbeddingOfferability, attested: AttestedModelPrice | None
+) -> EmbeddingPriceOut:
+    ref_in, ref_verified = reference_embedding_price(offer.model)
+    return EmbeddingPriceOut(
+        model=offer.model,
+        provider=offer.provider,
+        used_for=offer.used_for,
+        dimensions=offer.dimensions,
+        credential_installed=offer.credential_installed,
+        price_attested=offer.price_attested,
+        usable=offer.usable,
+        # The attestation's INPUT leg only. Its output column is NULL by construction on
+        # this route (`attest_embedding_price` writes NULL), and there is no field here to
+        # put it in even if a row somehow carried one — which is the property that stops a
+        # chat model's output price ever being rendered as an encoder's.
+        input_usd_per_mtok=str(attested.input_usd_per_mtok) if attested else None,
+        effective_from=attested.effective_from.isoformat() if attested else None,
+        attested_at=attested.attested_at.isoformat() if attested else None,
+        attested_by=attested.attested_by if attested else None,
+        source_note=attested.source_note if attested else None,
+        reference_input_usd_per_mtok=str(ref_in),
+        reference_verified=ref_verified,
+    )
+
+
+async def _embedding_rows(session: AsyncSession, *, at: datetime) -> list[EmbeddingPriceOut]:
+    offers = await embedding_offerability(session, at=at)
+    attested = await attested_model_prices(session, at=at)
+    return [_embedding_row(offers[model], attested.get(model)) for model in sorted(offers)]
+
+
 async def _rows(session: AsyncSession, *, at: datetime) -> list[ModelPriceOut]:
     offers = await model_offerability(session, at=at)
     attested = await attested_model_prices(session, at=at)
@@ -658,7 +832,11 @@ async def _tts_rows(session: AsyncSession, *, at: datetime) -> list[TtsPriceOut]
         "one; the reference price is a pre-fill to confirm against a vendor invoice, never "
         "the authoritative value. `tts_prices` answers the same three questions for the two "
         "VOICE tiers, whose unit is rupees per 1,000 characters rather than dollars per "
-        "million tokens; a tier with no attested price offers no voices at all."
+        "million tokens; a tier with no attested price offers no voices at all. "
+        "`embedding_prices` answers them for the ENCODERS that turn a client's uploaded "
+        "knowledge into vectors — priced on INPUT TOKENS ONLY, because an embedding "
+        "request returns a vector and the vendor bills no output leg. While an encoder has "
+        "no attested price nothing is embedded and nothing is charged."
     ),
 )
 async def list_model_prices(session: GlobalSession, _: PriceOperator) -> ModelPricesOut:
@@ -666,6 +844,7 @@ async def list_model_prices(session: GlobalSession, _: PriceOperator) -> ModelPr
     return ModelPricesOut(
         prices=await _rows(session, at=at),
         tts_prices=await _tts_rows(session, at=at),
+        embedding_prices=await _embedding_rows(session, at=at),
         as_of=at.isoformat(),
     )
 
@@ -757,6 +936,103 @@ async def attest_model_price(
     offers = await model_offerability(session, at=at)
     current = (await attested_model_prices(session, at=at)).get(model)
     return ModelPriceWriteOut(price=_row(offers[model], current), as_of=at.isoformat())
+
+
+@embedding_router.post(
+    "/{model:path}",
+    response_model=EmbeddingPriceWriteOut,
+    openapi_extra=permission_meta("platform:config"),
+    summary="Attest one embedding model's vendor price (step-up confirmed, audited)",
+    description=(
+        "Records what an ENCODER costs this account, read off your own vendor console or "
+        "invoice, as a NEW effective-dated row — a correction is a later attestation, never "
+        "an edit. Requires `X-Confirm-Action: attest_embedding_price:<model>`. The figure is "
+        "USD per million **INPUT** tokens as a decimal string, and there is NO OUTPUT PRICE "
+        "TO ENTER: an embedding request returns a vector, so the vendor bills no output "
+        "leg and the column is stored NULL. Until this exists, a client's uploaded knowledge "
+        "is indexed by word-matching only — nothing is embedded, nothing is charged, and "
+        "the panel says so with its ground. The model identifier is sent VERBATIM and may "
+        "contain a slash (`models/gemini-embedding-2`)."
+    ),
+)
+async def attest_embedding_model_price(
+    payload: EmbeddingPriceAttestIn,
+    session: GlobalSession,
+    request: Request,
+    tasks: BackgroundTasks,
+    principal: PriceOperator,
+    model: EmbeddingModelId,
+    # Resolved BEFORE this handler body runs, so the session read cannot happen inside an
+    # open transaction — `core/stepup.py` on `max_overflow=0`.
+    step_up: StepUpGate,
+    x_confirm_action: Annotated[str | None, Header()] = None,
+) -> EmbeddingPriceWriteOut:
+    """One attestation in, one audit row, in the same transaction — `attest_model_price`."""
+    step_up.require(x_confirm_action, embedding_attest_confirmation(model))
+    if principal.user_id is None:
+        # `attested_by` is NOT NULL and references `admin_users`: every price here was typed
+        # by a person. Refusing explicitly turns an impossible state into a sentence rather
+        # than an integrity error rendered as a 500.
+        raise ProblemError(
+            kind="auth",
+            code="embedding_price_actor_unknown",
+            title="This session has no admin identity",
+            detail="A price attestation has to be attributable to an operator.",
+        )
+    try:
+        input_price = _money(
+            "input_usd_per_mtok",
+            payload.input_usd_per_mtok,
+            unit="USD per million input tokens",
+        )
+    except ValueError as exc:
+        raise ProblemError(
+            kind="validation",
+            code="embedding_price_invalid",
+            title="That is not a valid price",
+            detail=str(exc),
+            remediation="Type USD per million INPUT tokens with a decimal point, like 0.20.",
+        ) from None
+
+    effective_from = payload.effective_from or datetime.now(UTC)
+    attested = await attest_embedding_price(
+        session,
+        model=model,
+        input_usd_per_mtok=input_price,
+        effective_from=effective_from,
+        source_note=payload.source_note,
+        actor_id=principal.user_id,
+    )
+    await write_audit(
+        session,
+        action="platform.embedding_price_attested",
+        actor=principal,
+        object_type="platform_model_prices",
+        object_id=model,
+        ip=client_request_ip(request),
+        # The change itself: the model, the one figure, the instant it takes effect and the
+        # operator's stated evidence. No secret, no PII. NO `output_usd_per_mtok` KEY AT ALL
+        # — an audit row carrying `null` there would read as "they left it blank".
+        summary={
+            "model": model,
+            "input_usd_per_mtok": str(attested.input_usd_per_mtok),
+            "effective_from": attested.effective_from.isoformat(),
+            "source_note": attested.source_note,
+        },
+    )
+    # AFTER the request's transaction commits, so the new price reaches
+    # `billing/rates.llm_price_is_billable` — which is what `kb/pack_vectors
+    # .pack_embedding_is_billable` and `retrieval/embedding.embedding_price_is_billable` ask
+    # before they address a provider — on the next publish rather than a poll interval
+    # later. `attest_model_price`'s shape, survivable if it fails because the 30s poll is
+    # the guarantee.
+    tasks.add_task(refresh_pricing_snapshot)
+    at = datetime.now(UTC)
+    offers = await embedding_offerability(session, at=at)
+    current = (await attested_model_prices(session, at=at)).get(model)
+    return EmbeddingPriceWriteOut(
+        price=_embedding_row(offers[model], current), as_of=at.isoformat()
+    )
 
 
 @tts_router.post(
@@ -967,6 +1243,8 @@ async def attest_voice_plan_fee(
 __all__ = [
     "BILLABLE_WITHOUT_ATTESTATION_REASON",
     "attest_confirmation",
+    "embedding_attest_confirmation",
+    "embedding_router",
     "router",
     "tts_attest_confirmation",
     "tts_plan_fee_confirmation",

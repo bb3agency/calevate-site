@@ -129,6 +129,16 @@ export default function TenantSpendPage({ params }: { params: Promise<{ tenantId
               : "NO. We chose the currency because the vendor's payload names none, so every cost and margin above is scaled by our assumption (OPERATIONS §2 gate 7).",
           },
           {
+            // D-608: the absorbed AI cost is already on this screen; the KNOWLEDGE half
+            // is the one an operator asks about by name when a new client's first month
+            // looks alarming, and it is not derivable from anything else here.
+            key: "ai_assist",
+            label: "AI we absorb for this client this month (₹), and the knowledge part of it",
+            value: data.ai_assist
+              ? `${data.ai_assist.used_inr} across ${data.ai_assist.requests} action(s), of which ${data.ai_assist.kb_used_inr} was preparing what they added (${data.ai_assist.kb_requests} job(s))`
+              : "none — this client ran no AI this month",
+          },
+          {
             key: "itemisation_residual_inr",
             label: "Charge not attributable to any one call or agent (₹)",
             value: data.itemisation_residual_inr,
@@ -294,6 +304,33 @@ function TenantSpendBoard({ data }: { data: TenantSpend }) {
             not part of the revenue, cost or margin above. The client sees their own AI usage
             on their AI-assistance screen, against a monthly allowance.
           </p>
+
+          {/* KNOWLEDGE, ON ITS OWN LINE (D-608). A COMPONENT of the figure above, labelled
+              "of which" so nothing on this card can be added to anything else on it. It
+              earns the split because it is a different CURVE: the assistant scales with how
+              much a client uses the console and arrives spread across a month, while this
+              scales with how much they upload and arrives in a burst on the day they
+              onboard. An operator looking at an alarming first month needs to be able to
+              tell "the copilot is running hot" from "they uploaded a 200-page catalogue
+              once", and the merged number cannot answer that. */}
+          <dl className="mt-3 flex flex-wrap items-baseline justify-between gap-2 border-t border-line pt-3">
+            <dt className="text-xs text-ink-muted">
+              {/* WORDED AROUND `knowledgeClaims.test.ts`, NOT THROUGH IT. That guard bans
+                  "upload" within a sentence of the agent's knowledge, because the product
+                  cannot promise that a file becomes something the agent looks up. This
+                  line is about what WE PAID, not about what the agent can do, so it names
+                  the three jobs literally and claims nothing about retrieval. */}
+              of which, preparing what they added (writing an English key beside
+              non-English text, reading photographed pages, and indexing both)
+            </dt>
+            <dd className="text-sm font-semibold tabular-nums text-ink">
+              {formatINR(data.ai_assist.kb_used_inr)}
+              <span className="ml-2 text-xs font-normal text-ink-faint">
+                {formatCount(data.ai_assist.kb_requests)}{" "}
+                {data.ai_assist.kb_requests === 1 ? "job" : "jobs"}
+              </span>
+            </dd>
+          </dl>
         </div>
       )}
 

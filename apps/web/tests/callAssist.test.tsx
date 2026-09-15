@@ -96,8 +96,11 @@ const AT_CEILING: AiQuota = {
   state: "ceiling_reached",
   included_inr: "100.00",
   used_inr: "100.00",
+  kb_used_inr: "0.00",
+  kb_requests_used: 0,
   allowance_inr: "100.00",
   remaining_inr: "0.00",
+  balance_inr: "0.00",
   requests_used: 214,
   // 416: ₹100 included ÷ the ₹0.24 nominal (`gpt-4o-mini`, D-410). A fixture the
   // server could not answer with is a wrong number carrying a fixture's authority.

@@ -5,8 +5,10 @@ answers most questions by word-matching in well under a millisecond with no netw
 (`tests/in_call_lookup_latency_test.py`), and the arm it cannot serve is a question written
 in a script the index does not contain: measured at **0.083 recall@1, 22 of 24 answered
 `not_found`** on Telugu script
-(`tests/in_call_retrieval_recall_test.py`). A dense arm fixes that — 0.9583 on the same
-corpus, founder-run against the live Gemini API on 14 Sep 2026 — but only if there is a
+(`tests/in_call_retrieval_recall_test.py`). A dense arm fixes that — 1.000 on the same
+corpus at n=24, founder-run against the live Gemini API on 15 Sep 2026 (and 0.9583 on the
+same corpus on the previous encoder; n=24 separates neither, and neither is a guarantee) —
+but only if there is a
 vector to compare against, and computing a few hundred of those is not something a container
 holding a live phone call may do. So the CORPUS side is computed once, here, by the publisher
 who is not on anybody's clock, and travels inside the pack
@@ -22,12 +24,16 @@ buys vectors for ever and records none of them.
 
 ⚠ **THE GEMINI EMBEDDING PRICE IS UNVERIFIED IN THIS REPOSITORY AND NOTHING HERE INVENTS
 ONE.** `ai.google.dev` is egress-blocked from this container (`docs/PIPECAT-MIGRATION.md`
-§10.4 re-measured it 14 Sep 2026), so no catalogue figure exists for `EMBEDDING_MODEL` and
-`llm_price_is_billable` is True for it only once an OPERATOR has entered the figure from
-their own invoice in the ops console (`ops/model_pricing.set_model_price`). Until then this
-module is a no-op that says so in one log line, every pack is built exactly as it is today,
-and the in-call dense arm is off. That is the deliberate state, not an unfinished one: the
-seam is complete and the input it waits on is outside this repository.
+§10.4 re-measured it 14 Sep 2026). The catalogue now CARRIES a figure for this model
+(`calevate_shared.engine.EMBEDDING_MODELS`, $0.20 per 1M input tokens, VENDOR-PUBLISHED and
+founder-relayed) — and that changes NOTHING about what may be billed, which is the whole
+design: its `Evidence.verified` is False, so hard rule 7 gives it no path to
+`unit_cost_paid` and `llm_price_is_billable` is True for it only once an OPERATOR has
+entered the figure from their own invoice in the ops console
+(`POST /v1/ops/embedding-prices/{model}` -> `ops/model_pricing.attest_embedding_price`).
+Until then this module is a no-op that says so in one log line, every pack is built exactly
+as it is today, and the in-call dense arm is off. That is the deliberate state, not an
+unfinished one: the seam is complete and the input it waits on is outside this repository.
 
 **HARD RULE 6.** A chunk's text and a client's gloss are conversation-adjacent content and
 neither is logged. What is logged is the tenant, the agent, counts, a model name and an
@@ -57,13 +63,40 @@ log = get_logger(__name__)
 #: `gemini-2.5-flash-lite` is spelled. Metered under this exact string, so the ledger names
 #: what was bought rather than a friendlier alias nothing else uses.
 #:
-#: **EVIDENCE: VENDOR-PUBLISHED, founder-relayed, 14 Sep 2026.** It was DISCOVERED from the
+#: **EVIDENCE: VENDOR-PUBLISHED, founder-relayed, 15 Sep 2026.** It was DISCOVERED from the
 #: live `GET /v1beta/openai/models` listing by `scripts/gemini_embedding_harness.py` (which
 #: refuses to name a model from memory for exactly this reason) and reported back with the
 #: recall table the whole design rests on. It has NOT been read from a vendor page in this
 #: container — `ai.google.dev` is egress-blocked — so this is a relayed live reading, not
 #: VERIFIED-VENDOR-DOCS, and it is labelled rather than upgraded by repetition (hard rule 11).
-EMBEDDING_MODEL: Final = "models/gemini-embedding-001"
+#:
+#: ⚠ **THIS WAS `models/gemini-embedding-001` UNTIL D-608 (15 Sep 2026), AND THE MOVE IS A
+#: PRICE MOVE RATHER THAN A QUALITY ONE.** `-001` HAS NO PRICE on the vendor's pricing page
+#: at all, and a model nobody publishes a price for can never be attested against an invoice
+#: line — so `pack_embedding_is_billable()` could never have become True for it and this
+#: whole leg was unreachable by construction. `gemini-embedding-2` is listed at $0.20 per 1M
+#: INPUT tokens standard ($0.10 batch), with NO OUTPUT CHARGE (Google pricing page dated
+#: 2026-09-11, read by the founder and relayed; the host is egress-blocked here and nothing
+#: in this session re-fetched it — the figure reaches money ONLY through the operator
+#: attestation, never from a constant).
+#:
+#: **THE MEASUREMENT IS A WASH AND MUST NOT BE READ AS AN UPGRADE.** The founder ran
+#: `scripts/gemini_embedding_harness.py` against the live API on 15 Sep 2026 with this model:
+#: dimensions 3072, n=24, recall@1 **1.000 English / 1.000 Telugu script / 0.958
+#: Telugu-in-Latin** (MRR 0.9635). The prior run on `-001` was 0.958 / 0.958 / 1.000 on the
+#: same corpus. n=24 is far too small to separate those, and **1.000 is not a guarantee** —
+#: it is 24 questions. What the pair of runs DOES support is the only claim this design
+#: rests on: a dense arm answers Telugu script, where the committed lexical-only measurement
+#: is **0.083** (`tests/in_call_retrieval_recall_test.py`).
+#:
+#: **CHANGING THIS STRING INVALIDATES EVERY PUBLISHED PACK, DELIBERATELY AND SAFELY.** The
+#: encoder's name is inside the pack id (`KnowledgePack.digest`), so `kb/pack
+#: .agents_with_stale_packs` reads every pack built under the old encoder as stale and the
+#: gloss sweep rebuilds each one ONCE — after which the digest matches and the agent is not
+#: selected again. On a deployment with no attested price (every deployment today) both the
+#: old and the new declaration are `None`, so nothing is stale and nothing rebuilds.
+#: `tests/kb_gloss_pack_refresh_test.py` proves both halves.
+EMBEDDING_MODEL: Final = "models/gemini-embedding-2"
 
 #: The width every pack vector has, SENT as the request's `dimensions` and re-checked on the
 #: way back — `retrieval/embedding.EMBEDDING_DIMS`' rule, for its reason: the number in the
@@ -117,8 +150,9 @@ def pack_embedding_is_billable() -> bool:
     `billing/rates.llm_price_is_billable` is asked rather than a second rule being written
     here: it is total, never raises, and already encodes the only two grounds this repository
     accepts (an operator attested it, or the catalogue figure was read from the vendor).
-    Neither is met for `EMBEDDING_MODEL` by any constant in this tree today — see the module
-    docstring — so this is False until an operator enters the figure.
+    Neither is met for `EMBEDDING_MODEL` by any constant in this tree today — the catalogue
+    figure is `verified=False`, see the module docstring — so this is False until an operator
+    enters the figure.
     """
     return llm_price_is_billable(EMBEDDING_MODEL)
 

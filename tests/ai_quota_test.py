@@ -1316,7 +1316,12 @@ def test_a_metering_key_the_server_did_not_mint_is_refused() -> None:
 
     for forged in ("1", "", "assist:", "assist:not-a-uuid", str(uuid.uuid4()), "ai_assist:2026-08"):
         with pytest.raises(ValueError, match="new_assist_ref"):
-            asyncio.get_event_loop()  # no I/O below; the guard runs before any statement
+            # The `asyncio.get_event_loop()` that used to sit here is GONE. Its own comment
+            # said it did nothing ("no I/O below; the guard runs before any statement") and
+            # it was worse than nothing: on Python 3.12 it RAISES `RuntimeError` once an
+            # earlier async test file has closed the thread's loop, so this test passed or
+            # failed according to which files pytest had collected before it. `_reject`
+            # never awaits — it builds the coroutine, drives it one step and closes it.
             _reject(forged)
 
 
@@ -1478,6 +1483,10 @@ def _quota_object(**overrides: Any) -> AiQuota:
         "included_inr": Decimal("100.00"),
         "used_inr": Decimal("100.00"),
         "requests_used": 200,
+        # No knowledge uploaded in this fixture: the KB column is a COMPONENT of `used_inr`
+        # (D-608) and zero is a real state, not a placeholder.
+        "kb_used_inr": Decimal("0"),
+        "kb_requests_used": 0,
         "extra_purchased_inr": Decimal("0"),
         "platform_paused": False,
         "assist_model": ASSIST_MODEL,

@@ -1762,6 +1762,165 @@ GEMINI_RETIRED_LLMS: Final = frozenset(
 )
 
 
+@dataclass(frozen=True, slots=True)
+class EmbeddingPrice:
+    """One embedding model's published list price, in **USD per MILLION INPUT tokens**.
+
+    **ONE LEG, AND THE MISSING SECOND ONE IS THE WHOLE REASON THIS IS NOT `LlmPrice`.** An
+    embedding request returns a vector, not text: there are no output tokens to charge for
+    and the vendor's `usage` block has no output half (`apps/workers/chat.embed`, and
+    `kb/pack_vectors._vectors_for` records `tokens_out=0` as the TRUTH about an embedding
+    rather than as a default). Reusing `LlmPrice` would have required inventing an
+    `output_usd_per_mtok` — a number nobody published, on a field `LlmModelSpec.__post_init__`
+    refuses to let be zero — and then dividing it back out at every reader. A price with one
+    leg is modelled as a price with one leg.
+
+    ⚠ **A CATALOGUE REFERENCE, NEVER A BILLING INPUT** — `LlmPrice`'s rule, unweakened. Hard
+    rule 7's one door is `billing/rates.llm_inr_per_ktok`, which reads an OPERATOR
+    ATTESTATION; this figure pre-fills the console form and is refused a path to
+    `unit_cost_paid` unless `evidence.verified` is True, which for the Google leg it is not
+    and cannot be from this container.
+    """
+
+    input_usd_per_mtok: Decimal
+    evidence: Evidence
+
+
+@dataclass(frozen=True, slots=True)
+class EmbeddingModelSpec:
+    """Everything this repository knows about ONE embedding model identifier.
+
+    **WHY A SECOND CATALOGUE RATHER THAN A ROW IN `LLM_MODELS`.** Three of `LlmModelSpec`'s
+    five fields mean nothing here and one of them is actively wrong. `traps` are request
+    fields that break a CHAT completion; `selectable` answers "may a client put an AGENT on
+    this model", which no client ever chooses for an encoder — the encoder is a property of
+    the deployment and changing it invalidates every published pack
+    (`calevate_shared.knowledge_pack.KnowledgePack.digest` hashes the declaration). And
+    `LlmPrice` has two legs where an embedding has one. Folding these in would have put an
+    encoder on the in-call model picker, inside `SELECTABLE_LLM_MODELS`, inside the §10
+    margin card and inside `validate_llm_model` — four surfaces that have no business
+    knowing embeddings exist.
+
+    **WHAT THE TWO CATALOGUES DO SHARE IS THE ONE THING THAT MATTERS: THE ATTESTATION.** An
+    operator reading a price off an invoice performs ONE act whatever it buys, so there is
+    one store (`platform_model_prices`), one route family (`/v1/ops/model-prices`), one
+    step-up discipline and one audit action — exactly the argument `ops/model_price_routes`
+    already makes for putting the VOICE price on the model-pricing panel (D-547).
+
+    `dimensions` is here because a width and a model are ONE fact on this leg: a vector
+    written at one width and searched at another is a silently wrong ranking, and the pack
+    format refuses a declaration carrying half of the pair
+    (`KnowledgePack._embedding_declaration_is_whole`). The call sites still spell their own
+    `EMBEDDING_DIMS` — it is what they SEND on the request and re-check on the way back —
+    and the catalogue is what a test holds them against.
+    """
+
+    model: str
+    provider: LlmProvider
+    price: EmbeddingPrice
+    dimensions: int
+    #: What this encoder is bought FOR, in one clause, for the ops console's row. Not a
+    #: `withdrawn_reason` twin: an embedding model is never "offered", so the sentence an
+    #: operator needs is which surface stops working while its price is unattested.
+    used_for: str
+
+    def __post_init__(self) -> None:
+        if self.price.input_usd_per_mtok <= 0:
+            raise ValueError(
+                f"{self.model!r} carries a non-positive catalogue price. A zero here reads "
+                "as a free encoder on every screen that shows the reference figure, and a "
+                "free leg is the one cost mistake nobody investigates."
+            )
+        if not self.price.evidence.source:
+            raise ValueError(
+                f"{self.model!r} carries a price with no evidence source. See D-31/D-32: an "
+                "unattributed figure is the defect class this repository exists to refuse."
+            )
+        if self.dimensions <= 0:
+            raise ValueError(f"{self.model!r} declares a non-positive width")
+
+
+#: **VENDOR-PUBLISHED, FOUNDER-RELAYED, NOT FETCHED FROM HERE.** Google's pricing page dated
+#: 2026-09-11 lists `gemini-embedding-2` at **$0.20 per 1M input tokens** standard ($0.10
+#: batch), **INPUT ONLY — there is no output charge**. `ai.google.dev` is egress-blocked from
+#: this container (re-measured on the pack-embedding lane, 14 Sep 2026), so this is a reading
+#: relayed by the founder and NOT VERIFIED-VENDOR-DOCS — which is precisely why `verified` is
+#: False and why hard rule 7 keeps it out of `unit_cost_paid` until an operator attests what
+#: their own invoice says (`billing/rates.llm_price_is_billable`).
+_GEMINI_EMBEDDING_PRICE_EVIDENCE: Final = Evidence(
+    source="ai.google.dev pricing page dated 2026-09-11, read by the founder and relayed",
+    read_on=date(2026, 9, 15),
+    verified=False,
+    note=(
+        "$0.20 per 1M input tokens standard, $0.10 batch, no output charge. The host is "
+        "egress-blocked from this container, so nothing here re-fetched it."
+    ),
+)
+
+#: The OpenAI embedding leg's figure. REPORTED — this repository has read no vendor page for
+#: it (`platform.openai.com` is egress-blocked, measured 1 Sep 2026 by
+#: `retrieval/embedding.py`), so it is carried as a pre-fill with its class stated and has no
+#: path to a bill.
+_OPENAI_EMBEDDING_PRICE_EVIDENCE: Final = Evidence(
+    source="REPORTED — no vendor page for this figure has been read from this container",
+    read_on=date(2026, 9, 15),
+    verified=False,
+    note=(
+        "A pre-fill for the operator's form and nothing else. The attestation is the only "
+        "evidence this repository bills from."
+    ),
+)
+
+#: THE ENCODER CATALOGUE. Two entries, two different jobs, two different stores — and the
+#: reason both are here rather than only the one this lane moved is that an operator opening
+#: the pricing panel must be able to see EVERY encoder whose price gates a surface, not the
+#: one that happened to be worked on last.
+#:
+#: ⚠ **NOTHING HERE IS BILLABLE FROM THIS TABLE.** Both carry `verified=False`, so
+#: `llm_price_is_billable` is False for both until an operator attests, and both legs are
+#: no-ops that say so in one log line until then. That is the deliberate state.
+EMBEDDING_MODELS: Final[dict[str, EmbeddingModelSpec]] = {
+    # THE PACK ENCODER (D-608). `gemini-embedding-2` and NOT `-001`, and the move is a price
+    # move rather than a quality one: the founder's own harness run on 15 Sep 2026 measured
+    # `-2` at recall@1 1.000 English / 1.000 Telugu script / 0.958 Telugu-in-Latin over n=24
+    # (against `-001`'s 0.958 / 0.958 / 1.000 on the same corpus — a wash at that sample
+    # size, and n=24 is far too small to call either a guarantee), while `-001` carries NO
+    # price on the vendor's page at all. A model nobody publishes a price for can never be
+    # attested against an invoice line, so it could never have become billable and the pack
+    # dense arm could never have switched on.
+    "models/gemini-embedding-2": EmbeddingModelSpec(
+        model="models/gemini-embedding-2",
+        provider="google",
+        price=EmbeddingPrice(
+            input_usd_per_mtok=Decimal("0.20"),
+            evidence=_GEMINI_EMBEDDING_PRICE_EVIDENCE,
+        ),
+        dimensions=3072,
+        used_for=(
+            "the knowledge pack's dense arm — the half that answers a question typed in "
+            "Telugu script, which word-matching alone answers 8% of the time"
+        ),
+    ),
+    # THE DASHBOARD/CRM ENCODER. `retrieval/embedding.EMBEDDING_MODEL`, filling
+    # `kb_chunks.embedding` for the console's own semantic search (D-502). Listed for the
+    # same reason the voice panel lists the tier nobody has priced: it is the row that needs
+    # an operator.
+    "text-embedding-3-small": EmbeddingModelSpec(
+        model="text-embedding-3-small",
+        provider="azure_openai",
+        price=EmbeddingPrice(
+            input_usd_per_mtok=Decimal("0.02"),
+            evidence=_OPENAI_EMBEDDING_PRICE_EVIDENCE,
+        ),
+        dimensions=1536,
+        used_for=(
+            "semantic search over a client's own knowledge, their past calls and their "
+            "leads, on the dashboard and in the copilot"
+        ),
+    ),
+}
+
+
 #: WHAT MAY STAND WHERE `<resource>` DOES in an Azure OpenAI hostname: ONE DNS LABEL.
 #:
 #: A PATTERN RATHER THAN AN f-STRING'S GOOD FAITH, and this is the one place in this module
@@ -5488,6 +5647,7 @@ __all__ = [
     "CLIENT_SCRIPT_CLOSE",
     "CLIENT_SCRIPT_OPEN",
     "E164",
+    "EMBEDDING_MODELS",
     "MAX_CALLER_MEMORY_CHARS",
     "PIPECAT_REF_PREFIX",
     "PLATFORM_RULES_PREAMBLE",
@@ -5507,6 +5667,8 @@ __all__ = [
     "CallContext",
     "CallHandle",
     "CostBreakdown",
+    "EmbeddingModelSpec",
+    "EmbeddingPrice",
     "EngineAgentRef",
     "EngineCapabilities",
     "EngineCapabilityName",

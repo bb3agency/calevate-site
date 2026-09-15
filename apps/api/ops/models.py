@@ -255,8 +255,12 @@ class PlatformModelPrice(Base):
     effective_from: Mapped[datetime] = mapped_column(primary_key=True)
     #: USD per MILLION input tokens, exactly as the vendor publishes it. See `USD_PER_MTOK`.
     input_usd_per_mtok: Mapped[Decimal] = mapped_column(USD_PER_MTOK, nullable=False)
-    #: USD per MILLION output tokens.
-    output_usd_per_mtok: Mapped[Decimal] = mapped_column(USD_PER_MTOK, nullable=False)
+    #: USD per MILLION output tokens, or **NULL for a model the vendor bills no output leg
+    #: for** (D-608, migration a3f70c19d84b). Every EMBEDDING model is that: the request
+    #: returns a vector, so there are no output tokens and the vendor's `usage` block has no
+    #: output half. NULL and not zero — a zero is a figure somebody typed and is refused by
+    #: `ck_platform_model_prices_output_positive` for `LlmPriceAttestation`'s reason.
+    output_usd_per_mtok: Mapped[Decimal | None] = mapped_column(USD_PER_MTOK, nullable=True)
     #: The operator who attested it — every price in this table was typed by a person, so
     #: NOT NULL, referencing `admin_users` exactly as `platform_settings.updated_by` does.
     attested_by: Mapped[uuid.UUID] = mapped_column(

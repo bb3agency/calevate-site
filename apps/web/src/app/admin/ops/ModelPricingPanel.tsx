@@ -40,8 +40,10 @@ import {
   type TtsPrice,
 } from "@/lib/api/opsTtsPricing";
 import {
+  useAttestEmbeddingPrice,
   useAttestModelPrice,
   useModelPrices,
+  type EmbeddingPrice,
   type ModelPrice,
   type ModelPrices,
 } from "@/lib/api/opsModelPricing";
@@ -185,6 +187,14 @@ export function ModelPricingPanel({
             absence, never an empty table that reads as "no voices are priced". */}
         {state.status === "read" && (
           <TtsPricesSection rows={state.list.tts_prices} access={access} />
+        )}
+
+        {/* THE ENCODER LEG, on the same panel for the voice leg's reason (D-608). It is
+            LAST because it is the one an operator is least likely to be looking for and the
+            one whose absence is silent: the other two rows describe options a client cannot
+            pick, this one describes a capability everybody assumes is on. */}
+        {state.status === "read" && (
+          <EmbeddingPricesSection rows={state.list.embedding_prices} access={access} />
         )}
       </div>
     </Card>
@@ -459,6 +469,296 @@ function AttestForm({
         value={confirm}
         onChange={setConfirm}
         hint="A correction is added as a new entry — nothing is overwritten — so a re-issued invoice can always resolve the price that was live in its month."
+      />
+
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={!ready || save.isPending}
+          className={PRIMARY_BUTTON_SM}
+        >
+          <Save aria-hidden className="h-3.5 w-3.5" />
+          {save.isPending ? "Saving…" : "Confirm price"}
+        </button>
+        <button type="button" className={SECONDARY_BUTTON_SM} onClick={onDone}>
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}
+
+/**
+ * ENCODERS — the price that decides whether a client's uploaded knowledge is INDEXED AT
+ * ALL (D-608).
+ *
+ * ## Why this section says something different again from the two above it
+ *
+ * An unpriced language model is one model a client cannot choose; an unpriced voice is a
+ * tier that cannot be sold. An unpriced ENCODER is a silent loss of capability on a
+ * product everybody thinks is working: uploads still succeed, the knowledge base still
+ * fills, the agent still answers — but only by word-matching, which on a question typed in
+ * Telugu script answers 8 times in 100. Nothing errors and no screen turns red. So this
+ * section leads with what is switched off, in the catalogue's own words, rather than with
+ * a status token.
+ *
+ * ## There is no output price, and the form has no box for one
+ *
+ * An embedding request returns a vector: the vendor bills input tokens and nothing else.
+ * The absence is in the type (`AttestEmbeddingPriceInput`), in the request model, in the
+ * audit row and in the stored column — because a greyed "0.00" box is a box somebody
+ * eventually types a number into, and that number would be a vendor price nobody published.
+ */
+function EmbeddingPricesSection({
+  rows,
+  access,
+}: {
+  rows: readonly EmbeddingPrice[];
+  access: { allowed: boolean; reason: string | null };
+}) {
+  return (
+    <section className="space-y-2 border-t border-line pt-4">
+      <div>
+        <h3 className="text-sm font-semibold text-ink">Knowledge indexing prices</h3>
+        <p className="text-xs text-ink-faint">
+          What it costs us to turn a client&apos;s uploaded documents into something an
+          agent can search by meaning, in US dollars per million tokens. There is no
+          output price on these — they return a list of numbers, not words, and the vendor
+          charges only for what is sent.
+        </p>
+      </div>
+
+      {rows.length === 0 ? (
+        // NOT a zero. `ModelPricesOut.embedding_prices` is required, so a well-behaved
+        // server always sends both encoders and this is unreachable through it — but the
+        // thing an empty table would claim ("nothing here costs anything") is the opposite
+        // of the truth, and it is the claim that gets an upload indexed for free on paper.
+        <NoticeBox
+          tone="warn"
+          icon={<CircleHelp aria-hidden className="h-5 w-5" />}
+          title="This deployment did not send any indexing prices"
+        >
+          <p className="mt-1">
+            Nothing is shown rather than a table of guessed figures. Treat this as unknown,
+            not as free.
+          </p>
+        </NoticeBox>
+      ) : (
+        <ul className="space-y-2">
+          {rows.map((row) => (
+            <li key={row.model}>
+              <EmbeddingPriceRow price={row} access={access} />
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** The one-line verdict for an encoder. Not the model row's verdict and not the voice's:
+ *  nothing is "offered" here, so the question is whether uploads are being indexed. */
+export function embeddingVerdict(price: EmbeddingPrice): {
+  label: string;
+  tone: "ok" | "warn";
+} {
+  if (price.usable) return { label: "Indexing uploads", tone: "ok" };
+  const missing: string[] = [];
+  if (!price.credential_installed) missing.push("a vendor key");
+  if (!price.price_attested && !price.reference_verified) missing.push("a confirmed price");
+  if (missing.length === 0) return { label: "Not indexing", tone: "warn" };
+  return { label: `Off — needs ${missing.join(" and ")}`, tone: "warn" };
+}
+
+function EmbeddingPriceRow({
+  price,
+  access,
+}: {
+  price: EmbeddingPrice;
+  access: { allowed: boolean; reason: string | null };
+}) {
+  const [open, setOpen] = useState(false);
+  const v = embeddingVerdict(price);
+
+  return (
+    <div className="rounded-md border border-line p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-sm text-ink">
+            <MonoValue>{price.model}</MonoValue>
+          </p>
+          <p className="mt-0.5 text-xs text-ink-faint">
+            {providerLabel(price.provider)} · {price.dimensions}-number vectors
+          </p>
+        </div>
+        <span
+          className={`inline-flex items-center gap-1 text-xs font-medium ${
+            v.tone === "ok" ? "text-brand" : "text-amber-600"
+          }`}
+        >
+          {price.usable ? (
+            <BadgeCheck aria-hidden className="h-3.5 w-3.5" />
+          ) : (
+            <TriangleAlert aria-hidden className="h-3.5 w-3.5" />
+          )}
+          {v.label}
+        </span>
+      </div>
+
+      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
+        <dt className="text-ink-faint">Used for</dt>
+        <dd className="text-ink">{price.used_for}</dd>
+        <dt className="text-ink-faint">Input price (US$ per million tokens)</dt>
+        <dd className="text-ink">
+          {price.input_usd_per_mtok ? (
+            <MonoValue>{price.input_usd_per_mtok}</MonoValue>
+          ) : (
+            <span className="text-ink-faint">
+              <MonoValue>{price.reference_input_usd_per_mtok}</MonoValue> (recorded)
+            </span>
+          )}
+        </dd>
+        {price.attested_at && (
+          <>
+            <dt className="text-ink-faint">Confirmed</dt>
+            <dd className="text-ink">
+              {formatIST(price.attested_at)}
+              {price.attested_by ? ` · ${price.attested_by}` : ""}
+            </dd>
+          </>
+        )}
+        {price.source_note && (
+          <>
+            <dt className="text-ink-faint">Source</dt>
+            <dd className="text-ink">{price.source_note}</dd>
+          </>
+        )}
+      </dl>
+
+      {/* THE GROUND, not a status. An operator who reads "needs a price" does not know
+          that in the meantime their clients' documents are being found by word-matching
+          alone — which is the whole cost of leaving this row alone, and the sentence they
+          need in order to decide whether to go and find the invoice. */}
+      {!price.usable && (
+        <div className="mt-2 rounded-lg border border-line bg-app px-3 py-2">
+          <p className="text-xs font-medium text-ink">
+            Uploads are being indexed by word-matching only
+          </p>
+          <p className="mt-1 text-xs leading-relaxed text-ink-muted">
+            Until this is confirmed we buy nothing and charge nothing for it, and{" "}
+            {price.used_for} stays off. A question typed in a different script than the
+            document it should find will usually not find it.
+            {!price.reference_verified &&
+              " The recorded price above is unverified — the vendor's page can't be reached from here, so check it against your invoice."}
+          </p>
+        </div>
+      )}
+
+      {access.allowed ? (
+        <div className="mt-3">
+          {open ? (
+            <EmbeddingAttestForm price={price} onDone={() => setOpen(false)} />
+          ) : (
+            <button
+              type="button"
+              className={SECONDARY_BUTTON_SM}
+              onClick={() => setOpen(true)}
+            >
+              <Coins aria-hidden className="h-3.5 w-3.5" />
+              {price.price_attested ? "Update price" : "Confirm price"}
+            </button>
+          )}
+        </div>
+      ) : (
+        <p className="mt-3 text-xs text-ink-faint">
+          {access.reason ?? "Your admin account cannot change platform configuration."}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function EmbeddingAttestForm({
+  price,
+  onDone,
+}: {
+  price: EmbeddingPrice;
+  onDone: () => void;
+}) {
+  const [inputUsd, setInputUsd] = useState("");
+  const [sourceNote, setSourceNote] = useState("");
+  const [confirm, setConfirm] = useState("");
+
+  const save = useAttestEmbeddingPrice();
+  const word = "CONFIRM";
+  const valid = useFormValidation();
+  const ready = confirmMatches(confirm, word);
+
+  return (
+    <form
+      className="space-y-3"
+      noValidate
+      onSubmit={valid.onSubmit(() => {
+        if (!ready || save.isPending) return;
+        save.mutate(
+          {
+            model: price.model,
+            // The exact string the operator typed — no Number(), no rounding (hard rule 7).
+            inputUsdPerMtok: inputUsd.trim(),
+            sourceNote: sourceNote.trim(),
+          },
+          { onSuccess: onDone },
+        );
+      })}
+    >
+      {save.error && <WriteFailure error={save.error} actionLabel="Confirm price" />}
+
+      <label className="block">
+        <span className={FIELD_LABEL}>Input price (US$ per million tokens)</span>
+        <input
+          {...valid.field("embeddingInputUsd", "Enter the input price you were billed.")}
+          required
+          value={inputUsd}
+          onChange={(e) => setInputUsd(e.target.value)}
+          // `text`, not `number`: a number input hands JS a float, and money must reach the
+          // server as the exact string that was typed.
+          inputMode="decimal"
+          placeholder={`${price.reference_input_usd_per_mtok} (recorded — check against your invoice)`}
+          className={`${FIELD} font-mono`}
+        />
+        {valid.error("embeddingInputUsd")}
+        {/* NO OUTPUT FIELD, and the sentence says why rather than leaving a gap that reads
+            as an unfinished form. */}
+        <span className={FIELD_HINT}>
+          There is no output price to enter: this model returns a list of numbers, not
+          words, so the vendor charges only for what we send it.
+        </span>
+      </label>
+
+      <label className="block">
+        <span className={FIELD_LABEL}>Source</span>
+        <input
+          {...valid.field("embeddingSourceNote", "Say where you read this figure.")}
+          required
+          minLength={3}
+          value={sourceNote}
+          onChange={(e) => setSourceNote(e.target.value)}
+          placeholder="e.g. Google Cloud billing export 2026-09, embedding input tokens"
+          className={FIELD}
+        />
+        {valid.error("embeddingSourceNote")}
+        <span className={FIELD_HINT}>
+          Where you read this figure. Saved with your confirmed price, so a later reader
+          knows who read it and from where.
+        </span>
+      </label>
+
+      <TypeToConfirm
+        id={`confirm-embedding-price-${price.model}`}
+        word={word}
+        value={confirm}
+        onChange={setConfirm}
+        hint="A correction is added as a new entry — nothing is overwritten. Confirming a price here also rebuilds every published knowledge pack once, so the agents start answering out of the new index."
       />
 
       <div className="flex gap-2">

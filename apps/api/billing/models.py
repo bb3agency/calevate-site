@@ -111,6 +111,44 @@ PAID_CREDIT_REASONS = ("topup",)
 # `tests/ai_quota_test.py` holds this paragraph to the arithmetic ON BOTH MODELS.
 AI_ASSIST_UNIT_TYPES = ("ai_assist_ktok_in", "ai_assist_ktok_out")
 
+#: WHICH `usage_events.meta.feature` NAMES ARE THE COST OF A CLIENT UPLOADING KNOWLEDGE
+#: (D-608). The founder's requirement is one sentence — *"this cost of uploading knowledge
+#: should be shown as a separate column"* — and this tuple is the whole of what "this cost"
+#: means, in the only ledger that has it.
+#:
+#: **IT IS A SUBSET OF THE AI-ASSIST ROWS, NOT A NEW UNIT TYPE, AND THAT IS THE DESIGN.** All
+#: five features already write `ai_assist_ktok_*` rows under `record_ai_assist_usage`, all
+#: five already draw on the SAME monthly AI allowance the dashboard assistant draws on, and
+#: the founder's answer to "should uploads have their own budget" was no. So this is a LENS
+#: over rows that already exist — a `FILTER (WHERE meta->>'feature' = ANY(...))` on the one
+#: query that reads them — and not a second meter, a second unit type or a second ceiling.
+#: Adding any of those would have meant a migration, a second idempotency key and a second
+#: number that could disagree with the first about a month.
+#:
+#: **WHY THESE FIVE AND NOT THE SEARCH ONES.** The line is WHO CAUSED THE SPEND, which is
+#: the line every one of these feature names was split along in the first place (see each
+#: constant's own docstring). These five are bought because a client PUT KNOWLEDGE IN: the
+#: English gloss beside a Telugu chunk, the OCR pass over a photographed price list, the
+#: pgvector row for the dashboard's own search, the pack vector the phone agent answers out
+#: of, and the document written into the managed retrieval box. `kb_search_embedding`,
+#: `call_search_embedding` and `lead_search_embedding` are bought because somebody ASKED A
+#: QUESTION, which is ordinary AI use and belongs in the other column. `caller_embed` and
+#: `admin_copilot` are on the PLATFORM's ledger (`platform_ai_usage`) and never reach this
+#: table at all.
+#:
+#: SPELLED HERE, IN THE LEAF THAT HOLDS THE LEDGER'S VOCABULARY, rather than imported from
+#: the five modules that define them: those modules import `billing/ai_quota`, which reads
+#: this, so an import would be a cycle. `tests/kb_spend_column_test.py` asserts this tuple
+#: equals the five constants' values, so a rename is a red test rather than a column that
+#: silently reads zero — the registry-plus-check shape hard rule 4 uses for the same reason.
+KB_INGESTION_FEATURES = (
+    "kb_gloss",
+    "kb_ocr",
+    "kb_embed",
+    "kb_pack_embed",
+    "supermemory_ingest",
+)
+
 # WHO PAYS FOR A ROW OF THIS UNIT — the one question every reader of `usage_events` has
 # to answer, and until now the only place it was answered was a NEGATIVE predicate in
 # `billing/service.py` (`_NOT_AI_UNITS`). Negative is the safe DIRECTION — a unit added

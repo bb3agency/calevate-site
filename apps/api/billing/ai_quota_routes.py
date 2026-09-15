@@ -113,9 +113,21 @@ class AiQuotaOut(Strict):
     state: str
     included_inr: str
     used_inr: str
+    # THE KNOWLEDGE COLUMN (D-608) — the part of `used_inr` that was bought because this
+    # client uploaded documents: the English gloss beside a Telugu chunk, the OCR pass over a
+    # photographed price list, and the vectors that let the agent and the dashboard find any
+    # of it (`billing/models.KB_INGESTION_FEATURES`). A COMPONENT of `used_inr`, not a
+    # sibling of it: the screen labels it "of which" and nothing adds the two.
+    kb_used_inr: str
+    kb_requests_used: int
     # included + anything already bought this month.
     allowance_inr: str
     remaining_inr: str
+    # allowance - used, SIGNED. Negative when uploads have taken the month past its
+    # allowance, which is a state this product deliberately permits and does not block
+    # (D-608). `remaining_inr` is the same figure clamped at zero for the "about N more"
+    # estimate; this one is the truth about an overdraft.
+    balance_inr: str
     requests_used: int
     requests_included: int
     requests_remaining: int

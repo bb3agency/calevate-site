@@ -95,3 +95,64 @@ export function useAttestModelPrice() {
     onSuccess: () => void client.invalidateQueries({ queryKey: OPS_MODEL_PRICES_QUERY_KEY }),
   });
 }
+
+/* ── ENCODERS: the price that decides whether an upload is embedded at all (D-608) ──
+ *
+ * The same panel, the same act and the same money rule as everything above — with ONE
+ * FIELD REMOVED. An embedding request returns a vector, so the vendor bills no output
+ * tokens and there is nothing for an operator to type in a second box. That absence is
+ * carried in the TYPES (`AttestEmbeddingPriceInput` has no output field) rather than in a
+ * comment, because a nullable field on a form is a field somebody eventually fills in.
+ *
+ * ITS OWN PATH, because an encoder identifier contains a SLASH (`models/gemini-embedding-2`
+ * — the string Google's OpenAI-compatibility surface lists, the string the wire takes and
+ * the string the ledger records). It is interpolated RAW, never `encodeURIComponent`d: the
+ * server's route takes a `:path` parameter precisely so that no `%2F` — which proxies
+ * normalise or refuse — ever appears in the URL.
+ */
+
+export const OPS_EMBEDDING_PRICES_PATH = "/v1/ops/embedding-prices";
+
+/** One encoder: what it is for, how wide its vectors are, and its attested INPUT price. */
+export type EmbeddingPrice = Schemas["EmbeddingPriceOut"];
+
+/** The answer to an encoder attestation: the row as it now stands. */
+export type EmbeddingPriceWrite = Schemas["EmbeddingPriceWriteOut"];
+
+/**
+ * The step-up string for attesting ONE encoder's price, copied VERBATIM from
+ * `apps/api/ops/model_price_routes.py::embedding_attest_confirmation`. Its own prefix, so
+ * a header captured while pricing a chat model cannot be replayed against the encoder that
+ * decides how every published knowledge pack is built.
+ */
+export function embeddingAttestConfirmation(model: string): string {
+  return `attest_embedding_price:${model}`;
+}
+
+export interface AttestEmbeddingPriceInput {
+  model: string;
+  /** USD per MILLION **INPUT** tokens, as the exact string the operator typed. */
+  inputUsdPerMtok: string;
+  sourceNote: string;
+  /** ISO instant with an offset, or omitted for "from now on". */
+  effectiveFrom?: string;
+}
+
+export function useAttestEmbeddingPrice() {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ model, inputUsdPerMtok, sourceNote, effectiveFrom }: AttestEmbeddingPriceInput) =>
+      apiRequest<EmbeddingPriceWrite>(adminSession(), `${OPS_EMBEDDING_PRICES_PATH}/${model}`, {
+        method: "POST",
+        body: {
+          input_usd_per_mtok: inputUsdPerMtok,
+          source_note: sourceNote,
+          ...(effectiveFrom ? { effective_from: effectiveFrom } : {}),
+        },
+        confirmAction: embeddingAttestConfirmation(model),
+      }),
+    // The whole list, for the chat attestation's reason: an encoder price changes that
+    // row's `usable` and the response's `as_of`, and a spliced row would sit in a stale page.
+    onSuccess: () => void client.invalidateQueries({ queryKey: OPS_MODEL_PRICES_QUERY_KEY }),
+  });
+}

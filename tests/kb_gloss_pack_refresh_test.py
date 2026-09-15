@@ -735,6 +735,72 @@ async def test_a_tick_rebuilds_the_pack_when_the_encoder_changes(
     assert pack_object_key(tenant_id, agent_id, before) in s3.objects
 
 
+async def test_an_encoder_change_rebuilds_each_pack_once_and_then_stops(
+    monkeypatch: pytest.MonkeyPatch, s3: FakeS3
+) -> None:
+    """THE LOOP THAT WOULD BILL FOR EVER, PROVED ABSENT (D-608).
+
+    Moving `EMBEDDING_MODEL` is the change this repository makes when a vendor's model id
+    moves, and the sibling test above proves the rebuild happens. The failure that would cost
+    real money is the one AFTER it: a deployment where the scan's digest and the builder's
+    digest disagree re-selects the same agent on every tick, re-embeds the whole corpus every
+    time, and bills for it — silently, because each individual tick looks exactly like the
+    legitimate rebuild.
+
+    So this asserts the SECOND tick: no agent selected, no pack written, and — the assertion
+    that actually names the money — the encoder not called at all.
+    """
+    encoder = _dense_arm_on(monkeypatch)
+    tenant_id, agent_id = await _published_telugu_agent(TAILOR_TELUGU)
+    await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
+
+    monkeypatch.setattr(pack_vectors, "EMBEDDING_MODEL", "models/some-other-encoder-002")
+    assert await _stale_agents(tenant_id) == [agent_id]
+    assert (
+        await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
+        == "translated=0 not_needed=0 rekeyed=0 repacked=1"
+    )
+
+    encoder.passages.clear()
+    written = _count_pack_stores(monkeypatch)
+    assert await _stale_agents(tenant_id) == [], "the rebuilt pack still reads as stale"
+    assert (
+        await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
+        == "translated=0 not_needed=0 rekeyed=0 repacked=0"
+    )
+    assert encoder.passages == [], "the corpus was re-embedded on a tick that owed nothing"
+    assert written == []
+
+
+async def test_the_encoder_move_rebuilds_nothing_while_nobody_has_attested_a_price(
+    monkeypatch: pytest.MonkeyPatch, s3: FakeS3
+) -> None:
+    """THE STATE EVERY DEPLOYMENT IS IN TODAY, and the reason D-608 shipped no rebuild storm.
+
+    `pack_embedding_declaration` returns `None` whenever the price is unattested, whatever
+    `EMBEDDING_MODEL` says — so on a deployment that has never attested anything the OLD
+    encoder's packs and the NEW encoder's implied packs declare the same `None`, the digests
+    match, and moving the constant selects nobody. This is what makes the move free today and
+    correct the day an operator attests: the rebuild happens then, once, per the test above.
+    """
+    tenant_id, agent_id = await _published_telugu_agent(TAILOR_TELUGU)
+    await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
+    assert await _stale_agents(tenant_id) == []
+    assert pack_vectors.pack_embedding_is_billable() is False
+
+    written = _count_pack_stores(monkeypatch)
+    monkeypatch.setattr(pack_vectors, "EMBEDDING_MODEL", "models/some-other-encoder-002")
+    assert await _stale_agents(tenant_id) == [], (
+        "an unpriced deployment was made to rebuild by a constant it cannot act on"
+    )
+    assert (
+        await _run_sweep(monkeypatch, _RecordingProvider(TAILOR_ENGLISH), only=tenant_id)
+        == "translated=0 not_needed=0 rekeyed=0 repacked=0"
+    )
+    assert written == []
+    assert agent_id is not None
+
+
 async def test_the_builder_and_the_scan_read_one_declaration(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

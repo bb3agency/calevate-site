@@ -191,6 +191,26 @@ function fxRate(): FxRate {
  *  no lever these cases exercise. */
 function modelPrices(): ModelPrices {
   return {
+    // The ENCODER rung of the same panel (D-608). Unattested is the SHIPPED state, and
+    // the panel's job is to say what is switched off rather than render a blank.
+    embedding_prices: [
+      {
+        model: "models/gemini-embedding-2",
+        provider: "google",
+        used_for: "the knowledge pack's dense arm",
+        dimensions: 3072,
+        credential_installed: false,
+        price_attested: false,
+        usable: false,
+        input_usd_per_mtok: null,
+        effective_from: null,
+        attested_at: null,
+        attested_by: null,
+        source_note: null,
+        reference_input_usd_per_mtok: "0.20",
+        reference_verified: false,
+      },
+    ],
     // The voice rung of the same panel (D-547). Unattested is the SHIPPED state -- no key,
     // no price -- and the panel's job is to render the consequence rather than a blank.
     tts_prices: [

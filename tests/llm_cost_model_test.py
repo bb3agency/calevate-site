@@ -402,6 +402,8 @@ def test_the_assist_estimate_names_the_model_it_was_priced_for() -> None:
             included_inr=Decimal("100.00"),
             used_inr=Decimal("0"),
             requests_used=0,
+            kb_used_inr=Decimal("0"),
+            kb_requests_used=0,
             extra_purchased_inr=Decimal("0"),
             platform_paused=False,
             assist_model=model,

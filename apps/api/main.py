@@ -181,6 +181,9 @@ def _mount_routers(application: FastAPI) -> None:
     from apps.api.ops.fx_routes import router as ops_fx_router
     from apps.api.ops.maintenance_routes import client_router as client_maintenance_router
     from apps.api.ops.maintenance_routes import router as ops_maintenance_router
+    from apps.api.ops.model_price_routes import (
+        embedding_router as ops_embedding_prices_router,
+    )
     from apps.api.ops.model_price_routes import router as ops_model_prices_router
     from apps.api.ops.model_price_routes import tts_router as ops_tts_prices_router
     from apps.api.ops.routes import router as ops_router
@@ -452,6 +455,10 @@ def _mount_routers(application: FastAPI) -> None:
     # model price, and the same module because it is the same panel and the same act
     # (`ops/model_price_routes.tts_router`).
     application.include_router(ops_tts_prices_router)
+    # The ENCODER price attestation (D-608). Its own router for the voice one's reason and
+    # one more of its own: an encoder identifier contains a slash, so its path parameter is
+    # a `:path` and cannot share a prefix with `POST /v1/ops/model-prices/{model}`.
+    application.include_router(ops_embedding_prices_router)
     # WHICH SYNCED VOICES THIS PLATFORM OFFERS (D-588) — the curation layer over the
     # catalogue sync, on `ops:manage` beside the refresh that fills it. Mounted AFTER
     # `ops_router`? No: `ops_router` carries the literal `POST /v1/ops/voices/refresh`
