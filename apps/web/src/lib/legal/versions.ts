@@ -200,6 +200,24 @@ export const LEGAL_VERSIONS: Readonly<Record<string, LegalVersionEntry>> = {
         material: true,
         contentHash: "sha256:a5f2af022ed41b32b8f51980dd49d51af7f5edc47e826df44788dc4f79f77bd8",
       },
+      // D-615. THE PLATFORM THAT RUNS THE CALL WAS NOT IN THE REGISTER. D-592 moved the
+      // conversation into a container of ours on Pipecat Cloud, which puts a new company
+      // on the path the caller's AUDIO travels — the one category on that page that
+      // cannot be redacted, masked or summarised on its way past — and no row named it.
+      // Added with its own row and section 3.7, which lists what nobody here has
+      // established about it (the operating entity, where `ap-south` is, its terms, its
+      // retention, whether a DPA can be entered, its own sub-processors) rather than
+      // filling any of it in: both of that vendor's hosts refuse a connection from this
+      // build environment, re-measured 15 September 2026. The carrier row is widened in
+      // the same revision, because under the same design the carrier now carries the
+      // AUDIO and not only the numbers and the call records. A NEW SUB-PROCESSOR on the
+      // call path is the event clause 5 of the Data Processing Addendum notifies against
+      // and a client may object to, so material.
+      {
+        revision: "5",
+        material: true,
+        contentHash: "sha256:79ccad03ddd6d6819fd99939cc5e35b1e575a252236ec83fac4aa8a986d14470",
+      },
     ],
     effectiveDate: "2026-09-02",
   },

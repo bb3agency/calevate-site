@@ -297,12 +297,58 @@ export const SUBPROCESSOR_ROWS: readonly RegisterRow[] = [
   {
     names: ["Exotel", "Vobiz", "Plivo"],
     vendor: "Exotel · Vobiz · Plivo",
-    does: "Telephone numbers and the carrier connection the calls run over.",
-    receives: "Caller and called numbers, and call detail records.",
-    location: "India.",
+    does:
+      "Telephone numbers and the carrier connection the calls run over — and, " +
+      "since the call itself moved to the platform in the row below, the carrier also " +
+      "CARRIES THE AUDIO: the call's media connection terminates at the carrier and it " +
+      "streams the sound of the call, in both directions, to and from the program that " +
+      "holds the conversation. This cell said “numbers and the connection” " +
+      "until 15 September 2026, which was true of the older design, where the voice " +
+      "platform in the first row took the audio and we never touched it.",
+    receives:
+      "Caller and called numbers, call detail records, and the live audio of the call " +
+      "in both directions.",
+    location:
+      "India for the carriers themselves. Which of the three we use is not settled and " +
+      "no account is open with any of them, so for the new media leg in particular " +
+      "nobody here has established which of a carrier's regions would serve it — " +
+      "we would rather say that than let an old cell cover a new path.",
     status:
       "Core once numbers are procured. None is procured yet, because that depends " +
       "on the DLT registrations.",
+  },
+  {
+    names: ["Pipecat Cloud"],
+    vendor: "Pipecat Cloud",
+    does:
+      "RUNS THE CALL. Where a deployment is set to use it, the conversation is a " +
+      "program of ours — our script, our choice of models, our knowledge lookup " +
+      "— running in a container on this vendor's platform, in place of the voice " +
+      "platform in the first row of this table. It is the same kind of relationship as " +
+      "the hosting provider two rows down, and it matters far more, because this one " +
+      "is on the call.",
+    receives:
+      "The most sensitive combination anything in this table receives, which is why " +
+      "this row exists: the caller's live audio in both directions, the transcript as " +
+      "it is produced, the agent's instructions, the knowledge the agent answers from, " +
+      "and — where the account has switched caller continuity on — the short " +
+      "note of what a returning caller told the agent before. Its platform does not " +
+      "read those things; it runs the container they pass through, which is a " +
+      "distinction about purpose and not about access.",
+    location:
+      "The region we intend to run in is the one this vendor calls “ap-south”. " +
+      "Read that narrowly, because it is a vendor's name for a region and not a " +
+      "residency commitment we have obtained: NOBODY HERE HAS ESTABLISHED WHICH " +
+      "COUNTRY OR CITY IT IS IN, and this vendor's own pages cannot be read from our " +
+      "build environment (both of its documented hosts refuse a connection from it, " +
+      "re-measured 15 September 2026). Do not read “India” into the name " +
+      "until this cell says India.",
+    status:
+      "Configured, not enabled — and further from enabled than any other row here. " +
+      "There is no account with this vendor, the deployment manifest in our repository " +
+      "has never been applied, no container has ever been started, and no call has ever " +
+      "run on it. Nothing of anybody's has reached this vendor. Section 3.7 lists what " +
+      "we have not established about it, and it is a longer list than any other row's.",
   },
   {
     names: ["Cloudflare"],
@@ -644,7 +690,7 @@ export const SUBPROCESSORS: LegalDocument = {
     },
     {
       id: "cautions",
-      heading: "3. Six things a careful reader should know",
+      heading: "3. Seven things a careful reader should know",
       subsections: [
         {
           id: "bolna-residency",
@@ -1020,6 +1066,79 @@ export const SUBPROCESSORS: LegalDocument = {
                 "caller, and not on the call as a whole. A client who would rather it " +
                 "did not apply to them at all can keep every agent on the other voice " +
                 "quality, and this vendor then receives nothing of theirs.",
+            },
+          ],
+        },
+        {
+          id: "call-runtime",
+          heading: "3.7 The call is moving to a platform we run it ON, and what we have not established about it",
+          blocks: [
+            {
+              kind: "callout",
+              tone: "warning",
+              title: "A new vendor is on the call path, and we have read none of its terms",
+              text:
+                "Section 3 was headed \u201csix things\u201d until 15 September 2026, " +
+                "and this is the seventh. The design of the call changed. It used to be " +
+                "that a voice platform took the call, ran the conversation with models " +
+                "it chose on our behalf, and handed us a transcript afterwards \u2014 " +
+                "that is the first row of the register, and section 3.1 is about where " +
+                "it does that. The call is moving to a program of OURS, running in a " +
+                "container on a platform called Pipecat Cloud: we choose the models, we " +
+                "hold the script, and the sound of the call passes through somebody " +
+                "else's compute while it happens. That is better for you in the ways " +
+                "this page can show \u2014 fewer parties see the conversation, and the " +
+                "choices about which model hears it become ours and therefore yours " +
+                "\u2014 and it puts ONE NEW COMPANY on the most sensitive path in the " +
+                "product, which is why it gets its own register row and this section " +
+                "rather than a footnote.",
+            },
+            {
+              kind: "para",
+              text:
+                "What we have NOT established about that company, stated plainly " +
+                "because a register that guesses is worth less than one that names its " +
+                "gaps. Which legal entity operates the platform, and in which country " +
+                "it is established: not established. Where \u201cap-south\u201d " +
+                "physically is: not established \u2014 it is the vendor's name for a " +
+                "region, and a name is not a residency commitment. What its terms " +
+                "permit it to do with what passes through it, including whether " +
+                "anything may be used to train a model: not established. How long " +
+                "anything is kept, and whether any of it is kept at all once a call " +
+                "ends: not established. Whether a data-processing agreement can be " +
+                "entered with it, and on what plan: not established. Which other " +
+                "companies it relies on in turn: not established. Every one of those " +
+                "is a question with an answer somebody can obtain from the vendor's " +
+                "own documents, and not one of them is a gap we will fill with a " +
+                "plausible sentence.",
+            },
+            {
+              kind: "para",
+              text:
+                "Why we cannot simply look: this vendor's documentation host and its " +
+                "own site both refuse a connection from the environment this software " +
+                "is built in \u2014 measured again on 15 September 2026, with the same " +
+                "result as every earlier attempt. That is the same reason the messaging " +
+                "providers' and the voice-synthesis vendor's Location cells say NOT " +
+                "VERIFIED rather than naming a country. The answers are not secret; " +
+                "they are simply not ours to assert until a person has read them, and " +
+                "this page would rather be short of a fact than confident about one.",
+            },
+            {
+              kind: "para",
+              text:
+                "Two limits that cut in your favour, and one that does not. In your " +
+                "favour: nothing has reached this vendor from this system \u2014 there " +
+                "is no account, nothing has been deployed, and no call has ever run on " +
+                "it \u2014 and the record of the call that we keep afterwards is in " +
+                "our own database and storage, not theirs, exactly as it is today. " +
+                "Not in your favour, and stated rather than left for you to work out: " +
+                "when this does go live it will be handling the caller's AUDIO, which " +
+                "is the one category on this page that cannot be redacted, masked or " +
+                "summarised on its way past. That is why the answers above must be in " +
+                "this section before the first real call, and not after it \u2014 and " +
+                "why the register row for this vendor says, in terms, that nothing has " +
+                "been sent to it yet.",
             },
           ],
         },
