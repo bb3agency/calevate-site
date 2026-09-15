@@ -102,6 +102,12 @@ TENANT_TABLES = [
     # tenant" and never "which person".
     "lead_saved_views",
     "usage_events",
+    # A leg of one call that could not be honestly priced (D-592, migration a3f1c6e82d47).
+    # Tenant data in the sense that matters: it names one client's call and the reason its
+    # spend is not on their ledger, and it is read beside `calls_unmetered` on the ops
+    # board. Append-only (see APPEND_ONLY_TABLES). No PII by construction — ids, a machine
+    # code and prose `voice_worker/meter.py` authored.
+    "call_metering_refusals",
     "plans",
     "credit_ledger",
     # The credits ONE purchase created, with that purchase's per-minute rates frozen on
@@ -786,6 +792,13 @@ RLS_EXEMPT_TENANT_COLUMNS = {
 # INSERT-only ledgers (hard rule 4): immutability triggers in the migration.
 APPEND_ONLY_TABLES = [
     "usage_events",
+    # A settlement attempt that refused, at the instant it refused (D-592). Append-only for
+    # `usage_events`' reason applied to the hole beside it: the row exists precisely because
+    # a leg could NOT reach that ledger, and an UPDATE could only ever rewrite why. A later
+    # attempt that succeeds writes `usage_events` rows; "this call was unmetered until the
+    # CDR arrived" stays true afterwards, which is the fact an operator needs once the
+    # invoice is out.
+    "call_metering_refusals",
     "consent_ledger",
     "audit_log",
     "credit_ledger",

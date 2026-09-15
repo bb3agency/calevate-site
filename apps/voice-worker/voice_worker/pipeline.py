@@ -41,6 +41,7 @@ open item, and the settings that need a measurement say so where they are set.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Final, Protocol
@@ -58,6 +59,7 @@ from pipecat.audio.turn.smart_turn.base_smart_turn import SmartTurnParams
 from pipecat.audio.turn.smart_turn.local_smart_turn_v3 import LocalSmartTurnAnalyzerV3
 from pipecat.audio.vad.silero import SileroVADAnalyzer
 from pipecat.frames.frames import LLMRunFrame
+from pipecat.observers.base_observer import BaseObserver
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.worker import PipelineParams, PipelineWorker, ProcessorUnusablePolicy
 from pipecat.processors.aggregators.llm_context import LLMContext
@@ -992,6 +994,7 @@ def assemble_call(
     sink: NormalizedEventSink,
     knowledge: SessionKnowledge | None = None,
     embedder: QueryEmbedder | None = None,
+    observers: Sequence[BaseObserver] | None = None,
     stop_secs: float = SMART_TURN_STOP_SECS,
 ) -> AssembledCall:
     """Assemble the §4 pipeline for one call.
@@ -1067,6 +1070,17 @@ def assemble_call(
 
     worker = PipelineWorker(
         pipeline,
+        # **AN ARGUMENT FOR `transport`'s AND `sink`'s REASON, AND IT IS WHAT THE METER
+        # RIDES IN ON.** `PipelineParams` above turns the usage metrics ON, which is this
+        # module's whole obligation to §1.3 — but a metric nobody subscribes to is a metric
+        # nobody meters, and `meter.CallMeter.attach` takes a `ServiceMetricsObserver` that
+        # has to be registered HERE because `observers` is a constructor argument of
+        # `PipelineWorker` (`pipecat/pipeline/worker.py:310`) and there is no adding one
+        # afterwards. Building the observer inside this function was the alternative and is
+        # worse: it would put the meter — which owns a rate card and refuses on money — into
+        # the one module whose property is that it runs with no database and no rates.
+        # `runtime.py` constructs both and hands them in.
+        observers=list(observers) if observers else None,
         params=PipelineParams(
             # Both default to False (`pipecat/pipeline/worker.py:198-199`). Hard rule 7
             # needs a real cost per usage_event and §1.3 meters five legs independently;

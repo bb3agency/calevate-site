@@ -13,21 +13,26 @@ network, no loop and no object store), so the ONE awaitable on this path has to 
 before it, by somebody. That somebody is here, and the wall clock it spends is the ring —
 nobody is waiting on it yet.
 
-**WHAT IS STILL NOT HERE, PLAINLY.** Nothing in this repository calls `start_session` in
-production, because the two things that would are blocked on facts outside it: the carrier
-transport needs a Plivo account in the India data region (BLOCKER-1, §6 step 6) and the
-`NormalizedEventSink` writer is the next wave. Both are ARGUMENTS here for the reason
-`transport` is an argument to `assemble_call` — so the seam this module closes is complete
-and testable today, and what remains is a bootstrap that has nothing to bootstrap yet.
+**WHO CALLS THIS, AND WHAT IS STILL MISSING — WHICH IS NOW ONE THING AND NOT TWO.**
+`runtime.WorkerRuntime.run_call` is the production caller: it owns the container's database
+engine, builds the `sink.DatabaseEventSink` from the same four ids it passes here, and runs
+what comes back. This paragraph used to say the sink *"is the next wave"* and that nothing
+called `start_session` at all; the sink now exists, so what remains outside this repository
+is exactly one thing — **the carrier transport, which needs a Plivo account in the India
+data region (BLOCKER-1, §6 step 6)**. It stays an ARGUMENT for the reason it always was: the
+same assembly runs against a fake in tests and against `FastAPIWebsocketTransport` the day
+that account exists, and nothing here has to change when it does.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Final
 from uuid import UUID
 
 from calevate_shared.events import CallDirection
 from loguru import logger
+from pipecat.observers.base_observer import BaseObserver
 from pipecat.transports.base_transport import BaseTransport
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -121,6 +126,7 @@ async def open_session(
     fetcher: PackFetcher,
     cache: PackCache | None = None,
     embedder: QueryEmbedder | None = None,
+    observers: Sequence[BaseObserver] | None = None,
     stop_secs: float = SMART_TURN_STOP_SECS,
 ) -> AssembledCall:
     """One assembled call, with its knowledge already in memory.
@@ -163,6 +169,7 @@ async def open_session(
         sink=sink,
         knowledge=knowledge,
         embedder=embedder,
+        observers=observers,
         stop_secs=stop_secs,
     )
 
@@ -180,6 +187,7 @@ async def start_session(
     fetcher: PackFetcher,
     cache: PackCache | None = None,
     embedder: QueryEmbedder | None = None,
+    observers: Sequence[BaseObserver] | None = None,
 ) -> AssembledCall:
     """Ids in, a runnable call out. The whole path, in the order it must happen.
 
@@ -204,6 +212,7 @@ async def start_session(
         fetcher=fetcher,
         cache=cache,
         embedder=embedder,
+        observers=observers,
     )
 
 

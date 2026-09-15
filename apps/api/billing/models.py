@@ -157,6 +157,21 @@ CLIENT_BILLED_UNIT_TYPES = (
     "tts_kchars",
     "llm_tok_in",
     "llm_tok_out",
+    # **THE OWNED-RUNTIME LLM LEG, PER THOUSAND TOKENS (D-592, migration a3f1c6e82d47).**
+    # `llm_tok_in`/`llm_tok_out` are the RENTED engine's rows: Bolna reports a leg CHARGE
+    # with no token count (TRD §5), so `apps/workers/pipeline.py::_meter` writes `qty = 1`
+    # priced at the whole leg. A Pipecat call has the opposite shape — we run the model
+    # ourselves and `LLMTokenUsage` reports real counts (`PIPECAT-MIGRATION.md` §1.3) — so
+    # the count belongs in `qty` and the attested per-thousand rate in `unit_cost_paid`.
+    #
+    # New unit types and NOT a re-interpretation of the two above, for `tts_kchars`' reason
+    # stated one leg over: a `qty` whose unit depends on which engine ran the call is a
+    # column no reader can sum, and `usage_events` is append-only so the ambiguity would be
+    # permanent. `k`, for the arithmetic the `ai_assist_ktok_*` paragraph above does in
+    # full — `gpt-4o-mini` input is about ₹0.0000144 a token, which stores as `0.0000` in
+    # NUMERIC(12,4), i.e. the leg would meter as exactly free.
+    "llm_ktok_in",
+    "llm_ktok_out",
     "platform_min",
     "number_rental",
     "other",
@@ -266,6 +281,71 @@ class UsageEvent(PKMixin, Base):
     ref: Mapped[str | None] = mapped_column(Text)
     occurred_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     meta: Mapped[dict[str, object] | None] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
+class CallMeteringRefusal(PKMixin, Base):
+    """A leg of one call that could NOT be honestly priced, recorded rather than zeroed.
+
+    **WHY THIS TABLE EXISTS AT ALL.** `usage_events` is append-only and hard rule 7 requires
+    a real cost on every row, so a leg whose quantity or price could not be read has no
+    honest representation there: a `qty` of zero meters real spend as free, and a row left
+    out entirely is indistinguishable from a call that had no such leg. Before this table
+    the only record of the difference was a log line — which is not queryable, not
+    tenant-scoped, and gone when the container is. `admin/health.py::calls_unmetered` already
+    STOPS the board for a completed call with no usage rows; this is what tells an operator
+    WHICH leg and WHAT to do about it.
+
+    **IT IS WRITTEN BY `apps/voice-worker/voice_worker/sink.py` AND BY NOTHING ELSE TODAY.**
+    `voice_worker/meter.py`'s `LegNotMeterableError` family carries exactly these four
+    fields (`leg`, `code`, `detail`, `remediation`) because a refusal an operator cannot act
+    on is a refusal nobody acts on. The Bolna path does not write here and should not be
+    made to: the engine reports a leg COST and that path's gap is a different shape
+    (`workers/pipeline.py::_unit_price`), and folding the two would put two meanings in one
+    table.
+
+    **APPEND-ONLY** (`db/registry.APPEND_ONLY_TABLES`). A refusal is evidence about ONE
+    settlement attempt at ONE instant. A later attempt that succeeds writes `usage_events`
+    rows; it does not edit the record of the attempt that failed, because "this call was
+    unmetered for six weeks" is a fact somebody may need after the invoice is out.
+
+    **NO PII** (hard rule 6), and the schema is what guarantees it rather than the writer's
+    manners: every column is an id, a machine code, or prose THIS REPOSITORY authored in
+    `meter.py`. There is no column a transcript, a phone number or a vendor payload could be
+    put in, so
+    there is nothing here for a DPDP erasure to reach. `call_id` is `ON DELETE RESTRICT`
+    exactly as `usage_events.call_id` is: an append-only row a cascade can delete is not
+    append-only, which is the rule `scripts/check_ledger_immutability.py` enforces.
+    """
+
+    __tablename__ = "call_metering_refusals"
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False, index=True
+    )
+    call_id: Mapped[UUID] = mapped_column(
+        ForeignKey("calls.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: `voice_worker.meter.MeteredLeg` — one of §1.3's five. A plain `String` and not an
+    #: enum column: the five legs are named in the worker, which is a different deployable,
+    #: and a CHECK constraint here would be a second copy of that vocabulary that a sixth
+    #: leg would have to be added to twice. What a bad value costs is a row nobody can
+    #: group by; what a duplicated enum costs is an INSERT the database refuses mid-call.
+    leg: Mapped[str] = mapped_column(String, nullable=False)
+    #: The stable machine code (`meter_carrier_cdr_missing`, `meter_rate_refused`, ...).
+    #: What an operator filters on and what a future alert rule would key off.
+    code: Mapped[str] = mapped_column(String, nullable=False)
+    #: What happened, and what to do about it — both in the words `meter.py` authored, both
+    #: aimed at an OPERATOR rather than a client, who never sees this and could do nothing
+    #: about it. Stored rather than re-derived from `code` so the row stays readable after
+    #: the prose in `meter.py` is improved.
+    detail: Mapped[str] = mapped_column(Text, nullable=False)
+    remediation: Mapped[str] = mapped_column(Text, nullable=False)
+    #: When the SETTLEMENT was attempted, which is not when the row was inserted: a
+    #: re-settlement driven from a reconciliation carries the instant it priced against, and
+    #: `created_at` keeps the clerical fact separate from the metering one — the same split
+    #: `usage_events` makes between `occurred_at` and `created_at`.
+    occurred_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
 
 

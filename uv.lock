@@ -371,6 +371,7 @@ dependencies = [
     { name = "pipecat-ai", extra = ["sarvam", "websocket"] },
     { name = "psycopg", extra = ["binary", "pool"] },
     { name = "sqlalchemy" },
+    { name = "uuid-utils" },
 ]
 
 [package.metadata]
@@ -381,6 +382,7 @@ requires-dist = [
     { name = "pipecat-ai", extras = ["sarvam", "websocket"], specifier = "==1.10.0" },
     { name = "psycopg", extras = ["binary", "pool"], specifier = ">=3.2" },
     { name = "sqlalchemy", specifier = ">=2.0.44" },
+    { name = "uuid-utils", specifier = ">=0.10" },
 ]
 
 [[package]]
