@@ -117,6 +117,11 @@ class TenantErasureScopeOut(Strict):
     # before the vector store existed", not "none".
     caller_vectors_erased: int | None
     caller_memories_erased: int | None
+    # The documents withdrawn from the EXTERNAL search index (`docs/PIPECAT-MIGRATION.md`
+    # §8.4). Nullable and required for the two counts above's reason — absent is "a proof
+    # from before that store existed" — and a first-class count rather than only a sentence
+    # because it is the one copy of this account's data that was never in our Postgres.
+    indexed_documents_purged: int | None
 
 
 class TenantErasureLimitationOut(Strict):

@@ -68,6 +68,7 @@ ops console.
 from __future__ import annotations
 
 import time
+from collections.abc import Sequence
 from typing import Any, Final, Protocol
 from uuid import UUID
 
@@ -90,6 +91,8 @@ from apps.api.retrieval.supermemory_wire import (
     SupermemoryWireMismatchError,
     TenantScope,
     WireContract,
+    delete_payload,
+    ingest_payload,
     parse_search,
     search_payload,
 )
@@ -116,6 +119,14 @@ ASSIST_FEATURE_SUPERMEMORY_SEARCH: Final = "supermemory_search"
 SEARCH_TIMEOUT_S: Final = 8.0
 
 
+#: Wall clock for one WRITE — an ingest or a withdrawal. Longer than the search budget and
+#: for the opposite reason: nobody is waiting on it (it runs after a publish has already
+#: been decided, or on a background sweep), and the vendor's own LLM extraction happens
+#: inside this call on the way in (§10.4). What it still must not do is hold a publish
+#: transaction open indefinitely, which is what a budget rather than "no timeout" buys.
+WRITE_TIMEOUT_S: Final = 20.0
+
+
 class SupermemoryTransport(Protocol):
     """The one thing that touches the network, so tests can be network-free.
 
@@ -126,8 +137,16 @@ class SupermemoryTransport(Protocol):
     them; a mocked httpx gives them with more ceremony and less clarity.
     """
 
-    async def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        """The decoded JSON object, or raise `httpx.HTTPError` / `TimeoutError`."""
+    async def post(
+        self, path: str, payload: dict[str, Any], *, timeout_s: float = SEARCH_TIMEOUT_S
+    ) -> dict[str, Any]:
+        """The decoded JSON object, or raise `httpx.HTTPError` / `TimeoutError`.
+
+        ONE VERB FOR EVERY CALL, reads and writes alike. The vendor's delete surface is
+        assumed to be a POST for the reason `WireContract.delete_path` gives — one guessed
+        auth shape, one method to correct — so this protocol has no second method to keep
+        in step with it.
+        """
         ...
 
 
@@ -145,8 +164,10 @@ class HttpxTransport:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
 
-    async def post(self, path: str, payload: dict[str, Any]) -> dict[str, Any]:
-        async with httpx.AsyncClient(timeout=SEARCH_TIMEOUT_S) as client:
+    async def post(
+        self, path: str, payload: dict[str, Any], *, timeout_s: float = SEARCH_TIMEOUT_S
+    ) -> dict[str, Any]:
+        async with httpx.AsyncClient(timeout=timeout_s) as client:
             response = await client.post(
                 f"{self._base_url}{path}",
                 json=payload,
@@ -186,6 +207,54 @@ class SupermemoryClient:
         return await self._transport.post(
             self._contract.search_path,
             search_payload(scope, question=question, k=k, contract=self._contract),
+        )
+
+    async def ingest(
+        self,
+        scope: TenantScope,
+        *,
+        document_id: UUID,
+        content: str,
+        source_id: UUID,
+        source_label: str,
+        document_version: int,
+    ) -> dict[str, Any]:
+        """Write ONE published chunk into box 3, under this tenant's tags.
+
+        One document per call rather than a batch, and that is a decision rather than a
+        simplification: a batch endpoint is one more shape nobody here has read, and a
+        partial batch failure would leave `kb_index_documents` unable to say which half
+        landed — which is the one question the ledger exists to answer. The cost is one
+        round trip per chunk on a path where nobody is waiting, and the sweep's per-tick
+        ceiling is what bounds it.
+        """
+        return await self._transport.post(
+            self._contract.ingest_path,
+            ingest_payload(
+                scope,
+                document_id=document_id,
+                content=content,
+                source_id=source_id,
+                source_label=source_label,
+                document_version=document_version,
+                contract=self._contract,
+            ),
+            timeout_s=WRITE_TIMEOUT_S,
+        )
+
+    async def forget(
+        self, scope: TenantScope, *, document_ids: Sequence[UUID] = ()
+    ) -> dict[str, Any]:
+        """Withdraw documents from box 3: the ids named, or — with none — the whole scope.
+
+        The two callers are a withdrawal (ids, from the ledger) and a DPDP erasure (no ids,
+        the tenant tag). Both end here so there is ONE place a delete body is built, which
+        is what makes `delete_payload`'s tenant-tag assertion worth anything.
+        """
+        return await self._transport.post(
+            self._contract.delete_path,
+            delete_payload(scope, document_ids=document_ids, contract=self._contract),
+            timeout_s=WRITE_TIMEOUT_S,
         )
 
 
@@ -429,6 +498,7 @@ __all__ = [
     "ASSIST_FEATURE_SUPERMEMORY_SEARCH",
     "PROVIDER_NAME",
     "SEARCH_TIMEOUT_S",
+    "WRITE_TIMEOUT_S",
     "HttpxTransport",
     "SupermemoryClient",
     "SupermemoryRetriever",

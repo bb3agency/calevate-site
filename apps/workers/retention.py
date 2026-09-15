@@ -110,6 +110,7 @@ from apps.api.retrieval.caller_erasure import (
     erasure_sentence,
     unreachable_generations,
 )
+from apps.api.retrieval.supermemory_index import purge_tenant_index
 from apps.workers import storage
 from apps.workers.fleet_walk import WalkBudget
 
@@ -3057,6 +3058,18 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
         caller_vectors = await erase_tenant_vectors(session, tenant_id=tenant_id)
         counts["caller_vectors_erased"] = caller_vectors.vectors
         counts["caller_memories_erased"] = caller_vectors.memories
+        # THE COPY THAT IS NOT IN THIS DATABASE (`docs/PIPECAT-MIGRATION.md` §8.4). Box 3
+        # holds a document per published chunk of this account's knowledge, and §8.4 kept
+        # `kb_documents` ours precisely BECAUSE a DPDP erasure has to be a statement we can
+        # prove returned zero rows — the obligation follows the copy that decision created.
+        #
+        # **IT RAISES RATHER THAN DEGRADING, WHICH IS UNLIKE EVERY OTHER SUPERMEMORY PATH**
+        # (`retrieval/supermemory_index.purge_tenant_index` argues it): search degrades
+        # because the client's question is answerable out of Postgres, and an erasure is not
+        # answerable out of anything. A refusal rolls this transaction back whole —
+        # `deleted_at` stays NULL, no certificate is written, arq retries — which is
+        # `StorageUnavailableError`'s shape on the recordings arm, for its reason.
+        counts["indexed_documents_purged"] = await purge_tenant_index(session, tenant_id=tenant_id)
         # BEFORE the mark, in the same transaction: see `_WITHDRAW_ROUTES_SQL`. An
         # erased account must stop acquiring caller records, and this is the half of
         # that which is ours to perform.
@@ -3171,6 +3184,18 @@ async def execute_tenant_erasure(ctx: dict[str, Any], payload: dict[str, Any]) -
                     "account's kb retention policy"
                 ),
                 "memberships": "retained — client account data, and access ends with this erasure",
+                # THE SECOND COPY, STATED AS WHAT IT IS RATHER THAN AS A PROOF. The
+                # provider declares `deletion_proof=False` (§8.4: we cannot check their
+                # delete), so the sentence says the request was made and accepted — not
+                # that the removal was verified. A certificate that claimed more would be
+                # exactly the overclaim the capability flag exists to refuse.
+                "search_index": (
+                    f"{counts['indexed_documents_purged']} document(s) of this account's "
+                    "published knowledge withdrawn from the external search index, by a "
+                    "delete scoped to this account and by the identifiers recorded when "
+                    "each was written; the index publishes no way to verify a deletion, so "
+                    "this records an accepted request rather than a confirmed removal"
+                ),
             },
             "engine_deletion": "unconfirmed_pending_vendor_api",
         }

@@ -15889,6 +15889,8 @@ export interface components {
             calls_erased: number | null;
             /** Campaign Contacts Erased */
             campaign_contacts_erased: number | null;
+            /** Indexed Documents Purged */
+            indexed_documents_purged: number | null;
             /** Leads Erased */
             leads_erased: number | null;
             /** Recordings Destroyed */

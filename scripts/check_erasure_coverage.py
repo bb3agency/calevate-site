@@ -164,6 +164,11 @@ ERASURE_SOURCES: tuple[Path, ...] = (
     REPO_ROOT / "apps" / "api" / "compliance" / "tenant_erasure.py",
     REPO_ROOT / "apps" / "api" / "compliance" / "deletion.py",
     REPO_ROOT / "apps" / "api" / "retrieval" / "caller_erasure.py",
+    # The arm that reaches the copy which is NOT in this database. `purge_tenant_index`
+    # empties `kb_index_documents` — the ledger of what the external search index was sent
+    # (`docs/PIPECAT-MIGRATION.md` §8.4) — so the walk below can see that table reached from
+    # `execute_tenant_erasure` rather than taking it on trust from a docstring.
+    REPO_ROOT / "apps" / "api" / "retrieval" / "supermemory_index.py",
     REPO_ROOT / "apps" / "api" / "insights" / "service.py",
 )
 
