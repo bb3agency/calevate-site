@@ -21296,6 +21296,17 @@
             ],
             "title": "Campaign Contacts Erased"
           },
+          "indexed_documents_purged": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Indexed Documents Purged"
+          },
           "leads_erased": {
             "anyOf": [
               {
@@ -21362,7 +21373,8 @@
           "recordings_within_trai_floor",
           "webhook_bodies_erased",
           "caller_vectors_erased",
-          "caller_memories_erased"
+          "caller_memories_erased",
+          "indexed_documents_purged"
         ],
         "title": "TenantErasureScopeOut",
         "type": "object"

@@ -558,6 +558,19 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # not a page. What it is NOT is `record`: the client has been told the correction is
     # live, and on the one surface that talks to their callers it is not.
     "knowledge_pack_publish_failed": "attention",
+    # THE EXTERNAL SEARCH INDEX DISAGREES WITH THE PUBLISHED CORPUS: a publish or a
+    # withdrawal committed and box 3 would not take the change. `attention` for the pack
+    # alarm's reason exactly — bounded to one source, invisible to the client's agent (the
+    # pack answers the phone) and self-healing, because the sync is difference-driven and
+    # the sweep selects the same documents until it succeeds. It is not `record`, because a
+    # WITHDRAWAL that failed leaves content the client has retracted still searchable.
+    "supermemory_index_sync_failed": "attention",
+    # AN ERASURE CANNOT REACH A COPY. Rows say this account's knowledge was written into
+    # box 3 and this deployment holds no credential for it, so nothing can address the
+    # documents. A page rather than `attention`: the erasure is blocked (deliberately — no
+    # certificate is issued over content we cannot remove) and only an operator restoring
+    # the credential can unblock it.
+    "supermemory_index_purge_failed": "page",
     "kb_embed_unmeterable": "attention",
     "kb_embed_unusable_response": "attention",
     # THE SCHEMA CONTRADICTS THE DEPLOYMENT: the column is not as wide as the vectors this

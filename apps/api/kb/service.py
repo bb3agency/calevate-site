@@ -46,6 +46,7 @@ from apps.api.kb.pdf_render import (
     RenderedKnowledgePdf,
     render_knowledge_pdf,
 )
+from apps.api.retrieval.supermemory_index import refresh_indexed_source
 
 log = get_logger(__name__)
 
@@ -1884,6 +1885,17 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
     # It cannot fail the publish and it does not go quiet either; see
     # `kb/pack.refresh_published_pack` for the posture and what it alerts.
     pack_id = await refresh_published_pack(session, tenant_id=tenant_id, agent_id=agent_id)
+    # AND THE EXTERNAL SEARCH INDEX (box 3, `docs/PIPECAT-MIGRATION.md` §8), the THIRD
+    # derived thing this function refreshes and the last, for the two reasons the other two
+    # are late: it reads the projection `project_chunks` just wrote, and it must not run
+    # before the activation flip or it would index the version this publish replaces.
+    #
+    # A no-op on every deployment that has not adopted box 3 (`supermemory_indexer` returns
+    # None), and on the ones that have it CANNOT FAIL THE PUBLISH — the pack's posture,
+    # reused: the ledger stays where it was, `supermemory_index_sync_failed` fires, and the
+    # difference-driven sweep converges. `kb_chunks` is the authority and answers dashboard
+    # search through the Postgres fallback the whole time.
+    indexed = await refresh_indexed_source(session, tenant_id=tenant_id, source_id=source_id)
     log.info(
         "kb_published",
         extra={
@@ -1894,6 +1906,9 @@ async def publish_source(session: AsyncSession, *, tenant_id: UUID, source_id: U
             # rule 6) — and `None` when the refresh failed, which is the line that says a
             # publish is live on every surface except the phone.
             "pack_id": pack_id,
+            # Documents written into box 3, or `None` when it is unconfigured or refused —
+            # the line that says a publish is live everywhere except dashboard search.
+            "indexed": indexed.ingested if indexed else None,
         },
     )
     return int(version)
@@ -1977,6 +1992,12 @@ async def withdraw_source(session: AsyncSession, *, tenant_id: UUID, source_id: 
     # Withdrawing the last source publishes an EMPTY pack rather than clearing the pointer;
     # the helper argues why.
     pack_id = await refresh_published_pack(session, tenant_id=tenant_id, agent_id=agent_id)
+    # AND THE EXTERNAL SEARCH INDEX, in the other direction and for the pack's reason: the
+    # chunks went inactive above, so every document this source put in box 3 is an ORPHAN by
+    # `retrieval/supermemory_index._ORPHAN_SQL`'s definition and this call is what takes it
+    # out. Without it a withdrawn price list would survive in the one store the client's own
+    # dashboard search reads — off every screen, out of the prompt, and still answering.
+    unindexed = await refresh_indexed_source(session, tenant_id=tenant_id, source_id=source_id)
     log.info(
         "kb_withdrawn",
         extra={
@@ -1984,6 +2005,7 @@ async def withdraw_source(session: AsyncSession, *, tenant_id: UUID, source_id: 
             "detached": withdrawn,
             "prompt_version": prompt_version,
             "pack_id": pack_id,
+            "unindexed": unindexed.withdrawn if unindexed else None,
         },
     )
     return withdrawn

@@ -131,6 +131,7 @@ from apps.workers.kb_aggregation import (
 )
 from apps.workers.kb_embeddings import EMBED_MINUTES, embed_knowledge_chunks
 from apps.workers.kb_gloss import GLOSS_MINUTES, write_knowledge_glosses
+from apps.workers.kb_index_sync import INDEX_SYNC_MINUTES, sync_knowledge_index
 from apps.workers.kb_ingest import SWEEP_MINUTES as KB_UPLOAD_SWEEP_MINUTES
 from apps.workers.kb_ingest import ingest_kb_source, sweep_kb_uploads
 from apps.workers.kb_orphans import ORPHAN_SWEEP_HOUR, ORPHAN_SWEEP_MINUTE, sweep_kb_orphans
@@ -882,6 +883,31 @@ CRON_JOBS = [
             "one tenant_session per tenant with a gloss worklist row, plus a model call"
         ),
         minute=set(GLOSS_MINUTES),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE EXTERNAL SEARCH INDEX SWEEP (box 3, `docs/PIPECAT-MIGRATION.md` §8). The backstop
+    # for a publish path that deliberately CANNOT fail a publish: when box 3 refuses, the
+    # client's knowledge is live everywhere and their dashboard search is one store behind —
+    # or, on a withdrawal, one store ahead. Unregistered, that divergence is permanent for
+    # the two causes that raise no event at all: a gloss landing after the publish (which
+    # changes the text we sent) and retention DELETEing a source (whose vendor copy is not a
+    # row in this database and does not cascade).
+    #
+    # A NO-OP until an operator configures box 3 AND attests an embedding price — the tick
+    # asks `supermemory_indexer` once and returns, so registering it costs an idle
+    # deployment one tenant listing twice an hour.
+    #
+    # `minute` comes FROM the module for its neighbour's reason, and sits AFTER the gloss
+    # sweep so a chunk glossed on this hour's tick is re-sent once with its English rather
+    # than once without and once with. `max_tries` EXPLICIT: `cron()` defaults it to 1 and
+    # `WorkerSettings.max_tries` does not reach a function registered here.
+    _cron(
+        traced_job(sync_knowledge_index),
+        walk=fleet_wide(
+            "one tenant_session per tenant holding knowledge, plus one vendor round trip "
+            "per document whose digest actually moved"
+        ),
+        minute=set(INDEX_SYNC_MINUTES),
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE UPLOAD SWEEP (D-534), and it is two jobs that are one job seen twice: re-drive an

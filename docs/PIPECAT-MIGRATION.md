@@ -250,7 +250,7 @@ three seconds per turn.
 | 12 | Give `kb/pack.py::publish_pack` a caller on the publish path, and an object-lifecycle rule for `knowledge-packs/` | step 11 |
 | 13 | Golden caller-language → English-hit set in CI | **FIRST ARM LANDED 14 Sep 2026**: `tests/in_call_retrieval_recall_test.py` scores the real pack and the real search, no wiring needed. What remains is a second language's corpus. §9.4 |
 | 14 | Supermemory on box 2 behind `RetrievalProvider`; embedding pointed at Gemini and PROVEN non-local | **THE ADAPTER LANDED 14 Sep 2026; THE INSTALL DID NOT, AND THE TWO HALVES ARE NOT THE SAME CLAIM.** `apps/api/retrieval/supermemory.py` is a third value of `Settings.retrieval_provider` that swaps the T3 member of `KnowledgeRetriever`, with `PgVectorRetriever` underneath it as a per-request fallback — so an unreachable box 3 degrades dashboard search and nothing else (§8.5), and step 15 is untouched. ⚠ **IT IS NOT A VERIFIED INTEGRATION**: nothing here has read a page of Supermemory's API docs (`supermemory.ai` egress-blocked), so every path and key is an ASSUMPTION collected in `retrieval/supermemory_wire.ASSUMED_CONTRACT` and a shape we guessed wrong falls back rather than erroring. Tenancy is OURS per §8.4 — `per_tenant_namespace` is declared **False**, the scope is a required first parameter of every wire method, and records returned without the tenant tag are dropped and counted. What still gates this row is entirely outside the repo: the install itself, §8.3's `top` check, and an operator attesting the embedding price — until that figure is entered, `search_is_billable()` is False and the provider is not selectable at all (hard rule 7's pre-flight) |
-| 15 | `kb_chunks` and our lexical search retire; `kb_documents` ledger stays | step 14 |
+| 15 | `kb_chunks` and our lexical search retire; `kb_documents` ledger stays | **THE WRITE HALF LANDED 15 Sep 2026; THE RETIREMENT DID NOT, AND THAT IS THE ORDER THIS ROW HAS TO BE READ IN.** `apps/api/retrieval/supermemory_index.py` gives box 3 an ingestion path (`kb/service.publish_source`), a withdrawal path (`withdraw_source`), a DPDP tenant purge (`workers/retention.execute_tenant_erasure`) and a difference-driven reconciliation sweep (`workers/kb_index_sync.py`, `:19`/`:49`), on a ledger of what the vendor last accepted (`kb_index_documents`, migration `b5e83f21c4d7`). **`kb_chunks` stays and must** until the install is real and §8.3's `top` check has been run: it is the authority the index is derived FROM, the fallback an unreachable box 3 degrades to, and the corpus the sweep measures the difference against — retiring it would leave nothing able to answer the question "what should box 3 hold?". The publish path cannot be failed by the vendor (`kb/pack.refresh_published_pack`'s posture) and the erasure deliberately CAN (§8.4 — a certificate over content we did not remove is the one thing it may not be). Hard rule 7 gates the whole write side on the same pre-flight as the read side: no attested embedding price, no writes at all. ⚠ Every path and key is still an ASSUMPTION in `retrieval/supermemory_wire.ASSUMED_CONTRACT` — the write half added five (`ingest_path`, `delete_path`, `content_key`, `document_id_key`, `delete_ids_key`) and nobody here has read a page of their documentation | step 14 |
 | 16 | Apply the new rate card (§12) — catalogue plus the wide fixture update | **DONE, 14 Sep 2026.** `PACK_CATALOGUE` carries Clear ₹4.00 flat and Studio 7.00 → 5.50; sixteen test files and three web surfaces moved with it |
 
 **Nothing before step 6 needs an account.** Pipecat is a library; the worker runs locally.
@@ -447,6 +447,16 @@ was erased. Four reasons, none of them pride:
    the server enforces — so the wall stays on our side.
 2. **DPDP erasure.** "Delete everything for this tenant" must be one statement we can prove
    returned zero rows. Against a vendor we would be trusting their delete with no way to check.
+   **WHAT THAT MEANS NOW THAT DOCUMENTS ACTUALLY REACH BOX 3 (15 Sep 2026, step 15's write
+   half):** the copy exists, so the obligation follows it. `kb_index_documents` records what
+   was sent, `retrieval/supermemory_index.purge_tenant_index` sends a scope-wide delete and
+   empties those rows inside `execute_tenant_erasure`, and `scripts/check_erasure_coverage.py`
+   walks that module so the table is reached from an erasure entrypoint rather than believed
+   to be. Two things are deliberately NOT claimed: the vendor publishes no way to verify a
+   deletion, so `deletion_proof` stays **False** and the certificate says "an accepted request
+   rather than a confirmed removal" in those words; and if the credential is gone while rows
+   remain, the erasure **raises** and issues no certificate at all rather than certifying a
+   copy nothing can address.
 3. **Provenance.** The pack carries `document_id` + `document_version`, so an answer on a call
    traces to "brochure v3, chunk 12" — which is what a client sees when they ask why the agent
    said something. The id has to be minted by us.

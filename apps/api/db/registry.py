@@ -236,6 +236,13 @@ TENANT_TABLES = [
     # no natural key to get wrong: without the policy, forgetting the tenant predicate
     # returns a NEIGHBOUR'S nearest chunk and looks like a working search.
     "kb_chunks",
+    # WHAT THE EXTERNAL SEARCH INDEX HOLDS (migration `b5e83f21c4d7`, `docs/PIPECAT-
+    # MIGRATION.md` §8): one row per chunk box 3 accepted, with the digest of what was sent.
+    # It holds no content — but RLS is load-bearing here for a reason the projection above
+    # does not have: this table is what decides which documents a DELETE sent to the vendor
+    # is allowed to name, and the vendor's own build is single-tenant with one API key
+    # (§8.4), so a cross-tenant read here would become a cross-tenant erasure there.
+    "kb_index_documents",
     # THE CALLER-DATA PROJECTION AND ITS SOURCE (D-503, migration c6b1f0d47e83).
     # `kb_chunks` one line up is the same shape over a client's own uploaded knowledge;
     # these two hold the same shape over a DATA PRINCIPAL's. Both get the FORCEd

@@ -628,6 +628,11 @@ _SCOPE_COUNTS: Final = (
     # reason: it is the copy a reader cannot check by eye.
     "caller_vectors_erased",
     "caller_memories_erased",
+    # The documents withdrawn from the external search index (box 3,
+    # `docs/PIPECAT-MIGRATION.md` §8.4). On the certificate for the two counts above's
+    # reason and one more: it is the only copy of this account's data that is NOT in our
+    # Postgres, so it is the one a reader most needs told about explicitly.
+    "indexed_documents_purged",
 )
 
 

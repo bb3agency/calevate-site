@@ -140,7 +140,7 @@ JOIN kb_documents d ON d.id = c.document_id
 JOIN kb_sources s ON s.id = c.source_id
 LEFT JOIN kb_index_documents x ON x.document_id = c.document_id AND x.tenant_id = :tid
 WHERE c.tenant_id = :tid AND c.is_active
-  AND (:sid::uuid IS NULL OR c.source_id = :sid::uuid)
+  AND (CAST(:sid AS uuid) IS NULL OR c.source_id = CAST(:sid AS uuid))
   AND (x.document_id IS NULL OR x.content_sha256 <> {_CONTENT_SHA_SQL})
 ORDER BY c.document_id
 LIMIT :limit
@@ -153,7 +153,8 @@ LIMIT :limit
 _ORPHAN_SQL: Final = """
 SELECT x.document_id FROM kb_index_documents x
 LEFT JOIN kb_chunks c ON c.document_id = x.document_id AND c.is_active
-WHERE x.tenant_id = :tid AND (:sid::uuid IS NULL OR x.source_id = :sid::uuid)
+WHERE x.tenant_id = :tid
+  AND (CAST(:sid AS uuid) IS NULL OR x.source_id = CAST(:sid AS uuid))
   AND c.document_id IS NULL
 ORDER BY x.document_id
 LIMIT :limit
@@ -242,9 +243,7 @@ class SupermemoryIndexer:
         withdrawn = await self._withdraw_orphans(
             tenant_id=tenant_id, source_id=source_id, limit=limit
         )
-        ingested = await self._ingest_stale(
-            tenant_id=tenant_id, source_id=source_id, limit=limit
-        )
+        ingested = await self._ingest_stale(tenant_id=tenant_id, source_id=source_id, limit=limit)
         counts = IndexSyncCounts(ingested=ingested, withdrawn=withdrawn)
         if counts.total:
             # Ids and counts (hard rule 6). Never a chunk, never a source name.
@@ -259,9 +258,7 @@ class SupermemoryIndexer:
             )
         return counts
 
-    async def _ingest_stale(
-        self, *, tenant_id: UUID, source_id: UUID | None, limit: int
-    ) -> int:
+    async def _ingest_stale(self, *, tenant_id: UUID, source_id: UUID | None, limit: int) -> int:
         rows = (
             await self._session.execute(
                 text(_STALE_SQL),
@@ -482,9 +479,7 @@ async def purge_tenant_index(session: AsyncSession, *, tenant_id: UUID) -> int:
     indexer = supermemory_indexer(session)
     if indexer is not None:
         return await indexer.purge(tenant_id=tenant_id)
-    stranded = int(
-        (await session.execute(text(_STRANDED_SQL), {"tid": tenant_id})).scalar_one()
-    )
+    stranded = int((await session.execute(text(_STRANDED_SQL), {"tid": tenant_id})).scalar_one())
     if not stranded:
         return 0
     alert(

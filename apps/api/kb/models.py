@@ -213,9 +213,7 @@ class KbIndexDocument(PKMixin, TimestampMixin, Base):
     """
 
     __tablename__ = "kb_index_documents"
-    __table_args__ = (
-        UniqueConstraint("document_id", name="uq_kb_index_documents_document_id"),
-    )
+    __table_args__ = (UniqueConstraint("document_id", name="uq_kb_index_documents_document_id"),)
 
     tenant_id: Mapped[UUID] = mapped_column(
         ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
