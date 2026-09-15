@@ -20,6 +20,7 @@ import { holdRule } from "@/lib/api/holds";
 import { AgentsPanel } from "./AgentsPanel";
 import { CampaignSetup } from "./CampaignSetup";
 import { HoldsBanner } from "./HoldsBanner";
+import { KnowledgeDeliveryPanel } from "./KnowledgeDeliveryPanel";
 import { KnowledgeQueue, unpublishedSources } from "./KnowledgeQueue";
 import { MarginPanel } from "./MarginPanel";
 import { SpendCapPanel } from "./SpendCapPanel";
@@ -216,6 +217,13 @@ export function TenantDetail({ tenantId }: { tenantId: string }) {
       </div>
 
       <KnowledgeQueue tenantId={tenantId} slug={slug} />
+
+      {/* Directly under the queue, because it is the other end of the same job: the queue
+          ends at Publish, and a publish whose pack failed to store leaves every screen
+          showing the new words while the phone quotes the old ones
+          (`kb/pack.refresh_published_pack` survives that failure by design). An operator
+          who has just worked this queue is the one person positioned to notice. */}
+      <KnowledgeDeliveryPanel slug={slug} />
 
       <AgentsPanel tenantId={tenantId} slug={slug} />
 
