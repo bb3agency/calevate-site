@@ -1,0 +1,218 @@
+[
+  {
+    "fact_id": "edu_batch_timings",
+    "vertical": "education",
+    "passage_hi": "सुबह वाली बैच 7 बजे से 9 बजे तक और शाम वाली बैच 5 बजे से 7 बजे तक चलती है। रविवार को सिर्फ़ एक बैच होती है, सुबह 9 बजे से दोपहर 12 बजे तक।",
+    "passage_en": "The morning batch runs from 7 am to 9 am and the evening batch from 5 pm to 7 pm. On Sunday there is only one batch, from 9 am to 12 noon.",
+    "query_hi": "शाम वाली बैच कितने बजे शुरू होती है?",
+    "query_hinglish": "Shaam wali batch kitne baje shuru hoti hai?",
+    "query_en": "What time does the evening batch start?"
+  },
+  {
+    "fact_id": "edu_fees",
+    "vertical": "education",
+    "passage_hi": "कक्षा 12 विज्ञान कोर्स की पूरे साल की फीस 28000 रुपये है, जिसमें पढ़ाई का सामान और सभी टेस्ट शामिल हैं।",
+    "passage_en": "The full year fee for the class 12 science course is 28000 rupees, and that includes the study material and all the tests.",
+    "query_hi": "कक्षा 12 विज्ञान कोर्स की फीस कितनी है?",
+    "query_hinglish": "Class 12 science course ki fees kitni hai?",
+    "query_en": "How much is the fee for the class 12 science course?"
+  },
+  {
+    "fact_id": "edu_installments",
+    "vertical": "education",
+    "passage_hi": "फीस तीन किश्तों में दी जा सकती है — आधी दाखिले के समय, एक चौथाई सितंबर में और बाकी दिसंबर में।",
+    "passage_en": "The fee can be paid in three instalments, half at admission, a quarter in September and the rest in December.",
+    "query_hi": "क्या फीस किश्तों में दी जा सकती है?",
+    "query_hinglish": "Fees installment mein de sakte hain kya?",
+    "query_en": "Can the fee be paid in instalments?"
+  },
+  {
+    "fact_id": "edu_demo_class",
+    "vertical": "education",
+    "passage_hi": "नया विद्यार्थी दाखिला लेने से पहले दो मुफ़्त डेमो क्लास ले सकता है। सीट के लिए एक दिन पहले दफ़्तर में फ़ोन करना पड़ता है।",
+    "passage_en": "A new student can attend two free demo classes before taking admission. Call the office a day earlier to reserve a seat.",
+    "query_hi": "दाखिला लेने से पहले मुफ़्त डेमो क्लास मिल सकती है?",
+    "query_hinglish": "Join karne se pehle free demo class mil sakti hai?",
+    "query_en": "Can I attend a free demo class before joining?"
+  },
+  {
+    "fact_id": "edu_batch_size",
+    "vertical": "education",
+    "passage_hi": "हर बैच में ज़्यादा से ज़्यादा 30 विद्यार्थी रखे जाते हैं ताकि हर बच्चे पर शिक्षक का ध्यान रहे।",
+    "passage_en": "Each batch is limited to 30 students so that every student gets attention from the teacher.",
+    "query_hi": "एक बैच में कितने विद्यार्थी होते हैं?",
+    "query_hinglish": "Ek batch mein kitne students hote hain?",
+    "query_en": "How many students are there in one batch?"
+  },
+  {
+    "fact_id": "edu_admission_documents",
+    "vertical": "education",
+    "passage_hi": "दाखिले के लिए पिछले साल की मार्कशीट, दो पासपोर्ट साइज़ फ़ोटो और आधार कार्ड की कॉपी लानी होती है।",
+    "passage_en": "For admission bring last year's marksheet, two passport size photographs and a copy of the Aadhaar card.",
+    "query_hi": "दाखिले के लिए कौन से दस्तावेज़ चाहिए?",
+    "query_hinglish": "Admission ke liye kaunse documents chahiye?",
+    "query_en": "Which documents are needed for admission?"
+  },
+  {
+    "fact_id": "edu_scholarship",
+    "vertical": "education",
+    "passage_hi": "पिछली कक्षा में 90 प्रतिशत से ज़्यादा अंक लाने वाले विद्यार्थियों को कोर्स फीस पर 25 प्रतिशत की छात्रवृत्ति दी जाती है।",
+    "passage_en": "Students who scored above 90 percent in the previous class get a 25 percent scholarship on the course fee.",
+    "query_hi": "अच्छे अंकों पर छात्रवृत्ति मिलती है क्या?",
+    "query_hinglish": "Achhe marks par scholarship milti hai kya?",
+    "query_en": "Is there a scholarship for good marks?"
+  },
+  {
+    "fact_id": "edu_test_series",
+    "vertical": "education",
+    "passage_hi": "हर रविवार को साप्ताहिक परीक्षा होती है और उसका नतीजा दो दिन के अंदर माता-पिता को व्हाट्सएप पर भेज दिया जाता है।",
+    "passage_en": "A weekly test is held every Sunday and the result is sent to the parents on WhatsApp within two days.",
+    "query_hi": "साप्ताहिक परीक्षा किस दिन होती है?",
+    "query_hinglish": "Weekly test kis din hota hai?",
+    "query_en": "On which day is the weekly test held?"
+  },
+  {
+    "fact_id": "edu_online_class",
+    "vertical": "education",
+    "passage_hi": "जिन विद्यार्थियों की क्लास छूट जाती है उनके लिए रिकॉर्ड किए हुए लेक्चर ऑनलाइन मिल जाते हैं, पर लाइव क्लास सिर्फ़ सेंटर पर ही होती है।",
+    "passage_en": "Recorded lectures are available online for students who miss a class, but live classes are held only at the centre.",
+    "query_hi": "क्लास छूट जाए तो ऑनलाइन लेक्चर मिलता है क्या?",
+    "query_hinglish": "Class miss ho jaye to online lecture milta hai kya?",
+    "query_en": "Is a recorded lecture available online if a class is missed?"
+  },
+  {
+    "fact_id": "edu_office_closed",
+    "vertical": "education",
+    "passage_hi": "दफ़्तर सुबह 9 बजे से रात 8 बजे तक खुला रहता है और हर महीने के दूसरे और चौथे मंगलवार को बंद रहता है।",
+    "passage_en": "The office stays open from 9 am to 8 pm and remains closed on the second and fourth Tuesday of every month.",
+    "query_hi": "दफ़्तर किस दिन बंद रहता है?",
+    "query_hinglish": "Office kis din band rehta hai?",
+    "query_en": "On which day is the institute office closed?"
+  },
+  {
+    "fact_id": "edu_transport",
+    "vertical": "education",
+    "passage_hi": "संस्थान की अपनी कोई बस नहीं है। सेंटर बस स्टैंड से पाँच मिनट पैदल की दूरी पर है और बाहर ऑटो रिक्शा मिल जाते हैं।",
+    "passage_en": "The institute has no bus of its own. The centre is a five minute walk from the bus stand and auto rickshaws are available outside.",
+    "query_hi": "क्या विद्यार्थियों के लिए बस की सुविधा है?",
+    "query_hinglish": "Students ke liye bus ki suvidha hai kya?",
+    "query_en": "Is there a bus for students?"
+  },
+  {
+    "fact_id": "edu_refund",
+    "vertical": "education",
+    "passage_hi": "अगर कोई विद्यार्थी दाखिले के पंद्रह दिन के अंदर कोर्स छोड़ देता है तो जमा की हुई फीस की आधी रकम लौटा दी जाती है। उसके बाद कुछ भी वापस नहीं होता।",
+    "passage_en": "If a student leaves the course within fifteen days of admission, half of the fee paid is refunded. After that nothing is returned.",
+    "query_hi": "कोर्स बीच में छोड़ने पर फीस वापस मिलती है?",
+    "query_hinglish": "Course beech mein chhodne par fees wapas milti hai?",
+    "query_en": "Is the fee refunded if a student leaves the course early?"
+  },
+  {
+    "fact_id": "ins_office_hours",
+    "vertical": "insurance",
+    "passage_hi": "बीमा दफ़्तर सोमवार से शनिवार तक सुबह 10 बजे से शाम 6 बजे तक खुला रहता है और रविवार को बंद रहता है।",
+    "passage_en": "The insurance office is open Monday to Saturday from 10 am to 6 pm and stays closed on Sunday.",
+    "query_hi": "शनिवार को बीमा दफ़्तर कितने बजे तक खुला रहता है?",
+    "query_hinglish": "Saturday ko insurance office kitne baje tak khula rehta hai?",
+    "query_en": "How late is the insurance office open on Saturday?"
+  },
+  {
+    "fact_id": "ins_two_wheeler_premium",
+    "vertical": "insurance",
+    "passage_hi": "125 सीसी मोटरसाइकिल के लिए सिर्फ़ थर्ड पार्टी पॉलिसी का प्रीमियम साल का करीब 1400 रुपये पड़ता है, और पूरी गाड़ी के नुकसान वाली पॉलिसी करीब 3200 रुपये की।",
+    "passage_en": "A third party only policy for a 125 cc motorcycle costs about 1400 rupees a year, and a full own damage cover costs about 3200 rupees.",
+    "query_hi": "मोटरसाइकिल की पॉलिसी का प्रीमियम कितना है?",
+    "query_hinglish": "Motorcycle ki policy ka premium kitna hai?",
+    "query_en": "What is the premium for a motorcycle policy?"
+  },
+  {
+    "fact_id": "ins_claim_process",
+    "vertical": "insurance",
+    "passage_hi": "गाड़ी का क्लेम दर्ज कराने के लिए दुर्घटना के 48 घंटे के अंदर टोल फ़्री नंबर पर फ़ोन करना होता है और गाड़ी की फ़ोटो व्हाट्सएप पर भेजनी होती है।",
+    "passage_en": "To register a motor claim, call the toll free number within 48 hours of the accident and send photographs of the vehicle on WhatsApp.",
+    "query_hi": "दुर्घटना के बाद क्लेम कैसे दर्ज करें?",
+    "query_hinglish": "Accident ke baad claim kaise register karna hai?",
+    "query_en": "How do I register a claim after an accident?"
+  },
+  {
+    "fact_id": "ins_cashless_garage",
+    "vertical": "insurance",
+    "passage_hi": "शहर के 42 पार्टनर गैरेज में कैशलेस मरम्मत हो जाती है। किसी और गैरेज में पहले खुद पैसे देने पड़ते हैं और बाद में रकम वापस मिलती है।",
+    "passage_en": "Cashless repair is available at 42 partner garages in the city. At any other garage you pay first and the amount is reimbursed later.",
+    "query_hi": "कैशलेस मरम्मत किस गैरेज में मिलती है?",
+    "query_hinglish": "Cashless repair kaunse garage mein milti hai?",
+    "query_en": "At which garage is cashless repair available?"
+  },
+  {
+    "fact_id": "ins_renewal_grace",
+    "vertical": "insurance",
+    "passage_hi": "गाड़ी की पॉलिसी खत्म होने के 90 दिन बाद तक नवीनीकरण हो सकता है, पर उससे ज़्यादा देर हो जाए तो नो क्लेम बोनस चला जाता है।",
+    "passage_en": "A motor policy can be renewed up to 90 days after it expires, but if it lapses for longer than that the no claim bonus is lost.",
+    "query_hi": "पॉलिसी खत्म होने के कितने दिन बाद तक नवीनीकरण हो सकता है?",
+    "query_hinglish": "Policy expire hone ke kitne din baad tak renew ho sakti hai?",
+    "query_en": "How many days after expiry can the policy be renewed?"
+  },
+  {
+    "fact_id": "ins_no_claim_bonus",
+    "vertical": "insurance",
+    "passage_hi": "अगर साल भर कोई क्लेम नहीं किया जाता तो अगले साल का प्रीमियम 20 प्रतिशत कम हो जाता है, और हर बिना क्लेम वाले साल के साथ यह छूट बढ़ते बढ़ते 50 प्रतिशत तक चली जाती है।",
+    "passage_en": "If no claim is made for a year the renewal premium goes down by 20 percent, and the discount rises with every claim free year up to 50 percent.",
+    "query_hi": "क्लेम न करने पर कितनी छूट मिलती है?",
+    "query_hinglish": "Claim na karne par kitna discount milta hai?",
+    "query_en": "How much discount do I get for not making a claim?"
+  },
+  {
+    "fact_id": "ins_documents",
+    "vertical": "insurance",
+    "passage_hi": "नई गाड़ी की पॉलिसी लेने के लिए गाड़ी का रजिस्ट्रेशन सर्टिफिकेट, ड्राइविंग लाइसेंस और पिछली पॉलिसी की कॉपी चाहिए होती है।",
+    "passage_en": "To buy a new vehicle policy bring the registration certificate of the vehicle, a driving licence and a copy of the previous policy.",
+    "query_hi": "नई गाड़ी की पॉलिसी के लिए कौन से काग़ज़ चाहिए?",
+    "query_hinglish": "Nayi gaadi ki policy ke liye kaunse kagaz chahiye?",
+    "query_en": "What papers are needed to buy a new vehicle policy?"
+  },
+  {
+    "fact_id": "ins_payment_modes",
+    "vertical": "insurance",
+    "passage_hi": "प्रीमियम यूपीआई, नेट बैंकिंग या कार्ड से भरा जा सकता है। नकद सिर्फ़ 20000 रुपये तक ही लिया जाता है।",
+    "passage_en": "Premium can be paid by UPI, net banking or card. Cash is accepted only up to 20000 rupees.",
+    "query_hi": "प्रीमियम यूपीआई से भरा जा सकता है क्या?",
+    "query_hinglish": "Premium UPI se bhar sakte hain kya?",
+    "query_en": "Can the premium be paid by UPI?"
+  },
+  {
+    "fact_id": "ins_term_cover",
+    "vertical": "insurance",
+    "passage_hi": "तीस साल के व्यक्ति के लिए पचास लाख रुपये के टर्म जीवन बीमा का प्रीमियम साल का करीब 7000 रुपये पड़ता है।",
+    "passage_en": "A term life cover of 50 lakh rupees for a thirty year old costs around 7000 rupees a year.",
+    "query_hi": "पचास लाख का टर्म जीवन बीमा कितने का पड़ता है?",
+    "query_hinglish": "50 lakh ka term life cover kitne ka padta hai?",
+    "query_en": "What does a 50 lakh term life cover cost?"
+  },
+  {
+    "fact_id": "ins_home_visit",
+    "vertical": "insurance",
+    "passage_hi": "अगर प्रीमियम 10000 रुपये से ज़्यादा है तो एजेंट घर आकर काग़ज़ और दस्तख़त ले जा सकता है।",
+    "passage_en": "An agent can come to your home to collect the papers and signatures if the premium is above 10000 rupees.",
+    "query_hi": "क्या कोई घर आकर काग़ज़ ले जा सकता है?",
+    "query_hinglish": "Koi ghar aakar kagaz le ja sakta hai kya?",
+    "query_en": "Can an agent come home to collect the papers?"
+  },
+  {
+    "fact_id": "ins_policy_copy",
+    "vertical": "insurance",
+    "passage_hi": "पॉलिसी की सॉफ्ट कॉपी उसी दिन ईमेल कर दी जाती है। छपी हुई कॉपी दो कामकाजी दिन बाद दफ़्तर से ली जा सकती है।",
+    "passage_en": "A soft copy of the policy is emailed the same day. A printed copy can be collected from the office after two working days.",
+    "query_hi": "पॉलिसी की प्रति कब तक मिल जाएगी?",
+    "query_hinglish": "Policy ki copy kab tak mil jayegi?",
+    "query_en": "When will I get a copy of the policy?"
+  },
+  {
+    "fact_id": "ins_cancellation",
+    "vertical": "insurance",
+    "passage_hi": "नई पॉलिसी पंद्रह दिन की फ्री लुक अवधि में रद्द की जा सकती है और स्टांप खर्च काटकर प्रीमियम लौटा दिया जाता है।",
+    "passage_en": "A new policy can be cancelled within the fifteen day free look period and the premium is returned after deducting stamp charges.",
+    "query_hi": "नई पॉलिसी रद्द करके पैसे वापस मिल सकते हैं?",
+    "query_hinglish": "Nayi policy cancel karke paise wapas mil sakte hain?",
+    "query_en": "Can a new policy be cancelled and the money returned?"
+  }
+]
