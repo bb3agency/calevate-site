@@ -122,6 +122,7 @@ dependencies = [
     # already installs, at the SAME floor — two ranges for one vendor would mean whichever
     # member resolved first decided for both.
     "uuid-utils>=0.10",
+    "pipecat-gnani==0.5.12",
 ]
 
 # Virtual member, exactly like `apps/voice-runtime`: the directory is hyphenated (D-18)

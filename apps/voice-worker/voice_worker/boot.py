@@ -83,6 +83,12 @@ AWS_SECRET_ENV: Final[str] = "AWS_SECRET_ACCESS_KEY"
 #: this key is required on every call; `CARTESIA_API_KEY` is the Studio tier's and is not.
 SARVAM_KEY_ENV: Final[str] = "SARVAM_API_KEY"
 CARTESIA_KEY_ENV: Final[str] = "CARTESIA_API_KEY"
+#: The Gnani TTS leg (D-618). OPTIONAL for the same reason `CARTESIA_API_KEY` is: it is
+#: needed only by an agent whose `ModelConfig.tts_provider` names it, and a container with
+#: no Gnani key refuses THAT call by name rather than refusing to start. It is read HERE
+#: and nowhere else — `apps/api` holds no Gnani client, which is why `gnani_api_key` is
+#: env-only in the ops console and points an operator at this secret set.
+GNANI_KEY_ENV: Final[str] = "GNANI_API_KEY"
 
 #: The three declared LLM legs (CLAUDE.md, the multi-provider paragraph). Which one a call
 #: needs is decided PER AGENT by `ModelConfig.llm_provider`, so the boot gate demands at
@@ -187,6 +193,9 @@ class WorkerConfig:
     #: for. At least one, by construction; `credentials_for` refuses the rest by name.
     llm_api_keys: Mapping[str, str]
     cartesia_api_key: str | None
+    #: The Clear tier's future TTS leg (D-618). `None` until the founder puts a key in this
+    #: container's secret set; `pipeline._build_tts` refuses a Gnani call by name.
+    gnani_api_key: str | None
     drain_grace_s: float
     ready_file: str | None
 
@@ -221,6 +230,7 @@ class WorkerConfig:
             sarvam_api_key=self.sarvam_api_key,
             llm_api_key=key,
             cartesia_api_key=self.cartesia_api_key,
+            gnani_api_key=self.gnani_api_key,
         )
 
 
@@ -303,6 +313,7 @@ def load_worker_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
         sarvam_api_key=required[SARVAM_KEY_ENV] or "",
         llm_api_keys=llm_keys,
         cartesia_api_key=_present(source, CARTESIA_KEY_ENV),
+        gnani_api_key=_present(source, GNANI_KEY_ENV),
         drain_grace_s=grace,
         ready_file=_present(source, READY_FILE_ENV),
     )
@@ -404,6 +415,7 @@ async def open_runtime(
         # fact an operator needs the moment a call refuses on a provider.
         llm_providers=sorted(config.llm_api_keys),
         cartesia=config.cartesia_api_key is not None,
+        gnani=config.gnani_api_key is not None,
         drain_grace_s=config.drain_grace_s,
         dense_arm=embedder is not None,
     )
@@ -417,6 +429,7 @@ __all__ = [
     "DATABASE_URL_ENV",
     "DEFAULT_DRAIN_GRACE_S",
     "DRAIN_GRACE_ENV",
+    "GNANI_KEY_ENV",
     "LLM_KEY_ENV_BY_PROVIDER",
     "MAX_CONCURRENT_SESSIONS",
     "PLIVO_AUTH_ID_ENV",

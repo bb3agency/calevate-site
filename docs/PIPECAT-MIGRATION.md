@@ -247,18 +247,66 @@ configurable.
 **Set `function_call_timeout_secs`.** It defaults to `None` — no tool timeout at all — against
 an in-call tool endpoint with a 100 ms budget.
 
-## 5. `GnaniTTSService` — staged, not built
+## 5. `GnaniTTSService` — BUILT, 15 Sep 2026 (D-618)
 
-Gated on §7a Q1 of `pre-build-blockers`: whether Gnani's 60 req/min TTS cap counts a WebSocket
-session or each utterance. Ten lines at 40–50 synthesis requests a minute cannot survive the
-second reading, and building before the answer is building for nothing.
+⚠ **THIS SECTION SAID "staged, not built", GATED ON "whether Gnani's 60 req/min TTS cap
+counts a WebSocket session or each utterance", AND TOLD THE NEXT READER TO HAND-WRITE AN
+`InterruptibleTTSService` SUBCLASS FROM THE NEUPHONIC TEMPLATE. Every one of those is
+superseded, and two of them were wrong rather than merely out of date.**
 
-When it is built: subclass `InterruptibleTTSService` — websocket TTS, no word timestamps,
-barge-in by reconnect, which is exactly Gnani's shape. `NeuphonicTTSService` is the closest
-template and the API reference documents it step by step. **One thing to do better than the
-template:** Neuphonic relies on a 3-second idle timeout to close each context; if Gnani sends
-an end-of-synthesis message, call `remove_audio_context()` from the receive loop and save
-three seconds per turn.
+**THE RATE LIMIT IS UNKNOWN, NOT 60-WITH-AN-AMBIGUOUS-UNIT.** The founder's reading of
+`docs.gnani.ai` on 15 Sep 2026 found NO published rate limit at all — the number this
+section gated on is not on the current pages. So the gate could never have been answered as
+written: it asked which of two readings a figure takes, and the figure has no source. It is
+re-stated honestly — **there is no published Gnani rate limit, and that is not the same as
+there being no limit**. It is a question for the founder to put to Gnani with the other two
+(OPERATIONS §2 gate 56), not a research task for this container: `docs.gnani.ai`,
+`gnani.ai` and `api.vachana.ai` are all EGRESS-BLOCKED here (HTTP 000, measured 15 Sep 2026).
+
+**GNANI SHIP AN OFFICIAL PIPECAT PLUGIN, SO THE CLASS WAS NOT OURS TO WRITE.**
+`pipecat-gnani` 0.5.12 (PyPI JSON read here 15 Sep 2026; wheel sha256 `8615710a…`, pinned
+in `uv.lock`) carries `GnaniTTSService`, already an `InterruptibleTTSService`, already
+speaking the documented WebSocket protocol — and Pipecat's own agent-authoring guide
+forbids rebuilding what a plugin ships (golden rule 1, `AGENTS.md:12`). What landed is
+`apps/voice-worker/voice_worker/gnani_tts.py`: a SUBCLASS and a factory, wired into
+`pipeline._build_tts` behind `ModelConfig.tts_provider`, keyed by `GNANI_API_KEY` in the
+worker's own Pipecat Cloud secret set.
+
+**THE PLUGIN IS COMMUNITY-MAINTAINED AND THAT IS RECORDED RATHER THAN BURIED.** Pipecat's
+own page says *"This service is built and maintained by Gnani-AI-Mintlify. Pipecat does not
+test or officially support it"* (VENDOR-PUBLISHED, founder-relayed; `docs.pipecat.ai` is
+egress-blocked here). It declares `pipecat-ai>=0.0.50` and documents "tested with v1.5.0"
+against our pinned `1.10.0`. That floor is not a compatibility claim, so it was RUN, and
+three gaps came out — each filled by a narrow override with a tripwire test that fails when
+the plugin fixes it upstream (`tests/voice_worker_gnani_tts_test.py`):
+
+1. **It does not import** — it reaches for the private `_NotGiven`, which 1.10.0 exports as
+   the public `NotGiven`.
+2. **Its advertised interruption is not wired** — `_handle_interruption` reconnects through
+   `_connect`/`_disconnect`, which the plugin does not override, so a barge-in closed
+   nothing and the vendor went on synthesising a sentence nobody would hear.
+3. **A socket that dies mid-call stays dead** — the receive loop runs outside the base
+   class's reconnecting handler and returns leaving a dead `_ws`.
+
+**THE "ONE THING TO DO BETTER THAN THE TEMPLATE" DOES NOT APPLY AND IS NOT A GAP.** The
+three seconds were Neuphonic's idle-timeout close of an AUDIO CONTEXT. `GnaniTTSService` is
+not a context service — it is an `InterruptibleTTSService` that pushes `TTSStoppedFrame` on
+the vendor's explicit `complete` message — so there is no `remove_audio_context()` to call
+and no three seconds to save.
+
+**THE TELEPHONY FORMAT IS LINEAR PCM, NOT µ-LAW, AND THE VENDOR'S OWN ADVICE IS THE TRAP.**
+Gnani document `container=mulaw` for G.711 and it forces 8 kHz, which is right for a client
+writing the socket's output straight to the line. Ours does not: audio goes into a
+`TTSAudioRawFrame` and `PlivoFrameSerializer.serialize` calls `pcm_to_ulaw` on every frame
+(`pipecat/serializers/plivo.py:145`). Asking for µ-law would encode it twice — noise on the
+line, with no type to catch it because both are `bytes`.
+
+**BARGE-IN COSTS A CONNECTION, AND THAT IS THE LOAD-BEARING UNKNOWN.** Gnani's protocol has
+no cancel, flush or stop message; the only documented interruption is that either side
+closes the connection. So every time a caller talks over the agent we throw away the TCP
+connection and the TLS handshake and pay to open both before the next sentence. Whether
+closing actually stops synthesis SERVER-SIDE, and whether we are billed for text already
+accepted, are both UNKNOWN and the second reaches money — gate 56.
 
 ## 6. SEQUENCING, AND WHAT GATES EACH STEP
 
@@ -271,8 +319,8 @@ three seconds per turn.
 | 5 | Conformance suite green for `pipecat` | **GREEN, 14 Sep 2026 — and it was green before it meant anything.** `uv run pytest packages/shared/tests/engine_conformance`: 386 passed, 6 skipped, `pipecat` among the seven subjects, no adapter changed. The audit found the green was thinner on this adapter than on any other, for a structural reason rather than a missing test: `pipecat` places no dial (its carrier REST surface is unread, §7/BLOCKER-1), so `_place_call` returns None and every clause that reads a snapshot back from a call returned early on it. The whole normalization half of the contract — our status vocabulary, the agent ref, turn order, speaker tags, per-call turn attribution — was being asserted about nothing on the newest adapter in the tree. Closed by `test_a_listing_row_is_as_normalized_as_a_fetched_one`, which holds every row of the LISTING route to the same `_assert_snapshot_is_ours` the fetch route is held to; that route is the one `pipecat` has, and the one D-31 makes the guarantee of record for every adapter. Three more clauses landed with it — direction towards `inbound`, a tenant/engine name taken from the payload body, a status that is not a string — each proved real by a saboteur the suite ACCEPTED beforehand (`tests/engine_audit_test.py::SABOTEURS`, +6 entries). **STILL UNMEASURED ON THIS ADAPTER, AND GATED ON STEP 6, NOT ON A TEST:** `billable_ready` against a real call (§1.2 says it may never honestly be True until a CDR can be read), the `raw_document` archive clause (an `owned_runtime` engine's far side is our own database, so there is no vendor document to archive — this may be a clause that never applies here rather than one that is waiting), and `end_call`. Say the suite is green; do not say the adapter is exercised as hard as `bolna`. |
 | 6 | Carrier wiring, first real call | **THE TRANSPORT LANDED 15 Sep 2026; THE CALL HAS NOT HAPPENED, AND THOSE ARE NOT THE SAME CLAIM.** What is built and tested with no account and no socket (`apps/voice-worker/voice_worker/carrier.py`, `tests/voice_worker_carrier_test.py`): the Plivo transport (`PlivoFrameSerializer` + `FastAPIWebsocketTransport`, 8 kHz both ways, no WAV header), the answer document, the stream URL, the handshake narrowing, and the whole INBOUND path — a route token off the stream URL → `(tenant, agent)` → an RLS-scoped read of the published config version → the knowledge pack → `assemble_call` → the agent speaking first from the transport's own connect event. **THE ROUTE IS THE URL, NOT THE DIALLED NUMBER**: Pipecat's Plivo parser leaves `from`/`to` `None` (`runner/utils.py:257-262`), so the stream URL carries the agent ref the control plane already mints (`calevate_shared.engine.owned_runtime_agent_ref`) and the number → agent decision stays on the screen that binds the number, where a tenant session exists. **Hard rule 5 now binds this leg**: `config.load_session_config` refuses an agent with no `ai_disclosure_line` and a prompt that has lost the truthful-answer floor — an inbound call reaches neither the column CHECK nor `check_dispatch`. **THE HTTP HALF LANDED 15 Sep 2026 (D-610), AND THIS ROW USED TO CALL IT UNWRITTEN.** `apps/voice-runtime/carrier_routes.py` is mounted on the live app: `GET|POST /carrier/v1/plivo/answer/{ref}` validates the agent ref in its own path — reading NO row, so hard rule 1 holds on this leg too — and renders the answer document pointing at `plivo_stream_url(PIPECAT_STREAM_BASE_URL, ref)`; an unknown or malformed ref is refused 404 with no stream URL minted, and an unconfigured deployment refuses 502 rather than serving a document that points at nothing. `plivo_answer_document`, `ANSWER_DOCUMENT_CONTENT_TYPE` and `plivo_stream_url` MOVED there out of `voice_worker/carrier.py` (one renderer, in the process that serves it; hard rule 3 forbids the pipecat import on that path by name). **THE SOCKET HALF WAS NOT BUILT BECAUSE IT ALREADY EXISTED** — Pipecat Cloud terminates the WebSocket and calls `bot.py::bot`, so what was missing was the ROUTE: `bot.resolve_call_identity` now reads the ref off the socket's URL path, mints our `call_id`, and `bot()` arms the agent's first turn, which nothing did. **WHAT REMAINS IS AN ACCOUNT, AND IT IS CONFIGURATION**: (a) a Plivo account in the **India data region** (BLOCKER-1) with its `auth_id`/`auth_token` in the environment `create_transport` reads and a number pointed at our answer URL, plus `PIPECAT_STREAM_BASE_URL` — an external blocker, not engineering; (b) three UNKNOWNs that need a live carrier or an unblocked host and are refused rather than guessed: whether Plivo SIGNS the answer-URL request (nothing in the Pipecat tree verifies one, so the route is unauthenticated and holds no secret, no PII and no address the requester did not supply), which HTTP METHOD it uses (both served, neither reads a body), and whether Pipecat Cloud preserves the WebSocket's URL PATH (`bot._route_token` REFUSES if it does not, rather than falling back to the dialled number, which would be the hard-rule-1 failure); (c) **OUTBOUND DIAL IS UNBUILT AND REFUSES BY NAME** (`carrier.place_outbound_call`): Pipecat's whole tree holds one Plivo REST endpoint, the hangup (`serializers/plivo.py:184`), and the request that places a call is UNKNOWN here. Step 6 is DONE when a real call has happened, and it has not |
 | 7 | Metering reconciled against the Plivo CDR | step 6 |
-| 8 | `GnaniTTSService` | Gnani Q1 |
-| 9 | `Clear` flips to Gnani; Sarvam TTS retires | step 8 + price attested |
+| 8 | `GnaniTTSService` | **DONE, 15 Sep 2026 (D-618).** Not gated on "Gnani Q1" in the end, because that question had no answer to wait for: the cap it named is not in the current documentation. §5 has what was built, what was found by running the vendor's plugin against our pin, and the three unknowns that remain |
+| 9 | `Clear` flips to Gnani; Sarvam TTS retires | **STEP 8 IS NOW DONE AND THIS STEP IS STILL BLOCKED — BY THE PRICE, WHICH IS THE ONLY THING LEFT.** Gnani publish NO price: no per-character rate, no per-second rate, no currency, no free tier, nothing. The single figure in the wild (₹27/10 000 characters) is a RESELLER's price for their own platform and is not Gnani's; hard rule 7 keeps it out of everything. So there is no rate to freeze on a credit lot, no floor to clear, and `voices.VOICE_TIER_OF_PROVIDER["gnani"]` is `None` — which is why no Gnani voice is offerable and why `voice_tier()` RAISES rather than billing a Gnani minute at the Clear rate. **What unblocks it is one operator attestation** of a real Gnani invoice figure, after which: the tier mapping gains an entry, a rate lands on the lot, and `check_model_lifecycle` immediately goes RED until somebody reads a Gnani lifecycle page (`tts_choosable()` makes the model choosable the moment it is priced). Everything else for the flip is built |
 | 10 | Bolna adapter deleted, one commit | a real Pipecat call has happened |
 | 11 | Wire `voice_worker/knowledge.py` into `pipeline.py` — `SessionConfig` carries the pack digest, `assemble_call` awaits `load_session_knowledge`, `SessionKnowledge.search` registers as a tool | **DONE, 14 Sep 2026.** The ends landed first and the MIDDLE was open for three commits: nothing read `agents.knowledge_pack_sha256` into a `SessionConfig` and nothing awaited the load, so every call would have been assembled with `knowledge=None` and every caller told the client had published nothing. Closed by `voice_worker/config.py` (the version + pack-pointer read), `voice_worker/storage.py` (the `PackFetcher` over the bucket, bounded) and `voice_worker/session.py` (`start_session`: config, then pack, then `assemble_call`, with the one process-wide `PackCache`). **THE BOOTSTRAP LANDED 15 SEP 2026 AND ONE THIRD OF IT REMAINS OPEN.** This row used to end "what is still not called in production is the CONTAINER BOOTSTRAP — transport, sink and DB engine". The sink and the engine now exist: `voice_worker/db.py` (ONE engine and pool for the container, shared by the config read and the writer, which is what `config.load_session_config` asked for by name), `voice_worker/sink.py` (`calls`, `transcript_turns` and `usage_events`, in the same statements, on the same idempotency keys and through the same `apps/workers/redaction.py` as the post-call pipeline, so the two writers converge on one row) and `voice_worker/runtime.py` (the entrypoint: bootstrap order, the meter's observer, and `WorkerRunner(handle_sigterm=True)` — OFF by default, so without it an orchestrator's stop signal kills a call mid-settlement). What is still open is the TRANSPORT, which is BLOCKER-1 and nobody's to code around, and the container IMAGE: the root `Dockerfile` copies `apps/api`, `apps/voice-runtime` and `apps/workers` and not this package. ⚠ Every settlement in production TODAY is a recorded refusal rather than rupees, because §1.2 gives the billable minute to the carrier and there is no carrier — see §1.3 and `call_metering_refusals`. §8 |
 | 12 | Give `kb/pack.py::publish_pack` a caller on the publish path, and an object-lifecycle rule for `knowledge-packs/` | **DONE — AND THIS ROW WAS STALE ON BOTH HALVES BEFORE D-611 TOUCHED ANYTHING.** The CALLER landed with the pack builder itself: `publish_pack` is called by `kb/pack.refresh_published_pack`, which is the one entry point for every writer of `agents.knowledge_pack_sha256` and is reached from `kb/service.publish_source`, `kb/service.withdraw_source` and the gloss sweep (`workers/kb_gloss.py`) — it was never dead code and deleting it would have been wrong. The RULE landed too: `infra/object-lifecycle/policy.json`'s `knowledge-packs-growth-ceiling-not-retention`, 2555 days, pinned by `tests/object_lifecycle_test.py`. **WHAT WAS ACTUALLY MISSING IS THE THING A BUCKET RULE CANNOT BE**, and three files in this tree said so in their own words: S3 expiry runs from an object's CREATION and a pack is rebuilt only when knowledge changes, so the oldest object under the prefix is the LIVE pack of the client whose price list has been correct longest — any expiry short enough to reclaim space deletes exactly the wrong objects. **D-611 adds the reference-aware collector** (`apps/workers/pack_gc.py`, 05:07 daily): delete a pack that no `agents.knowledge_pack_sha256` names, after a seven-day grace that covers `refresh_published_pack`'s deliberate store-the-object-before-the-pointer-commits order. It writes no row, takes no lock, and every uncertainty resolves to KEEP — an unparseable key, an object the store reports no age for, a tenant this tick could not enumerate, and any incomplete reference read all abort or skip rather than delete. ⚠ **STILL OPEN AND NAMED**: a CLOSED tenant's packs are not reclaimed, because deleting on absence from the organization directory would take the live pack of every tenant one bad read missed; that belongs in the closure path, which positively knows the tenant is gone, and the 2555-day ceiling is what bounds it meanwhile |
@@ -314,9 +362,19 @@ three seconds per turn.
   corroborates our declared leg but is not a primary source for Azure.
 - **Whether Bulbul v3 speaks text whose script does not match `target_language_code`**, and
   whether TTS has any auto/mixed setting. `docs.sarvam.ai` is egress-blocked here. §9.3.
-- **Gnani's Clear-tier price**, and whether its 60 req/min cap counts a session or an
-  utterance. The only figure in this tree is REPORTED (₹27/10,000 chars, a dashboard reading
-  relayed in a brief, never re-verified), and hard rule 7 keeps it out of the rate card. §5.
+- **Gnani's price — there is none published at all**, and this bullet used to imply there
+  was one to find. ⚠ It also said the ₹27/10 000-character figure was "a dashboard reading";
+  it is a **RESELLER's** advertised price for THEIR platform (callmissed.com), not Gnani's,
+  which is a stronger reason to keep it out than "unverified" — re-verifying it would not
+  make it a Gnani rate. No Gnani minute reaches `unit_cost_paid` without an operator
+  attestation. §5, §6 step 9, D-618.
+- **Gnani's rate limit.** ⚠ This used to be stated as "whether its 60 req/min cap counts a
+  session or an utterance", which presumed a number the current documentation does not
+  contain. It is UNKNOWN — which is not "there is no limit". §5, gate 56.
+- **Whether closing the Gnani socket stops synthesis server-side, and whether we are billed
+  for text already accepted.** Their protocol documents no cancel message, so closing is the
+  only interruption there is, and barge-in happens constantly on a phone product. The second
+  half reaches money. §5, gate 56.
 - **Whether Gnani supports cloned voices at all.** D-593's whole ground for replacing Sarvam
   on Clear is that `SarvamTTSSpeakerV3` is a closed enum with nowhere to put a client's own
   cloned voice. If Gnani cannot clone either, the swap buys only the price.

@@ -104,10 +104,17 @@ def _curation(*extra: Voice, state: CurationState = "enabled") -> dict[str, Cura
 # --- C.1: the catalogue's shape ------------------------------------------------
 
 
-def test_the_catalogue_names_two_models_one_per_provider() -> None:
+def test_the_catalogue_names_one_model_per_provider() -> None:
     """`TtsModel` is the set the lifecycle guard is held to, so it is the set that decides
-    which voice models this product can ship at all."""
-    assert set(get_args(TtsModel)) == {"bulbul:v3", "sonic-3.5"}
+    which voice models this product can ship at all.
+
+    ⚠ **THIS WAS `..._names_two_models_...` UNTIL D-618.** `timbre-v2.5` is the third, and
+    it is in the catalogue while being on offer to NOBODY: Gnani publish no price, so
+    `VOICE_TIER_OF_PROVIDER["gnani"]` is `None` and every offer path refuses it before a
+    client sees it (`tests/gnani_voices_test.py` holds that half). Catalogue membership and
+    offerability were the same question only while every provider had a rate.
+    """
+    assert set(get_args(TtsModel)) == {"bulbul:v3", "sonic-3.5", "timbre-v2.5"}
     assert CARTESIA_TTS_MODEL == "sonic-3.5"
     assert "sonic-3" not in get_args(TtsModel), (
         "sonic-3 is deprecated with a 20 Oct 2026 sunset and the engine recommends 3.5 for "
@@ -325,7 +332,11 @@ def test_every_shipped_voice_model_has_a_lifecycle_row() -> None:
     """The equality `scripts/check_model_lifecycle` enforces, asserted here too so a
     catalogue edit fails in the unit suite rather than only in `make guardrails`."""
     assert set(TTS_MODEL_LIFECYCLE) == set(get_args(TtsModel))
-    assert {row.provider for row in TTS_MODEL_LIFECYCLE.values()} == {"sarvam", "cartesia"}
+    assert {row.provider for row in TTS_MODEL_LIFECYCLE.values()} == {
+        "sarvam",
+        "cartesia",
+        "gnani",
+    }
 
 
 # --- what a client is told the tier is CALLED ---------------------------------

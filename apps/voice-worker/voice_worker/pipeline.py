@@ -236,16 +236,24 @@ class SessionConfig:
 
 @dataclass(frozen=True, slots=True)
 class VendorCredentials:
-    """The three keys, from the secrets manager. Never persisted, never hashed, never logged.
+    """The container's vendor keys, from its secret set. Never persisted, hashed or logged.
 
-    The founder holds all three vendor accounts and installs the keys in the ops console
-    (CLAUDE.md, the multi-provider paragraph); clients bring no BYOK. `cartesia_api_key` is
-    optional because it is only needed on the Studio tier.
+    The founder holds every vendor account and installs the keys; clients bring no BYOK.
+    `cartesia_api_key` is optional because it is only needed on the Studio tier, and
+    `gnani_api_key` for the same shape of reason (D-618) — it is needed only by an agent
+    whose `ModelConfig.tts_provider` names Gnani, and `_build_tts` refuses that call by
+    name rather than letting the container fail to start for every other client.
+
+    ⚠ **THE GNANI KEY REACHES THIS CONTAINER FROM ITS OWN ENVIRONMENT, NOT FROM THE OPS
+    CONSOLE**, and that is why `Settings.gnani_api_key` is classified `env_only` there.
+    `apps/api` holds no Gnani client at all; a console box storing a value nothing reads
+    is the defect `core/platform_config.ENV_ONLY` exists to name.
     """
 
     sarvam_api_key: str
     llm_api_key: str
     cartesia_api_key: str | None = None
+    gnani_api_key: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -516,7 +524,7 @@ def _build_stt(config: SessionConfig, credentials: VendorCredentials) -> FramePr
 
 
 def _build_tts(config: SessionConfig, credentials: VendorCredentials) -> FrameProcessor:
-    """Sarvam TTS today; Cartesia on the Studio tier.
+    """Sarvam TTS today; Cartesia on the Studio tier; Gnani where an agent names it.
 
     ⚠ **`SarvamTTSSpeakerV3` (`pipecat/services/sarvam/tts.py:101`) IS A CLOSED `StrEnum`
     OF 25 SPEAKER NAMES.** That is the structural fact behind D-593 and it is recorded here
@@ -526,6 +534,19 @@ def _build_tts(config: SessionConfig, credentials: VendorCredentials) -> FramePr
     stays on Studio. Nothing in this function implements that — `GnaniTTSService` is §5,
     staged behind Gnani's unanswered rate-limit question, and building it now would be
     building for nothing.
+
+    ⚠ **THE GNANI HALF OF THAT PARAGRAPH IS SUPERSEDED BY D-618 AND THE LEG IS BUILT**
+    (`voice_worker/gnani_tts.py`). Two things changed. The rate limit is not an "unanswered
+    question" with a known number — the current vendor documentation does not state a
+    60 req/min cap at all, so what §5 gated on could not be answered as asked; it is
+    re-stated as UNKNOWN. And Gnani ship an official Pipecat plugin, so the work was a
+    subclass filling three measured gaps rather than a protocol implementation.
+
+    **WHAT DID NOT CHANGE IS WHO SPEAKS THE CLEAR TIER.** `bulbul:v3` is still what an
+    agent that chose nothing runs on, and nothing here flips a tier: §6 step 9 gates that
+    on an ATTESTED PRICE, and Gnani publish none. A Gnani call happens only where an
+    agent's own `ModelConfig.tts_provider` says so, and a Gnani voice is not offerable
+    until its price is attested (`agents/gnani_voices.py`).
 
     `bulbul:v2` is not offered: Pipecat's own docstring says "Sarvam's API rejects it"
     (`tts.py:648`), which agrees with CLAUDE.md's correction that v2 is WITHDRAWN rather
@@ -553,6 +574,34 @@ def _build_tts(config: SessionConfig, credentials: VendorCredentials) -> FramePr
         return CartesiaTTSService(
             api_key=credentials.cartesia_api_key,
             settings=cartesia_settings,
+            sample_rate=TELEPHONY_SAMPLE_RATE_HZ,
+        )
+    if provider == "gnani":
+        if credentials.gnani_api_key is None:
+            raise ValueError(
+                "tts_provider is 'gnani' but this container has no Gnani key: set "
+                "GNANI_API_KEY in the Pipecat Cloud secret set"
+            )
+        if voice is None:
+            # The vendor references a voice BY NAME and has no default that serves this
+            # product: the plugin would fall back to `Pranav`, an Indian-English voice on
+            # `timbre-v2.0`. A Telugu call must not silently become an English one.
+            raise ValueError("tts_provider is 'gnani' but the agent names no voice")
+        if config.language is None:
+            # `timbre-v2.5` requires `language`, and the vendor says a voice used outside
+            # the locale it is optimised for "may reduce quality". Neither is a default we
+            # are entitled to invent.
+            raise ValueError("tts_provider is 'gnani' but the agent names no language")
+        # Imported here, not at module scope, for the reason the Cartesia branch gives:
+        # this keeps a second vendor websocket client out of the import graph of every
+        # Sarvam call. The model is the module's constant, never `config.models.tts_model`
+        # blindly — see `gnani_tts.GNANI_TTS_MODEL` for why the vendor default is wrong.
+        from voice_worker.gnani_tts import build_gnani_tts
+
+        return build_gnani_tts(
+            api_key=credentials.gnani_api_key,
+            voice=voice,
+            language=config.language,
             sample_rate=TELEPHONY_SAMPLE_RATE_HZ,
         )
     if provider != "sarvam":

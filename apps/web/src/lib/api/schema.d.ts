@@ -13278,7 +13278,7 @@ export interface components {
              * Provider
              * @enum {string}
              */
-            provider: "sarvam" | "cartesia";
+            provider: "sarvam" | "cartesia" | "gnani";
             /** Speaker */
             speaker: string;
             /** Tier Label */
@@ -13287,7 +13287,7 @@ export interface components {
              * Tts Model
              * @enum {string}
              */
-            tts_model: "bulbul:v3" | "sonic-3.5";
+            tts_model: "bulbul:v3" | "sonic-3.5" | "timbre-v2.5";
             /** Unavailable Reason */
             unavailable_reason: string | null;
             /**
@@ -17261,14 +17261,14 @@ export interface components {
              * Provider
              * @enum {string}
              */
-            provider: "sarvam" | "cartesia";
+            provider: "sarvam" | "cartesia" | "gnani";
             /** Speaker */
             speaker: string;
             /**
              * Tts Model
              * @enum {string}
              */
-            tts_model: "bulbul:v3" | "sonic-3.5";
+            tts_model: "bulbul:v3" | "sonic-3.5" | "timbre-v2.5";
             /**
              * Verified
              * @default false
@@ -17344,7 +17344,7 @@ export interface components {
          */
         VoiceProviderOptionOut: {
             /** Models */
-            models: ("bulbul:v3" | "sonic-3.5")[];
+            models: ("bulbul:v3" | "sonic-3.5" | "timbre-v2.5")[];
             /** Provider */
             provider: string;
             /** Selectable */

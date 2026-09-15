@@ -15084,7 +15084,8 @@
           "provider": {
             "enum": [
               "sarvam",
-              "cartesia"
+              "cartesia",
+              "gnani"
             ],
             "title": "Provider",
             "type": "string"
@@ -15100,7 +15101,8 @@
           "tts_model": {
             "enum": [
               "bulbul:v3",
-              "sonic-3.5"
+              "sonic-3.5",
+              "timbre-v2.5"
             ],
             "title": "Tts Model",
             "type": "string"
@@ -24484,7 +24486,8 @@
           "provider": {
             "enum": [
               "sarvam",
-              "cartesia"
+              "cartesia",
+              "gnani"
             ],
             "title": "Provider",
             "type": "string"
@@ -24496,7 +24499,8 @@
           "tts_model": {
             "enum": [
               "bulbul:v3",
-              "sonic-3.5"
+              "sonic-3.5",
+              "timbre-v2.5"
             ],
             "title": "Tts Model",
             "type": "string"
@@ -24612,7 +24616,8 @@
             "items": {
               "enum": [
                 "bulbul:v3",
-                "sonic-3.5"
+                "sonic-3.5",
+                "timbre-v2.5"
               ],
               "type": "string"
             },
