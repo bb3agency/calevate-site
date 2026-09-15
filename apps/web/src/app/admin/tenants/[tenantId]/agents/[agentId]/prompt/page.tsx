@@ -1236,6 +1236,9 @@ function VoicePanel({
                 voices={catalogue.data.voices}
                 value={selected}
                 rates={rates}
+                /* See `VoiceTierAvailability`: a tier with no rows renders no heading, so
+                   without this the operator reads a shorter list and no statement (D-617). */
+                tiers={catalogue.data.tiers}
                 disabled={!write.allowed}
                 onChange={setChoice}
               />
@@ -1317,6 +1320,17 @@ function VoiceInForce({
           </dd>
         </div>
       </dl>
+      {state.unnamed_note && (
+        /* A RAW ENGINE REF IS NEVER PRINTED WITHOUT THIS SENTENCE (D-617). `voiceName`
+           degrades an unrecognised id to the id itself on purpose — an operator can search
+           for an id, and "unknown" reads as a fault rather than as a voice the platform no
+           longer lists — but the degradation was silent, so this panel showed
+           `sonic-3.5:b6dafaa0-…` under both labels with nothing saying what it was. The
+           sentence is the server's, composed where the catalogue is
+           (`publishing.VOICE_NOT_IN_CATALOGUE_NOTE`), because there are two consoles and a
+           paragraph written twice in TypeScript comes to say two things. */
+        <p className="mt-2 text-xs text-ink-muted">{state.unnamed_note}</p>
+      )}
       {state.republish_required && (
         /* Amber, and only when the server says so. The two values above are already
            different at this point, but "different" is not the operator's question —

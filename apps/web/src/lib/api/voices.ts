@@ -112,6 +112,23 @@ export type OfferedVoice = Schemas["OfferedVoiceOut"];
  */
 export type VoiceCatalogue = Schemas["VoiceCatalogueOut"];
 
+/**
+ * ONE VOICE TIER AND WHETHER THIS DEPLOYMENT HAS ANYTHING IN IT (D-617).
+ *
+ * The list on `VoiceCatalogue.tiers` is every tier the PRODUCT sells, derived server-side
+ * from the model registry — never from the rows that happened to arrive — so a tier with
+ * no voices in it still has a line. That is the whole point: a picker grouped by tier
+ * renders no heading for a tier with no rows, which is how a client came to see only a
+ * Clear section on an agent that was configured on a Studio voice, with nothing anywhere
+ * saying a quality was missing.
+ *
+ * `note` is the SERVER's sentence and is printed verbatim. It is non-null exactly when the
+ * tier has nothing choosable, and it already forks on which empty it is and on who is
+ * reading (`voice_routes._tier_note`); composing one here from `offerable === 0` would be
+ * the second copy that gets the tone wrong.
+ */
+export type VoiceTierAvailability = Schemas["VoiceTierAvailabilityOut"];
+
 export type SetVoiceIn = Schemas["SetVoiceIn"];
 export type SetVoiceOut = Schemas["SetVoiceOut"];
 

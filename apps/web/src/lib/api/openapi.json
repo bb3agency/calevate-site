@@ -24539,6 +24539,13 @@
             "title": "Source",
             "type": "string"
           },
+          "tiers": {
+            "items": {
+              "$ref": "#/components/schemas/VoiceTierAvailabilityOut"
+            },
+            "title": "Tiers",
+            "type": "array"
+          },
           "voices": {
             "items": {
               "$ref": "#/components/schemas/OfferedVoiceOut"
@@ -24552,7 +24559,8 @@
           "selectable",
           "voices",
           "source",
-          "note"
+          "note",
+          "tiers"
         ],
         "title": "VoiceCatalogueOut",
         "type": "object"
@@ -24691,15 +24699,69 @@
           "republish_required": {
             "title": "Republish Required",
             "type": "boolean"
+          },
+          "unnamed_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unnamed Note"
           }
         },
         "required": [
           "configured",
           "live",
           "republish_required",
-          "headline"
+          "headline",
+          "unnamed_note"
         ],
         "title": "VoiceStateOut",
+        "type": "object"
+      },
+      "VoiceTierAvailabilityOut": {
+        "additionalProperties": false,
+        "description": "ONE VOICE TIER, AND WHETHER THIS DEPLOYMENT HAS ANYTHING IN IT (D-617).\n\n**A TIER THAT IS ABSENT HAS TO SAY SO, AND UNTIL THIS FIELD EXISTED IT DID NOT.** The\ncatalogue is the engine account's own list (D-585), so a tier with no rows in it simply\ndid not appear \u2014 and a picker grouped by tier then rendered a shorter list with nothing\nanywhere saying a whole quality was missing. A founder looking at an agent configured on\na Studio voice saw a picker with only a Clear section and no statement of any kind, which\nis \"we do not know\" rendered as \"nothing happened\".\n\n`OfferedVoiceOut` answers \"may THIS voice be chosen\"; the per-voice refusal cannot\nanswer this one, because the question is about rows that are NOT THERE. A count is not a\nverdict either, which is why `note` is composed server-side and printed verbatim \u2014 the\nsame argument `VoiceCatalogueOut.note` makes one level up.\n\nTHE LIST IS EVERY TIER THIS PRODUCT SELLS, derived from the model registry\n(`voice_admission.OUR_PROVIDERS`), never from the rows that happened to arrive. Deriving\nit from the catalogue is precisely the bug: a tier with no rows would be absent from its\nown availability report.",
+        "properties": {
+          "in_catalogue": {
+            "title": "In Catalogue",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "offerable": {
+            "title": "Offerable",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "label",
+          "offerable",
+          "in_catalogue",
+          "note"
+        ],
+        "title": "VoiceTierAvailabilityOut",
         "type": "object"
       },
       "VoiceTierRateOut": {

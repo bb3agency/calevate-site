@@ -650,6 +650,7 @@ const pending: PendingState = {
     configured: { voice_id: "bulbul:v3", provider: "sarvam", catalog: null },
     live: { voice_id: "bulbul:v3", provider: "sarvam", catalog: null },
     republish_required: false,
+    unnamed_note: null,
     headline: "Callers hear Bulbul v3.",
   },
   // The per-quality rate this account would pay, from its oldest open lot. Empty here:

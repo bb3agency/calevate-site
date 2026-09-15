@@ -17,6 +17,12 @@ from __future__ import annotations
 import pytest
 from apps.api.agents import voices as voices_module
 from apps.api.agents.models import PlatformVoiceCatalogEntry
+from apps.api.agents.voice_curation import read_curation
+from apps.api.agents.voice_offer import (
+    DISABLED_REASON,
+    NOT_CURATED_REASON,
+    offerable_voices,
+)
 from apps.api.agents.voice_sync import (
     catalogue_from_listing,
     load_voice_catalogue,
@@ -407,7 +413,33 @@ async def test_a_complete_listing_does_prune_a_withdrawn_voice() -> None:
             cached = await read_cached_catalogue(session)
 
         assert narrowed.pruned == 1
-        assert {voice.speaker for voice in cached} == {"shubh"}
+        # ⚠ **THE LOOKUP CATALOGUE KEEPS IT AND THIS USED TO ASSERT THE OPPOSITE (D-617).**
+        # The line here read `== {"shubh"}`, i.e. a withdrawn voice left the snapshot
+        # `voices.catalogue()` serves — which is the LOOKUP layer, the one that answers
+        # `get_voice` and `speech_for_voice_id` for a live agent that is still SET to the
+        # withdrawn voice. Dropping it there printed a raw engine ref on a client's panel
+        # and took the whole tier off the picker. Whether it may still be CHOSEN is the
+        # clause below, and that is the only place it is decided.
+        assert {voice.speaker for voice in cached} == {"shubh", "ritu"}, (
+            "the lookup catalogue must still be able to name a voice an agent is set to"
+        )
+        # ...AND IT IS NOT OFFERABLE. `read_curation` excludes withdrawn rows, so the
+        # withdrawn voice reaches `voice_offer` with no curation state and gets ground
+        # zero's `NOT_CURATED_REASON` — the sentence written for exactly this pairing.
+        offered = {
+            row.voice.speaker: row
+            for row in offerable_voices(
+                cartesia_live_agents=0, curation=await read_curation(), voices=cached
+            )
+        }
+        assert offered["ritu"].reason == NOT_CURATED_REASON
+        assert offered["ritu"].not_on_offer is True
+        # And the two refusals are DIFFERENT SENTENCES, which is the whole point of
+        # carrying the withdrawal into the offer layer rather than deleting the row from
+        # the snapshot: `shubh` arrived from the sync un-curated (`ARRIVAL_CURATION_STATE`)
+        # and is one click away, `ritu` is the voice platform's own statement and nothing
+        # in this console restores it.
+        assert offered["shubh"].reason == DISABLED_REASON
 
         # ...AND IT IS A STAMP, NOT A DELETE (D-588). The row survives because it holds the
         # one fact a re-sync cannot re-derive — the operator's curation state — so a voice

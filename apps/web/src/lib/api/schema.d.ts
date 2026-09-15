@@ -17305,6 +17305,8 @@ export interface components {
             selectable: boolean;
             /** Source */
             source: string;
+            /** Tiers */
+            tiers: components["schemas"]["VoiceTierAvailabilityOut"][];
             /** Voices */
             voices: components["schemas"]["OfferedVoiceOut"][];
         };
@@ -17376,6 +17378,41 @@ export interface components {
             live: components["schemas"]["AgentVoiceOut"] | null;
             /** Republish Required */
             republish_required: boolean;
+            /** Unnamed Note */
+            unnamed_note: string | null;
+        };
+        /**
+         * VoiceTierAvailabilityOut
+         * @description ONE VOICE TIER, AND WHETHER THIS DEPLOYMENT HAS ANYTHING IN IT (D-617).
+         *
+         *     **A TIER THAT IS ABSENT HAS TO SAY SO, AND UNTIL THIS FIELD EXISTED IT DID NOT.** The
+         *     catalogue is the engine account's own list (D-585), so a tier with no rows in it simply
+         *     did not appear — and a picker grouped by tier then rendered a shorter list with nothing
+         *     anywhere saying a whole quality was missing. A founder looking at an agent configured on
+         *     a Studio voice saw a picker with only a Clear section and no statement of any kind, which
+         *     is "we do not know" rendered as "nothing happened".
+         *
+         *     `OfferedVoiceOut` answers "may THIS voice be chosen"; the per-voice refusal cannot
+         *     answer this one, because the question is about rows that are NOT THERE. A count is not a
+         *     verdict either, which is why `note` is composed server-side and printed verbatim — the
+         *     same argument `VoiceCatalogueOut.note` makes one level up.
+         *
+         *     THE LIST IS EVERY TIER THIS PRODUCT SELLS, derived from the model registry
+         *     (`voice_admission.OUR_PROVIDERS`), never from the rows that happened to arrive. Deriving
+         *     it from the catalogue is precisely the bug: a tier with no rows would be absent from its
+         *     own availability report.
+         */
+        VoiceTierAvailabilityOut: {
+            /** In Catalogue */
+            in_catalogue: number;
+            /** Label */
+            label: string;
+            /** Note */
+            note: string | null;
+            /** Offerable */
+            offerable: number;
+            /** Provider */
+            provider: string;
         };
         /**
          * VoiceTierRateOut

@@ -54,6 +54,7 @@ import { formatRupeeRate } from "@/components/ui";
 import {
   voiceTierRate,
   type OfferedVoice,
+  type VoiceTierAvailability,
   type VoiceTierRates,
 } from "@/lib/api/voices";
 
@@ -102,6 +103,7 @@ export function VoicePicker({
   voices,
   value,
   rates,
+  tiers,
   disabled,
   onChange,
 }: {
@@ -114,6 +116,16 @@ export function VoicePicker({
   value: string;
   /** This account's per-tier rates. Absent means no price is printed anywhere. */
   rates?: VoiceTierRates;
+  /**
+   * EVERY TIER THE PRODUCT SELLS, with the server's sentence on the empty ones (D-617).
+   *
+   * Without it this control can only render the tiers that HAVE rows, and a tier with no
+   * rows is then indistinguishable from a product that does not sell it — the exact
+   * failure the per-row refusal was built to avoid one level down. Optional so a caller
+   * on an older API build renders as before rather than crashing; absent means the
+   * component says nothing about a missing tier, which is what it did previously.
+   */
+  tiers?: readonly VoiceTierAvailability[];
   disabled?: boolean;
   onChange: (voiceId: string) => void;
 }) {
@@ -293,6 +305,27 @@ export function VoicePicker({
         {ungrouped.length > 0 && (
           <div className="space-y-2">{ungrouped.map(row)}</div>
         )}
+        {/* A TIER WITH NOTHING IN IT SAYS SO, rather than simply not appearing (D-617).
+            Rendered ABOVE the groups and not as an empty group heading: there is no radio
+            group to label, and an empty `role="group"` would be announced as a list of
+            choices with no choices in it. The sentence is the server's, whole — it forks
+            on "the platform lists none of these" versus "they are there and none is
+            offered", which are two different people's next action, and on whether an
+            operator or a client is reading. */}
+        {(tiers ?? [])
+          .filter((tier) => tier.note !== null)
+          .map((tier) => (
+            <p
+              key={tier.provider}
+              className="rounded-card border border-dashed border-line p-3 text-xs text-ink-muted"
+            >
+              <span className="font-semibold uppercase tracking-wide text-ink-faint">
+                {tier.label} voice
+              </span>
+              {" — "}
+              {tier.note}
+            </p>
+          ))}
         {groups.map((group) => {
           const money = tierRateReading(rates, group.provider);
           const headingId = `${name}-tier-${group.label.toLowerCase().replace(/\s+/g, "-")}`;

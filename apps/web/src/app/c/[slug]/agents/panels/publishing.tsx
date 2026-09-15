@@ -240,6 +240,16 @@ function VoiceFacts({
           {tier.inr_per_min === null ? "" : ` — ${formatRupeeRate(tier.inr_per_min)} / min`}
         </Fact>
       )}
+      {state.unnamed_note && (
+        /* WHY THE VOICE ABOVE IS A CODE AND NOT A NAME (D-617). `clientVoiceName` falls
+           back to the stored id so an owner can quote it, and until now nothing said what
+           the code was — a live client read `sonic-3.5:b6dafaa0-…` as "the voice callers
+           hear" with no explanation and no such voice in the picker below. The sentence is
+           the server's and is printed verbatim; it names no vendor and no setting, and it
+           spans the whole card rather than sitting inside one `Fact`, because it explains
+           both of them. */
+        <div className="text-xs text-ink-muted sm:col-span-2">{state.unnamed_note}</div>
+      )}
       {state.republish_required && state.configured && (
         <Fact
           label="New voice waiting"

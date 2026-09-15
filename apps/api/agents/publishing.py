@@ -307,6 +307,21 @@ class VoiceState:
     # unpublished agent has no callers to mislead, so it is never "republish required".
     republish_required: bool
     headline: str
+    #: WHY A VOICE ON THIS AGENT IS SHOWN AS A RAW ENGINE REF, or None when both voices
+    #: resolve. D-617.
+    #:
+    #: `_reading` degrades an unrecognised id to the id itself, deliberately — an operator
+    #: can quote an id, and "unknown" reads as a fault rather than as a voice we no longer
+    #: list. What was missing is the SENTENCE beside it. A live client's panel printed
+    #: `sonic-3.5:b6dafaa0-…` twice, under "Callers hear now" and "Configured", with
+    #: nothing anywhere saying what that string was or what to do — which is the defect
+    #: class of coding "we do not know" as "nothing happened".
+    #:
+    #: COMPOSED HERE rather than in the two consoles for `headline`'s reason: there are two
+    #: screens, one client and one admin (D-177), and a sentence about the catalogue
+    #: written twice in TypeScript is a sentence that comes to say two things. It is
+    #: client-readable, so it names no vendor and no setting of ours.
+    unnamed_note: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -754,8 +769,42 @@ def _voice_headline(row: _AgentRow, configured: AgentVoice | None, live: AgentVo
 
 
 def _reading(voice: AgentVoice) -> str:
-    """A voice in the words an operator picks on, degrading to the raw id."""
+    """A voice in the words an operator picks on, degrading to the raw id.
+
+    The degradation is never silent any more: `_unnamed_note` supplies the sentence that
+    says what the raw id is, and `VoiceState.unnamed_note` carries it beside this string
+    (D-617).
+    """
     return voice.catalog.label if voice.catalog else voice.voice_id
+
+
+#: What a reader is told when a voice on this agent has no catalogue entry to name it by.
+#:
+#: ONE SENTENCE FOR BOTH REALMS, and it names no vendor, no provider and no setting —
+#: `GET /v1/agents/{id}/pending` is read by the client's own console as well as the
+#: operator's. It says three things in the order a reader needs them: what the string is,
+#: that the agent is unaffected, and who moves it. "Not shown in the list below" is the
+#: fact the founder actually reported, so it is stated rather than left to be inferred
+#: from a shorter picker.
+VOICE_NOT_IN_CATALOGUE_NOTE: Final = (
+    "The code shown is the voice platform's own reference for this voice. We cannot put a "
+    "name to it, because the voice is not in the list of voices this platform currently "
+    "offers — so it is not one of the choices below either. The agent goes on speaking in "
+    "it and callers hear no difference; it simply cannot be re-selected once it is changed. "
+    "Ask your account manager if this voice should be offered again."
+)
+
+
+def _unnamed_note(voices: tuple[AgentVoice | None, ...]) -> str | None:
+    """`VOICE_NOT_IN_CATALOGUE_NOTE` when any voice on this agent cannot be named, else None.
+
+    ONE note for the pair rather than one per voice: on every reachable state the two ids
+    are the same unnameable string or one of them is absent, and two identical paragraphs
+    under two labels is how a reader concludes something different is wrong with each.
+    """
+    if any(voice is not None and voice.catalog is None for voice in voices):
+        return VOICE_NOT_IN_CATALOGUE_NOTE
+    return None
 
 
 def _voice_state(row: _AgentRow) -> VoiceState:
@@ -769,6 +818,7 @@ def _voice_state(row: _AgentRow) -> VoiceState:
         # operator that un-pausing is enough, which it is not.
         republish_required=row.published and row.voice_diverged,
         headline=_voice_headline(row, configured, live),
+        unnamed_note=_unnamed_note((configured, live)),
     )
 
 
@@ -1785,6 +1835,7 @@ __all__ = [
     "DISCLOSURE_TOGGLES",
     "LANES",
     "PRECEDENCE_RULE",
+    "VOICE_NOT_IN_CATALOGUE_NOTE",
     "AgentVoice",
     "ApplyResult",
     "CallCapResult",
