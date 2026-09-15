@@ -52,12 +52,10 @@ from dataclasses import dataclass
 from typing import Final
 from uuid import UUID
 
-import httpx
 from loguru import logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
-from voice_worker.embedding import EMBED_BUDGET_S, GeminiQueryEmbedder
 from voice_worker.knowledge import QueryEmbedder
 from voice_worker.pipeline import NormalizedEventSink, VendorCredentials
 from voice_worker.storage import BUCKET_ENV, ENDPOINT_ENV, ObjectStorePackFetcher
@@ -332,21 +330,25 @@ class WorkerRuntime:
 
     **ONE OWNER FOR THE PROCESS, WHICH IS WHY THIS EXISTS AT ALL.** `config.py` argues
     that it takes a connection rather than owning an engine so that "one process wants ONE
-    pool sized against ONE workload"; `session.py` keeps the pack cache at module scope for
-    the same reason; `embedding.py` wants one `httpx.AsyncClient` for the life of the
-    process because a client per turn re-does the TLS handshake inside a 1.2 s budget.
-    This is the module those three were deferring to.
+    pool sized against ONE workload", and `session.py` keeps the pack cache at module scope
+    for the same reason. This is the module those two were deferring to.
+
+    **THERE IS NO SHARED HTTP CLIENT HERE, AND THERE WAS ONE FOR A DRAFT.** `embedding.py`
+    wants one `httpx.AsyncClient` for the life of the process — a client per turn re-does
+    the TLS handshake inside a 1.2 s budget — and it takes that client as an argument
+    precisely so it owns no global. Nothing in this container can construct the dense arm
+    today (hard rule 7's pre-flight for it is a question this deployable deliberately
+    cannot ask), so a client opened here would be a connection pool nobody uses and a
+    field nobody reads. Whoever supplies an `embedder` supplies its client with it.
     """
 
     config: WorkerConfig
     engine: AsyncEngine
     fetcher: ObjectStorePackFetcher
-    http: httpx.AsyncClient
     embedder: QueryEmbedder | None
 
     async def aclose(self) -> None:
-        """Release the pool and the client. Safe to call twice."""
-        await self.http.aclose()
+        """Release the pool. Safe to call twice."""
         await self.engine.dispose()
 
 
@@ -385,7 +387,6 @@ async def open_runtime(
         async with engine.connect() as connection:
             await connection.execute(text("SELECT 1"))
     fetcher = ObjectStorePackFetcher.from_env()
-    http = httpx.AsyncClient(timeout=EMBED_BUDGET_S)
     logger.info(
         "voice worker runtime open",
         # Names and counts only (hard rule 6). WHICH legs this container can serve is the
@@ -395,21 +396,7 @@ async def open_runtime(
         drain_grace_s=config.drain_grace_s,
         dense_arm=embedder is not None,
     )
-    return WorkerRuntime(
-        config=config, engine=engine, fetcher=fetcher, http=http, embedder=embedder
-    )
-
-
-def gemini_embedder(runtime: WorkerRuntime) -> QueryEmbedder:
-    """The dense arm's encoder on this container's shared client, for a caller that has
-    answered hard rule 7's pre-flight. Never constructed by `open_runtime` itself."""
-    key = runtime.config.llm_api_keys.get("google")
-    if key is None:
-        raise WorkerConfigError(
-            f"the dense retrieval arm needs {LLM_KEY_ENV_BY_PROVIDER['google']}, which "
-            "this container was not given"
-        )
-    return GeminiQueryEmbedder(client=runtime.http, api_key=key)
+    return WorkerRuntime(config=config, engine=engine, fetcher=fetcher, embedder=embedder)
 
 
 @asynccontextmanager
@@ -447,7 +434,6 @@ __all__ = [
     "WorkerConfigError",
     "WorkerRuntime",
     "build_event_sink",
-    "gemini_embedder",
     "load_worker_config",
     "open_runtime",
     "tenant_connection",
