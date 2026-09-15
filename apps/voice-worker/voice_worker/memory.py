@@ -84,6 +84,7 @@ attested or otherwise, because there is no unit to price.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any, Final, Protocol
 
 import httpx
@@ -188,14 +189,24 @@ class ApiCallerMemoryReader:
         `caller_data_routes.py` refuses one hop away and this must not reintroduce.
         """
         try:
-            response = await self._client.get(
-                f"{self._base_url}{CALLER_DATA_PATH}/{self._engine}",
-                params={"contact_number": phone_e164, "agent_id": engine_agent_ref},
-                headers={"Authorization": f"Bearer {self._token}"},
-                timeout=self._budget_s,
-            )
-            response.raise_for_status()
-            body = response.json()
+            # TWO TIMERS, AND THEY MEASURE DIFFERENT THINGS — not a belt-and-braces habit.
+            # `httpx`'s `timeout=` is PER PHASE: connect, write, read and pool each get the
+            # value separately, so a request that spends the budget connecting and the
+            # budget again reading has honoured both and taken twice as long as the ring can
+            # afford. `MEMORY_FETCH_BUDGET_S` is a WALL CLOCK promise about session assembly,
+            # and `asyncio.timeout` is the only thing here that can keep one — which is why
+            # `caller_data_routes.py` bounds its own answer the same way. Keeping the httpx
+            # value as well is what actually closes the socket rather than merely abandoning
+            # the coroutine holding it.
+            async with asyncio.timeout(self._budget_s):
+                response = await self._client.get(
+                    f"{self._base_url}{CALLER_DATA_PATH}/{self._engine}",
+                    params={"contact_number": phone_e164, "agent_id": engine_agent_ref},
+                    headers={"Authorization": f"Bearer {self._token}"},
+                    timeout=self._budget_s,
+                )
+                response.raise_for_status()
+                body = response.json()
         # Broad and narrowed nowhere, for `GeminiQueryEmbedder.embed`'s reason: a timeout, a
         # refused connection, a 5xx, a 401 on a rotated token and a body that is not JSON
         # all mean one thing to the caller — we have nothing to say about this person — and
