@@ -29,10 +29,19 @@ takes `handle_sigint=True, handle_sigterm=False` (`pipecat/workers/runner.py:114
 installed 1.10.0 tree and recorded in `docs/evidence/pipecat-api-surface-2026-09-13.md`
 §1.5). With the default, a SIGTERM to this container kills the process where it stands:
 the turns already handed to the sink may be in flight as their own asyncio tasks, and the
-settlement never runs at all. So `handle_sigterm=True` is passed EXPLICITLY here, which
-turns a kill into the same graceful end a hang-up produces:
+settlement never runs at all.
 
-* the runner ends the worker, which drains the pipeline;
+⚠ **`handle_sigterm=True` DOES NOT FIX THAT, AND THIS DOCSTRING USED TO SAY IT DID.** The
+runner's SIGTERM handler is `_sig_handler` -> `_sig_cancel` -> `cancel()`, whose own
+docstring reads "Immediately cancel all running workers" (`pipecat/workers/runner.py:347`,
+reached from `:550-566`). It does not drain: it cuts the caller off mid-sentence, leaves
+the carrier leg up, and may lose the terminal event — which strands the call at
+`in_progress` and the post-call pipeline waits on it for ever. The method that drains is
+the OTHER one, `stop_when_done()` (`:322`, "stop when their current processing is
+complete"). So the runner is built with `handle_sigterm=False` and
+`lifecycle.ShutdownSignal` owns the signal, draining first and settling after:
+
+* the drain ends the worker by letting the pipeline finish;
 * `PipelineWorker.cleanup` waits on every outstanding event-handler task
   (`pipecat/utils/base_object.py:167-177`), and those tasks are exactly the sink's writes —
   so a turn the sink accepted is committed before `run()` returns, or its transaction rolls
@@ -204,10 +213,12 @@ class WorkerRuntime:
         )
 
         runner = WorkerRunner(
-            # SIGINT is a developer at a terminal; SIGTERM is the orchestrator stopping this
-            # container, and it is the one that is OFF by default. See the module docstring.
+            # SIGINT is a developer at a terminal. SIGTERM is the orchestrator stopping this
+            # container and is deliberately NOT handed to the runner: its handler cancels
+            # rather than drains (`runner.py:347`), which cuts a live caller off and can lose
+            # the terminal event. `lifecycle.ShutdownSignal` owns SIGTERM and drains first.
             handle_sigint=True,
-            handle_sigterm=True,
+            handle_sigterm=False,
         )
         await runner.add_workers(call.worker)
         await runner.run()

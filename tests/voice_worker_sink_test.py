@@ -462,8 +462,9 @@ async def test_a_settlement_that_fails_part_way_writes_no_row_at_all() -> None:
 
     This is the half of "a mid-call shutdown does not write a partial row" that the database
     guarantees; the half Pipecat guarantees — that a turn already handed to the sink is
-    awaited before the process exits — is `runtime.py`'s `handle_sigterm=True` plus
-    `PipelineWorker.cleanup`, and is asserted in `voice_worker_runtime_test.py`.
+    awaited before the process exits — is `lifecycle.ShutdownSignal` draining via
+    `stop_when_done()` plus `PipelineWorker.cleanup`, and is asserted in
+    `voice_worker_runtime_test.py`.
     """
 
     class _LastLegIsUnwritable:

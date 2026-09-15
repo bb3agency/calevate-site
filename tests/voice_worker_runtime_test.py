@@ -10,11 +10,12 @@ provable by reading the source:
    `cleanup()` — and hard rule 11 says a claim about the outside world is asserted from a
    primary source, not from our own docstring. So the pipeline is really run, really ended,
    and the rows are counted afterwards from a different connection.
-2. **`handle_sigterm=True` reaches the runner.** It is `False` by default
-   (`pipecat/workers/runner.py:115`), which means the default behaviour of this container
-   under an orchestrator's stop signal is to die mid-call with the settlement unwritten.
-   That is one keyword argument and exactly the kind that gets dropped in a refactor, so it
-   is asserted rather than assumed.
+2. **`handle_sigterm` does NOT reach the runner.** It is `False` by default
+   (`pipecat/workers/runner.py:115`) and is left that way on purpose: the runner answers
+   SIGTERM with `cancel()` (`:347`), which cuts a live caller off mid-sentence and can lose
+   the terminal event. `lifecycle.ShutdownSignal` owns the signal and drains first. That is
+   one keyword argument and exactly the kind a refactor flips "to be safe", so it is
+   asserted rather than assumed.
 
 The transport, the LLM and the speech legs are the same fakes `voice_worker_pipeline_test`
 uses — §6 step 4's "the worker runs locally" — because what is under test here is the
@@ -218,20 +219,26 @@ async def test_a_pipeline_cancelled_mid_call_still_holds_everything_it_had_accep
         assert raw and redacted is not None
 
 
-async def test_the_runner_is_asked_to_handle_sigterm_because_the_default_does_not(
+async def test_the_runner_is_not_asked_to_handle_sigterm_because_it_cancels(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """One keyword argument, and the whole mid-call shutdown story depends on it.
+    """One keyword argument, and a live caller's last sentence depends on it.
 
-    The vendor default is read out of the installed package rather than restated, so a
-    dependency bump that flips it fails here — and if it ever defaults to True this test
-    says so instead of silently becoming decorative.
+    `handle_sigterm=True` installs a handler that calls `cancel()` — "Immediately cancel
+    all running workers" (`pipecat/workers/runner.py:347`, reached from `:550-566`) — which
+    cuts the caller off and can lose the terminal event, stranding the call at
+    `in_progress`. Draining is `stop_when_done()` (`:322`). So SIGTERM belongs to
+    `lifecycle.ShutdownSignal`, not to the runner, and this asserts the runner is left
+    alone. The vendor default is read out of the installed package rather than restated, so
+    a dependency bump that flips it fails here instead of silently handing SIGTERM back to
+    the canceller.
     """
     import inspect
 
     default = inspect.signature(WorkerRunner.__init__).parameters["handle_sigterm"].default
     assert default is False, (
-        "the vendor now handles SIGTERM by default; re-read runner.py and re-argue runtime.py"
+        "the vendor now handles SIGTERM by default, which cancels live calls; "
+        "re-read runner.py and re-argue lifecycle.ShutdownSignal"
     )
 
     seen: dict[str, Any] = {}
@@ -272,7 +279,7 @@ async def test_the_runner_is_asked_to_handle_sigterm_because_the_default_does_no
     finally:
         await worker_runtime.aclose()
 
-    assert seen == {"handle_sigint": True, "handle_sigterm": True}
+    assert seen == {"handle_sigint": True, "handle_sigterm": False}
     # And the real production shape of a settlement today: no CDR, so a recorded refusal
     # rather than rupees (§1.2 / BLOCKER-1).
     assert outcome.settlement.rows == 0
