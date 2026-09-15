@@ -1402,7 +1402,23 @@ class SessionKnowledge:
                 for position, hit in scored.items()
                 if hit.score > 0.0 and hit.informative
             ),
-            key=lambda item: (-item[1].score, str(index.entries[item[0]].chunk_id)),
+            # TIES BROKEN BY POSITION, THE SAME RULE `DenseIndex.search` ALREADY USES, and
+            # for the reason that method's docstring gives: position IS the pack's canonical
+            # `chunk_id` order. `kb/pack.read_entries` returns
+            # `sorted(entries, key=lambda e: str(e.chunk_id))` (`kb/pack.py:171`) and
+            # `KnowledgePack.digest` hashes the same sort (`knowledge_pack.py:330`), so on
+            # every pack this worker can load the two keys produce the IDENTICAL ranking —
+            # this is not a change of behaviour, it is the two arms of one search stopping
+            # spelling one rule two ways, one `str()` per comparison cheaper.
+            #
+            # ⚠ AND IT IS THE DIFFERENCE BETWEEN A MEASUREMENT AND A COIN FLIP. The two keys
+            # diverge only on a pack whose entries are NOT in chunk_id order, which is what a
+            # harness builds; `tests/in_call_retrieval_recall_test.py` derived its chunk ids
+            # from a fixture label, so a tie ranked one way or the other by an incidental
+            # string and the SAME corpus reported recall@1 of 0.583 or 0.625 depending on it.
+            # A tie-break cannot make a tie meaningful, but it must not make a published
+            # number depend on something nobody declared.
+            key=lambda item: (-item[1].score, item[0]),
         )
         if not ranked:
             return KnowledgeAnswer("not_found", (), _elapsed_ms(started))

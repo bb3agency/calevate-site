@@ -727,7 +727,7 @@ none):
 | Query form reaching the index | recall@1 | Outcome |
 |---|---|---|
 | English — **the form step 2 actually emits** | **0.833** | the control, and it wins |
-| Romanised (Tenglish), unparaphrased | **0.625** | degrades gradually |
+| Romanised (Tenglish), unparaphrased | **0.583** | degrades gradually |
 | Telugu script, unparaphrased | **0.083** | **22 of 24 answered `not_found`** |
 
 **SO THE ENGLISH PARAPHRASE IS LOAD-BEARING, NOT A CONVENIENCE.** If it ever stops — a prompt
@@ -739,11 +739,18 @@ generalises: the index has no tokens in common with any non-Latin Indic script, 
 language in §9.5 depends on step 2 exactly as Telugu does, and a change to the search tool's
 description is a change to all of them at once.
 
-⚠ **THE TENGLISH ROW READ 0.583 HERE UNTIL 15 Sep 2026 AND THE CODE NEVER PRODUCED IT.**
-Re-measured at the unmodified commit, it is 0.625 (15 of 24, not 14), with the same outcome
-census. Nothing in retrieval changed — the figure was transcribed wrong into the test's
-docstring on 14 Sep and copied here from there, which is precisely hard rule 11's failure
-shape: a number in our own tree quoted downstream without anyone re-running it.
+⚠ **THIS ROW WAS BRIEFLY CHANGED TO 0.625 AND THE CHANGE WAS WRONG (15 Sep 2026, D-612).**
+The harness re-ran at 0.625, the 0.583 here was taken for a transcription error and
+"corrected". Both readings were real: `re_amenities` ties a competitor at exactly
+2.1917654896, `SessionKnowledge._search` broke the tie on `str(chunk_id)`, and the test
+fixture derives chunk ids from a LABEL — so the published figure depended on an incidental
+harness string, and re-running reproduced the coin flip rather than catching it. **Re-running
+a measurement is not verification when the measurement is not deterministic.** Fixed at both
+ends: `_search` now breaks ties by pack POSITION (the rule the dense arm already used, and
+the order production packs are stored in, `kb/pack.py:171` — identical ranking on any real
+pack), and `_recall` refuses to score a fact that merely TIES the passage below the cut, so
+recall@1 now means "the unambiguous best match". 0.583 is the stable reading, and
+`test_the_numbers_do_not_depend_on_the_fixture_label` sweeps the label and asserts one value.
 
 **THE SECOND LANGUAGE LANDED 15 Sep 2026 (D-612), AND THE SHAPE REPRODUCED.** The same
 harness now also scores `tests/fixtures/hindi_gloss_corpus.json` — 24 facts from two of the
@@ -760,6 +767,12 @@ language a client can configure an agent in today.
 | English — **the form step 2 actually emits** | **0.917** | the control, and it wins |
 | Romanised (Hinglish), unparaphrased | **0.750** | degrades gradually |
 | Devanagari, unparaphrased | **0.083** | **22 of 24 answered `not_found`** |
+
+Both Hindi rows are recall@1. At recall@3 the three forms are 1.000, **0.792** and 0.083 —
+the 0.792 was first published as 0.833, which was the same tie-break coin flip on the other
+corpus (two education facts tie at 1.726393609 and the tie decided which of them took the
+runner-up slot of an `ambiguous` answer). Corrected here and in the test, and the Hinglish
+recall@3 floor moved 0.79 → 0.75 to sit a question under the stable reading.
 
 ⚠ **DO NOT READ THE TWO TABLES AS TELUGU AGAINST HINDI.** They are two corpora; the first
 two rows differ because these 24 facts are more topically disjoint than those 24, and
