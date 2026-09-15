@@ -3,7 +3,7 @@
 
 Every key in `.env.example` must be a Settings field, every Settings field must appear
 in `.env.example` **or be managed in the ops console** — and every environment variable
-the code actually READS must be a Settings field, or be in one of the three named
+the code actually READS must be a Settings field, or be in one of the four named
 registries below with the reason it cannot be one.
 
 THE SECOND DIRECTION LEARNED A NEW SOURCE OF TRUTH (PLATFORM-CONFIG §12). Before the
@@ -112,6 +112,52 @@ DRILL_ENV_KEYS: dict[str, str] = {
         "scratch database and a scratch bucket, by an operator, outside every deployable; "
         "`Settings.object_store_endpoint` is the application's and is deliberately not "
         "reused, because a drill must be able to point somewhere the app cannot."
+    ),
+}
+
+# Variables that belong to a deployable which does not run on the VPS and has no `.env`.
+#
+# `apps/voice-worker` runs as a container on Pipecat Cloud `ap-south` (D-592,
+# docs/PIPECAT-MIGRATION.md §8 box 1). It is configured by the vendor's secret set, not by
+# `/var/www/calevate/.env`, and it does not construct `Settings` at all — that type demands
+# `APP_ENV`, `REDIS_URL` and the rest of `BOOTSTRAP_REQUIRED`, none of which exist in that
+# container (`voice_worker/boot.py` carries the full argument). So the two directions this
+# file usually enforces both point the wrong way for these four: a `Settings` field would
+# be one no process reads, and a line in `.env.example` would tell an operator to put a
+# value somewhere it is never looked for.
+#
+# WHAT REPLACES THE FAIL-FAST PROPERTY, because it genuinely still applies:
+# `voice_worker.boot.load_worker_config` refuses to start the container and names every
+# missing variable at once — which is strictly earlier than `Settings` would fail, since it
+# runs before any call is admitted. The three keys below that the worker ALSO needs and
+# that ARE `Settings` fields (`DATABASE_URL`, `OBJECT_STORE_*`, `SARVAM_API_KEY`,
+# `CARTESIA_API_KEY`, the three LLM credentials) are deliberately spelled the same in both
+# places and so need no entry here: one value, one name, two homes.
+CONTAINER_ENV_KEYS: dict[str, str] = {
+    "PLIVO_AUTH_ID": (
+        "apps/voice-worker/voice_worker/boot.py — read by PIPECAT, not by us: "
+        "`runner.utils._create_telephony_transport` builds `PlivoFrameSerializer("
+        'auth_id=os.getenv("PLIVO_AUTH_ID", ""), ...)`. The worker checks it at boot '
+        "because the serializer raises only at the first SESSION, and without it the "
+        "EndFrame hang-up (DELETE /v1/Account/{auth_id}/Call/{call_id}/) cannot run — a "
+        "leg nobody hung up is a leg the carrier goes on billing."
+    ),
+    "PLIVO_AUTH_TOKEN": (
+        "The other half of the pair above, with the same owner, the same reader and the "
+        "same consequence."
+    ),
+    "VOICE_WORKER_DRAIN_GRACE_SECONDS": (
+        "apps/voice-worker/voice_worker/boot.py — how long a container being replaced may "
+        "spend settling the call it is carrying. A variable rather than a constant because "
+        "the number it wants to be is the platform's SIGTERM-to-SIGKILL window, which is "
+        "UNKNOWN here (docs.pipecat.ai is egress-blocked), so the operator who learns it "
+        "must be able to set it without a rebuild."
+    ),
+    "VOICE_WORKER_READY_FILE": (
+        "apps/voice-worker/voice_worker/lifecycle.py — where to write the readiness "
+        "marker, or unset for none. Optional by design: this container has no HTTP surface "
+        "and Pipecat Cloud's probe shape is UNKNOWN, so the marker is published in the one "
+        "form that needs no contract (a file an exec probe can `test -f`)."
     ),
 }
 
@@ -393,6 +439,7 @@ def evaluate(
             key in INFRA_ENV_KEYS
             or key in DRILL_ENV_KEYS
             or key in SDK_ENV_KEYS
+            or key in CONTAINER_ENV_KEYS
             or key.lower() in settings_fields
         ):
             continue

@@ -1,0 +1,52 @@
+# Pipecat Cloud deployment manifest for the Calevate voice worker (D-592, D-606).
+#
+# ⚠ THIS FILE HAS NEVER BEEN APPLIED. There is no Pipecat Cloud account
+# (docs/PIPECAT-MIGRATION.md §6 step 6), so nothing here has been accepted, rejected or
+# even parsed by the vendor's CLI. Every key below is one the vendor's own scaffold emits
+# — `pipecat/cli/templates/server/pcc-deploy.toml.jinja2`, shipped inside the pinned
+# `pipecat-ai==1.10.0` wheel and read 15 Sep 2026 — and no key is invented beside them.
+#
+# WHAT IS NOT HERE AND CANNOT BE, WHICH IS THE IMPORTANT PART: THE REGION. This worker is
+# meant to run in `ap-south` (§8, box 1), and that scaffold has no region key at all. How
+# `ap-south` is actually selected — a key this template does not emit, a `pipecat cloud
+# deploy` flag, or an account-level setting — is UNKNOWN: `docs.pipecat.ai` is
+# egress-blocked from the container this was written in, and the only thing in this tree
+# that says anything about it is `docs/evidence/engine-replacement-comet-2026-09-06.md:81`
+# ("`ap-south` self-serve"), which says the region EXISTS and not how to ask for one. A
+# guessed key would be the worst outcome available: it would either be rejected, or
+# ignored, and an ignored region key means a container in the wrong hemisphere with a
+# manifest that says otherwise. docs/DEPLOYMENT.md §12 gate 2 is where a human closes it.
+
+# The deployed agent's name. Matches the workspace member and the image, so a log line,
+# `pipecat cloud agent logs <name>` and this repository all say one word.
+agent_name = "calevate-voice-worker"
+
+# The secret set the platform injects into the container's environment. A deployed bot has
+# none of the developer's `.env` (`pipecat/cli/agent_templates/AGENTS.md:302-304`), so this
+# name is the whole of the runtime configuration story: `pipecat cloud secrets set
+# calevate-voice-worker-secrets --file <file>` is what puts the values in, and
+# `voice_worker/boot.py` is the list of what they must be. PLATFORM_KEK is NOT among them
+# and never will be — see that module's docstring.
+secret_set = "calevate-voice-worker-secrets"
+
+# No video on either leg: this is a phone call. `agent-2x` is the scaffold's choice when
+# video input or output is enabled, and neither is.
+agent_profile = "agent-1x"
+
+[scaling]
+	# ONE WARM INSTANCE, WHICH IS A PILOT DECISION AND NOT THE PRODUCTION NUMBER.
+	#
+	# Zero would mean scale-to-zero, whose documented cold start is about 10 seconds
+	# (`docs/evidence/engine-replacement-comet-2026-09-06.md:93`) — that is a clinic's
+	# phone ringing for ten seconds before anything answers, which that same line calls
+	# "not usable for inbound", and it is the failure a caller notices first.
+	#
+	# The production number is a capacity decision with a monthly rupee floor attached:
+	# the honest ten-line clinic row is ten reserved instances at $0.0005/min each, about
+	# ₹19,008/month before a single active minute (evidence:93, :104), against a product
+	# that charges ₹5.00/min and no monthly fee (evidence:149). One instance carries one
+	# session (evidence:122), so concurrency and this number are the same number. Nobody
+	# is being charged for a call yet, so this is one — enough that the first real call
+	# does not wait on a cold start, and not a standing bill for capacity no client is
+	# using. Raise it WITH the first client, not before.
+	min_agents = 1
