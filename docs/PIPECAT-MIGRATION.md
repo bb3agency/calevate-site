@@ -132,6 +132,24 @@ That is the honest consequence of owning the pipeline and it must not be softene
 defaulting any leg to zero — a leg we cannot price raises, exactly as
 `llm_inr_per_ktok` already does.
 
+**A REFUSAL NOW HAS SOMEWHERE TO GO, AND THAT IS THE HALF THIS SECTION WAS MISSING**
+(15 Sep 2026). Raising is correct and was not sufficient: a refusal whose only record is a
+log line is a refusal in a container that will be gone by morning, and
+`admin/health.py::calls_unmetered` could say a completed call had no money against it
+without ever saying WHICH leg or WHAT to do. `call_metering_refusals` (migration
+`a3f1c6e82d47`, append-only, FORCE-RLS'd) carries the four fields
+`voice_worker/meter.py`'s `LegNotMeterableError` family already produces — `leg`, `code`,
+`detail`, `remediation` — and `voice_worker/sink.py::settle` writes one instead of a row of
+zeroes. **Settlement stays all-or-nothing**: `metered_rows` refuses whole, so a refused call
+has a refusal row and NO `usage_events` rows at all, never four legs and a hole.
+
+**THE TWO LLM UNIT TYPES LANDED WITH IT.** `meter.py` had spelled `llm_ktok_in` /
+`llm_ktok_out` since it was written and `ck_usage_events_unit_type_enum` refused them, which
+was the correct failure and is now answered rather than worked around. They are NOT
+`llm_tok_in`/`llm_tok_out`, which carry the rented engine's leg charge at `qty = 1`; see
+`docs/DATA-MODEL.md` §8 for the split and the NUMERIC(12,4) arithmetic that makes the `k`
+a money decision.
+
 ## 2. THE THREE MOVING PARTS
 
 ```
@@ -246,7 +264,7 @@ three seconds per turn.
 | 8 | `GnaniTTSService` | Gnani Q1 |
 | 9 | `Clear` flips to Gnani; Sarvam TTS retires | step 8 + price attested |
 | 10 | Bolna adapter deleted, one commit | a real Pipecat call has happened |
-| 11 | Wire `voice_worker/knowledge.py` into `pipeline.py` — `SessionConfig` carries the pack digest, `assemble_call` awaits `load_session_knowledge`, `SessionKnowledge.search` registers as a tool | **DONE, 14 Sep 2026.** The ends landed first and the MIDDLE was open for three commits: nothing read `agents.knowledge_pack_sha256` into a `SessionConfig` and nothing awaited the load, so every call would have been assembled with `knowledge=None` and every caller told the client had published nothing. Closed by `voice_worker/config.py` (the version + pack-pointer read), `voice_worker/storage.py` (the `PackFetcher` over the bucket, bounded) and `voice_worker/session.py` (`start_session`: config, then pack, then `assemble_call`, with the one process-wide `PackCache`). What is still not called in production is the CONTAINER BOOTSTRAP — transport, sink and DB engine — which is step 6 and gated on BLOCKER-1. §8 |
+| 11 | Wire `voice_worker/knowledge.py` into `pipeline.py` — `SessionConfig` carries the pack digest, `assemble_call` awaits `load_session_knowledge`, `SessionKnowledge.search` registers as a tool | **DONE, 14 Sep 2026.** The ends landed first and the MIDDLE was open for three commits: nothing read `agents.knowledge_pack_sha256` into a `SessionConfig` and nothing awaited the load, so every call would have been assembled with `knowledge=None` and every caller told the client had published nothing. Closed by `voice_worker/config.py` (the version + pack-pointer read), `voice_worker/storage.py` (the `PackFetcher` over the bucket, bounded) and `voice_worker/session.py` (`start_session`: config, then pack, then `assemble_call`, with the one process-wide `PackCache`). **THE BOOTSTRAP LANDED 15 SEP 2026 AND ONE THIRD OF IT REMAINS OPEN.** This row used to end "what is still not called in production is the CONTAINER BOOTSTRAP — transport, sink and DB engine". The sink and the engine now exist: `voice_worker/db.py` (ONE engine and pool for the container, shared by the config read and the writer, which is what `config.load_session_config` asked for by name), `voice_worker/sink.py` (`calls`, `transcript_turns` and `usage_events`, in the same statements, on the same idempotency keys and through the same `apps/workers/redaction.py` as the post-call pipeline, so the two writers converge on one row) and `voice_worker/runtime.py` (the entrypoint: bootstrap order, the meter's observer, and `WorkerRunner(handle_sigterm=True)` — OFF by default, so without it an orchestrator's stop signal kills a call mid-settlement). What is still open is the TRANSPORT, which is BLOCKER-1 and nobody's to code around, and the container IMAGE: the root `Dockerfile` copies `apps/api`, `apps/voice-runtime` and `apps/workers` and not this package. ⚠ Every settlement in production TODAY is a recorded refusal rather than rupees, because §1.2 gives the billable minute to the carrier and there is no carrier — see §1.3 and `call_metering_refusals`. §8 |
 | 12 | Give `kb/pack.py::publish_pack` a caller on the publish path, and an object-lifecycle rule for `knowledge-packs/` | step 11 |
 | 13 | Golden caller-language → English-hit set in CI | **FIRST ARM LANDED 14 Sep 2026**: `tests/in_call_retrieval_recall_test.py` scores the real pack and the real search, no wiring needed. What remains is a second language's corpus. §9.4 |
 | 14 | Supermemory on box 2 behind `RetrievalProvider`; embedding pointed at Gemini and PROVEN non-local | **THE ADAPTER LANDED 14 Sep 2026; THE INSTALL DID NOT, AND THE TWO HALVES ARE NOT THE SAME CLAIM.** `apps/api/retrieval/supermemory.py` is a third value of `Settings.retrieval_provider` that swaps the T3 member of `KnowledgeRetriever`, with `PgVectorRetriever` underneath it as a per-request fallback — so an unreachable box 3 degrades dashboard search and nothing else (§8.5), and step 15 is untouched. ⚠ **IT IS NOT A VERIFIED INTEGRATION**: nothing here has read a page of Supermemory's API docs (`supermemory.ai` egress-blocked), so every path and key is an ASSUMPTION collected in `retrieval/supermemory_wire.ASSUMED_CONTRACT` and a shape we guessed wrong falls back rather than erroring. Tenancy is OURS per §8.4 — `per_tenant_namespace` is declared **False**, the scope is a required first parameter of every wire method, and records returned without the tenant tag are dropped and counted. What still gates this row is entirely outside the repo: the install itself, §8.3's `top` check, and an operator attesting the embedding price — until that figure is entered, `search_is_billable()` is False and the provider is not selectable at all (hard rule 7's pre-flight) |

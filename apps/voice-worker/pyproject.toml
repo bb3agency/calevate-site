@@ -110,6 +110,18 @@ dependencies = [
     # edge to a package the one venv already installs, at the SAME floor — two ranges for
     # one vendor would mean whichever member resolved first decided for both.
     "httpx>=0.28",
+    # The surrogate primary keys this container mints for the rows `voice_worker/sink.py`
+    # writes (`calls`, `transcript_turns`, `usage_events`). `uuid_utils.compat.uuid7`
+    # returns a stdlib `uuid.UUID`, which is what SQLAlchemy binds — the repo's own
+    # `apps.api.db.base.uuid7` is the same function written by hand before the vendor
+    # shipped that shim, and reaching into the monolith for one line would contradict this
+    # file's whole argument.
+    #
+    # SUPPLY CHAIN (hard rule 9): no new distribution enters the lock. `uuid-utils` is
+    # already resolved for `calevate-api`; this adds an edge to a package the one venv
+    # already installs, at the SAME floor — two ranges for one vendor would mean whichever
+    # member resolved first decided for both.
+    "uuid-utils>=0.10",
 ]
 
 # Virtual member, exactly like `apps/voice-runtime`: the directory is hyphenated (D-18)
