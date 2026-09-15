@@ -103,9 +103,33 @@ class WireContract:
     result_tags_key: str
     #: ASSUMED — the per-result key holding whatever metadata we attached at ingest.
     metadata_key: str
-    #: OURS, inside `metadata_key` — what we would write at ingest. Not vendor facts: the
-    #: ingest side (§6 step 15) has not been built, so nothing writes them yet and every
-    #: one of them is optional on the way back.
+    #: ASSUMED — the INGEST endpoint: where one document is written. A POST like the
+    #: search, for the reason `delete_path` gives.
+    ingest_path: str = "/v3/documents"
+    #: ASSUMED — the DELETE endpoint, and **it is a POST rather than an HTTP DELETE**. That
+    #: is a choice of ours on top of a guess of theirs, and it buys one thing: the transport
+    #: stays a single verb, so the auth header (itself assumed — `supermemory.HttpxTransport`)
+    #: is guessed once. A body-carrying DELETE would be a second assumption stacked on the
+    #: first, and the correction cost is identical either way — this string, and the method
+    #: on the transport.
+    delete_path: str = "/v3/documents/delete"
+    #: ASSUMED — the ingest request key carrying the document's text.
+    content_key: str = "content"
+    #: ASSUMED — the ingest request key carrying an id WE choose, so the document we wrote
+    #: is the document we can later withdraw. **This is the load-bearing assumption of the
+    #: write half**, the way `container_tags_key` is of the read half: if the vendor ignores
+    #: a client-supplied id, every delete addresses nothing and a withdrawn price list stays
+    #: searchable. It is why `kb_index_documents` records what we sent — the ledger is what
+    #: makes the reconciliation sweep able to notice.
+    document_id_key: str = "customId"
+    #: ASSUMED — the delete request key carrying those ids. **Absent from the body means
+    #: "everything carrying the tags"**, which is how a tenant purge is expressed; that
+    #: reading is itself ASSUMED and is why the purge ALSO enumerates the ledger.
+    delete_ids_key: str = "customIds"
+    #: OURS, inside `metadata_key` — what `ingest_payload` writes and `_provenance` reads
+    #: back. Not vendor facts: what a metadata value MEANS is our choice, only the field it
+    #: travels in is assumed. Every one of them stays optional on the way back, because a
+    #: record written before this contract was corrected is still a client's own knowledge.
     metadata_source_label: str = "calevate_source_label"
     metadata_source_id: str = "calevate_source_id"
     metadata_agent_id: str = "calevate_agent_id"
@@ -153,8 +177,37 @@ class TenantScope:
 
     @classmethod
     def for_request(cls, request: RetrievalRequest) -> TenantScope:
-        """The one constructor a caller uses. Takes the request so it cannot take less."""
+        """The READ side's constructor. Takes the request so it cannot take less."""
         return cls(tenant_id=request.tenant_id, agent_id=request.agent_id)
+
+    @classmethod
+    def for_publish(cls, *, tenant_id: UUID, agent_id: UUID) -> TenantScope:
+        """The INGEST side's constructor: whose knowledge is being written, and for which
+        agent. Both required, both keyword, neither defaultable.
+
+        **THIS IS NOT A LOOSENING OF `for_request`'s RULE, AND THE DISTINCTION IS WORTH
+        STATING** because a second constructor on a scope type is exactly where such a rule
+        usually dies. What the type defends is that no body reaching this vendor can be
+        BUILT without naming a tenant — §8.4 leaves the wall on our side, so an unscoped
+        write is a document filed under nobody, retrievable by the next tenant who asks a
+        similar question. A publish has no `RetrievalRequest` to take, so the choice was a
+        constructor whose two arguments are required UUIDs or a `str` tag threaded through
+        the publish path; the second is the forgettable one. `agent_id` is required here
+        and optional on a read for the same reason the tag list is additive: a query with
+        no agent legitimately means "everything this tenant published", and a DOCUMENT with
+        no agent means nothing at all — every `kb_chunks` row carries one.
+        """
+        return cls(tenant_id=tenant_id, agent_id=agent_id)
+
+    @classmethod
+    def for_tenant(cls, tenant_id: UUID) -> TenantScope:
+        """The ERASURE side's constructor: everything this tenant has, no agent narrowing.
+
+        Separate from `for_publish` rather than defaulting its `agent_id`, so the one call
+        site that means "every agent" says so — a default would make an ingest that forgot
+        its agent read as a deliberate tenant-wide document.
+        """
+        return cls(tenant_id=tenant_id)
 
     @property
     def tenant_tag(self) -> str:
@@ -185,10 +238,93 @@ def search_payload(
         contract.limit_key: k,
         contract.container_tags_key: scope.tags(),
     }
+    _assert_scoped(payload, scope=scope, contract=contract)
+    return payload
+
+
+def ingest_payload(
+    scope: TenantScope,
+    *,
+    document_id: UUID,
+    content: str,
+    source_id: UUID,
+    source_label: str,
+    document_version: int,
+    contract: WireContract = ASSUMED_CONTRACT,
+) -> dict[str, Any]:
+    """THE ONLY ingest body this package builds, and it cannot be built unscoped.
+
+    The closing assertion is `search_payload`'s, and it is worth MORE on this side: a query
+    that loses its tag returns a neighbour's knowledge to one person once, and a DOCUMENT
+    that loses its tag is filed untagged for ever — invisible to every scoped query
+    including its own tenant's, unreachable by `delete_payload`'s tag-scoped purge, and
+    therefore invisible to the erasure that purge discharges. It is the one defect here
+    that a later correction cannot reach.
+
+    **THE METADATA IS THE READ SIDE'S, WRITTEN BY THE ONE FUNCTION THAT READS IT.** Every
+    key is `_provenance`'s own (`metadata_source_label`, `metadata_source_id`,
+    `metadata_agent_id`, `metadata_document_version`), so "what a citation needs" is
+    decided once. `agent_id` is taken from the SCOPE rather than as a seventh argument —
+    the tag and the metadata must agree, and two arguments that must agree are one argument.
+    """
+    agent_id = scope.agent_id
+    if agent_id is None:  # pragma: no cover - `for_publish` cannot produce this
+        raise SupermemoryWireMismatchError("an ingest body was built without its agent")
+    payload: dict[str, Any] = {
+        contract.document_id_key: str(document_id),
+        contract.content_key: content,
+        contract.container_tags_key: scope.tags(),
+        contract.metadata_key: {
+            contract.metadata_source_label: source_label[:200],
+            contract.metadata_source_id: str(source_id),
+            contract.metadata_agent_id: str(agent_id),
+            contract.metadata_document_version: document_version,
+        },
+    }
+    _assert_scoped(payload, scope=scope, contract=contract)
+    return payload
+
+
+def delete_payload(
+    scope: TenantScope,
+    *,
+    document_ids: Sequence[UUID] = (),
+    contract: WireContract = ASSUMED_CONTRACT,
+) -> dict[str, Any]:
+    """The withdrawal body. Ids when we know them, and the tenant tag ALWAYS.
+
+    **TWO SHAPES, ONE BUILDER, AND THE TAG IS IN BOTH.** With ids it withdraws exactly the
+    documents `kb_index_documents` says we wrote; with none it means "everything carrying
+    these tags", which is how `purge_tenant_index` expresses a DPDP erasure. That second
+    reading is ASSUMED (`WireContract.delete_ids_key`) and is the reason the purge does not
+    rest on it alone — it also enumerates the ledger, so the obligation is discharged by
+    the shape we have evidence for and belted by the shape we do not.
+
+    The tag rides along even when ids are given, which is not redundancy: it is the only
+    thing standing between a wrong id — ours, or a vendor that recycles them — and a
+    delete that lands in somebody else's documents. A `DELETE` is the one operation where
+    the scope being a filter we send rather than a wall they enforce cuts the dangerous way.
+    """
+    payload: dict[str, Any] = {contract.container_tags_key: scope.tags()}
+    if document_ids:
+        payload[contract.delete_ids_key] = [str(document_id) for document_id in document_ids]
+    _assert_scoped(payload, scope=scope, contract=contract)
+    return payload
+
+
+def _assert_scoped(
+    payload: Mapping[str, Any], *, scope: TenantScope, contract: WireContract
+) -> None:
+    """Re-read the tenant tag out of a body that was just built from the scope.
+
+    One function rather than three copies of the same three lines, for the reason the
+    assertion exists at all: the failure it guards is an EDIT — a renamed contract field, a
+    builder that stopped calling `scope.tags()` — and a check each builder spells for itself
+    is a check the next builder forgets to spell.
+    """
     tags = payload.get(contract.container_tags_key)
     if not isinstance(tags, list) or scope.tenant_tag not in tags:  # pragma: no cover
-        raise SupermemoryWireMismatchError("a search body was built without its tenant tag")
-    return payload
+        raise SupermemoryWireMismatchError("a Supermemory body was built without its tenant tag")
 
 
 def parse_search(
@@ -299,6 +435,8 @@ __all__ = [
     "SupermemoryWireMismatchError",
     "TenantScope",
     "WireContract",
+    "delete_payload",
+    "ingest_payload",
     "parse_search",
     "search_payload",
 ]

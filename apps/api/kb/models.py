@@ -195,6 +195,41 @@ class KbChunk(PKMixin, TimestampMixin, Base):
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="true")
 
 
+class KbIndexDocument(PKMixin, TimestampMixin, Base):
+    """What the EXTERNAL search index (box 3) holds for one published chunk.
+
+    Migration `b5e83f21c4d7` carries the long form; the two properties worth reading here:
+
+    **NOTHING IS A FOREIGN KEY EXCEPT THE TENANT.** `agent_id`, `source_id` and
+    `document_id` are plain columns on purpose. Retention DELETEs `kb_sources`
+    (`workers/retention._KB_EXPIRE_SQL`) and `kb_chunks` cascades away with it — but the
+    vendor's copy does not, and a row that cascaded would destroy the only record that box 3
+    still holds the document. A row whose chunk is gone IS the instruction to withdraw it
+    (`retrieval/supermemory_index._ORPHAN_SQL`), which a cascade would silently delete.
+
+    **IT HOLDS NO CONTENT, ONLY A DIGEST OF IT.** `content_sha256` is over the chunk's text
+    and its English gloss, so a late gloss moves it and the sweep re-sends the document. The
+    client's prose lives once, on `kb_documents` — `KbChunk`'s rule, for `KbChunk`'s reason.
+    """
+
+    __tablename__ = "kb_index_documents"
+    __table_args__ = (
+        UniqueConstraint("document_id", name="uq_kb_index_documents_document_id"),
+    )
+
+    tenant_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="RESTRICT"), nullable=False
+    )
+    agent_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    source_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    #: The chunk this document is, and the id sent as the vendor's client-supplied document
+    #: id (`supermemory_wire.WireContract.document_id_key`, ASSUMED) so a withdrawal can
+    #: address what an ingest wrote.
+    document_id: Mapped[UUID] = mapped_column(PgUUID(as_uuid=True), nullable=False)
+    content_sha256: Mapped[str] = mapped_column(Text, nullable=False)
+    synced_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+
+
 #: `kb_uploads.source_kind`. The two kinds the ENGINE takes natively plus the conversion
 #: lane's own `CONVERTIBLE_KINDS`, derived from it rather than retyped so a kind a reader
 #: can serve and a kind this column can hold are one vocabulary — the drift that would
