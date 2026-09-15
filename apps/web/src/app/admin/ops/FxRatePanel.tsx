@@ -7,7 +7,7 @@ import {
   forbiddenReason,
   isForbidden,
 } from "@/app/admin/withheld";
-import { MonoValue } from "@/app/admin/ops/opsLanguage";
+import { MonoValue, fxSourceCopy } from "@/app/admin/ops/opsLanguage";
 import {
   Card,
   NoticeBox,
@@ -37,6 +37,22 @@ import { useFxRate, type FxRate } from "@/lib/api/opsFxRate";
  * argument). The one thing decided here is which sentence to show, and it is decided from
  * the server's own `state` rather than by re-testing a threshold this bundle would then
  * own a stale copy of.
+ *
+ * ## Which rung is on each row, and why the raw string stays
+ *
+ * The pull walks a ladder of published sources (`apps/workers/fx_pull.LADDER`: FBIL
+ * directly, then FBIL through Frankfurter, then Frankfurter's own rate, then the number
+ * you typed). Every rung it fetched is stored, so "Recent pulls" is a list of DIFFERENT
+ * SOURCES and not a list of the same one over time — a row without its source is
+ * unreadable, and that is what this list used to be.
+ *
+ * The source is printed verbatim AND glossed (`fxSourceCopy`, opsLanguage §7). Verbatim
+ * because it is the string stamped on every `usage_events` row the rate converted and
+ * can never be re-stamped (hard rule 4), so it is what an operator matches in a
+ * reconciliation; glossed because the string alone does not say whether the platform is
+ * billing off the Indian benchmark. A source this bundle does not recognise — a rung
+ * added after it was built — prints raw with no gloss rather than being called something
+ * wrong.
  */
 
 type FxState =
@@ -145,6 +161,24 @@ export function FxRatePanel() {
   );
 }
 
+/**
+ * One source string, as the operator reads it and as the ledger holds it.
+ *
+ * Both, always: the gloss is what tells them whether this is the benchmark, and the raw
+ * string is what they will be matching against a `usage_events` row six months from now.
+ * An unrecognised source glosses to itself, so the pair collapses to the string alone
+ * rather than to a label this bundle invented.
+ */
+function FxSource({ source }: { source: string }) {
+  const copy = fxSourceCopy(source);
+  return (
+    <span className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+      <span className="text-ink">{copy.label}</span>
+      {copy.label !== source && <MonoValue>{source}</MonoValue>}
+    </span>
+  );
+}
+
 function FxRateBody({ rate }: { rate: FxRate }) {
   const headline = fxHeadline(rate);
   return (
@@ -195,7 +229,7 @@ function FxRateBody({ rate }: { rate: FxRate }) {
         <dt className="text-ink-muted">Source</dt>
         <dd>
           {rate.published_source ? (
-            <MonoValue>{rate.published_source}</MonoValue>
+            <FxSource source={rate.published_source} />
           ) : (
             <span className="text-ink-faint">none yet</span>
           )}
@@ -205,17 +239,26 @@ function FxRateBody({ rate }: { rate: FxRate }) {
       {rate.history.length > 0 && (
         <div>
           <p className="text-sm font-medium text-ink">Recent pulls</p>
-          <ul className="mt-2 space-y-1 text-sm">
+          <p className="mt-1 text-sm text-ink-faint">
+            One row per source the pull actually asked. Several sources on one
+            day is the ladder working, not a fault.
+          </p>
+          <ul className="mt-2 space-y-2 text-sm">
             {rate.history.map((observation) => (
               <li
                 key={`${observation.source}-${observation.as_of}-${observation.rate}`}
-                className="flex items-baseline justify-between gap-2"
+                className="border-b border-line pb-2 last:border-0 last:pb-0"
               >
-                <span className="text-ink-muted">{observation.as_of}</span>
-                <MonoValue>{observation.rate}</MonoValue>
-                <span className="text-ink-faint">
-                  {formatIST(observation.observed_at)}
-                </span>
+                <div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1">
+                  <span className="text-ink-muted">{observation.as_of}</span>
+                  <MonoValue>{observation.rate}</MonoValue>
+                  <span className="text-ink-faint">
+                    {formatIST(observation.observed_at)}
+                  </span>
+                </div>
+                <div className="mt-1">
+                  <FxSource source={observation.source} />
+                </div>
               </li>
             ))}
           </ul>

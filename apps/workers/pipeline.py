@@ -2499,7 +2499,7 @@ async def _meter(tenant_id: UUID, call_id: UUID, snapshot: ExecutionSnapshot) ->
                 # The fx rate used AT CAPTURE — without it the row cannot be re-derived.
                 "fx_rate": str(cost.fx_rate) if cost.fx_rate is not None else None,
                 # WHICH rate that was, and WHEN it was published. A published rate reads
-                # `frankfurter:FBIL` with the source's own date; a call converted while
+                # `fbil:refrates` with the source's own date; a call converted while
                 # the feed was down or stale reads `configured:usd_inr_rate` with no date.
                 # `fx_rate` alone cannot tell those apart, and "was this call billed off a
                 # live rate?" is the first question a margin dispute asks.

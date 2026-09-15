@@ -379,6 +379,53 @@ export function dncSourceCopy(source: string): ProvenanceCopy {
 }
 
 /* ────────────────────────────────────────────────────────────────────────────
+ * 7. WHERE AN EXCHANGE RATE CAME FROM
+ *
+ * `fx_rate_observations.source` is `"<api>:<publication>"` — `fbil:refrates`,
+ * `frankfurter:FBIL`, `frankfurter:default`, `configured:usd_inr_rate`. It is stamped on
+ * every `usage_events` row the rate converts and can never be re-stamped (hard rule 4),
+ * so the raw string is the ONE thing on the FX panel that must stay verbatim: it is what
+ * the operator matches against a ledger row and quotes in a reconciliation. What it is
+ * not is readable — "frankfurter:default" tells a non-engineer nothing about whether the
+ * platform is billing off the Indian benchmark — so the string is SHOWN and the gloss is
+ * shown BESIDE it, never instead of it.
+ *
+ * THIS IS COPY, NOT A VERDICT. Whether the rate is live, stale or the fallback is the
+ * server's decision and stays there (`FxRatePanel` computes nothing). An unknown source —
+ * a rung added to `apps/workers/fx_pull.LADDER` after this bundle was built — falls back
+ * to the raw string with no gloss, which is exactly what the panel showed before this
+ * table existed: it degrades to silence rather than to a wrong sentence.
+ *
+ * `frankfurter:default`'s gloss says what was REQUESTED, not what is in the answer. What
+ * that endpoint blends is a claim nothing in this tree has read, and a console may not
+ * make one (hard rule 11).
+ * ──────────────────────────────────────────────────────────────────────────── */
+
+const FX_SOURCE: Record<string, ProvenanceCopy> = {
+  "fbil:refrates": {
+    label: "FBIL, direct",
+    help: "Financial Benchmarks India — the administrator that publishes the Indian benchmark USD/INR rate — read from its own service. This is the rate you want on a ledger.",
+  },
+  "frankfurter:FBIL": {
+    label: "FBIL, via Frankfurter",
+    help: "The same Indian benchmark rate, read through the Frankfurter rate API instead of from FBIL directly. The number is the benchmark; the route to it is the backup one.",
+  },
+  "frankfurter:default": {
+    label: "Frankfurter's own rate",
+    help: "The Frankfurter rate API's default answer, with no publisher asked for. It is a real rate published that day, but it is not the Indian benchmark and it is not a figure anyone can look up.",
+  },
+  "configured:usd_inr_rate": {
+    label: "The fallback you set",
+    help: "Not a published rate at all — this is the number you typed under usd_inr_rate, used because nothing published was fresh enough.",
+  },
+};
+
+/** The operator's name for an FX source string, or the string itself when unrecognised. */
+export function fxSourceCopy(source: string): ProvenanceCopy {
+  return lookup(FX_SOURCE, source) ?? { label: source, help: "" };
+}
+
+/* ────────────────────────────────────────────────────────────────────────────
  * 8. THE KEY / SECRET INPUT
  *
  * The field an operator pastes an API key into. This is the control the whole rebuild was

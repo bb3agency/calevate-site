@@ -10,75 +10,83 @@ applied — so the platform's margin drifted with the market and nobody could sa
 much. This job replaces the typing with a published rate and leaves the typed one as the
 fallback for when the publication is missing.
 
-THE SOURCE, AND EVERYTHING KNOWN ABOUT IT
------------------------------------------
-**Frankfurter** (`https://api.frankfurter.dev/v2`), filtered to the **FBIL** provider —
-Financial Benchmarks India, the administrator whose daily USD/INR reference rate is the
-benchmark Indian businesses reconcile against. Choosing FBIL rather than the API's
-own default (unfiltered) response is deliberate: that answer is a blend whose
-composition nothing in this tree has read, and a blended number is not a benchmark
-anybody can look up. `billing/rates.LIST_PRICE_USD_INR` already states this repo's
-convention that the rate a figure is struck at is a published Indian reference rate.
+THE SOURCE: **FBIL, DIRECTLY** (D-609, 15 Sep 2026)
+---------------------------------------------------
+**Financial Benchmarks India Pvt Ltd** is the benchmark administrator whose daily
+USD/INR reference rate is the number an Indian business reconciles a rupee ledger
+against, and it is the number this platform has wanted since the feature shipped. Until
+D-609 it was reached through an AGGREGATOR — `api.frankfurter.dev` with
+`?providers=FBIL` — and the aggregator was a third party sitting in the money path for
+no purpose except that it was already integrated. **The top rung now calls FBIL's own
+endpoint.** It needs no API key, adds no deployable, and removes one party whose
+availability, terms and reading of the source were all things we had to trust without
+being able to check.
 
-EVIDENCE (read 27 Aug 2026 — every fact below is from the project's own repository,
-cloned at commit `60541ad190b6e192d2969038b2b299fb4800a8a2` from
-`https://github.com/lineofflight/frankfurter`, because the API's own documentation host
-IS EGRESS-BLOCKED FROM THIS ENVIRONMENT — see the UNVERIFIED note):
+`billing/rates.LIST_PRICE_USD_INR` already states this repo's convention that the rate a
+figure is struck at is a published Indian reference rate; this rung is the first one that
+gets it from the publisher.
 
-* server + endpoint + response shape — `lib/public/v2/openapi.json`:
-  `servers[0].url = "https://api.frankfurter.dev/v2"`; `paths./rate/{base}/{quote}` GET
-  returns the `Rate` schema, whose properties are exactly `date` (string, format date),
-  `base`, `quote` and `rate` (`type: number`, `exclusiveMinimum: 0`); the documented
-  example is `{"date": "2026-03-25", "base": "EUR", "quote": "USD", "rate": 1.1568}`.
-  Errors are `404` ("No data found"), `422` and `503`, each a JSON object with a
-  `message` string.
-* the provider filter — `components.parameters.providers`: "Comma-separated list of data
-  providers to include".
-* FBIL — `lib/provider/adapters/fbil.rb`: "Financial Benchmarks India (FBIL). Publishes
-  daily reference exchange rates for major currencies against the Indian rupee via a
-  public JSON API."
-* UPDATE FREQUENCY IS **DAILY**, not five-minutely, and this is the fact that shapes the
-  whole design: `Provider.publish_cadence` in the OpenAPI enumerates
-  `daily|weekly|monthly`, and `lib/versions/v2.rb::cache_control_for` caps the
-  cache-control of a latest-rate query at the seconds remaining to UTC midnight, i.e.
-  the vendor itself says the answer cannot change again today. The founder asked for a
-  five-minute pull and gets one — the POLL is five-minutely so a new publication is in
-  force within five minutes of appearing — but the DATA moves once a business day, which
-  is why `observation_key` makes a repeat pull a no-op and why `core/fx.MAX_QUOTE_AGE` is
-  measured in days rather than minutes.
-* no API key: the v2 OpenAPI declares no `security` and no `components.securitySchemes`;
-  nothing in the request below carries a credential.
-* licence: MIT (`LICENSE`, "Copyright (c) Hakan Ensari"; `info.license` in the OpenAPI).
-  ⚠ THAT COVERS THE SOFTWARE, NOT THE HOSTED SERVICE OR THE DATA. The MIT grant is not a
-  commercial-use warranty for `api.frankfurter.dev`, and each upstream publisher carries
-  its own terms (the `/providers` response exposes a `terms_url` per provider for exactly
-  this). What makes that acceptable rather than a bet is that the same software is
-  self-hostable — the README documents a one-command Docker deployment — so if the hosted
-  endpoint's terms, availability or cadence ever fail us, `RATE_URL` moves to our own
-  instance and nothing else in this file changes.
-* RATE LIMITS: **UNKNOWN.** No primary artefact this session could read states one. The
-  request rate here (288/day, one small GET) is not plausibly near any limit, and a 429
-  is handled like any other non-2xx: the tick fails, the previous rate keeps serving.
+**REJECTED: SELF-HOSTING FRANKFURTER.** It is the escape hatch this module's own evidence
+block used to name, and reading the software closed it. At pinned commit
+`45e1b89ab0a725aedecdd1fa678a22eff5908a48` it is a **Ruby 4.0.6** service (puma, a
+scheduler, SQLite) whose scheduler continuously backfills **ninety-nine** provider
+adapters. That is a second language runtime, a second deployable, a second backup and
+restore drill, and ninety-eight currency-source integrations this product will never
+read — to serve ONE currency pair we can fetch in one GET. Going direct costs a parser.
 
-⚠ **UNVERIFIED — `api.frankfurter.dev` IS EGRESS-BLOCKED FROM THIS ENVIRONMENT.** Every
-foreign-exchange API host tried was refused by the egress proxy with a 403 on CONNECT
-(measured 27 Aug 2026: `api.frankfurter.dev`, `api.frankfurter.app`, `open.er-api.com`,
-`api.exchangerate.host`, `api.fxratesapi.com`, plus `www.ecb.europa.eu` and
-`www.rbi.org.in` directly). So this adapter is written against the vendor's OWN OpenAPI
-document and source, and NO BYTE OF A LIVE RESPONSE HAS BEEN SEEN. A human must run the
-one command in OPERATIONS §2 gate 39 against the live endpoint and confirm the four field
-names and the FBIL provider filter before this is trusted with money. Until then the
-failure direction is safe: a response this parser does not recognise is REFUSED (never
-guessed at), the platform keeps converting at `Settings.usd_inr_rate`, and the operator
-is alerted.
+THE WIRE CONTRACT, AND WHOSE READING OF FBIL IT IS
+---------------------------------------------------
+**EVIDENCE CLASS: VERIFIED-OSS-AT-PINNED-COMMIT — and it is FRANKFURTER'S READING OF
+FBIL, NOT FBIL'S OWN PUBLISHED DOCUMENTATION.** Every line below is read from
+`lib/provider/adapters/fbil.rb` in `github.com/lineofflight/frankfurter` at commit
+`45e1b89ab0a725aedecdd1fa678a22eff5908a48` — i.e. from a third party's working client of
+this endpoint. FBIL publishes no API documentation this tree has read, so nothing here is
+the administrator's own statement of its contract and none of it may be quoted as such.
 
-THE LADDER: FBIL, THEN FRANKFURTER'S OWN DEFAULT, THEN THE TYPED CONSTANT
--------------------------------------------------------------------------
-FBIL is PREFERRED and nothing below weakens that: it is the RBI-recognised Indian
-benchmark an Indian business reconciles a rupee ledger against, which is the whole
-argument of the section above. What changed on 11 Sep 2026 is that a preference with
-nothing behind it is a single point of failure, and it failed. Production, every five
-minutes, on schedule, with no alarm anywhere on the pull path:
+* `GET https://www.fbil.org.in/wasdm/refrates/fetchfiltered` with query parameters
+  `fromDate` (`YYYY-MM-DD`), `toDate` (`YYYY-MM-DD`) and `authenticated` — whose value is
+  the STRING `"false"`, not a boolean.
+* The 200 body is a JSON **ARRAY** of records; their adapter raises on a non-array.
+* Three fields are read per record: `subProdName` (string), `processRunDate` (a date
+  string), `rate` (numeric). A record missing any of the three, or whose `rate` is not
+  numeric, is SKIPPED.
+* `subProdName` carries the pair AND ITS UNITS, matched with `INR / (\\d+) ([A-Z]{3})`:
+  group 1 is the number of UNITS of the foreign currency the rate is quoted per, group 2
+  is that currency. Their own comment's example is `"INR / 100 JPY"`, i.e. rupees per ONE
+  HUNDRED yen. A record whose name does not match is skipped; `units == 0` is skipped;
+  the rate is `rate / units`, and a result of `0` is skipped.
+* The observation date is `processRunDate`.
+
+**THE UNITS DIVISION IS THE WHOLE RISK ON THIS RUNG.** `FxQuote.rate` is INR per ONE
+dollar, and a feed that ever published `"INR / 100 USD"` would, if units were assumed to
+be 1, reprice every invoice by a factor of a hundred — the same defect class as
+`engine/bolna._MINOR_UNITS_PER_MAJOR`, which once metered every call at 1/100th of cost.
+So units are read from the record and divided as `Decimal`, never assumed, and
+`ops/fx_rates.MAX_PLAUSIBLE_MOVE` stands behind the arithmetic as the second guard.
+
+⚠ **UNVERIFIED — `www.fbil.org.in` IS EGRESS-BLOCKED FROM THIS ENVIRONMENT AND NO BYTE OF
+A LIVE RESPONSE HAS BEEN SEEN.** Measured from this container on 15 Sep 2026:
+`curl -sS -o /dev/null -w '%{http_code}' 'https://www.fbil.org.in/wasdm/refrates/fetchfiltered?...'`
+→ `curl: (56) CONNECT tunnel failed, response 403`, HTTP `000`. So the LIVE RESPONSE
+SHAPE is unverified in exactly the way `api.frankfurter.dev`'s was: this parser is
+written against a third party's client of the endpoint and is the only thing standing
+between a changed feed and every invoice. Two further facts about the live endpoint are
+**UNKNOWN and are recorded as UNKNOWN rather than assumed**: whether FBIL rate-limits
+this endpoint, and whether it requires a `User-Agent` (or any other header) to answer at
+all. No header is invented here — the request sends what `httpx` sends by default — and
+OPERATIONS §2 gate 39 is where a human with egress settles all three.
+
+The failure direction is the one this module has always taken: a response this parser
+does not recognise is REFUSED with the reason named, never guessed at, and the platform
+keeps converting at the rate it already had.
+
+THE LADDER: FBIL DIRECT, THEN FRANKFURTER'S FBIL, THEN FRANKFURTER'S DEFAULT, THEN THE
+TYPED CONSTANT
+--------------------------------------------------------------------------------------
+Four rungs. The first is new (D-609); the other three are D-589's, unchanged, and the
+incident that produced them is why a preference with nothing behind it is not allowed
+here. Production, every five minutes, on schedule, with no alarm anywhere on the pull
+path:
 
     fx_rate_pulled rate=94.491400 as_of=2026-09-04 source=frankfurter:FBIL inserted=false
 
@@ -93,18 +101,25 @@ specifically had stopped.
 egress-blocked here, as the block above records, and no byte of a live response has been
 seen in this tree.
 
-So there are three rungs, and the gap between the first and the last is no longer a week
-of drift:
+So the rungs are:
 
-1. ``frankfurter:FBIL`` — the benchmark. Preferred whenever it can serve.
-2. ``frankfurter:default`` — the SAME endpoint with NO `providers` filter, i.e. the API's
-   own default response. Named for the REQUEST that produced it rather than for what is
-   in it: what that default blends is a claim about the vendor's composition that nothing
-   in this tree has read this session, and a source string stamped on a money row may not
-   carry one (hard rule 11). It is a real rate published TODAY, which is strictly better
-   than a constant typed a fortnight ago, and it is obviously not rung 1 on any row.
-3. ``configured:usd_inr_rate`` — the operator's typed number, unchanged, and now reached
-   only when every PUBLISHED rung is stale.
+1. ``fbil:refrates`` — the administrator's own endpoint. The benchmark, from the
+   benchmark's publisher, with nobody in between.
+2. ``frankfurter:FBIL`` — the SAME benchmark read by a third party over a different host
+   and a different network path. It is NOT redundant with rung 1 and that is why it
+   survived D-609: rung 1 failing is most often `www.fbil.org.in` being unreachable or
+   having changed its contract, and neither of those is true of `api.frankfurter.dev`.
+   What the two rungs SHARE is the publisher, so when FBIL itself stops publishing they
+   go stale together — which is what rung 3 is for.
+3. ``frankfurter:default`` — the same Frankfurter endpoint with NO `providers` filter,
+   i.e. the API's own default response. Named for the REQUEST that produced it rather
+   than for what is in it: what that default blends is a claim about the vendor's
+   composition that nothing in this tree has read, and a source string stamped on a money
+   row may not carry one (hard rule 11). It is a real rate published TODAY, which is
+   strictly better than a constant typed a fortnight ago, and it is obviously not the
+   benchmark on any row.
+4. ``configured:usd_inr_rate`` — the operator's typed number, unchanged, and reached only
+   when every PUBLISHED rung is stale.
 
 **A LOWER RUNG IS FETCHED ONLY WHEN A HIGHER ONE CANNOT SERVE; EVERY RUNG FETCHED IS
 RECORDED.** Two rules, both load-bearing:
@@ -117,8 +132,17 @@ RECORDED.** Two rules, both load-bearing:
   correction supersedes) selects the serving rung with no second spelling of the ladder
   in SQL. That is why this is one row per rung rather than a preferred-rung-with-fallback
   shape: a usable lower rung is BY CONSTRUCTION newer than the higher rung that was too
-  old to serve, so preference and recency already agree, and when FBIL resumes its newer
-  publication takes the pair back with no state to reset and no flag to clear.
+  old to serve, so preference and recency already agree, and when the benchmark resumes
+  its newer publication takes the pair back with no state to reset and no flag to clear.
+
+**A RUNG IS A REQUEST, A PARSER AND A SOURCE STRING.** Rung 1 speaks a different wire
+language from rungs 2 and 3 — a different host, a dated query window, an ARRAY rather
+than an object — and it is still ONE ladder walked by ONE loop. `FxRung` carries the
+request builder and the parser as fields rather than the loop branching on which rung it
+is holding: a second ladder, a second poller or an `if rung is FBIL_DIRECT_RUNG` inside
+the walk are three spellings of the same defect, because each one is a place the
+plausibility guard, the eager write or the per-rung staleness rule can be forgotten for
+one rung and nobody notices until a bill is wrong.
 
 **THE PLAUSIBILITY BAND APPLIES TO EVERY RUNG, AND AN IMPLAUSIBLE RUNG STOPS THE TICK
 RATHER THAN HANDING OVER TO THE NEXT ONE.** Every rung is written through
@@ -129,9 +153,21 @@ be that same defect wearing a ladder: "the feed is quiet" is what the ladder is 
 feed answered and we do not believe it" is a human's problem from the first occurrence.
 
 **THE STALENESS CEILING IS PER-RUNG**, because it is a property of a QUOTE and always
-was: `FxQuote.usable` is asked of the rate this rung just published, so a fresh rung 2 is
+was: `FxQuote.usable` is asked of the rate this rung just published, so a fresh rung 3 is
 not stale merely because rung 1 is. `MAX_QUOTE_AGE` itself stays one constant — it
-bounds a daily publication cadence both rungs share.
+bounds a daily publication cadence every published rung shares.
+
+WHY A RUNG COULD NOT SERVE IS SAID IN TWO WORDS, NOT ONE
+---------------------------------------------------------
+`RungRefusal` is what an operator SORTS on (three values, three different answers) and
+`FxRefusalCode` is what an operator ACTS on (the precise thing that was wrong). They are
+separate because the old shape collapsed four unlike failures into one word: a non-200,
+a body that is not an array, a body with no USD record and a `subProdName` this parser
+cannot read all arrived as `unusable_response`, which reads like "the feed is quiet" and
+is not — three of those four mean the contract moved under us, and the fourth means FBIL
+answered about currencies that do not include the dollar. Every refusal now carries its
+code into the `fx_rung_refused` log line, into `fx_source_degraded`'s fields and into
+`fx_pull_failed`'s detail, so the alarm names the thing to go and look at.
 
 THREE STATES, THREE ALARMS (they used to be two, and two of them read alike)
 ---------------------------------------------------------------------------
@@ -164,15 +200,19 @@ IDEMPOTENT, KEYED, RETRIED (BACKEND-PATTERNS §4/§5)
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from typing import Any, Final, Literal
+from urllib.parse import urlencode
 
 import httpx
 from arq import Retry
 
 from apps.api.core.alerting import alert
+from apps.api.core.fx import MAX_QUOTE_AGE
 from apps.api.core.logging import get_logger
 from apps.api.core.queue import WORKER_MAX_TRIES
 from apps.api.db.session import untenanted_session
@@ -188,90 +228,91 @@ from apps.api.ops.fx_rates import (
 
 log = get_logger(__name__)
 
-#: The endpoint, without the per-rung query string. Spelled once, here, so the URL an
-#: operator re-runs by hand to reproduce a disputed figure is the URL the platform used —
-#: each rung's FULL url (query string included) is stored on the row it writes
-#: (`fx_rate_observations.source_url`) rather than reconstructed by a reader.
+#: FBIL's own reference-rate endpoint, without the per-tick query string. THE TOP RUNG
+#: (D-609). Spelled once, here, so the URL an operator re-runs by hand to reproduce a
+#: disputed figure is the URL the platform used — each rung's FULL url (query string
+#: included) is stored on the row it writes (`fx_rate_observations.source_url`) rather
+#: than reconstructed by a reader.
+FBIL_URL = "https://www.fbil.org.in/wasdm/refrates/fetchfiltered"
+
+#: The value of FBIL's `authenticated` parameter. **A STRING, NOT A BOOLEAN**, because
+#: that is what their client sends: `fbil.rb` passes `"false"`. A `False` here would go
+#: on the wire as `False` (Python's repr, capitalised) and what an endpoint does with an
+#: unrecognised value is exactly the kind of thing nobody may guess about a money path.
+FBIL_AUTHENTICATED = "false"
+
+#: How far back the FBIL request asks. **STRICTLY WIDER THAN THE STALENESS CEILING, AND
+#: DERIVED FROM IT RATHER THAN TYPED**, which is the whole reason it is not five days.
+#: Asking for exactly the usable window would make "FBIL published nothing usable" and
+#: "FBIL answered about no dollar at all" the same response, and those need different
+#: answers: the first is the feed being behind and is decided ONE place — `FxQuote.usable`
+#: on a stored row, the same predicate money applies — while the second is the contract
+#: or the content having moved and must be read by a human. Twice the ceiling means a
+#: record that is merely too old still ARRIVES, is still recorded (the eager write), and
+#: is refused as `stale_publication` by the one staleness rule; an empty result really is
+#: an anomaly.
+FBIL_WINDOW = MAX_QUOTE_AGE * 2
+
+#: The Frankfurter endpoint behind rungs 2 and 3.
 RATE_URL = f"https://api.frankfurter.dev/v2/rate/{BASE_CURRENCY}/{QUOTE_CURRENCY}"
-#: The provider the PREFERRED rung filters to. See the module docstring for why it is
-#: preferred over the API's own default, and why that preference is not weakened by the
-#: fallback below it.
+#: The provider rung 2 filters Frankfurter to — the same administrator rung 1 calls
+#: directly, read by a third party over a different host.
 PROVIDER = "FBIL"
 
-
-@dataclass(frozen=True, slots=True)
-class FxRung:
-    """One published source, the exact request that reaches it, and why it is here.
-
-    A rung is a REQUEST plus a SOURCE STRING, and the two are defined together on purpose:
-    the string is stamped on every `usage_events` row the rate converts, and hard rule 4
-    means that row can never be annotated afterwards — so the only thing that will ever
-    explain a figure is a source an operator can turn back into the request that produced
-    it. `url` is that request, verbatim, and it is what lands in `source_url`.
-    """
-
-    #: `<api>:<provider>`, stamped on the observation row and on every converted figure.
-    source: str
-    #: The `providers` query value, or `None` for the API's own default (unfiltered)
-    #: response. `None` is a rung, not a missing value — see `url`.
-    providers: str | None
-    #: The operator's sentence for why this rung exists, used in the alarm that says the
-    #: platform has fallen to it.
-    why: str
-
-    @property
-    def url(self) -> str:
-        """The FULL request, query string and all. One spelling: this is both what httpx
-        is handed and what is written to the row, so the stored URL cannot drift from the
-        one that was actually sent."""
-        return RATE_URL if self.providers is None else f"{RATE_URL}?providers={self.providers}"
-
-
-#: THE PREFERRED RUNG. The RBI-recognised Indian benchmark; see the module docstring.
-FBIL_RUNG: Final = FxRung(
-    source=f"frankfurter:{PROVIDER}",
-    providers=PROVIDER,
-    why=("the Indian benchmark rate a rupee ledger reconciles against"),
-)
-#: THE FALLBACK RUNG. The same endpoint with no provider filter — a rate the API itself
-#: published today, which is what makes it better than a constant typed a fortnight ago.
-DEFAULT_RUNG: Final = FxRung(
-    source="frankfurter:default",
-    providers=None,
-    why=(
-        "the rate API's own default response, which is a published rate from today rather "
-        "than an operator's typed constant"
-    ),
-)
-
-#: The ladder, in preference order. `pull_fx_rate` walks it and stops at the first rung
-#: that can serve; nothing else in this repo encodes the order.
-LADDER: Final[tuple[FxRung, ...]] = (FBIL_RUNG, DEFAULT_RUNG)
-PREFERRED_RUNG: Final = LADDER[0]
-
-#: Back-compatible alias for the preferred rung's source. Kept because it is what the
-#: puller's own alarms are tagged with (`_warn_if_silent`) and what the production log
-#: line has said since the feature shipped.
-SOURCE = PREFERRED_RUNG.source
-
-#: WHY A RUNG COULD NOT SERVE. A closed vocabulary, in `incomplete_reason`'s house style,
-#: because it reaches an operator as a machine-readable alarm field and a log key rather
-#: than as prose: the three cases have three different answers and an operator sorts on
-#: them. `stale_publication` is the feed working normally and simply being behind;
-#: `request_failed` is availability (a status code, a refused socket); `unusable_response`
-#: is the vendor's CONTRACT having changed under us, which is the one that must be read
-#: rather than waited out.
-RungRefusal = Literal["stale_publication", "request_failed", "unusable_response"]
-
-#: WHICH RUNG IS SERVING, for the tick summary arq keeps and the log line an operator
-#: greps. Same closed-vocabulary reasoning: "is this platform billing off the benchmark"
-#: is a question that must be answerable without parsing a sentence.
-ServingRung = Literal["preferred", "fallback_source", "configured_fallback"]
+#: How FBIL names a pair AND ITS UNITS. Their own comment's example is `"INR / 100 JPY"`,
+#: rupees per one hundred yen. `search` rather than `fullmatch`: this mirrors the Ruby
+#: `=~` the contract was read from, and inventing an anchor here would refuse records
+#: their own client accepts — a stricter guess is still a guess (hard rule 11).
+_SUB_PROD_NAME = re.compile(r"INR / (\d+) ([A-Z]{3})")
 
 #: Nothing is waiting on this request — no caller, no phone call — so the budget is
 #: generous enough to survive a slow hop and short enough that a hung socket cannot hold
 #: a worker slot into the next tick.
 _TIMEOUT_S = 10.0
+
+#: WHY A RUNG COULD NOT SERVE, in the word an operator SORTS on. A closed vocabulary, in
+#: `incomplete_reason`'s house style, because it reaches an operator as a machine-readable
+#: alarm field and a log key rather than as prose: the three cases have three different
+#: answers. `stale_publication` is the feed working normally and simply being behind;
+#: `request_failed` is availability (a status code, a refused socket); `unusable_response`
+#: is the vendor's CONTRACT or CONTENT having changed under us, which is the one that must
+#: be read rather than waited out.
+RungRefusal = Literal["stale_publication", "request_failed", "unusable_response"]
+
+#: WHAT WAS WRONG, in the word an operator ACTS on. `RungRefusal` says which of three
+#: playbooks applies; this says which line of it. It exists because four unlike failures
+#: used to arrive as the single word `unusable_response` — a non-200, a body that is not
+#: the documented container, a body carrying no USD record, and a `subProdName` this
+#: parser cannot read — and an alarm that cannot tell those apart reads like "the feed is
+#: quiet", which three of the four are not. Every refusal carries one of these into the
+#: `fx_rung_refused` log line, into `fx_source_degraded`'s and `fx_pull_failed`'s
+#: `refusal_code` field (NOT `code` — that name is `alert()`'s own, for the alarm), and
+#: into the alarm detail an operator reads.
+FxRefusalCode = Literal[
+    # availability — the request never produced a body to look at
+    "request_failed",
+    # the body was not the documented container
+    "not_json",
+    "not_an_object",
+    "not_an_array",
+    # the body was the right shape and said the wrong thing
+    "wrong_pair",
+    "rate_not_numeric",
+    "rate_not_positive",
+    "no_date",
+    "date_not_iso",
+    "date_in_future",
+    # FBIL-specific: the array arrived and yielded no usable dollar rate
+    "no_usd_record",
+    "sub_prod_name_unparsable",
+    # the ladder as a whole, when no rung produced a rate and none raised
+    "ladder_exhausted",
+]
+
+#: WHICH RUNG IS SERVING, for the tick summary arq keeps and the log line an operator
+#: greps. Same closed-vocabulary reasoning: "is this platform billing off the benchmark"
+#: is a question that must be answerable without parsing a sentence.
+ServingRung = Literal["preferred", "fallback_source", "configured_fallback"]
 
 #: The schedule, in minutes past the hour — the founder's five minutes, spelled once here
 #: so `settings.py` builds the `cron()` registration from it rather than repeating a set
@@ -301,11 +342,19 @@ class FxPullError(RuntimeError):
     """The pull did not produce a rate this deployment will store. Message is for an
     operator: it names what was wrong with the response, never the response itself.
 
-    Raised bare by `parse_rate_response`, i.e. by the CONTRACT half — the response
-    arrived and this parser refused it. That distinction became load-bearing when the
-    ladder landed: the two halves are different `RungRefusal` values because they have
-    different answers, so the subclass below carries the other one.
+    Raised bare by the PARSERS, i.e. by the CONTRACT half — the response arrived and a
+    parser refused it. That distinction became load-bearing when the ladder landed: the
+    two halves are different `RungRefusal` values because they have different answers, so
+    the subclass below carries the other one.
+
+    `code` is the refusal in one machine-readable word. It is REQUIRED rather than
+    defaulted, because a default is how a new failure mode ends up filed under an old
+    one's playbook — the defect this vocabulary exists to stop.
     """
+
+    def __init__(self, message: str, *, code: FxRefusalCode) -> None:
+        super().__init__(message)
+        self.code: Final[FxRefusalCode] = code
 
 
 class FxFeedUnreachableError(FxPullError):
@@ -315,36 +364,70 @@ class FxFeedUnreachableError(FxPullError):
     (`request_failed`, wait for the next tick) from a changed contract
     (`unusable_response`, read the vendor's docs before trusting anything)."""
 
+    def __init__(self, message: str) -> None:
+        super().__init__(message, code="request_failed")
+
+
+def _publication_date(raw: str) -> date:
+    """One spelling of "the date a source stamped on this rate", for every rung.
+
+    ISO only, and deliberately: `date.fromisoformat` also accepts an ISO DATETIME, which
+    is the one other form a JSON feed plausibly sends, and anything else would be this
+    parser guessing at a format nobody has read. A format we cannot parse is a refusal
+    with the field named — never a coerced date, because `as_of` is what the staleness
+    ceiling is measured against and a wrong one is invisible.
+
+    The future check is here rather than at the call sites because it is the same hazard
+    for every feed: a date in the future is a clock or a parser problem, and it would make
+    a stale rate look permanently fresh — it is the one value a bad feed could use to
+    disable the ceiling entirely.
+    """
+    try:
+        as_of = date.fromisoformat(raw)
+    except ValueError:
+        raise FxPullError(
+            f"the publication date ({raw}) was not an ISO date", code="date_not_iso"
+        ) from None
+    if as_of > datetime.now(UTC).date() + timedelta(days=1):
+        raise FxPullError(f"the publication date ({raw}) is in the future", code="date_in_future")
+    return as_of
+
+
+def _decoded(body: str) -> object:
+    """The vendor's JSON, with **THE RATE NEVER TOUCHING A BINARY FLOAT**, which is the
+    whole reason the parsers below exist rather than a `response.json()` call.
+
+    Both feeds publish their rate as a JSON `number`, and `json.loads` turns a number into
+    a `float` — so `88.4275` would already be `88.42749999999999...` before any of our
+    code saw it, and a rate that cannot be written down exactly is one nobody can
+    reconcile a ledger against. `parse_float=Decimal` hands the parser's own TEXT slice to
+    `Decimal`, which is the only lossless path from their wire to hard rule 7's NUMERIC.
+    `parse_int=Decimal` covers the day a rate is published as `90` rather than `90.0`.
+    """
+    try:
+        return json.loads(body, parse_float=Decimal, parse_int=Decimal)
+    except ValueError:
+        raise FxPullError("the response was not JSON", code="not_json") from None
+
 
 def parse_rate_response(body: str) -> tuple[Decimal, date]:
-    """The vendor's JSON to `(rate, as_of)`, or `FxPullError`.
-
-    **THE RATE NEVER TOUCHES A BINARY FLOAT, AND THIS IS THE WHOLE REASON THIS FUNCTION
-    EXISTS RATHER THAN A `response.json()` CALL.** The vendor publishes `rate` as a JSON
-    `number` (`type: number` in their OpenAPI), and `json.loads` turns a number into a
-    `float` — so `88.4275` would already be `88.42749999999999...` before any of our code
-    saw it, and a rate that cannot be written down exactly is one nobody can reconcile a
-    ledger against. `parse_float=Decimal` hands the parser's own TEXT slice to `Decimal`,
-    which is the only lossless path from their wire to hard rule 7's NUMERIC.
-    `parse_int=Decimal` covers the day the rate is published as `90` rather than `90.0`.
+    """FRANKFURTER's JSON object to `(rate, as_of)`, or `FxPullError`. Rungs 2 and 3.
 
     Every field is checked rather than assumed, including the two that "cannot" be wrong:
     a `base`/`quote` that is not the pair we asked for means a redirect, a proxy or a
     changed route, and converting at somebody else's currency pair is the single most
     expensive way this could fail.
     """
-    try:
-        payload = json.loads(body, parse_float=Decimal, parse_int=Decimal)
-    except ValueError:
-        raise FxPullError("the response was not JSON") from None
+    payload = _decoded(body)
     if not isinstance(payload, dict):
-        raise FxPullError("the response was not a JSON object")
+        raise FxPullError("the response was not a JSON object", code="not_an_object")
 
     base = payload.get("base")
     quote = payload.get("quote")
     if base != BASE_CURRENCY or quote != QUOTE_CURRENCY:
         raise FxPullError(
-            f"the response is for {base}/{quote}, not {BASE_CURRENCY}/{QUOTE_CURRENCY}"
+            f"the response is for {base}/{quote}, not {BASE_CURRENCY}/{QUOTE_CURRENCY}",
+            code="wrong_pair",
         )
 
     raw_rate = payload.get("rate")
@@ -352,55 +435,295 @@ def parse_rate_response(body: str) -> tuple[Decimal, date]:
         # A string, a null, or a missing key. Refused rather than coerced: a feed that
         # changed the type of its money field has changed in a way somebody must read
         # about before we bill on it.
-        raise FxPullError("the response carried no numeric `rate`")
+        raise FxPullError("the response carried no numeric `rate`", code="rate_not_numeric")
     if not raw_rate.is_finite() or raw_rate <= 0:
-        raise FxPullError("the response carried a non-positive or non-finite `rate`")
+        raise FxPullError(
+            "the response carried a non-positive or non-finite `rate`", code="rate_not_positive"
+        )
 
     raw_date = payload.get("date")
     if not isinstance(raw_date, str):
-        raise FxPullError("the response carried no `date`")
-    try:
-        as_of = date.fromisoformat(raw_date)
-    except ValueError:
-        raise FxPullError("the response's `date` was not an ISO date") from None
-    if as_of > datetime.now(UTC).date() + timedelta(days=1):
-        # A date in the future is a clock or a parser problem, and it would make a stale
-        # rate look permanently fresh — `MAX_QUOTE_AGE` is measured against this field, so
-        # it is the one value a bad feed could use to disable the staleness ceiling.
-        raise FxPullError(f"the response's `date` ({raw_date}) is in the future")
-    return raw_rate, as_of
+        raise FxPullError("the response carried no `date`", code="no_date")
+    return raw_rate, _publication_date(raw_date)
+
+
+@dataclass(slots=True)
+class _FbilTally:
+    """Why each record of an FBIL array was passed over, counted rather than narrated.
+
+    An operator staring at `no_usd_record` needs to know WHICH skip happened: "eleven
+    records, all of them other currencies" is FBIL answering normally about a window in
+    which it published no dollar rate, and "eleven records, none of whose names parsed" is
+    the naming convention having changed. COUNTS ONLY — the vendor's own bytes never reach
+    a log line or an alarm (hard rule 6's discipline, applied to a payload rather than to
+    PII), so this is the whole of what a refusal is allowed to say about the body.
+    """
+
+    records: int = 0
+    not_an_object: int = 0
+    incomplete: int = 0
+    name_unparsable: int = 0
+    names_parsed: int = 0
+    other_currency: int = 0
+    zero_units: int = 0
+    unusable_rate: int = 0
+    date_unparsable: int = 0
+
+    def __str__(self) -> str:
+        """Every count, including the zeroes: "other_currency=0" is the fact that FBIL
+        answered about nothing at all, and dropping it would leave the reader guessing
+        whether the counter exists."""
+        return ", ".join(
+            f"{name}={value}"
+            for name, value in (
+                ("records", self.records),
+                ("not_an_object", self.not_an_object),
+                ("incomplete", self.incomplete),
+                ("name_unparsable", self.name_unparsable),
+                ("other_currency", self.other_currency),
+                ("zero_units", self.zero_units),
+                ("unusable_rate", self.unusable_rate),
+                ("date_unparsable", self.date_unparsable),
+            )
+        )
+
+
+def parse_fbil_response(body: str) -> tuple[Decimal, date]:
+    """FBIL's JSON ARRAY to `(rate, as_of)` for USD, or `FxPullError`. Rung 1.
+
+    **THE UNITS ARE READ, NEVER ASSUMED.** `subProdName` carries both the foreign currency
+    and how many of it the rate is quoted per (`"INR / 100 JPY"` is rupees per one hundred
+    yen), and `FxQuote.rate` is rupees per ONE dollar. Assuming `1` would be a silent
+    factor-of-`units` error on every invoice, which is why the division is explicit, is
+    `Decimal` on both sides, and is the first thing a reader of this function sees.
+
+    **SKIPPING AND REFUSING ARE DIFFERENT ACTS.** A record that is not about the dollar,
+    or that FBIL published incompletely, is SKIPPED — that is their own client's behaviour
+    and the array is documented to carry every pair. But an array that yields NO dollar
+    rate is REFUSED with the tally, because `[]` and "eleven records, none of them
+    parseable" would otherwise both arrive as silence and be waited out.
+
+    The newest `processRunDate` wins, and a later record with the same date supersedes an
+    earlier one — the same tiebreak `ops/fx_rates.latest_observation` applies for the same
+    reason: a correction is the one observation nobody may lose to an accident of order.
+    """
+    payload = _decoded(body)
+    if not isinstance(payload, list):
+        # Their own adapter raises here too. A non-array from this endpoint is an error
+        # page, a login redirect or a changed contract — never a rate.
+        raise FxPullError("the response was not a JSON array", code="not_an_array")
+
+    tally = _FbilTally()
+    best: tuple[date, Decimal] | None = None
+    for record in payload:
+        tally.records += 1
+        if not isinstance(record, dict):
+            tally.not_an_object += 1
+            continue
+        name = record.get("subProdName")
+        run_date = record.get("processRunDate")
+        raw_rate = record.get("rate")
+        if not isinstance(name, str) or not isinstance(run_date, str):
+            tally.incomplete += 1
+            continue
+        if not isinstance(raw_rate, Decimal) or not raw_rate.is_finite():
+            # `rate` absent, null, or a string. Their client requires it numeric; so do we.
+            tally.incomplete += 1
+            continue
+        matched = _SUB_PROD_NAME.search(name)
+        if matched is None:
+            tally.name_unparsable += 1
+            continue
+        tally.names_parsed += 1
+        units, currency = Decimal(matched.group(1)), matched.group(2)
+        if currency != BASE_CURRENCY:
+            tally.other_currency += 1
+            continue
+        if units == 0:
+            # Their client skips this rather than dividing. A zero-unit quote is a
+            # publication defect, and the alternative is a ZeroDivisionError on money.
+            tally.zero_units += 1
+            continue
+        rate = raw_rate / units
+        if rate <= 0:
+            tally.unusable_rate += 1
+            continue
+        try:
+            as_of = _publication_date(run_date)
+        except FxPullError as exc:
+            if exc.code == "date_in_future":
+                # NOT skipped: a future date is the one value that could disable the
+                # staleness ceiling, so it is refused for the whole response rather than
+                # quietly passed over in favour of an older record.
+                raise
+            tally.date_unparsable += 1
+            continue
+        if best is None or as_of >= best[0]:
+            best = (as_of, rate)
+
+    if best is None:
+        if tally.names_parsed == 0 and tally.name_unparsable > 0:
+            raise FxPullError(
+                f"no record's `subProdName` matched `{_SUB_PROD_NAME.pattern}` ({tally}). "
+                "FBIL's naming convention has changed and the units this platform divides "
+                "by can no longer be read — re-read the field before trusting any rate.",
+                code="sub_prod_name_unparsable",
+            )
+        if tally.date_unparsable > 0:
+            # Every dollar record this response carried was passed over for its DATE
+            # alone. That is a different fact from "FBIL published no dollar rate", and
+            # it is the most likely first failure of this rung: nothing in this tree has
+            # read FBIL's date format, `_publication_date` accepts ISO only, and a
+            # coerced date would silently move the staleness ceiling. So it is named.
+            raise FxPullError(
+                f"every {BASE_CURRENCY} record was skipped for an unreadable "
+                f"`processRunDate` ({tally}). FBIL's date format is not the ISO one this "
+                "parser accepts — read OPERATIONS §2 gate 39 before changing it.",
+                code="date_not_iso",
+            )
+        raise FxPullError(
+            f"the response carried no usable {BASE_CURRENCY} record ({tally})",
+            code="no_usd_record",
+        )
+    return best[1], best[0]
+
+
+def _frankfurter_request(providers: str | None) -> Callable[[date], str]:
+    """A Frankfurter rung's request. The date is ignored — their endpoint answers with
+    the latest publication and takes no window — and the parameter is still in the
+    signature because ONE ladder calls every rung the same way."""
+    url = RATE_URL if providers is None else f"{RATE_URL}?{urlencode({'providers': providers})}"
+
+    def build(_today: date) -> str:
+        return url
+
+    return build
+
+
+def _fbil_request(today: date) -> str:
+    """FBIL's request for one tick: the window ending today. See `FBIL_WINDOW` for why it
+    is wider than the staleness ceiling, and `FBIL_AUTHENTICATED` for why `false` is a
+    string."""
+    query = urlencode(
+        {
+            "fromDate": (today - FBIL_WINDOW).isoformat(),
+            "toDate": today.isoformat(),
+            "authenticated": FBIL_AUTHENTICATED,
+        }
+    )
+    return f"{FBIL_URL}?{query}"
+
+
+@dataclass(frozen=True, slots=True)
+class FxRung:
+    """One published source, the exact request that reaches it, how to read its answer,
+    and why it is here.
+
+    A rung is a REQUEST plus a PARSER plus a SOURCE STRING, and they are defined together
+    on purpose: the string is stamped on every `usage_events` row the rate converts, and
+    hard rule 4 means that row can never be annotated afterwards — so the only thing that
+    will ever explain a figure is a source an operator can turn back into the request that
+    produced it, and a parser a reader can find from the source.
+
+    **`url_for` AND `parse` ARE FIELDS, NOT A BRANCH IN THE WALK.** D-609 put a rung on the
+    ladder that speaks a different wire language from the others (a different host, a
+    dated query window, an ARRAY rather than an object). Carrying that difference in the
+    rung keeps `_walk_ladder` one loop over one list; an `if rung is ...` inside the walk
+    would be a second ladder wearing the first one's clothes, and every such branch is a
+    place the plausibility guard, the eager write or the per-rung staleness rule can be
+    forgotten for one rung.
+    """
+
+    #: `<api>:<publication>`, stamped on the observation row and on every converted figure.
+    source: str
+    #: The FULL request for a given day, query string and all. One spelling: what httpx is
+    #: handed IS what is written to `source_url`, so the stored URL cannot drift from the
+    #: one that was actually sent.
+    url_for: Callable[[date], str]
+    #: This feed's body to `(rate, as_of)`. Raises `FxPullError` on anything else.
+    parse: Callable[[str], tuple[Decimal, date]]
+    #: The operator's sentence for why this rung exists, used in the alarm that says the
+    #: platform has fallen past it.
+    why: str
+
+
+#: THE PREFERRED RUNG (D-609). The benchmark administrator's own endpoint, with no
+#: aggregator in the money path; see the module docstring.
+FBIL_DIRECT_RUNG: Final = FxRung(
+    source="fbil:refrates",
+    url_for=_fbil_request,
+    parse=parse_fbil_response,
+    why="the Indian benchmark rate, from the administrator that publishes it",
+)
+#: FALLBACK 1. The same benchmark, read by a third party over a different host and network
+#: path — so it survives rung 1's most likely failures without sharing them.
+FRANKFURTER_FBIL_RUNG: Final = FxRung(
+    source=f"frankfurter:{PROVIDER}",
+    url_for=_frankfurter_request(PROVIDER),
+    parse=parse_rate_response,
+    why="the same Indian benchmark rate, read through an aggregator on a different host",
+)
+#: FALLBACK 2. The same endpoint with no provider filter — a rate the API itself
+#: published today, which is what makes it better than a constant typed a fortnight ago.
+FRANKFURTER_DEFAULT_RUNG: Final = FxRung(
+    source="frankfurter:default",
+    url_for=_frankfurter_request(None),
+    parse=parse_rate_response,
+    why=(
+        "the rate API's own default response, which is a published rate from today rather "
+        "than an operator's typed constant"
+    ),
+)
+
+#: The ladder, in preference order. `pull_fx_rate` walks it and stops at the first rung
+#: that can serve; nothing else in this repo encodes the order.
+LADDER: Final[tuple[FxRung, ...]] = (
+    FBIL_DIRECT_RUNG,
+    FRANKFURTER_FBIL_RUNG,
+    FRANKFURTER_DEFAULT_RUNG,
+)
+PREFERRED_RUNG: Final = LADDER[0]
+
+#: The preferred rung's source, for the puller's OWN alarms (`_warn_if_silent`,
+#: `fx_pull_failed`) — which are about this JOB rather than about any one rung, and which
+#: have carried the preferred source as their `source` field since the feature shipped.
+SOURCE = PREFERRED_RUNG.source
 
 
 async def fetch_published_rate(
-    rung: FxRung, client: httpx.AsyncClient | None = None
+    rung: FxRung, client: httpx.AsyncClient | None = None, *, today: date | None = None
 ) -> tuple[Decimal, date]:
-    """One GET at ONE rung, parsed. RAISES `FxPullError` on anything that is not a rate.
+    """One GET at ONE rung, parsed by that rung's parser. RAISES `FxPullError` otherwise.
 
-    **THE PARSER IS SHARED ACROSS EVERY RUNG AND THAT IS THE WHOLE REASON THIS TAKES A
-    RUNG RATHER THAN BEING COPIED.** Rung 2 is the same endpoint with one query parameter
-    removed, so it has the same landmines — a future `date` that would disable the
-    staleness ceiling, a `base`/`quote` that is not the pair we asked for, a `rate` whose
-    type changed — and a second parser is a second place they get fixed one at a time.
+    **THE TRANSPORT HALF IS SHARED ACROSS EVERY RUNG AND THAT IS THE WHOLE REASON THIS
+    TAKES A RUNG.** The timeout, the redirect policy, the status check and the refusal
+    vocabulary are properties of "we fetch money's input over HTTP", not of any one
+    vendor; only the URL and the body's grammar differ, and those are the rung's two
+    fields. A second fetch function per feed would be a second place the redirect policy
+    gets fixed one at a time.
 
     `client` is an injection seam, not a second way of doing this: the tests exercise the
-    parser and the failure ladder against a stub transport, because the live host cannot
-    be reached from CI either.
+    parsers and the failure ladder against a stub transport, because neither live host can
+    be reached from CI either. `today` is the other seam — the FBIL window is a function
+    of the date, so a test that pins the date pins the URL.
     """
     http = client or httpx.AsyncClient(timeout=_TIMEOUT_S, follow_redirects=False)
+    url = rung.url_for(today or datetime.now(UTC).date())
     try:
-        response = await http.get(rung.url)
+        response = await http.get(url)
     except httpx.HTTPError as exc:
         raise FxFeedUnreachableError(f"the request failed ({type(exc).__name__})") from exc
     finally:
         if client is None:
             await http.aclose()
     if response.status_code != 200:
-        # Their 404 means "no data found" — which for a single-provider filter is the real
-        # possibility that FBIL has published nothing for this pair — and is as much a
-        # failed pull as a 500. Neither is guessed around, and neither is a reason to stop
-        # asking: the ladder simply moves down a rung.
+        # Frankfurter's 404 means "no data found" — which for a single-provider filter is
+        # the real possibility that FBIL has published nothing for this pair — and is as
+        # much a failed pull as a 500. FBIL's own endpoint is undocumented, so a non-200
+        # from it is not interpreted at all, only reported with its status. Neither is
+        # guessed around, and neither is a reason to stop asking: the ladder moves down.
         raise FxFeedUnreachableError(f"the endpoint answered HTTP {response.status_code}")
-    return parse_rate_response(response.text)
+    return rung.parse(response.text)
 
 
 async def _warn_if_silent() -> None:
@@ -437,6 +760,23 @@ async def _warn_if_silent() -> None:
 
 
 @dataclass(frozen=True, slots=True)
+class RungRefused:
+    """One rung that could not serve: the word an operator sorts on, and the word they
+    act on. Two fields rather than one because `unusable_response` alone sent four unlike
+    failures to the same playbook."""
+
+    rung: FxRung
+    why: RungRefusal
+    #: `None` exactly when the rung ANSWERED and simply published something too old —
+    #: there was no error to name, and inventing a code for it would put the one benign
+    #: refusal in the same vocabulary as the ones that need reading.
+    code: FxRefusalCode | None
+
+    def __str__(self) -> str:
+        return f"{self.rung.source}={self.why}" + (f"/{self.code}" if self.code else "")
+
+
+@dataclass(frozen=True, slots=True)
 class LadderResult:
     """What one walk of the ladder found. `serving is None` means no published rung could
     serve, so the configured constant is what money will convert at."""
@@ -444,13 +784,13 @@ class LadderResult:
     #: The rung that is serving, its stored row, and whether THIS tick inserted that row.
     serving: tuple[FxRung, FxObservation, bool] | None
     #: Every rung that could not serve, in ladder order, with why.
-    refusals: tuple[tuple[FxRung, RungRefusal], ...]
+    refusals: tuple[RungRefused, ...]
     #: The last exception a rung raised, kept so the failure path can report a CAUSE
     #: rather than "nothing worked".
     last_error: FxPullError | None
 
-    def refusal_for(self, rung: FxRung) -> RungRefusal | None:
-        return next((why for candidate, why in self.refusals if candidate is rung), None)
+    def refusal_for(self, rung: FxRung) -> RungRefused | None:
+        return next((refusal for refusal in self.refusals if refusal.rung is rung), None)
 
     @property
     def hard_failure(self) -> bool:
@@ -458,7 +798,7 @@ class LadderResult:
         answered something this parser refuses. That is the difference between "the feed
         is behind" (wait; the next tick asks again) and "the feed is broken" (retry, then
         page somebody), and the two must not share a failure path."""
-        return any(why != "stale_publication" for _, why in self.refusals)
+        return any(refusal.why != "stale_publication" for refusal in self.refusals)
 
 
 async def _walk_ladder(now: datetime) -> LadderResult:
@@ -470,22 +810,29 @@ async def _walk_ladder(now: datetime) -> LadderResult:
     `ImplausibleRateError` is alerted at the rung that produced it and then propagates:
     the ladder deliberately does NOT descend past a rate we refused to believe.
     """
-    refusals: list[tuple[FxRung, RungRefusal]] = []
+    refusals: list[RungRefused] = []
     last_error: FxPullError | None = None
     for rung in LADDER:
         try:
-            rate, as_of = await fetch_published_rate(rung)
+            rate, as_of = await fetch_published_rate(rung, today=now.date())
         except FxPullError as exc:
-            # The subclass is the whole distinction: unreachable is availability, bare is
-            # a contract change. Both are refusals; only one is worth reading docs over.
+            # The subclass is the sorting distinction: unreachable is availability, bare is
+            # a changed contract. `exc.code` is the acting distinction — which of the two
+            # dozen things that can be wrong actually was.
             why: RungRefusal = (
                 "request_failed" if isinstance(exc, FxFeedUnreachableError) else "unusable_response"
             )
             last_error = exc
-            refusals.append((rung, why))
+            refusals.append(RungRefused(rung=rung, why=why, code=exc.code))
             log.warning(
                 "fx_rung_refused",
-                extra={"source": rung.source, "reason": why, "error": type(exc).__name__},
+                extra={
+                    "source": rung.source,
+                    "reason": why,
+                    "refusal_code": exc.code,
+                    "detail": str(exc),
+                    "error": type(exc).__name__,
+                },
             )
             continue
         try:
@@ -495,7 +842,7 @@ async def _walk_ladder(now: datetime) -> LadderResult:
                     rate=rate,
                     as_of=as_of,
                     source=rung.source,
-                    source_url=rung.url,
+                    source_url=rung.url_for(now.date()),
                 )
         except ImplausibleRateError as exc:
             # NOT retried, and NOT descended past. The feed answered and we refused its
@@ -507,13 +854,13 @@ async def _walk_ladder(now: datetime) -> LadderResult:
             alert("WORKER_TERMINAL", "fx_rate_implausible", detail=str(exc), source=rung.source)
             raise
         # The ceiling is asked of THIS rung's own quote, which is what makes staleness
-        # per-rung: a fresh rung 2 is not stale because rung 1 is. One spelling of the
+        # per-rung: a fresh rung 3 is not stale because rung 1 is. One spelling of the
         # rule — `FxQuote.usable`, the same predicate money and the ops panel apply.
         if observation.as_quote().usable(now):
             return LadderResult(
                 serving=(rung, observation, inserted), refusals=tuple(refusals), last_error=None
             )
-        refusals.append((rung, "stale_publication"))
+        refusals.append(RungRefused(rung=rung, why="stale_publication", code=None))
         log.warning(
             "fx_rung_refused",
             extra={
@@ -560,9 +907,14 @@ async def pull_fx_rate(ctx: dict[str, Any]) -> str:
         # NO rung served AND at least one did not answer properly. This is the failure the
         # retry ladder is for: a blip, a 503, a refused socket — all of which the next
         # attempt may well get past.
-        failure = result.last_error or FxPullError("no rung produced a usable rate")
-        reasons = ", ".join(f"{rung.source}={why}" for rung, why in result.refusals)
-        log.warning("fx_pull_failed", extra={"source": SOURCE, "error": type(failure).__name__})
+        failure = result.last_error or FxPullError(
+            "no rung produced a usable rate", code="ladder_exhausted"
+        )
+        reasons = ", ".join(str(refusal) for refusal in result.refusals)
+        log.warning(
+            "fx_pull_failed",
+            extra={"source": SOURCE, "error": type(failure).__name__, "refusal_code": failure.code},
+        )
         if attempt < WORKER_MAX_TRIES:
             raise Retry(defer=_retry_after(attempt)) from failure
         await _warn_if_silent()
@@ -577,6 +929,10 @@ async def pull_fx_rate(ctx: dict[str, Any]) -> str:
                 "Costs convert at the last stored rate."
             ),
             source=SOURCE,
+            # NOT `code=`: `alert()`'s second positional parameter IS the alarm code, so a
+            # field by that name collides with it at the call. The refusal's own word gets
+            # a name of its own rather than shadowing the alarm's.
+            refusal_code=failure.code,
         )
         raise failure
 
@@ -590,14 +946,16 @@ async def pull_fx_rate(ctx: dict[str, Any]) -> str:
         serving_state = "configured_fallback"
         log.warning(
             "fx_ladder_exhausted",
-            extra={"refusals": ";".join(f"{r.source}={w}" for r, w in result.refusals)},
+            extra={"refusals": ";".join(str(refusal) for refusal in result.refusals)},
         )
     elif result.serving[0] is PREFERRED_RUNG:
         serving_state = "preferred"
     else:
         serving_state = "fallback_source"
         rung, observation, _ = result.serving
-        preferred_refusal = result.refusal_for(PREFERRED_RUNG) or "request_failed"
+        refused = result.refusal_for(PREFERRED_RUNG)
+        preferred_reason: RungRefusal = refused.why if refused else "request_failed"
+        preferred_code: FxRefusalCode | None = refused.code if refused else "request_failed"
         # DEGRADED, NOT DOWN. The rate is real and published today; what moved is the
         # provenance stamped on every `usage_events` row from this moment on, and hard
         # rule 4 means none of those rows can be annotated afterwards. So an operator is
@@ -607,14 +965,18 @@ async def pull_fx_rate(ctx: dict[str, Any]) -> str:
             "fx_source_degraded",
             detail=(
                 f"The preferred USD/INR source {PREFERRED_RUNG.source} could not serve "
-                f"({preferred_refusal}), so vendor costs are converting at {rung.source} — "
-                f"{rung.why}. The rate is real and published ({observation.as_of.isoformat()}), "
-                "but every usage_events row written from now on records the fallback source "
-                "and cannot be re-stamped later."
+                f"({preferred_reason}{f'/{preferred_code}' if preferred_code else ''}), so vendor "
+                f"costs are converting at {rung.source} — {rung.why}. The rate is real and "
+                f"published ({observation.as_of.isoformat()}), but every usage_events row "
+                "written from "
+                "now on records the fallback source and cannot be re-stamped later. "
+                f"Every rung that could not serve: {', '.join(str(r) for r in result.refusals)}."
             ),
             source=rung.source,
             preferred_source=PREFERRED_RUNG.source,
-            reason=preferred_refusal,
+            reason=preferred_reason,
+            # See the `fx_pull_failed` call above for why this is not `code=`.
+            refusal_code=preferred_code or preferred_reason,
         )
 
     # This process is made current immediately rather than waiting for its own poll: the
@@ -635,8 +997,12 @@ async def pull_fx_rate(ctx: dict[str, Any]) -> str:
 
 
 __all__ = [
-    "DEFAULT_RUNG",
-    "FBIL_RUNG",
+    "FBIL_AUTHENTICATED",
+    "FBIL_DIRECT_RUNG",
+    "FBIL_URL",
+    "FBIL_WINDOW",
+    "FRANKFURTER_DEFAULT_RUNG",
+    "FRANKFURTER_FBIL_RUNG",
     "LADDER",
     "MAX_PULL_SILENCE",
     "PREFERRED_RUNG",
@@ -646,11 +1012,14 @@ __all__ = [
     "SOURCE",
     "FxFeedUnreachableError",
     "FxPullError",
+    "FxRefusalCode",
     "FxRung",
     "LadderResult",
     "RungRefusal",
+    "RungRefused",
     "ServingRung",
     "fetch_published_rate",
+    "parse_fbil_response",
     "parse_rate_response",
     "pull_fx_rate",
 ]

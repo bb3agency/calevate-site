@@ -49,8 +49,12 @@ from apps.api.ops.fx_rates import (
 )
 from apps.api.ops.fx_routes import _build
 from apps.workers.fx_pull import (
-    DEFAULT_RUNG,
-    FBIL_RUNG,
+    FBIL_AUTHENTICATED,
+    FBIL_DIRECT_RUNG,
+    FBIL_URL,
+    FBIL_WINDOW,
+    FRANKFURTER_DEFAULT_RUNG,
+    FRANKFURTER_FBIL_RUNG,
     LADDER,
     PREFERRED_RUNG,
     PULL_MINUTES,
@@ -58,6 +62,7 @@ from apps.workers.fx_pull import (
     FxPullError,
     FxRung,
     fetch_published_rate,
+    parse_fbil_response,
     parse_rate_response,
     pull_fx_rate,
 )
@@ -349,7 +354,7 @@ async def test_a_non_200_is_a_failed_pull_and_not_a_rate() -> None:
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     with pytest.raises(FxPullError):
-        await fetch_published_rate(FBIL_RUNG, client)
+        await fetch_published_rate(FRANKFURTER_FBIL_RUNG, client)
     await client.aclose()
 
 
@@ -361,7 +366,7 @@ async def test_a_transport_failure_is_a_failed_pull() -> None:
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     with pytest.raises(FxPullError):
-        await fetch_published_rate(FBIL_RUNG, client)
+        await fetch_published_rate(FRANKFURTER_FBIL_RUNG, client)
     await client.aclose()
 
 
@@ -377,7 +382,7 @@ async def test_the_request_asks_for_the_pair_and_the_provider_it_documents() -> 
         return httpx.Response(200, text=_body())
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    await fetch_published_rate(FBIL_RUNG, client)
+    await fetch_published_rate(FRANKFURTER_FBIL_RUNG, client)
     await client.aclose()
     assert seen["url"] == "https://api.frankfurter.dev/v2/rate/USD/INR?providers=FBIL"
 
@@ -514,7 +519,7 @@ async def test_a_failed_pull_retries_then_alerts_rather_than_reporting_success()
     alerts: list[str] = []
 
     async def failing(*_args: Any, **_kwargs: Any) -> tuple[Decimal, date]:
-        raise FxPullError("the endpoint answered HTTP 503")
+        raise FxFeedUnreachableError("the endpoint answered HTTP 503")
 
     import apps.workers.fx_pull as job_module
 
@@ -597,8 +602,22 @@ def test_the_rate_crosses_the_wire_as_a_string_and_the_server_decides_staleness(
 # 4. **The three states are three alarms.** Degraded-but-published, everything-stale, and
 #    the puller itself failing used to be two codes, and two of them read identically.
 
-_LADDER_FBIL = FxRung(source="test:fbil", providers="FBIL", why="the preferred test rung")
-_LADDER_DEFAULT = FxRung(source="test:default", providers=None, why="the fallback test rung")
+
+def _test_rung(source: str, why: str) -> FxRung:
+    """A rung whose request and parser are never reached — `_install_ladder` replaces
+    `fetch_published_rate` wholesale, so what is under test here is the WALK. The real
+    rungs' requests and parsers are asserted directly from the constants below."""
+    return FxRung(
+        source=source,
+        url_for=lambda today: f"https://example.invalid/{source}?on={today.isoformat()}",
+        parse=parse_rate_response,
+        why=why,
+    )
+
+
+_LADDER_DIRECT = _test_rung("test:direct", "the preferred test rung")
+_LADDER_FBIL = _test_rung("test:fbil", "the first fallback test rung")
+_LADDER_DEFAULT = _test_rung("test:default", "the last fallback test rung")
 
 # The two numbers the founder actually measured, which is why they are these and not round
 # ones: they are 0.9% apart, so the ladder's own descent can never be confused with the
@@ -613,7 +632,9 @@ def _stale_date() -> date:
 
 
 def _install_ladder(
-    monkeypatch: pytest.MonkeyPatch, answers: dict[str, Any]
+    monkeypatch: pytest.MonkeyPatch,
+    answers: dict[str, Any],
+    rungs: tuple[FxRung, ...] = (_LADDER_FBIL, _LADDER_DEFAULT),
 ) -> tuple[list[tuple[str, dict[str, str]]], list[str]]:
     """Point the job at two TEST rungs and answer each from `answers`.
 
@@ -632,7 +653,9 @@ def _install_ladder(
     alerts: list[tuple[str, dict[str, str]]] = []
     fetched: list[str] = []
 
-    async def fake_fetch(rung: FxRung, client: Any = None) -> tuple[Decimal, date]:
+    async def fake_fetch(
+        rung: FxRung, client: Any = None, *, today: date | None = None
+    ) -> tuple[Decimal, date]:
         fetched.append(rung.source)
         answer = answers[rung.source]
         if isinstance(answer, Exception):
@@ -642,28 +665,41 @@ def _install_ladder(
     def record(_stage: str, code: str, **kwargs: Any) -> None:
         alerts.append((code, {k: str(v) for k, v in kwargs.items() if k != "detail"}))
 
-    monkeypatch.setattr(job_module, "LADDER", (_LADDER_FBIL, _LADDER_DEFAULT))
-    monkeypatch.setattr(job_module, "PREFERRED_RUNG", _LADDER_FBIL)
+    monkeypatch.setattr(job_module, "LADDER", rungs)
+    monkeypatch.setattr(job_module, "PREFERRED_RUNG", rungs[0])
     monkeypatch.setattr(job_module, "fetch_published_rate", fake_fetch)
     monkeypatch.setattr(job_module, "alert", record)
     monkeypatch.setattr(store_module, "alert", record)
     return alerts, fetched
 
 
-def test_the_two_rungs_are_distinguishable_on_a_ledger_row() -> None:
+def test_the_rungs_are_distinguishable_on_a_ledger_row() -> None:
     """The source string is stamped on every `usage_events` row the rate converts, and
     hard rule 4 means that row can never be annotated afterwards — so "which rung priced
-    this minute" has to be legible from the string alone, six months later."""
-    assert FBIL_RUNG.source == "frankfurter:FBIL"
-    assert DEFAULT_RUNG.source == "frankfurter:default"
-    assert FBIL_RUNG.source != DEFAULT_RUNG.source
-    assert LADDER == (FBIL_RUNG, DEFAULT_RUNG), "FBIL is preferred, and the order IS the rule"
-    assert PREFERRED_RUNG is FBIL_RUNG
+    this minute" has to be legible from the string alone, six months later.
+
+    D-609 put the administrator's own endpoint on top. The order IS the rule and nothing
+    else in this repo encodes it, so it is asserted as an equality rather than by
+    membership: a rung appended in the wrong place would still pass an `in`."""
+    assert FBIL_DIRECT_RUNG.source == "fbil:refrates"
+    assert FRANKFURTER_FBIL_RUNG.source == "frankfurter:FBIL"
+    assert FRANKFURTER_DEFAULT_RUNG.source == "frankfurter:default"
+    assert LADDER == (FBIL_DIRECT_RUNG, FRANKFURTER_FBIL_RUNG, FRANKFURTER_DEFAULT_RUNG)
+    assert PREFERRED_RUNG is FBIL_DIRECT_RUNG, "the benchmark's own publisher is preferred"
+    assert len({rung.source for rung in LADDER}) == len(LADDER), "two rungs, one row, no clue"
+
     # The URL stored on the row is the request an operator re-runs by hand, query string
-    # and all — it is not reconstructed by a reader, so rung 2 is reproducible too.
-    assert FBIL_RUNG.url == "https://api.frankfurter.dev/v2/rate/USD/INR?providers=FBIL"
-    assert DEFAULT_RUNG.url == "https://api.frankfurter.dev/v2/rate/USD/INR"
-    assert "providers" not in DEFAULT_RUNG.url, "rung 2 IS the unfiltered request"
+    # and all — it is not reconstructed by a reader, so every rung is reproducible.
+    day = date(2026, 9, 15)
+    assert FBIL_DIRECT_RUNG.url_for(day) == (
+        "https://www.fbil.org.in/wasdm/refrates/fetchfiltered"
+        "?fromDate=2026-09-05&toDate=2026-09-15&authenticated=false"
+    )
+    assert FRANKFURTER_FBIL_RUNG.url_for(day) == (
+        "https://api.frankfurter.dev/v2/rate/USD/INR?providers=FBIL"
+    )
+    assert FRANKFURTER_DEFAULT_RUNG.url_for(day) == "https://api.frankfurter.dev/v2/rate/USD/INR"
+    assert "providers" not in FRANKFURTER_DEFAULT_RUNG.url_for(day), "it IS the unfiltered request"
 
 
 async def test_the_preferred_rung_serves_and_the_fallback_is_never_asked(
@@ -712,7 +748,7 @@ async def test_the_fallback_rung_serves_when_the_preferred_one_has_gone_quiet(
         stored = {row.source: row for row in await recent_observations(session, limit=50)}
     assert set(stored) == {"test:fbil", "test:default"}
     assert stored["test:fbil"].as_of == _stale_date()
-    assert stored["test:default"].source_url == _LADDER_DEFAULT.url
+    assert stored["test:default"].source_url == _LADDER_DEFAULT.url_for(date.today())
 
     # STATE 1 OF 3: degraded. Published rate, moved provenance, not urgent.
     assert [code for code, _ in alerts] == ["fx_source_degraded"]
@@ -720,6 +756,10 @@ async def test_the_fallback_rung_serves_when_the_preferred_one_has_gone_quiet(
         "source": "test:default",
         "preferred_source": "test:fbil",
         "reason": "stale_publication",
+        # A rung that ANSWERED and was merely behind has no error to name, so the alarm's
+        # `code` falls back to the reason rather than inventing one. The three refusals
+        # that DO have a code are asserted below.
+        "refusal_code": "stale_publication",
     }
 
     # And the conversion actually follows: `latest_observation` picks the newest
@@ -759,12 +799,17 @@ async def test_a_response_the_parser_refuses_is_a_different_reason_than_a_quiet_
     alerts, _ = _install_ladder(
         monkeypatch,
         {
-            "test:fbil": FxPullError("the response carried no numeric `rate`"),
+            "test:fbil": FxPullError(
+                "the response carried no numeric `rate`", code="rate_not_numeric"
+            ),
             "test:default": (DEFAULT_RATE, date.today()),
         },
     )
     await pull_fx_rate({"job_try": 1})
     assert alerts[0][1]["reason"] == "unusable_response"
+    # AND the precise thing that was wrong, which is what an operator goes and looks at.
+    # `unusable_response` alone used to carry four unlike failures to one playbook.
+    assert alerts[0][1]["refusal_code"] == "rate_not_numeric"
 
 
 async def test_the_typed_constant_serves_only_when_every_published_rung_is_stale(
@@ -863,18 +908,16 @@ async def test_every_rung_failing_is_the_pull_failing(monkeypatch: pytest.Monkey
     assert [code for code, _ in alerts] == ["fx_pull_failed"]
 
 
-async def test_both_rungs_are_read_by_one_parser() -> None:
-    """Rung 2 is the same endpoint with one query parameter removed, so it has the same
+async def test_both_frankfurter_rungs_are_read_by_one_parser() -> None:
+    """Rung 3 is rung 2's endpoint with one query parameter removed, so it has the same
     landmines — a future `date` that would disable the staleness ceiling, a pair that is
     not the one we asked for, a `rate` whose type changed. A second parser is a second
     place those get fixed one at a time, so there is not one."""
-    import inspect
-
-    import apps.workers.fx_pull as job_module
     import httpx
 
     poisoned = _body(date=(date.today() + timedelta(days=30)).isoformat())
-    for rung in LADDER:
+    for rung in (FRANKFURTER_FBIL_RUNG, FRANKFURTER_DEFAULT_RUNG):
+        assert rung.parse is parse_rate_response
         client = httpx.AsyncClient(
             transport=httpx.MockTransport(lambda _r: httpx.Response(200, text=poisoned))
         )
@@ -882,10 +925,19 @@ async def test_both_rungs_are_read_by_one_parser() -> None:
             await fetch_published_rate(rung, client)
         await client.aclose()
 
-    # Structural, not behavioural: the parse happens in exactly one place. A second
-    # `json.loads` in this module is a second contract to keep in step with the vendor's.
+
+def test_the_wire_is_decoded_in_exactly_one_place() -> None:
+    """D-609 put a SECOND grammar on the ladder, which is the moment a second
+    `json.loads` becomes tempting — and `parse_float=Decimal` is the one keyword whose
+    omission is invisible until an invoice is wrong (hard rule 7). Structural, not
+    behavioural: the two parsers differ in what they read, never in how the bytes become
+    numbers."""
+    import inspect
+
+    import apps.workers.fx_pull as job_module
+
     source = inspect.getsource(job_module)
-    assert source.count("json.loads(") == 1, "one parser, one place the vendor's shape lives"
+    assert source.count("json.loads(") == 1, "one decoder, one place the Decimal rule lives"
 
 
 async def test_the_fallback_rung_asks_for_the_unfiltered_rate() -> None:
@@ -901,10 +953,297 @@ async def test_the_fallback_rung_asks_for_the_unfiltered_rate() -> None:
         return httpx.Response(200, text=_body())
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
-    await fetch_published_rate(DEFAULT_RUNG, client)
-    await fetch_published_rate(FBIL_RUNG, client)
+    await fetch_published_rate(FRANKFURTER_DEFAULT_RUNG, client)
+    await fetch_published_rate(FRANKFURTER_FBIL_RUNG, client)
     await client.aclose()
     assert seen == [
         "https://api.frankfurter.dev/v2/rate/USD/INR",
         "https://api.frankfurter.dev/v2/rate/USD/INR?providers=FBIL",
     ]
+
+
+# --- 7. the FBIL rung, called directly (D-609) ----------------------------------------
+#
+# `www.fbil.org.in` is EGRESS-BLOCKED from this environment — measured 15 Sep 2026,
+# `curl: (56) CONNECT tunnel failed, response 403`, HTTP 000 — so NO BYTE OF A LIVE
+# RESPONSE HAS BEEN SEEN and every fixture below is derived from the wire contract in the
+# module docstring, whose evidence class is VERIFIED-OSS-AT-PINNED-COMMIT
+# (`lib/provider/adapters/fbil.rb` at `45e1b89ab0a725aedecdd1fa678a22eff5908a48`) and
+# which is FRANKFURTER'S READING OF FBIL, not FBIL's own published documentation. These
+# tests therefore pin OUR parser against THAT contract; they are not evidence about the
+# live endpoint and OPERATIONS §2 gate 39 is where it is settled.
+#
+# Ranked by what a failure costs:
+#
+# 1. **The units division.** `subProdName` carries how many units the rate is quoted per.
+#    Assuming 1 on a record that says 100 is a hundredfold error on every invoice — the
+#    `_MINOR_UNITS_PER_MAJOR` defect with a new feed to arrive through.
+# 2. **The published digits survive.** Same hard rule 7 property the Frankfurter parser
+#    has, now through a DIVISION as well as a decode.
+# 3. **Four unlike refusals stay four.** A non-200, a body that is not an array, an array
+#    with no dollar record and a `subProdName` that does not parse must not all arrive as
+#    "the feed is quiet".
+
+#: A published figure with four decimals that a binary float cannot hold exactly, quoted
+#: per TEN dollars — so one fixture proves the decode AND the division at once.
+#: `float("884.275")` is 884.27499999999997726263245567679405212402343750.
+_FBIL_TEN_USD = Decimal("884.275")
+
+
+def _fbil_record(name: str, *, rate: Any, run_date: str | None = None) -> dict[str, Any]:
+    return {
+        "subProdName": name,
+        "processRunDate": run_date or date.today().isoformat(),
+        "rate": rate,
+    }
+
+
+def _fbil_body(*records: dict[str, Any]) -> str:
+    """FBIL's documented container: a JSON ARRAY of records, every pair in one response."""
+    return json.dumps(list(records))
+
+
+def test_the_fbil_rate_survives_the_units_division_as_an_exact_decimal() -> None:
+    """THE ONE THAT MATTERS. `884.275` quoted per TEN dollars is `88.4275` per dollar, and
+    it has to be that number EXACTLY — not a float's nearest neighbour, and not a
+    quotient rounded on the way through. `json.loads(parse_float=Decimal)` keeps the
+    published digits and the division is `Decimal / Decimal`, so the whole path from their
+    wire to `NUMERIC(12,6)` is exact (hard rule 7)."""
+    rate, as_of = parse_fbil_response(
+        _fbil_body(_fbil_record("INR / 10 USD", rate=float(_FBIL_TEN_USD)))
+    )
+    assert isinstance(rate, Decimal)
+    assert rate == PUBLISHED
+    assert str(rate) == "88.4275", "the exact digits the division implies, not a float's"
+    # What a float round-trip would have produced, spelled out rather than computed, so
+    # the assertion still means something if someone "tidies" the Decimal path away.
+    assert rate != Decimal("88.427499999999997726263245567679405212402343750")
+    assert as_of == date.today()
+
+
+def test_the_fbil_units_are_read_and_never_assumed_to_be_one() -> None:
+    """Their own comment's example is `"INR / 100 JPY"` — rupees per ONE HUNDRED yen — so
+    a feed that ever quoted the dollar per 100 is a shape their client already handles.
+    `FxQuote.rate` is rupees per ONE dollar, so the divisor comes from the record."""
+    per_one, _ = parse_fbil_response(_fbil_body(_fbil_record("INR / 1 USD", rate=88.4275)))
+    per_hundred, _ = parse_fbil_response(_fbil_body(_fbil_record("INR / 100 USD", rate=8842.75)))
+    assert per_one == per_hundred == PUBLISHED, "the same rate, quoted two ways"
+    # And the wrong reading, named, so this test fails loudly rather than subtly if the
+    # divisor is ever dropped: a hundredfold error is what `MAX_PLAUSIBLE_MOVE` catches
+    # SECOND, and a guard that has to fire is a guard that was already needed.
+    assert per_hundred != Decimal("8842.75")
+
+
+def test_only_the_dollar_record_is_read_out_of_a_whole_days_publication() -> None:
+    """The array carries every pair FBIL published. Picking the wrong one converts every
+    vendor minute at the yen, which the plausibility band would catch and nobody should
+    rely on it to."""
+    rate, _ = parse_fbil_response(
+        _fbil_body(
+            _fbil_record("INR / 100 JPY", rate=59.1234),
+            _fbil_record("INR / 1 EUR", rate=95.5),
+            _fbil_record("INR / 10 USD", rate=float(_FBIL_TEN_USD)),
+            _fbil_record("INR / 1 GBP", rate=112.25),
+        )
+    )
+    assert rate == PUBLISHED
+
+
+def test_the_newest_publication_in_the_window_wins_and_a_correction_supersedes() -> None:
+    """The request asks for a WINDOW, so the array can hold several business days. The
+    newest `processRunDate` is the rate in force, and among records sharing a date the
+    LATER one wins — the same tiebreak `latest_observation` applies, for the same reason:
+    a correction is the one observation nobody may lose to an accident of order."""
+    older = (date.today() - timedelta(days=3)).isoformat()
+    today = date.today().isoformat()
+    rate, as_of = parse_fbil_response(
+        _fbil_body(
+            _fbil_record("INR / 1 USD", rate=90.1111, run_date=older),
+            _fbil_record("INR / 1 USD", rate=91.2222, run_date=today),
+            _fbil_record("INR / 1 USD", rate=88.4275, run_date=today),
+        )
+    )
+    assert as_of == date.today()
+    assert rate == PUBLISHED, "the corrected figure, not the one it corrects"
+
+
+def test_a_stale_fbil_window_still_produces_a_rate_for_the_ladder_to_judge() -> None:
+    """**THE WINDOW IS WIDER THAN THE CEILING ON PURPOSE.** A publication that is merely
+    too old must still ARRIVE, be recorded (the eager write) and be refused by the ONE
+    staleness predicate — not vanish into "no record found", which is the vocabulary
+    reserved for the feed having changed under us."""
+    assert FBIL_WINDOW > MAX_QUOTE_AGE, "or 'behind' and 'broken' become the same response"
+    behind = date.today() - MAX_QUOTE_AGE - timedelta(days=2)
+    rate, as_of = parse_fbil_response(
+        _fbil_body(_fbil_record("INR / 1 USD", rate=88.4275, run_date=behind.isoformat()))
+    )
+    assert (rate, as_of) == (PUBLISHED, behind)
+    assert FxQuote(rate=rate, as_of=as_of, source="fbil:refrates", observed_at=datetime.now(UTC))
+
+
+@pytest.mark.parametrize(
+    ("body", "code", "because"),
+    [
+        ("<html>service unavailable</html>", "not_json", "an error page is not a rate"),
+        ('{"rate": 88.4275}', "not_an_array", "the documented container is an ARRAY"),
+        ("[]", "no_usd_record", "an empty window is not silence — say so"),
+        (
+            _fbil_body(_fbil_record("INR / 1 EUR", rate=95.5)),
+            "no_usd_record",
+            "FBIL answered, about currencies that do not include the dollar",
+        ),
+        (
+            _fbil_body(_fbil_record("USD-INR REFERENCE RATE", rate=88.4275)),
+            "sub_prod_name_unparsable",
+            "the naming convention carries the UNITS — unreadable means unusable",
+        ),
+        (
+            _fbil_body(_fbil_record("INR / 0 USD", rate=88.4275)),
+            "no_usd_record",
+            "a zero-unit quote is a publication defect, not a division by zero",
+        ),
+        (
+            _fbil_body(_fbil_record("INR / 1 USD", rate="88.4275")),
+            "no_usd_record",
+            "a feed that changed the type of its money field must be read about",
+        ),
+        (
+            _fbil_body(_fbil_record("INR / 1 USD", rate=88.4275, run_date="15-09-2026")),
+            "date_not_iso",
+            # THE MOST LIKELY FIRST FAILURE OF THIS RUNG, and it gets its own word:
+            # nothing in this tree has read FBIL's date format, so a dollar record that
+            # is skipped for its DATE alone must not report as "FBIL published no dollar".
+            "a date this parser cannot read is not coerced into one it can",
+        ),
+    ],
+)
+def test_each_fbil_refusal_names_a_different_thing_to_go_and_look_at(
+    body: str, code: str, because: str
+) -> None:
+    """**NEVER A SILENT FALL-THROUGH THAT READS AS "THE FEED IS QUIET".** The live endpoint
+    is unreachable from here, so this parser is the only thing between a changed feed and
+    every invoice — and an operator who is paged needs the refusal to name the line of the
+    playbook, not just the playbook. Nothing is coerced, defaulted or guessed."""
+    with pytest.raises(FxPullError) as raised:
+        parse_fbil_response(body)
+    assert raised.value.code == code, because
+    # The tally is what separates "FBIL published no dollar today" from "FBIL's records
+    # stopped parsing", and it is COUNTS ONLY — the vendor's bytes never reach a log line.
+    assert "88.4275" not in str(raised.value), "a refusal reports counts, never the payload"
+
+
+def test_a_future_fbil_publication_date_is_refused_rather_than_skipped() -> None:
+    """`as_of` is what the staleness ceiling is measured against, so a date in the future
+    is the one value a bad feed could use to disable the ceiling entirely — a rate dated
+    2030 would never go stale. It refuses the whole response rather than quietly falling
+    back to an older record, because the older record would then serve under a feed we
+    already know is wrong about dates."""
+    ahead = (date.today() + timedelta(days=30)).isoformat()
+    with pytest.raises(FxPullError) as raised:
+        parse_fbil_response(
+            _fbil_body(
+                _fbil_record("INR / 1 USD", rate=88.4275),
+                _fbil_record("INR / 1 USD", rate=88.4275, run_date=ahead),
+            )
+        )
+    assert raised.value.code == "date_in_future"
+
+
+async def test_the_fbil_request_is_the_window_the_ceiling_implies() -> None:
+    """The exact request is what `source_url` stores and what a human re-runs to reproduce
+    a disputed figure, so it is asserted rather than trusted to a comment. `authenticated`
+    is the STRING `false`: a Python `False` would go on the wire capitalised, and what an
+    undocumented endpoint does with an unrecognised value is not something to find out on
+    a money path."""
+    import httpx
+
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(str(request.url))
+        return httpx.Response(200, text=_fbil_body(_fbil_record("INR / 1 USD", rate=88.4275)))
+
+    client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    rate, _ = await fetch_published_rate(FBIL_DIRECT_RUNG, client, today=date(2026, 9, 15))
+    await client.aclose()
+    assert rate == PUBLISHED
+    assert seen == [
+        f"{FBIL_URL}?fromDate=2026-09-05&toDate=2026-09-15&authenticated={FBIL_AUTHENTICATED}"
+    ]
+    assert FBIL_AUTHENTICATED == "false" and isinstance(FBIL_AUTHENTICATED, str)
+
+
+async def test_a_non_200_from_fbil_is_availability_and_not_a_changed_contract() -> None:
+    """FBIL's endpoint is undocumented, so a status code from it is not interpreted at all
+    — only reported. It is `request_failed`: wait for the next tick, do not go and read
+    docs, and do NOT let it read as the feed merely being behind."""
+    import httpx
+
+    client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _r: httpx.Response(503, text="busy"))
+    )
+    with pytest.raises(FxFeedUnreachableError) as raised:
+        await fetch_published_rate(FBIL_DIRECT_RUNG, client)
+    await client.aclose()
+    assert raised.value.code == "request_failed"
+    assert "503" in str(raised.value), "the status is the actionable half"
+
+
+async def test_the_fbil_rung_is_written_through_the_same_plausibility_door(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The top rung cannot route around `ImplausibleRateError` any more than a fallback
+    can — and it is the rung with the units division, i.e. the one whose arithmetic the
+    band exists to catch. A hundredfold reading is refused, nothing is stored, and the
+    ladder does NOT descend past it."""
+    async with untenanted_session() as session:
+        await record_observation(
+            session, rate=PUBLISHED, as_of=date.today(), source="test:seed", source_url="u"
+        )
+    alerts, fetched = _install_ladder(
+        monkeypatch,
+        {
+            "test:direct": (PUBLISHED * 100, date.today()),
+            "test:fbil": (PUBLISHED, date.today()),
+        },
+        rungs=(_LADDER_DIRECT, _LADDER_FBIL),
+    )
+    with pytest.raises(ImplausibleRateError):
+        await pull_fx_rate({"job_try": 1})
+    assert fetched == ["test:direct"], "a rate we refused hands over to nobody"
+    assert [code for code, _ in alerts] == ["fx_rate_implausible"]
+
+
+async def test_the_ladder_descends_past_two_stale_rungs_to_the_third(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-609 made the ladder three published rungs deep, and the descent is still ONE loop
+    over ONE list: rung 1 and rung 2 share a publisher, so when FBIL itself stops
+    publishing they go stale TOGETHER and rung 3 is what is left. Every rung fetched is
+    recorded, in order, and the newest publication serves with no second spelling of the
+    ladder in SQL."""
+    alerts, fetched = _install_ladder(
+        monkeypatch,
+        {
+            "test:direct": (FBIL_RATE, _stale_date()),
+            "test:fbil": (FBIL_RATE, _stale_date()),
+            "test:default": (DEFAULT_RATE, date.today()),
+        },
+        rungs=(_LADDER_DIRECT, _LADDER_FBIL, _LADDER_DEFAULT),
+    )
+    summary = json.loads(await pull_fx_rate({"job_try": 1}))
+    assert fetched == ["test:direct", "test:fbil", "test:default"], "in preference order"
+    assert summary["serving"] == "fallback_source"
+    assert summary["source"] == "test:default"
+    assert summary["preferred_source"] == "test:direct"
+
+    async with untenanted_session() as session:
+        stored = {row.source for row in await recent_observations(session, limit=50)}
+    assert stored == {"test:direct", "test:fbil", "test:default"}, "the write is EAGER"
+
+    assert [code for code, _ in alerts] == ["fx_source_degraded"]
+    assert alerts[0][1]["preferred_source"] == "test:direct"
+    assert alerts[0][1]["reason"] == "stale_publication"
+
+    cost = _engine()._cost(_cost_payload())
+    assert cost is not None and cost.fx_source == "test:default"
