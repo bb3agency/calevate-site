@@ -243,7 +243,13 @@ class DatabaseEventSink:
             call_id=event.call_id, tenant_id=event.tenant_id, agent_id=event.agent_id
         )
         async with self._lock, self._db.tenant_connection(self._tenant_id) as connection:
-            await self._ensure_call_row(
+            # `_upsert_call` and NOT `_ensure_call_row`: a lifecycle event is the one path
+            # that must ALWAYS issue the statement. The memo below is what stops a turn
+            # costing a round trip it does not need, and routing the terminal event through
+            # it left every call sitting at `in_progress` for ever — caught by
+            # `test_a_call_event_and_its_turns_persist_under_the_calling_tenant`, which read
+            # the status back rather than trusting that the write happened.
+            await self._upsert_call(
                 connection,
                 status=event.status,
                 started_at=event.started_at,
@@ -274,7 +280,7 @@ class DatabaseEventSink:
         # text either side of it is not, and neither is counted or sampled anywhere below.
         redacted = redact(turn.text)
         async with self._lock, self._db.tenant_connection(self._tenant_id) as connection:
-            call_row_id = await self._ensure_call_row(connection, status="in_progress")
+            call_row_id = await self._ensure_call_row(connection)
             await connection.execute(
                 text(_INSERT_TURN_SQL),
                 {
@@ -348,7 +354,7 @@ class DatabaseEventSink:
             # cannot price and so does this: no rows, no refusal, nothing to record.
             return Settlement(rows=0)
         async with self._lock, self._db.tenant_connection(self._tenant_id) as connection:
-            call_row_id = await self._ensure_call_row(connection, status="in_progress")
+            call_row_id = await self._ensure_call_row(connection)
             for row in rows:
                 await connection.execute(
                     text(_INSERT_USAGE_SQL),
@@ -374,7 +380,7 @@ class DatabaseEventSink:
 
     async def _record_refusal(self, refusal: LegNotMeterableError, *, at: datetime) -> None:
         async with self._lock, self._db.tenant_connection(self._tenant_id) as connection:
-            call_row_id = await self._ensure_call_row(connection, status="in_progress")
+            call_row_id = await self._ensure_call_row(connection)
             await connection.execute(
                 text(_INSERT_REFUSAL_SQL),
                 {
@@ -431,7 +437,24 @@ class DatabaseEventSink:
                 f"event names agent {agent_id}, sink was built for {self._agent_id}"
             )
 
-    async def _ensure_call_row(
+    async def _ensure_call_row(self, connection: AsyncConnection) -> UUID:
+        """This call's `calls.id`, minting the row in `in_progress` if it is not there yet.
+
+        **IT EXISTS BECAUSE THE ORDER OF EVENTS IS NOT OURS TO CHOOSE.** Pipecat runs each
+        handler as its own task, so a first turn can reach the sink before the
+        pipeline-started event that opened the call — and `transcript_turns.call_id` is a
+        foreign key, so a race would surface as an IntegrityError mid-call. Every write path
+        therefore passes through here, and the one that is NOT a lifecycle event opens the
+        call rather than failing on its absence.
+
+        The memo is what keeps that from costing a round trip per turn. It is deliberately
+        NOT used by `on_call_event`: a status must always be written.
+        """
+        if self._call_row_id is not None:
+            return self._call_row_id
+        return await self._upsert_call(connection, status="in_progress")
+
+    async def _upsert_call(
         self,
         connection: AsyncConnection,
         *,
@@ -439,21 +462,12 @@ class DatabaseEventSink:
         started_at: datetime | None = None,
         ended_at: datetime | None = None,
     ) -> UUID:
-        """This call's `calls.id`, minting the row if it is not there yet.
+        """Write the call row and answer its id. Status only ever moves forward.
 
-        **IT IS CALLED FROM EVERY WRITE PATH AND NOT ONLY FROM `on_call_event`**, because
-        the order the two arrive in is not ours to choose: Pipecat runs each handler as its
-        own task, so a first turn can reach the sink before the pipeline-started event that
-        opened the call. Every path therefore converges on the same upsert, and the FK from
-        `transcript_turns` can never be reached with nothing on the other end.
-
-        The memoised id is only trusted once the row is known to exist; a status that the
-        forward-only clause REFUSES returns no row, which is the same "read the existing id"
-        fallback `_upsert_call_row` uses and for the same reason — a terminal call receiving
-        a late `in_progress` is not an error.
+        A status the forward-only clause REFUSES returns no row, which is not an error: a
+        terminal call receiving a late `in_progress` is exactly what that clause is for, and
+        the id is then read back — the same fallback `_upsert_call_row` uses.
         """
-        if self._call_row_id is not None:
-            return self._call_row_id
         row = (
             await connection.execute(
                 text(_UPSERT_CALL_SQL),

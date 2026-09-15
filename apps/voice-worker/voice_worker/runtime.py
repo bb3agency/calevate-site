@@ -59,7 +59,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from types import TracebackType
 from uuid import UUID
 
 from calevate_shared.events import CallDirection
@@ -234,17 +233,6 @@ class WorkerRuntime:
     async def aclose(self) -> None:
         """Release the pool. LAST, after every call this container ran has settled."""
         await self._db.aclose()
-
-    async def __aenter__(self) -> WorkerRuntime:
-        return self
-
-    async def __aexit__(
-        self,
-        exc_type: type[BaseException] | None,
-        exc: BaseException | None,
-        tb: TracebackType | None,
-    ) -> None:
-        await self.aclose()
 
 
 __all__ = ["CallOutcome", "WorkerRuntime"]

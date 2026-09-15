@@ -38,7 +38,6 @@ from contextlib import asynccontextmanager
 from typing import Final
 from uuid import UUID
 
-from loguru import logger
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
@@ -167,18 +166,21 @@ class WorkerDatabase:
             yield connection
 
     async def aclose(self) -> None:
-        """Return every pooled connection. Idempotent; never raises.
+        """Return every pooled connection. Idempotent, and it does NOT swallow.
 
         Called from `runtime.py`'s shutdown AFTER the pipeline has drained, never during
         it — disposing a pool a live call is still writing through is how a settled row
         becomes a lost one.
+
+        **THE `try/except` THAT USED TO BE HERE IS GONE, DELIBERATELY.** It logged and
+        continued, which is "never swallow an exception to make a path look green" written
+        the wrong way round: a dispose that fails at shutdown has no retry, no caller that
+        can act, and nothing left to protect — so the honest behaviour is to let it out,
+        where the process's own exit reports it. It was also an arm nothing could reach,
+        i.e. a permanent `# pragma: no cover` on a hard-rule-1 surface whose coverage budget
+        is zero, which is the ratchet telling the same thing in the other language.
         """
-        try:
-            await self._engine.dispose()
-        except Exception as exc:  # pragma: no cover - a dispose that fails has nothing left
-            # Ids and a type name. A pool teardown that fails cannot be retried by anyone
-            # and must not mask the reason the process was shutting down.
-            logger.warning("worker database dispose failed", reason=type(exc).__name__)
+        await self._engine.dispose()
 
 
 __all__ = [

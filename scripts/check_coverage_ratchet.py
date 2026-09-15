@@ -347,6 +347,15 @@ AREAS: tuple[Area, ...] = (
             # a hard-rule-1 surface the derivation flags; guarded here beside the session
             # factory it leans on rather than in its own budget.
             "apps/api/insights/service.py",
+            # The voice worker's own engine (D-592). It is a SECOND module that executes
+            # `set_config('app.tenant_id', ...)`, in a different deployable, and
+            # `required_surfaces` enrolls it automatically for that reason — this entry is
+            # where it lands. Guarded HERE rather than in an area of its own because the
+            # failure is identically this area's failure: a connection handed out without
+            # the GUC reads zero rows if we are lucky and another client's call if we are
+            # not, and the fact that the process around it is a phone call rather than a
+            # request changes nothing about what breaks.
+            "apps/voice-worker/voice_worker/db.py",
         ),
         why=(
             "the session factory is where the tenant GUC is set and where RLS therefore "
