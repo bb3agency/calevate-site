@@ -88,6 +88,16 @@ ALARM_SEVERITY: dict[str, Severity] = {
     # that "no column, config row or client-authored script can withdraw it" has nowhere
     # to live for that dial — the same class as the drift codes above, not a config nit.
     "engine_compliance_floor_absent": "page",
+    # PAGE, and the reasoning is the inverse of `pack_gc`'s two `attention` codes: this one
+    # costs a CALLER, not object-store spend. It is raised by `apps/voice-runtime/
+    # carrier_routes.py` when the carrier asks where to stream and
+    # `PIPECAT_STREAM_BASE_URL` is unset — so the answer document cannot be built and EVERY
+    # inbound call on the owned runtime fails, with a real person on the line hearing
+    # nothing. The fix is one operator action (set the variable), which is exactly what a
+    # page is for. It cannot fire before BLOCKER-1 lands, because nothing dials us yet; the
+    # classification is here now so that the first day it CAN fire is not also the first day
+    # anybody decides what it means.
+    "carrier_stream_base_not_configured": "page",
     # voice-runtime's own refusals. `attention`: the ack path shed a webhook or a tool
     # call, which the poller reconciles (TRD §5 makes the poller the truth and the webhook
     # a hint) — but a RUN of them is the queue being down, which is what the board shows.
