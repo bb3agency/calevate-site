@@ -64,6 +64,7 @@ from apps.api.billing.rates import (
     cartesia_plan_crossover_call_minutes,
     cartesia_plan_marginal_cost_inr_per_min,
     cartesia_rung_breakeven_call_minutes,
+    cartesia_tts_inr_per_call_minute,
     cost_floor_inr_per_min,
     ex_tts_cost_inr_per_min_at,
     gross_margin_ratio,
@@ -226,6 +227,38 @@ def test_the_cartesia_plans_are_the_vendors_three_inputs_and_nothing_derived_is_
     assert CARTESIA_STARTUP_PLAN.marginal_inr_per_call_minute(CARTESIA_EVIDENCE_USD_INR) == Decimal(
         "2.13840"
     )
+
+
+def test_the_display_door_quantizes_and_the_summing_door_does_not() -> None:
+    """`cartesia_tts_inr_per_call_minute` is the DISPLAY door and must round; the exact one
+    must not. They are two doors to one quantity and the split is the whole fix for a real
+    defect — the "costs us" curve quantized its TTS leg on the way out and then quantized the
+    sum again, which is a second rounding nobody asked for.
+
+    IT HID AT ₹88, and that is why this test exists at all rather than the arithmetic being
+    left to speak for itself: at the Cartesia reading's own rate the shared legs land exactly
+    on four decimals, so the second quantize is a no-op and the error is identically zero.
+    `ops/fx_rates.py` stores a published quote at SIX decimals, and the founder's 9 Sep
+    decision puts that live quote on this curve — at which point the two answers part company.
+
+    FAILS IF: somebody re-points the display door at the exact one (the figure under a "costs
+    us" heading would then carry more precision than a rupee has), or re-points the SUMMING
+    path back at the display door, which is the defect coming back.
+    """
+    volume = Decimal("200")
+    six_dp = Decimal("88.123456")
+    plan = cartesia_cheapest_plan(volume, usd_inr=six_dp)
+
+    shown = cartesia_tts_inr_per_call_minute(volume, usd_inr=six_dp)
+    exact = plan.exact_tts_inr_per_call_minute(volume, usd_inr=six_dp)
+
+    assert shown == exact.quantize(MONEY_Q, rounding=ROUNDING)
+    assert shown == shown.quantize(MONEY_Q, rounding=ROUNDING), "the display door must round"
+    assert exact != exact.quantize(MONEY_Q, rounding=ROUNDING), (
+        "the six-decimal rate must actually reach the exact door, or this test proves nothing"
+    )
+    # The display door names the CHEAPEST plan's leg, not an arbitrary one.
+    assert shown == plan.tts_inr_per_call_minute(volume, usd_inr=six_dp)
 
 
 def test_the_cartesia_floor_is_the_worst_marginal_cost_and_not_a_best_case() -> None:
