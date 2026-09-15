@@ -584,6 +584,16 @@ FIELD_APPLIES: dict[str, AppliesRule] = {
     # tenant's documents, so rotating it is a whole-store event and an operator should see
     # that said beside the box they are typing into.
     "supermemory_api_key": AppliesRule(LIVE),
+    # THE SHADOW READ (§8.6 of `docs/PIPECAT-MIGRATION.md`): which store is asked the same
+    # question in the dark, and whose questions may be asked. LIVE for `retrieval_provider`'s
+    # own mechanical reason — `get_retriever` runs per request and holds no state — and LIVE
+    # for a second reason that matters more here: this is the control an operator reaches for
+    # when a comparison is costing money or latency they did not expect, and it must stop on
+    # the next question rather than on the next deploy. Neither value can change what a
+    # client is served: `retrieval/shadow.ShadowReadRetriever` returns the primary arm's own
+    # result object and the shadow answer reaches a log line and nothing else.
+    "retrieval_shadow_arm": AppliesRule(LIVE),
+    "retrieval_shadow_tenant_ids": AppliesRule(LIVE),
     # A MARKED ASSUMPTION, live on purpose (D-404's mechanism, D-410's provider). It names
     # which entry in the engine's credential store the LLM key is written to; our default
     # is derived from the vendor's naming rule rather than read from their docs, and the

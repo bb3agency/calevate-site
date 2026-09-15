@@ -44,6 +44,12 @@ from apps.api.retrieval.embedding import embedding_leg, embedding_price_is_billa
 from apps.api.retrieval.pgvector import PROVIDER_NAME as PGVECTOR_PROVIDER
 from apps.api.retrieval.pgvector import PgVectorRetriever
 from apps.api.retrieval.routing import RouteDecision, classify
+from apps.api.retrieval.shadow import (
+    SHADOW_OFF,
+    ShadowReadRetriever,
+    UnavailableArm,
+    shadowed_tenants,
+)
 from apps.api.retrieval.supermemory import PROVIDER_NAME as SUPERMEMORY_PROVIDER
 from apps.api.retrieval.supermemory import supermemory_t3
 from apps.api.retrieval.tiered import KnowledgeRetriever
@@ -81,6 +87,12 @@ def get_retriever(session: AsyncSession) -> RetrievalProvider:
     check ordered the other way would have degraded it to T0 over a credential its live
     store does not use. A misconfigured box 3 falls through to the Postgres rules below with
     the missing precondition already named by `supermemory.supermemory_t3`.
+
+    **`_with_shadow` WRAPS WHICHEVER STORE WAS CHOSEN AND CHANGES NOTHING ABOUT IT**
+    (§8.6). It is how step 15's retirement gets a number instead of a preference: the other
+    store is asked the same question in the dark and the difference is logged, while the
+    result a client sees is the primary arm's own object. It is off by default, it is off
+    for every tenant nobody enrolled, and it is never the reason a question goes unanswered.
     """
     provider = get_settings().retrieval_provider
     if provider == SUPERMEMORY_PROVIDER:
@@ -90,7 +102,7 @@ def get_retriever(session: AsyncSession) -> RetrievalProvider:
         # that adapter already took and tested.
         t3 = supermemory_t3(session, fallback=PgVectorRetriever(session))
         if t3 is not None:
-            return KnowledgeRetriever(session, t3=t3)
+            return KnowledgeRetriever(session, t3=_with_shadow(session, t3))
     elif provider != PGVECTOR_PROVIDER:
         return CompiledFactsRetriever(session)
     if embedding_leg() is None or not embedding_price_is_billable():
@@ -103,7 +115,56 @@ def get_retriever(session: AsyncSession) -> RetrievalProvider:
             },
         )
         return CompiledFactsRetriever(session)
-    return KnowledgeRetriever(session)
+    return KnowledgeRetriever(session, t3=_with_shadow(session, PgVectorRetriever(session)))
+
+
+def _shadow_arm(session: AsyncSession, arm: str) -> RetrievalProvider | None:
+    """The store to ask SECOND, built to fail loudly rather than to answer.
+
+    THE ONE DIFFERENCE FROM THE SERVING CONSTRUCTORS, and it is the whole point: box 3's
+    adapter is given `UnavailableArm` as its fallback instead of the Postgres retriever. On
+    the serving path that fallback is right (§8.5 — a client's question still gets answered);
+    here it would make every request box 3 failed to handle read as "box 3 agrees with
+    pgvector perfectly", which is the precise opposite of what the comparison is for.
+    """
+    if arm == SUPERMEMORY_PROVIDER:
+        return supermemory_t3(session, fallback=UnavailableArm())
+    if embedding_leg() is None or not embedding_price_is_billable():
+        # Same contradiction as the serving path's, logged under its own name so an
+        # operator reading an empty comparison is not sent to the wrong switch.
+        log.error(
+            "retrieval_shadow_pgvector_unconfigured",
+            extra={
+                "leg": embedding_leg() is not None,
+                "priced": embedding_price_is_billable(),
+            },
+        )
+        return None
+    return PgVectorRetriever(session)
+
+
+def _with_shadow(session: AsyncSession, served: RetrievalProvider) -> RetrievalProvider:
+    """`served`, or `served` with the other store asked in the dark beside it (§8.6).
+
+    FOUR WAYS THIS RETURNS `served` UNTOUCHED, and each is a case where a wrapper would cost
+    a round trip and measure nothing: the switch is off; it names the store already serving
+    (an arm compared with itself); no tenant is enrolled, which is the money gate
+    `shadow.py` argues; or the named arm is not configured on this deployment.
+
+    It wraps the T3 MEMBER rather than the composite, so a t0 question — which both arms
+    would answer out of the same compiled block — never pays for a comparison that is true
+    by construction.
+    """
+    arm = get_settings().retrieval_shadow_arm
+    if arm == SHADOW_OFF or arm == served.name:
+        return served
+    tenants = shadowed_tenants()
+    if not tenants:
+        return served
+    shadow = _shadow_arm(session, arm)
+    if shadow is None:
+        return served
+    return ShadowReadRetriever(served, shadow=shadow, tenants=tenants)
 
 
 async def look_up(

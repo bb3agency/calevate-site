@@ -790,6 +790,31 @@ class Settings(BaseSettings):
     # this would be asserting which model is running on evidence we do not have; leaving it
     # None means the provider is not selected until an operator has looked.
     supermemory_embedding_model: str | None = Field(default=None, max_length=100)
+    # WHICH STORE IS ASKED THE SAME QUESTION IN THE DARK, AND WHOSE QUESTIONS MAY BE ASKED.
+    #
+    # `docs/PIPECAT-MIGRATION.md` §8.6. Step 15 retires `kb_chunks` in favour of box 3, and
+    # nothing in this tree can yet say whether that trade wins or loses answers. These two
+    # run the challenger against live traffic WITHOUT serving it: `retrieval/shadow.py`
+    # returns the primary arm's own result object and writes the difference to a log line.
+    #
+    # `off` is the default and is the value an operator sets back to once they have their
+    # number. The other two name the store that is asked SECOND — naming the store that is
+    # already serving is a no-op the selector drops, because comparing an arm with itself
+    # measures nothing and costs a round trip.
+    retrieval_shadow_arm: Literal["off", "pgvector", "supermemory"] = "off"
+    # WHOSE QUESTIONS. Comma-separated tenant uuids; **empty means nobody, so the switch
+    # above spends nothing on its own.** Two settings rather than one because a shadow
+    # search BUYS AN EMBEDDING and meters it against the tenant whose question it was — so
+    # a platform-wide shadow switch would spend every client's AI quota on an experiment
+    # they did not ask for. Enrolment is an operator act against a named account: ours, or
+    # one that agreed.
+    #
+    # A STRING rather than a parsed list because `platform_settings` stores scalars and
+    # every other list-shaped setting in this file takes the same shape; `retrieval/shadow.
+    # shadowed_tenants` parses it and DROPS a malformed entry with a log line rather than
+    # raising, because this is read on the request path and a typo must cost a comparison,
+    # never an answer.
+    retrieval_shadow_tenant_ids: str | None = Field(default=None, max_length=2000)
     azure_openai_deployments: str = Field(
         default="",
         max_length=512,
