@@ -569,6 +569,61 @@ or migration, follow its module anatomy, bootstrap order, error ladder, reliabil
 triad (idempotency/outbox/inbox), and CAS concurrency doctrine. Deviations need a
 decision-log entry.
 
+## When touching `apps/voice-worker` (the Pipecat leg)
+
+The vendor ships its own agent-authoring guide INSIDE the pinned wheel, and it is the
+primary source for this deployable — `.venv/lib/python3.12/site-packages/pipecat/cli/
+agent_templates/AGENTS.md` (315 lines; their `CLAUDE.md` beside it is a one-line include of
+it). It is VERIFIED-VENDOR-DOCS, hash-pinned by `uv.lock`, and it is READABLE FROM HERE
+while `docs.pipecat.ai` is egress-blocked (measured 15 Sep 2026, HTTP 000). Read it before
+writing Pipecat code; cite it by line.
+
+**THEIR ANTI-STALENESS RULE IS OUR HARD RULE 11, AND THIS REPO HAS ALREADY PAID FOR IT.**
+`AGENTS.md:135` — *"if you're about to type a Pipecat class name, import path, or service
+parameter from memory — stop and run `check_deprecation` / `search_api` first"* — and
+golden rule 2 at `:13` names the failure mode outright: *"Confidently-wrong old APIs are the
+#1 failure mode."* Two defects in one day came from exactly this shape: `handle_sigterm=True`
+was shipped believing it drains (it calls `cancel()`, `runner.py:347`; the draining method is
+`stop_when_done()`, `:322`), and `_publication_date` was built on a remembered claim that
+`date.fromisoformat` accepts a datetime (it does not on 3.12), which refused every FBIL
+record in production. The `cli` extra IS installed, so `check_deprecation` / `search_api` are
+available — use them rather than recalling an API.
+
+**Terminology is current-or-wrong** (`AGENTS.md:143-147`). `PipelineWorker` is the runnable
+unit; **`PipelineTask` is a DEPRECATED ALIAS**. "Task" means an asyncio task and nothing
+else. Do not reintroduce the old vocabulary.
+
+**Pipeline order is a correctness property, not a style** (`AGENTS.md:163-179`). The cascade
+is `transport.input() -> STT -> user aggregator -> LLM -> TTS -> transport.output() ->
+assistant aggregator`, and **the assistant aggregator goes AFTER `transport.output()`** so it
+records what was actually spoken rather than what was generated. Their words: *"Getting this
+order wrong is a common, subtle bug."* `pipeline.py` already has it right, with the reason
+cited; keep it.
+
+**Change a running pipeline by PUSHING A FRAME, never by calling a method on an object in
+it** (`AGENTS.md:153`). Reaching in directly jumps the queue ahead of frames already in
+flight and causes ordering bugs that only appear under real timing.
+
+**The LLM's output is spoken, so the prompt must forbid what cannot be** — markdown, bullets,
+asterisks, headings, emoji (`AGENTS.md:180`). We already do this, and more thoroughly:
+`calevate_shared/engine.py:2748` plus digit-by-digit numbers for phone and OTP at `:2722`.
+Carry those sentences into any prompt change rather than rewriting around them.
+
+**MAKE IT VERIFIABLE BEFORE MAKING IT FANCY** (golden rule 3, `AGENTS.md:14`). Pipecat ships
+a behavioural eval harness — headless scenarios, no live call — with two kinds: SCRIPTED
+(exact turns, `text_contains` / `function_call` / `within_ms` assertions) and SIMULATED (an
+LLM plays a caller pursuing a goal, and a judge scores the transcript). This matters more
+here than in a typical app for one reason: **NO REAL CALL HAS EVER BEEN PLACED ON THIS
+PRODUCT** (BLOCKER-1), so a scenario suite is the only thing that can show the agent greets,
+answers truthfully when asked whether it is an AI (hard rule 5), searches the knowledge base
+instead of answering from memory, respects `found` / `ambiguous` / `not_found`, and replies
+in the caller's language — before a caller is the one who finds out. Treat a behaviour that
+matters as unproven until a scenario asserts it.
+
+**Ask for credentials, never invent them** (golden rule 4, `AGENTS.md:15`) — the same
+instruction hard rule 11 gives, and the reason `PLIVO_AUTH_ID` is env-only rather than a
+console field it can never reach.
+
 ## When implementing, prefer
 
 - Thin vertical slices matching ROADMAP milestones; client #1 needs beat platform polish.
