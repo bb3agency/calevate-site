@@ -25,21 +25,34 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 
+#: Every Dockerfile in this repository, each built from the REPOSITORY ROOT and so each
+#: subject to the same `.dockerignore`. Named rather than globbed: a file this list does
+#: not know about is one nothing checks, and a glob would make that silent.
+#:
+#: `apps/voice-worker/Dockerfile` (D-603) is the second. It is built with
+#: `docker build -f apps/voice-worker/Dockerfile .` — the context is the root because the
+#: workspace lock spans every member — so its COPY sources answer to the same ignore file
+#: as the root image's, and get it wrong the same way: a path excluded there is not in the
+#: context at all and the build fails at the step with "not found".
+DOCKERFILES: tuple[str, ...] = ("Dockerfile", "apps/voice-worker/Dockerfile")
+
 #: Sources that are not repository paths and so cannot be ignored: `--from=` copies read
 #: from an earlier stage or a pinned image, never from the build context.
 _FROM_ANOTHER_STAGE = re.compile(r"^COPY\s+--from=")
 
 
-def _copy_sources() -> list[tuple[int, str]]:
-    """(line number, source path) for every context-reading COPY in the Dockerfile."""
-    found: list[tuple[int, str]] = []
-    for number, raw in enumerate((REPO / "Dockerfile").read_text(encoding="utf-8").split("\n"), 1):
-        line = raw.strip()
-        if not line.startswith("COPY ") or _FROM_ANOTHER_STAGE.match(line):
-            continue
-        # `COPY a b c dest` — every argument but the last is a source. Flags are dropped.
-        parts = [p for p in line.split()[1:] if not p.startswith("--")]
-        found.extend((number, source) for source in parts[:-1])
+def _copy_sources() -> list[tuple[str, int, str]]:
+    """(dockerfile, line number, source path) for every context-reading COPY."""
+    found: list[tuple[str, int, str]] = []
+    for dockerfile in DOCKERFILES:
+        text = (REPO / dockerfile).read_text(encoding="utf-8")
+        for number, raw in enumerate(text.split("\n"), 1):
+            line = raw.strip()
+            if not line.startswith("COPY ") or _FROM_ANOTHER_STAGE.match(line):
+                continue
+            # `COPY a b c dest` — every argument but the last is a source. Flags dropped.
+            parts = [p for p in line.split()[1:] if not p.startswith("--")]
+            found.extend((dockerfile, number, source) for source in parts[:-1])
     return found
 
 
@@ -77,8 +90,8 @@ def test_every_dockerfile_copy_source_exists_in_the_repository() -> None:
     """A COPY naming a path that is not here fails the build for a different reason, and
     is worth separating from the ignore question so the message names the real cause."""
     missing = [
-        f"Dockerfile:{line} COPY {source}"
-        for line, source in _copy_sources()
+        f"{dockerfile}:{line} COPY {source}"
+        for dockerfile, line, source in _copy_sources()
         if not (REPO / source).exists()
     ]
     assert not missing, f"these COPY sources do not exist in the repository: {missing}"
@@ -87,8 +100,8 @@ def test_every_dockerfile_copy_source_exists_in_the_repository() -> None:
 def test_no_dockerfile_copy_source_is_excluded_from_the_build_context() -> None:
     """THE REGRESSION. `.dockerignore` and the Dockerfile must agree about every input."""
     blocked = [
-        f"Dockerfile:{line} COPY {source}"
-        for line, source in _copy_sources()
+        f"{dockerfile}:{line} COPY {source}"
+        for dockerfile, line, source in _copy_sources()
         if _is_excluded(source)
     ]
     assert not blocked, (
