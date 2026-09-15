@@ -232,6 +232,15 @@ PIPECAT_CAPABILITIES = EngineCapabilities(
     inbound_binding=False,
     transfer=False,
     in_call_handoff=False,
+    # FALSE, AND IT IS A FACT ABOUT WHAT WE STORE (D-615). `agent_config_versions` holds
+    # the composed prompt, the opening line and the model config — `mint_config_version`
+    # writes those three and nothing else — so a during-call action has no way to reach the
+    # worker, whose only tool is `build_knowledge_tool` (`voice_worker/pipeline.py`). It
+    # published fine and dropped the tool, which is `in_call_handoff`'s failure over a
+    # client's own integration: an empty tool list on a live agent looks exactly like a
+    # client who configured none. It flips when the version carries the tools and the
+    # worker dispatches them, which is work rather than a document to read.
+    action_tools=False,
     script_override=True,
     webhook_auth="none",
 )
@@ -835,6 +844,15 @@ class PipecatEngine:
         require_speech_leg("tts", engine=self, value=cfg.models.tts_voice)
         if cfg.handoff is not None:
             require_capability("in_call_handoff", engine=self)
+        # THE ACTIONS ARM, AND IT IS THE ONE THAT ACTUALLY BIT (D-615). `AgentConfig
+        # .action_tools` is filled on every publish by `agents/service.publish_agent`, this
+        # adapter never read it, and `mint_config_version` stores only the composed prompt,
+        # the opening line and the model config — so a client's during-call action was
+        # dropped between the console saying "live" and the worker, which builds one tool
+        # (`build_knowledge_tool`) and knows nothing about ours. Refusing by name is
+        # `in_call_handoff`'s rule applied to the same class of silence.
+        if cfg.action_tools:
+            require_capability("action_tools", engine=self)
 
     def _assert_this_engine_hosts_agents(self) -> None:
         """Present for the shape rather than for the branch it takes.

@@ -266,6 +266,7 @@ EngineCapabilityName = Literal[
     "inbound_binding",
     "transfer",
     "in_call_handoff",
+    "action_tools",
     "script_override",
 ]
 
@@ -414,6 +415,32 @@ class EngineCapabilities(BaseModel):
     #: do not get is the message. `workers/maintenance.py` says so in the operator's alert
     #: rather than pretending, which is the whole reason this is a declared capability and
     #: not a `try`/`except` around a vendor call.
+    #: Can this engine call a tool of OURS during a call — the ACTIONS feature (D-615)?
+    #:
+    #: **THE TWIN OF `in_call_handoff`, AND IT WAS THE HALF NOBODY DECLARED.** That one
+    #: exists because a handoff destination dropped at the adapter is discovered by a caller
+    #: asking for a person; this one is the same failure over a client's own integration.
+    #: `AgentConfig.action_tools` is filled on EVERY publish by `agents/service.publish_agent`
+    #: (from `actions_service.declare`), and exactly one adapter has ever read it: Bolna
+    #: renders `api_tools`. `cartesia.py` and `pipecat.py` never mention the field, so a
+    #: client who built a during-call action, enabled it, saw the console say live and
+    #: watched the agent publish had a tool that was never wired — and nothing anywhere
+    #: said so. That is the quiet direction `in_call_handoff`'s own note calls "the
+    #: direction an adapter falls into by accident".
+    #:
+    #: Under False a publish carrying a non-empty `action_tools` must REFUSE by name. The
+    #: refusal is the point: an empty tool list on a live agent is indistinguishable from a
+    #: client who configured none.
+    #:
+    #: ⚠ **IT IS DECLARED ABOUT OUR ADAPTER, NOT ABOUT THE VENDOR** (hard rule 11). False
+    #: on Cartesia says our adapter sends no tools — read from `engine/cartesia.py`, which
+    #: carries no reader for the field — not that Cartesia Line cannot run one; nobody here
+    #: has read a page that would settle that. False on `pipecat` is likewise a fact about
+    #: what we store: `agent_config_versions` holds the composed prompt, the opening line
+    #: and the model config, and the worker's only tool is `build_knowledge_tool`
+    #: (`voice_worker/pipeline.py`). Each flips when the work is done, not when a document
+    #: is read.
+    action_tools: bool
     script_override: bool
     #: How this engine's webhooks are proved authentic. Must equal what `verify_webhook`
     #: actually reports, and must equal `WEBHOOK_AUTH_BY_ENGINE[name]` — the receiver in
@@ -522,6 +549,8 @@ class EngineCapabilities(BaseModel):
             return self.inbound_binding
         if name == "transfer":
             return self.transfer
+        if name == "action_tools":
+            return self.action_tools
         return self.in_call_handoff
 
 

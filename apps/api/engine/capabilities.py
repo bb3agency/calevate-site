@@ -112,6 +112,11 @@ _REMEDIATION: Final[dict[EngineCapabilityName, str]] = {
         "can still hand a caller to a person during the call — configure the people "
         "who take calls on the agent's handover list."
     ),
+    "action_tools": (
+        "The voice platform in use cannot call this account's own actions during a call, "
+        "so an action set to run during the call would never fire. Switch those actions "
+        "to run after the call, or contact us before relying on them for this account."
+    ),
     "in_call_handoff": (
         "The voice platform in use cannot hand a live caller to a person, so the people "
         "on this agent's handover list would never be rung. Contact us before relying on "

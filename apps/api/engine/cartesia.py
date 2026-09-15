@@ -375,6 +375,14 @@ CARTESIA_CAPABILITIES = EngineCapabilities(
     caller_id=False,
     inbound_binding=False,
     transfer=False,
+    # FALSE, AND IT IS A FACT ABOUT THIS FILE RATHER THAN ABOUT CARTESIA (D-615). This
+    # adapter contains no reader for `AgentConfig.action_tools` — the field arrives on
+    # every publish and nothing here has ever looked at it — so a client's during-call
+    # action was silently dropped and the console showed it live. Whether Cartesia Line can
+    # run such a tool is UNREAD; the refusal says only what we know, which is that we do
+    # not send one. It costs nothing today for the same reason `script_override` does:
+    # there is no agent record of ours on this engine.
+    action_tools=False,
     in_call_handoff=False,
     # FALSE, AND NOT BECAUSE THE VENDOR SAYS SO. There is no agent record of ours on this
     # engine to override (`agent_hosting="external_deployment"`): our script reaches a

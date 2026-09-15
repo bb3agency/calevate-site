@@ -228,6 +228,9 @@ DEFAULT_FAKE_CAPABILITIES = EngineCapabilities(
     # a number fixed at publish, so the default fake is what exercises the handoff seam
     # offline -- the publish carrying it, and the read-back proving the engine holds it.
     in_call_handoff=True,
+    # Bolna's shape a fourth time (D-615): this engine renders our during-call tools, so
+    # the default fake is what exercises the actions seam offline.
+    action_tools=True,
     # Bolna's shape once more (D-544): the agent record holds the greeting and the prompt,
     # so the maintenance script override is a real write against it and the default fake is
     # what exercises the seam offline — the override landing, and the read-back proving the
@@ -285,6 +288,13 @@ DICTATED_SPEECH_CAPABILITIES = EngineCapabilities(
     # shape `create_agent` refuses one step earlier, on `agent_hosting`, so a suite with
     # only that profile would report the handoff clause green having never run it.
     in_call_handoff=False,
+    # **THE PROFILE THAT MAKES THIS REFUSAL REACHABLE TOO** (D-615), and it is here for
+    # `in_call_handoff`'s reason rather than as a second axis: the externally-deployed
+    # shape refuses one step earlier on `agent_hosting`, so a suite carrying only that
+    # profile would report the actions clause green having never run it. An engine that
+    # hosts our agent and cannot call our tools is exactly the state `cartesia` and
+    # `pipecat` are in, and it is the one a client's console must not show as live.
+    action_tools=False,
     # **THE PROFILE THAT MAKES THE REFUSAL REACHABLE** (D-544), and it is here rather than
     # on the external-deployment shape for the reason `in_call_handoff` is: on that shape
     # `create_agent` refuses one step earlier on `agent_hosting`, so a suite with only that
@@ -347,6 +357,10 @@ EXTERNAL_DEPLOYMENT_CAPABILITIES = EngineCapabilities(
     # it, `require_capability("in_call_handoff")`'s refusal branch would be contract no
     # test has ever run.
     in_call_handoff=False,
+    # MATCHES THE DEFAULT, the one-axis rule (D-615): the axis under test here is
+    # where the agent comes from, and this fixture must not pick up a second
+    # difference. The refusal branch lives on `DICTATED_SPEECH_CAPABILITIES`.
+    action_tools=True,
     webhook_auth="none",
 )
 
@@ -391,6 +405,10 @@ OWNED_RUNTIME_CAPABILITIES = EngineCapabilities(
     transfer=False,
     in_call_handoff=True,
     script_override=True,
+    # MATCHES THE DEFAULT, the one-axis rule (D-615): the axis under test here is
+    # where the agent comes from, and this fixture must not pick up a second
+    # difference. The refusal branch lives on `DICTATED_SPEECH_CAPABILITIES`.
+    action_tools=True,
     webhook_auth="none",
 )
 
@@ -546,6 +564,11 @@ class FakeEngine:
         # rotation uses on every hours boundary.
         if cfg.handoff is not None:
             require_capability("in_call_handoff", engine=self)
+        # THE ACTION TOOLS, ON BOTH WRITE PATHS FOR THE HANDOFF'S REASON (D-615). A client
+        # who adds a during-call action to a LIVE agent reaches this through update, which
+        # is the path that matters most and the one an adapter forgets first.
+        if cfg.action_tools:
+            require_capability("action_tools", engine=self)
 
     def _assert_this_engine_hosts_agents(self) -> None:
         """Refuse the three agent-write/read methods when this instance says its agents
