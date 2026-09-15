@@ -212,7 +212,7 @@ import sys
 import time
 import unicodedata
 from collections import OrderedDict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Final, Literal, Protocol
@@ -472,6 +472,64 @@ _SIGN_ELEMENTS: Final[dict[str, str]] = {
     "SIGN AVAGRAHA": "",
 }
 
+
+def _nukta_compositions() -> dict[str, str]:
+    """Base consonant → the PRECOMPOSED letter that base-plus-nukta spells, DERIVED.
+
+    **THE BUG THIS EXISTS TO FIX, FOUND BY ADDING A SECOND SCRIPT (D-612).** A nukta is a
+    dot under a consonant that makes it a DIFFERENT consonant — Devanagari `ज`+nukta is
+    `ज़` /z/, `फ`+nukta is `फ़` /f/, `ड`+nukta is `ड़` /ɽ/ — and Unicode spells each of
+    those two ways: one precomposed codepoint (U+095B ZA) and the base-plus-mark sequence.
+    The walk in `transliterate_indic` used to skip past the mark and keep the BASE's
+    romanisation, so `दफ़्तर` came out `daphtara` rather than `daftara` and `काग़ज़` came
+    out `kāgaja` rather than `kāgaza` — while the PRECOMPOSED spelling of the same word
+    romanised correctly all along. One character, two Unicode spellings, two answers.
+
+    ⚠ **AND THE SPELLING THAT WAS WRONG IS THE ONE REAL TEXT CARRIES.** U+0958..U+095F are
+    on Unicode's composition-exclusion list, so NFC does NOT compose them: normalising
+    Hindi leaves the base-plus-mark sequence standing, and `query_forms` NFKC-normalises
+    before it tokenises. The branch that happened to be correct was the rare one.
+
+    Telugu has no nukta, which is why a Telugu-only corpus never touched this. The scripts
+    that do — Devanagari, Bengali, Gurmukhi, Oriya — are four of the ten in
+    `INDIAN_SCRIPT_NAMES`, so this was a generalisation the one-table design asserted and
+    had never been asked to keep.
+
+    DERIVED FROM UNICODE'S OWN CANONICAL DECOMPOSITIONS, never typed: a letter belongs here
+    exactly when the standard says it decomposes to a base plus a mark whose name ends in
+    NUKTA. Twenty-five entries on Unicode 15.0 across five scripts — the fifth is Kaithi,
+    which `_classify` does not cover and which therefore still falls through unchanged.
+    A typed table would be a claim about Unicode; this one reads it (hard rule 11).
+
+    **COST: ~155ms, ONCE, AT IMPORT** (measured 15 Sep 2026, CPython 3.12.3 / unidata
+    15.0.0), for the same reason `_combining_mark_ranges` pays ~102ms there: a container
+    start is not a turn. Deferring it behind an `lru_cache` was rejected — it moves the
+    scan onto the FIRST TURN CONTAINING A NUKTA, i.e. 155ms inside a 350ms TTFT budget, on
+    a live call, and only ever for callers in the four scripts that have one. Merging it
+    into the mark scan was measured and saves nothing (~281ms in one pass against ~257ms in
+    two): `unicodedata.decomposition`, not the loop, is what costs.
+    """
+    compositions: dict[str, str] = {}
+    for codepoint in range(sys.maxunicode + 1):
+        composed = chr(codepoint)
+        decomposition = unicodedata.decomposition(composed)
+        # A `<compat>`-tagged decomposition is a different character, not a spelling of it.
+        if not decomposition or "<" in decomposition:
+            continue
+        parts = decomposition.split()
+        if len(parts) != 2:
+            continue
+        base, mark = (chr(int(part, 16)) for part in parts)
+        if unicodedata.name(mark, "").endswith("NUKTA"):
+            compositions[base] = composed
+    return compositions
+
+
+#: Built at IMPORT, not on first use — see the function's docstring for the 155ms and for
+#: why a lazy cache would spend it on somebody's phone call instead.
+_NUKTA_COMPOSITIONS: Final[Mapping[str, str]] = _nukta_compositions()
+
+
 #: What one codepoint does to the romanisation in progress. A closed set, so the walk in
 #: `transliterate_indic` is a dispatch rather than a chain of membership tests.
 _Akshara = Literal["consonant", "dead_consonant", "standalone", "vowel_sign", "virama", "nukta"]
@@ -576,6 +634,7 @@ def transliterate_indic(text: str) -> str:
     """
     out: list[str] = []
     pending_consonant = False
+    previous: str | None = None
     for ch in text:
         classified = _classify(ch)
         if classified is None:
@@ -583,6 +642,7 @@ def transliterate_indic(text: str) -> str:
                 out.append(_INHERENT_VOWEL)
                 pending_consonant = False
             out.append(ch)
+            previous = ch
             continue
         kind, roman = classified
         if kind == "consonant":
@@ -604,14 +664,26 @@ def transliterate_indic(text: str) -> str:
             # come out as `ḍākṭar` rather than `ḍākaṭara`.
             pending_consonant = False
         elif kind == "nukta":
-            # Modifies the consonant already emitted (`ज` + nukta = `ज़`), so it must NOT
-            # close the syllable — the inherent vowel is still pending behind it.
+            # A nukta REPLACES the consonant already emitted with a different one (`ज` +
+            # nukta = `ज़`, `ja` → `za`), so the character that was just written is rewritten
+            # rather than the mark being dropped — see `_nukta_compositions` for the bug that
+            # dropping it was. It still must NOT close the syllable: the inherent vowel is
+            # pending behind it either way. A base with no composed form (a script
+            # `_classify` does not cover, or a nukta after something that is not a letter)
+            # keeps the old behaviour and passes through.
+            composed = _NUKTA_COMPOSITIONS.get(previous or "")
+            reclassified = _classify(composed) if composed is not None else None
+            if reclassified is not None and out:
+                out[-1] = reclassified[1]
+                pending_consonant = reclassified[0] == "consonant"
+            previous = ch
             continue
         else:  # "standalone": an independent vowel, a digit, an anusvara, a visarga.
             if pending_consonant:
                 out.append(_INHERENT_VOWEL)
                 pending_consonant = False
             out.append(roman)
+        previous = ch
     if pending_consonant:
         out.append(_INHERENT_VOWEL)
     return "".join(out)

@@ -276,7 +276,7 @@ three seconds per turn.
 | 10 | Bolna adapter deleted, one commit | a real Pipecat call has happened |
 | 11 | Wire `voice_worker/knowledge.py` into `pipeline.py` — `SessionConfig` carries the pack digest, `assemble_call` awaits `load_session_knowledge`, `SessionKnowledge.search` registers as a tool | **DONE, 14 Sep 2026.** The ends landed first and the MIDDLE was open for three commits: nothing read `agents.knowledge_pack_sha256` into a `SessionConfig` and nothing awaited the load, so every call would have been assembled with `knowledge=None` and every caller told the client had published nothing. Closed by `voice_worker/config.py` (the version + pack-pointer read), `voice_worker/storage.py` (the `PackFetcher` over the bucket, bounded) and `voice_worker/session.py` (`start_session`: config, then pack, then `assemble_call`, with the one process-wide `PackCache`). **THE BOOTSTRAP LANDED 15 SEP 2026 AND ONE THIRD OF IT REMAINS OPEN.** This row used to end "what is still not called in production is the CONTAINER BOOTSTRAP — transport, sink and DB engine". The sink and the engine now exist: `voice_worker/db.py` (ONE engine and pool for the container, shared by the config read and the writer, which is what `config.load_session_config` asked for by name), `voice_worker/sink.py` (`calls`, `transcript_turns` and `usage_events`, in the same statements, on the same idempotency keys and through the same `apps/workers/redaction.py` as the post-call pipeline, so the two writers converge on one row) and `voice_worker/runtime.py` (the entrypoint: bootstrap order, the meter's observer, and `WorkerRunner(handle_sigterm=True)` — OFF by default, so without it an orchestrator's stop signal kills a call mid-settlement). What is still open is the TRANSPORT, which is BLOCKER-1 and nobody's to code around, and the container IMAGE: the root `Dockerfile` copies `apps/api`, `apps/voice-runtime` and `apps/workers` and not this package. ⚠ Every settlement in production TODAY is a recorded refusal rather than rupees, because §1.2 gives the billable minute to the carrier and there is no carrier — see §1.3 and `call_metering_refusals`. §8 |
 | 12 | Give `kb/pack.py::publish_pack` a caller on the publish path, and an object-lifecycle rule for `knowledge-packs/` | step 11 |
-| 13 | Golden caller-language → English-hit set in CI | **FIRST ARM LANDED 14 Sep 2026**: `tests/in_call_retrieval_recall_test.py` scores the real pack and the real search, no wiring needed. What remains is a second language's corpus. §9.4 |
+| 13 | Golden caller-language → English-hit set in CI | **DONE, BOTH ARMS (15 Sep 2026, D-612).** `tests/in_call_retrieval_recall_test.py` scores the real pack and the real search over TWO languages' corpora — Telugu (`telugu_gloss_corpus.json`, clinic + builder) and Hindi (`hindi_gloss_corpus.json`, coaching institute + insurance agency), 24 facts each, asked in English, romanised and native script, plus the code-mixed set. The English > romanised > native-script ordering and the near-zero native-script tripwire are asserted on BOTH, so §9.4's conclusion is a two-language measurement rather than a Telugu one. Adding a THIRD language is now a fixture plus four floors and needs no new harness. §9.4 |
 | 14 | Supermemory on box 2 behind `RetrievalProvider`; embedding pointed at Gemini and PROVEN non-local | **THE ADAPTER LANDED 14 Sep 2026; THE INSTALL DID NOT, AND THE TWO HALVES ARE NOT THE SAME CLAIM.** `apps/api/retrieval/supermemory.py` is a third value of `Settings.retrieval_provider` that swaps the T3 member of `KnowledgeRetriever`, with `PgVectorRetriever` underneath it as a per-request fallback — so an unreachable box 3 degrades dashboard search and nothing else (§8.5), and step 15 is untouched. ⚠ **IT IS NOT A VERIFIED INTEGRATION**: nothing here has read a page of Supermemory's API docs (`supermemory.ai` egress-blocked), so every path and key is an ASSUMPTION collected in `retrieval/supermemory_wire.ASSUMED_CONTRACT` and a shape we guessed wrong falls back rather than erroring. Tenancy is OURS per §8.4 — `per_tenant_namespace` is declared **False**, the scope is a required first parameter of every wire method, and records returned without the tenant tag are dropped and counted. What still gates this row is entirely outside the repo: the install itself, §8.3's `top` check, and an operator attesting the embedding price — until that figure is entered, `search_is_billable()` is False and the provider is not selectable at all (hard rule 7's pre-flight) |
 | 15 | `kb_chunks` and our lexical search retire; `kb_documents` ledger stays | **THE WRITE HALF LANDED 15 Sep 2026; THE RETIREMENT DID NOT, AND STEP 14 LANDING IS NOT THE GATE — §8.6 IS.** `apps/api/retrieval/supermemory_index.py` gives box 3 an ingestion path (`kb/service.publish_source`), a withdrawal path (`withdraw_source`), a DPDP tenant purge (`workers/retention.execute_tenant_erasure`) and a difference-driven reconciliation sweep (`workers/kb_index_sync.py`, `:19`/`:49`), on a ledger of what the vendor last accepted (`kb_index_documents`, migration `b5e83f21c4d7`). **`kb_chunks` stays and must** until the install is real and §8.3's `top` check has been run: it is the authority the index is derived FROM, the fallback an unreachable box 3 degrades to, and the corpus the sweep measures the difference against — retiring it would leave nothing able to answer the question "what should box 3 hold?". The publish path cannot be failed by the vendor (`kb/pack.refresh_published_pack`'s posture) and the erasure deliberately CAN (§8.4 — a certificate over content we did not remove is the one thing it may not be). Hard rule 7 gates the whole write side on the same pre-flight as the read side: no attested embedding price, no writes at all. ⚠ Every path and key is still an ASSUMPTION in `retrieval/supermemory_wire.ASSUMED_CONTRACT` — the write half added five (`ingest_path`, `delete_path`, `content_key`, `document_id_key`, `delete_ids_key`) and nobody here has read a page of their documentation **§8.6 is the plan the retirement runs against**: six things that must be PROVEN (reachable, priced, ingested, measured against the incumbent, agreed on live traffic, rollback without a redeploy) and the three-release shape hard rule 8 demands — stop reading, then stop writing once a sweep proves nothing reads, then DROP in a LATER release with a `downgrade` that backfills from `kb_documents`. **The incumbent's own recall was never measured either**, so "better" still has no baseline; `retrieval/shadow.py` and `retrieval/compare.py` are the instrument that produces one, and `retrieval_shadow_arm` / `retrieval_shadow_tenant_ids` are LIVE and off — two settings, because a shadow search buys an embedding on a client's quota. Nothing was deleted | step 14 |
 | 16 | Apply the new rate card (§12) — catalogue plus the wide fixture update | **DONE, 14 Sep 2026.** `PACK_CATALOGUE` carries Clear ₹4.00 flat and Studio 7.00 → 5.50; sixteen test files and three web surfaces moved with it |
@@ -727,7 +727,7 @@ none):
 | Query form reaching the index | recall@1 | Outcome |
 |---|---|---|
 | English — **the form step 2 actually emits** | **0.833** | the control, and it wins |
-| Romanised (Tenglish), unparaphrased | **0.583** | degrades gradually |
+| Romanised (Tenglish), unparaphrased | **0.625** | degrades gradually |
 | Telugu script, unparaphrased | **0.083** | **22 of 24 answered `not_found`** |
 
 **SO THE ENGLISH PARAPHRASE IS LOAD-BEARING, NOT A CONVENIENCE.** If it ever stops — a prompt
@@ -738,6 +738,45 @@ row — but only once a price is attested, so until then the sentence stands unq
 generalises: the index has no tokens in common with any non-Latin Indic script, so every
 language in §9.5 depends on step 2 exactly as Telugu does, and a change to the search tool's
 description is a change to all of them at once.
+
+⚠ **THE TENGLISH ROW READ 0.583 HERE UNTIL 15 Sep 2026 AND THE CODE NEVER PRODUCED IT.**
+Re-measured at the unmodified commit, it is 0.625 (15 of 24, not 14), with the same outcome
+census. Nothing in retrieval changed — the figure was transcribed wrong into the test's
+docstring on 14 Sep and copied here from there, which is precisely hard rule 11's failure
+shape: a number in our own tree quoted downstream without anyone re-running it.
+
+**THE SECOND LANGUAGE LANDED 15 Sep 2026 (D-612), AND THE SHAPE REPRODUCED.** The same
+harness now also scores `tests/fixtures/hindi_gloss_corpus.json` — 24 facts from two of the
+four verticals `scripts/seed.py` ships (`education`, `insurance`; deliberately neither of
+the Telugu set's two, and no clinical scenario), asked in English, in romanised Hinglish and
+in Devanagari. Hindi is the pick because it is the only language besides English and Telugu
+in `calevate_shared.languages.OFFERED_LANGUAGE_IDS` — conversational on both of Sarvam's own
+literals [VERIFIED-VENDOR-SDK: `sarvamai==0.1.28`, `types/speech_to_text_language.py:5-31`
+and `types/text_to_speech_language.py:5-7`, read 14 Sep 2026] — so it is the only other
+language a client can configure an agent in today.
+
+| Query form reaching the index | recall@1 | Outcome |
+|---|---|---|
+| English — **the form step 2 actually emits** | **0.917** | the control, and it wins |
+| Romanised (Hinglish), unparaphrased | **0.750** | degrades gradually |
+| Devanagari, unparaphrased | **0.083** | **22 of 24 answered `not_found`** |
+
+⚠ **DO NOT READ THE TWO TABLES AS TELUGU AGAINST HINDI.** They are two corpora; the first
+two rows differ because these 24 facts are more topically disjoint than those 24, and
+Hinglish keeps more English nouns than Tenglish does. What generalises is the SHAPE, and it
+generalised exactly — including the native-script row landing on the same 2 of 24, both
+times on a question carrying an English loanword or a digit the passage also carries.
+
+⚠ **AND THE SECOND SCRIPT FOUND A ROMANISATION DEFECT THAT TELUGU COULD NOT.** A nukta —
+the dot that makes Devanagari `ज` into `ज़` /z/ and `फ` into `फ़` /f/ — was being dropped by
+`transliterate_indic`, so the base consonant's sound survived and `दफ़्तर` romanised as
+`daphtara`. Unicode spells these letters both precomposed and as base-plus-mark, the
+precomposed spelling romanised correctly, and U+0958..U+095F are composition-excluded so NFC
+keeps the sequence — i.e. the spelling that was wrong is the one real text carries. Fixed by
+deriving the composition map from Unicode's own canonical decompositions (25 letters, four
+of our scripts plus Kaithi), at import. Telugu has no nukta. Recall did not move: the
+affected words match no English term either way, which is the honest result and the reason
+the fix is filed as correctness rather than as an improvement.
 
 A fourth set, ten code-mixed questions (Telugu or Hindi words inside an English sentence),
 scored **1.000**. ⚠ **It is not comparable with the three rows above and must not be quoted
