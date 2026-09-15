@@ -2521,6 +2521,63 @@ describe("the platform configuration panel", () => {
       "Settings this console has no group for yet",
     );
   });
+
+  /**
+   * THE SAME DEFECT, ONE ENGINE CHANGE LATER (D-616).
+   *
+   * D-592 moved the conversation loop into a container we deploy, which imports `sarvamai`
+   * directly (`apps/voice-worker/`, hard rule 2's third home). That made the speech legs
+   * OURS to set — and `sarvam_stt_model` and `stt_autodetect_language`, which decide what
+   * an agent HEARS on every call, were still landing in "Other" because no prefix claimed
+   * them. `platform_llm_model` was there for the matching reason on the language side: it
+   * is the platform rung of `agent → organization → platform` and deliberately is NOT an
+   * `azure_openai_*` field, because its value may name a model on any declared leg.
+   *
+   * Asserted through the rendered headings rather than against `GROUPS`, which the route
+   * module does not export (D-196) — the same reason `opsAccess` is exercised through the
+   * DOM one describe over.
+   */
+  it("gives the speech legs and the platform model a heading of their own", async () => {
+    const { container } = renderAdminPage(
+      <OpsConfigPage />,
+      configRoutes(SUPERADMIN, {
+        [OPS_CONFIG_PATH]: configList({
+          fields: [
+            configField({
+              key: "sarvam_stt_model",
+              env_var: "SARVAM_STT_MODEL",
+              value: "saaras:v2.5",
+              default: "saaras:v2.5",
+              kind: "string",
+            }),
+            configField({
+              key: "stt_autodetect_language",
+              env_var: "STT_AUTODETECT_LANGUAGE",
+              value: true,
+              default: true,
+              kind: "boolean",
+            }),
+            configField({
+              key: "platform_llm_model",
+              env_var: "PLATFORM_LLM_MODEL",
+              value: "gemini-2.5-flash-lite",
+              default: "gemini-2.5-flash-lite",
+              kind: "string",
+            }),
+          ],
+        }),
+      }),
+    );
+
+    await screen.findByText("sarvam_stt_model");
+    expect(screen.getByText("Speech")).toBeTruthy();
+    expect(screen.getByText("Language model")).toBeTruthy();
+    // None of the three may sit in the bucket whose hint tells an operator the console
+    // has no opinion about the setting they are about to change.
+    expect(container.textContent).not.toContain(
+      "Settings this console has no group for yet",
+    );
+  });
 });
 
 /**

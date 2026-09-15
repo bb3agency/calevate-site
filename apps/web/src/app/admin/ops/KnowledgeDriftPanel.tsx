@@ -12,9 +12,9 @@ import type { KbDriftState } from "./opsSurfaceState";
  * ## Why this is a second panel and not two more rows on the first
  *
  * `EngineDriftPanel` above answers "is the agent configured as we published" — prompt,
- * greeting, voice. This answers a different question about a different object at the
- * vendor: which knowledge bases the agent can retrieve from. An agent can be perfectly in
- * sync on the first and be reading out a price list somebody pasted into Bolna's console,
+ * greeting, voice. This answers a different question about a different object: which
+ * knowledge bases the agent can retrieve from. An agent can be perfectly in sync on the
+ * first and be reading out a price list somebody pasted into the platform's own console,
  * and the two are measured by two sweeps on two schedules. Each therefore carries its OWN
  * `oldest_checked_at`: folding them would let a healthy agent sweep's timestamp vouch for
  * a knowledge sweep that had died, which is the exact lying-by-omission the pulse exists
@@ -55,7 +55,8 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
         <p className="text-sm text-ink-muted">
           Every hour a sweep reads live agents&apos; knowledge bases back off the voice
           platform and compares them with what was approved and published. It only ever
-          reads — knowledge added on the vendor&apos;s own console stays exactly where it is.
+          reads &mdash; whatever knowledge is on the platform now is still there after the
+          sweep.
         </p>
 
         {drift.status === "loading" && <Skeleton rows={2} />}
@@ -79,8 +80,19 @@ export function KnowledgeDriftPanel({ drift }: { drift: KbDriftState }) {
         {/* THE ENGINE HAS NO KNOWLEDGE BASE — checked BEFORE "nothing has been swept",
             because the two produce identical data and only one of them is a problem.
             `sweep_kb_drift` returns on its first line when the engine lacks the
-            capability, so on Bolna (`BOLNA_CAPABILITIES.knowledge_base` is False, D-354)
-            it records nothing on every run, for ever, by design. The warning below then
+            capability, so on such an engine it records nothing on every run, for ever, by
+            design. ⚠ THE EXAMPLE THIS COMMENT GAVE IS DEAD: it said "so on Bolna
+            (`BOLNA_CAPABILITIES.knowledge_base` is False, D-354)", and that constant is
+            `True` today (`apps/api/engine/bolna.py`, D-488 built the real `attach_kb`) —
+            as is `PIPECAT_CAPABILITIES.knowledge_base` (`apps/api/engine/pipecat.py`). So
+            every engine `Settings.engine` can name declares one today
+            (`calevate_shared.config.EngineName` — `fake`, `bolna`, `cartesia`, `pipecat`),
+            so this notice is currently unreachable. It STAYS rather than being deleted:
+            the field is on the wire precisely so the screen reads the engine's own answer
+            instead of a value typed here, and a capability that flipped True once can flip
+            back. What must not come back is the dead example — a ground quoted from a
+            constant nobody re-read is hard rule 11's whole subject, and this comment was
+            it. The warning below then
             told an operator "the reconciliation job is not running" — permanently, about
             a job running hourly at :23 and doing exactly the right thing. Found by
             walking the console: the panel had counts and a null pulse, which is the same

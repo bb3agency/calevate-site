@@ -154,8 +154,11 @@ const SOLUTIONS: readonly Solution[] = [
       "A web enquiry can become a call without waiting for anybody to notice it: the lead lands, the compliance gate runs, and the dial follows.",
       // apps/api/core/alerting.py:632::record_speed_to_lead.
       "The gap between the form arriving and the dial going out is timed on every one.",
-      // apps/api/campaigns/service.py; contacts are pasted — there is no file input in
-      // this console (`grep 'type="file"' apps/web/src` returns nothing).
+      // apps/api/campaigns/service.py; contacts are pasted — the CAMPAIGN screens take no
+      // file. ⚠ The reason this used to give — "there is no file input in this console,
+      // `grep 'type=\"file\"' apps/web/src` returns nothing" — is dead: that grep now
+      // returns `app/c/[slug]/knowledge/AddDocument.tsx:133` (D-534). The claim about
+      // campaigns is unchanged; the console-wide one was re-read and withdrawn.
       // Two dispatch ticks cannot double-dial a person: the claim commits before the
       // first dial and stamps `last_attempt_at` (`apps/workers/campaign_dispatch.py:39,222,
       // 352`). So this is a property of the design rather than a promise about care.
