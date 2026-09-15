@@ -38,6 +38,47 @@ EngineKBRef = str
 
 NumberSeries = Literal["140", "160", "standard"]
 
+#: The prefix of the agent handle an engine we RUN mints for itself (D-592).
+#:
+#: **THE HANDLE IS THE WHOLE ROUTE, AND THAT IS WHY THE GRAMMAR LIVES HERE RATHER THAN IN
+#: THE ADAPTER.** Every rented engine's ref is a vendor-minted opaque string, so resolving
+#: an incoming call to a tenant needs `engine_agent_routes`; under `owned_runtime` WE mint
+#: it, it carries its own two ids, and resolution is a parse. Two processes now need that
+#: parse and they are different deployables — `apps/api/engine/pipecat.py` mints it on
+#: publish, and `apps/voice-worker/voice_worker/carrier.py` parses it off the WebSocket URL
+#: a carrier connects to — so a second spelling of this grammar would be two programs
+#: disagreeing about which agent a ringing phone reaches. One grammar, in the contract
+#: package both of them already depend on.
+OWNED_RUNTIME_REF_PREFIX: Final = "pipecat"
+
+
+def owned_runtime_agent_ref(tenant_id: str, agent_id: str) -> EngineAgentRef:
+    """`pipecat:<tenant>:<agent>` — the handle an `owned_runtime` engine gives one agent.
+
+    Stable by construction (the conformance suite's ref-stability clause): the same agent
+    published twice is the same ref, with no round trip to find out.
+    """
+    return f"{OWNED_RUNTIME_REF_PREFIX}:{tenant_id}:{agent_id}"
+
+
+def parse_owned_runtime_agent_ref(ref: EngineAgentRef) -> tuple[UUID, UUID] | None:
+    """The `(tenant, agent)` a ref names, or `None` when this is not one of ours.
+
+    `None` rather than a raise because both callers answer it differently and neither
+    wants an exception: the adapter is asking "did I mint this?", and the worker is
+    refusing a call. A ref whose ids are not uuids is not ours however it is spelled —
+    the two halves are checked together here so no caller can accept the prefix and then
+    trust an unparsed id.
+    """
+    parts = ref.split(":")
+    if len(parts) != 3 or parts[0] != OWNED_RUNTIME_REF_PREFIX:
+        return None
+    try:
+        return UUID(parts[1]), UUID(parts[2])
+    except ValueError:
+        return None
+
+
 #: How a webhook from this engine is proved authentic. Shared with `WebhookVerdict.method`
 #: on purpose: what an adapter DECLARES and what it REPORTS are the same vocabulary, so
 #: the conformance suite can compare them (an adapter that claims `hmac` and answers
@@ -5341,6 +5382,7 @@ __all__ = [
     "CLIENT_SCRIPT_OPEN",
     "E164",
     "MAX_CALLER_MEMORY_CHARS",
+    "OWNED_RUNTIME_REF_PREFIX",
     "PLATFORM_RULES_PREAMBLE",
     "VOICE_STYLE_GUIDANCE",
     "WEBHOOK_AUTH_BY_ENGINE",
@@ -5395,5 +5437,7 @@ __all__ = [
     "VoiceEngine",
     "WebhookAuthMethod",
     "WebhookVerdict",
+    "owned_runtime_agent_ref",
+    "parse_owned_runtime_agent_ref",
     "render_caller_memory",
 ]

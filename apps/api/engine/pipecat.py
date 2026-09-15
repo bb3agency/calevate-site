@@ -81,6 +81,7 @@ from uuid import UUID
 
 from calevate_shared.engine import (
     E164,
+    OWNED_RUNTIME_REF_PREFIX,
     AccountKBListing,
     AccountKBObject,
     AgentConfig,
@@ -104,6 +105,8 @@ from calevate_shared.engine import (
     RecallOutcome,
     WebhookAuthMethod,
     WebhookVerdict,
+    owned_runtime_agent_ref,
+    parse_owned_runtime_agent_ref,
 )
 from calevate_shared.events import CallEvent, CallStatus
 from sqlalchemy import text
@@ -557,7 +560,13 @@ class SqlControlPlane:
 
 #: The prefix every ref this adapter mints starts with. Its own word rather than the engine
 #: name, so a ref cannot be mistaken for a vendor id in a log line.
-_REF_PREFIX: Final = "pipecat"
+#:
+#: RE-EXPORTED FROM THE CONTRACT PACKAGE, NOT DECLARED HERE (D-592, step 6): the WORKER
+#: parses this same grammar off the WebSocket URL a carrier connects to
+#: (`voice_worker/carrier.py`), and it is a different deployable that cannot import this
+#: module. Two spellings of one grammar would be two programs disagreeing about which
+#: agent a ringing phone reaches.
+_REF_PREFIX: Final = OWNED_RUNTIME_REF_PREFIX
 
 
 def engine_agent_ref_for(tenant_id: str, agent_id: str) -> EngineAgentRef:
@@ -574,19 +583,18 @@ def engine_agent_ref_for(tenant_id: str, agent_id: str) -> EngineAgentRef:
 
     Stable by construction, which is the conformance suite's ref-stability clause: the same
     agent published twice is the same ref, with no round trip to find out.
+
+    THE BODY MOVED TO `calevate_shared.engine` AND THE NAME STAYED HERE: this module is
+    where an adapter-shaped caller looks for it, and the worker — which must parse the
+    same string on the carrier leg — cannot import an `apps.api` module at all.
     """
-    return f"{_REF_PREFIX}:{tenant_id}:{agent_id}"
+    return owned_runtime_agent_ref(tenant_id, agent_id)
 
 
 def _tenant_of(ref: EngineAgentRef) -> UUID | None:
     """The tenant a ref names, or None if this adapter did not mint it."""
-    parts = ref.split(":")
-    if len(parts) != 3 or parts[0] != _REF_PREFIX:
-        return None
-    try:
-        return UUID(parts[1])
-    except ValueError:
-        return None
+    parsed = parse_owned_runtime_agent_ref(ref)
+    return None if parsed is None else parsed[0]
 
 
 def _claimed_source(kb_id: str) -> UUID | None:
