@@ -1132,6 +1132,35 @@ def test_each_fbil_refusal_names_a_different_thing_to_go_and_look_at(
     assert "88.4275" not in str(raised.value), "a refusal reports counts, never the payload"
 
 
+def test_fbils_real_datetime_publication_stamp_parses() -> None:
+    """THE REGRESSION. This exact body is what FBIL actually served, and we refused it.
+
+    `_publication_date` accepted a bare `YYYY-MM-DD` only, on a docstring that asserted
+    `date.fromisoformat` "also accepts an ISO DATETIME" — false on 3.12, where only
+    `datetime.fromisoformat` took the 3.11 relaxation. So on the first day the direct rung
+    ran in production every dollar record was skipped `date_not_iso`, the tally read
+    `date_unparsable=2`, and the ladder degraded to `frankfurter:default`. The ladder
+    working is why this cost nothing; the parser was still wrong.
+
+    **EVIDENCE: VENDOR-MEASURED, founder-relayed, 15 Sep 2026** — the bytes below are from
+    a live GET against `www.fbil.org.in`, which is egress-blocked from CI, so this fixture
+    is the only place that reading exists. The per-100 JPY row is kept deliberately: it is
+    the live proof that `units` really does vary, and that reading it rather than assuming
+    1 is what stands between a rate and a hundredfold error.
+    """
+    body = (
+        '[{"processRunDate":"2026-09-08 00:00:00","subProdName":"INR / 1 USD",'
+        '"displayTime":"2026-09-08 13:00:00","rate":94.717800,"comments":""},'
+        '{"processRunDate":"2026-09-08 00:00:00","subProdName":"INR / 100 JPY",'
+        '"displayTime":"2026-09-08 13:00:00","rate":61.690000,"comments":""},'
+        '{"processRunDate":"2026-09-07 00:00:00","subProdName":"INR / 1 USD",'
+        '"displayTime":"2026-09-07 13:00:00","rate":94.446700,"comments":""}]'
+    )
+    rate, as_of = parse_fbil_response(body)
+    assert as_of == date(2026, 9, 8), "the newest publication wins, and its TIME is dropped"
+    assert rate == Decimal("94.7178"), "the dollar rate, exact and not the yen row"
+
+
 def test_a_future_fbil_publication_date_is_refused_rather_than_skipped() -> None:
     """`as_of` is what the staleness ceiling is measured against, so a date in the future
     is the one value a bad feed could use to disable the ceiling entirely — a rate dated

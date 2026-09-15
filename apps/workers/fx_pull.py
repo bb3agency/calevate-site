@@ -371,11 +371,29 @@ class FxFeedUnreachableError(FxPullError):
 def _publication_date(raw: str) -> date:
     """One spelling of "the date a source stamped on this rate", for every rung.
 
-    ISO only, and deliberately: `date.fromisoformat` also accepts an ISO DATETIME, which
-    is the one other form a JSON feed plausibly sends, and anything else would be this
-    parser guessing at a format nobody has read. A format we cannot parse is a refusal
-    with the field named — never a coerced date, because `as_of` is what the staleness
-    ceiling is measured against and a wrong one is invisible.
+    ⚠ **THIS DOCSTRING USED TO SAY `date.fromisoformat` "ALSO ACCEPTS AN ISO DATETIME",
+    AND THAT IS FALSE ON PYTHON 3.12 — WHICH IS EXACTLY THE BUG IT CAUSED.** Measured in
+    this interpreter (3.12.3): `date.fromisoformat("2026-09-08 00:00:00")` and
+    `...("2026-09-08T00:00:00")` both raise; only a bare `YYYY-MM-DD` parses. FBIL sends
+    `"processRunDate": "2026-09-08 00:00:00"`, so every dollar record it published was
+    refused `date_not_iso` on the first day the direct rung ran in production, and the
+    ladder degraded to `frankfurter:default`. The claim was written from recollection of
+    the 3.11 relaxation, which landed on `datetime.fromisoformat`, not on this one — a
+    repo-internal sentence asserting an outside fact, which hard rule 11 exists to stop.
+
+    **EVIDENCE: VENDOR-MEASURED, founder-relayed, 15 Sep 2026** — a live
+    `GET https://www.fbil.org.in/wasdm/refrates/fetchfiltered?fromDate=2026-09-01&
+    toDate=2026-09-15&authenticated=false` returned records shaped
+    `{"processRunDate":"2026-09-08 00:00:00","subProdName":"INR / 1 USD",
+    "displayTime":"2026-09-08 13:00:00","rate":94.717800,"comments":""}`. The host is
+    egress-blocked from the build container, so that reading came from the VPS.
+
+    So a bare date is tried first and a datetime second, and the TIME IS DISCARDED rather
+    than compared: `as_of` is a PUBLICATION DATE, the staleness ceiling is measured in
+    days, and FBIL stamps midnight on every row while putting the real publication hour in
+    a different field (`displayTime`). Anything neither form parses is still a refusal with
+    the field named — never a coerced date, because `as_of` is what the staleness ceiling
+    is measured against and a wrong one is invisible.
 
     The future check is here rather than at the call sites because it is the same hazard
     for every feed: a date in the future is a clock or a parser problem, and it would make
@@ -385,9 +403,16 @@ def _publication_date(raw: str) -> date:
     try:
         as_of = date.fromisoformat(raw)
     except ValueError:
-        raise FxPullError(
-            f"the publication date ({raw}) was not an ISO date", code="date_not_iso"
-        ) from None
+        try:
+            # A datetime, whose DATE is the publication day. `datetime.fromisoformat` is
+            # the one that took the 3.11 relaxation, so it accepts the space separator
+            # FBIL uses, a `T`, and an offset; `date.fromisoformat` accepts none of them.
+            as_of = datetime.fromisoformat(raw).date()
+        except ValueError:
+            raise FxPullError(
+                f"the publication date ({raw}) was not an ISO date or datetime",
+                code="date_not_iso",
+            ) from None
     if as_of > datetime.now(UTC).date() + timedelta(days=1):
         raise FxPullError(f"the publication date ({raw}) is in the future", code="date_in_future")
     return as_of
