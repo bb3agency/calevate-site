@@ -445,6 +445,15 @@ BOUNDED_LISTS: dict[str, BoundedByConstruction] = {
         by="`SubmitIn.body` is capped at 200,000 characters and `kb.service.MAX_CHUNK_CHARS` "
         "is 700, so one source is at most ~286 chunks."
     ),
+    "GET /v1/kb/delivery": BoundedByConstruction(
+        by="`kb.delivery.MAX_DELIVERY_AGENTS` (100), a ceiling on the AGENT ROSTER rather "
+        "than on anybody's content: one row per live agent, and an account mints agents by "
+        "hand. It takes no `limit` deliberately, for the reason the ops voice table does — "
+        "this is the answer to 'is any of my knowledge missing from the phone', and a page "
+        "size would let that be answered over a subset, which is the one thing a list you "
+        "are auditing may never do. `not_delivered_count` is the server's own tally over "
+        "the same bound, so the badge cannot disagree with the rows."
+    ),
     "GET /v1/calls/{call_id}": BoundedByConstruction(
         by="the turns of ONE call, and `agents.models.CALL_CAP_MAX_S` (3600) bounds how "
         "long a call may be."
