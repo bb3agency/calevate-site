@@ -1073,7 +1073,7 @@ class CartesiaVolumeOut(BaseModel):
     #: **THE USD→INR RATE EVERY RUPEE ON THIS BLOCK WAS STRUCK AT, AND WHERE IT CAME FROM.**
     #: The founder's decision of 9 Sep 2026: Cartesia bills in dollars, so a cost we pay in
     #: dollars moves with the rupee, and this deployment already pulls and publishes the
-    #: rate every five minutes. `fx_source` is `"frankfurter:FBIL"`-shaped for a published
+    #: rate every five minutes. `fx_source` is `"fbil:refrates"`-shaped for a published
     #: quote and `"configured:usd_inr_rate"` when the feed is silent or its rate has aged
     #: past `core/fx.MAX_QUOTE_AGE` — the fallback is NAMED rather than hidden, because a
     #: floor quietly struck at an operator's typed number is the same "best case presented

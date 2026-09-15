@@ -303,7 +303,8 @@ ROUNDING = ROUND_HALF_UP
 #: `AI_QUOTA_INR`, in the same direction for every tenant, silently.
 #:
 #: WHAT CLOSES IT, and it is not a live read: the FX store this repository already runs
-#: (`ops/fx_rates`, a published FBIL reference, plausibility-banded and age-bounded) holds a
+#: (`ops/fx_rates`, the FBIL reference now pulled from FBIL itself per D-609,
+#: plausibility-banded and age-bounded) holds a
 #: rate an operator can quote, so the fix is an OPERATOR-ATTESTED strike rate beside the
 #: attested prices — the same seam, one more field — decided by the founder, since which
 #: instant a list price is struck at is a pricing decision and not a refactor. Deliberately

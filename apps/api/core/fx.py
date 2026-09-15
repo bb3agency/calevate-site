@@ -82,7 +82,9 @@ class FxQuote:
     #: The date the SOURCE stamped on this rate — not the date we fetched it. A daily
     #: reference rate fetched five times an hour has one `as_of` and five fetches.
     as_of: date
-    #: Who published it, in the form `"<api>:<provider>"` (e.g. `"frankfurter:FBIL"`).
+    #: Who published it, in the form `"<api>:<publication>"` — `"fbil:refrates"` for the
+    #: preferred rung since D-609, and `"frankfurter:FBIL"` / `"frankfurter:default"` for
+    #: the rungs below it. `workers/fx_pull.LADDER` is where the set is declared.
     #: Recorded on every converted row, because "which rate" is only half of what a
     #: reconciliation six months later needs to know.
     source: str

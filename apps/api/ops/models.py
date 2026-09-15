@@ -431,7 +431,8 @@ class FxRateObservation(Base):
     #: The date the SOURCE stamped on this rate. Part of the natural key below, because it
     #: is what makes a five-minute poll of a once-a-day publication idempotent.
     as_of: Mapped[date] = mapped_column(Date, nullable=False)
-    #: `"<api>:<provider>"` — `frankfurter:FBIL`. Stamped onto every usage row this rate
+    #: `"<api>:<publication>"` — `fbil:refrates`, or one of the fallback rungs below it
+    #: in `workers/fx_pull.LADDER`. Stamped onto every usage row this rate
     #: converts, so "which rate" and "whose rate" are both answerable later.
     source: Mapped[str] = mapped_column(Text, nullable=False)
     #: The exact URL that produced it, so a disputed figure can be re-requested rather than

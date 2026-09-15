@@ -3,6 +3,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { FxRatePanel, fxHeadline } from "@/app/admin/ops/FxRatePanel";
+import { fxSourceCopy } from "@/app/admin/ops/opsLanguage";
 import { OPS_FX_RATE_PATH, type FxRate } from "@/lib/api/opsFxRate";
 
 import { problem, stubApi, type Routes } from "./harness";
@@ -33,7 +34,7 @@ const LIVE: FxRate = {
   fallback_rate: "88.00",
   published_rate: "88.427500",
   published_as_of: "2026-08-27",
-  published_source: "frankfurter:FBIL",
+  published_source: "fbil:refrates",
   observed_at: "2026-08-27T04:05:00Z",
   age_label: "3 minutes ago",
   max_age_days: 5,
@@ -47,6 +48,15 @@ const STALE: FxRate = {
   effective_rate: "88.00",
   published_as_of: "2026-08-01",
   age_label: "26 days ago",
+};
+
+/** Rung 1 is behind, a lower published rung is serving — the state D-589/D-609 exist for. */
+const DEGRADED: FxRate = {
+  ...LIVE,
+  effective_rate: "95.390000",
+  published_rate: "95.390000",
+  published_as_of: "2026-09-11",
+  published_source: "frankfurter:default",
 };
 
 const NEVER: FxRate = {
@@ -147,5 +157,59 @@ describe("the exchange rate panel", () => {
     // happened.
     expect(screen.queryAllByText("88.00").length).toBeGreaterThan(0);
     expect(screen.queryAllByText("88.427500")).toHaveLength(0);
+  });
+
+  it("names WHICH source each pull came from, in words and verbatim", async () => {
+    // The pull walks a ladder, so "Recent pulls" is a list of DIFFERENT sources, not one
+    // source over time. A row without its source cannot answer the only question this
+    // list is for: which rung priced the minutes written while it was in force.
+    renderPanel({
+      [OPS_FX_RATE_PATH]: {
+        ...DEGRADED,
+        history: [
+          {
+            rate: "95.390000",
+            as_of: "2026-09-11",
+            source: "frankfurter:default",
+            source_url: "https://api.frankfurter.dev/v2/rate/USD/INR",
+            observed_at: "2026-09-11T04:05:00Z",
+          },
+          {
+            rate: "94.491400",
+            as_of: "2026-09-04",
+            source: "fbil:refrates",
+            source_url: "https://www.fbil.org.in/wasdm/refrates/fetchfiltered?x=1",
+            observed_at: "2026-09-11T04:05:00Z",
+          },
+        ],
+      },
+    });
+    await waitFor(() =>
+      expect(screen.queryAllByText("94.491400").length).toBeGreaterThan(0),
+    );
+    // The operator's words...
+    expect(screen.queryAllByText("FBIL, direct").length).toBeGreaterThan(0);
+    expect(
+      screen.queryAllByText("Frankfurter's own rate").length,
+    ).toBeGreaterThan(0);
+    // ...AND the string the ledger row carries, which is what they reconcile against.
+    expect(screen.queryAllByText("fbil:refrates").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText("frankfurter:default").length).toBeGreaterThan(
+      0,
+    );
+  });
+
+  it("prints an unrecognised source raw rather than inventing a name for it", () => {
+    // A rung added to the ladder after this bundle was built. The fail direction is
+    // SILENCE, not a wrong sentence: the gloss collapses to the string itself, which is
+    // exactly what the panel showed before the copy table existed.
+    const unknown = fxSourceCopy("rbi:reference");
+    expect(unknown.label).toBe("rbi:reference");
+    expect(unknown.help).toBe("");
+    // And a source this build DOES know is never printed as its own key.
+    expect(fxSourceCopy("fbil:refrates").label).toBe("FBIL, direct");
+    expect(fxSourceCopy("configured:usd_inr_rate").label).toBe(
+      "The fallback you set",
+    );
   });
 });

@@ -469,6 +469,9 @@ const ERASED = {
       // different sentences rather than rendering a `0` for both.
       caller_vectors_erased: 812,
       caller_memories_erased: 19,
+      // Same shape, same reason (PIPECAT-MIGRATION §8.4): the copy of this account's data
+      // that lived in the EXTERNAL search index. Required-and-nullable like the two above.
+      indexed_documents_purged: 7,
     },
     recording_hold_until: "2026-11-15T18:45:00Z",
     actions: { calls: "stripped", leads: "anonymised" },
