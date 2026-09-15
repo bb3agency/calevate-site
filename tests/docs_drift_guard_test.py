@@ -911,7 +911,23 @@ class TestLegalContentHash:
         by deleting the guard's input" looks like in a diff."""
         versions = self._real_versions()
         target = 'contentHash: "sha256:'
-        assert versions.count(target) == 8
+        # DERIVED, NOT TYPED. This used to assert `== 8`, and a legitimate new revision
+        # made it 9 and turned a DETECTION test into a failing build — the count-in-prose
+        # defect this repo names in hard rule 4. The mirror is the same file this test
+        # mutates, so the expected number is a fact it already holds: one hash per revision
+        # that carries one. Adding a revision now moves both sides together, and the thing
+        # the test actually proves — that deleting a current revision's hash is CAUGHT —
+        # is unchanged.
+        expected = sum(
+            1
+            for entry in guard.web_legal_versions().values()
+            for hash_ in entry["content_hashes"]  # type: ignore[union-attr]
+            if hash_ is not None
+        )
+        assert versions.count(target) == expected, (
+            "the mirror and the raw file disagree about how many revisions carry a hash"
+        )
+        assert expected, "no hash to delete — this test would prove nothing"
         start = versions.index(target)
         end = versions.index("\n", start)
         mutated = versions[:start] + versions[end + 1 :]
