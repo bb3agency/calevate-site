@@ -28,7 +28,11 @@ from __future__ import annotations
 from typing import Final
 from uuid import UUID
 
-from calevate_shared.engine import AgentConfig, ModelConfig
+from calevate_shared.engine import (
+    AgentConfig,
+    ModelConfig,
+    carries_truthful_answer_floor,
+)
 from calevate_shared.events import CallDirection
 from loguru import logger
 from sqlalchemy import text
@@ -62,6 +66,11 @@ class AgentNotRunnableError(RuntimeError):
 #: version and whose pack came from the next — a combination that never existed and that no
 #: attestation could describe.
 #:
+#: **`ai_disclosure_line` IS SELECTED FOR ONE REASON AND IT IS HARD RULE 5** — see
+#: `refuse_unless_disclosed`. It is read in the SAME statement as the prompt, not in a
+#: second query, for this join's own reason: two reads could straddle an edit and let a
+#: call start on a version whose disclosure row no longer exists.
+#:
 #: **`knowledge_pack_sha256` IS SELECTED HERE AND NOWHERE ELSE**, which is the seam this
 #: module closes: `kb/pack.refresh_published_pack` writes that column on publish, and until
 #: this read existed nothing carried it into the process that answers the phone.
@@ -78,7 +87,8 @@ SELECT p.agent_config_version_id,
        v.prompt_sha256,
        v.model_config,
        a.knowledge_pack_sha256,
-       a.engine_agent_ref
+       a.engine_agent_ref,
+       a.ai_disclosure_line
 FROM pipecat_agents AS p
 JOIN agent_config_versions AS v ON v.id = p.agent_config_version_id
 JOIN agents AS a ON a.id = p.agent_id
@@ -132,7 +142,13 @@ async def load_session_config(
         model_config,
         pack_sha,
         engine_agent_ref,
+        ai_disclosure_line,
     ) = row
+    refuse_unless_disclosed(
+        agent_id=agent_id,
+        ai_disclosure_line=ai_disclosure_line,
+        composed_prompt=composed_prompt,
+    )
     published = AgentConfig.model_validate(resolved_config)
     models = ModelConfig.model_validate(model_config)
 
@@ -171,6 +187,53 @@ async def load_session_config(
     )
 
 
+def refuse_unless_disclosed(
+    *, agent_id: UUID, ai_disclosure_line: str | None, composed_prompt: str | None
+) -> None:
+    """HARD RULE 5, AT THE ONE DOOR EVERY CALL OF THIS ENGINE COMES THROUGH.
+
+    **WHY IT IS HERE AND NOT IN THE CARRIER ENTRYPOINT.** `apps/api` refuses an
+    undisclosed agent twice already — `agents.ai_disclosure_line` is NOT NULL with a
+    `length(btrim(...)) > 0` CHECK (`apps/api/agents/models.py:211`), and
+    `compliance/service.check_dispatch` refuses to DIAL one with rule
+    `disclosure_missing`. Both of those guard the OUTBOUND path from our own console. An
+    inbound call on an `owned_runtime` engine reaches none of them: the carrier connects
+    a socket straight to this worker, and until this check existed the only thing between
+    a live caller and an undisclosed agent was a CHECK constraint on a column this process
+    does not read. `load_session_config` is the one read every call makes, so the refusal
+    belongs here — a second entrypoint (step 6's HTTP half, an outbound dial when the
+    carrier surface is read) cannot be written around it.
+
+    **TWO CONDITIONS, BECAUSE THEY FAIL DIFFERENTLY.**
+
+    * The agent must HAVE its AI sentence on file. That is the dial gate's own question
+      (`check_dispatch`: "This agent has no AI disclosure line and may not place calls"),
+      asked here of answering as well as of placing.
+    * The prompt this worker is about to run must CARRY the truthful-answer floor.
+      `compose_engine_prompt` appends it to every version, so a version without it is a
+      version composed by something else — and this process is the last reader before a
+      model speaks. `carries_truthful_answer_floor` is the repo's one predicate for that
+      question (it is what the publish read-back and the drift sweep ask), so a worker
+      that asked it a second way would be a second definition of the floor.
+
+    What is deliberately NOT checked: `ai_disclosure_enabled`. D-163 makes whether the
+    sentence is VOLUNTEERED the tenant's decision on both legs; what may never be absent
+    is the sentence and the floor.
+
+    Ids only, and no fragment of either string (hard rule 6).
+    """
+    if not ai_disclosure_line or not ai_disclosure_line.strip():
+        raise AgentNotRunnableError(
+            f"agent {agent_id} has no AI disclosure line on file and may not answer or "
+            "place calls (hard rule 5)"
+        )
+    if not carries_truthful_answer_floor(composed_prompt):
+        raise AgentNotRunnableError(
+            f"agent {agent_id} has a published prompt that does not carry the "
+            "truthful-answer floor, so no call may run on it (hard rule 5)"
+        )
+
+
 def _session_language(published: AgentConfig, models: ModelConfig) -> str | None:
     """The BCP-47 code to pin the transcriber to, or `None` to let it detect.
 
@@ -185,4 +248,4 @@ def _session_language(published: AgentConfig, models: ModelConfig) -> str | None
     return published.language_primary
 
 
-__all__ = ["AgentNotRunnableError", "load_session_config"]
+__all__ = ["AgentNotRunnableError", "load_session_config", "refuse_unless_disclosed"]
