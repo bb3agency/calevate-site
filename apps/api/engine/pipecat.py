@@ -232,6 +232,15 @@ PIPECAT_CAPABILITIES = EngineCapabilities(
     inbound_binding=False,
     transfer=False,
     in_call_handoff=False,
+    # FALSE, AND IT IS A FACT ABOUT WHAT WE STORE (D-615). `agent_config_versions` holds
+    # the composed prompt, the opening line and the model config — `mint_config_version`
+    # writes those three and nothing else — so a during-call action has no way to reach the
+    # worker, whose only tool is `build_knowledge_tool` (`voice_worker/pipeline.py`). It
+    # published fine and dropped the tool, which is `in_call_handoff`'s failure over a
+    # client's own integration: an empty tool list on a live agent looks exactly like a
+    # client who configured none. It flips when the version carries the tools and the
+    # worker dispatches them, which is work rather than a document to read.
+    action_tools=False,
     script_override=True,
     webhook_auth="none",
 )
@@ -511,13 +520,20 @@ class SqlControlPlane:
         (`platform_voice_catalog`, `origin = 'operator'`, D-590), which is what this reads.
         Inventing a speaker list would be the laundering hard rule 11 forbids.
 
-        ⚠ **AND IT MAKES `agents/voice_sync.sync_voice_catalogue` CIRCULAR ON THIS ENGINE**
-        — it would read this listing and write it back into the table it came from. That
-        sweep is not this module's to re-aim and it is recorded here rather than silently
-        left: an operator-origin row is unaffected by the sync (its upsert never writes
-        `origin` or `curation_state`), so the loop is inert today, but a `synced`-origin row
-        left over from another engine is deliberately NOT returned here for exactly that
-        reason.
+        ⚠ **IT MADE `agents/voice_sync.sync_voice_catalogue` CIRCULAR ON THIS ENGINE —
+        RE-AIMED IN D-615.** It read this listing and wrote it back into the table it came
+        from, and the note here said the loop was "inert today" because an operator-origin
+        row survives the sync's upsert untouched. That was half the story: the PRUNE arm is
+        not an upsert. An operator-origin listing is `complete`, so the first tick after a
+        deployment changed engine would stamp `withdrawn_at` on every row the operator had
+        not attested — the whole `synced` catalogue a previous engine cached — and the
+        empty-listing alarm would fire on a deployment that has simply attested nothing yet,
+        naming a credential this adapter does not have. `sync_voice_catalogue` now refuses to
+        run at all where `capabilities.lists_voices_independently()` is False, and
+        `voice_admission.admit_voice` is the only writer left on this engine — which is the
+        right answer, because an operator attesting a voice IS the authority once the vendor
+        is gone. A `synced`-origin row left over from another engine is still deliberately
+        NOT returned here.
         """
         async with untenanted_session() as session:
             rows = (
@@ -836,6 +852,15 @@ class PipecatEngine:
         require_speech_leg("tts", engine=self, value=cfg.models.tts_voice)
         if cfg.handoff is not None:
             require_capability("in_call_handoff", engine=self)
+        # THE ACTIONS ARM, AND IT IS THE ONE THAT ACTUALLY BIT (D-615). `AgentConfig
+        # .action_tools` is filled on every publish by `agents/service.publish_agent`, this
+        # adapter never read it, and `mint_config_version` stores only the composed prompt,
+        # the opening line and the model config — so a client's during-call action was
+        # dropped between the console saying "live" and the worker, which builds one tool
+        # (`build_knowledge_tool`) and knows nothing about ours. Refusing by name is
+        # `in_call_handoff`'s rule applied to the same class of silence.
+        if cfg.action_tools:
+            require_capability("action_tools", engine=self)
 
     def _assert_this_engine_hosts_agents(self) -> None:
         """Present for the shape rather than for the branch it takes.
@@ -1246,16 +1271,18 @@ class PipecatEngine:
         there is no signature to check and no egress range to allowlist, and `method="none"`
         with a reason is what stops a caller mistaking the answer for evidence.
 
-        ⚠ **WHAT `none` COSTS, RECORDED RATHER THAN LEFT FOR SOMEBODY TO FIND.** The
-        receiver's `none` branch (`apps/voice-runtime/engine_intake.verify_source`) opens
-        the route when the delivery's engine IS this deployment's engine — which is right
-        for the fake engine, whose whole purpose is running the pipeline offline, and is a
-        public unauthenticated write endpoint on a deployment running `ENGINE=pipecat`. The
-        blast radius is bounded (a stranger can lodge an inbox claim and a forensic row; the
-        job it starts calls `get_execution`, which raises on a call we do not hold) and it is
-        not zero. Fixing it is a change to the receiver's admission rule and a decision-log
-        row, not a change to this declaration — `hmac` here would fail closed and would also
-        be a claim that this engine signs its webhooks, which is false.
+        ⚠ **WHAT `none` COST, AND WHERE IT WAS PAID — D-615, CLOSED.** The receiver's
+        `none` branch (`apps/voice-runtime/engine_intake.verify_source`) opened the route
+        when the delivery's engine IS this deployment's engine — right for the fake engine,
+        whose whole purpose is running the pipeline offline, and a public unauthenticated
+        write endpoint on a deployment running `ENGINE=pipecat`. It was fixed exactly where
+        this note said it belonged: in the receiver's admission rule and with a decision-log
+        row, not by changing this declaration (`hmac` here would fail closed and would also
+        be a claim that this engine signs its webhooks, which is false). The receiver now
+        requires `APP_ENV=local` as well, because what `fake` earned its open door with is
+        being a DEV INSTRUMENT (DEV-SETUP §3) and not the word `none`; `pipecat` declares
+        the same word for the opposite reason — nothing external calls it — and a deliverer
+        that does not exist loses nothing by being refused.
         """
         method: WebhookAuthMethod = self.capabilities.webhook_auth
         return WebhookVerdict(

@@ -113,6 +113,12 @@ async def refresh_voice_catalogue(ctx: dict[str, Any]) -> str:
             error=type(exc).__name__,
         )
         raise
+    if result.skipped_reason is not None:
+        # NOT `"seen":0,"written":0`, which is what this tick would otherwise file every
+        # half hour on an engine that has no catalogue to read (D-615) — a line an operator
+        # reads as "the vendor keeps answering with nothing". `skipped` says nobody was
+        # asked, and `in_force` still reports what the picker is serving.
+        return f'{{"skipped":true,"in_force":{in_force}}}'
     return (
         f'{{"seen":{result.seen},"written":{result.written},"pruned":{result.pruned},'
         f'"complete":{str(result.complete).lower()},"in_force":{in_force}}}'

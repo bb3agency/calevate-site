@@ -405,6 +405,23 @@ DOCUMENTS: tuple[LegalDocumentSpec, ...] = (
                 "is the event the DPA's notification clause exists for, and a client may "
                 "object to it.",
             ),
+            Revision(
+                "5",
+                True,
+                "The platform the call itself now runs on was added: the conversation "
+                "moved into a container of ours on a third party's compute, which puts a "
+                "new company on the path the caller's AUDIO travels, and no row named "
+                "it. Its row and section 3.7 record what nobody has established about it "
+                "— the operating entity, where its region is, what its terms permit, "
+                "its retention, whether a data-processing agreement can be entered, and "
+                "its own sub-processors — rather than filling any of it in, because "
+                "its documentation cannot be read from the environment this is built in. "
+                "The carrier row is widened in the same revision: under the same design "
+                "the carrier now carries the call audio and not only the numbers and the "
+                "call records. MATERIAL — a new sub-processor on the call path is "
+                "the event the DPA's notification clause exists for, and it is the most "
+                "sensitive category in the product.",
+            ),
         ),
         effective_date="2026-09-02",
     ),

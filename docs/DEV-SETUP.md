@@ -151,6 +151,17 @@ fall back from one to the other) in `tests/signing_engine_intake_security_test.p
 
 Default local mode uses the **fake engine adapter** (`ENGINE=fake`): deterministic
 transcripts and events, no network — all pipeline/CRM/billing work happens offline.
+
+⚠ **AND IT WORKS ONLY UNDER `APP_ENV=local` SINCE D-615.** The fake engine's webhook
+route is an unauthenticated write endpoint — that is exactly how the pipeline is driven
+offline — and the receiver used to open it wherever the named engine was the deployment's
+engine. That licence belongs to a DEV INSTRUMENT, not to the word `none`, and a second
+engine now declares `none` for the opposite reason (`pipecat`: nothing external calls it
+at all), which made `/hooks/v1/engine/pipecat` a public write on a production box. So
+`engine_intake.verify_source` now requires `APP_ENV=local` too. If `make smoke` or a hand
+`curl` at `/hooks/v1/engine/fake` starts answering 401, check `APP_ENV` before anything
+else: the refusal reason is "an engine that verifies nothing is admitted only under
+APP_ENV=local".
 Set `ENGINE=bolna` + staging keys only when testing real integration; expose your
 webhook via `cloudflared tunnel` (never ngrok free tier for HMAC testing — URL churn) and
 register the tunnel URL as a webhook endpoint via their API. Real PSTN test calls: staging

@@ -23,6 +23,8 @@ from calevate_shared.engine import (
     DECLARED_POSTURE,
     TRUTHFUL_ANSWER_MARKER,
     WEBHOOK_AUTH_BY_ENGINE,
+    ActionToolParam,
+    ActionToolSpec,
     AgentConfig,
     AgentHosting,
     AvailableNumber,
@@ -114,6 +116,7 @@ def _agent_config(
     system_prompt: str = "You are the receptionist for Sunrise Clinic.",
     opening_line: str = "Idi AI assistant. Ee call record avutundi.",
     handoff: HandoffSpec | None = None,
+    action_tools: tuple[ActionToolSpec, ...] = (),
     tier: int = 0,
 ) -> AgentConfig:
     return AgentConfig(
@@ -127,7 +130,27 @@ def _agent_config(
         models=_byok_models(engine, tier=tier),
         webhook_url="https://hooks.calevate.tech/v1/engine/bolna",
         handoff=handoff,
+        action_tools=action_tools,
     )
+
+
+#: One during-call action, as a publish carries it (D-615). Deliberately the SIMPLEST tool
+#: a client can build — one AI-filled parameter — because the clause below is about whether
+#: the tool reaches the engine at all, not about how a parameter is rendered.
+ACTION_TOOL = ActionToolSpec(
+    name="check_stock",
+    description="Check whether an item is in stock. Use it when the caller asks.",
+    url="https://hooks.calevate.tech/tools/v1/actions/check_stock",
+    params=(
+        ActionToolParam(
+            name="item",
+            fill="ai",
+            type="string",
+            description="The item the caller asked about.",
+            required=True,
+        ),
+    ),
+)
 
 
 #: The one person on duty, as a publish carries them (D-533). A number OUTSIDE every other
@@ -1047,6 +1070,59 @@ async def test_a_listing_row_is_as_normalized_as_a_fetched_one(
     )
     for row in listing.snapshots:
         _assert_snapshot_is_ours(row, saturated_engine)
+
+
+async def test_a_during_call_action_reaches_the_engine_or_the_publish_says_no(
+    engine: VoiceEngine,
+) -> None:
+    """A CLIENT'S OWN ACTION IS EITHER WIRED OR REFUSED — never quietly dropped (D-615).
+
+    The handoff clause's argument, over the other feature that reaches a live call through
+    the agent object. `AgentConfig.action_tools` is filled on EVERY publish by
+    `agents/service.publish_agent`, and for most of this port's life exactly one adapter
+    read it: a client who built a during-call action, enabled it and watched the agent go
+    live got a tool that was never sent, and the only symptom was an agent that never used
+    it — indistinguishable from a model choosing not to.
+
+    **THE TRUE DIRECTION IS DELIBERATELY NOT ASSERTED HERE, AND THAT IS A STATED GAP.**
+    `AgentSnapshot` carries no read-back of an agent's tools — `carries_prompt_marker`,
+    `holds_speech` and `handoff_destinations` are what it exposes — so there is nothing to
+    prove the tool landed with, and an assertion against the argument we just passed would
+    be the adapter agreeing with itself, which this suite forbids elsewhere by name. What
+    is asserted is the direction that fails silently. Closing the other half means a tools
+    read-back on the snapshot, which is a port change and not a test.
+
+    Skipped where the engine hosts no agent of ours: `create_agent` refuses one step
+    earlier on `agent_hosting`, and a refusal naming the wrong capability is not evidence
+    about this one.
+    """
+    caps = engine.capabilities
+    if not caps.hosts_agents():
+        pytest.skip("no agent record on this shape; `agent_hosting` covers it")
+
+    cfg = _agent_config(engine, action_tools=(ACTION_TOOL,))
+
+    if not caps.action_tools:
+        refused: Exception | None = None
+        try:
+            await engine.create_agent(cfg)
+        except Exception as exc:
+            refused = exc
+        assert refused is not None, (
+            "this adapter declares it cannot call our actions and published one anyway — "
+            "the client's console shows the action live and the agent will never fire it"
+        )
+        assert getattr(refused, "capability", None) == "action_tools", (
+            "the refusal does not name `action_tools`, so a console cannot tell it apart "
+            "from a transient engine failure and will offer the control again"
+        )
+        return
+
+    # The publish is the assertion on this side: an adapter that declares the capability
+    # must ACCEPT the tool rather than raise. See the docstring for why the read-back half
+    # cannot be written yet.
+    ref = await engine.create_agent(cfg)
+    await engine.update_agent(ref, cfg)
 
 
 async def test_webhook_verification_reports_its_method(engine: VoiceEngine) -> None:

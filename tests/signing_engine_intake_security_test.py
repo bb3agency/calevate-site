@@ -192,6 +192,68 @@ async def test_no_delivery_has_ever_been_filed_as_signed() -> None:
     )
 
 
+# --- 1b. an engine that verifies nothing, outside a developer's machine (D-615) ---
+
+
+#: Derived for `SIGNING_ENGINES`' reason: an engine added to the table declaring `none` is
+#: covered by these two tests the day it is added.
+UNVERIFIED_ENGINES = sorted(n for n, method in WEBHOOK_AUTH_BY_ENGINE.items() if method == "none")
+
+
+@pytest.mark.parametrize("engine", UNVERIFIED_ENGINES)
+def test_an_engine_that_verifies_nothing_is_refused_outside_local(
+    engine: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """THE HOLE D-615 CLOSES, asserted over every engine that can be in it.
+
+    The `none` branch used to admit a delivery on the sole ground that the named engine was
+    this deployment's engine. That licence was written for `fake`, whose claim on it is that
+    it is a DEV INSTRUMENT (DEV-SETUP §3), and it was inherited by `pipecat`, whose `none`
+    means the opposite: nothing external calls it at all (`PIPECAT-MIGRATION.md` §3D). So a
+    production box running `ENGINE=pipecat` published an unauthenticated write endpoint —
+    an inbox claim, a forensic row and an ARQ job for anyone who found the URL — on behalf
+    of an engine that has no deliverer.
+
+    Parametrised over the TABLE rather than over `("fake", "pipecat")`: the failure this
+    guards is a new adapter inheriting a licence nobody re-examined, which is exactly how
+    the first one happened.
+    """
+    real = get_settings()
+    for env in ("staging", "prod"):
+        monkeypatch.setattr(
+            "engine_intake.get_settings",
+            lambda env=env: real.model_copy(update={"engine": engine, "app_env": env}),
+        )
+        verdict = verify_source(engine, ENGINE_EGRESS_IP)
+        assert verdict.ok is False, (
+            f"APP_ENV={env} running ENGINE={engine} admitted a delivery nothing verified"
+        )
+        assert verdict.method == "none"
+        assert verdict.reason == (
+            "an engine that verifies nothing is admitted only under APP_ENV=local"
+        )
+
+
+@pytest.mark.parametrize("engine", UNVERIFIED_ENGINES)
+def test_the_offline_pipeline_still_runs_on_a_developers_machine(
+    engine: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The other half: D-615 must not take the offline pipeline away.
+
+    `fake` exists so the whole post-call path runs with no vendor (DEV-SETUP §3), and that
+    is driven by POSTing at this very route. The gate is the ENVIRONMENT, so a developer's
+    machine is unchanged.
+    """
+    real = get_settings()
+    monkeypatch.setattr(
+        "engine_intake.get_settings",
+        lambda: real.model_copy(update={"engine": engine, "app_env": "local"}),
+    )
+    verdict = verify_source(engine, ATTACKER_IP)
+    assert verdict.ok is True
+    assert verdict.method == "none"
+
+
 # --- 2. the refusal is attributable, which is the half that was broken ---------
 
 

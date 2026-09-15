@@ -1184,6 +1184,14 @@ def _voice_refresh_note(result: VoiceSyncResult, *, in_force: int) -> str:
     """The one sentence the console prints. Composed here rather than in the browser for
     the reason every other `note` in this tree is: a screen that paraphrases a partial sync
     is how "the catalogue is up to date" becomes a support ticket."""
+    if result.skipped_reason is not None:
+        # BEFORE the `written == 0` arm, which this state would otherwise fall into and be
+        # misreported by: nothing was written because nothing was ASKED, and the standing
+        # sentence would send an operator to check a credential this engine does not have.
+        return (
+            f"Nothing to refresh: {result.skipped_reason}. "
+            f"{in_force} voice(s) are in the catalogue — add one with Add Voice."
+        )
     if result.written == 0:
         return (
             "The voice platform returned no usable voices, so nothing was changed and the "

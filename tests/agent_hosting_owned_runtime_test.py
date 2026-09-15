@@ -31,6 +31,7 @@ def _caps(hosting: AgentHosting) -> EngineCapabilities:
         inbound_binding=True,
         transfer=False,
         in_call_handoff=False,
+        action_tools=False,
         script_override=True,
         webhook_auth="none",
     )

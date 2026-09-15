@@ -266,6 +266,7 @@ EngineCapabilityName = Literal[
     "inbound_binding",
     "transfer",
     "in_call_handoff",
+    "action_tools",
     "script_override",
 ]
 
@@ -414,6 +415,32 @@ class EngineCapabilities(BaseModel):
     #: do not get is the message. `workers/maintenance.py` says so in the operator's alert
     #: rather than pretending, which is the whole reason this is a declared capability and
     #: not a `try`/`except` around a vendor call.
+    #: Can this engine call a tool of OURS during a call — the ACTIONS feature (D-615)?
+    #:
+    #: **THE TWIN OF `in_call_handoff`, AND IT WAS THE HALF NOBODY DECLARED.** That one
+    #: exists because a handoff destination dropped at the adapter is discovered by a caller
+    #: asking for a person; this one is the same failure over a client's own integration.
+    #: `AgentConfig.action_tools` is filled on EVERY publish by `agents/service.publish_agent`
+    #: (from `actions_service.declare`), and exactly one adapter has ever read it: Bolna
+    #: renders `api_tools`. `cartesia.py` and `pipecat.py` never mention the field, so a
+    #: client who built a during-call action, enabled it, saw the console say live and
+    #: watched the agent publish had a tool that was never wired — and nothing anywhere
+    #: said so. That is the quiet direction `in_call_handoff`'s own note calls "the
+    #: direction an adapter falls into by accident".
+    #:
+    #: Under False a publish carrying a non-empty `action_tools` must REFUSE by name. The
+    #: refusal is the point: an empty tool list on a live agent is indistinguishable from a
+    #: client who configured none.
+    #:
+    #: ⚠ **IT IS DECLARED ABOUT OUR ADAPTER, NOT ABOUT THE VENDOR** (hard rule 11). False
+    #: on Cartesia says our adapter sends no tools — read from `engine/cartesia.py`, which
+    #: carries no reader for the field — not that Cartesia Line cannot run one; nobody here
+    #: has read a page that would settle that. False on `pipecat` is likewise a fact about
+    #: what we store: `agent_config_versions` holds the composed prompt, the opening line
+    #: and the model config, and the worker's only tool is `build_knowledge_tool`
+    #: (`voice_worker/pipeline.py`). Each flips when the work is done, not when a document
+    #: is read.
+    action_tools: bool
     script_override: bool
     #: How this engine's webhooks are proved authentic. Must equal what `verify_webhook`
     #: actually reports, and must equal `WEBHOOK_AUTH_BY_ENGINE[name]` — the receiver in
@@ -458,6 +485,33 @@ class EngineCapabilities(BaseModel):
         """
         return self.agent_hosting in ("control_plane", "owned_runtime")
 
+    def lists_voices_independently(self) -> bool:
+        """Is `VoiceEngine.list_voices` a SECOND OPINION about which voices exist?
+
+        **THE WITNESS QUESTION, ASKED OF THE VOICE CATALOGUE INSTEAD OF THE AGENT.**
+        `AgentHosting`'s own note says it of the agent: *"Delete the vendor and the witness
+        goes with it — unless something else can disagree."* For the agent something can,
+        and does (the worker's attestation). For the voice catalogue nothing did, and the
+        two callers that exist were both written on the assumption that a third party
+        answers this — `agents/voice_sync.sync_voice_catalogue`, which caches the engine's
+        list, and `agents/voice_admission.admit_voice`, which refuses a voice the engine
+        does not list because publishing one earns a live `400` (D-585).
+        On `owned_runtime` `PipecatEngine.list_voices` reads `platform_voice_catalog` —
+        the table the sync writes and admission writes — so the first caller wrote its own
+        input back and the second could never admit a first voice at all: the row admission
+        is asked to create is the row it demands to find.
+
+        A METHOD DERIVED FROM `agent_hosting` RATHER THAN A NEW FIELD, for
+        `hosts_agents()`'s reason: it is the same fact seen from another caller, every
+        adapter already declares it and the conformance suite already pins it, so a fifth
+        adapter cannot arrive without an answer. A field would be a second declaration of
+        one thing that two adapters could disagree with themselves about.
+
+        `control_plane` and `external_deployment` both answer True — the vendor holds a
+        catalogue we did not write, whatever else it does or does not host.
+        """
+        return self.agent_hosting != "owned_runtime"
+
     def provisions(self, series: NumberSeries) -> bool:
         """Can this engine provision a number in `series`? Asked per SERIES rather than
         as one boolean because "can buy a number" and "can buy a 140-series number" are
@@ -495,6 +549,8 @@ class EngineCapabilities(BaseModel):
             return self.inbound_binding
         if name == "transfer":
             return self.transfer
+        if name == "action_tools":
+            return self.action_tools
         return self.in_call_handoff
 
 
@@ -564,14 +620,15 @@ WEBHOOK_AUTH_BY_ENGINE: dict[str, WebhookAuthMethod] = {
     # because the table is what the receiver reads, and an engine absent from it answers
     # every delivery "unknown engine" while `SELECTABLE_ENGINES` says it may be selected.
     #
-    # ⚠ WHAT `none` COSTS, AND IT IS NOT ZERO. `engine_intake.verify_source`'s `none`
-    # branch opens the route when the delivery's engine IS this deployment's engine, which
-    # is right for `fake` (that is how the pipeline runs offline) and makes
-    # `/hooks/v1/engine/pipecat` an unauthenticated write endpoint on a deployment running
-    # `ENGINE=pipecat`. The bound is that the job such a delivery starts calls
-    # `get_execution`, which raises on a call the runtime does not hold. The fix belongs to
-    # the receiver's admission rule and is a decision, not a re-labelling here: `hmac`
-    # would fail closed and would also claim this engine signs webhooks, which is false.
+    # ⚠ WHAT `none` USED TO COST, AND WHERE IT WAS PAID (D-615, CLOSED). The receiver's
+    # `none` branch opened the route whenever the delivery's engine was this deployment's
+    # engine — right for `fake` (that is how the pipeline runs offline) and an
+    # unauthenticated write endpoint at `/hooks/v1/engine/pipecat` on a deployment running
+    # `ENGINE=pipecat`. It was fixed where this note always said it belonged, in the
+    # receiver's admission rule and not by re-labelling here (`hmac` would fail closed and
+    # would also claim this engine signs webhooks, which is false):
+    # `engine_intake.verify_source` now also requires `APP_ENV=local`, because the licence
+    # `fake` earned is that it is a DEV INSTRUMENT, not that it declares `none`.
     "pipecat": "none",
 }
 

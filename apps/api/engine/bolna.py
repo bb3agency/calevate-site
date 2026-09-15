@@ -3639,6 +3639,11 @@ BOLNA_CAPABILITIES = EngineCapabilities(
     inbound_binding=True,
     transfer=False,
     in_call_handoff=True,
+    # TRUE, AND THIS ADAPTER IS THE ONLY ONE IN THE TREE THAT CAN SAY SO: `_api_tools`
+    # renders `cfg.action_tools` into the agent body on create and update. The capability
+    # exists because the other three adapters never read the field and published anyway
+    # (D-615).
+    action_tools=True,
     # `PATCH /v2/agent/{id}` updates a CLOSED list of attributes, and BOTH halves of a
     # script override are on it: `agent_welcome_message` ("First message the agent speaks
     # when a call connects") and the top-level `agent_prompts` keyed `task_1`
