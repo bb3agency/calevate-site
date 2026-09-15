@@ -2333,6 +2333,7 @@ const CLIENT_SCREENS: Screen[] = [
       // Documents and web pages (D-534). One row per state family, so the sweep covers
       // the populated list rather than its empty state: a live PDF, and a photograph
       // waiting for the client to confirm what was read off it.
+      "/v1/kb/delivery": { items: [], not_delivered_count: 0 },
       "/v1/kb/uploads": [
         {
           id: "0192f0aa-7777-7000-8000-000000000001",

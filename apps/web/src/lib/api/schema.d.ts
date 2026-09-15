@@ -4862,6 +4862,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/kb/delivery": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Whether each agent's published knowledge has reached the phone
+         * @description For every agent on the roster: whether the knowledge this account published is the knowledge the agent is actually answering callers out of, and when it last changed. `preparing` heals itself within the hour; `not_delivered` does not and means the agent is still answering out of its previous knowledge.
+         */
+        get: operations["list_delivery_v1_kb_delivery_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/kb/links": {
         parameters: {
             query?: never;
@@ -6886,6 +6906,36 @@ export interface components {
             max_call_duration_s?: number | null;
             /** Name */
             name: string;
+        };
+        /**
+         * AgentDeliveryOut
+         * @description One agent, and whether its knowledge is live on the phone.
+         *
+         *     Nothing here is caller-derived (hard rule 6): counts of the CLIENT's own approved
+         *     chunks, the digest of their own text, and one timestamp. `kb/delivery.py` states the
+         *     full argument, including why no call row is joined.
+         */
+        AgentDeliveryOut: {
+            /**
+             * Agent Id
+             * Format: uuid
+             */
+            agent_id: string;
+            /** Agent Name */
+            agent_name: string;
+            /** Awaiting Translation */
+            awaiting_translation: number;
+            /** Last Reached At */
+            last_reached_at: string | null;
+            /** Live Chunks */
+            live_chunks: number;
+            /** Pack Id */
+            pack_id: string | null;
+            /**
+             * State
+             * @enum {string}
+             */
+            state: "no_knowledge" | "live" | "preparing" | "not_delivered";
         };
         /**
          * AgentLifecycleOut
@@ -9597,6 +9647,18 @@ export interface components {
             status: "pending" | "completed";
             /** Subject Ref */
             subject_ref: string;
+        };
+        /**
+         * DeliveryListOut
+         * @description A declared model rather than a bare list, for `StaffCurationOut`'s reason and one
+         *     more: `not_delivered_count` is the server's own tally, so the dashboard badge is never
+         *     computed from a page the ceiling truncated.
+         */
+        DeliveryListOut: {
+            /** Items */
+            items: components["schemas"]["AgentDeliveryOut"][];
+            /** Not Delivered Count */
+            not_delivered_count: number;
         };
         /** DeliveryOut */
         DeliveryOut: {
@@ -25463,6 +25525,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["InvitationOut"];
+                };
+            };
+            /** @description RFC-9457 problem+json */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": unknown;
+                };
+            };
+        };
+    };
+    list_delivery_v1_kb_delivery_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeliveryListOut"];
                 };
             };
             /** @description RFC-9457 problem+json */

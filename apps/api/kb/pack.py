@@ -303,9 +303,17 @@ async def publish_pack(session: AsyncSession, *, tenant_id: UUID, agent_id: UUID
 #: re-stamping it with the value it already holds would move `updated_at` — the timestamp
 #: every "when did this agent last change?" screen reads — for a change that did not happen.
 #:
+#: `knowledge_pack_recorded_at` (migration f4b18c7d2e59) rides the SAME statement so the
+#: pointer and its clock cannot disagree, and it inherits that `IS DISTINCT FROM` on
+#: purpose: it dates the pack this agent ANSWERS OUT OF, not the last press of publish. A
+#: client who republished identical text changed nothing about what their agent knows, and
+#: a timestamp that jumped would report a correction as landed when the pointer proves it
+#: had already landed. `kb/delivery.py` is the only reader.
+#:
 #: `tenant_id` is re-stated on top of RLS for `_ENTRIES_SQL`'s reason.
 _RECORD_PACK_SQL: Final = """
-UPDATE agents SET knowledge_pack_sha256 = :sha, updated_at = now()
+UPDATE agents
+SET knowledge_pack_sha256 = :sha, knowledge_pack_recorded_at = now(), updated_at = now()
 WHERE id = :aid AND tenant_id = :tid AND knowledge_pack_sha256 IS DISTINCT FROM :sha
 """
 
@@ -410,6 +418,37 @@ LIMIT :limit
 """
 
 
+def implied_digest(tenant_id: UUID, agent_id: UUID, entries: tuple[PackEntry, ...]) -> str:
+    """The pack id this corpus implies on THIS deployment - the one spelling, shared.
+
+    Two callers need the same sentence and must never be able to answer it differently:
+    `agents_with_stale_packs` asks it to decide whether the gloss sweep owes an agent a
+    rebuild, and `kb/delivery.py` asks it to tell a client whether what they published is
+    what their agent is answering out of. A second spelling would put the sweep and the
+    screen into disagreement - a client told "live" about an agent the sweep keeps
+    rebuilding, or the reverse - so the comparison is written once.
+
+    It is NOT `build_pack`'s digest with the store removed: `build_pack` BUYS vectors
+    (`embed_entries`) because it is about to write the bytes. This is the read-only twin,
+    and the encoder is PREDICTED rather than bought - `pack_embedding_declaration` reads
+    this deployment's two free pre-flights and nothing else. Calling `embed_entries` from
+    either caller would spend a hosted encoder to re-derive a name that is a property of
+    our own settings, and would spend it hardest on the agents that turn out to be current.
+
+    The declaration is inside the hash deliberately (`KnowledgePack.digest`): a pack
+    embedded under a different encoder IS a different pack, so a deployment that changed
+    encoders correctly reads as stale everywhere at once.
+    """
+    model = pack_embedding_declaration(entries)
+    return KnowledgePack.digest(
+        tenant_id,
+        agent_id,
+        entries,
+        embedding_model=model,
+        embedding_dimensions=declared_dimensions(model),
+    )
+
+
 async def agents_with_stale_packs(
     session: AsyncSession, *, tenant_id: UUID, limit: int
 ) -> list[UUID]:
@@ -508,19 +547,7 @@ async def agents_with_stale_packs(
     for row in candidates:
         agent_id = UUID(str(row[0]))
         entries = await read_entries(session, tenant_id=tenant_id, agent_id=agent_id)
-        # The encoder is PREDICTED, never bought. `pack_embedding_declaration` reads this
-        # deployment's two free pre-flights and nothing else; calling `embed_entries` here to
-        # obtain the same name would spend a hosted encoder per agent per tick to re-derive a
-        # fact about our own configuration.
-        model = pack_embedding_declaration(entries)
-        implied = KnowledgePack.digest(
-            tenant_id,
-            agent_id,
-            entries,
-            embedding_model=model,
-            embedding_dimensions=declared_dimensions(model),
-        )
-        if implied != row[1]:
+        if implied_digest(tenant_id, agent_id, entries) != row[1]:
             stale.append(agent_id)
     return stale
 
@@ -528,6 +555,7 @@ async def agents_with_stale_packs(
 __all__ = [
     "agents_with_stale_packs",
     "build_pack",
+    "implied_digest",
     "publish_pack",
     "read_entries",
     "refresh_published_pack",

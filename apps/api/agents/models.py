@@ -14,6 +14,7 @@ from calevate_shared.engine import LLM_MODEL_NAMES
 from sqlalchemy import (
     Boolean,
     CheckConstraint,
+    DateTime,
     ForeignKey,
     Index,
     Integer,
@@ -290,6 +291,18 @@ class Agent(PKMixin, TimestampMixin, Base):
     # points this at it, so "the corpus is empty" and "there is no corpus" stay two
     # different answers to a caller (`knowledge_pack.RetrievalOutcome`).
     knowledge_pack_sha256: Mapped[str | None] = mapped_column(Text)
+    # WHEN THAT POINTER LAST MOVED (migration f4b18c7d2e59). Stamped by the SAME
+    # `UPDATE` that moves `knowledge_pack_sha256` (`kb/pack._RECORD_PACK_SQL`), so the
+    # pair cannot disagree, and NOT stamped when a republish of an unchanged corpus
+    # writes no row -- it means "when the pack this agent answers out of became the pack
+    # it answers out of", never "when somebody last pressed publish".
+    #
+    # It DECIDES nothing: `kb/delivery.py` derives whether the agent is current from the
+    # digest comparison `kb/pack.agents_with_stale_packs` uses, and renders this only as
+    # the date beside that verdict. `updated_at` cannot stand in (it moves for a voice or
+    # call-cap change) and `KnowledgePack.built_at` cannot either (it is outside the
+    # content hash, so it dates the corpus's FIRST freeze, not this agent's adoption).
+    knowledge_pack_recorded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # WHAT A READ-BACK CONFIRMED, as opposed to what we sent (migration c1f6a94d2b07).
     # `live_prompt_id` and `live_tts_voice` above record the config `publish_agent`
     # HANDED the engine on the strength of a 2xx; these two record what

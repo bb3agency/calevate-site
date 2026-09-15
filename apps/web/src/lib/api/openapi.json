@@ -619,6 +619,73 @@
         "title": "AgentCreateIn",
         "type": "object"
       },
+      "AgentDeliveryOut": {
+        "additionalProperties": false,
+        "description": "One agent, and whether its knowledge is live on the phone.\n\nNothing here is caller-derived (hard rule 6): counts of the CLIENT's own approved\nchunks, the digest of their own text, and one timestamp. `kb/delivery.py` states the\nfull argument, including why no call row is joined.",
+        "properties": {
+          "agent_id": {
+            "format": "uuid",
+            "title": "Agent Id",
+            "type": "string"
+          },
+          "agent_name": {
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "awaiting_translation": {
+            "title": "Awaiting Translation",
+            "type": "integer"
+          },
+          "last_reached_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Reached At"
+          },
+          "live_chunks": {
+            "title": "Live Chunks",
+            "type": "integer"
+          },
+          "pack_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pack Id"
+          },
+          "state": {
+            "enum": [
+              "no_knowledge",
+              "live",
+              "preparing",
+              "not_delivered"
+            ],
+            "title": "State",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "agent_name",
+          "state",
+          "pack_id",
+          "live_chunks",
+          "awaiting_translation",
+          "last_reached_at"
+        ],
+        "title": "AgentDeliveryOut",
+        "type": "object"
+      },
       "AgentLifecycleOut": {
         "additionalProperties": false,
         "description": "The result of a lifecycle move, as the screen that pressed the button needs it.\n\nNAMED `AgentLifecycleOut` AND NOT `LifecycleOut`, which is what it was called for an\nhour. `admin/routes.py` already has a `LifecycleOut` (the TENANT lifecycle), and two\nmodels of the same name in one app make FastAPI qualify BOTH in the OpenAPI document \u2014\nso the admin console's generated type silently renamed itself to\n`apps__api__admin__routes__LifecycleOut` and every screen using it broke, from a change\nin a different module. The collision is invisible until the snapshot is regenerated,\nwhich is why it is recorded here rather than just fixed.",
@@ -6948,6 +7015,29 @@
           "has_certificate"
         ],
         "title": "DeletionRequestSummaryOut",
+        "type": "object"
+      },
+      "DeliveryListOut": {
+        "additionalProperties": false,
+        "description": "A declared model rather than a bare list, for `StaffCurationOut`'s reason and one\nmore: `not_delivered_count` is the server's own tally, so the dashboard badge is never\ncomputed from a page the ceiling truncated.",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AgentDeliveryOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "not_delivered_count": {
+            "title": "Not Delivered Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "not_delivered_count"
+        ],
+        "title": "DeliveryListOut",
         "type": "object"
       },
       "DeliveryOut": {
@@ -36195,6 +36285,35 @@
           "tenancy"
         ],
         "x-calevate-permission": "org:manage"
+      }
+    },
+    "/v1/kb/delivery": {
+      "get": {
+        "description": "For every agent on the roster: whether the knowledge this account published is the knowledge the agent is actually answering callers out of, and when it last changed. `preparing` heals itself within the hour; `not_delivered` does not and means the agent is still answering out of its previous knowledge.",
+        "operationId": "list_delivery_v1_kb_delivery_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeliveryListOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "default": {
+            "content": {
+              "application/problem+json": {}
+            },
+            "description": "RFC-9457 problem+json"
+          }
+        },
+        "summary": "Whether each agent's published knowledge has reached the phone",
+        "tags": [
+          "knowledge-base"
+        ],
+        "x-calevate-permission": "agents:read"
       }
     },
     "/v1/kb/links": {

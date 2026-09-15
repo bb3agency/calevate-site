@@ -37,6 +37,11 @@ const TENANT_PATH = `/v1/admin/tenants/${TENANT}`;
 const IMPERSONATED = [
   "/v1/kb/sources?status=pending_approval",
   "/v1/kb/sources?status=approved",
+  // Whether the published knowledge actually reached each agent
+  // (`KnowledgeDeliveryPanel`). A client-realm READ taken through the impersonated
+  // session on purpose — the operator must see the client's own answer, not a parallel
+  // one — so it needs the grant exactly like the two queue reads above it.
+  "/v1/kb/delivery",
   "/v1/agents",
   "/v1/campaigns/numbers",
   "/v1/campaigns/templates",
@@ -98,6 +103,7 @@ function routes(): Routes {
     } satisfies Margin,
     "/v1/kb/sources?status=pending_approval": [],
     "/v1/kb/sources?status=approved": [],
+    "/v1/kb/delivery": { items: [], not_delivered_count: 0 },
     "/v1/agents": [],
     "/v1/campaigns/numbers": [],
     "/v1/campaigns/templates": [],

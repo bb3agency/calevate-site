@@ -298,6 +298,9 @@ describe("two answers missing at once", () => {
       "/v1/agents": [AGENT],
       "/v1/kb/sources": [],
       "/v1/kb/staff-curation": { staff_may_curate_knowledge: false },
+      // Routed so `KnowledgeDelivery` does not paint a `ProblemNotice` beside the form
+      // this file is about; an unrouted endpoint throws inside its `queryFn`.
+      "/v1/kb/delivery": { items: [], not_delivered_count: 0 },
       "POST /v1/kb/sources": { id: "kb-1" },
     });
   }

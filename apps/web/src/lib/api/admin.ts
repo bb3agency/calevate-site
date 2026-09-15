@@ -52,6 +52,9 @@ export type ResendInviteOut = Schemas["ResendInviteOut"];
 export type PlatformState = Schemas["PlatformStateOut"];
 export type KbSource = Schemas["SourceOut"];
 export type KbChunk = Schemas["ChunkOut"];
+/** Whether each agent's published knowledge reached the phone — `apps/api/kb/delivery.py`. */
+export type DeliveryList = Schemas["DeliveryListOut"];
+export type AgentDelivery = Schemas["AgentDeliveryOut"];
 
 /**
  * The admin realm's session — the `__Host-calevate_admin_session` cookie, or
@@ -931,6 +934,30 @@ export function useTenantKbQueue(slug: string, status = "pending_approval") {
     queryKey: ["admin", "kb", slug, status],
     queryFn: () =>
       apiRequest<KbSource[]>(viewAsSession(slug), `/v1/kb/sources?status=${status}`),
+    enabled: Boolean(slug),
+  });
+}
+
+/**
+ * WHAT THE PHONE IS ACTUALLY ANSWERING FROM, for the client an operator is looking at.
+ *
+ * The same client-realm read the client's own screen uses (`/v1/kb/delivery`), through
+ * the same impersonated session the queue above uses, and deliberately NOT a second
+ * admin-realm endpoint computing the same thing. An operator answering "my agent doesn't
+ * know that" needs to be looking at the client's own answer — a parallel operator view
+ * with its own query is how the two come to disagree during exactly the conversation
+ * where that matters most. It is a READ, so D-22 admits it: `agents:read` is not in
+ * `MUTATING_PERMISSIONS`.
+ *
+ * This is the other half of the publish queue beside it. Approving does not publish and
+ * publishing does not guarantee the pack reached the agent (`apps/api/kb/pack.py`
+ * survives a storage failure by design, leaving the pointer where it was), so an operator
+ * who worked the queue to empty still has no idea whether the phone caught up.
+ */
+export function useTenantKbDelivery(slug: string) {
+  return useQuery({
+    queryKey: ["admin", "kb-delivery", slug],
+    queryFn: () => apiRequest<DeliveryList>(viewAsSession(slug), "/v1/kb/delivery"),
     enabled: Boolean(slug),
   });
 }
