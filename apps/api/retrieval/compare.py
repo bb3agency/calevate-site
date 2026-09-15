@@ -6,7 +6,8 @@ that trade is good: the pgvector arm's recall over a known corpus was never meas
 one recall measurement this tree holds is `tests/in_call_retrieval_recall_test.py`, and it
 scores the IN-CALL pack, which §8.1 does not retire), and box 3 has never answered a
 question here at all. A retirement argued from "the new one is a purpose-built memory
-product" is a preference. This module is what turns it into a table.
+product" is a preference. This module is what turns it into a table — condition (d) of the
+six §8.6 makes step 15 wait on (D-603).
 
 WHAT IT MEASURES, AND WHY THESE THREE:
 

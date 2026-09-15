@@ -250,7 +250,7 @@ three seconds per turn.
 | 12 | Give `kb/pack.py::publish_pack` a caller on the publish path, and an object-lifecycle rule for `knowledge-packs/` | step 11 |
 | 13 | Golden caller-language → English-hit set in CI | **FIRST ARM LANDED 14 Sep 2026**: `tests/in_call_retrieval_recall_test.py` scores the real pack and the real search, no wiring needed. What remains is a second language's corpus. §9.4 |
 | 14 | Supermemory on box 2 behind `RetrievalProvider`; embedding pointed at Gemini and PROVEN non-local | **THE ADAPTER LANDED 14 Sep 2026; THE INSTALL DID NOT, AND THE TWO HALVES ARE NOT THE SAME CLAIM.** `apps/api/retrieval/supermemory.py` is a third value of `Settings.retrieval_provider` that swaps the T3 member of `KnowledgeRetriever`, with `PgVectorRetriever` underneath it as a per-request fallback — so an unreachable box 3 degrades dashboard search and nothing else (§8.5), and step 15 is untouched. ⚠ **IT IS NOT A VERIFIED INTEGRATION**: nothing here has read a page of Supermemory's API docs (`supermemory.ai` egress-blocked), so every path and key is an ASSUMPTION collected in `retrieval/supermemory_wire.ASSUMED_CONTRACT` and a shape we guessed wrong falls back rather than erroring. Tenancy is OURS per §8.4 — `per_tenant_namespace` is declared **False**, the scope is a required first parameter of every wire method, and records returned without the tenant tag are dropped and counted. What still gates this row is entirely outside the repo: the install itself, §8.3's `top` check, and an operator attesting the embedding price — until that figure is entered, `search_is_billable()` is False and the provider is not selectable at all (hard rule 7's pre-flight) |
-| 15 | `kb_chunks` and our lexical search retire; `kb_documents` ledger stays | step 14 |
+| 15 | `kb_chunks` and our lexical search retire; `kb_documents` ledger stays | **NOT YET, AND STEP 14 LANDING IS NOT THE GATE — §8.6 IS** (15 Sep 2026). Step 14's row says the ADAPTER landed. **There is no ingestion path to box 3 on this branch at all** — `supermemory` appears in six source files and none is under `apps/workers` or `apps/api/kb` — so the store a cutover would move to is EMPTY, and retiring `kb_chunks` today would delete the only populated store in favour of an adapter that has never spoken to the vendor. Nobody has read a page of Supermemory's API (`supermemory.ai` egress-blocked), no embedding price is attested so `search_is_billable()` is False and the provider is not selectable, and **the incumbent's own recall was never measured either**, so "better" had no baseline. §8.6 is the plan: six things that must be PROVEN (reachable, priced, ingested, measured, agreed in production, rollback without a redeploy) and the three-release shape hard rule 8 demands — stop reading, then stop writing once a sweep proves nothing reads, then DROP in a LATER release with a `downgrade` that backfills from `kb_documents`. **What landed instead is the instrument the decision needs**: `retrieval/shadow.py` asks the challenger the same live question and returns the primary arm's own result object untouched, `retrieval/compare.py` scores both arms on one corpus, and `retrieval_shadow_arm` / `retrieval_shadow_tenant_ids` are LIVE and off — two settings, because a shadow search buys an embedding on a client's quota. Nothing was deleted |
 | 16 | Apply the new rate card (§12) — catalogue plus the wide fixture update | **DONE, 14 Sep 2026.** `PACK_CATALOGUE` carries Clear ₹4.00 flat and Studio 7.00 → 5.50; sixteen test files and three web surfaces moved with it |
 
 **Nothing before step 6 needs an account.** Pipecat is a library; the worker runs locally.
@@ -471,6 +471,84 @@ container):
 These are a version gate, not a verdict. The founder's position — "bugs are not blockers, they
 will be fixed" — is accepted: what is refused is pinning a release whose search returns
 nothing, which the empirical check above catches in one upload.
+
+### 8.6 HOW `kb_chunks` IS RETIRED — THE PLAN STEP 15 RUNS AGAINST (D-603)
+
+**STEP 15 MAY NOT RUN YET, AND THE GATE THAT SAYS SO IS NOT "STEP 14 LANDED".** Step 14's
+row says the ADAPTER landed. Four things it does not say, each checked in this tree on
+15 Sep 2026 rather than recalled:
+
+1. **Nothing has ever written to box 3.** `grep -rl supermemory apps packages scripts`
+   returns six files — `retrieval/{service,supermemory,supermemory_wire,tiered}.py`,
+   `core/platform_config.py`, `calevate_shared/config.py` — and NONE of them is under
+   `apps/workers` or `apps/api/kb`. There is no ingestion path, so the store a retirement
+   would cut over to is empty. Retiring `kb_chunks` today deletes the only populated store.
+2. **Nobody has read the vendor's API.** `supermemory.ai` is egress-blocked from this
+   container; every path and key is an ASSUMPTION in `retrieval/supermemory_wire.
+   ASSUMED_CONTRACT`, and the adapter is written to FALL BACK on a shape we guessed wrong —
+   which is correct behaviour and is also why a green test suite proves nothing about the
+   wire.
+3. **The incumbent's recall was never measured either.** The only recall figures in this
+   tree (`tests/in_call_retrieval_recall_test.py`) score the IN-CALL pack, which §8.1 does
+   not retire. So "Supermemory is better" had no baseline to be better than.
+4. **A search costs money that hard rule 7 does not yet permit.** No embedding price has
+   been attested, so `supermemory.search_is_billable()` is False and the provider is not
+   even selectable.
+
+⚠ **UNKNOWN, IN THOSE WORDS**: whether a Supermemory install answers our assumed contract,
+what it costs per search, what its recall is on any corpus, and the current state of
+upstream issues #1336 / #1315 / #1320. None of these can be settled from this container.
+
+**WHAT MUST BE TRUE BEFORE THE PGVECTOR PATH MAY BE RETIRED.** Each is a fact somebody
+produces, not a judgement somebody makes:
+
+| # | Must be proven | How it is proven, and where the evidence lands |
+|---|---|---|
+| a | **Reachable.** A box 3 exists, answers on `supermemory_base_url`, and its responses match `ASSUMED_CONTRACT` — or the contract is corrected to what it really sends. | `GET`/`POST` from the host, plus §8.3's `top` check that embedding is NOT running on the local CPU. Corrections land in `ASSUMED_CONTRACT` with the page and date; OPERATIONS §2 gets the gate. |
+| b | **Priced.** An operator has attested the embedding price from their own invoice, so `search_is_billable()` is True. | Ops console. Until then the provider cannot be selected at all, so (c)–(e) are unreachable. |
+| c | **Ingested.** An ingestion path EXISTS, HAS RUN over a real tenant's published sources, and every record carries the tenant tag and our `source_id`/`document_version` metadata. | The sweep's own logs plus a scoped search returning records `supermemory_wire.parse_search` keeps rather than rejects. `supermemory_records_out_of_scope` at zero is part of the proof, not a detail. |
+| d | **Measured.** `retrieval/compare.py` scores BOTH arms over the same corpus and the same `k`, and the challenger does not lose recall. | `compare_arms` against the real `PgVectorRetriever` and the real `SupermemoryRetriever`. The number goes in `docs/evidence/`, with the corpus named. A table measured over two different question sets is an artefact, which is why it is one function and not two. |
+| e | **Agreed in production.** The shadow read (below) has run on live dashboard traffic for enrolled tenants and the disagreement rate is understood — not necessarily zero, but every class of difference explained. | `retrieval_shadow_compared` log lines. |
+| f | **Rollback without a redeploy.** Setting `retrieval_provider` back serves the next question from Postgres. | `Settings.retrieval_provider` is `applies: live` and `get_retriever` is called per request and holds no state (`tests/retrieval_shadow_test.py::test_the_switch_turns_the_comparison_on_and_off_between_two_requests`). **This one is already true**, and it stays true only while `kb_chunks` is still populated — which is exactly why the drop is last. |
+
+**THE TWO-STEP SHAPE HARD RULE 8 DEMANDS.** `kb_chunks` is a tenant table with FORCEd RLS
+and a live writer inside the publish transaction (`kb/service.project_chunks`), so its
+retirement is three releases and not one:
+
+* **Release 1 — STOP READING.** `retrieval_provider = supermemory` platform-wide. Nothing
+  is dropped, nothing stops being written, and the rollback in (f) is one setting. The
+  projection keeps running, which is what makes the rollback free.
+* **Release 2 — STOP WRITING.** `project_chunks` and `workers/kb_embeddings.py` stop
+  writing, after a sweep proves NOTHING READS: no `PgVectorRetriever` construction outside
+  the shadow arm, no `kb_chunks` in any query path, `retrieval_shadow_arm` off. The table
+  stays, populated and readable, and a reversal is a re-enabled writer plus a backfill.
+* **Release 3 — DROP,** in a LATER release than 2, never the same one. A reversible
+  migration that drops `kb_chunks`, its indexes and its RLS policy, with a `downgrade` that
+  recreates them — and the backfill from `kb_documents` that makes the downgrade mean
+  something, because every byte in `kb_chunks` is derived (D-502).
+
+`kb_documents` stays in all three. §8.4's four reasons are unchanged and the fourth is the
+one that makes release 3 safe at all: the ledger says what should be in box 3.
+
+**WHAT LANDED INSTEAD, 15 SEP 2026, AND WHY IT IS THE USEFUL HALF.**
+
+* **`apps/api/retrieval/shadow.py` — the shadow read.** The industry's way to retire a
+  retrieval path: ask the challenger the same live question, record how far apart the two
+  arms were, and serve the incumbent's answer regardless. `ShadowReadRetriever.retrieve`
+  returns the primary arm's own `RetrievalResult` OBJECT — not a copy, not a merge — and the
+  challenger's answer reaches one log line and nothing else. It wraps the T3 member, so a t0
+  question never pays for a comparison that is true by construction; it is sequential rather
+  than concurrent because both arms may hold the caller's one `AsyncSession`.
+* **`apps/api/retrieval/compare.py` — the harness.** recall@1, recall@k, MRR and agreement,
+  keyed on the DOCUMENT (`Provenance.source_id`, which both adapters carry because we minted
+  it) rather than on chunk text, which would score the two chunkers instead of the two
+  stores. Provider-agnostic, so the same scoring runs offline in CI over
+  `tests/fixtures/telugu_gloss_corpus.json` and against a live box 3 unchanged.
+* **Two LIVE settings, both off.** `retrieval_shadow_arm` names the store to ask in the
+  dark; `retrieval_shadow_tenant_ids` names whose questions may be asked, **and empty means
+  nobody**. Two rather than one because a shadow search buys an embedding and meters it
+  against the tenant whose question it was — a platform-wide switch would spend every
+  client's AI quota on an experiment they did not ask for.
 
 ---
 

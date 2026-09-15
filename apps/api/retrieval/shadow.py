@@ -7,9 +7,10 @@ flipping `retrieval_provider` and watching the copilot — makes every client a 
 and makes the first evidence a complaint.
 
 `docs/PIPECAT-MIGRATION.md` §6 step 15 retires `kb_chunks` and its lexical arm in favour of
-Supermemory. §8.6 is the plan; this module is the instrument that plan is argued from, and
-it is the thing that can be built TODAY while the two facts step 15 actually depends on —
-an install that answers, and an ingestion path that has run — are still outside this repo.
+Supermemory. **D-603 is why that step did not run**, §8.6 is the plan it runs against, and
+this module is the instrument that plan is argued from — the thing that can be built TODAY
+while the two facts step 15 actually depends on, an install that answers and an ingestion
+path that has run, are still outside this repo.
 
 THE ONE PROMISE, AND IT IS STRUCTURAL RATHER THAN CAREFUL. `retrieve` returns the primary
 arm's `RetrievalResult` **object**, unmodified: not a copy, not a merge, not a re-ranked
