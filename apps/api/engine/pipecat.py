@@ -781,6 +781,14 @@ class PipecatEngine:
     #: would make readiness report on a process this one does not run. Readiness is honest
     #: today for a different reason: nothing on this engine can place a call at all, and it
     #: refuses by name rather than by a red light.
+    #:
+    #: **D-614 ADDED THE CARRIER PAIR TO `Settings` AND DELIBERATELY DID NOT ADD IT HERE.**
+    #: `plivo_auth_id` / `plivo_auth_token` are now real fields, so this tuple COULD name
+    #: them — and naming them would turn `/healthz/ready` red on every host, permanently,
+    #: for a credential no VPS process reads and that belongs in a container's secret set
+    #: (`core/settings.ENV_ONLY_FOREIGN_ENV`). `missing_engine_credential_keys` asks "can
+    #: THIS process reach its vendor", and the answer for those two is "this process never
+    #: tries". The loss of resolution above is unchanged by that decision, not cured by it.
     credential_env_keys: tuple[str, ...] = ()
 
     def __init__(self, *, store: PipecatControlPlane | None = None) -> None:
@@ -1033,10 +1041,25 @@ class PipecatEngine:
         `capabilities.is_ours("llm")` is True — so that gate PASSES, and an adapter that
         leaned on it would have installed nothing and reported success. The refusal needs a
         different ground and this is it: the method's purpose is *"pushing OUR key into THE
-        ENGINE'S credential store"*, and there is no second store. The worker reads its keys
-        from our secrets manager at process start, so there is nothing here to replace and
-        nothing to supersede — which is also why `LlmCredentialPlacement`'s two fields have
-        no referent on this engine.
+        ENGINE'S credential store"*, and there is no store this process can push to. So
+        there is nothing here to replace and nothing to supersede — which is also why
+        `LlmCredentialPlacement`'s two fields have no referent on this engine.
+
+        ⚠ **THE REFUSAL SURVIVES D-614 AND ITS REMEDIATION DID NOT** (re-argued 15 Sep
+        2026, which is what that decision asked of this method). The ground above used to
+        read *"the worker reads its keys from our secrets manager at process start"*, and
+        the remediation told an operator "rotate the model key in the ops console; the
+        runtime picks it up when it restarts". **Both halves were wrong, and the second was
+        wrong in the expensive direction**: `voice_worker/boot.py` reads every key from its
+        own PROCESS ENVIRONMENT, injected by the Pipecat Cloud secret set, and it cannot do
+        otherwise — `PLATFORM_KEK` must never be in that image (DEPLOYMENT §12.2), so that
+        container can never open `platform_secrets` however many times it restarts. An
+        operator who rotated a model key on the screen and restarted the worker would have
+        been told the job was done while every call kept authenticating on the old key.
+
+        The refusal ITSELF is unchanged and is still correct — this adapter has no
+        credential store to install into — so what changes is the sentence an operator
+        acts on, which is the half of an error that is part of the interface.
 
         Raising rather than no-opping, because the Protocol says every caller's response to
         "the credential did not land" is the same, and because a rotation script that
@@ -1053,8 +1076,11 @@ class PipecatEngine:
                 "credential store to install one into."
             ),
             remediation=(
-                "Rotate the model key in the ops console; the runtime picks it up when it "
-                "restarts. Nothing needs to be pushed to a platform."
+                "Rotate the model key in TWO places, because the voice runtime cannot read "
+                "the ops console: install it in the console for the rest of the platform, "
+                "then set the same value in the voice worker's secret set and redeploy "
+                "that container. Nothing is pushed to a voice platform's credential store "
+                "— there is none."
             ),
         )
 

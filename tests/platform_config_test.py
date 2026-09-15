@@ -152,6 +152,14 @@ async def test_the_bootstrap_six_are_never_managed_and_never_appliable() -> None
         "platform_kek_retired",
         "redis_url",
         "resend_api_key",
+        # D-614. The carrier pair is env-only for the third distinct reason in this set
+        # and the strongest: their reader is `pipecat.serializers.PlivoFrameSerializer`
+        # inside the `apps/voice-worker` container, which must never hold `PLATFORM_KEK`
+        # and therefore can never open `platform_secrets` however it is deployed. A box
+        # for either on the console would accept a rotation of a LIVE carrier credential
+        # and reach nothing.
+        "plivo_auth_id",
+        "plivo_auth_token",
     } == ENV_ONLY_KEYS
 
     before = get_settings().app_env

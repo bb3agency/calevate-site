@@ -7510,6 +7510,8 @@ export interface components {
             configured: boolean;
             /** Env Var */
             env_var: string;
+            /** Held By */
+            held_by?: string | null;
             /** Key */
             key: string;
             /** Reason */

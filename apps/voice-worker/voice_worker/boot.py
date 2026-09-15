@@ -26,8 +26,11 @@ deployables depend on. What is shared instead is the thing that actually matters
 VARIABLE NAMES. Every credential below is spelled exactly as its `Settings` field is
 spelled, so the founder installs one value under one name in the ops console and in the
 Pipecat Cloud secret set, and `scripts/check_env_parity.py` can still see every name this
-module reads (the four that are not `Settings` fields are registered there with their
-reason).
+module reads (the two that are not `Settings` fields are registered there with their
+reason). ⚠ **THAT COUNT WAS FOUR UNTIL D-614**: the carrier pair below are `Settings`
+fields now — classified `ENV_ONLY`, so the ops console SHOWS them with the reason they can
+only come from this container's environment and refuses to store a value nothing here
+could read. Nothing about how this module reads them changed.
 
 **WHERE EACH VALUE COMES FROM.** There is no `.env` in this container and no ops console
 to read: the console's `platform_secrets` rows are sealed with `PLATFORM_KEK`, and
@@ -95,6 +98,13 @@ LLM_KEY_ENV_BY_PROVIDER: Final[Mapping[str, str]] = {
 #: `PlivoFrameSerializer(auth_id=os.getenv("PLIVO_AUTH_ID", ""), ...)`
 #: (`pipecat/runner/utils.py:532-539`). We check them so the failure is a boot refusal
 #: instead of a live call that cannot be hung up — see this module's docstring.
+#:
+#: BOTH ARE `Settings` FIELDS (`plivo_auth_id` / `plivo_auth_token`, D-614) AND NEITHER IS
+#: READ THROUGH ONE, here or anywhere. The field exists so the credential has a row in the
+#: platform's own register — a name on the ops console, an `env_var`, and the sentence
+#: saying it belongs in this container's secret set — which is the surface that had nothing
+#: to say about the carrier at all. The spelling is identical in both homes on purpose: one
+#: value, one name.
 PLIVO_AUTH_ID_ENV: Final[str] = "PLIVO_AUTH_ID"
 PLIVO_AUTH_TOKEN_ENV: Final[str] = "PLIVO_AUTH_TOKEN"
 

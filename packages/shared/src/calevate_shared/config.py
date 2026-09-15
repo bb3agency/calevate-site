@@ -406,6 +406,58 @@ class Settings(BaseSettings):
     #: `bolna_api_key` reused — that key authenticates US to THEM and would be travelling in
     #: the opposite direction, so a leak of one would be a leak of the other.
     bolna_caller_data_token: str | None = Field(default=None, max_length=256)
+
+    # ── THE CARRIER, AND THE ONE CREDENTIAL ON THE PIPECAT PATH THAT HAD NO HOME AT
+    #    ALL (D-614) ──────────────────────────────────────────────────────────────
+    #
+    # `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` are the account id and secret of the carrier
+    # the owned runtime answers the phone on. Until this decision they existed in exactly
+    # two places in this repository — two `Final` constants in
+    # `apps/voice-worker/voice_worker/boot.py` and two entries in
+    # `scripts/check_env_parity.CONTAINER_ENV_KEYS` — so they were the only credential on
+    # the whole Pipecat path with NO row in the platform's own credential inventory: no
+    # `last_four`, no rotation history, no audit line, and nothing on any screen. An
+    # operator asking "has this deployment ever been given a carrier credential?" had to
+    # read a Markdown table to learn that the question existed.
+    #
+    # ⚠ **THEY ARE `ENV_ONLY` AND THE CONSOLE MUST NEVER OFFER A BOX FOR THEM**
+    # (`core/settings.ENV_ONLY_REASONS`, which carries the full argument, and
+    # `ENV_ONLY_FOREIGN_ENV`, which names the environment that actually holds them). The
+    # reader is `pipecat.serializers.PlivoFrameSerializer`, inside a container on Pipecat
+    # Cloud, and that container cannot read `platform_secrets`: the store is sealed with
+    # `PLATFORM_KEK` and `PLATFORM_KEK` must never be in that image (DEPLOYMENT §12.2).
+    # A stored value would therefore be one the consumer can NEVER read — PLATFORM-CONFIG
+    # §8's "a field that silently does nothing", in its worst form, because the operator
+    # would be rotating a live carrier credential on a screen that cannot reach it.
+    #
+    # SO WHY BE `Settings` FIELDS AT ALL, IF NO PROCESS THAT CONSTRUCTS `Settings` READS
+    # THEM? Because `Settings` is this repo's REGISTER of what configuration exists, not
+    # only its reader: `env_var_for`, `env_declares`, `ENV_ONLY_DISPLAY`,
+    # `GET /v1/ops/config`'s env-only panel, `check_env_parity` and `check_deploy_env` all
+    # derive from `Settings.model_fields`. `resend_api_key` is the precedent and the shape
+    # is identical — a credential whose true consumer is a process on another box, held as
+    # a declared, displayed, un-storable field. The one DIFFERENCE is stated rather than
+    # glossed: `resend_api_key` is ALSO read by `apps/api/core/transport.py`, so
+    # "does this host declare it" is a meaningful question for it and is NOT one for these
+    # two. `ENV_ONLY_FOREIGN_ENV` is what stops the console rendering their absence from
+    # the VPS as a fault.
+    #
+    # NOT `api_key`-SHAPED NAMES, AND NOT RENAMED TO BE. The spelling is the vendor's own
+    # (`PlivoFrameSerializer(auth_id=..., auth_token=...)`, `pipecat-ai==1.10.0` as
+    # installed, `serializers/plivo.py:79-92`, read 15 Sep 2026) and `boot.py` spells every
+    # variable exactly as its `Settings` field is spelled, so one value goes under one name
+    # into both homes. `plivo_auth_token` matches `_SECRET_NAME_FRAGMENTS` through `token`;
+    # `plivo_auth_id` matches nothing, which is correct — it is an account identifier used
+    # as the HTTP Basic username, not a secret — and it is kept out of the plaintext
+    # `platform_settings` table by `ENV_ONLY_KEYS` rather than by its name.
+    #
+    # BOUNDS ARE SHAPE-ONLY AND ARE NOT A CLAIM ABOUT THE VENDOR'S FORMAT: `www.plivo.com`
+    # and `api.plivo.com` are EGRESS-BLOCKED from this container (re-measured 15 Sep 2026,
+    # `curl: (56) CONNECT tunnel failed, response 403`), so the LENGTH and ALPHABET Plivo
+    # actually issues are UNKNOWN here. These ceilings only stop a paste of something that
+    # is plainly not a credential.
+    plivo_auth_id: str | None = Field(default=None, max_length=128)
+    plivo_auth_token: str | None = Field(default=None, max_length=256)
     # Bolna quotes cost in USD cents; the adapter converts at capture and STAMPS the rate
     # it used into usage_events.meta so any ledger row can be re-derived (hard rule 7).
     #

@@ -1157,6 +1157,29 @@ const OPS_CONFIG = {
   stale: false,
   never_loaded: false,
   config_changed_at: "2026-08-12T09:00:00Z",
+  // THE ENV-ONLY SECTION, AND ITS ABSENCE WAS A REAL HOLE (D-614). This fixture is
+  // untyped, so a missing key is invisible to `tsc` — and `bootstrap` was missing while
+  // the screen happened not to read it. The day the panel did, the render threw inside
+  // the a11y sweep. TWO rows, because the section has two shapes and a one-row fixture
+  // would leave half its markup unscanned: a key this deployment holds and has not set
+  // (a real fault, rendered as a warning) and one held by another environment entirely
+  // (no verdict, just where it lives).
+  bootstrap: [
+    {
+      key: "app_env",
+      env_var: "APP_ENV",
+      reason: "it decides whether dev tokens are accepted.",
+      configured: true,
+      held_by: null,
+    },
+    {
+      key: "plivo_auth_id",
+      env_var: "PLIVO_AUTH_ID",
+      reason: "the voice worker reads it from its own container's environment.",
+      configured: false,
+      held_by: "the Pipecat Cloud secret set for `calevate-voice-worker`",
+    },
+  ],
 };
 
 // TWO rows whose states differ: an ATTESTED, offerable Azure model (its values, source and

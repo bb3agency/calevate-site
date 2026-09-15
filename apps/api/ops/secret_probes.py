@@ -202,6 +202,36 @@ PROBES: Mapping[str, Probe] = {
             "and is not evidence the key is wrong."
         ),
     ),
+    # ⚠ THE CARRIER PAIR (D-614 — `plivo_auth_id`, `plivo_auth_token`) HAS NO PROBE
+    # EITHER, AND NOT FOR WANT OF TRYING. Three independent reasons, each on its own
+    # sufficient, recorded here so the next reader does not re-derive them:
+    #
+    #   1. **This file's contract takes ONE candidate.** `probe_credential(key, candidate)`
+    #      is given a single value, and Plivo authenticates with HTTP BASIC over the PAIR
+    #      — `aiohttp.BasicAuth(auth_id, auth_token)` (VERIFIED-VENDOR-SDK: `pipecat-ai==
+    #      1.10.0` as installed, `pipecat/serializers/plivo.py:187`, read 15 Sep 2026).
+    #      Half a credential cannot authenticate, so a probe here could only ever shape-
+    #      check — and this module's whole argument is that "we could not check this" and
+    #      "this works" must never render the same.
+    #   2. **The only Plivo endpoint in evidence is a DESTRUCTIVE write.** That same file
+    #      carries the one Plivo REST call in the whole installed tree: `DELETE
+    #      https://api.plivo.com/v1/Account/{auth_id}/Call/{call_id}/` (`:184`), the
+    #      hang-up. Every probe above is a LIST for a stated reason — it changes nothing —
+    #      and a probe that hangs up a call to prove a key works is the outage this file
+    #      exists to prevent, arriving by a new route.
+    #   3. **No other endpoint may be written down.** `www.plivo.com` and `api.plivo.com`
+    #      are EGRESS-BLOCKED from this build environment (`curl: (56) CONNECT tunnel
+    #      failed, response 403`, re-measured 15 Sep 2026), so a plausible-looking
+    #      `GET /v1/Account/{auth_id}/` would be an INVENTED endpoint, which hard rule 11
+    #      forbids outright.
+    #
+    # So both answer `no_probe` — "storing it is still safe, it simply will not be verified
+    # until the first real use" — which here means the first CALL, on a credential the
+    # console cannot store anyway (`ENV_ONLY_REASONS`). What closes this is
+    # `docs/evidence/pre-build-blockers-2026-09-13.md` §10: the same research pass that
+    # gives `engine/pipecat.py` its carrier surface gives this file a listing endpoint and
+    # the auth shape, and the probe can then be written against a read that is verified
+    # rather than guessed.
     # ⚠ THE TWO DECLARED LLM LEGS (D-456 — `openai`, `google`) DELIBERATELY HAVE NO PROBE,
     # and it is not an omission. `scripts/check_model_residency.py` BANS the string
     # `api.openai.com` outside the OpenAI leg's own builder, and bans

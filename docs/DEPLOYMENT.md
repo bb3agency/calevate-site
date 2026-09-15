@@ -1724,7 +1724,7 @@ container. Nothing fetches one from the other.
 | `SARVAM_API_KEY` | yes | ops console (`sarvam_api_key`) | STT on every call, and today's TTS |
 | `CARTESIA_API_KEY` | no | ops console (`cartesia_api_key`) | the Studio voice tier only |
 | `AZURE_OPENAI_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | **at least one** | ops console | the in-call LLM. WHICH one a call needs is decided per agent by `ModelConfig.llm_provider`, so the gate demands one and a call for a provider this container has no key for is refused by name rather than run on another vendor's credential. |
-| `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` | yes | Plivo account (BLOCKER-1) | read by PIPECAT, not by us. Without them the serializer cannot hang the call up at `EndFrame`, and a leg nobody hung up is a leg the carrier goes on billing. |
+| `PLIVO_AUTH_ID` / `PLIVO_AUTH_TOKEN` | yes | Plivo account (BLOCKER-1), into THIS secret set only | read by PIPECAT, not by us. Without them the serializer cannot hang the call up at `EndFrame`, and a leg nobody hung up is a leg the carrier goes on billing. Since D-614 both are `Settings` fields, so the ops console LISTS them under *Set outside this console* with the reason and with `held_by` naming this secret set — and refuses to store them, because `PLATFORM_KEK` is not in this image and a stored value would be one nothing here could ever read. |
 | `VOICE_WORKER_DRAIN_GRACE_SECONDS` | no | default 20.0 | §12.4 |
 | `VOICE_WORKER_READY_FILE` | no | unset by default | §12.3 |
 
@@ -1737,11 +1737,14 @@ caller meets it with
 python bot.py --preflight     # prints VOICE WORKER PREFLIGHT: OK|FAIL and exits 0|1
 ```
 
-which loads the configuration, opens the pool and runs one `SELECT 1`. The four variables
-that are not `Settings` fields are registered in `scripts/check_env_parity.py`
-(`CONTAINER_ENV_KEYS`) with the argument for each; `tests/voice_worker_boot_test.py` is
-what keeps that registry honest in both directions, because the parity guard's AST scan
-cannot see this module at all.
+which loads the configuration, opens the pool and runs one `SELECT 1`. The two variables
+that are not `Settings` fields (`VOICE_WORKER_DRAIN_GRACE_SECONDS`,
+`VOICE_WORKER_READY_FILE` — neither is a credential) are registered in
+`scripts/check_env_parity.py` (`CONTAINER_ENV_KEYS`) with the argument for each;
+`tests/voice_worker_boot_test.py` is what keeps that registry honest in both directions,
+because the parity guard's AST scan cannot see this module at all, and
+`tests/pipecat_credentials_test.py` is what keeps every OTHER name in this table spelled
+exactly as its `Settings` field (D-614) — one value, one name, two homes.
 
 ### 12.3 Health and readiness
 

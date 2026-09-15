@@ -244,7 +244,60 @@ ENV_ONLY_REASONS: dict[str, str] = {
         "credential with two homes is one an operator can rotate in the place that does "
         "not win. Set RESEND_API_KEY in each host's environment (DEPLOYMENT §6)."
     ),
+    # THE CARRIER PAIR (D-614). Same category as the entry above and a STRONGER case, not
+    # a weaker one: `resend_api_key` COULD be read from the store by the api host and is
+    # kept out of it so that one credential has one home; these two could not be read from
+    # the store by their consumer under any arrangement. The consumer is
+    # `pipecat.serializers.PlivoFrameSerializer` inside the `apps/voice-worker` container
+    # on Pipecat Cloud, and that container is the one deployable a vendor's runtime
+    # operates — `PLATFORM_KEK` must never be in its image (DEPLOYMENT §12.2), so it can
+    # never open `platform_secrets`.
+    "plivo_auth_id": (
+        "the carrier credential is read by the voice worker's own telephony serializer, "
+        "inside a container on Pipecat Cloud that must never hold PLATFORM_KEK and "
+        "therefore can never open this credential store. Set PLIVO_AUTH_ID in the "
+        "`calevate-voice-worker` secret set (`pipecat cloud secrets set`, DEPLOYMENT "
+        "§12.2) — a value saved here would be one nothing can read."
+    ),
+    "plivo_auth_token": (
+        "the other half of the pair above, with the same reader and the same reason. "
+        "Without it the serializer cannot hang the leg up at EndFrame (DELETE "
+        "/v1/Account/{auth_id}/Call/{call_id}/), and a leg nobody hung up is a leg the "
+        "carrier goes on billing. Set PLIVO_AUTH_TOKEN in the `calevate-voice-worker` "
+        "secret set (DEPLOYMENT §12.2)."
+    ),
 }
+
+#: Env-only keys whose environment IS NOT THIS DEPLOYMENT'S (D-614).
+#:
+#: WHY THE CONSOLE NEEDED A THIRD FACT ABOUT AN ENV-ONLY KEY. `GET /v1/ops/config`
+#: publishes `configured` — `env_declares(key)` — beside every `ENV_ONLY_DISPLAY` entry,
+#: and for the six bootstrap keys and `resend_api_key` that is exactly the right question:
+#: those variables belong in the environment of a host this deployment runs on, so their
+#: absence is a fault worth rendering as one.
+#:
+#: It is the WRONG question for the carrier pair, and answering it anyway would be the
+#: console lying in the direction that costs the most. `PLIVO_AUTH_ID` belongs in a Pipecat
+#: Cloud secret set; a VPS that declared it would be a VPS holding a live carrier
+#: credential for no reader. So `configured: false` is the CORRECT and permanent state on
+#: every host this API runs on, and a screen that painted it red would train an operator to
+#: "fix" it by putting the credential where it does not belong.
+#:
+#: The value is the environment that DOES hold it, in the words the console renders. Keys
+#: absent from this mapping are held by this deployment's own environment, which is why the
+#: mapping is the exception rather than a field on every entry.
+ENV_ONLY_FOREIGN_ENV: dict[str, str] = {
+    "plivo_auth_id": "the Pipecat Cloud secret set for `calevate-voice-worker`",
+    "plivo_auth_token": "the Pipecat Cloud secret set for `calevate-voice-worker`",
+}
+
+# Asserted at import rather than tested, for `_assert_holds_no_secret`'s reason: an entry
+# naming a key that is not env-only would publish a "held elsewhere" badge beside a field
+# the console still offers a box for, which is a screen contradicting itself.
+assert set(ENV_ONLY_FOREIGN_ENV) <= set(ENV_ONLY_REASONS), (
+    "ENV_ONLY_FOREIGN_ENV names keys that are not env-only: "
+    f"{sorted(set(ENV_ONLY_FOREIGN_ENV) - set(ENV_ONLY_REASONS))}"
+)
 
 #: What may never be read from `platform_settings`: the bootstrap six, plus the
 #: non-bootstrap entries above. `check_bootstrap_keys` asserts the SIX are a subset of
@@ -945,6 +998,7 @@ __all__ = [
     "BOOTSTRAP_REQUIRED",
     "ENVIRONMENTS",
     "ENV_ONLY_DISPLAY",
+    "ENV_ONLY_FOREIGN_ENV",
     "ENV_ONLY_KEYS",
     "ENV_ONLY_REASONS",
     "MIN_HMAC_KEY_BYTES",
