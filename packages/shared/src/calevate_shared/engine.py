@@ -2555,6 +2555,52 @@ def render_caller_memory(facts: Sequence[str]) -> str:
 MAX_CALLER_MEMORY_CHARS: Final = 1500
 
 
+def awaits_caller_memory(prompt: str | None) -> bool:
+    """Does this composed prompt still have a caller-memory slot for somebody to fill?
+
+    **THE PREDICATE AN `owned_runtime` WORKER GATES ON, AND IT IS A COMPLIANCE GATE RATHER
+    THAN A RENDERING ONE.** `_caller_memory_section` emits the block — and therefore the
+    slot — on exactly one condition: `cfg.caller_memory_enabled`. That is the SAME
+    condition under which `compose_opening_line` appends `caller_memory_notice_line`, a
+    column that is NOT NULL and `ck_agents_caller_memory_notice_nonempty`. So a prompt
+    carrying this token is a prompt that already told the caller, in the agent's own voice,
+    that notes are kept — and a prompt without it belongs to an agent that promised nothing
+    and must be given nothing to remember with. The worker can therefore decide "may this
+    call recall?" from the IMMUTABLE, content-addressed artefact it attested, with no
+    second read of a switch it would have to be trusted to have made.
+
+    `carries_truthful_answer_floor`'s shape and its reason: one predicate, so the composer
+    and every reader cannot disagree about what "carries it" means, and `None`/`""` are
+    False rather than an error.
+    """
+    return prompt is not None and CALLER_MEMORY_SLOT in prompt
+
+
+def fill_caller_memory_slot(prompt: str, facts: Sequence[str]) -> str:
+    """The composed prompt with its caller-memory slot filled — or emptied. THE ONE FILLER.
+
+    Two callers and they must not drift: `_caller_memory_section` fills the slot at
+    COMPOSITION time for an engine that does its own dialling with the whole prompt on the
+    call (`external_deployment`), and a worker running an `owned_runtime` agent fills it at
+    SESSION time, because there the prompt is agent state minted once at publish and the
+    per-caller half is not known until the phone rings. A second `str.replace` beside this
+    one is how a caller ends up hearing somebody else's history.
+
+    **AN EMPTY `facts` STILL SUBSTITUTES, AND THAT IS THE POINT RATHER THAN A DEGENERATE
+    CASE.** The commonest state is a first-time caller, so the token must come OUT even
+    when there is nothing to put in its place — `CALLER_MEMORY_GUIDANCE` already tells the
+    model that an empty block means a caller it does not know. A filler that returned the
+    prompt untouched on an empty list would leave the literal `{caller_memory}` in front of
+    the model, which is the one outcome nothing downstream can recover from: it is not an
+    error, it is an agent reading a placeholder out loud.
+
+    A prompt with no slot comes back unchanged. That is `str.replace`'s own behaviour and
+    it is relied on: nothing here appends a section, because an agent whose client never
+    switched memory on has no section to fill and must not acquire one from a caller.
+    """
+    return prompt.replace(CALLER_MEMORY_SLOT, render_caller_memory(facts))
+
+
 def carries_truthful_answer_floor(prompt: str | None) -> bool:
     """Does this prompt carry the one rule no client may withdraw?
 
@@ -3088,7 +3134,7 @@ def _caller_memory_section(cfg: AgentConfig, facts: Sequence[str] | None) -> str
         return ""
     if facts is None:
         return CALLER_MEMORY_GUIDANCE
-    return CALLER_MEMORY_GUIDANCE.replace(CALLER_MEMORY_SLOT, render_caller_memory(facts))
+    return fill_caller_memory_slot(CALLER_MEMORY_GUIDANCE, facts)
 
 
 def compose_engine_prompt(cfg: AgentConfig, *, caller_memory: Sequence[str] | None = None) -> str:
@@ -5395,5 +5441,7 @@ __all__ = [
     "VoiceEngine",
     "WebhookAuthMethod",
     "WebhookVerdict",
+    "awaits_caller_memory",
+    "fill_caller_memory_slot",
     "render_caller_memory",
 ]
