@@ -27,7 +27,7 @@ from apps.api.core.auth import client_request_ip, requires
 from apps.api.core.context import Principal
 from apps.api.core.deps import db
 from apps.api.core.rbac import permission_meta
-from apps.api.kb import service, uploads
+from apps.api.kb import delivery, service, uploads
 from apps.api.kb.curation import read_switch, requires_kb_curation, write_switch
 
 router = APIRouter(prefix="/v1/kb", tags=["knowledge-base"])
@@ -454,6 +454,91 @@ async def delete_upload(
         object_id=str(source_id),
         ip=client_request_ip(request),
         summary={"upload_id": str(upload_id)},
+    )
+
+
+# --- Did it reach the phone: the one surface onto the in-call knowledge pack -------
+#
+# WHY THIS IS A READ ON THE KB ROUTER AND NOT ON `/v1/agents`. It answers a question about
+# KNOWLEDGE — "is what I published what my agent is answering out of" — and the object it
+# reports on is built, stored and pointed at entirely by this package. An agent's roster
+# row is the join key, not the subject. A reader who wants to know what happens to a
+# publish after the review queue finds the whole story under one prefix.
+
+
+class AgentDeliveryOut(Strict):
+    """One agent, and whether its knowledge is live on the phone.
+
+    Nothing here is caller-derived (hard rule 6): counts of the CLIENT's own approved
+    chunks, the digest of their own text, and one timestamp. `kb/delivery.py` states the
+    full argument, including why no call row is joined.
+    """
+
+    agent_id: UUID
+    agent_name: str
+    #: `kb/delivery.DeliveryState`, restated as a Literal so the generated TypeScript client
+    #: carries the union and the console cannot render a fifth state it invented. The two
+    #: spellings are pinned together by `tests/kb_delivery_test.py`.
+    state: Literal["no_knowledge", "live", "preparing", "not_delivered"]
+    #: The pack the agent is answering out of, or None if none was ever recorded. Shown so
+    #: a client stuck on `not_delivered` has something exact to quote to support.
+    pack_id: str | None
+    live_chunks: int
+    awaiting_translation: int
+    #: When this agent started answering out of `pack_id`. NOT "when publish was last
+    #: pressed" — a republish of unchanged knowledge moves neither the pointer nor this
+    #: (`kb/pack._RECORD_PACK_SQL`). None for a pack recorded before migration f4b18c7d2e59.
+    last_reached_at: datetime | None
+
+
+class DeliveryListOut(Strict):
+    """A declared model rather than a bare list, for `StaffCurationOut`'s reason and one
+    more: `not_delivered_count` is the server's own tally, so the dashboard badge is never
+    computed from a page the ceiling truncated."""
+
+    items: list[AgentDeliveryOut]
+    not_delivered_count: int
+
+
+@router.get(
+    "/delivery",
+    response_model=DeliveryListOut,
+    # `agents:read`, the permission the two reads above settled on and for the same reason:
+    # this reports what an agent KNOWS, which is an agent read and not a knowledge write. It
+    # stays open under impersonation (D-22), which is deliberate — "my agent doesn't know
+    # that" is a support conversation, and an operator answering it needs to see the same
+    # screen the client is looking at rather than ask them to read a digest aloud.
+    openapi_extra=permission_meta("agents:read"),
+    summary="Whether each agent's published knowledge has reached the phone",
+    description=(
+        "For every agent on the roster: whether the knowledge this account published is "
+        "the knowledge the agent is actually answering callers out of, and when it last "
+        "changed. `preparing` heals itself within the hour; `not_delivered` does not and "
+        "means the agent is still answering out of its previous knowledge."
+    ),
+)
+async def list_delivery(
+    session: Session, principal: Principal = Depends(requires("agents:read"))
+) -> DeliveryListOut:
+    assert principal.tenant_id is not None  # client realm; `requires()` resolved it
+    rows = await delivery.tenant_delivery(session, tenant_id=principal.tenant_id)
+    return DeliveryListOut(
+        # Field by field rather than `**vars(row)`: `AgentDelivery` is a slots dataclass
+        # (no `__dict__`), and spelling the mapping out is what makes mypy check that the
+        # wire model and the read agree rather than trusting two field lists to match.
+        items=[
+            AgentDeliveryOut(
+                agent_id=row.agent_id,
+                agent_name=row.agent_name,
+                state=row.state,
+                pack_id=row.pack_id,
+                live_chunks=row.live_chunks,
+                awaiting_translation=row.awaiting_translation,
+                last_reached_at=row.last_reached_at,
+            )
+            for row in rows
+        ],
+        not_delivered_count=sum(1 for row in rows if row.state == "not_delivered"),
     )
 
 
