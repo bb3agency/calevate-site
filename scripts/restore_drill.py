@@ -847,6 +847,7 @@ class RestoreDrill:
             # re-verify an attestation, and a fixture that looked like a real agent's
             # prompt hash would invite someone to try.
             empty_sha = hashlib.sha256(b"").hexdigest()
+            call_id = _uuid7()
             statements += [
                 "INSERT INTO agent_config_versions (id, tenant_id, agent_id, "
                 "prompt_sha256, model_config_sha256) VALUES "
@@ -858,6 +859,19 @@ class RestoreDrill:
                 f"'{empty_sha}', now())",
                 "INSERT INTO usage_events (id, tenant_id, unit_type, qty, unit_cost_paid) "
                 f"VALUES ('{_uuid7()}', '{tenant}', 'platform_min', 12.5000, 6.0000)",
+                # A CALL AND THE REFUSAL THAT NAMES IT (D-607). `call_metering_refusals`
+                # is append-only and `call_id` is ON DELETE RESTRICT, so the probe needs a
+                # real call to point at — this is the only row in this seed that exists to
+                # satisfy a foreign key rather than to be restored and counted.
+                "INSERT INTO calls (id, tenant_id, agent_id, engine_call_id, direction) "
+                f"VALUES ('{call_id}', '{tenant}', '{agent}', "
+                f"'drill:{tenant}:{call_id}', 'inbound')",
+                "INSERT INTO call_metering_refusals "
+                "(id, tenant_id, call_id, leg, code, detail, remediation) VALUES "
+                f"('{_uuid7()}', '{tenant}', '{call_id}', 'carrier', "
+                "'meter_carrier_cdr_missing', "
+                "'the drill seeds no CDR, which is the production shape today', "
+                "'attach the carrier CDR and re-settle')",
                 "INSERT INTO consent_ledger (id, tenant_id, phone_e164, purpose, status) "
                 f"VALUES ('{_uuid7()}', '{tenant}', '+9{prefix}000000', 'recording', 'granted')",
                 "INSERT INTO credit_ledger (id, tenant_id, delta, reason, balance_after) "
@@ -920,6 +934,7 @@ class RestoreDrill:
             "consent_ledger",
             "credit_ledger",
             "one_time_charges",
+            "call_metering_refusals",
             # The three ledgers the seed grew for the append-only probe. Counted for the
             # same reason the other five are: a restore that silently dropped a ledger's
             # rows would otherwise pass `row_counts` and then pass `append_only_enforced`

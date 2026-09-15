@@ -105,6 +105,22 @@ class DatabaseNotConfiguredError(RuntimeError):
     """
 
 
+@asynccontextmanager
+async def tenant_connection(engine: AsyncEngine, tenant_id: UUID) -> AsyncIterator[AsyncConnection]:
+    """A connection whose whole transaction runs under this tenant's RLS context.
+
+    **THE FREE FUNCTION IS THE ONE IMPLEMENTATION AND `WorkerDatabase.tenant_connection`
+    DELEGATES TO IT.** `boot.py` had a byte-identical second copy taking a bare engine,
+    written in parallel with this one, while the module docstring above claimed hard rule 1
+    lived "nowhere else in this deployable". Two spellings of the GUC are two places it can
+    be forgotten; `bot.py` holds an engine and this module holds a pool, so the shape that
+    serves both is a function over an engine with a method in front of it.
+    """
+    async with engine.begin() as connection:
+        await connection.execute(text(_SET_TENANT_SQL), {"tid": str(tenant_id)})
+        yield connection
+
+
 class WorkerDatabase:
     """One engine, one pool, for the life of the container.
 
@@ -161,8 +177,7 @@ class WorkerDatabase:
         what makes a half-written settlement impossible: `sink.settle` writes its rows
         inside ONE of these.
         """
-        async with self._engine.begin() as connection:
-            await connection.execute(text(_SET_TENANT_SQL), {"tid": str(tenant_id)})
+        async with tenant_connection(self._engine, tenant_id) as connection:
             yield connection
 
     async def aclose(self) -> None:

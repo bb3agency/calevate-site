@@ -508,10 +508,22 @@ def test_every_log_message_in_the_tree_is_a_static_token() -> None:
 
 
 def test_only_one_database_engine_exists_and_it_hides_its_parameters() -> None:
-    """`hide_parameters=True` is a hard-rule-6 control, and it is a property of ONE
-    engine object. A second `create_async_engine` anywhere in `apps/` would be a second
-    engine with SQLAlchemy's default — parameters rendered into every DBAPI error
-    string — and nothing about the first engine's flag would say so.
+    """`hide_parameters=True` is a hard-rule-6 control and EVERY engine must carry it.
+
+    ⚠ **THIS GUARD USED TO REQUIRE EXACTLY ONE ENGINE, AND THAT PREMISE DIED WITH D-592.**
+    It was written when one deployable served everything, so "one engine object" and "every
+    engine hides its parameters" were the same sentence. `apps/voice-worker` is a second
+    deployable that hard rule 2 forbids from importing the monolith, so it cannot share
+    `apps/api/db/session.py`'s engine and must build its own. Demanding one builder would
+    now be demanding an import that the import-linter contract refuses.
+
+    So the count is pinned per DEPLOYABLE rather than globally, and the property — no bound
+    parameter reaches a log line — is asserted on EVERY engine found, which is the half that
+    was always doing the work. A third builder inside either deployable still fails here:
+    that is exactly what it caught when `voice_worker/boot.py` and `voice_worker/db.py` were
+    written in parallel and only one of them passed `hide_parameters=True`, leaving the
+    container's actual engine rendering phone numbers and transcript text into every DBAPI
+    error string.
 
     Scoped to `apps/` on purpose. `alembic/env.py` builds its own engine deliberately
     (migration review keeps its parameter echo) and `scripts/check_*.py` read catalogs
@@ -539,9 +551,18 @@ def test_only_one_database_engine_exists_and_it_hides_its_parameters() -> None:
             found.append((f"{path.relative_to(root)}:{node.lineno}", hides))
 
     assert found, "no engine found — this guard is watching the wrong tree"
-    assert len(found) == 1, f"more than one engine is built in apps/: {found}"
-    (where, hides) = found[0]
-    assert hides, f"{where} builds an engine without hide_parameters=True"
+
+    #: One engine per deployable, named rather than counted, so a new one is a deliberate
+    #: entry here and not a silent third pool inside a container that already has one.
+    expected_builders = {"apps/api/db/session.py", "apps/voice-worker/voice_worker/db.py"}
+    builders_found = {where.rsplit(":", 1)[0] for (where, _) in found}
+    assert builders_found == expected_builders, (
+        f"engine builders changed: {sorted(builders_found)} != {sorted(expected_builders)}. "
+        "A deployable gets ONE engine; if a new deployable needs one, add it here with why."
+    )
+
+    leaky = [where for (where, hides) in found if not hides]
+    assert not leaky, f"engine(s) built without hide_parameters=True: {leaky}"
 
 
 # --- 5. the read surfaces D-436 unmasked --------------------------------------

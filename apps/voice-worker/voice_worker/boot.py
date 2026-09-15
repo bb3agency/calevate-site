@@ -46,16 +46,15 @@ credential, a length or a prefix.
 from __future__ import annotations
 
 import os
-from collections.abc import AsyncIterator, Mapping
-from contextlib import asynccontextmanager
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Final
-from uuid import UUID
 
 from loguru import logger
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine
 
+from voice_worker.db import WorkerDatabase, tenant_connection
 from voice_worker.knowledge import QueryEmbedder
 from voice_worker.pipeline import NormalizedEventSink, VendorCredentials
 from voice_worker.storage import BUCKET_ENV, ENDPOINT_ENV, ObjectStorePackFetcher
@@ -376,13 +375,15 @@ async def open_runtime(
     overwhelming majority of turns (`docs/PIPECAT-MIGRATION.md` §8.1a).
     """
     install_vendor_log_guard()
-    engine = create_async_engine(
-        config.database_url,
-        pool_size=_POOL_SIZE,
-        max_overflow=0,
-        pool_pre_ping=True,
-        connect_args=_CONNECT_ARGS,
-    )
+    # ONE ENGINE PER CONTAINER, BUILT BY `db.WorkerDatabase` AND NOT HERE.
+    # This module built a second `create_async_engine` in parallel with that one and left
+    # off `hide_parameters=True` — so the container had two pools and the one `bot.py`
+    # actually used rendered bound parameters into every DBAPI error string. On this
+    # deployable those parameters are phone numbers and transcript text (hard rule 6).
+    # The engine's keyword arguments are a single fact about this workload and now have a
+    # single home; `pii_logging_sweep_test` pins one builder per deployable.
+    database = WorkerDatabase(config.database_url)
+    engine = database.engine
     if verify:
         async with engine.connect() as connection:
             await connection.execute(text("SELECT 1"))
@@ -397,23 +398,6 @@ async def open_runtime(
         dense_arm=embedder is not None,
     )
     return WorkerRuntime(config=config, engine=engine, fetcher=fetcher, embedder=embedder)
-
-
-@asynccontextmanager
-async def tenant_connection(engine: AsyncEngine, tenant_id: UUID) -> AsyncIterator[AsyncConnection]:
-    """A connection with `app.tenant_id` set, inside a transaction. Hard rule 1.
-
-    **THE GUC IS THE ISOLATION AND THE `true` IS WHY IT IS SAFE ON A POOL**: `set_config`'s
-    third argument makes it TRANSACTION-LOCAL, so a pooled connection carries nothing out
-    of the block — the same spelling and the same reason as `apps/api/db/session.py`.
-    `config.load_session_config` states that it never opens a connection of its own and
-    requires one whose GUC is already set; this is the thing that sets it.
-    """
-    async with engine.begin() as connection:
-        await connection.execute(
-            text("SELECT set_config('app.tenant_id', :tid, true)"), {"tid": str(tenant_id)}
-        )
-        yield connection
 
 
 __all__ = [
