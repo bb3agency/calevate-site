@@ -57,23 +57,29 @@ the agents whose recorded pointer no longer matches the pack their corpus implie
 sweep rebuilds those through `refresh_published_pack`. Not a second builder and not a
 worklist of ids — see that function for why the difference is computed from the digest.
 
-⚠ **A SUPERSEDED PACK KEEPS THE WORDS THAT WERE IN IT, AND NOTHING DELETES IT BUT THAT
-CEILING.** A client who removes one document gets a new pack without it; the previous pack
-stays at its own key, holding the approved text as it was — measured, not assumed: no path
-in `apps/workers/` or `apps/api/compliance/` deletes anything under this prefix (the only
-function that names it is `storage.store_knowledge_pack`). That is tolerable because a pack
-holds a BUSINESS's own published knowledge and no data principal's data — no number, no
-transcript, no caller — which is why `scripts/check_erasure_coverage` has nothing to reach
-here. It is NOT tolerable silently, so: a tenant offboarding does not currently reach these
-objects, and the reference-aware sweep named below is where both this and the space belong.
+⚠ **A SUPERSEDED PACK KEEPS THE WORDS THAT WERE IN IT.** A client who removes one document
+gets a new pack without it; the previous pack stays at its own key, holding the approved
+text as it was. That is tolerable because a pack holds a BUSINESS's own published knowledge
+and no data principal's data — no number, no transcript, no caller — which is why
+`scripts/check_erasure_coverage` has nothing to reach here.
 
-**`knowledge-packs/` NOW CARRIES AN OBJECT-LIFECYCLE RULE** — `infra/object-lifecycle/
-policy.json`, `knowledge-packs-growth-ceiling-not-retention`, pinned by
-`tests/object_lifecycle_test.py`. It is a growth CEILING and not a retention mechanism, and
-the rule's own comment in `apply_lifecycle.py` argues why nothing shorter is safe: an
-expiry is measured from an object's creation, so any ceiling low enough to reclaim space
-would eventually delete the live pack of the best-behaved client on the platform — the one
-whose price list has not needed correcting.
+**TWO MECHANISMS REACH THIS PREFIX NOW, AND THIS PARAGRAPH USED TO SAY "NOTHING DOES".**
+The first is `infra/object-lifecycle/policy.json`'s
+`knowledge-packs-growth-ceiling-not-retention` (2555 days, pinned by
+`tests/object_lifecycle_test.py`), which is a growth CEILING and structurally cannot be
+retention: an expiry is measured from an object's CREATION, so any ceiling low enough to
+reclaim space would eventually delete the live pack of the best-behaved client on the
+platform — the one whose price list has not needed correcting.
+
+The second is the one that actually reclaims: `apps/workers/pack_gc.py` (D-611, 05:07
+daily) deletes a pack that no `agents.knowledge_pack_sha256` names and that has sat out a
+seven-day grace. **THE GRACE EXISTS BECAUSE OF THE WRITE ORDER IN THIS FILE** — the object
+is stored before the pointer commits (`refresh_published_pack`), so for the width of one
+publish transaction a pack is legitimately unreferenced and about to be referenced. What
+that sweep deliberately does NOT reach is a pack whose tenant it cannot enumerate: a CLOSED
+tenant's objects stay, bounded only by the ceiling, because deleting on ABSENCE would mean
+one bad directory read takes the live pack of every tenant it missed. That residue belongs
+in the closure path, which positively knows the tenant is gone, and it is still open.
 """
 
 from __future__ import annotations

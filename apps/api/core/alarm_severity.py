@@ -551,6 +551,15 @@ ALARM_SEVERITY: dict[str, Severity] = {
     "engine_kb_account_listing_incomplete": "attention",
     "engine_kb_orphans_detected": "attention",
     "kb_orphan_sweep_abandoned": "attention",
+    # THE KNOWLEDGE-PACK COLLECTOR (D-611). Both `attention` and neither is close to a
+    # page, because this sweep's whole design is that its failures cost SPACE and never a
+    # caller: it aborts before its first delete on any error, and it only ever removes
+    # packs no agent references. `knowledge_pack_residue_unattributable` is a report about
+    # objects it deliberately will not touch; `knowledge_pack_gc_abandoned` is a day of
+    # object-store spend. A page for either would train an operator to ignore the one
+    # alarm in this family that IS urgent (`knowledge_pack_publish_failed` below).
+    "knowledge_pack_residue_unattributable": "attention",
+    "knowledge_pack_gc_abandoned": "attention",
     # ONE CLIENT'S KNOWLEDGE IS LIVE EVERYWHERE EXCEPT ON THE PHONE: the publish committed
     # and the in-call pack could not be built or stored, so the agent keeps answering out
     # of the pack it last loaded. Bounded to one agent, self-healing on the next publish of

@@ -147,6 +147,7 @@ from apps.workers.notifications import notify_hot_lead
 from apps.workers.number_rental import meter_number_rentals, reconcile_engine_numbers
 from apps.workers.optout import record_in_call_optout
 from apps.workers.outbound_webhooks import deliver_outbound_webhook
+from apps.workers.pack_gc import PACK_GC_HOUR, PACK_GC_MINUTE, sweep_knowledge_packs
 from apps.workers.pipeline import (
     ingest_engine_event,
     reconcile_executions,
@@ -861,6 +862,38 @@ CRON_JOBS = [
         walk=bounded("one vendor listing against one untenanted read"),
         hour=set(ORPHAN_SWEEP_HOUR),
         minute=set(ORPHAN_SWEEP_MINUTE),
+        max_tries=WORKER_MAX_TRIES,
+    ),
+    # THE REFERENCE-AWARE KNOWLEDGE-PACK COLLECTOR (D-611), and it is the one thing the
+    # `knowledge-packs/` lifecycle rule structurally cannot be. That rule expires from an
+    # object's CREATION, and a pack is rebuilt only when knowledge changes — so the live
+    # pack of the client whose price list has been correct longest is the oldest object
+    # under the prefix and would be the first one a short expiry deleted. The predicate
+    # has to be "does `agents.knowledge_pack_sha256` name it", which is a database
+    # question, which is why it is a cron and not a bucket rule.
+    #
+    # DAILY, and 05:07 comes FROM the module for its neighbours' reason. Daily is not a
+    # compromise here: the thing it reclaims is space, superseded packs are created one per
+    # publish per agent, and every eligible object has already sat out a seven-day grace —
+    # a tick eight hours sooner reclaims nothing that a tick eight hours later does not.
+    #
+    # AN UNREGISTERED CRON HERE IS THE DEFECT THIS WHOLE LANE CLOSED, so it is worth saying
+    # what that would look like: nothing breaks, no screen changes, and the prefix grows by
+    # one small object per publish for ever while three files in the tree claim it is
+    # bounded by a mechanism that never runs.
+    #
+    # `max_tries` EXPLICIT for its neighbours' reason — `cron()` defaults it to 1 and
+    # `WorkerSettings.max_tries` does not reach a function carrying its own. The ladder
+    # matters more than usual because the sweep aborts before its FIRST delete on any
+    # failure (a partial reference set is a licence to delete a live pack), so every
+    # transient error costs a whole day's reclamation rather than part of one.
+    _cron(
+        traced_job(sweep_knowledge_packs),
+        walk=fleet_wide(
+            "one store listing, then one tenant_session per organization to read pointers"
+        ),
+        hour=set(PACK_GC_HOUR),
+        minute=set(PACK_GC_MINUTE),
         max_tries=WORKER_MAX_TRIES,
     ),
     # THE ENGLISH GLOSS SWEEP. Not a drift sweep — it is INGESTION, finishing a chunk that
