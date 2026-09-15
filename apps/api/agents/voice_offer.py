@@ -227,9 +227,18 @@ def curation_unofferable_reason(state: CurationState | None) -> str | None:
 
     `None` for `state` is not "unknown" and must not be softened into one — it is a voice
     the catalogue snapshot holds and the live table does not, which is what a withdrawal
-    upstream looks like from here (`voice_sync.read_cached_catalogue` drops withdrawn rows,
-    so the two disagree for exactly as long as one process's snapshot is stale, and forever
-    if a client's agent is on a voice the vendor has removed).
+    upstream looks like from here.
+
+    ⚠ **THIS PARAGRAPH USED TO END "(`voice_sync.read_cached_catalogue` drops withdrawn
+    rows, so the two disagree for exactly as long as one process's snapshot is stale…)",
+    AND THAT IS NO LONGER TRUE (D-617, 15 Sep 2026).** It does not drop them: the snapshot
+    is the LOOKUP layer and dropping a row there unnamed the voice a live agent was already
+    speaking, printing a raw engine ref on the client's own panel. So the two sources no
+    longer disagree by accident — they are now a deliberate PAIR, and this branch is the
+    seam. `read_curation` excludes withdrawn rows (`voice_curation.py`, the
+    `withdrawn_at IS NULL` predicate); the catalogue keeps them; a withdrawn voice therefore
+    arrives here as exactly this `None` and is refused. The fail-closed direction below is
+    what makes that pairing safe, and it is now load-bearing rather than defensive.
 
     Failing CLOSED on the unknown is the safe direction and the only defensible one: the
     live `400` proving it — *"Provided voice: Anushka is not available for the provider:
