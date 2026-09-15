@@ -109,10 +109,19 @@ def test_the_carrier_key_is_reported_as_held_by_another_environment(key: str) ->
     assert ENV_ONLY_FOREIGN_ENV[key].startswith("the Pipecat Cloud secret set")
 
 
-def test_only_the_carrier_pair_is_held_by_a_foreign_environment() -> None:
+def test_only_the_voice_containers_own_keys_are_held_by_a_foreign_environment() -> None:
     """The other direction. `APP_ENV` or `PLATFORM_KEK` acquiring a `held_by` would silence
-    a genuine fault on the one screen that reports it."""
-    assert set(ENV_ONLY_FOREIGN_ENV) == set(CARRIER_KEYS)
+    a genuine fault on the one screen that reports it.
+
+    ⚠ **THIS WAS `..._only_the_carrier_pair_...` UNTIL D-618, AND THE SET GREW BY ONE
+    WITHOUT THE RULE MOVING.** `gnani_api_key` is held by the same foreign environment for
+    the same reason as the carrier pair — its reader is the `apps/voice-worker` container,
+    which must never hold `PLATFORM_KEK` — with one more: nothing in `apps/api` holds a
+    Gnani client at all, so a stored value would have no reader on this host under any
+    arrangement. What this test still pins is that a key of THIS deployment's own can never
+    acquire a `held_by` and stop being reported when it is genuinely missing.
+    """
+    assert set(ENV_ONLY_FOREIGN_ENV) == {*CARRIER_KEYS, "gnani_api_key"}
     assert set(ENV_ONLY_FOREIGN_ENV) <= set(ENV_ONLY_DISPLAY)
 
 

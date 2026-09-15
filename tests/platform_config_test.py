@@ -152,6 +152,11 @@ async def test_the_bootstrap_six_are_never_managed_and_never_appliable() -> None
         "platform_kek_retired",
         "redis_url",
         "resend_api_key",
+        # D-618. The Gnani TTS key, env-only for the carrier pair's reason below PLUS one
+        # of its own: no process on this host holds a Gnani client, so a stored value would
+        # have no reader here under any arrangement. `apps/voice-worker` reads
+        # `GNANI_API_KEY` from its own secret set.
+        "gnani_api_key",
         # D-614. The carrier pair is env-only for the third distinct reason in this set
         # and the strongest: their reader is `pipecat.serializers.PlivoFrameSerializer`
         # inside the `apps/voice-worker` container, which must never hold `PLATFORM_KEK`

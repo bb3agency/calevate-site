@@ -867,12 +867,18 @@ def reference_embedding_price(model: str) -> tuple[Decimal, bool]:
 # the pair across two modules would put one attestation in each.
 
 
-#: The voice tiers that CAN carry an attested TTS price. The same vocabulary as
-#: `agents/voices.VoiceProvider` and `billing/lots.VoiceTier`, spelled here as the DB's
-#: `platform_tts_prices.provider` column values; `tests/tts_price_attestation_test.py`
-#: holds the three in step so a fourth vendor cannot be priced under a name the pipeline
-#: does not stamp.
-TTS_PROVIDERS: Final[tuple[str, ...]] = ("sarvam", "cartesia")
+#: The voice PROVIDERS that CAN carry an attested TTS price, spelled here as the DB's
+#: `platform_tts_prices.provider` column values. `tests/tts_price_attestation_test.py`
+#: holds this in step with `agents/voices.VoiceProvider` so a vendor cannot be priced under
+#: a name the pipeline does not stamp.
+#:
+#: ⚠ **IT USED TO SAY "the voice TIERS … the same vocabulary as `VoiceProvider` AND
+#: `billing/lots.VoiceTier`", AND D-618 SPLIT THOSE TWO.** This set is the PROVIDERS, and
+#: `gnani` is in it precisely BECAUSE it has no tier: attesting a Gnani price is the act
+#: that gives it one, so a set that excluded unpriced providers would lock the only door
+#: out of being unpriced. A tier is what a lot's rates are frozen against
+#: (`billing/rates.VoiceTier`, two members); a provider is who synthesises.
+TTS_PROVIDERS: Final[tuple[str, ...]] = ("sarvam", "cartesia", "gnani")
 
 
 @dataclass(frozen=True, slots=True)
