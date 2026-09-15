@@ -206,6 +206,15 @@ class VoiceStateOut(Strict):
     live: AgentVoiceOut | None
     republish_required: bool
     headline: str
+    #: ONE SENTENCE WHEN A VOICE HERE IS SHOWN AS A RAW ENGINE REF, else null (D-617).
+    #:
+    #: `AgentVoiceOut.catalog` already carries the FACT (null = we cannot name it); this
+    #: carries what a person does about it. Both consoles print it verbatim, because a
+    #: screen that composed its own sentence from a null would be the second copy — and
+    #: the one that goes stale the day the catalogue gains a state. It is
+    #: `publishing.VOICE_NOT_IN_CATALOGUE_NOTE`, written for a client to read: no vendor,
+    #: no provider, no setting of ours.
+    unnamed_note: str | None
 
 
 class VerificationOut(Strict):
@@ -470,6 +479,7 @@ def _render(state: publishing.PendingState, *, tier_rates: list[TierRate]) -> Pe
             live=_render_voice(state.voice.live),
             republish_required=state.voice.republish_required,
             headline=state.voice.headline,
+            unnamed_note=state.voice.unnamed_note,
         ),
         voice_tier_rates=[
             VoiceTierRateOut(

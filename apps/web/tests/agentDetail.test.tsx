@@ -166,6 +166,7 @@ function settled(over: Partial<PendingState> = {}): PendingState {
       configured: storedVoice("bulbul:v3", "Bulbul v3"),
       live: storedVoice("bulbul:v3", "Bulbul v3"),
       republish_required: false,
+      unnamed_note: null,
       headline: "Callers hear Bulbul v3.",
     },
     engine_verification: {
@@ -459,6 +460,7 @@ describe("which voice callers are actually hearing", () => {
               },
               live: storedVoice("bulbul:v3", "Bulbul v3"),
               republish_required: true,
+              unnamed_note: null,
               headline: "Callers still hear Bulbul v3.",
             },
           }),
@@ -493,6 +495,36 @@ describe("which voice callers are actually hearing", () => {
     expect(container.textContent).not.toContain("New voice waiting");
   });
 
+  it("explains a raw engine ref instead of leaving an owner to guess (D-617)", async () => {
+    // THE CLIENT HALF OF THE FOUNDER'S SCREEN. `clientVoiceName` falls back to the stored
+    // id so an owner can quote it to their account manager — right, and until now silent:
+    // a live client read `sonic-3.5:b6dafaa0-…` as "the voice callers hear" with no
+    // explanation and no such voice in the picker below. The sentence is the server's, is
+    // printed verbatim, and names no vendor.
+    const ref = "sonic-3.5:b6dafaa0-3a87-40b2-823c-1e4cf3c07314";
+    const unnamed = { voice_id: ref, provider: "cartesia", catalog: null };
+    const note =
+      "The code shown is the voice platform's own reference for this voice.";
+    const { container } = await renderClientPage(
+      page,
+      routes({
+        "/v1/agents/agent-1/pending": settled({
+          voice: {
+            configured: unnamed,
+            live: unnamed,
+            republish_required: false,
+            unnamed_note: note,
+            headline: `Callers hear ${ref}.`,
+          },
+        }),
+      }),
+    );
+
+    await screen.findByText("Voice callers hear");
+    expect(factValue("Voice callers hear")).toBe(ref);
+    expect(container.textContent).toContain(note);
+  });
+
   it("names BOTH voices when one is chosen and not yet published", async () => {
     // The inversion this screen must never ship: a chosen voice rendered as the one callers
     // hear. `set_agent_voice` writes our row and does not touch the engine, so until a
@@ -506,6 +538,7 @@ describe("which voice callers are actually hearing", () => {
             configured: storedVoice("bulbul:v3", "Bulbul v3"),
             live: legacyVoice("bulbul:legacy"),
             republish_required: true,
+            unnamed_note: null,
             headline: "Callers still hear bulbul:legacy.",
           },
         }),
@@ -529,6 +562,7 @@ describe("which voice callers are actually hearing", () => {
             configured: storedVoice("bulbul:v3", "Bulbul v3"),
             live: null,
             republish_required: true,
+            unnamed_note: null,
             headline: "Callers hear whatever voice was last published.",
           },
         }),
@@ -555,6 +589,7 @@ describe("which voice callers are actually hearing", () => {
             configured: storedVoice("bulbul:v3", "Bulbul v3"),
             live: null,
             republish_required: false,
+            unnamed_note: null,
             headline: "This agent is not on the voice platform yet.",
           },
         }),

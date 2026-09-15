@@ -169,6 +169,10 @@ function VoiceChoice({ agentId, state }: { agentId: string; state: PendingState 
               voices={catalogue.data.voices}
               value={selected}
               rates={state.voice_tier_rates}
+              /* A quality this account has nothing in must SAY so — a picker that simply
+                 renders no Studio heading is a picker claiming the product has one
+                 quality. The sentence is the server's (D-617). */
+              tiers={catalogue.data.tiers}
               onChange={setChoice}
             />
             <div className="flex flex-wrap items-center gap-3">

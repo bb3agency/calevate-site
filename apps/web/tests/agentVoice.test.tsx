@@ -145,6 +145,13 @@ const TWO_TIER_CATALOGUE: VoiceCatalogue = {
     studio({ offerable: false, unavailable_reason: NO_PRICE_REASON }),
   ],
   note: "Pick the voice this agent speaks in.",
+  // EVERY TIER THE PRODUCT SELLS, present or not (D-617). `note` is non-null exactly when
+  // a tier has nothing choosable in it, and the picker prints it — an absent heading used
+  // to be the only signal a whole quality was missing, which is no signal at all.
+  tiers: [
+    { provider: "sarvam", label: "Clear", offerable: 2, in_catalogue: 2, note: null },
+    { provider: "cartesia", label: "Studio", offerable: 0, in_catalogue: 1, note: null },
+  ],
 };
 
 /**
@@ -161,6 +168,20 @@ const CATALOGUE: VoiceCatalogue = {
   source: "engine",
   voices: VOICES,
   note: "Pick the voice this agent speaks in.",
+  // NO STUDIO ROWS AT ALL — and the tier still has a line, which is the whole point of
+  // the field: a tier that is missing must not be missing from its own report (D-617).
+  tiers: [
+    { provider: "sarvam", label: "Clear", offerable: 2, in_catalogue: 2, note: null },
+    {
+      provider: "cartesia",
+      label: "Studio",
+      offerable: 0,
+      in_catalogue: 0,
+      note:
+        "The voice platform's catalogue holds no Studio voices on this account at all, " +
+        "so this tier cannot be offered to anybody.",
+    },
+  ],
 };
 
 /** The same endpoint on an engine that supplies its own voices — no rows, and a reason. */
@@ -172,6 +193,7 @@ const DICTATED_CATALOGUE: VoiceCatalogue = {
   // with the same word is worth noticing rather than conflating.
   source: "engine",
   voices: [],
+  tiers: [],
   note: "The voice platform in use supplies its own voices, so a voice cannot be chosen here. Nothing is wrong with this agent.",
 };
 
@@ -192,6 +214,7 @@ const VOICE_IN_SYNC: AgentVoiceState = {
   configured: stored("bulbul:v3:anushka"),
   live: stored("bulbul:v3:anushka"),
   republish_required: false,
+  unnamed_note: null,
   headline:
     "Callers hear Anushka — the voice platform is holding the configured voice.",
 };
@@ -350,6 +373,7 @@ describe("the voice panel", () => {
         configured: null,
         live: null,
         republish_required: false,
+        unnamed_note: null,
         headline: "No voice has been set on this agent.",
       }),
     });
@@ -376,6 +400,7 @@ describe("the voice panel", () => {
         configured: stored("bulbul:v3:vidya"),
         live: stored("bulbul:v3:anushka"),
         republish_required: true,
+        unnamed_note: null,
         headline:
           "Callers still hear Anushka; Vidya reaches them at the next publish.",
       }),
@@ -409,6 +434,7 @@ describe("the voice panel", () => {
         configured: stored("bulbul:v3:vidya"),
         live: null,
         republish_required: true,
+        unnamed_note: null,
         headline:
           "Callers hear whatever voice was last published; we have no record of which. Vidya reaches them at the next publish.",
       }),
@@ -430,6 +456,7 @@ describe("the voice panel", () => {
           configured: stored("bulbul:v3:vidya"),
           live: null,
           republish_required: false,
+          unnamed_note: null,
           headline:
             "This agent is not on the voice platform yet; publishing it will use Vidya.",
         }),
@@ -483,6 +510,7 @@ describe("the voice panel", () => {
         engine_synced: false,
         live_voice_id: "bulbul:v3:anushka",
         republish_required: true,
+        unnamed_note: null,
         next_step:
           "Publish the agent to send this voice to the engine — until then callers hear the previous voice.",
       },
@@ -767,5 +795,46 @@ describe("the voice panel", () => {
     expect(container.textContent).toContain(
       "does not have permission to change this agent's script",
     );
+  });
+  it("says a raw engine ref is a raw engine ref, instead of printing it bare", async () => {
+    // THE FOUNDER'S SCREEN (D-617). A live agent configured on a voice the catalogue could
+    // not name printed `sonic-3.5:b6dafaa0-…` under BOTH labels, with no sentence anywhere
+    // saying what the string was or why no such voice appeared in the picker below. The id
+    // is still shown — an operator can search for an id, and "unknown" reads as a fault
+    // rather than as a voice the platform no longer lists — but never on its own.
+    const ref = "sonic-3.5:b6dafaa0-3a87-40b2-823c-1e4cf3c07314";
+    const unnamed = { voice_id: ref, provider: "cartesia", catalog: null };
+    const note =
+      "The code shown is the voice platform's own reference for this voice.";
+    const { container } = await render({
+      [PENDING_PATH]: pendingRoute({
+        configured: unnamed,
+        live: unnamed,
+        republish_required: false,
+        unnamed_note: note,
+        headline: `Callers hear ${ref} — the voice platform is holding the configured voice.`,
+      }),
+    });
+
+    await screen.findByRole("radio", { name: /Anushka/ });
+    expect(container.textContent).toContain(ref);
+    // The server's sentence, verbatim and beside it.
+    expect(container.textContent).toContain(note);
+  });
+
+  it("states that a whole quality is missing instead of rendering a shorter list", async () => {
+    // A picker grouped by tier renders NO heading for a tier with no rows, so "this
+    // platform has no Studio voices" and "this product sells one quality" were the same
+    // screen. `tiers` is the server's per-tier report and `CATALOGUE` carries an empty
+    // Studio line — the state the founder was looking at.
+    const { container } = await render();
+
+    await screen.findByRole("radio", { name: /Anushka/ });
+    expect(container.textContent).toContain("Studio voice");
+    expect(container.textContent).toContain(
+      "The voice platform's catalogue holds no Studio voices on this account at all",
+    );
+    // And it is a STATEMENT, not a choice: nothing selectable was invented for the tier.
+    expect(screen.queryByRole("radio", { name: /Studio/ })).toBeNull();
   });
 });

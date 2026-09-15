@@ -52,8 +52,13 @@ WHAT MAKES THIS SAFE UNDER FAILURE (the part that reaches a client's phone line)
   `curation_state`. Deleting it meant a voice that vanished from one listing and returned
   came back as a fresh un-curated row — silently disabled if it had been enabled, silently
   un-archived if it had been put away. A returning voice clears the stamp and keeps its
-  state. `read_cached_catalogue` drops withdrawn rows, so the PICKER sees exactly what a
-  delete used to leave it.
+  state. ⚠ **AND THE STAMP IS AN OFFER DECISION, NOT A LOOKUP ONE (D-617).** This bullet
+  used to end "`read_cached_catalogue` drops withdrawn rows, so the PICKER sees exactly
+  what a delete used to leave it" — but that function feeds the LOOKUP snapshot and not
+  the picker, so the drop also unnamed the voice a live agent was already speaking. It no
+  longer drops them; `read_curation` excludes them and `voice_offer`'s ground zero refuses
+  them, which is where the picker's answer actually comes from. See
+  `read_cached_catalogue`.
 * **CURATION IS NEVER WRITTEN BY A SYNC.** The upsert below names every column it
   refreshes, and `curation_state` is not among them: re-reading the vendor's list can
   neither offer a voice nor withdraw one. A sync reports what the platform has; an operator
@@ -412,13 +417,19 @@ async def read_cached_catalogue(session: AsyncSession) -> tuple[Voice, ...]:
     day the tier was renamed. `verified=True` for `voice_from_engine`'s reason — these rows
     exist because the engine listed them.
 
-    **WITHDRAWN ROWS ARE EXCLUDED, CURATED-OFF ROWS ARE NOT** (D-588), and the asymmetry is
-    the whole shape of this feature:
+    ⚠ **EVERY ROW IS RETURNED, WITHDRAWN ONES INCLUDED — AND THIS EXCLUDED THEM UNTIL
+    D-617 (15 Sep 2026).** The exclusion read `WHERE withdrawn_at IS NULL`, and it is the
+    one line that made a live client's configured voice unnameable on their own screen.
 
-    * A voice the PLATFORM no longer lists is not a voice at all any more. Publishing with
-      it earns a live `400` ("not available for the provider"), so it leaves the catalogue
-      exactly as a deleted row used to — the row survives only to hold the operator's
-      curation state against the day it comes back.
+    The argument it was written on is the right argument aimed at the wrong layer. It said:
+    a voice the PLATFORM no longer lists is not a voice any more, so it should "leave the
+    catalogue exactly as a deleted row used to". But **this function does not feed the
+    OFFER layer; it feeds the LOOKUP layer** — its one caller is `load_voice_catalogue`,
+    which installs the process snapshot behind `voices.catalogue()`, `voices.get_voice()`
+    and `voices.speech_for_voice_id()`. Those are read on every publish, every drift sweep
+    and every read-back a console renders. The paragraph below already made the whole
+    argument about a curated-OFF row and then did not apply it to a withdrawn one:
+
     * A voice an OPERATOR disabled or archived is still a real voice on the account, and it
       stays in the catalogue on purpose. `voices.catalogue()` is the LOOKUP layer: it is
       what resolves the id on a live agent's row through `speech_for_voice_id` and
@@ -426,18 +437,33 @@ async def read_cached_catalogue(session: AsyncSession) -> tuple[Voice, ...]:
       would leave a client's agent publishing its own composed id in the vendor's speaker
       slot the moment somebody clicked a toggle. Whether it may be OFFERED is
       `agents/voice_offer.py`'s fourth ground, and that is the only place it is decided.
+
+    A WITHDRAWN row sits in exactly that position, and the cost was measured on a live
+    client's agent: its voice (`sonic-3.5:b6dafaa0-…`) was withdrawn by a sync, so
+    `get_voice` answered None and
+
+    * the agent's panel printed the raw engine ref under BOTH "callers hear now" and
+      "configured", with no sentence saying why — `publishing._reading` degrades to the id;
+    * the picker lost the whole Studio tier, because `voicePicker.tsx` keeps the row an
+      agent is ALREADY SET TO however it is refused, and a row that is not in the catalogue
+      at all cannot be kept;
+    * `speech_for_voice_id` returned `(None, "sonic-3.5:b6dafaa0-…")`, so the next publish
+      would have sent our own COMPOSED catalogue id in the vendor's speaker slot with no
+      model beside it — which on the Cartesia arm is a refused publish
+      (`engine/bolna._refuse_cartesia_voice_incomplete`) and on the Sarvam arm is a string
+      no vendor has ever heard of.
+
+    **NOTHING BECOMES OFFERABLE BY THIS**, which is why the fix belongs here and not in a
+    screen. `voice_curation.read_curation()` still excludes withdrawn rows, so a withdrawn
+    voice reaches `voice_offer` with NO curation state — and `curation_unofferable_reason
+    (None)` already exists for precisely this pairing, returns `NOT_CURATED_REASON` ("the
+    voice platform no longer lists this voice on our account"), and its own docstring names
+    the case: "a voice the catalogue snapshot holds and the live table does not". The two
+    were designed to meet; the exclusion here is what stopped them. The picker then renders
+    the tier, shows the configured voice, and prints the vendor's withdrawal as the reason
+    it cannot be chosen again.
     """
-    rows = (
-        (
-            await session.execute(
-                select(PlatformVoiceCatalogEntry).where(
-                    PlatformVoiceCatalogEntry.withdrawn_at.is_(None)
-                )
-            )
-        )
-        .scalars()
-        .all()
-    )
+    rows = (await session.execute(select(PlatformVoiceCatalogEntry))).scalars().all()
     return _ordered([voice for voice in map(voice_from_row, rows) if voice is not None])
 
 

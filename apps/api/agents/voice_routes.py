@@ -107,6 +107,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from apps.api.agents import publishing
+from apps.api.agents.voice_admission import OUR_PROVIDERS
 from apps.api.agents.voice_offer import (
     OfferedVoice,
     VoiceReasonAudience,
@@ -276,6 +277,43 @@ class OfferedVoiceOut(Voice):
         )
 
 
+class VoiceTierAvailabilityOut(Strict):
+    """ONE VOICE TIER, AND WHETHER THIS DEPLOYMENT HAS ANYTHING IN IT (D-617).
+
+    **A TIER THAT IS ABSENT HAS TO SAY SO, AND UNTIL THIS FIELD EXISTED IT DID NOT.** The
+    catalogue is the engine account's own list (D-585), so a tier with no rows in it simply
+    did not appear — and a picker grouped by tier then rendered a shorter list with nothing
+    anywhere saying a whole quality was missing. A founder looking at an agent configured on
+    a Studio voice saw a picker with only a Clear section and no statement of any kind, which
+    is "we do not know" rendered as "nothing happened".
+
+    `OfferedVoiceOut` answers "may THIS voice be chosen"; the per-voice refusal cannot
+    answer this one, because the question is about rows that are NOT THERE. A count is not a
+    verdict either, which is why `note` is composed server-side and printed verbatim — the
+    same argument `VoiceCatalogueOut.note` makes one level up.
+
+    THE LIST IS EVERY TIER THIS PRODUCT SELLS, derived from the model registry
+    (`voice_admission.OUR_PROVIDERS`), never from the rows that happened to arrive. Deriving
+    it from the catalogue is precisely the bug: a tier with no rows would be absent from its
+    own availability report.
+    """
+
+    #: The VENDOR key — what the ledger, the credit lots and an invoice reconcile on. It is
+    #: on the wire for `OfferedVoiceOut.provider`'s reason and is never what a human reads.
+    provider: str
+    #: What a client is told this quality is called — "Clear", "Studio".
+    label: str
+    #: How many voices in this tier this deployment can put a client on right now.
+    offerable: int
+    #: How many are in the catalogue at all, offerable or not. The pair distinguishes "the
+    #: voice platform lists none of these" from "it lists them and nobody has enabled one",
+    #: which are two different people's next action.
+    in_catalogue: int
+    #: `None` when the tier has something to choose. Otherwise ONE sentence saying which of
+    #: the two empties this is, in the reader's own language (`VoiceReasonAudience`).
+    note: str | None
+
+
 class VoiceCatalogueOut(Strict):
     """The catalog AND whether it may be chosen from (D-93).
 
@@ -319,6 +357,10 @@ class VoiceCatalogueOut(Strict):
     #: compose the explanation out of the two fields above and get the tone wrong — the
     #: closed case is a product fact, not an error, and it should not read like one.
     note: str
+    #: EVERY VOICE TIER THIS PRODUCT SELLS, present or not — see
+    #: `VoiceTierAvailabilityOut` for why an absent tier has to be reported rather than
+    #: simply missing from `voices`. Ordered as the picker orders: the cheaper tier first.
+    tiers: list[VoiceTierAvailabilityOut]
 
 
 def _catalogue_note(capability: VoiceSelectionCapability, *, offerable: int) -> str:
@@ -363,6 +405,81 @@ def _catalogue_note(capability: VoiceSelectionCapability, *, offerable: int) -> 
     return (
         "Pick the voice this agent speaks in. A voice shown as unavailable is one this "
         "platform does not currently offer; the reason beside it says why."
+    )
+
+
+def _tier_availability(
+    offered: tuple[OfferedVoice, ...],
+    *,
+    capability: VoiceSelectionCapability,
+    audience: VoiceReasonAudience,
+) -> list[VoiceTierAvailabilityOut]:
+    """Every tier this product sells, with its counts and — when it is empty — why.
+
+    **EMPTY ON AN ENGINE THAT DICTATES ITS OWN VOICES**, for the reason `voices` is empty
+    there: no voice of ours is choosable at all, `note` on the envelope says so in one
+    sentence, and per-tier lines saying "the catalogue holds no Studio voices" would be two
+    more answers to a question nobody asked — true, and about a catalogue that is not the
+    subject.
+
+    THE LIST IS DERIVED FROM THE MODEL REGISTRY, NOT FROM THE ROWS. `OUR_PROVIDERS` is
+    `voice_admission`'s tuple, itself derived from `voices.TtsModel` through the one
+    model→provider registry, so a tier with ZERO catalogue rows still gets a line. Building
+    it from `offered` would reproduce the exact defect this field exists to close: the tier
+    that is missing would be missing from its own report.
+
+    TWO EMPTIES, TWO SENTENCES, because they send the reader to two different places and
+    only one of them is ours to fix. Nothing here restates a per-voice refusal — those
+    travel on the rows — and nothing here is composed in a browser.
+    """
+    if not capability.available:
+        return []
+    tiers: list[VoiceTierAvailabilityOut] = []
+    for provider in OUR_PROVIDERS:
+        rows = [row for row in offered if row.voice.provider == provider]
+        offerable = sum(1 for row in rows if row.offerable)
+        label = voice_tier_label(provider)
+        tiers.append(
+            VoiceTierAvailabilityOut(
+                provider=provider,
+                label=label,
+                offerable=offerable,
+                in_catalogue=len(rows),
+                note=_tier_note(
+                    label, in_catalogue=len(rows), offerable=offerable, audience=audience
+                ),
+            )
+        )
+    return tiers
+
+
+def _tier_note(
+    label: str, *, in_catalogue: int, offerable: int, audience: VoiceReasonAudience
+) -> str | None:
+    """The sentence for an EMPTY tier, or None when it has something to choose.
+
+    An operator reads which of the two states it is and what moves it; a client reads the
+    one thing they can do, in the tier's own client-facing name and with no vendor, no
+    console and no setting of ours named — the fork `voice_offer.unofferable_reason` makes
+    per voice, made here per tier for the same reason and by the same rule (realm, not role).
+    """
+    if offerable:
+        return None
+    if audience == "client":
+        return (
+            f"No {label} voice is available on your account at the moment, so there is "
+            "nothing to choose in that quality here. Ask your account manager if you want one."
+        )
+    if in_catalogue == 0:
+        return (
+            f"The voice platform's catalogue holds no {label} voices on this account at all, "
+            "so this tier cannot be offered to anybody. Add one on the admin console's "
+            "Voices page — or, if it should already be there, read the catalogue again."
+        )
+    return (
+        f"{in_catalogue} {label} voice(s) are in the catalogue and none of them can be "
+        "offered right now — the reason is on each row. Reading the catalogue again will "
+        "not change that."
     )
 
 
@@ -429,12 +546,14 @@ async def list_voices(principal: CatalogReader) -> VoiceCatalogueOut:
     offered = await offered_catalogue(
         voices=tuple(capability.voices), audience=_reason_audience(principal)
     )
+    audience = _reason_audience(principal)
     return VoiceCatalogueOut(
         control=capability.control,
         selectable=capability.available,
         voices=[OfferedVoiceOut.of(row) for row in offered],
         source=catalogue_source(),
         note=_catalogue_note(capability, offerable=sum(1 for row in offered if row.offerable)),
+        tiers=_tier_availability(offered, capability=capability, audience=audience),
     )
 
 
@@ -639,4 +758,4 @@ def _next_step(*, published: bool, republish_required: bool, engine_synced: bool
     )
 
 
-__all__ = ["SetVoiceIn", "SetVoiceOut", "router"]
+__all__ = ["SetVoiceIn", "SetVoiceOut", "VoiceTierAvailabilityOut", "router"]
