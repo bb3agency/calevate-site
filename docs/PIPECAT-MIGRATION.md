@@ -294,7 +294,20 @@ is the first.
 |-----|------------|-------------------|--------------|
 | 1 | **Pipecat Cloud `ap-south`** | YES — it IS the call | `apps/voice-worker/`: STT, LLM, TTS, turn detection, and the in-call KB **in its own memory** |
 | 2 | **Calevate VPS (Hostinger, Mumbai)** | no | `apps/web`, `apps/api`, `apps/workers`, Postgres 16 + pgvector, Redis, nginx |
-| 3 | **Supermemory** | no | Document store, chunking, index, dashboard retrieval, caller memory |
+| 3 | **Supermemory** | no | Document store, chunking, index, dashboard retrieval (T3) |
+
+⚠ **THE BOX-3 ROW SAID "…, caller memory" AND CALLER MEMORY IS NOT IN BOX 3 (15 Sep 2026).**
+It is OURS and it shipped before this document was written: `caller_memories` in our own
+Postgres under FORCEd RLS, subject-keyed by `compliance/caller_ref.py` (HMAC under a
+`PLATFORM_KEK`-derived key, tenant inside the MAC input), written by
+`workers/caller_memory_distil.py` and destroyed by `retrieval/caller_erasure.py` and the
+`caller_memory` retention category. §8.4's four reasons for keeping the document LEDGER in
+our Postgres bind this store harder than they bind that one — reason 1 (tenant isolation
+we can prove) and reason 2 (a DPDP erasure we can show returned zero rows) are the whole
+reason the feature is shippable, and a vendor whose local build is single-tenant with one
+API key cannot supply either. What Supermemory actually swaps is the **T3 member** of the
+retrieval composite and nothing else (`apps/api/retrieval/service.get_retriever`). Read
+§10.4's correction with this one: the same sentence priced a design, not the build.
 
 **Box 3 lives ON box 2 until the first client.** The founder's box is 1 vCPU / 4 GB / 50 GB
 and will be upgraded (4 vCPU / 8 GB or larger) when there is a client to upgrade for. That is
@@ -457,8 +470,16 @@ was erased. Four reasons, none of them pride:
 
 `calevate_shared.retrieval.RetrievalProvider` and `apps/api/retrieval/service.get_retriever`
 already exist for exactly this (D-502). Supermemory becomes a provider behind that seam:
-dashboard copilot, CRM search and caller memory read from it; if it is down, calls do not
-notice and uploads do not notice — only dashboard search degrades to the Postgres fallback.
+dashboard copilot and CRM search read from it; if it is down, calls do not notice and
+uploads do not notice — only dashboard search degrades to the Postgres fallback.
+
+⚠ **"and caller memory" WAS IN THAT LIST AND IS STRUCK (15 Sep 2026)** — see the §8 box-3
+correction. Caller memory does not read through `RetrievalProvider` at all: its reader is
+`compliance/caller_memory.recall`, recency-ordered over our own table, and the seam a caller
+on the voice leg reaches it through is `GET /v1/engine/caller-data/{engine}`. Moving it
+behind this provider would put a data principal's durable profile in a store whose local
+build is single-tenant with one API key, which §8.4 reason 1 refuses for strictly less
+sensitive data.
 
 Three open issues bear on WHICH RELEASE we pin, and all three are **UNVERIFIED as to current
 state** (nobody has read the live issue pages; `supermemory.ai` is egress-blocked from this
@@ -694,16 +715,38 @@ below, so it does not move the per-minute model. It is also OFF until the price 
 says is unverified has been attested, which is the same fact stated twice: hard rule 7 will
 not let an unpriced embedding reach `unit_cost_paid`, so it will not let one be bought.
 
-**Zero embeddings on the call path** — the pack is lexical. Embeddings occur twice per CALL
-(caller-memory read at start, write at end, ~165 tokens total) and once per DOCUMENT at
+**Zero embeddings on the call path** — the pack is lexical.
+
+⚠ **THIS PARAGRAPH SAID EMBEDDINGS OCCUR TWICE PER CALL — "caller-memory read at start,
+write at end, ~165 tokens total" — AND CALLER MEMORY BUYS NEITHER (15 Sep 2026).** It
+priced the Supermemory design the box-3 row also described; the SHIPPED store is ours and
+neither half of it embeds anything. The **read** is one HTTP GET to
+`/v1/engine/caller-data/{engine}`, answered from two indexed Postgres reads and an HMAC —
+recency-ordered, with no relevance channel at all, and `compliance/caller_memory.recall`
+argues why there is none (at the moment the prompt is built there is no question yet, so
+there is nothing to be relevant TO). The **write** is `workers/caller_memory_distil.py`, an
+hourly cron that buys a CHAT completion — larger than an embedding, not smaller — and it is
+already metered through `record_ai_assist_usage`, so it reaches the client's bill and their
+spend cap can stop it. Nothing about either is on the call path: the read is spent on the
+ring concurrently with the pack fetch (`voice_worker/session.open_session`), and the write
+happens after the call, on another box, on another clock. **The per-minute model does not
+move either way**, which is the only claim this paragraph was load-bearing for.
+
+Embeddings therefore occur once per DOCUMENT at
 publish (a 50-page KB ≈ 25,000 tokens). For scale: a 3-minute call already sends **25,380**
 input tokens to the LLM and a 10-minute call **160,200** (derived from `REFERENCE_CALL`). So
 embedding traffic is 150×–1,000× smaller than the LLM traffic already on the same call.
 
-At 10,000 calls/month the embedding volume is **1.65 M tokens**. ⚠ The Gemini embedding PRICE
-is **UNVERIFIED** — `ai.google.dev` is egress-blocked (re-measured 14 Sep 2026, CONNECT
-rejected) — so the bill is stated as a formula, not a number: at $P per million tokens it is
-**≈ ₹145 × P per month**.
+⚠ **"AT 10,000 CALLS/MONTH THE EMBEDDING VOLUME IS 1.65 M TOKENS" WAS 10,000 × THE 165
+TOKENS PER CALL THE CORRECTION ABOVE DELETES, so the whole figure and the ≈ ₹145 × P per
+month it produced went with it.** Nothing replaces it as a per-CALL number, because calls
+now buy no embeddings at all (the §8.1a dense arm is the one exception, it is structurally
+OFF until a price is attested, and it is per-TURN-that-failed rather than per call). The
+volume that remains is per-DOCUMENT at publish, which scales with what clients upload and
+not with how much they are rung — and nobody has a client upload figure to multiply, so
+stating one would be a guess dressed as a finding. ⚠ The Gemini embedding PRICE is also
+still **UNVERIFIED** — `ai.google.dev` is egress-blocked (re-measured 14 Sep 2026, CONNECT
+rejected).
 
 ⚠ **The cost to watch is not embedding — it is Supermemory's per-chunk LLM call at ingestion.**
 A 50-page document is ~200 chunks, each drawing a Gemini *chat* call far larger than an
@@ -715,8 +758,18 @@ embedding call. This is also why ingestion must be QUEUED, never inline: one cli
 ## 11. SIZING BOX 3
 
 **Box 3's load scales with calls per HOUR, not concurrent calls.** Calls run on box 1 with the
-pack; box 3 sees exactly two requests per call (memory read, memory write) plus dashboard
-traffic. The heavy work — ingestion — happens at upload, not at call time.
+pack; box 3 sees dashboard traffic. The heavy work — ingestion — happens at upload, not at
+call time.
+
+⚠ **THIS SAID "box 3 sees exactly two requests per call (memory read, memory write)" AND
+BOX 3 SEES NEITHER (15 Sep 2026)** — caller memory is ours and lives in box 2's Postgres
+(the box-3 row in §8 carries the correction). The two requests per call are real, they are
+just aimed at **box 2**: `GET /v1/engine/caller-data/{engine}` on the ring, and the hourly
+distiller's read afterwards. The `Box-3 requests/hour` column is therefore an overcount of
+box 3 and an equal undercount of box 2, and every row's Box and Real bottleneck are ESTIMATE
+(they always said so) rather than measurements that moved. Two indexed reads and an HMAC per
+call do not change which tier anybody sits in; what the column is still right about is the
+SHAPE — per hour, not per concurrent call.
 
 | Calls/hour | Box-3 requests/hour | Sustained CPU | Box | Real bottleneck |
 |---|---|---|---|---|

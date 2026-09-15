@@ -65,13 +65,20 @@ class AgentNotRunnableError(RuntimeError):
 #: **`knowledge_pack_sha256` IS SELECTED HERE AND NOWHERE ELSE**, which is the seam this
 #: module closes: `kb/pack.refresh_published_pack` writes that column on publish, and until
 #: this read existed nothing carried it into the process that answers the phone.
+#:
+#: **`engine_agent_ref` IS READ AND NOT REBUILT**, for the same class of reason. It is
+#: `pipecat:<tenant>:<agent>` and the worker could compose that string in one line — but
+#: `engine/pipecat.engine_agent_ref_for` is its author, this container must not import the
+#: monolith, and a second spelling of one handle is the drift `_engine_name` records. It is
+#: what `memory.ApiCallerMemoryReader` presents to the caller-data endpoint.
 _SESSION_CONFIG_SQL: Final = """
 SELECT p.agent_config_version_id,
        p.resolved_config,
        v.composed_prompt,
        v.prompt_sha256,
        v.model_config,
-       a.knowledge_pack_sha256
+       a.knowledge_pack_sha256,
+       a.engine_agent_ref
 FROM pipecat_agents AS p
 JOIN agent_config_versions AS v ON v.id = p.agent_config_version_id
 JOIN agents AS a ON a.id = p.agent_id
@@ -117,7 +124,15 @@ async def load_session_config(
             f"agent {agent_id} has no published runtime row visible to tenant {tenant_id}"
         )
 
-    version_id, resolved_config, composed_prompt, prompt_sha256, model_config, pack_sha = row
+    (
+        version_id,
+        resolved_config,
+        composed_prompt,
+        prompt_sha256,
+        model_config,
+        pack_sha,
+        engine_agent_ref,
+    ) = row
     published = AgentConfig.model_validate(resolved_config)
     models = ModelConfig.model_validate(model_config)
 
@@ -152,6 +167,7 @@ async def load_session_config(
         # `agents` and a field on `AgentConfig`, not a default quietly flipped here.
         greet_first=True,
         knowledge_pack_sha256=pack_sha,
+        engine_agent_ref=None if engine_agent_ref is None else str(engine_agent_ref),
     )
 
 

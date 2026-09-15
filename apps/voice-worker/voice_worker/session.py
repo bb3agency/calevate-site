@@ -1,4 +1,4 @@
-"""Starting one call: config out of the database, pack out of the store, then the pipeline.
+"""Starting one call: config, pack, what we remember about the caller, then the pipeline.
 
 **THIS IS THE MIDDLE OF THE SEAM, AND IT IS THE PART THAT WAS MISSING.** `config.py` can
 load a `SessionConfig`, `knowledge.py` can load a pack, `pipeline.py` can assemble a call
@@ -6,6 +6,18 @@ that searches one — and until this module existed nothing put the three in ord
 call would have been assembled with `knowledge=None` and every caller told the client had
 published nothing. Each of those modules is deliberately ignorant of the other two; this is
 where that ignorance is paid for, once.
+
+**THE SECOND AWAITABLE IS CALLER MEMORY, AND IT CLOSES A SEAM THAT WAS NOT MERELY EMPTY.**
+`compose_engine_prompt` leaves `CALLER_MEMORY_SLOT` in a memory-enabled agent's prompt for
+an ENGINE to substitute per call. On `owned_runtime` there is no engine, so a call assembled
+straight from `config.system_prompt` recalled nothing AND handed the model the literal
+`{caller_memory}` token as part of its instructions. `load_caller_memory` reads the facts
+here — on the ring, concurrently with the pack — and `assemble_call` substitutes the slot in
+the message the model reads while the ATTESTED digest stays over the unfilled artefact
+(`agents/config_versions.py` puts `caller_memory` out of `prompt_sha256` by name).
+`voice_worker/memory.py` holds the gate, the budget and the reason the read is an HTTP call
+to our own API rather than a query against the database this container is already connected
+to.
 
 **THE ORDER IS THE WHOLE CONTRACT: LOAD, THEN ASSEMBLE.** `assemble_call` is synchronous on
 purpose (its own docstring argues it: a synchronous assembler can be exercised with no
@@ -23,9 +35,11 @@ and testable today, and what remains is a bootstrap that has nothing to bootstra
 
 from __future__ import annotations
 
+import asyncio
 from typing import Final
 from uuid import UUID
 
+from calevate_shared.engine import awaits_caller_memory
 from calevate_shared.events import CallDirection
 from loguru import logger
 from pipecat.transports.base_transport import BaseTransport
@@ -39,6 +53,7 @@ from voice_worker.knowledge import (
     SessionKnowledge,
     load_session_knowledge,
 )
+from voice_worker.memory import CallerMemoryReader
 from voice_worker.pipeline import (
     SMART_TURN_STOP_SECS,
     AssembledCall,
@@ -112,6 +127,48 @@ async def load_knowledge(
     )
 
 
+async def load_caller_memory(
+    config: SessionConfig,
+    *,
+    reader: CallerMemoryReader | None,
+    caller_e164: str | None,
+) -> tuple[str, ...]:
+    """What this agent may say it remembers about the person now ringing. Never raises.
+
+    **THREE THINGS MUST ALL BE TRUE BEFORE A NUMBER LEAVES THIS PROCESS, AND THE ORDER IS
+    THE ARGUMENT.**
+
+    1. **The prompt carries the slot** (`awaits_caller_memory`). That token is emitted on
+       exactly one condition — `agents.caller_memory_enabled` — which is the same condition
+       under which `compose_opening_line` appends `caller_memory_notice_line`, a column that
+       is NOT NULL and `ck_agents_caller_memory_notice_nonempty`. So the slot's presence in
+       the immutable config version this worker attested is a PROOF that the agent already
+       told the caller it keeps notes. An agent that promised nothing asks nothing, and the
+       caller's number never reaches the wire. This is the compliance gate, and it is first
+       because it is the one that must hold even when the other two are misconfigured.
+    2. **A reader was supplied.** `None` — the default, and what every test and every local
+       run gets — is a deployment that has not been wired to the API, and a deployment with
+       no reader recalls nothing rather than guessing (`embedder`'s shape, for `embedder`'s
+       reason: the absence of a dependency is a complete state, not a degraded one).
+    3. **We know who is calling.** The carrier leg is step 6 (BLOCKER-1), so today
+       `caller_e164` is `None` on every path; an unknown number is a caller we cannot have
+       met, which is the same outcome as a first-time caller.
+
+    A missing `engine_agent_ref` joins the same list: it is the handle the endpoint resolves
+    to a tenant and an agent, and without it there is no request to make.
+
+    The server checks the switch AGAIN, live (`compliance/caller_memory.recall`), and that
+    is not redundant with gate 1. The prompt answers about PUBLISH time; a client who
+    switches memory off afterwards keeps running the old config version until the next
+    publish, and only the live read sees the switch move.
+    """
+    if not awaits_caller_memory(config.system_prompt):
+        return ()
+    if reader is None or caller_e164 is None or config.engine_agent_ref is None:
+        return ()
+    return await reader.recall(engine_agent_ref=config.engine_agent_ref, phone_e164=caller_e164)
+
+
 async def open_session(
     *,
     config: SessionConfig,
@@ -121,6 +178,8 @@ async def open_session(
     fetcher: PackFetcher,
     cache: PackCache | None = None,
     embedder: QueryEmbedder | None = None,
+    memory_reader: CallerMemoryReader | None = None,
+    caller_e164: str | None = None,
     stop_secs: float = SMART_TURN_STOP_SECS,
 ) -> AssembledCall:
     """One assembled call, with its knowledge already in memory.
@@ -144,7 +203,18 @@ async def open_session(
     docstring for the measurement, and `pipeline.assemble_call` for why the switch is an
     argument rather than config this container reads for itself.
     """
-    knowledge = await load_knowledge(config, fetcher=fetcher, cache=cache)
+    # CONCURRENTLY, SO THE TWO BUDGETS DO NOT ADD. Both are spent on the ring, but awaiting
+    # them in sequence would make the worst case `PACK_FETCH_BUDGET_S` + `MEMORY_FETCH_
+    # BUDGET_S` of silence before the agent speaks, which is a number nobody chose. They are
+    # independent reads of two different stores and neither needs the other's answer.
+    # `gather` with no `return_exceptions` is deliberate: both halves promise never to raise
+    # (each argues it in its own docstring), so an exception here is a broken promise and
+    # must surface as one rather than be swallowed into a call that starts without knowing
+    # why it is degraded.
+    knowledge, caller_memory = await asyncio.gather(
+        load_knowledge(config, fetcher=fetcher, cache=cache),
+        load_caller_memory(config, reader=memory_reader, caller_e164=caller_e164),
+    )
     logger.info(
         "session knowledge resolved",
         call_id=config.call_id,
@@ -155,6 +225,11 @@ async def open_session(
         configured=config.knowledge_pack_sha256 is not None,
         available=knowledge is not None and knowledge.available,
         unavailable_reason=None if knowledge is None else knowledge.unavailable_reason,
+        # HOW MANY FACTS, NEVER WHICH, AND NEVER THE NUMBER THEY ARE ABOUT (hard rule 6).
+        # `remembers` is the state an operator cannot otherwise see: an agent whose client
+        # switched memory on and whose calls all recall zero facts is either a feature doing
+        # nothing or a token that stopped working, and a count tells them apart.
+        remembers=len(caller_memory),
     )
     return assemble_call(
         config=config,
@@ -163,6 +238,7 @@ async def open_session(
         sink=sink,
         knowledge=knowledge,
         embedder=embedder,
+        caller_memory=caller_memory,
         stop_secs=stop_secs,
     )
 
@@ -180,8 +256,17 @@ async def start_session(
     fetcher: PackFetcher,
     cache: PackCache | None = None,
     embedder: QueryEmbedder | None = None,
+    memory_reader: CallerMemoryReader | None = None,
+    caller_e164: str | None = None,
 ) -> AssembledCall:
     """Ids in, a runnable call out. The whole path, in the order it must happen.
+
+    **`caller_e164` IS AN ARGUMENT AND NOT A COLUMN, AND IT IS NOT ON `SessionConfig`.**
+    The number belongs to the CALL, not to the agent's configuration — the carrier hands it
+    to the entrypoint (step 6) the same way it hands over the transport. Keeping it off
+    `SessionConfig` is deliberate under hard rule 6: that structure is logged field by field
+    by `config.py` and is the thing whose digests are attested, and a phone number has no
+    business in either. It travels as an argument and dies with the call.
 
     Split from `open_session` rather than folded into it because the database and the
     object store fail differently and are reached differently: a caller that already holds
@@ -204,7 +289,15 @@ async def start_session(
         fetcher=fetcher,
         cache=cache,
         embedder=embedder,
+        memory_reader=memory_reader,
+        caller_e164=caller_e164,
     )
 
 
-__all__ = ["load_knowledge", "open_session", "pack_cache", "start_session"]
+__all__ = [
+    "load_caller_memory",
+    "load_knowledge",
+    "open_session",
+    "pack_cache",
+    "start_session",
+]

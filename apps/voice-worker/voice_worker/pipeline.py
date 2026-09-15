@@ -41,6 +41,7 @@ open item, and the settings that need a measurement say so where they are set.
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Final, Protocol
@@ -49,6 +50,7 @@ from uuid import UUID
 from calevate_shared.engine import (
     INHERITED_TURN_DETECTION_MS,
     ModelConfig,
+    fill_caller_memory_slot,
     google_openai_compat_base_url,
 )
 from calevate_shared.events import CallDirection, CallEvent, CallStatus, TranscriptTurn
@@ -201,6 +203,16 @@ class SessionConfig:
     #: whole point of §1.1's attestation.
     prompt_sha256: str
     models: ModelConfig
+    #: `pipecat:<tenant>:<agent>`, as `engine/pipecat.engine_agent_ref_for` minted it and
+    #: `agents.engine_agent_ref` holds it. READ rather than rebuilt: this container must not
+    #: import the monolith, and a restated format string is two spellings of one handle.
+    #:
+    #: It is here because `memory.ApiCallerMemoryReader` needs it — the caller-data endpoint
+    #: resolves `engine_agent_ref → (tenant, agent)` through `engine_agent_routes` and that
+    #: is the contract the rented engine already calls, so this leg reuses it rather than
+    #: adding a second door taking ids. `None` for an agent whose publish predates the
+    #: column being read here, which is an agent that recalls nothing rather than an error.
+    engine_agent_ref: str | None = None
     #: BCP-47, e.g. `te-IN`. `None` means let Sarvam auto-detect, which is what
     #: `ModelConfig.stt_autodetect` asks for and the only path that model leaves us.
     language: str | None = None
@@ -992,6 +1004,7 @@ def assemble_call(
     sink: NormalizedEventSink,
     knowledge: SessionKnowledge | None = None,
     embedder: QueryEmbedder | None = None,
+    caller_memory: Sequence[str] = (),
     stop_secs: float = SMART_TURN_STOP_SECS,
 ) -> AssembledCall:
     """Assemble the §4 pipeline for one call.
@@ -1011,6 +1024,12 @@ def assemble_call(
     THE PHONE IS RINGING, wall clock nobody is waiting on
     (`load_session_knowledge`'s own docstring), and hands the result in. `None` is a
     complete state, not an omission: see `build_knowledge_tool`.
+
+    **`caller_memory` IS AN ARGUMENT FOR `knowledge`'s REASON, AND IT FILLS THE PROMPT'S ONE
+    PER-SESSION SLOT.** `session.open_session` awaits the read while the phone rings and
+    hands the facts in. The default `()` is a first-time caller, an agent that does not
+    remember its callers, and every test — one state, rendered one way, because that is
+    exactly what `CALLER_MEMORY_GUIDANCE` already tells the model an empty block means.
 
     **`embedder` IS AN ARGUMENT FOR A THIRD REASON ON TOP OF THOSE TWO: IT IS THE SWITCH
     THAT DECIDES WHETHER A TURN MAY SPEND MONEY.** `None` — the default, and what every test
@@ -1038,8 +1057,25 @@ def assemble_call(
             digest=config.knowledge_pack_sha256,
         )
 
+    # THE SLOT IS FILLED HERE AND THE ATTESTED DIGEST IS STILL TAKEN OVER THE UNFILLED
+    # STRING, which is `agents/config_versions.py`'s documented in/out list rather than a
+    # convenience: the composed prompt is agent state minted once at publish, and
+    # `caller_memory` is explicitly OUT of `prompt_sha256` because it is "facts about ONE
+    # caller, assembled per session — in the digest, every attestation would mismatch". So
+    # `config.system_prompt` stays the artefact this worker attests, and this is the
+    # per-call rendering of it that the model actually reads.
+    #
+    # IT RUNS UNCONDITIONALLY, INCLUDING WITH NO FACTS, AND THAT IS THE DEFECT IT CLOSES.
+    # `_caller_memory_section` leaves the literal `{caller_memory}` token in the prompt for
+    # an ENGINE to substitute; on `owned_runtime` there is no engine, so until this line
+    # every memory-enabled agent on this worker was handed a placeholder as part of its
+    # instructions and recalled nothing. A prompt with no slot comes back unchanged —
+    # nothing here APPENDS a section, because an agent whose client never switched memory on
+    # has nothing to fill and must not acquire a memory section from a caller.
+    spoken_prompt = fill_caller_memory_slot(config.system_prompt, caller_memory)
+
     context = LLMContext(
-        messages=[{"role": "system", "content": config.system_prompt}],
+        messages=[{"role": "system", "content": spoken_prompt}],
         # ONE tool, always advertised. `LLMContext` normalises a plain list into a
         # `ToolsSchema` itself (`pipecat/processors/aggregators/llm_context.py:493-499`),
         # and the LLM service registers a schema's own handler when it sees the context
