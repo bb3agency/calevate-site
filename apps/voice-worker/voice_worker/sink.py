@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final
@@ -189,6 +190,36 @@ POSTCALL_JOB: Final = "run_post_call_pipeline"
 _POSTCALL_DEDUPE_PREFIX: Final = "post-call:"
 
 
+#: How many turns may wait in memory before they are written, and how long the oldest one
+#: may wait. Two bounds rather than one, because either alone has a hole: a size-only rule
+#: never flushes a slow conversation, and a time-only rule writes one row at a time in a
+#: fast one.
+#:
+#: **WHY BUFFER AT ALL — AND WHAT IT COSTS, SAID PLAINLY.** A write per turn is one round
+#: trip per sentence, and the transport this leg is moving to (DEPLOYMENT §12.5 gate 6:
+#: the worker runs on Pipecat Cloud and cannot reach this database at all) turns each of
+#: those into an HTTP request against a 1 vCPU host. The saving is real — a three-minute
+#: call is roughly 35 turns and ~4 flushes at these defaults.
+#:
+#: The cost is equally real and is the whole reason the second bound exists: a container
+#: that dies with turns in memory loses them, where a per-turn write loses only the tail.
+#: The interval is what CAPS that loss — never "the call", only "the last few seconds".
+#: A buffer with no timer would trade a small certain cost for a large occasional one,
+#: which is the wrong direction on a path that feeds a client's transcript and their CRM.
+#:
+#: ⚠ NOTHING HERE READS A TURN WHILE THE CALL IS RUNNING, WHICH IS WHAT MAKES THIS SAFE,
+#: and it was CHECKED rather than assumed (16 Sep 2026): every reader of `transcript_turns`
+#: is post-call (`crm/service.py`, `crm/assist.py`, `compliance/export_routes.py`,
+#: `compliance/tenant_erasure.py`), and no transcript surface in `apps/web` polls — none of
+#: `transcriptAccess.tsx`, `speakers.tsx` or `KeyMomentsCard.tsx` carries a `refetchInterval`.
+#: `on_transcript_turn`'s own docstring says a turn is "visible WHILE THE CALL IS HAPPENING";
+#: that remains true of the DATA and has no consumer today. If one is ever built, this
+#: buffer is what has to be reconsidered — which is why that is written here and not
+#: discovered later.
+DEFAULT_TURN_BATCH_SIZE: Final[int] = 8
+DEFAULT_TURN_FLUSH_SECONDS: Final[float] = 10.0
+
+
 class SinkIdentityError(RuntimeError):
     """An event named a tenant, agent or call this sink was not built for.
 
@@ -249,6 +280,8 @@ class DatabaseEventSink:
         tenant_id: UUID,
         agent_id: UUID,
         direction: CallDirection,
+        turn_batch_size: int = DEFAULT_TURN_BATCH_SIZE,
+        turn_flush_seconds: float = DEFAULT_TURN_FLUSH_SECONDS,
     ) -> None:
         """The four ids this call is, and nothing else.
 
@@ -282,6 +315,17 @@ class DatabaseEventSink:
         #: idempotency key; this is the row's own surrogate, which every child table's FK
         #: points at.
         self._call_row_id: UUID | None = None
+        #: Redacted turns waiting to be written. Redaction happens on the way IN rather
+        #: than on the way out, so a turn that is never flushed was never held here in a
+        #: form that could reach a log or a core file un-redacted.
+        self._pending: list[tuple[TranscriptTurn, str]] = []
+        self._batch_size = max(1, turn_batch_size)
+        self._flush_seconds = turn_flush_seconds
+        #: The timer arm. Started on the FIRST buffered turn rather than in `__init__`,
+        #: because a sink is constructed before there is a running loop to attach to in
+        #: some of this repository's tests, and a task created there would warn and die.
+        self._flusher: asyncio.Task[None] | None = None
+        self._closed = False
 
     # -- the Protocol --------------------------------------------------------------------
 
@@ -348,28 +392,13 @@ class DatabaseEventSink:
         promise about which column that is.
         """
         self._check_identity(call_id=turn.call_id)
-        # The one call. `RedactionResult.kinds` says WHAT was found and is loggable; the
-        # text either side of it is not, and neither is counted or sampled anywhere below.
+        # The one call, and it happens on the way IN. `RedactionResult.kinds` says WHAT was
+        # found and is loggable; the text either side of it is not, and neither is counted
+        # or sampled anywhere below. Redacting here rather than at flush time means the
+        # buffer never holds a shape that has not been through the repository's one redactor.
         redacted = redact(turn.text)
-        async with self._lock, self._db.tenant_connection(self._tenant_id) as connection:
-            call_row_id = await self._ensure_call_row(connection)
-            await connection.execute(
-                text(_INSERT_TURN_SQL),
-                {
-                    "id": uuid7(),
-                    "tid": self._tenant_id,
-                    "cid": call_row_id,
-                    "idx": turn.idx,
-                    "speaker": turn.speaker,
-                    "text": turn.text,
-                    "redacted": redacted.text,
-                    "lang": turn.lang,
-                    "start": turn.start_ms,
-                    "end": turn.end_ms,
-                },
-            )
         logger.info(
-            "transcript turn recorded",
+            "transcript turn buffered",
             call_id=self._call_id,
             tenant_id=str(self._tenant_id),
             idx=turn.idx,
@@ -379,6 +408,115 @@ class DatabaseEventSink:
             # the pass is running at all, and it quotes nothing.
             redacted_kinds=",".join(redacted.kinds),
         )
+        async with self._lock:
+            self._pending.append((turn, redacted.text))
+            self._start_flusher()
+            if len(self._pending) >= self._batch_size:
+                await self._flush_locked()
+
+    # -- the buffer ----------------------------------------------------------------------
+
+    async def flush(self) -> int:
+        """Write every buffered turn now, and answer how many. Safe to call at any time.
+
+        **THE DRAIN PATH CALLS THIS, AND THAT IS WHAT BOUNDS THE LOSS.** `settle` calls it
+        too, so a call that ends normally never depends on the timer having fired.
+        """
+        async with self._lock:
+            return await self._flush_locked()
+
+    async def _flush_locked(self) -> int:
+        """The one writer. Assumes `_lock` is held.
+
+        **ONE TRANSACTION FOR THE WHOLE BATCH**, which is strictly better than the per-turn
+        write it replaces rather than merely cheaper: the `calls` row and every turn that
+        references it now land together, so the FK this sink already guards can never be
+        half-satisfied by a crash between two statements.
+
+        The buffer is cleared only AFTER the transaction returns. A failed flush therefore
+        leaves the turns pending and the next flush retries them, rather than dropping the
+        conversation on one bad connection.
+        """
+        if not self._pending:
+            return 0
+        batch = list(self._pending)
+        async with self._db.tenant_connection(self._tenant_id) as connection:
+            call_row_id = await self._ensure_call_row(connection)
+            for turn, redacted_text in batch:
+                await connection.execute(
+                    text(_INSERT_TURN_SQL),
+                    {
+                        "id": uuid7(),
+                        "tid": self._tenant_id,
+                        "cid": call_row_id,
+                        "idx": turn.idx,
+                        "speaker": turn.speaker,
+                        "text": turn.text,
+                        "redacted": redacted_text,
+                        "lang": turn.lang,
+                        "start": turn.start_ms,
+                        "end": turn.end_ms,
+                    },
+                )
+        del self._pending[: len(batch)]
+        logger.info(
+            "transcript turns written",
+            call_id=self._call_id,
+            tenant_id=str(self._tenant_id),
+            turns=len(batch),
+            first_idx=batch[0][0].idx,
+            last_idx=batch[-1][0].idx,
+        )
+        return len(batch)
+
+    def _start_flusher(self) -> None:
+        """Arm the timer once, on the first buffered turn.
+
+        **THE TIMER IS THE HALF THAT MAKES BUFFERING HONEST.** Size alone never flushes a
+        conversation that goes quiet, and "quiet then the container is replaced" is exactly
+        when turns are lost. Started lazily because a sink is constructed outside a running
+        loop in several tests, where `create_task` would raise.
+        """
+        if self._flusher is not None or self._closed or self._flush_seconds <= 0:
+            return
+        self._flusher = asyncio.create_task(self._flush_forever())
+
+    async def _flush_forever(self) -> None:
+        """Flush on a clock until the sink closes.
+
+        Failures are swallowed HERE and nowhere else: a timer that dies on one bad
+        connection would silently disarm the bound this buffer's safety rests on, and the
+        turns it could not write stay pending for the next tick either way.
+        """
+        while not self._closed:
+            await asyncio.sleep(self._flush_seconds)
+            try:
+                await self.flush()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "buffered turn flush failed; will retry on the next tick",
+                    call_id=self._call_id,
+                    error=type(exc).__name__,
+                )
+
+    async def aclose(self) -> None:
+        """Stop the timer and write what is left. Idempotent.
+
+        Ordering is deliberate: the flag first so the timer cannot re-arm, the FLUSH before
+        the cancel so a turn buffered microseconds ago is not thrown away by the shutdown
+        that was meant to save it.
+        """
+        self._closed = True
+        try:
+            await self.flush()
+        finally:
+            flusher, self._flusher = self._flusher, None
+            if flusher is not None:
+                flusher.cancel()
+                with suppress(asyncio.CancelledError):
+                    await flusher
 
     # -- settlement ----------------------------------------------------------------------
 
@@ -421,6 +559,12 @@ class DatabaseEventSink:
         billable minute, so it records that nobody has, and the reconciliation settles the
         call when the CDR lands.
         """
+        # THE TRANSCRIPT LANDS BEFORE THE MONEY DOES, and the order is the point: `settle`
+        # writes the outbox row that starts the post-call pipeline (D-607), and that pipeline
+        # reads this call's turns. Pricing first would race a dispatcher tick against turns
+        # still sitting in memory, and the pipeline would run over a short transcript.
+        # Flushing here also means a normal hang-up never depends on the timer having fired.
+        await self.flush()
         occurred_at = at or datetime.now(UTC)
         refusal: LegNotMeterableError | None = None
         rows: tuple[UsageRow, ...] = ()

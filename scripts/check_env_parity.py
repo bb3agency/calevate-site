@@ -154,6 +154,20 @@ CONTAINER_ENV_KEYS: dict[str, str] = {
         "UNKNOWN here (docs.pipecat.ai is egress-blocked), so the operator who learns it "
         "must be able to set it without a rebuild."
     ),
+    "VOICE_WORKER_TURN_BATCH_SIZE": (
+        "apps/voice-worker/voice_worker/boot.py \u2014 how many spoken turns may wait in memory "
+        "before they are written as one batch. A variable rather than a constant because the "
+        "right number depends on what the API host can absorb once turns post over HTTP "
+        "instead of over a pooled connection (DEPLOYMENT \u00a712.5 gate 6), which nobody has "
+        "measured. Set it to 1 for a write per turn."
+    ),
+    "VOICE_WORKER_TURN_FLUSH_SECONDS": (
+        "apps/voice-worker/voice_worker/boot.py \u2014 how long the oldest buffered turn may wait. "
+        "THIS IS THE BOUND ON WHAT A CRASH COSTS: a size-only rule never flushes a "
+        "conversation that has gone quiet, which is exactly when a container is replaced and "
+        "those turns are lost. A variable for the same reason as the drain grace \u2014 the number "
+        "it wants to be is the platform's SIGTERM-to-SIGKILL window, which is UNKNOWN here."
+    ),
     "VOICE_WORKER_READY_FILE": (
         "apps/voice-worker/voice_worker/lifecycle.py — where to write the readiness "
         "marker, or unset for none. Optional by design: this container has no HTTP surface "

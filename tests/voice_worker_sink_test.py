@@ -24,6 +24,7 @@ scoped to ids this module created, and nothing counts rows globally.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from decimal import Decimal
 from typing import Any
@@ -69,7 +70,9 @@ def _database() -> WorkerDatabase:
     return WorkerDatabase(get_settings().database_url)
 
 
-async def _sink(call_id: str) -> tuple[DatabaseEventSink, uuid.UUID, uuid.UUID, WorkerDatabase]:
+async def _sink(
+    call_id: str, **kwargs: Any
+) -> tuple[DatabaseEventSink, uuid.UUID, uuid.UUID, WorkerDatabase]:
     tenant_id, agent_id = await _tenant_with_published_agent()
     tenant_id, agent_id = uuid.UUID(str(tenant_id)), uuid.UUID(str(agent_id))
     database = _database()
@@ -79,6 +82,7 @@ async def _sink(call_id: str) -> tuple[DatabaseEventSink, uuid.UUID, uuid.UUID, 
         tenant_id=tenant_id,
         agent_id=agent_id,
         direction="inbound",
+        **kwargs,
     )
     return sink, tenant_id, agent_id, database
 
@@ -109,6 +113,203 @@ def _row(leg: MeteredLeg, unit: str, qty: str, cost: str) -> UsageRow:
 
 
 # ---------------------------------------------------------------------------------------
+# 1b. The buffer: both bounds, both flush paths, and what a failure leaves behind.
+# ---------------------------------------------------------------------------------------
+
+
+async def _turn_count(tenant_id: uuid.UUID, call_id: str) -> int:
+    async with tenant_session(tenant_id) as db:
+        return int(
+            (
+                await db.execute(
+                    text(
+                        "SELECT count(*) FROM transcript_turns t "
+                        "JOIN calls c ON c.id = t.call_id WHERE c.engine_call_id = :c"
+                    ),
+                    {"c": pipecat_call_ref(tenant_id, call_id)},
+                )
+            ).scalar_one()
+        )
+
+
+def _t(call_id: str, idx: int) -> TranscriptTurn:
+    return TranscriptTurn(call_id=call_id, idx=idx, speaker="caller", text=f"turn {idx}")
+
+
+async def test_a_turn_under_the_batch_size_is_held_and_not_written() -> None:
+    """THE PROPERTY THE WHOLE CHANGE RESTS ON, stated as a test rather than as a comment.
+
+    Buffering is only worth its risk if it actually removes writes, and "it wrote anyway"
+    is a regression no other assertion here would catch: every other test flushes first.
+    """
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    sink, tenant_id, _agent_id, database = await _sink(call_id, turn_batch_size=4)
+    try:
+        for idx in range(3):
+            await sink.on_transcript_turn(_t(call_id, idx))
+        assert await _turn_count(tenant_id, call_id) == 0, "a turn was written before its batch"
+        await sink.aclose()
+        assert await _turn_count(tenant_id, call_id) == 3, "aclose did not write the remainder"
+    finally:
+        await database.aclose()
+
+
+async def test_the_batch_writes_itself_the_moment_it_is_full() -> None:
+    """The size bound, and that it does not wait for the timer or for the hang-up."""
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    sink, tenant_id, _agent_id, database = await _sink(
+        call_id, turn_batch_size=3, turn_flush_seconds=3600
+    )
+    try:
+        for idx in range(3):
+            await sink.on_transcript_turn(_t(call_id, idx))
+        assert await _turn_count(tenant_id, call_id) == 3, "a full batch did not write"
+        await sink.on_transcript_turn(_t(call_id, 3))
+        assert await _turn_count(tenant_id, call_id) == 3, "the next batch wrote early"
+        await sink.aclose()
+    finally:
+        await database.aclose()
+
+
+async def test_the_timer_writes_a_conversation_that_never_fills_a_batch() -> None:
+    """THE BOUND THAT CAPS WHAT A CRASH COSTS, and the reason a size-only rule is not enough.
+
+    A slow caller produces one turn and then silence. Without this arm those words sit in
+    memory for the rest of the call and are lost with the container; with it the exposure is
+    the interval and nothing more.
+    """
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    sink, tenant_id, _agent_id, database = await _sink(
+        call_id, turn_batch_size=100, turn_flush_seconds=0.05
+    )
+    try:
+        await sink.on_transcript_turn(_t(call_id, 0))
+        for _ in range(100):
+            if await _turn_count(tenant_id, call_id):
+                break
+            await asyncio.sleep(0.05)
+        assert await _turn_count(tenant_id, call_id) == 1, "the timer never wrote the turn"
+        await sink.aclose()
+    finally:
+        await database.aclose()
+
+
+async def test_settlement_writes_the_transcript_before_it_prices_anything() -> None:
+    """`settle` writes the outbox row that starts the post-call pipeline (D-607), and that
+    pipeline reads this call's turns. Pricing first would race a dispatcher tick against
+    turns still in memory."""
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    sink, tenant_id, agent_id, database = await _sink(call_id, turn_batch_size=100)
+    try:
+        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "in_progress"))
+        await sink.on_transcript_turn(_t(call_id, 0))
+        assert await _turn_count(tenant_id, call_id) == 0
+
+        class _NoLegs:
+            def metered_rows(self, *, carrier: Any, runtime: Any) -> tuple[UsageRow, ...]:
+                return ()
+
+        await sink.settle(_NoLegs(), carrier=None, runtime=None)  # type: ignore[arg-type]
+        assert await _turn_count(tenant_id, call_id) == 1, "settle priced before it flushed"
+    finally:
+        await sink.aclose()
+        await database.aclose()
+
+
+async def test_a_flush_that_fails_keeps_the_turns_for_the_next_one() -> None:
+    """A BAD CONNECTION MUST NOT COST THE CONVERSATION. The buffer is cleared only after the
+    transaction returns, so a failed flush is retried rather than swallowed — which is the
+    difference between "one flush was lost" and "the call was"."""
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    sink, tenant_id, _agent_id, database = await _sink(call_id, turn_batch_size=2)
+    try:
+        await sink.on_transcript_turn(_t(call_id, 0))
+
+        boom = RuntimeError("connection reset")
+
+        def _explode(_tenant: uuid.UUID) -> Any:
+            raise boom
+
+        original = database.tenant_connection
+        database.tenant_connection = _explode  # type: ignore[method-assign]
+        with pytest.raises(RuntimeError):
+            await sink.on_transcript_turn(_t(call_id, 1))
+        database.tenant_connection = original  # type: ignore[method-assign]
+
+        assert await _turn_count(tenant_id, call_id) == 0
+        written = await sink.flush()
+        assert written == 2, "the failed flush dropped turns instead of holding them"
+        assert await _turn_count(tenant_id, call_id) == 2
+    finally:
+        await sink.aclose()
+        await database.aclose()
+
+
+async def test_a_transcript_that_cannot_be_written_stops_the_call_being_priced() -> None:
+    """**A COUPLING D-620 INTRODUCED, PINNED RATHER THAN DISCOVERED LATER.**
+
+    `settle` flushes before it prices, because it also writes the outbox row that starts the
+    post-call pipeline and that pipeline READS this call's turns. So a flush that fails now
+    takes settlement down with it, which was not true when each turn wrote itself.
+
+    That is the intended direction and not an oversight: a lost settlement is RECOVERABLE —
+    §12.4 reconciles the call from the carrier's CDR afterwards — and a lost transcript is
+    not. Better to stall the ledger than to promise a pipeline over words that were dropped.
+    What must not happen is the quiet version: priced, pipeline promised, transcript short.
+    """
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    sink, tenant_id, agent_id, database = await _sink(call_id, turn_batch_size=100)
+    try:
+        await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
+        await sink.on_transcript_turn(_t(call_id, 0))
+
+        class _NoLegs:
+            def metered_rows(self, *, carrier: Any, runtime: Any) -> tuple[UsageRow, ...]:
+                return ()
+
+        original = database.tenant_connection
+
+        def _explode(_tenant: uuid.UUID) -> Any:
+            raise RuntimeError("connection reset")
+
+        database.tenant_connection = _explode  # type: ignore[method-assign]
+        with pytest.raises(RuntimeError):
+            await sink.settle(_NoLegs(), carrier=None, runtime=None)  # type: ignore[arg-type]
+        database.tenant_connection = original  # type: ignore[method-assign]
+
+        # Nothing was priced, and the turn is still held rather than lost.
+        async with tenant_session(tenant_id) as db:
+            usage = (
+                await db.execute(
+                    text(
+                        "SELECT count(*) FROM usage_events u JOIN calls c ON c.id = u.call_id "
+                        "WHERE c.engine_call_id = :c"
+                    ),
+                    {"c": pipecat_call_ref(tenant_id, call_id)},
+                )
+            ).scalar_one()
+        assert usage == 0, "the call was priced over a transcript that had not landed"
+        assert await sink.flush() == 1, "the turn was dropped by the failed settlement"
+    finally:
+        await sink.aclose()
+        await database.aclose()
+
+
+async def test_closing_twice_is_harmless() -> None:
+    """`run_call`'s `finally` runs after `settle`, which has already flushed, so the ordinary
+    path closes a sink that has nothing left. That must not raise."""
+    call_id = f"call-{uuid.uuid4().hex[:10]}"
+    sink, tenant_id, _agent_id, database = await _sink(call_id)
+    try:
+        await sink.on_transcript_turn(_t(call_id, 0))
+        await sink.aclose()
+        await sink.aclose()
+        assert await _turn_count(tenant_id, call_id) == 1
+    finally:
+        await database.aclose()
+
+
+# ---------------------------------------------------------------------------------------
 # 1. It writes what it was given.
 # ---------------------------------------------------------------------------------------
 
@@ -135,6 +336,10 @@ async def test_a_call_event_and_its_turns_persist_under_the_calling_tenant() -> 
             )
         )
         await sink.on_call_event(_event(call_id, tenant_id, agent_id, "completed"))
+        # TURNS ARE BUFFERED NOW, so the read-back below needs the flush that a real call
+        # gets from `settle` (and, failing that, from `run_call`'s `finally`). This line is
+        # the test paying the same cost production pays, not a workaround.
+        await sink.aclose()
     finally:
         await database.aclose()
 
@@ -195,6 +400,7 @@ async def test_a_turn_that_arrives_before_the_started_event_still_lands() -> Non
             TranscriptTurn(call_id=call_id, idx=0, speaker="agent", text="namaskaram")
         )
         await sink.on_call_event(_event(call_id, tenant_id, agent_id, "in_progress"))
+        await sink.aclose()
     finally:
         await database.aclose()
 

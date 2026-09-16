@@ -43,11 +43,19 @@ complete"). So the runner is built with `handle_sigterm=False` and
 
 * the drain ends the worker by letting the pipeline finish;
 * `PipelineWorker.cleanup` waits on every outstanding event-handler task
-  (`pipecat/utils/base_object.py:167-177`), and those tasks are exactly the sink's writes —
-  so a turn the sink accepted is committed before `run()` returns, or its transaction rolls
-  back whole and leaves nothing partial (`WorkerDatabase.tenant_connection` is one
-  transaction per write);
+  (`pipecat/utils/base_object.py:167-177`), and those tasks are exactly the sink's handlers;
 * only then does `run_call` settle, and only then does `aclose` dispose the pool.
+
+⚠ **THE SECOND BULLET USED TO END "so a turn the sink accepted is committed before `run()`
+returns", AND BUFFERING MADE THAT FALSE (16 Sep 2026).** A turn the sink accepts is now
+held in memory until a flush, so what `cleanup` waits on is the handler that BUFFERED it,
+not a transaction. The guarantee did not weaken, it MOVED, and the ordering above is still
+what carries it: `sink.settle` flushes before it prices anything, and `run_call` settles
+after the drain — so every accepted turn is committed before the process is allowed to
+finish, and a flush that fails leaves the turns pending rather than dropping them. Between
+flushes the bound is the timer (`DEFAULT_TURN_FLUSH_SECONDS`), which is why that second
+bound exists at all. The `finally` below is what makes this true on the paths that never
+reach `settle`.
 
 That ordering is the whole guarantee, and it is why `aclose()` is not registered as a
 signal handler of its own: a pool disposed while the drain is still writing would turn a
@@ -76,13 +84,19 @@ from pipecat.observers.service_metrics_observer import ServiceMetricsObserver
 from pipecat.transports.base_transport import BaseTransport
 from pipecat.workers.runner import WorkerRunner
 
+from voice_worker.boot import turn_buffer_bounds
 from voice_worker.config import load_session_config
 from voice_worker.db import WorkerDatabase
 from voice_worker.knowledge import PackCache, PackFetcher, QueryEmbedder
 from voice_worker.meter import CallMeter, CarrierCdr, RateCard, RuntimeUsage
 from voice_worker.pipeline import VendorCredentials
 from voice_worker.session import open_session, pack_cache
-from voice_worker.sink import DatabaseEventSink, Settlement
+from voice_worker.sink import (
+    DEFAULT_TURN_BATCH_SIZE,
+    DEFAULT_TURN_FLUSH_SECONDS,
+    DatabaseEventSink,
+    Settlement,
+)
 from voice_worker.storage import ObjectStorePackFetcher
 
 
@@ -124,12 +138,18 @@ class WorkerRuntime:
         rates: RateCard | None = None,
         cache: PackCache | None = None,
         embedder: QueryEmbedder | None = None,
+        turn_batch_size: int = DEFAULT_TURN_BATCH_SIZE,
+        turn_flush_seconds: float = DEFAULT_TURN_FLUSH_SECONDS,
     ) -> None:
         self._db = database
         self._fetcher = fetcher
         self._rates = rates
         self._cache = cache if cache is not None else pack_cache()
         self._embedder = embedder
+        #: Passed to every per-call sink. Defaulted here rather than required, so a test
+        #: that only cares about the pipeline does not have to know the buffer exists.
+        self._turn_batch_size = turn_batch_size
+        self._turn_flush_seconds = turn_flush_seconds
 
     @classmethod
     def from_env(cls, *, rates: RateCard | None = None) -> WorkerRuntime:
@@ -143,10 +163,18 @@ class WorkerRuntime:
         and refuses every leg at settlement, loudly and on the record, which is the correct
         behaviour for a worker nobody has priced.
         """
+        # THE TWO BUFFER BOUNDS COME THROUGH `boot`'s PARSERS, not through a second reading
+        # of the same variables here. `load_worker_config` is the authority on this
+        # container's environment (DEPLOYMENT §12.2) and it is what REFUSES a nonsensical
+        # value; a `os.environ.get` in this method would be a second, weaker parse that
+        # could disagree with the one `--preflight` proved.
+        batch, flush = turn_buffer_bounds()
         return cls(
             WorkerDatabase.from_env(),
             fetcher=ObjectStorePackFetcher.from_env(),
             rates=rates,
+            turn_batch_size=batch,
+            turn_flush_seconds=flush,
         )
 
     async def run_call(
@@ -188,6 +216,8 @@ class WorkerRuntime:
             tenant_id=tenant_id,
             agent_id=agent_id,
             direction=direction,
+            turn_batch_size=self._turn_batch_size,
+            turn_flush_seconds=self._turn_flush_seconds,
         )
         meter = CallMeter(rates=self._rates)
         observer = ServiceMetricsObserver()
@@ -221,15 +251,24 @@ class WorkerRuntime:
             handle_sigterm=False,
         )
         await runner.add_workers(call.worker)
-        await runner.run()
+        # `try/finally` RATHER THAN A PLAIN SEQUENCE, and only since turns are buffered.
+        # `settle` flushes, so the happy path never needed this; what needs it is every path
+        # that does NOT reach `settle` — the pipeline raising, the task being cancelled — on
+        # which the buffered turns would otherwise be dropped by a process that is about to
+        # exit. `aclose` stops the timer and writes what is left, and it is idempotent, so
+        # the ordinary path pays only a second no-op flush.
+        try:
+            await runner.run()
 
-        drained = call.worker.has_finished()
-        settlement = await sink.settle(
-            meter,
-            carrier=carrier,
-            runtime=runtime_usage,
-            at=datetime.now(UTC),
-        )
+            drained = call.worker.has_finished()
+            settlement = await sink.settle(
+                meter,
+                carrier=carrier,
+                runtime=runtime_usage,
+                at=datetime.now(UTC),
+            )
+        finally:
+            await sink.aclose()
         logger.info(
             "call finished",
             call_id=call_id,

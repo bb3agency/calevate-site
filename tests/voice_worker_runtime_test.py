@@ -85,10 +85,15 @@ async def test_a_running_pipeline_writes_its_call_and_its_turns_and_they_survive
     Everything the sink accepted is read back afterwards, on a connection of its own —
     which is the only way to tell "committed" from "the task object still exists".
 
-    A partial write is structurally impossible rather than merely absent: each sink write is
-    ONE transaction (`WorkerDatabase.tenant_connection` opens `engine.begin()`), so an
-    interrupted write commits nothing rather than half a row. What this test adds is the
-    other half — that an accepted write is not simply DROPPED when the process winds down.
+    A partial write is structurally impossible rather than merely absent: each flush is ONE
+    transaction (`WorkerDatabase.tenant_connection` opens `engine.begin()`), so an
+    interrupted flush commits nothing rather than half a batch. What this test adds is the
+    other half — that an accepted turn is not simply DROPPED when the process winds down.
+
+    ⚠ Since turns are BUFFERED, "accepted" and "committed" are no longer the same instant,
+    and this test says so: it flushes explicitly, exactly as `settle` does. The property it
+    guards is unchanged and is now carried by `run_call`'s `finally` rather than by the
+    handler task itself.
     """
     tenant_id, agent_id, call_id, database, sink = await _live_call()
     call = _assemble(call_id, tenant_id, agent_id, sink)
@@ -109,6 +114,11 @@ async def test_a_running_pipeline_writes_its_call_and_its_turns_and_they_survive
         # Give the assistant aggregator a chance to produce its turn, then END — which is
         # what a hang-up and what a SIGTERM both reduce to.
         for _ in range(200):
+            # TURNS ARE BUFFERED (sink.DEFAULT_TURN_BATCH_SIZE), so this asks the sink to
+            # write what it has rather than waiting for a batch that one turn will never
+            # fill. It is the same call `settle` and `run_call`'s `finally` make; polling the
+            # table without it would be waiting on the timer, which is a ten-second sleep.
+            await sink.flush()
             async with tenant_session(tenant_id) as db:
                 turns = (
                     await db.execute(

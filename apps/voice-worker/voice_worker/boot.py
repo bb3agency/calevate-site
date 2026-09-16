@@ -60,6 +60,8 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from voice_worker.db import WorkerDatabase, tenant_connection
 from voice_worker.knowledge import QueryEmbedder
 from voice_worker.pipeline import NormalizedEventSink, VendorCredentials
+from voice_worker.sink import DEFAULT_TURN_BATCH_SIZE as _DEFAULT_TURN_BATCH_SIZE
+from voice_worker.sink import DEFAULT_TURN_FLUSH_SECONDS as _DEFAULT_TURN_FLUSH_SECONDS
 from voice_worker.storage import BUCKET_ENV, ENDPOINT_ENV, ObjectStorePackFetcher
 from voice_worker.vendor_logging import install_vendor_log_guard
 
@@ -123,6 +125,15 @@ DRAIN_GRACE_ENV: Final[str] = "VOICE_WORKER_DRAIN_GRACE_SECONDS"
 #: Where to write the readiness marker, or unset for none. See `lifecycle.ReadinessFile`.
 READY_FILE_ENV: Final[str] = "VOICE_WORKER_READY_FILE"
 
+#: The two bounds on how long a spoken turn may sit in memory before it is written, and how
+#: many may wait. VARIABLES RATHER THAN CONSTANTS for the same reason the drain grace is one:
+#: the right numbers depend on facts this container cannot know from here — the platform's
+#: SIGTERM window, and what the API host can absorb once turns post over HTTP (§12.5 gate 6)
+#: — so the operator who measures them must be able to change them without a rebuild.
+#: `sink.DEFAULT_TURN_BATCH_SIZE` / `DEFAULT_TURN_FLUSH_SECONDS` argue the defaults.
+TURN_BATCH_ENV: Final[str] = "VOICE_WORKER_TURN_BATCH_SIZE"
+TURN_FLUSH_ENV: Final[str] = "VOICE_WORKER_TURN_FLUSH_SECONDS"
+
 #: ⚠ **AN ASSUMPTION WITH A REASONED FLOOR, NOT A MEASUREMENT.** What this wants to be is
 #: the platform's own SIGTERM-to-SIGKILL window, and nothing in this tree knows it:
 #: Pipecat Cloud's container contract is not readable from here. What the number has to
@@ -134,6 +145,12 @@ READY_FILE_ENV: Final[str] = "VOICE_WORKER_READY_FILE"
 #: their 30 s grace. It is a variable precisely so the operator who learns the real window
 #: can set it without a rebuild.
 DEFAULT_DRAIN_GRACE_S: Final[float] = 20.0
+
+#: RE-EXPORTED, NOT RESTATED. The numbers and the whole argument for them live beside the
+#: buffer they bound (`sink.py`); a second copy of a figure here is the count-in-prose defect
+#: hard rule 4 names, and the two would drift the first time somebody tuned one.
+DEFAULT_TURN_BATCH_SIZE: Final[int] = _DEFAULT_TURN_BATCH_SIZE
+DEFAULT_TURN_FLUSH_SECONDS: Final[float] = _DEFAULT_TURN_FLUSH_SECONDS
 
 #: ONE SESSION PER CONTAINER. Not ours to choose: "1 session per instance; max pool 50"
 #: (`docs/evidence/engine-replacement-comet-2026-09-06.md:122`, marked VERIFIED against
@@ -198,6 +215,9 @@ class WorkerConfig:
     gnani_api_key: str | None
     drain_grace_s: float
     ready_file: str | None
+    #: The buffered-turn bounds (D-620). See `sink.DEFAULT_TURN_BATCH_SIZE`.
+    turn_batch_size: int
+    turn_flush_seconds: float
 
     def credentials_for(self, provider: str | None) -> VendorCredentials:
         """The three keys for a call on `provider`, or a refusal naming the variable.
@@ -237,6 +257,64 @@ class WorkerConfig:
 def _present(env: Mapping[str, str], name: str) -> str | None:
     value = env.get(name, "").strip()
     return value or None
+
+
+def _turn_batch_size(env: Mapping[str, str], failures: list[str]) -> int:
+    """How many turns may wait. Refuses zero and below: that is "buffer for ever"."""
+    raw = _present(env, TURN_BATCH_ENV)
+    if raw is None:
+        return DEFAULT_TURN_BATCH_SIZE
+    try:
+        value = int(raw)
+    except ValueError:
+        failures.append(f"{TURN_BATCH_ENV} is not a whole number")
+        return DEFAULT_TURN_BATCH_SIZE
+    if value < 1:
+        failures.append(f"{TURN_BATCH_ENV} must be at least 1")
+        return DEFAULT_TURN_BATCH_SIZE
+    return value
+
+
+def _turn_flush_seconds(env: Mapping[str, str], failures: list[str]) -> float:
+    """How long the oldest buffered turn may wait.
+
+    REFUSES ZERO, which would disarm the timer entirely and leave the size bound alone —
+    and a size-only rule never flushes a conversation that goes quiet, which is precisely
+    when a container is replaced and the turns are lost. An operator who wants a write per
+    turn sets the BATCH to 1; that is the same behaviour and it says what it means.
+    """
+    raw = _present(env, TURN_FLUSH_ENV)
+    if raw is None:
+        return DEFAULT_TURN_FLUSH_SECONDS
+    try:
+        value = float(raw)
+    except ValueError:
+        failures.append(f"{TURN_FLUSH_ENV} is not a number")
+        return DEFAULT_TURN_FLUSH_SECONDS
+    if value <= 0:
+        failures.append(
+            f"{TURN_FLUSH_ENV} must be greater than zero "
+            f"(set {TURN_BATCH_ENV}=1 for a write per turn)"
+        )
+        return DEFAULT_TURN_FLUSH_SECONDS
+    return value
+
+
+def turn_buffer_bounds(env: Mapping[str, str] | None = None) -> tuple[int, float]:
+    """The two buffered-turn bounds for this container, or a refusal naming the variable.
+
+    **THE ONE PUBLIC DOOR ONTO THEM.** `WorkerRuntime.from_env` needs these and does not
+    build a whole `WorkerConfig`; without this it would re-read the same two variables with
+    a second, weaker parse that could accept what `load_worker_config` had refused — so the
+    container `--preflight` proved and the container that runs would disagree about what it
+    buffers. Both callers land on the same two parsers.
+    """
+    failures: list[str] = []
+    source = env if env is not None else os.environ
+    bounds = (_turn_batch_size(source, failures), _turn_flush_seconds(source, failures))
+    if failures:
+        raise WorkerConfigError("; ".join(failures))
+    return bounds
 
 
 def _drain_grace(env: Mapping[str, str], failures: list[str]) -> float:
@@ -297,6 +375,8 @@ def load_worker_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
         )
 
     grace = _drain_grace(source, failures)
+    turn_batch = _turn_batch_size(source, failures)
+    turn_flush = _turn_flush_seconds(source, failures)
 
     if failures:
         raise WorkerConfigError(
@@ -316,6 +396,8 @@ def load_worker_config(env: Mapping[str, str] | None = None) -> WorkerConfig:
         gnani_api_key=_present(source, GNANI_KEY_ENV),
         drain_grace_s=grace,
         ready_file=_present(source, READY_FILE_ENV),
+        turn_batch_size=turn_batch,
+        turn_flush_seconds=turn_flush,
     )
 
 
